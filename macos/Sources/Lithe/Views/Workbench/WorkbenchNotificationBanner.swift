@@ -6,13 +6,27 @@ struct WorkbenchNotificationBanner: View {
     @State private var isExpanded = false
     let message: String
     var collapsedCount = 0
+    /// How often the message has appeared; shown as a suffix from the second
+    /// time on. Required so a caller cannot silently drop the merged count.
+    var occurrenceCount: Int
+    /// Localization bundle for the message and its count suffix. Injectable so a
+    /// capture can render the shipped translation instead of the format key.
+    var bundle: Bundle = .main
     var showHistory: () -> Void = {}
     let dismiss: () -> Void
 
-    private var localizedMessage: String { String(localized: String.LocalizationValue(message), locale: locale) }
+    private var localizedMessage: String {
+        String(localized: String.LocalizationValue(message), bundle: bundle, locale: locale)
+    }
+    private var displayMessage: String {
+        WorkbenchNotificationPresentation.message(localizedMessage,
+            occurrenceCount: occurrenceCount,
+            locale: locale,
+            bundle: bundle)
+    }
     private var lineHeight: CGFloat { NSLayoutManager().defaultLineHeight(for: LitheTheme.uiNSFont(size: 13)) }
     private var textHeight: CGFloat {
-        ceil((localizedMessage as NSString).boundingRect(with: NSSize(width: LitheTheme.Notification.width - 70,
+        ceil((displayMessage as NSString).boundingRect(with: NSSize(width: LitheTheme.Notification.width - 70,
             height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: LitheTheme.uiNSFont(size: 13)]).height)
     }
@@ -100,7 +114,7 @@ struct WorkbenchNotificationBanner: View {
     }
 
     private var messageText: some View {
-        Text(localizedMessage)
+        Text(displayMessage)
             .font(LitheTheme.uiFont(size: 13, weight: .regular))
             .foregroundStyle(LitheTheme.Notification.foreground)
             .fixedSize(horizontal: false, vertical: true)

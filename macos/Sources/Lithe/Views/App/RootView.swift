@@ -236,11 +236,11 @@ private struct ActiveSessionChrome: View {
                 DiagnosticsExportSheet(feature: session.diagnosticsFeature)
             }
             .sheet(item: scopedLocalHistoryRequest) { request in
-                LocalHistoryView(request: request)
+                LocalHistoryView(request: request, fontFamily: session.settings.editorFontFamily)
                     .environmentObject(session)
             }
             .sheet(item: scopedProjectLocalHistoryRequest) { request in
-                ProjectLocalHistoryView(request: request)
+                ProjectLocalHistoryView(request: request, fontFamily: session.settings.editorFontFamily)
                     .environmentObject(session)
             }
 

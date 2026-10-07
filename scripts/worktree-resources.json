@@ -164,6 +164,13 @@
       ],
       "identity": "Generated from current worktree capability records and evidence paths; no sealed version/platform/architecture/toolchain identity stamp",
       "reason": "Always validate and regenerate in the target worktree or CI checkout. Never copy at any reuse stage; source revisions may differ even on the same platform."
+    },
+    {
+      "id": "codex-retry-relay",
+      "reusable": false,
+      "locations": ["<system-temp>/lithe-codex-retry-<UUID>/"],
+      "identity": "First-party embedded source from the current host revision and one Agent launch's native executable/retry budget. Platform chooses the system temporary directory; no reusable version, architecture, toolchain or publication identity stamp.",
+      "reason": "The Agent process owner creates the helper before spawn and removes it on preparation failure, cancellation, launch failure or after stopping the process tree. It contains no credentials. Never copy or share it at any worktree stage; installed adapters, user CLI/configuration and signed bundles stay read-only."
     }
   ]
 }

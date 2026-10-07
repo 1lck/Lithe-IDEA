@@ -1,15 +1,21 @@
+import { useSpringStore } from "@/features/spring/stores/spring.store";
+import { isSameSpringRoot } from "@/features/spring/utils/spring-root";
+import { springPropertyCompletions } from "@/features/spring/utils/spring-property-completion";
 import { mapCompletionKind } from "@lithe/editor/completion-kind";
-import { editor as monacoEditor, Emitter, languages, Range as MonacoRange, Uri } from "monaco-editor";
+import {
+  editor as monacoEditor,
+  Emitter,
+  languages,
+  Range as MonacoRange,
+  Uri,
+} from "monaco-editor";
 import type * as Monaco from "monaco-editor";
 // Ctrl+hover underline for go-to-definition.
 import "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.js";
 import type { CompletionItem, Hover } from "vscode-languageserver-protocol";
 import { listen } from "@tauri-apps/api/event";
 import { ownsLspSession } from "@/platform/lsp-core-adapter";
-import {
-  isDocumentFeatureAvailable,
-  LspClient,
-} from "@/features/editor/lsp/lsp-client";
+import { isDocumentFeatureAvailable, LspClient } from "@/features/editor/lsp/lsp-client";
 import { formatHoverContents } from "@/features/editor/lsp/hover-content";
 import {
   lspDocumentTargetForEditorPath,
@@ -138,6 +144,34 @@ export function registerMonacoLspProviders() {
 
   const selector = Array.from(MONACO_HIGHLIGHT_LANGUAGE_IDS);
   const lspClient = LspClient.getInstance();
+  // .properties uses Monaco's ini tokenizer. This independent provider uses
+  // the same Core-owned Spring metadata as macOS, not a Java/YAML LSP session.
+  languages.registerCompletionItemProvider("ini", {
+    triggerCharacters: [".", "-"],
+    provideCompletionItems(model, position) {
+      const state = useSpringStore.getState();
+      if (!state.loadedRoot || !isSameSpringRoot(state.loadedRoot, state.requestedRoot)) {
+        return { suggestions: [] };
+      }
+      const result = springPropertyCompletions({
+        filePath: filePathFromModel(model),
+        root: state.loadedRoot,
+        properties: state.index.properties,
+        line: model.getLineContent(position.lineNumber),
+        previousLine: position.lineNumber > 1 ? model.getLineContent(position.lineNumber - 1) : "",
+        lineNumber: position.lineNumber,
+        column: position.column,
+      });
+      return {
+        incomplete: result.incomplete,
+        suggestions: result.suggestions.map((item) => ({
+          ...item,
+          kind: languages.CompletionItemKind.Property,
+        })),
+      };
+    },
+  });
+
   const availableTarget = (model: Monaco.editor.ITextModel, feature: string) => {
     const target = lspDocumentTargetForEditorPath(
       useBufferStore.getState().buffers,
@@ -186,8 +220,7 @@ export function registerMonacoLspProviders() {
       };
     },
     async resolveCompletionItem(item, token) {
-      const origin =
-        lspCompletionOrigin<LspDocumentTarget>(item) ?? completionOrigins.get(item);
+      const origin = lspCompletionOrigin<LspDocumentTarget>(item) ?? completionOrigins.get(item);
       if (!origin) return item;
       const availability = lspClient.getDocumentAvailability(origin.target, "completionResolve");
       if (availability.phase === "ready" && availability.feature === "unsupported") {
@@ -272,7 +305,8 @@ export function registerMonacoLspProviders() {
   // Lithe's buffer pipeline instead of Monaco's model resolver.
   monacoEditor.registerEditorOpener({
     openCodeEditor(source, resource, selectionOrPosition) {
-      const sourceModel = "getModel" in source ? (source as Monaco.editor.ICodeEditor).getModel() : null;
+      const sourceModel =
+        "getModel" in source ? (source as Monaco.editor.ICodeEditor).getModel() : null;
       if (!sourceModel) return false;
       const sourcePath = filePathFromModel(sourceModel);
       const range = MonacoRange.isIRange(selectionOrPosition)

@@ -491,6 +491,7 @@ struct WorkbenchView: View {
                     ForEach(model.activeNotifications.reversed()) { notification in
                         WorkbenchNotificationBanner(message: notification.message,
                             collapsedCount: notification.collapsedCount,
+                            occurrenceCount: notification.occurrenceCount,
                             showHistory: { isNotificationCenterPresented = true }) {
                             model.dismissNotification(notification.id)
                         }
@@ -1665,6 +1666,16 @@ struct WorkbenchView: View {
 
 private struct WorkbenchNotificationCenterView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.locale) private var locale
+
+    /// Repeats of one message stay a single row whose text carries the count.
+    private func message(for notification: WorkbenchNotification) -> String {
+        WorkbenchNotificationPresentation.message(
+            String(localized: String.LocalizationValue(notification.message), locale: locale),
+            occurrenceCount: notification.occurrenceCount,
+            locale: locale
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1715,12 +1726,12 @@ private struct WorkbenchNotificationCenterView: View {
                                     .padding(.top, 2)
 
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(LocalizedStringKey(notification.message))
+                                    Text(message(for: notification))
                                         .font(LitheTheme.uiFont(size: 12))
                                         .foregroundStyle(LitheTheme.primaryText)
                                         .fixedSize(horizontal: false, vertical: true)
 
-                                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
+                                    Text(notification.updatedAt.formatted(date: .omitted, time: .shortened))
                                         .font(LitheTheme.uiFont(size: 10.5))
                                         .foregroundStyle(LitheTheme.tertiaryText)
                                 }

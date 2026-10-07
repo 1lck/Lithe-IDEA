@@ -207,6 +207,64 @@ struct ExecutionModuleTests {
         }
     }
 
+    @Test(arguments: ["complete", "reset", "switch", "cancel"])
+    func projectLoadAwaitsToolchainProbesWithoutBlockingOrApplyingStaleResults(outcome: String) async throws {
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let runtime = TestRuntime()
+        let root = URL(fileURLWithPath: "/workspace")
+        let other = URL(fileURLWithPath: "/other")
+        runtime.loadCandidates = { target in
+            if target == root {
+                entered.continuation.yield(())
+                try await awaitSignal(release.stream)
+            }
+            return []
+        }
+        let service = RunService(
+            runtime: runtime, process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: SingleRunConfigurationOperations(configuration: .currentFile, options: RunOptions()),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let loading = Task { await service.loadProject(at: root, files: [], mavenProject: nil) }
+        defer {
+            loading.cancel()
+            entered.continuation.finish()
+            release.continuation.finish()
+            service.reset()
+        }
+        do {
+            try await awaitSignal(entered.stream)
+        } catch {
+            release.continuation.finish()
+            loading.cancel()
+            await loading.value
+            throw error
+        }
+        // This actor continues to run while the real load path awaits its port.
+        #expect(runtime.synchronousToolchainCalls == 0)
+        #expect(service.isLoadingProject)
+        switch outcome {
+        case "reset": service.reset()
+        case "switch": await service.loadProject(at: other, files: [], mavenProject: nil)
+        case "cancel": loading.cancel()
+        default: break
+        }
+        release.continuation.yield(())
+        await loading.value
+        switch outcome {
+        case "reset": #expect(service.projectLoadState == .idle && service.configurations == [.currentFile])
+        case "switch": #expect(service.projectLoadState == .bound(workspace: other) && !service.isLoadingProject)
+        case "cancel": #expect(service.defaultConfigurationID == nil)
+        default: #expect(service.defaultConfigurationID == RunConfiguration.currentFileID)
+        }
+        #expect(runtime.synchronousToolchainCalls == 0)
+    }
+
     @Test
     func runInventoryReturningAfterReloadKeepsAcceptedProfiles() async throws {
         let gate = ReloadScanGate()
@@ -2491,6 +2549,14 @@ private final class TestResultParserRecorder: @unchecked Sendable {
 
 @MainActor
 private final class TestRuntime: MavenRuntimePort, RunRuntimePort {
+    var synchronousToolchainCalls = 0
+    var loadCandidates: (@MainActor (URL?) async throws -> [ProjectToolchainCandidate])?
+    func loadRunConfigurationToolchainCandidates(
+        for project: MavenProject?, projectRoot: URL?,
+        javaHomeOverride: String?, mavenExecutableOverride: String?
+    ) async throws -> [ProjectToolchainCandidate] {
+        try await loadCandidates?(projectRoot) ?? []
+    }
     private let javaHome: URL?
     private let mavenJavaHome: URL?
 
@@ -2509,7 +2575,7 @@ private final class TestRuntime: MavenRuntimePort, RunRuntimePort {
         projectRoot: URL?,
         javaHomeOverride: String?,
         mavenExecutableOverride: String?
-    ) -> [ProjectToolchainCandidate] { [] }
+    ) -> [ProjectToolchainCandidate] { synchronousToolchainCalls += 1; return [] }
 }
 
 private final class TestStreamingProcess: StreamingProcess, @unchecked Sendable {

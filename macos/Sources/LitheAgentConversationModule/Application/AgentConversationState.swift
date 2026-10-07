@@ -71,6 +71,8 @@ public struct AgentConversation: Equatable, Sendable {
     var responsePhase: AgentResponseStatus = .waiting
     var retryTurnID: String?
     var previousRetryTurnID: String?
+    public var retryAttempt: Int?
+    public var retryMaxAttempts: Int?
     public var responseStatus: AgentResponseStatus? {
         guard isResponding else { return nil }
         if isCancelling { return .stopping }
@@ -118,6 +120,8 @@ public struct AgentConversation: Equatable, Sendable {
     mutating func finishTurn(at instant: ContinuousClock.Instant, usage: AgentTurnUsage? = nil) {
         if let retryTurnID { previousRetryTurnID = retryTurnID }
         retryTurnID = nil
+        retryAttempt = nil
+        retryMaxAttempts = nil
         responsePhase = .waiting
         guard var turn = activeTurn else { return }
         turn.finish(at: instant, endingMessageID: messages.last?.id ?? turn.id, usage: usage)

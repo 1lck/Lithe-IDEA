@@ -119,6 +119,14 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /agent-cli-runtime.*cannot be reused/);
   });
+  await test("per-launch Codex retry relays cannot be listed or copied", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("codex-retry-relay"));
+    const refused = reuse(["--resource", "codex-retry-relay"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /codex-retry-relay.*lithe-codex-retry.*cannot be reused/);
+  });
   await test("Agent history preferences and exports are excluded from worktree copying", { timeout: 15000 }, () => {
     const refused = reuse(["--resource", "agent-history-metadata"]);
     assert.notEqual(refused.status, 0);

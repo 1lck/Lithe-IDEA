@@ -9,7 +9,8 @@ struct DiffUnifiedLayout {
     let height: CGFloat
     let stripeLayout: DiffSplitLayout
 
-    init(rows: [DiffRow], displayRows: [DiffDisplayRow]? = nil) {
+    init(rows: [DiffRow], displayRows: [DiffDisplayRow]? = nil,
+         fontFamily: String = EditorFontDefaults.monospacedFamily) {
         var items: [DiffSplitLayout.Item] = []
         var top: CGFloat = 0
         for display in displayRows ?? rows.enumerated().map({ .row($0.element, index: $0.offset) }) {
@@ -34,7 +35,7 @@ struct DiffUnifiedLayout {
         }
         stripeLayout = DiffSplitLayout(leftItems: items, rightItems: items,
             transitions: transitions, leftHeight: top, rightHeight: top,
-            lineNumberGutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows))
+            lineNumberGutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows, family: fontFamily))
     }
 }
 
@@ -44,6 +45,7 @@ struct DiffUnifiedPaneView: View {
     let contentWidth: CGFloat
     let highlightsWords: Bool
     let selectedRowIDs: Set<DiffRowID>
+    var fontFamily: String = EditorFontDefaults.monospacedFamily
     var onExpand: (DiffCollapsedRegion) -> Void = { _ in }
     @StateObject private var text = DiffNativeColumnState()
     @StateObject private var synchronization = DiffScrollSynchronization()
@@ -62,7 +64,7 @@ struct DiffUnifiedPaneView: View {
                                 DiffNativeCodeColumn(state: text, layoutIdentity: layout.identity,
                                     items: layout.items, side: .right, fileExtension: fileExtension,
                                     highlightsWords: highlightsWords, selectedRowIDs: selectedRowIDs,
-                                    currentSearchMatchID: nil, unified: true)
+                                    currentSearchMatchID: nil, fontFamily: fontFamily, unified: true)
                                 LazyVStack(spacing: 0) {
                                     ForEach(Array(layout.items.enumerated()), id: \.offset) { _, item in
                                         if case let .collapsed(region) = item.displayRow {

@@ -4,6 +4,9 @@ import LitheGitModule
 struct DiffReviewView: View {
     @ObservedObject var feature: GitFeatureModel
     let change: GitChange
+    /// Family that renders and measures the native diff. Defaults to the bundled
+    /// monospaced family so existing call sites and tests keep their rendering.
+    var fontFamily: String = EditorFontDefaults.monospacedFamily
 
     @State private var highlightsWords = true
     @State private var collapsesUnchangedRegions = true
@@ -325,7 +328,8 @@ struct DiffReviewView: View {
         let measuredWidth = DiffLayoutMetrics.contentWidth(
             rows: feature.diffRows, viewportWidth: 0,
             minimumWidth: usesSingleFileDiff ? 680 : 980,
-            paneCount: usesSingleFileDiff ? 1 : 2)
+            paneCount: usesSingleFileDiff ? 1 : 2,
+            family: fontFamily)
         let kinds = feature.diffRows.map(effectiveKind)
         let indexByRow = differenceIndexByRow
         let displayRows = collapsePlan(kinds: kinds)
@@ -337,7 +341,7 @@ struct DiffReviewView: View {
             }
         }
 
-        let layout = usesSingleFileDiff ? nil : DiffSplitLayout.plan(displayRows: displayRows, kinds: layoutKinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: feature.diffRows))
+        let layout = usesSingleFileDiff ? nil : DiffSplitLayout.plan(displayRows: displayRows, kinds: layoutKinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: feature.diffRows, family: fontFamily))
         let measuredHeight = usesSingleFileDiff ? DiffLayoutMetrics.contentHeight(rows: layoutRows, kinds: layoutKinds) : 0
         return GeometryReader { geometry in
             let contentWidth = max(geometry.size.width, measuredWidth)
@@ -380,6 +384,7 @@ struct DiffReviewView: View {
                     contentWidth: contentWidth,
                     viewportWidth: geometry.size.width,
                     highlightsWords: highlightsWords,
+                    fontFamily: fontFamily,
                     selectedRowIDs: Set(indexByRow.compactMap { entry in
                         entry.value == selectedDifferenceIndex ? entry.key : nil
                     }),
@@ -435,7 +440,8 @@ struct DiffReviewView: View {
             fileExtension: change.url.pathExtension,
             isSelectedDifference: differenceIndex == selectedDifferenceIndex,
             isSearchMatch: diffSearchMatches.contains(row.id),
-            isCurrentSearchMatch: row.id == selectedDiffSearchRowID
+            isCurrentSearchMatch: row.id == selectedDiffSearchRowID,
+            fontFamily: fontFamily
         )
         .overlay(alignment: .topTrailing) {
             hunkActions(for: row)
@@ -654,7 +660,7 @@ struct DiffReviewView: View {
                     .foregroundStyle(isSelected ? LitheTheme.accent : LitheTheme.secondaryText)
             }
         }
-        .frame(width: DiffLayoutMetrics.centerGutterWidth)
+        .frame(width: DiffLayoutMetrics.centerGutterWidth(family: fontFamily))
     }
 
     private func centerSymbol(for kind: DiffRowKind) -> String {
@@ -674,6 +680,7 @@ struct SingleFileDiffRowView: View {
     let isSelectedDifference: Bool
     let isSearchMatch: Bool
     let isCurrentSearchMatch: Bool
+    let fontFamily: String
 
     init(
         row: DiffRow,
@@ -681,7 +688,8 @@ struct SingleFileDiffRowView: View {
         fileExtension: String,
         isSelectedDifference: Bool,
         isSearchMatch: Bool = false,
-        isCurrentSearchMatch: Bool = false
+        isCurrentSearchMatch: Bool = false,
+        fontFamily: String = EditorFontDefaults.monospacedFamily
     ) {
         self.row = row
         self.changeKind = changeKind
@@ -689,9 +697,16 @@ struct SingleFileDiffRowView: View {
         self.isSelectedDifference = isSelectedDifference
         self.isSearchMatch = isSearchMatch
         self.isCurrentSearchMatch = isCurrentSearchMatch
+        self.fontFamily = fontFamily
     }
 
     private var isAddition: Bool { changeKind == .added }
+
+    /// Code glyphs and the line-number column both use the family that the diff
+    /// metrics measured, so the single-file scroll extent stays exact.
+    private var codeFont: Font {
+        Font(MacEditorFontCatalog.font(family: fontFamily, size: DiffLayoutMetrics.textFontSize))
+    }
 
     var body: some View {
         if row.kind == .information {
@@ -712,7 +727,7 @@ struct SingleFileDiffRowView: View {
         } else {
             HStack(spacing: 0) {
                 Text(lineNumber.map(String.init) ?? "")
-                    .font(LitheTheme.uiFont(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
+                    .font(codeFont)
                     .foregroundStyle(LitheTheme.Diff.lineNumber)
                     .frame(
                         width: DiffLayoutMetrics.singlePaneLineNumberColumnWidth,
@@ -735,7 +750,7 @@ struct SingleFileDiffRowView: View {
                         highlightsWords: false
                     )
                 )
-                .font(LitheTheme.uiFont(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
+                .font(codeFont)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DiffLayoutMetrics.singlePaneTextHorizontalPadding)
@@ -783,6 +798,7 @@ struct DiffRowView: View {
     let isCurrentSearchMatch: Bool
     let compactsOneSidedRows: Bool
     let contentWidth: CGFloat
+    let fontFamily: String
 
     init(
         row: DiffRow,
@@ -793,7 +809,8 @@ struct DiffRowView: View {
         isSearchMatch: Bool = false,
         isCurrentSearchMatch: Bool = false,
         compactsOneSidedRows: Bool = false,
-        contentWidth: CGFloat = 980
+        contentWidth: CGFloat = 980,
+        fontFamily: String = EditorFontDefaults.monospacedFamily
     ) {
         self.row = row
         self.kind = kind
@@ -804,6 +821,7 @@ struct DiffRowView: View {
         self.isCurrentSearchMatch = isCurrentSearchMatch
         self.compactsOneSidedRows = compactsOneSidedRows
         self.contentWidth = contentWidth
+        self.fontFamily = fontFamily
     }
 
     var body: some View {
@@ -855,7 +873,7 @@ struct DiffRowView: View {
     }
 
     private var paneWidth: CGFloat {
-        max(0, (contentWidth - DiffLayoutMetrics.centerGutterWidth) / 2)
+        max(0, (contentWidth - DiffLayoutMetrics.centerGutterWidth(family: fontFamily)) / 2)
     }
 
     private var compactedSide: DiffSide? {
@@ -933,7 +951,7 @@ struct DiffRowView: View {
                     .foregroundStyle(isSelectedDifference ? LitheTheme.accent : LitheTheme.secondaryText)
             }
         }
-        .frame(width: DiffLayoutMetrics.centerGutterWidth)
+        .frame(width: DiffLayoutMetrics.centerGutterWidth(family: fontFamily))
     }
 
     private var centerSymbol: String {
@@ -1020,20 +1038,33 @@ enum DiffLayoutMetrics {
     static let informationRowHeight: CGFloat = 27
     // Community registry diff.divider.width; DiffSplitter uses this logical width.
     static let dividerWidth: CGFloat = 24
+    /// Bundled-family conveniences for call sites that have no font setting
+    /// available and therefore keep rendering with the bundled monospaced family.
     static var lineNumberGutterWidth: CGFloat { lineNumberGutterWidth(maximumLine: 999) }
-    static func lineNumberGutterWidth(rows: [DiffRow]) -> CGFloat {
-        lineNumberGutterWidth(maximumLine: rows.reduce(1) { max($0, $1.oldLine ?? 0, $1.newLine ?? 0) })
+    static func lineNumberGutterWidth(
+        rows: [DiffRow], family: String = EditorFontDefaults.monospacedFamily
+    ) -> CGFloat {
+        lineNumberGutterWidth(
+            maximumLine: rows.reduce(1) { max($0, $1.oldLine ?? 0, $1.newLine ?? 0) }, family: family)
     }
-    static func lineNumberGutterWidth(maximumLine: Int) -> CGFloat {
+    static func lineNumberGutterWidth(
+        maximumLine: Int, family: String = EditorFontDefaults.monospacedFamily
+    ) -> CGFloat {
         // EditorGutterLayout New UI: empty annotations 4, pre-number gap 4,
         // number area (at least the 16pt breakpoint slot), post-number gap 4,
         // folding anchor 9 + 2, extra painter 8 + separator 1. Diff gutters
         // share the maximum source-number width; no action icon area is reserved.
         let number = ceil(NSAttributedString(string: String(maximumLine),
-            attributes: [.font: LitheTheme.editorFont(size: textFontSize)]).size().width)
+            attributes: [.font: MacEditorFontCatalog.font(family: family, size: textFontSize)]).size().width)
         return max(16, number) + lineNumberChromeWidth
     }
-    static var centerGutterWidth: CGFloat { lineNumberGutterWidth * 2 + dividerWidth }
+    static func centerGutterWidth(family: String) -> CGFloat {
+        lineNumberGutterWidth(maximumLine: 999, family: family) * 2 + dividerWidth
+    }
+    /// Bundled-family convenience for the call sites without a font setting.
+    static var centerGutterWidth: CGFloat {
+        centerGutterWidth(family: EditorFontDefaults.monospacedFamily)
+    }
 
     /// Line numbers are pinned on both sides of the central divider; only
     /// text insets scroll with each source pane.
@@ -1060,13 +1091,29 @@ enum DiffLayoutMetrics {
             + changeMarkerWidth + singlePaneTextHorizontalPadding * 2
     }
 
-    /// Advance of one character in the diff's monospaced font. Measured once
-    /// because every glyph in a monospaced face shares the same advance.
-    static let characterWidth: CGFloat = {
-        let font = LitheTheme.editorFont(size: textFontSize, weight: .regular)
-        let width = NSAttributedString(string: "0", attributes: [.font: font]).size().width
-        return width > 0 ? width : textFontSize * 0.6
-    }()
+    /// Advance of one character in the diff's monospaced font. Measured once per
+    /// family because every glyph in a monospaced face shares the same advance.
+    static var characterWidth: CGFloat {
+        characterWidth(family: EditorFontDefaults.monospacedFamily)
+    }
+
+    static func characterWidth(family: String) -> CGFloat {
+        let key = EditorFontResolution.normalizedFamily(family)
+        characterWidthLock.lock()
+        defer { characterWidthLock.unlock() }
+        if let cached = characterWidthsByFamily[key] { return cached }
+
+        let font = MacEditorFontCatalog.font(family: key, size: textFontSize, weight: .regular)
+        let measured = NSAttributedString(string: "0", attributes: [.font: font]).size().width
+        let width = measured > 0 ? measured : textFontSize * 0.6
+        characterWidthsByFamily[key] = width
+        return width
+    }
+
+    /// Per-family cache for `characterWidth(family:)`. The metric is requested on
+    /// every re-measure, and resolving a family into an `NSFont` is expensive.
+    private static var characterWidthsByFamily: [String: CGFloat] = [:]
+    private static let characterWidthLock = NSLock()
 
     static func rowHeight(for kind: DiffRowKind) -> CGFloat {
         kind == .information ? informationRowHeight : rowHeight
@@ -1100,12 +1147,13 @@ enum DiffLayoutMetrics {
         rows: [DiffRow],
         viewportWidth: CGFloat,
         minimumWidth: CGFloat,
-        paneCount: Int
+        paneCount: Int,
+        family: String = EditorFontDefaults.monospacedFamily
     ) -> CGFloat {
         let panes = CGFloat(max(1, paneCount))
-        let textWidth = CGFloat(longestLineLength(rows: rows)) * characterWidth
+        let textWidth = CGFloat(longestLineLength(rows: rows)) * characterWidth(family: family)
         let chrome = paneCount > 1 ? paneChromeWidth : singlePaneChromeWidth
-        let gutter = paneCount > 1 ? lineNumberGutterWidth(rows: rows) * 2 + dividerWidth : 0
+        let gutter = paneCount > 1 ? lineNumberGutterWidth(rows: rows, family: family) * 2 + dividerWidth : 0
         let measured = (chrome + textWidth) * panes + gutter
         return max(minimumWidth, viewportWidth, measured)
     }
@@ -1116,22 +1164,25 @@ struct DiffConnectorOverlay: View {
     let kinds: [DiffRowKind]
     let contentWidth: CGFloat
     let compactsOneSidedRows: Bool
+    var fontFamily: String = EditorFontDefaults.monospacedFamily
 
     init(
         rows: [DiffRow],
         kinds: [DiffRowKind],
         contentWidth: CGFloat,
-        compactsOneSidedRows: Bool = false
+        compactsOneSidedRows: Bool = false,
+        fontFamily: String = EditorFontDefaults.monospacedFamily
     ) {
         self.rows = rows
         self.kinds = kinds
         self.contentWidth = contentWidth
         self.compactsOneSidedRows = compactsOneSidedRows
+        self.fontFamily = fontFamily
     }
 
     var body: some View {
         Canvas { context, _ in
-            let gutterWidth = DiffLayoutMetrics.centerGutterWidth
+            let gutterWidth = DiffLayoutMetrics.centerGutterWidth(family: fontFamily)
             guard contentWidth > gutterWidth else { return }
             let blocks = differenceBlocks()
             let paneWidth = (contentWidth - gutterWidth) / 2

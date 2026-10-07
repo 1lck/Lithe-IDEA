@@ -1346,6 +1346,9 @@
 "%lld more notifications" = "%lld more notifications";
 "1 more notification" = "1 more notification";
 
+// Notification merged from repeated messages; the first argument is the message.
+"%@ (%lld)" = "%@ (%lld)";
+
 "Open notification history" = "Open notification history";
 
 "Dismiss notification" = "Dismiss notification";
@@ -1414,7 +1417,8 @@
 
 "Waiting for permission…" = "Waiting for permission…";
 
-"Agent is retrying…" = "Agent is retrying…";
+"Reconnecting…" = "Reconnecting…";
+"Reconnecting %d/%d…" = "Reconnecting %d/%d…";
 "Changes apply to the next turn." = "Changes apply to the next turn.";
 "The Agent did not confirm the selected session setting." = "The Agent did not confirm the selected session setting.";
 "The Agent no longer supports the selected session setting." = "The Agent no longer supports the selected session setting.";

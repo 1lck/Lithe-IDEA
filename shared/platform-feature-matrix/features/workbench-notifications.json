@@ -2,11 +2,12 @@
   "id": "workbench-notifications",
   "area": "可观测性",
   "group": "通知与资源",
-  "capability": "操作通知、错误提示与自动消失",
+  "capability": "操作通知、错误提示与自动消失，重复消息合并计数",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift",
       "macos/Sources/Lithe/Views/Workbench/WorkbenchNotificationBanner.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchNotificationPresentation.swift",
       "macos/Tests/LitheTests/WorkbenchNotificationTests.swift"
     ],
     "implementationStatus": "implemented",
@@ -14,12 +15,15 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features/notifications"
+      "windows/tauri/src/features/notifications",
+      "windows/tauri/src/features/notifications/stores/notifications.store.test.ts",
+      "windows/tauri/src/features/notifications/utils/notification-occurrences.test.ts",
+      "windows/tauri/src/features/notifications/components/notification-list-item.test.tsx"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Workbench",
-  "verification": "触发成功、警告和失败通知，验证队列、关闭、超时和重复通知。macOS 深浅主题检查共享卡片、官方图标、圆角边框、两行长消息与展开/收起。验证三条上限、旧消息折叠及历史入口；单条悬停不暂停其他通知，应用后台暂停全部、回到前台按剩余时间关闭；关闭与超时保留历史，清空历史关闭所有气泡。确定性时间测试覆盖计时与折叠，实际工作台检查叠放、关闭和通知中心。",
-  "notes": "macOS 通知外观使用 Community Islands 主题，颜色/边框/6pt 圆角/5pt 线性阴影由 LitheTheme.Notification 统一提供。普通 timeline 通知显示 10 秒，单条悬停和应用后台暂停剩余计时；最多显示三条，新通知向上叠放，溢出的旧通知折叠为历史入口。关闭气泡保留历史，打开通知中心关闭气泡并标为已读；沿用 100 条历史上限。长正文默认两行，可展开，超过十行在气泡内滚动。"
+  "verification": "触发成功、警告和失败通知，验证队列、关闭、超时和重复通知。同一文案连续触发两次，确认通知栏只保留一条并在文案后显示计数（第二次 `（2）`、第三次 `（3）`），不同文案、不同类型或不同描述的通知仍各自独立；重复出现时该条回到列表顶部并重新标为未读，列表中显示的时间刷新为最后一次出现时间。重复通知使用固定 key 时，确认关闭后再次出现会继续累加而不是停在 1；把其中一个已合并的来源改写成另一段文案，确认只有该来源的次数随文案移动，原组剩余次数不变、新文案不被算成出现过两次。macOS 深浅主题检查共享卡片、官方图标、圆角边框、两行长消息与展开/收起。验证三条上限、旧消息折叠及历史入口，并确认重复一条带“还有 N 条通知”的气泡后该历史入口仍然存在；单条悬停不暂停其他通知，应用后台暂停全部、回到前台按剩余时间关闭；关闭与超时保留历史，清空历史关闭所有气泡。确定性时间测试覆盖计时与折叠，重复消息复核气泡置顶与计时重置，实际工作台检查叠放、关闭和通知中心。",
+  "notes": "macOS 通知外观使用 Community Islands 主题，颜色/边框/6pt 圆角/5pt 线性阴影由 LitheTheme.Notification 统一提供。普通 timeline 通知显示 10 秒，单条悬停和应用后台暂停剩余计时；最多显示三条，新通知向上叠放，溢出的旧通知折叠为历史入口。关闭气泡保留历史，打开通知中心关闭气泡并标为已读；沿用 100 条历史上限。长正文默认两行，可展开，超过十行在气泡内滚动。重复消息合并：macOS 以消息文本为身份，Windows 以类型+文案+描述为身份；命中已有条目时只累加出现次数、置顶并标为未读，不新增重复条目。计数从第二次出现开始显示，英文为 `xxxx (2)`，简体中文为 `xxxx（2）`（`%@ (%lld)` / `notifications.occurrenceCount`）。macOS 重复消息会重启该气泡自己的 10 秒窗口并移到气泡栈顶，气泡已消失时重新弹出；`createdAt` 保留首次出现时间，列表和通知中心显示 `updatedAt`。溢出计数只存在于活跃气泡上，因此刷新一条带折叠数的气泡时会把它交还给最旧的存活气泡，不能随被替换的历史副本一起丢失。Windows 侧合并作用于通知栏列表，仍然逐条出现的 sonner 弹出提示保持原样。合并身份分两层：聚合组由内容决定（因此组 id 由内容派生，不会与来源 id 混用），来源由 toast id 决定。为防止 `NotificationRecorder` 在 toast 列表变化时重复上报同一 toast 导致计数虚增，`partitionNewOccurrences` 按 toast id 区分“新出现”和“仍在屏上”，只有新出现的才传 `isNewOccurrence`；同一 id 再次以 `isNewOccurrence:true` 上报（固定 key 关闭后重新出现）仍会累加。每个条目记录贡献它的来源及各自次数（有条数上限，超出后仅失去“随文案迁移”的能力，次数仍保留在 `count` 中）：某个来源改写文案时只把它自己的次数从旧组扣除并并入新内容所在的组，不会把整组次数带到新文案上，旧组没有来源后即移除。macOS 气泡的 `occurrenceCount` 是必填参数，漏传会直接编译失败，另有渲染断言以同一文案在有/无计数时的像素差异兜底。两平台未读角标都按合并后的条目数计算，因此同一消息刷屏不再抬高角标数字。"
 }

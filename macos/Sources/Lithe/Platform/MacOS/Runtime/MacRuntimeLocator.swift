@@ -48,6 +48,12 @@ struct MacRuntimeLocator: RuntimeLocator {
         MacRuntimeDiscovery.discoverJavaRuntimes(environment: environment())
     }
 
+    func discoverJavaRuntimes(isCancelled: @Sendable () -> Bool) -> [JavaRuntimeCandidate] {
+        MacRuntimeDiscovery.discoverJavaRuntimes(environment: environment(), isCancelled: isCancelled)
+    }
+
+    func invalidateProbeCache() { MacRuntimeDiscovery.invalidateProbeCaches() }
+
     func validJavaHome(path: String) -> URL? {
         MacRuntimeDiscovery.validJavaHome(path)
     }

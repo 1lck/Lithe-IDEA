@@ -406,6 +406,20 @@ public final class AgentConnectionModel: ObservableObject {
                 conversations[sessionID]?.queuedConfigValues[id] = nil
                 applyQueuedConfiguration(in: sessionID)
             }
+        case "turnRetrying":
+            guard let sessionID,
+                  conversations[sessionID]?.isResponding == true,
+                  conversations[sessionID]?.isCancelling != true,
+                  let turnID = event["turnId"] as? String, !turnID.isEmpty,
+                  turnID != conversations[sessionID]?.previousRetryTurnID,
+                  let attempt = event["attempt"] as? Int,
+                  let maximum = event["maxAttempts"] as? Int,
+                  maximum > 1, attempt > 1, attempt <= maximum else { return }
+            flushPendingText()
+            conversations[sessionID]?.retryTurnID = turnID
+            conversations[sessionID]?.retryAttempt = attempt
+            conversations[sessionID]?.retryMaxAttempts = maximum
+            conversations[sessionID]?.responsePhase = .retrying
         case "turnCancelling":
             guard let sessionID else { return }
             conversations[sessionID]?.isCancelling = true
@@ -541,6 +555,10 @@ public final class AgentConnectionModel: ObservableObject {
         case "plan":
             guard let plan = AgentPlan.parse(update) else { return }
             conversations[sessionID, default: AgentConversation()].plan = plan.entries.isEmpty ? nil : plan
+            // A valid plan proves recovery without implying streamed reasoning.
+            if conversations[sessionID]?.responsePhase == .retrying {
+                markResponseProgress(.waiting, in: sessionID)
+            }
         case "available_commands_update":
             guard let commands = AgentCommand.parse(update) else { return }
             conversations[sessionID, default: AgentConversation()].availableCommands = commands
@@ -573,6 +591,8 @@ public final class AgentConnectionModel: ObservableObject {
                let turnID = error["turnId"] as? String, !turnID.isEmpty,
                turnID != conversations[sessionID]?.previousRetryTurnID {
                 conversations[sessionID]?.retryTurnID = turnID
+                conversations[sessionID]?.retryAttempt = nil
+                conversations[sessionID]?.retryMaxAttempts = nil
                 conversations[sessionID]?.responsePhase = .retrying
             }
             guard let title = update["title"] as? String, !title.isEmpty else { return }
@@ -591,7 +611,11 @@ public final class AgentConnectionModel: ObservableObject {
               conversations[sessionID]?.isCancelling != true,
               conversations[sessionID]?.responsePhase != status else { return }
         // Keep text-chunk publication coalesced; only phase transitions publish.
-        conversations[sessionID]?.responsePhase = status
+        guard var conversation = conversations[sessionID] else { return }
+        conversation.responsePhase = status
+        conversation.retryAttempt = nil
+        conversation.retryMaxAttempts = nil
+        conversations[sessionID] = conversation
     }
 
     private func applyConfiguration(_ value: Any?, to sessionID: String) {
@@ -711,6 +735,8 @@ public final class AgentConnectionModel: ObservableObject {
         conversation.isResponding = true
         conversation.responsePhase = .waiting
         conversation.retryTurnID = nil
+        conversation.retryAttempt = nil
+        conversation.retryMaxAttempts = nil
         conversation.errorMessage = nil
         conversations[sessionID] = conversation
         return true

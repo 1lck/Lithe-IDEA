@@ -157,7 +157,9 @@ struct AgentTranscriptView: View {
                                 AgentResponseStatusRow(
                                     responseStatus: conversation?.responseStatus ?? .preparing,
                                     startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
-                                    hasStreamingThought: liveThoughtID != nil
+                                    hasStreamingThought: liveThoughtID != nil,
+                                    retryAttempt: conversation?.retryAttempt,
+                                    retryMaxAttempts: conversation?.retryMaxAttempts
                                 ).id("responding")
                             }
                         }

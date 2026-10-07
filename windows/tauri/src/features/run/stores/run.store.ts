@@ -1,3 +1,5 @@
+import { withContextJavaEntrypoint } from "../services/java-context-entrypoint";
+import type { JavaEntrypoint } from "@/platform/lsp-core-adapter";
 import { invokeLsp } from "@/platform/lsp-core-adapter";
 import { applyJavaCodeChanges } from "@/features/debugger/services/debug-adapter-service";
 import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
@@ -7,10 +9,7 @@ import { createStore } from "zustand/vanilla";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
-import {
-  mavenLaunchContextForWorkspace,
-  useMavenStore,
-} from "@/features/maven/stores/maven.store";
+import { mavenLaunchContextForWorkspace, useMavenStore } from "@/features/maven/stores/maven.store";
 import type { MavenLaunchContext, MavenSettings } from "@/features/maven/types/maven.types";
 import {
   createLaunchPlan,
@@ -129,7 +128,13 @@ interface RunState {
   javaLaunchDecisions: Record<string, JavaLaunchDecision>;
   serviceUpdates: Record<
     string,
-    { executionId: string; context: JavaServiceUpdateContext; pending: boolean; message?: string; failed?: boolean }
+    {
+      executionId: string;
+      context: JavaServiceUpdateContext;
+      pending: boolean;
+      message?: string;
+      failed?: boolean;
+    }
   >;
   discoveredJava: JavaRuntime[];
   discoveredMaven: MavenRuntime[];
@@ -138,7 +143,7 @@ interface RunState {
   effectiveRuntimeExecutablePaths: Record<string, string>;
   actions: {
     loadProject: (root: string) => Promise<void>;
-    generate: (root: string) => Promise<void>;
+    generate: (root: string, requestedEntrypoint?: JavaEntrypoint) => Promise<void>;
     selectConfiguration: (id: string | null) => void;
     selectSession: (id: string | null) => void;
     editConfiguration: (id: string | null) => void;
@@ -197,10 +202,7 @@ export interface RunStoreDependencies {
 // Explicit import of a legacy run toolchain into blank Maven settings. Load and
 // launch do not call it: a per-configuration override stays on the run document,
 // and project settings are written only when the user saves them.
-function seedMavenLocalConfiguration(
-  workspaceId: string,
-  settings: Partial<MavenSettings>,
-): void {
+function seedMavenLocalConfiguration(workspaceId: string, settings: Partial<MavenSettings>): void {
   useMavenStore.getStore(workspaceId).getState().actions.seedLocalConfiguration(settings);
 }
 
@@ -335,8 +337,7 @@ function mavenProcessPaths(
   const configuredExecutable = configuration.mavenExecutablePath.trim();
   const configuredJavaHome = configuration.mavenJavaHomePath.trim();
   return {
-    mavenExecutablePath:
-      configuredExecutable || mavenContext?.mavenExecutablePath || "",
+    mavenExecutablePath: configuredExecutable || mavenContext?.mavenExecutablePath || "",
     mavenJavaHomePath: configuredJavaHome || mavenContext?.javaHomePath || "",
   };
 }
@@ -360,12 +361,18 @@ async function readRunProjectSnapshot(
   dependencies: RunStoreDependencies,
   checkFingerprint = true,
 ): Promise<RunProjectSnapshot> {
-  const inspection = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root, checkFingerprint);
+  const inspection = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(
+    root,
+    checkFingerprint,
+  );
   const inspectionDiagnostics = mapDiagnostics(inspection.diagnostics);
   if (inspection.status !== "ready") {
     return { status: "missing", diagnostics: inspectionDiagnostics };
   }
-  const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
+  const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(
+    root,
+    workspaceId,
+  );
   return {
     status: "ready",
     ...resolved,
@@ -375,10 +382,16 @@ async function readRunProjectSnapshot(
 
 /** Diagnostics from `incoming` that `existing` does not already show. */
 function newDiagnostics(existing: RunDiagnostic[], incoming: RunDiagnostic[]): RunDiagnostic[] {
-  return incoming.filter((diagnostic) =>
-    !existing.some((shown) => shown.code === diagnostic.code &&
-      shown.message === diagnostic.message && shown.id === diagnostic.id &&
-      shown.toolchain === diagnostic.toolchain));
+  return incoming.filter(
+    (diagnostic) =>
+      !existing.some(
+        (shown) =>
+          shown.code === diagnostic.code &&
+          shown.message === diagnostic.message &&
+          shown.id === diagnostic.id &&
+          shown.toolchain === diagnostic.toolchain,
+      ),
+  );
 }
 
 /** Java entries and the Current File fallback exist only for Java projects. */
@@ -428,8 +441,7 @@ export const createRunStore = (
       useRunPreferencesStore.getState().actions.setJavaBuildFailurePolicy(workspace, policy));
   const rebuildJavaIndex =
     dependencies.rebuildJavaIndexForWorkspace ?? rebuildJavaIndexForWorkspace;
-  const presentJavaLaunchDecision =
-    dependencies.presentJavaLaunchDecision ?? openRunDecisionPane;
+  const presentJavaLaunchDecision = dependencies.presentJavaLaunchDecision ?? openRunDecisionPane;
   const executions = new Map<string, string>();
   const pendingJavaLaunchDecisions = new Map<
     string,
@@ -478,13 +490,12 @@ export const createRunStore = (
     );
     if (!owns()) return;
     if (discovery.kind === "pending") {
-      stopWaitingForEntrypointCheck = (dependencies.whenJavaProjectPrepared ?? whenJavaProjectPrepared)(
-        root,
-        () => {
-          stopWaitingForEntrypointCheck = null;
-          if (owns()) void checkJavaEntrypoints(root, owns, publish);
-        },
-      );
+      stopWaitingForEntrypointCheck = (
+        dependencies.whenJavaProjectPrepared ?? whenJavaProjectPrepared
+      )(root, () => {
+        stopWaitingForEntrypointCheck = null;
+        if (owns()) void checkJavaEntrypoints(root, owns, publish);
+      });
       return;
     }
     // A failed Java service has no answer to compare; generation reports it.
@@ -592,13 +603,17 @@ export const createRunStore = (
             return;
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
-          const ownsSnapshot = () => revision === projectLoadRevision &&
-            get().root === root && get().configurations === snapshot.configurations;
+          const ownsSnapshot = () =>
+            revision === projectLoadRevision &&
+            get().root === root &&
+            get().configurations === snapshot.configurations;
           try {
             const checked = await checkFingerprint(root);
             if (!ownsSnapshot()) return;
             if (checked.status !== "ready") {
-              throw new Error("Run configuration documents changed during inspection. Reload the project.");
+              throw new Error(
+                "Run configuration documents changed during inspection. Reload the project.",
+              );
             }
             const additionalDiagnostics = newDiagnostics(
               snapshot.diagnostics,
@@ -610,10 +625,15 @@ export const createRunStore = (
             // A freshness-check timeout must not discard usable configurations.
             // Keep the failure visible instead of implying the fingerprint matched.
             const detail = error instanceof Error ? error.message : "Unknown inspection failure";
-            set({ diagnostics: [...snapshot.diagnostics, {
-              code: "fingerprintCheckFailed",
-              message: `Could not check run configuration freshness: ${detail}`,
-            }] });
+            set({
+              diagnostics: [
+                ...snapshot.diagnostics,
+                {
+                  code: "fingerprintCheckFailed",
+                  message: `Could not check run configuration freshness: ${detail}`,
+                },
+              ],
+            });
           }
           // A regeneration already waiting for JDT will replace the Java entries.
           if (
@@ -644,7 +664,7 @@ export const createRunStore = (
         }
       },
 
-      generate: (root) => {
+      generate: (root, requestedEntrypoint) => {
         const task = (async () => {
           cancelJavaRefresh();
           cancelEntrypointCheck();
@@ -676,11 +696,17 @@ export const createRunStore = (
                     paths,
                   );
             if (!isCurrent()) return;
-            const generated = await (dependencies.generateRunConfiguration ?? generateRunConfiguration)(
+            const generated = await (
+              dependencies.generateRunConfiguration ?? generateRunConfiguration
+            )(
               root,
               paths,
               [],
-              discovery?.kind === "discovered" ? discovery.entrypoints : undefined,
+              withContextJavaEntrypoint(
+                discovery?.kind === "discovered" ? discovery.entrypoints : undefined,
+                requestedEntrypoint,
+                get().configurations,
+              ),
             );
             if (!isCurrent()) return;
             await (dependencies.writeGeneratedRunDocuments ?? writeGeneratedRunDocuments)({
@@ -690,7 +716,10 @@ export const createRunStore = (
               defaultRunConfiguration: defaultGeneratedConfigurationId(generated.generated),
             });
             if (!isCurrent()) return;
-            const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
+            const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(
+              root,
+              workspaceId,
+            );
             if (!isCurrent()) return;
             const notice =
               generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
@@ -727,8 +756,9 @@ export const createRunStore = (
               configurations: resolved.configurations,
               selectedConfigurationId:
                 resolved.defaultConfigurationId ??
-                resolved.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)
-                  ?.id ??
+                resolved.configurations.find(
+                  (configuration) => configuration.id !== CURRENT_FILE_ID,
+                )?.id ??
                 null,
               defaultConfigurationId: resolved.defaultConfigurationId,
               discoveredJava: resolved.discoveredJava,
@@ -742,7 +772,8 @@ export const createRunStore = (
             });
           } catch (error) {
             if (!isCurrent()) return;
-            const message = error instanceof Error ? error.message : "Project identification failed";
+            const message =
+              error instanceof Error ? error.message : "Project identification failed";
             set({
               status: "invalid",
               invalidMessage: message,
@@ -838,7 +869,8 @@ export const createRunStore = (
             save = dependencies.saveWorkspaceBeforeLaunch(workspaceId);
             workspaceSaveInFlight.set(workspaceId, save);
             const clearSave = () => {
-              if (workspaceSaveInFlight.get(workspaceId) === save) workspaceSaveInFlight.delete(workspaceId);
+              if (workspaceSaveInFlight.get(workspaceId) === save)
+                workspaceSaveInFlight.delete(workspaceId);
             };
             void save.then(clearSave, clearSave);
           }
@@ -1108,9 +1140,7 @@ export const createRunStore = (
             });
           } else {
             set((current) => {
-              const existingSession = current.sessions.find(
-                (session) => session.id === sessionId,
-              );
+              const existingSession = current.sessions.find((session) => session.id === sessionId);
               const failedSession: RunSession = {
                 id: sessionId,
                 configurationId: configuration.id,
@@ -1270,7 +1300,9 @@ export const createRunStore = (
         const ownsSlot = !executionId || executionId === ownedExecution;
         if (ownsSlot) executions.delete(target);
         // Native ownership remains authoritative after a workspace store is disposed/recreated.
-        await dependencies.stopRunProcess(target, executionId ?? ownedExecution).catch(() => undefined);
+        await dependencies
+          .stopRunProcess(target, executionId ?? ownedExecution)
+          .catch(() => undefined);
         // A new launch can claim the slot while the native stop is in flight.
         if (!ownsSlot || executions.has(target)) return;
         if (target === PRIMARY_SESSION_ID) {

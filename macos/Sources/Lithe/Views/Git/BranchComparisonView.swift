@@ -5,6 +5,9 @@ struct BranchComparisonView: View {
     @ObservedObject var feature: GitFeatureModel
     let comparison: GitBranchComparison
     let onRefresh: () async -> Void
+    /// Family for the comparison text. Defaults to the bundled monospaced family;
+    /// the editor area passes the configured family from its own settings.
+    var fontFamily: String = EditorFontDefaults.monospacedFamily
 
     var body: some View {
         VStack(spacing: 0) {
@@ -206,7 +209,8 @@ struct BranchComparisonView: View {
             } else {
                 DiffPaneView(
                     rows: feature.branchComparisonRows,
-                    fileExtension: selectedFileExtension
+                    fileExtension: selectedFileExtension,
+                    fontFamily: fontFamily
                 )
             }
         }

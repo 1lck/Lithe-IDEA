@@ -38,6 +38,13 @@ struct AgentFileDiffView: View {
 
 private struct AgentReportedDiffView: View {
     let diff: AgentToolDetails.Diff
+    /// Family for the excerpt comparison. The Agent activity bar that presents
+    /// this sheet is deliberately environment-independent (its presentation tests
+    /// host it with only a colour scheme) and the transcript tree has no
+    /// `AppModel` in scope, so the Agent excerpt stays on the bundled monospaced
+    /// family instead of acquiring a required `AppSettings` environment object.
+    /// Threading it here would mean adding a parameter through five view levels.
+    var fontFamily: String = EditorFontDefaults.monospacedFamily
     var body: some View {
         VStack(spacing: 0) {
             if diff.isTruncated {
@@ -46,7 +53,8 @@ private struct AgentReportedDiffView: View {
             }
             if withinComparisonBudget {
                 DiffPaneView(rows: LocalHistoryDiffBuilder.rows(old: diff.oldText ?? "", current: diff.newText).map(DiffRow.init),
-                             fileExtension: (diff.path as NSString).pathExtension, minimumWidth: 600)
+                             fileExtension: (diff.path as NSString).pathExtension, minimumWidth: 600,
+                             fontFamily: fontFamily)
             } else {
                 Text("This diff has too many lines for comparison. Showing the reported before and after text.")
                     .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText).padding(8)

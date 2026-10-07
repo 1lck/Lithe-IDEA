@@ -29,6 +29,14 @@ pub(crate) fn metadata(
         "ANTHROPIC_AUTH_TOKEN": "",
         "ANTHROPIC_CUSTOM_HEADERS": "",
         "CLAUDE_CODE_OAUTH_TOKEN": "",
+        // The CLI retries even invalid API keys ten times by default. Its public
+        // retry budget is shared by all errors and honors long Retry-After.
+        // The host instead bounds retries of typed temporary ACP failures.
+        "CLAUDE_CODE_MAX_RETRIES": "0",
+        "CLAUDE_CODE_RETRY_WATCHDOG": "0",
+        // Avoid replaying partial streaming work via a non-streaming fallback.
+        // Native model selection may still probe a missing model twice.
+        "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1",
         "CLAUDE_CODE_USE_BEDROCK": "0",
         "CLAUDE_CODE_USE_VERTEX": "0",
         "CLAUDE_CODE_USE_FOUNDRY": "0",

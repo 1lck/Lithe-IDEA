@@ -80,6 +80,50 @@ Bearer/OAuth/custom-header/cloud routes cleared. This avoids the adapter's
 gateway placeholder Bearer token overriding a valid `x-api-key`; it does not
 patch the adapter or change native CLI configuration files. Missing Claude
 credentials fail before session creation instead of falling back to an account.
+Claude API-key sessions also set `CLAUDE_CODE_MAX_RETRIES=0`,
+`CLAUDE_CODE_RETRY_WATCHDOG=0`, and
+`CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1` in both option tiers. The native
+budget cannot distinguish permanent errors and may honor minutes of Retry-After.
+The Host owns a short interactive recovery budget instead: five total prompt
+attempts, with 0.5/1/2/4-second delays. Only known temporary failures before any
+reply, thought, plan, tool or permission progress can be replayed. Permanent
+credentials/access/request/quota errors fail immediately. Native model resolution
+can still probe a missing model twice; this is not another Host attempt.
+Claude API-key connections negotiate AIR v1 `sessionFailure` alongside
+`recommendedValue`. A terminal AIR failure in a successful `end_turn` response
+is normalized to `requestFailed`; its category/actions determine retryability,
+and title/details retain the actionable error. For generic service failures,
+a fixed CLI `API Error:` HTTP banner can veto retries for permanent statuses;
+text never enables a retry. Legacy categorical JSON-RPC `errorKind` remains
+supported; unknown legacy errors are terminal. The failed idle SDK request is
+interrupted before resubmission to avoid duplicated native HTTP requests.
+Codex API-key sessions use native recovery with `request_max_retries=0` and
+`stream_max_retries=4`, so HTTP and stream retries cannot multiply. The pinned
+ACP adapter replaces the gateway provider table; a first-party stdio relay
+applies those public App Server fields on `thread/start`, `thread/resume` and
+`thread/fork`, and disables `features.unbounded_connection_retries`. Other
+configuration, native history, tools and stream processing remain engine-owned.
+The relay also retains native error information in a JSON `litheCodexFailure`
+envelope inside the AIR failure title, because the adapter otherwise drops
+`codexErrorInfo`, HTTP status and details from retry warnings. Only negotiated
+failure metadata is decoded; assistant/model text never enters this policy.
+Titles presented as errors are decoded to the original actionable message.
+Known permanent native categories or HTTP 4xx (except 408/409/429) stop recovery
+immediately, even when the service supplies a long `Retry-After`. Unknown native
+errors retain their native retry decision and the bounded recovery window.
+Native HTTP 429 may terminate without stream recovery. Before any reply,
+thought, plan, tool or permission progress, only this typed 429 gap may replay
+the settled prompt with short Host delays. It shares the same five-attempt
+counter with native recovery, rather than adding another budget; recognized
+quota/context/budget exhaustion is permanent. No other Codex terminal failure
+automatically resubmits a prompt. Subscription sessions preserve native login,
+refresh and retry policy; custom ACP commands receive no Codex configuration.
+
+Each API-key Codex launch owns `<system-temp>/lithe-codex-retry-<UUID>/` until its
+process tree stops. Its script comes from embedded first-party source and holds
+no credential. Preparation/spawn failure, cancellation and completion remove
+the directory. The host does not write installed packages, bundles, CLI settings
+or user configuration; this runtime helper is excluded from worktree reuse.
 The route fixture is `shared/fixtures/agent/acp-events-v1.json`'s
 `upstream.claudeSessionRouting`. The
 user's own CLI is passed as `CODEX_PATH` or `CLAUDE_CODE_EXECUTABLE`, and a
@@ -131,7 +175,7 @@ include all windows and reset times; API-key connections show no quota chip.
 `listSessions`, `setConfigOption`, `prompt`, `cancel`, `permission`, `authenticate`,
 or `refreshQuota`. Results arrive as events:
 `ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
-`sessionConfigured`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
+`sessionConfigured`, `turnRetrying`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
 `authenticationRequired`, `authenticating`, `account`, `quota`, and `quotaFailed`. Commands and events, including
 their camel-case field names, are fixed by
 `shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
@@ -200,6 +244,25 @@ acknowledged cancellation releases the session; otherwise the connection and its
 process tree are stopped. No terminal event is emitted during the grace period,
 so consumers keep the session busy. A late response cannot overlap a new prompt
 or turn an expired request into a successful completion.
+
+The API-key reconnecting window is twenty seconds from the first temporary
+failure, in addition to the initial request and at most ten seconds to confirm
+cancellation. It does not reset on each retry. Actual progress removes this
+short window and prohibits whole-turn replay; the original ten-minute absolute
+limit still applies. Codex may safely recover a later stream interruption in
+its native engine; a new recovery incident after progress receives a new short
+window and still cannot replay the whole turn. Expiry retains the same busy/cancel/acknowledgment semantics
+above and reports the last provider error. During backoff, user cancellation
+ends the local turn without another prompt. `turnRetrying` carries `sessionId`,
+a unique Host or native `turnId`, `attempt` (2 through 5), and
+`maxAttempts` (5). It is progress, not a terminal event. macOS presents
+“Reconnecting 2/5…” with elapsed time; it clears counts on progress or completion
+and ignores retries for retired turns. No silent timer implies thinking or retry.
+Generic ACP support does not imply control of its retry engine. Unadapted agents
+retain their native retry policy and the normal absolute prompt limit; reliable
+counts and a short recovery window require explicit provider recovery events or
+a verified configuration adapter. Lithe never applies blind prompt replay to
+arbitrary agents.
 
 ACP `usage_update` notifications are forwarded unchanged in `update`, with
 `used` (tokens currently in context) and `size` (context window capacity), scoped

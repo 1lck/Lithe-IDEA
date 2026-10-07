@@ -39,6 +39,11 @@ final class DiffNativeColumnState: ObservableObject {
     private var dark = false
     private var highlightsWords = false
     private var unified = false
+    /// Family that prepared the text storage and the gutter's source numbers.
+    private(set) var fontFamily = EditorFontDefaults.monospacedFamily
+    /// Resolved face for `fontFamily`; the gutter must reuse it so digits and
+    /// code share one advance and one baseline.
+    private(set) var preparedFont = LitheTheme.editorFont(size: DiffLayoutMetrics.textFontSize)
     private(set) var lines: [Line] = []
     private(set) var preparedText = NSAttributedString()
     private(set) var revision = 0
@@ -55,14 +60,18 @@ final class DiffNativeColumnState: ObservableObject {
     }
 
     func prepare(identity: UUID, items: [DiffSplitLayout.Item], side: DiffSide,
-                 fileExtension: String, highlightsWords: Bool, dark: Bool, unified: Bool = false) {
+                 fileExtension: String, highlightsWords: Bool, dark: Bool, unified: Bool = false,
+                 fontFamily: String = EditorFontDefaults.monospacedFamily) {
         guard self.identity != identity || self.fileExtension != fileExtension
-            || self.highlightsWords != highlightsWords || self.dark != dark || self.unified != unified else { return }
+            || self.highlightsWords != highlightsWords || self.dark != dark || self.unified != unified
+            || self.fontFamily != fontFamily else { return }
         self.identity = identity
         self.fileExtension = fileExtension
         self.highlightsWords = highlightsWords
         self.dark = dark
         self.unified = unified
+        self.fontFamily = fontFamily
+        preparedFont = MacEditorFontCatalog.font(family: fontFamily, size: DiffLayoutMetrics.textFontSize)
         let text = NSMutableAttributedString()
         lines = []
         for item in items {
@@ -92,9 +101,8 @@ final class DiffNativeColumnState: ObservableObject {
             paragraph.maximumLineHeight = item.height
             paragraph.lineBreakMode = .byClipping
             paragraph.tabStops = []
-            paragraph.defaultTabInterval = LitheTheme.editorFont(size: DiffLayoutMetrics.textFontSize)
-                .maximumAdvancement.width * 4
-            text.addAttributes([.font: LitheTheme.editorFont(size: DiffLayoutMetrics.textFontSize),
+            paragraph.defaultTabInterval = preparedFont.maximumAdvancement.width * 4
+            text.addAttributes([.font: preparedFont,
                 .paragraphStyle: paragraph], range: range)
             lines.append(Line(item: item, range: range, sourceNumber: sourceNumber))
         }
@@ -151,6 +159,7 @@ struct DiffNativeCodeColumn: NSViewRepresentable {
     let highlightsWords: Bool
     let selectedRowIDs: Set<DiffRowID>
     let currentSearchMatchID: DiffRowID?
+    let fontFamily: String
     var unified = false
     @Environment(\.colorScheme) private var colorScheme
 
@@ -178,7 +187,8 @@ struct DiffNativeCodeColumn: NSViewRepresentable {
 
     func updateNSView(_ view: DiffNativeTextView, context: Context) {
         state.prepare(identity: layoutIdentity, items: items, side: side,
-            fileExtension: fileExtension, highlightsWords: highlightsWords, dark: colorScheme == .dark, unified: unified)
+            fileExtension: fileExtension, highlightsWords: highlightsWords, dark: colorScheme == .dark,
+            unified: unified, fontFamily: fontFamily)
         state.updateSelection(selectedRowIDs)
         state.currentSearchID = currentSearchMatchID
         view.selectedTextAttributes = [.backgroundColor: NSColor(LitheTheme.Diff.selection)]
@@ -306,7 +316,7 @@ final class DiffNativeGutterView: NSView {
         NSColor(LitheTheme.Diff.separator).setFill()
         NSRect(x: separatorX, y: dirtyRect.minY, width: 1, height: dirtyRect.height).fill()
         let first = column.firstVisibleLine(at: dirtyRect.minY)
-        let font = LitheTheme.editorFont(size: DiffLayoutMetrics.textFontSize)
+        let font = column.preparedFont
         for index in first..<column.lines.count {
             let line = column.lines[index]
             guard line.item.top < dirtyRect.maxY else { break }

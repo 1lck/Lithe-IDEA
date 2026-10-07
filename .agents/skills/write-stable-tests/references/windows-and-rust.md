@@ -58,6 +58,14 @@ than the 32 MiB patch limit; Windows CI terminated it at 16.1 seconds under
 the default 15-second limit. Core rebase requests use a nested 20-second
 deadline. The workspace commit submodule publication test also gets 30 seconds
 because it creates two local remotes and runs multiple real Git pushes. Other
+multi-repository coverage includes
+`tests::git::git_write_updates_a_noncurrent_branch_without_switching_head`,
+which also gets 30 seconds in both SharedRust and real-JDT lanes: it builds a
+bare remote and two working repositories, pushes and fetches commits, then
+checks branch updates with an attached and detached HEAD. A Windows real-JDT
+run reached the 15-second process deadline during this case, while the same
+revision passed it in 2.4 seconds in SharedRust. This scoped allowance covers
+native process and filesystem variability without changing assertions; other
 cases retain the normal 15-second budget. The Rust runner's repeatable
 `--test-budget prefix=milliseconds` option uses the most specific matching
 prefix, records each case's effective budget in JSON, uses that budget for

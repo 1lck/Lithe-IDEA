@@ -9,7 +9,11 @@
       "macos/Sources/Lithe/Views/Run",
       "macos/Sources/Lithe/Core/Ports/RuntimeLocator.swift",
       "macos/Tests/LitheTests/MavenRuntimeTests.swift",
-      "rust/lithe-core/src/execution/java_selection.rs"
+      "rust/lithe-core/src/execution/java_selection.rs",
+      "macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeProbeCache.swift",
+      "macos/Tests/LitheTests/MacRuntimeProbeCacheTests.swift",
+      "macos/Tests/LitheTests/ProjectRuntimeLoadingTests.swift",
+      "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -25,5 +29,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "两端安装 JDK 8/17/21：项目要求 17 且 JAVA_HOME 为 8 时验证自动选择兼容版本；核对设置、Run、Maven 目标、测试使用同一 JDK。验证显式选择不变、没有兼容版本时回退并提示，以及无要求时的平台默认顺序。"
+  "verification": "两端安装 JDK 8/17/21：项目要求 17 且 JAVA_HOME 为 8 时验证自动选择兼容版本；核对设置、Run、Maven 目标、测试使用同一 JDK。验证显式选择不变、没有兼容版本时回退并提示，以及无要求时的平台默认顺序。 macOS 恢复已有运行配置时检查主队列仍能处理交互；同一工具与符号链接别名只探测一次，并发请求共用结果；工具文件变化或手动刷新后重新探测，失败结果可重试。验证切换项目和取消打开后旧探测结果不再应用。"
 }

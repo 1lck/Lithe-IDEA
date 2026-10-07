@@ -35,6 +35,7 @@ jobs:
         run: |
           node scripts/test-verify-download-cache.mjs
           node scripts/test-reuse-worktree-resources.mjs
+          node --test --test-timeout=15000 scripts/test-codex-config-relay.mjs
 
       - name: Resolve comparison base
         id: base
@@ -233,6 +234,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-watcher.json -- src/features/file-system/services/file-watcher-listener.test.ts src/features/file-system/stores/file-watcher.store.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Merged notification counts rely on toast identity, so the resend path
+          # stays covered instead of only its formatter.
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-notifications.json -- src/features/notifications
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test workspace open, replace, and close lifecycle
         shell: pwsh
@@ -521,6 +527,7 @@ jobs:
             --test-budget tests::git::git_write_squashes_=30000 `
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
             --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `
+            --test-budget tests::git::git_write_updates_a_noncurrent_branch_without_switching_head=30000 `
             --test-budget tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset=30000 `
             --build-timeout-ms 600000 `
             --suite-timeout-ms 1200000 `

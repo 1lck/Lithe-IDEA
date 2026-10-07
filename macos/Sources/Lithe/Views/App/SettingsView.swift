@@ -16,6 +16,10 @@ final class SettingsViewState: ObservableObject {
     @Published var isFormatPickerPresented = false
     @Published var detectedTerminalShells: [String] = []
     @Published var knownTerminalShells: [String] = []
+    /// Monospaced families offered by Settings › Editor › Font. Discovered once
+    /// per settings window because enumerating and measuring system fonts is
+    /// expensive; the catalog itself caches the result for the process.
+    @Published var editorFontFamilies: [String] = []
     @Published var pendingPluginEnabledStates: [PluginID: Bool] = [:]
     @Published private(set) var isApplyingPluginChanges = false
 
@@ -261,47 +265,13 @@ struct SettingsView: View {
     }
 
     private var filteredCategories: [SettingsCategory] {
-        let query = viewState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return SettingsCategory.allCases }
+        let query = viewState.searchQuery
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return SettingsCategory.allCases
+        }
 
         return SettingsCategory.allCases.filter { category in
-            searchTerms(for: category).contains { term in
-                localizedSearchValue(term).localizedCaseInsensitiveContains(query)
-                    || term.localizedCaseInsensitiveContains(query)
-            }
-        }
-    }
-
-    private func searchTerms(for category: SettingsCategory) -> [String] {
-        switch category {
-        case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths"]
-        case .editor:
-            ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width"]
-        case .keymap:
-            ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
-        case .project:
-            ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
-        case .run:
-            ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
-        case .terminal:
-            ["Terminal", "Shell", "Default shell"]
-        case .lsp:
-            ["LSP", "Language server"]
-        case .ai:
-            ["AI & Commit", "Commit message", "Pull request"]
-        case .providers:
-            ["AI Providers", "AI provider", "Model", "API key", "Endpoint", "Responses", "Anthropic"]
-        case .git:
-            ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
-        case .updates:
-            ["Updates", "Application version", "Update status", "Check for Updates"]
-        case .diagnostics:
-            ["Diagnostics", "Diagnostics bundle", "Export logs", "Bug report"]
-        case .plugins:
-            ["Plugins", "Installed", "Marketplace", "Language support"]
-        case .mcp:
-            ["MCP Configuration", "MCP", "Agent", "AI tool connections (MCP)", "Copy agent configuration", "Permissions"]
+            SettingsSearchVocabulary.matches(query: query, category: category) { localizedSearchValue($0) }
         }
     }
 
@@ -684,6 +654,28 @@ struct SettingsView: View {
     private var editorSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
             group("Display") {
+                row("Font") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        LitheSettingsSelect(
+                            selection: $settings.editorFontFamily,
+                            options: editorFontOptions,
+                            width: 240,
+                            accessibilityLabel: "Font",
+                            title: { $0 },
+                            localizesTitles: false,
+                            isAvailable: { MacEditorFontCatalog.isAvailable(family: $0) },
+                            searchPrompt: "Search fonts",
+                            searchText: { $0 }
+                        )
+                        if let coverageNotice = editorFontCoverageNotice {
+                            Text(coverageNotice)
+                                .font(LitheTheme.smallFont)
+                                .foregroundStyle(LitheTheme.warning)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: 420, alignment: .leading)
+                        }
+                    }
+                }
                 row("Font size") {
                     LitheSettingsStepper(
                         value: $settings.editorFontSize,
@@ -736,6 +728,49 @@ struct SettingsView: View {
                 }
             }
         }
+        .task {
+            guard viewState.editorFontFamilies.isEmpty else { return }
+            viewState.editorFontFamilies = MacEditorFontCatalog.editorFamilies()
+        }
+    }
+
+    /// Monospaced families plus the stored selection. The stored family is kept
+    /// in the list even when it is no longer installed, so the user can see what
+    /// is configured instead of the control silently snapping to the default.
+    private var editorFontOptions: [String] {
+        var options = viewState.editorFontFamilies
+        if options.isEmpty { options = [settings.editorFontFamily] }
+        if !options.contains(settings.editorFontFamily) { options.append(settings.editorFontFamily) }
+        return options
+    }
+
+    /// Warns when the chosen family cannot render character groups the product
+    /// needs, because those glyphs then come from the fallback chain instead of
+    /// the font the user picked.
+    ///
+    /// The bundled default is deliberately exempt: it is the baseline and the
+    /// fallback target itself, so warning about the shipped font would be noise
+    /// the user cannot act on. An uninstalled family is reported by the control's
+    /// own unavailable styling rather than twice.
+    private var editorFontCoverageNotice: String? {
+        let family = settings.editorFontFamily
+        guard !EditorFontResolution.usesBundledMonospacedFamily(family),
+              MacEditorFontCatalog.isAvailable(family: family) else { return nil }
+
+        let coverage = MacEditorFontCatalog.coverage(
+            family: family,
+            requirements: .forLanguage(settings.language)
+        )
+        guard let description = coverage.missingDescription else { return nil }
+
+        return String(
+            format: String(
+                localized: "%@ does not include %@; Lithe renders those characters with %@ and the system font."
+            ),
+            coverage.family,
+            description,
+            EditorFontDefaults.monospacedFamily
+        )
     }
 
     private var terminalSettings: some View {

@@ -5,8 +5,11 @@
 ## 先说结论
 
 截图核对后，用户要求界面字体与 IDEA 对齐。macOS 普通界面使用已有的 Inter，
-编辑器、终端及显式等宽内容继续使用 JetBrains Mono 2.304。普通界面统一从
-`LitheTheme.uiFont` 和 `uiNSFont` 获取，代码与终端使用 `editorFont`；保留控件字重，
+编辑器及显式等宽内容默认使用 JetBrains Mono 2.304，终端使用下文的 Nerd Font Mono 选择策略；代码编辑器的编程字体族
+可由用户改选其他已安装的等宽字体，该设置与回退规则见
+[macOS 代码编辑器可选择编程字体族](2026-10-07-macos-editor-programming-font-family.md)。
+普通界面统一从
+`LitheTheme.uiFont` 和 `uiNSFont` 获取，代码默认使用 `editorFont`，终端由 `MacTerminalTransport` 独立选择字体；保留控件字重，
 Project 树字号对齐 IDEA 的 13pt。欢迎页应用名、导航、普通项目名和常规操作按钮按 IDEA 使用 Regular，避免局部 Medium/SemiBold 覆盖默认字重。
 字体文件随安装包分发，用户无需自行安装；运行时只读加载。
 
@@ -26,7 +29,9 @@ Project 树字号对齐 IDEA 的 13pt。欢迎页应用名、导航、普通项�
 `macos/Resources/Fonts` 保存用户提供的 Inter 4.1 包中的 18 个原始静态 OTF（9 个字重及斜体，文件内部版本为 4.001）、许可，以及
 JetBrains Mono 2.304 的 16 个原始静态 TTF、OFL 和作者信息。Mono 文件与用户再次提供的归档逐文件核对，16 个文件均字节一致。
 普通 UI 通过明确的字型名称匹配 Regular、Medium、SemiBold、Bold 等真实字重；SwiftUI 不再对已经指定字型的字体重复调用 `.weight`。
-代码继续读取 Mono 字型。构建脚本在签名前复制到 app 的 `Fonts`
+代码默认读取 Mono 字型；`LitheTheme.editorFont` 仍然只表示打包字体。终端按下文
+独立选择 Nerd Font Mono，终端、Output 工具窗和提交信息输入框均不跟随编辑器字体族设置。
+构建脚本在签名前复制到 app 的 `Fonts`
 资源目录；CoreText（macOS 的字体管理服务）按 process 范围注册，即只对当前
 进程生效，不安装到用户系统。不能因机器已经装有同名字体而跳过打包资源。
 

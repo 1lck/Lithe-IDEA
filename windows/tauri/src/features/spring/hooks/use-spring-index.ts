@@ -1,3 +1,5 @@
+import { getLspWorkspaceSessionSnapshot } from "@/platform/lsp-core-adapter";
+import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { exists } from "@tauri-apps/plugin-fs";
 import { homeDir, join } from "@tauri-apps/api/path";
 import { useEffect } from "react";
@@ -34,9 +36,18 @@ export interface SpringIndexDependencies {
   requestIndex: typeof requestSpringIndex;
   resolveMetadataRepository: typeof resolveMavenMetadataRepository;
   scheduleReload: (reload: () => void) => () => void;
+  subscribeDependencyReady?: (root: string, reload: () => void) => () => void;
 }
 
 const defaultDependencies: SpringIndexDependencies = {
+  subscribeDependencyReady: (root, reload) =>
+    useLspStore.subscribe((state, previous) => {
+      const session = getLspWorkspaceSessionSnapshot({ workspacePath: root, languageId: "java" });
+      if (!session) return;
+      const phase = state.lspStatus.lifecycleBySession[session.id];
+      if (phase === "fullyReady" && previous.lspStatus.lifecycleBySession[session.id] !== phase)
+        reload();
+    }),
   requestIndex: requestSpringIndex,
   resolveMetadataRepository: resolveMavenMetadataRepository,
   scheduleReload: (reload) => {
@@ -62,6 +73,8 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
 
     let cancelled = false;
     let cancelReload: (() => void) | undefined;
+    let metadataRepository: Promise<string | undefined> | undefined;
+    let refreshDependencies = false;
 
     const load = async (refreshDependencyMetadata: boolean) => {
       const generation = store.actions.beginLoad(rootFolderPath);
@@ -88,9 +101,13 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
           const relative = workspaceRelativeSpringPath(buffer.path, rootFolderPath);
           if (relative) textOverrides[relative] = buffer.content;
         }
-        const metadataRepository = refreshDependencyMetadata
-          ? await dependencies.resolveMetadataRepository()
-          : undefined;
+        // Keep the repository on every request: Core's cache is keyed by the
+        // supplied roots, so omitting it would drop dependency completions as
+        // soon as the user types. Resolve again when JDT finishes importing.
+        if (!metadataRepository || refreshDependencyMetadata) {
+          metadataRepository = dependencies.resolveMetadataRepository();
+        }
+        const repository = await metadataRepository;
         if (cancelled) return;
         const index =
           paths.length === 0
@@ -98,7 +115,7 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
             : await dependencies.requestIndex({
                 root: rootFolderPath,
                 paths,
-                metadataRepositories: metadataRepository ? [metadataRepository] : [],
+                metadataRepositories: repository ? [repository] : [],
                 textOverrides,
                 refreshDependencyMetadata,
               });
@@ -117,17 +134,29 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
       cancelReload?.();
       cancelReload = dependencies.scheduleReload(() => {
         cancelReload = undefined;
-        void load(false);
+        const refresh = refreshDependencies;
+        refreshDependencies = false;
+        void load(refresh);
       });
     };
 
+    const unsubscribeDependencies = dependencies.subscribeDependencyReady?.(rootFolderPath, () => {
+      if (cancelled) return;
+      refreshDependencies = true;
+      scheduleReload();
+    });
     void load(true);
 
     const unsubscribeBuffers = bufferStore.subscribe((state, previous) => {
       const changed = state.buffers.some((buffer) => {
-        if (!buffer.path || !isSpringIndexPath(buffer.path) || !hasTextContent(buffer)) return false;
+        if (!buffer.path || !isSpringIndexPath(buffer.path) || !hasTextContent(buffer))
+          return false;
         const previousBuffer = previous.buffers.find((candidate) => candidate.id === buffer.id);
-        return !previousBuffer || !hasTextContent(previousBuffer) || previousBuffer.content !== buffer.content;
+        return (
+          !previousBuffer ||
+          !hasTextContent(previousBuffer) ||
+          previousBuffer.content !== buffer.content
+        );
       });
       if (changed) scheduleReload();
     });
@@ -145,6 +174,7 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
     return () => {
       cancelled = true;
       unsubscribeBuffers();
+      unsubscribeDependencies?.();
       window.removeEventListener("file-external-change", handleExternalChange);
       cancelReload?.();
     };

@@ -36,6 +36,19 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
     }
 
     func show(_ message: String) {
+        // A recurring message merges into the row it already owns: the entry
+        // stays in place, only its occurrence count grows. Without this, a
+        // message repeated by a background workflow floods the center.
+        if let index = notifications.firstIndex(where: { $0.message == message }) {
+            notifications[index].occurrenceCount += 1
+            notifications[index].updatedAt = Date()
+            notifications[index].isRead = false
+            let notification = notifications.remove(at: index)
+            notifications.insert(notification, at: 0)
+            presentOrRefresh(notification)
+            return
+        }
+
         let notification = WorkbenchNotification(message: message)
         notifications.insert(notification, at: 0)
         if notifications.count > WorkbenchNotificationTiming.maximumHistoryCount {
@@ -44,6 +57,12 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
             )
         }
 
+        present(notification)
+    }
+
+    /// Adds a balloon for a notification that has none yet, applying the
+    /// visible-count limit and its overflow affordance.
+    private func present(_ notification: WorkbenchNotification) {
         activeNotifications.append(notification)
         if activeNotifications.count > WorkbenchNotificationTiming.maximumVisibleCount {
             let removed = activeNotifications.removeFirst()
@@ -54,6 +73,28 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
                 notifications.count - activeNotifications.count)
         }
 
+        scheduleDismissal(for: notification, after: WorkbenchNotificationTiming.displayDuration)
+    }
+
+    /// Re-surfaces a notification that already owns a balloon, or presents one.
+    ///
+    /// A repeated message restarts its own display window and moves to the top
+    /// of the stack instead of leaving the earlier deadline running.
+    private func presentOrRefresh(_ notification: WorkbenchNotification) {
+        guard let index = activeNotifications.firstIndex(where: { $0.id == notification.id }) else {
+            present(notification)
+            return
+        }
+        // Overflow is a stack-level affordance, not history: the history copy
+        // never carries `collapsedCount`, so hand the balloon's own count to the
+        // oldest survivor the same way `present` does.
+        let refreshed = activeNotifications.remove(at: index)
+        activeNotifications.append(notification)
+        if refreshed.collapsedCount > 0 {
+            activeNotifications[0].collapsedCount = min(
+                activeNotifications[0].collapsedCount + refreshed.collapsedCount,
+                notifications.count - activeNotifications.count)
+        }
         scheduleDismissal(for: notification, after: WorkbenchNotificationTiming.displayDuration)
     }
 

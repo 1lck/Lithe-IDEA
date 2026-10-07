@@ -231,8 +231,12 @@ struct DiffSplitLayout {
             transitions: transitions,
             leftHeight: leftHeight,
             rightHeight: rightHeight,
+            // Production callers pass the family-aware `gutterWidth` they measured.
+            // This fallback stays in the models layer, which has no font settings
+            // access and must not resolve a platform font itself.
             lineNumberGutterWidth: gutterWidth ?? DiffLayoutMetrics.lineNumberGutterWidth(maximumLine:
-                displayRows.reduce(1) { max($0, $1.layoutRow.oldLine ?? 0, $1.layoutRow.newLine ?? 0) })
+                displayRows.reduce(1) { max($0, $1.layoutRow.oldLine ?? 0, $1.layoutRow.newLine ?? 0) },
+                family: EditorFontDefaults.monospacedFamily)
         )
     }
 }

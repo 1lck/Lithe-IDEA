@@ -42,7 +42,8 @@ jobs:
           mkdir -p .artifacts/test-stability
           node --test --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
-            scripts/test-download-sparkle-baseline.mjs scripts/test-reuse-worktree-resources.mjs scripts/test-markdown-preview.mjs
+            scripts/test-download-sparkle-baseline.mjs scripts/test-reuse-worktree-resources.mjs scripts/test-markdown-preview.mjs \
+            scripts/test-codex-config-relay.mjs
 
       - name: Generate Sparkle download timing report
         if: always()

@@ -15,7 +15,9 @@ const ROOT_B = "D:/fixture/b";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((complete) => { resolve = complete; });
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
   return { promise, resolve };
 }
 
@@ -26,10 +28,18 @@ function files(root: string) {
 function index(root: string): SpringIndex {
   return {
     ...EMPTY_SPRING_INDEX,
-    endpoints: [{
-      id: root, httpMethods: ["GET"], route: "/fixture", controller: "Controller",
-      method: "get", path: "src/Controller.java", line: 1, column: 1,
-    }],
+    endpoints: [
+      {
+        id: root,
+        httpMethods: ["GET"],
+        route: "/fixture",
+        controller: "Controller",
+        method: "get",
+        path: "src/Controller.java",
+        line: 1,
+        column: 1,
+      },
+    ],
   };
 }
 
@@ -66,7 +76,9 @@ beforeEach(() => {
     scheduleReload: (reload) => {
       const entry = { reload, cancelled: false };
       scheduled.push(entry);
-      return () => { entry.cancelled = true; };
+      return () => {
+        entry.cancelled = true;
+      };
     },
   };
   prepareWorkspace(WORKSPACE_A, ROOT_A);
@@ -90,7 +102,9 @@ afterEach(async () => {
 });
 
 async function mount() {
-  await act(async () => { root.render(<Probe />); });
+  await act(async () => {
+    root.render(<Probe />);
+  });
 }
 
 async function activateB() {
@@ -100,7 +114,9 @@ async function activateB() {
 }
 
 function externalChange(path: string, event_type: string) {
-  window.dispatchEvent(new window.CustomEvent("file-external-change", { detail: { path, event_type } }));
+  window.dispatchEvent(
+    new window.CustomEvent("file-external-change", { detail: { path, event_type } }),
+  );
 }
 
 test("a pending file scan is abandoned before starting native indexing after switching projects", async () => {
@@ -110,11 +126,15 @@ test("a pending file scan is abandoned before starting native indexing after swi
     await mount();
     expect(useSpringStore.getStore(WORKSPACE_A).getState().phase).toBe("loading");
     await activateB();
-    await act(async () => { scan.resolve(files(ROOT_A)); });
+    await act(async () => {
+      scan.resolve(files(ROOT_A));
+    });
     expect(requestIndex.mock.calls.map(([args]) => args.root)).toEqual([ROOT_B]);
     expect(useSpringStore.getStore(WORKSPACE_B).getState().index).toEqual(index(ROOT_B));
   } finally {
-    await act(async () => { scan.resolve(files(ROOT_A)); });
+    await act(async () => {
+      scan.resolve(files(ROOT_A));
+    });
   }
 });
 
@@ -126,11 +146,15 @@ test("a late native result cannot replace another project's endpoints or recreat
     expect(requestIndex).toHaveBeenCalledTimes(1);
     await activateB();
     workspaceRuntimeRegistry.removeWorkspace(WORKSPACE_A);
-    await act(async () => { result.resolve(index(ROOT_A)); });
+    await act(async () => {
+      result.resolve(index(ROOT_A));
+    });
     expect(workspaceRuntimeRegistry.hasWorkspace(WORKSPACE_A)).toBe(false);
     expect(useSpringStore.getStore(WORKSPACE_B).getState().index).toEqual(index(ROOT_B));
   } finally {
-    await act(async () => { result.resolve(index(ROOT_A)); });
+    await act(async () => {
+      result.resolve(index(ROOT_A));
+    });
   }
 });
 
@@ -147,7 +171,9 @@ test("directory renames and removals refresh endpoints while unrelated workspace
   await mount();
   requestIndex.mockClear();
   let currentFiles = files(ROOT_A);
-  useFileSystemStore.getStore(WORKSPACE_A).setState({ getAllProjectFiles: async () => currentFiles });
+  useFileSystemStore
+    .getStore(WORKSPACE_A)
+    .setState({ getAllProjectFiles: async () => currentFiles });
 
   await act(async () => {
     externalChange(`${ROOT_B}/src`, "deleted");
@@ -156,18 +182,26 @@ test("directory renames and removals refresh endpoints while unrelated workspace
   expect(scheduled).toHaveLength(0);
 
   // The watcher emits only directory paths for the two sides of a rename.
-  currentFiles = [{ name: "Controller.java", path: `${ROOT_A}/renamed/Controller.java`, isDir: false }];
+  currentFiles = [
+    { name: "Controller.java", path: `${ROOT_A}/renamed/Controller.java`, isDir: false },
+  ];
   await act(async () => {
     externalChange(`${ROOT_A}/src`, "deleted");
     externalChange(`${ROOT_A}/renamed`, "opened");
   });
   expect(scheduled.map((entry) => entry.cancelled)).toEqual([true, false]);
-  await act(async () => { scheduled[1].reload(); });
+  await act(async () => {
+    scheduled[1].reload();
+  });
   expect(requestIndex.mock.calls[0][0].paths).toEqual(["renamed/Controller.java"]);
 
   currentFiles = [];
-  await act(async () => { externalChange(`${ROOT_A}/renamed`, "deleted"); });
-  await act(async () => { scheduled[2].reload(); });
+  await act(async () => {
+    externalChange(`${ROOT_A}/renamed`, "deleted");
+  });
+  await act(async () => {
+    scheduled[2].reload();
+  });
   expect(useSpringStore.getStore(WORKSPACE_A).getState().index.endpoints).toEqual([]);
   expect(useSpringStore.getStore(WORKSPACE_A).getState().phase).toBe("ready");
 });
@@ -179,8 +213,53 @@ test("a workspace rescan is coalesced and pending reloads are cancelled on unmou
     externalChange(ROOT_A, "rescan");
   });
   expect(scheduled.map((entry) => entry.cancelled)).toEqual([true, false]);
-  await act(async () => { root.render(null); });
+  await act(async () => {
+    root.render(null);
+  });
   expect(scheduled[1].cancelled).toBe(true);
   externalChange(ROOT_A, "rescan");
   expect(scheduled).toHaveLength(2);
+});
+
+test("typing retains dependency metadata roots instead of falling back to built-in keys", async () => {
+  dependencies.resolveMetadataRepository = async () => "C:/fixture/maven-repository";
+  await mount();
+  await act(async () => {
+    externalChange(`${ROOT_A}/application.properties`, "reloaded");
+  });
+  await act(async () => {
+    scheduled.slice(-1)[0]!.reload();
+  });
+  expect(requestIndex.mock.calls).toHaveLength(2);
+  for (const [args] of requestIndex.mock.calls) {
+    expect(args.metadataRepositories).toEqual(["C:/fixture/maven-repository"]);
+  }
+  expect(requestIndex.mock.calls[1][0].refreshDependencyMetadata).toBe(false);
+});
+
+test("JDT readiness requests a dependency refresh and its subscription is disposed", async () => {
+  let ready: (() => void) | undefined;
+  let disposed = false;
+  dependencies.subscribeDependencyReady = (owner, reload) => {
+    expect(owner).toBe(ROOT_A);
+    ready = reload;
+    return () => {
+      disposed = true;
+    };
+  };
+  await mount();
+  await act(async () => {
+    ready!();
+  });
+  await act(async () => {
+    scheduled.slice(-1)[0]!.reload();
+  });
+  expect(requestIndex.mock.calls[1][0].refreshDependencyMetadata).toBe(true);
+  await act(async () => {
+    root.render(null);
+  });
+  expect(disposed).toBe(true);
+  const count = scheduled.length;
+  ready!();
+  expect(scheduled).toHaveLength(count);
 });

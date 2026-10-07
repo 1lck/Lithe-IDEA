@@ -38,6 +38,11 @@
       ]
     },
     "turnCancelling": { "kind": "turnCancelling", "sessionId": "session-1" },
+    "turnRetrying": { "kind": "turnRetrying", "sessionId": "session-1", "turnId": "host-turn-1", "attempt": 2, "maxAttempts": 5 },
+    "claudeSessionFailure": {
+      "kind": "update", "sessionId": "session-1",
+      "update": { "sessionUpdate": "session_info_update", "_meta": { "jetbrains": { "air": { "version": 1, "sessionFailure": { "id": "upstream-turn-1:error", "revision": 1, "category": "access", "severity": "error", "title": "Sign in to continue using Claude.", "details": "API Error: 401 Invalid API key", "actions": ["login"] } } } } }
+    },
     "sessions": {
       "kind": "sessions",
       "token": "token-3",
@@ -102,6 +107,10 @@
       "kind": "update", "sessionId": "session-1",
       "update": { "sessionUpdate": "session_info_update", "_meta": { "codex": { "error": { "message": "Stream closed before completion; reconnecting.", "codexErrorInfo": null, "additionalDetails": null, "turnId": "upstream-turn-1", "willRetry": true } } } }
     },
+    "codexNativeRetry": {
+      "kind": "update", "sessionId": "session-1",
+      "update": {"sessionUpdate": "session_info_update", "_meta": {"jetbrains": {"air": {"version": 1, "sessionFailure": {"id": "upstream-turn-1:error", "revision": 1, "category": "connection", "severity": "warning", "title": "{\"litheCodexFailure\":{\"message\":\"Local Codex fixture failure\",\"codexErrorInfo\":{\"responseStreamDisconnected\":{\"httpStatusCode\":503}},\"turnId\":\"upstream-turn-1\",\"willRetry\":true,\"activeTurn\":true,\"sequence\":1}}", "actions": []}}}}}
+    },
     "sessionInfo": {
       "kind": "update",
       "sessionId": "session-1",
@@ -137,16 +146,22 @@
     "stopped": { "kind": "stopped", "message": "The Agent connection closed unexpectedly" }
   },
   "upstream": {
+    "codexFailureResponse": {
+      "stopReason": "end_turn", "_meta": {"jetbrains": {"air": {"version": 1, "sessionFailure": {"id": "upstream-turn-1:error", "revision": 5, "category": "connection", "severity": "error", "title": "{\"litheCodexFailure\":{\"message\":\"Local Codex fixture failure\",\"codexErrorInfo\":{\"httpConnectionFailed\":{\"httpStatusCode\":503}},\"turnId\":\"upstream-turn-1\",\"willRetry\":false,\"activeTurn\":true,\"sequence\":5}}", "actions": ["retry", "new_session"]}}}}
+    },
+    "claudeTemporaryFailureResponse": {
+      "stopReason": "end_turn", "_meta": { "jetbrains": { "air": { "version": 1, "sessionFailure": { "id": "upstream-turn-1:error", "revision": 1, "category": "service", "severity": "error", "title": "API Error: 503 No available channel", "actions": ["retry"] } } } }
+    },
     "claudeSessionRouting": {
       "provider": {"protocol": "anthropicMessages", "baseUrl": "https://gateway.example.com/v1/messages", "apiKey": "test-key-123", "name": "Example Claude", "model": "model-configured"},
       "meta": {
         "claudeCode": {
           "options": {
             "model": "model-configured",
-            "env": {"ANTHROPIC_BASE_URL": "https://gateway.example.com", "ANTHROPIC_API_KEY": "test-key-123", "ANTHROPIC_AUTH_TOKEN": "", "ANTHROPIC_CUSTOM_HEADERS": "", "CLAUDE_CODE_OAUTH_TOKEN": "", "CLAUDE_CODE_USE_BEDROCK": "0", "CLAUDE_CODE_USE_VERTEX": "0", "CLAUDE_CODE_USE_FOUNDRY": "0", "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0", "ANTHROPIC_BEDROCK_BASE_URL": "", "ANTHROPIC_VERTEX_BASE_URL": ""},
+            "env": {"ANTHROPIC_BASE_URL": "https://gateway.example.com", "ANTHROPIC_API_KEY": "test-key-123", "ANTHROPIC_AUTH_TOKEN": "", "ANTHROPIC_CUSTOM_HEADERS": "", "CLAUDE_CODE_OAUTH_TOKEN": "", "CLAUDE_CODE_MAX_RETRIES": "0", "CLAUDE_CODE_RETRY_WATCHDOG": "0", "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1", "CLAUDE_CODE_USE_BEDROCK": "0", "CLAUDE_CODE_USE_VERTEX": "0", "CLAUDE_CODE_USE_FOUNDRY": "0", "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0", "ANTHROPIC_BEDROCK_BASE_URL": "", "ANTHROPIC_VERTEX_BASE_URL": ""},
             "settings": {
               "apiKeyHelper": "",
-              "env": {"ANTHROPIC_BASE_URL": "https://gateway.example.com", "ANTHROPIC_API_KEY": "test-key-123", "ANTHROPIC_AUTH_TOKEN": "", "ANTHROPIC_CUSTOM_HEADERS": "", "CLAUDE_CODE_OAUTH_TOKEN": "", "CLAUDE_CODE_USE_BEDROCK": "0", "CLAUDE_CODE_USE_VERTEX": "0", "CLAUDE_CODE_USE_FOUNDRY": "0", "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0", "ANTHROPIC_BEDROCK_BASE_URL": "", "ANTHROPIC_VERTEX_BASE_URL": ""}
+              "env": {"ANTHROPIC_BASE_URL": "https://gateway.example.com", "ANTHROPIC_API_KEY": "test-key-123", "ANTHROPIC_AUTH_TOKEN": "", "ANTHROPIC_CUSTOM_HEADERS": "", "CLAUDE_CODE_OAUTH_TOKEN": "", "CLAUDE_CODE_MAX_RETRIES": "0", "CLAUDE_CODE_RETRY_WATCHDOG": "0", "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1", "CLAUDE_CODE_USE_BEDROCK": "0", "CLAUDE_CODE_USE_VERTEX": "0", "CLAUDE_CODE_USE_FOUNDRY": "0", "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0", "ANTHROPIC_BEDROCK_BASE_URL": "", "ANTHROPIC_VERTEX_BASE_URL": ""}
             }
           }
         }

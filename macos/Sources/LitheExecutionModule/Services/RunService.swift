@@ -450,12 +450,14 @@ package final class RunService: ObservableObject {
                 guard !Task.isCancelled, projectLoadID == loadID else { return }
                 let preferredID = selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
                     ?? preferences.string(forKey: selectionPreferenceKey(for: projectURL.standardizedFileURL))
-                let resolution = try resolveWithServiceToolchains(
+                let resolution = try await resolveLoadedProjectToolchains(
                     operations: operations,
                     projectURL: projectURL,
                     mavenProject: self.mavenProject,
-                    preferredConfigurationID: preferredID
+                    preferredConfigurationID: preferredID,
+                    loadID: loadID
                 )
+                guard !Task.isCancelled, projectLoadID == loadID else { return }
                 configurationDiagnostics += resolution.diagnostics
                 defaultConfigurationID = resolution.defaultConfigurationID
                 apply(
@@ -464,6 +466,7 @@ package final class RunService: ObservableObject {
                     preferredConfigurationID: preferredID ?? resolution.defaultConfigurationID
                 )
             } catch {
+                guard !Task.isCancelled, projectLoadID == loadID, !(error is CancellationError) else { return }
                 configurationStatus = .invalid(error.localizedDescription)
                 recoveryAction = .editConfiguration
                 configurations = []
@@ -1272,12 +1275,44 @@ package final class RunService: ObservableObject {
             javaHomeOverride: options?.javaHomePath,
             mavenExecutableOverride: options?.mavenExecutablePath
         )
+        return mergingExecutableCandidates(runtimeCandidates, projectURL: projectURL)
+    }
+
+    private func mergingExecutableCandidates(_ runtimeCandidates: [ProjectToolchainCandidate], projectURL: URL) -> [ProjectToolchainCandidate] {
         var candidatesByID = Dictionary(uniqueKeysWithValues: runtimeCandidates.map { ($0.id, $0) })
         for candidate in executableResolver.candidates(projectURL: projectURL)
             where candidatesByID[candidate.id] == nil {
             candidatesByID[candidate.id] = candidate
         }
         return candidatesByID.values.sorted { $0.id < $1.id }
+    }
+
+    private func resolveLoadedProjectToolchains(
+        operations: any RunConfigurationOperations,
+        projectURL: URL,
+        mavenProject: MavenProject?,
+        preferredConfigurationID: String?,
+        loadID: UUID
+    ) async throws -> RunConfigurationResolution {
+        func candidates(options: RunOptions? = nil) async throws -> [ProjectToolchainCandidate] {
+            let runtimeCandidates = try await runtime.loadRunConfigurationToolchainCandidates(
+                for: mavenProject, projectRoot: projectURL,
+                javaHomeOverride: options?.javaHomePath,
+                mavenExecutableOverride: options?.mavenExecutablePath
+            )
+            guard !Task.isCancelled, projectLoadID == loadID else { throw CancellationError() }
+            return mergingExecutableCandidates(runtimeCandidates, projectURL: projectURL)
+        }
+        let initial = try operations.resolve(at: projectURL, toolchainCandidates: await candidates())
+        guard let options = javaServiceOptions(in: initial, preferredID: preferredConfigurationID) else { return initial }
+        return try operations.resolve(at: projectURL, toolchainCandidates: await candidates(options: options))
+    }
+
+    private func javaServiceOptions(in resolution: RunConfigurationResolution, preferredID: String?) -> RunOptions? {
+        let preferred = resolution.configurations.first { $0.configuration.id == preferredID }
+        return (preferred ?? resolution.configurations.first {
+            $0.configuration.kind.capabilities.contains(.javaRuntime) && !$0.options.javaHomePath.isEmpty
+        })?.options
     }
 
     private func resolveWithServiceToolchains(
@@ -1290,16 +1325,11 @@ package final class RunService: ObservableObject {
             at: projectURL,
             toolchainCandidates: toolchainCandidates(projectURL: projectURL, mavenProject: mavenProject)
         )
-        let preferred = initial.configurations.first { $0.configuration.id == preferredConfigurationID }
-        let javaService = preferred ?? initial.configurations.first {
-            $0.configuration.kind.capabilities.contains(.javaRuntime)
-                && !$0.options.javaHomePath.isEmpty
-        }
-        guard let javaService else { return initial }
+        guard let options = javaServiceOptions(in: initial, preferredID: preferredConfigurationID) else { return initial }
         let candidates = toolchainCandidates(
             projectURL: projectURL,
             mavenProject: mavenProject,
-            options: javaService.options
+            options: options
         )
         return try operations.resolve(at: projectURL, toolchainCandidates: candidates)
     }

@@ -40,6 +40,8 @@ struct AgentResponseStatusRow: View {
     var responseStatus: AgentResponseStatus = .waiting
     var startedAt: ContinuousClock.Instant?
     var hasStreamingThought = false
+    var retryAttempt: Int?
+    var retryMaxAttempts: Int?
 
     var status: String {
         switch responseStatus {
@@ -49,7 +51,12 @@ struct AgentResponseStatusRow: View {
         case .responding: String(localized: "Responding…")
         case .runningTools: String(localized: "Running tools…")
         case .waitingForPermission: String(localized: "Waiting for permission…")
-        case .retrying: String(localized: "Agent is retrying…")
+        case .retrying:
+            if let retryAttempt, let retryMaxAttempts {
+                String(format: String(localized: "Reconnecting %d/%d…"), retryAttempt, retryMaxAttempts)
+            } else {
+                String(localized: "Reconnecting…")
+            }
         case .stopping: String(localized: "Stopping…")
         }
     }

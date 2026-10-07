@@ -270,6 +270,13 @@ package protocol RunRuntimePort: AnyObject {
         javaHomeOverride: String?,
         mavenExecutableOverride: String?
     ) -> [ProjectToolchainCandidate]
+    /// Project restoration awaits version probes instead of running them on the UI executor.
+    func loadRunConfigurationToolchainCandidates(
+        for project: MavenProject?,
+        projectRoot: URL?,
+        javaHomeOverride: String?,
+        mavenExecutableOverride: String?
+    ) async throws -> [ProjectToolchainCandidate]
     /// Applies workspace and subproject JDK/Maven defaults when a run
     /// configuration does not set its own explicit toolchain paths.
     func overlayProjectRuntime(

@@ -11,6 +11,7 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     let viewportWidth: CGFloat
     let highlightsWords: Bool
     let showsChangeMarkers: Bool
+    let fontFamily: String
     let header: ((CGFloat) -> AnyView)?
     let selectedRowIDs: Set<DiffRowID>
     let searchMatchIDs: Set<DiffRowID>
@@ -33,6 +34,7 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
         viewportWidth: CGFloat,
         highlightsWords: Bool = true,
         showsChangeMarkers: Bool = true,
+        fontFamily: String = EditorFontDefaults.monospacedFamily,
         header: ((CGFloat) -> AnyView)? = nil,
         selectedRowIDs: Set<DiffRowID> = [],
         searchMatchIDs: Set<DiffRowID> = [],
@@ -40,12 +42,16 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
         onExpand: @escaping (DiffCollapsedRegion) -> Void,
         @ViewBuilder rowOverlay: @escaping (DiffRow, DiffSide) -> RowOverlay
     ) {
-        self.layout = layout ?? DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
+        self.layout = layout ?? DiffSplitLayout.plan(
+            displayRows: displayRows, kinds: kinds,
+            gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(
+                rows: displayRows.map(\.layoutRow), family: fontFamily))
         self.fileExtension = fileExtension
         self.contentWidth = contentWidth
         self.viewportWidth = viewportWidth
         self.highlightsWords = highlightsWords
         self.showsChangeMarkers = showsChangeMarkers
+        self.fontFamily = fontFamily
         self.header = header
         self.selectedRowIDs = selectedRowIDs
         self.searchMatchIDs = searchMatchIDs
@@ -166,7 +172,8 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
         ZStack(alignment: .topLeading) {
             DiffNativeCodeColumn(state: state, layoutIdentity: layout.identity, items: items,
                 side: side, fileExtension: fileExtension, highlightsWords: highlightsWords,
-                selectedRowIDs: selectedRowIDs, currentSearchMatchID: currentSearchMatchID)
+                selectedRowIDs: selectedRowIDs, currentSearchMatchID: currentSearchMatchID,
+                fontFamily: fontFamily)
                 .frame(width: width, height: layout.contentHeight)
             // Retain existing fold/hunk actions and ScrollViewReader anchors. Normal
             // rows are transparent hit-test-free geometry, not separate text editors.
@@ -278,6 +285,7 @@ extension DiffSplitPaneView where RowOverlay == EmptyView {
         viewportWidth: CGFloat,
         highlightsWords: Bool = true,
         showsChangeMarkers: Bool = true,
+        fontFamily: String = EditorFontDefaults.monospacedFamily,
         header: ((CGFloat) -> AnyView)? = nil,
         selectedRowIDs: Set<DiffRowID> = [],
         searchMatchIDs: Set<DiffRowID> = [],
@@ -293,6 +301,7 @@ extension DiffSplitPaneView where RowOverlay == EmptyView {
             viewportWidth: viewportWidth,
             highlightsWords: highlightsWords,
             showsChangeMarkers: showsChangeMarkers,
+            fontFamily: fontFamily,
             header: header,
             selectedRowIDs: selectedRowIDs,
             searchMatchIDs: searchMatchIDs,

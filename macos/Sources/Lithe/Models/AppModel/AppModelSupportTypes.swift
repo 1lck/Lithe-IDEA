@@ -68,7 +68,13 @@ struct WorkbenchNotification: Identifiable, Equatable {
     let id: UUID
     let message: String
     let createdAt: Date
+    /// When the message was shown last. Repeating a message keeps the single
+    /// entry but moves this forward, so the list reports fresh activity.
+    var updatedAt: Date
     var isRead: Bool
+    /// How often the same message has been shown. The first appearance is 1;
+    /// later appearances raise the count instead of adding a duplicate row.
+    var occurrenceCount = 1
     /// Transient overflow attached to this balloon; history retains each message.
     var collapsedCount = 0
 
@@ -81,6 +87,7 @@ struct WorkbenchNotification: Identifiable, Equatable {
         self.id = id
         self.message = message
         self.createdAt = createdAt
+        self.updatedAt = createdAt
         self.isRead = isRead
     }
 }

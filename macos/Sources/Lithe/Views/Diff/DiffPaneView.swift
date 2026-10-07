@@ -16,6 +16,7 @@ struct DiffPaneView: View {
     var highlightsWords: Bool = true
     var collapsesUnchangedRegions: Bool = true
     var showsDiffMap: Bool = true
+    var fontFamily: String = EditorFontDefaults.monospacedFamily
 
     @State private var expandedRegionIDs: Set<String> = []
     var body: some View {
@@ -26,14 +27,14 @@ struct DiffPaneView: View {
     private var diffSurface: some View {
         let displayRows = displayRows()
         let measuredWidth = DiffLayoutMetrics.contentWidth(
-            rows: rows, viewportWidth: 0, minimumWidth: minimumWidth, paneCount: 2)
+            rows: rows, viewportWidth: 0, minimumWidth: minimumWidth, paneCount: 2, family: fontFamily)
         let kinds = displayRows.map { displayRow in
             switch displayRow {
             case let .row(row, _): row.kind
             case .collapsed: DiffRowKind.information
             }
         }
-        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows))
+        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows, family: fontFamily))
         return GeometryReader { geometry in
             let contentWidth = max(geometry.size.width, measuredWidth)
 
@@ -46,7 +47,8 @@ struct DiffPaneView: View {
                     contentWidth: contentWidth,
                     viewportWidth: geometry.size.width,
                     highlightsWords: highlightsWords,
-                    showsChangeMarkers: showsDiffMap
+                    showsChangeMarkers: showsDiffMap,
+                    fontFamily: fontFamily
                 ) { region in
                     expandedRegionIDs.insert(region.id)
                 }

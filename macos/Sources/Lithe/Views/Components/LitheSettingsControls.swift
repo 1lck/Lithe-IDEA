@@ -10,7 +10,12 @@ private enum SettingsSelectMetrics {
     static let itemHorizontalPadding: CGFloat = LitheDropdownMetrics.itemHorizontalPadding
     static let popupPadding: CGFloat = LitheDropdownMetrics.popupPadding
     static let screenMargin: CGFloat = 24
-    static let maximumPopupHeight: CGFloat = 10 * itemHeight + 2 * popupPadding
+    /// Rows shown before the popup scrolls. Also bounds a filtered searchable
+    /// list so typing narrows the popup instead of growing it.
+    static let maximumVisibleRows = 10
+    static let maximumPopupHeight: CGFloat = CGFloat(maximumVisibleRows) * itemHeight + 2 * popupPadding
+    /// Gap between the search field and the first row of a searchable list.
+    static let searchSpacing: CGFloat = 6
 }
 
 private struct LitheSettingsControlChrome: ViewModifier {
@@ -31,7 +36,24 @@ private struct LitheSettingsControlChrome: ViewModifier {
     }
 }
 
+/// Matching rule for the searchable settings selector, kept separate from the
+/// SwiftUI view so the filtering contract can be tested directly.
+enum LitheSettingsSelectSearch {
+    /// Case- and diacritic-insensitive containment. An empty or whitespace-only
+    /// query matches everything, so clearing the field restores the full list.
+    static func matches(_ candidate: String, query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+
+        return candidate.localizedStandardContains(trimmed)
+    }
+}
+
 struct LitheSettingsSearchField: View {
+    /// Height shared with the popups that host this field, so a searchable list
+    /// reserves exactly the room the field occupies.
+    static let height: CGFloat = 28
+
     @FocusState private var isFocused: Bool
     private let externalFocus: FocusState<Bool>.Binding?
     private let placeholder: LocalizedStringKey
@@ -73,7 +95,7 @@ struct LitheSettingsSearchField: View {
             }
         }
         .padding(.horizontal, 9)
-        .frame(height: 28)
+        .frame(height: Self.height)
         .litheSettingsControlChrome(
             background: .clear,
             border: (externalFocus?.wrappedValue ?? isFocused) ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
@@ -95,6 +117,11 @@ struct LitheSettingsSelect<Value: Hashable>: View {
     private let expandsToFitOptions: Bool
     private let isAvailable: (Value) -> Bool
     private let onUnavailableSelection: ((Value) -> Void)?
+    /// When set, the popup shows a search field above the rows and filters the
+    /// options as the user types. Existing callers leave it nil and keep the
+    /// plain, unfiltered list.
+    private let searchPrompt: LocalizedStringKey?
+    private let searchText: (Value) -> String
     @State private var isPresented = false
     @State private var popupID = UUID()
     @State private var popupAnchor = LitheSettingsSelectAnchorReference()
@@ -108,7 +135,9 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         localizesTitles: Bool = true,
         expandsToFitOptions: Bool = false,
         isAvailable: @escaping (Value) -> Bool = { _ in true },
-        onUnavailableSelection: ((Value) -> Void)? = nil
+        onUnavailableSelection: ((Value) -> Void)? = nil,
+        searchPrompt: LocalizedStringKey? = nil,
+        searchText: ((Value) -> String)? = nil
     ) {
         _selection = selection
         self.options = options
@@ -119,6 +148,8 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         self.expandsToFitOptions = expandsToFitOptions
         self.isAvailable = isAvailable
         self.onUnavailableSelection = onUnavailableSelection
+        self.searchPrompt = searchPrompt
+        self.searchText = searchText ?? title
     }
 
     var body: some View {
@@ -170,7 +201,8 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         let popupWidth = preferredPopupWidth(maximumWidth: max(1, visibleFrame.width - SettingsSelectMetrics.screenMargin))
         let state = LitheSettingsSelectPopupState(
             selectedIndex: options.firstIndex(of: selection) ?? 0,
-            optionCount: options.count
+            visibleIndicesProvider: visibleIndices(for:),
+            isSearchEnabled: searchPrompt != nil
         ) { index in
             let option = options[index]
             if isAvailable(option) {
@@ -187,14 +219,12 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             title: title,
             localizesTitles: localizesTitles,
             expandsToFitOptions: expandsToFitOptions,
-            isAvailable: isAvailable
+            isAvailable: isAvailable,
+            searchPrompt: searchPrompt
         )
-        let measured = NSHostingView(rootView: content.rows.environment(\.locale, locale))
-        let popupHeight = min(
-            measured.fittingSize.height,
-            SettingsSelectMetrics.maximumPopupHeight,
-            max(1, visibleFrame.height - SettingsSelectMetrics.screenMargin)
-        )
+        let popupHeight = searchPrompt == nil
+            ? measuredPopupHeight(content: content, visibleFrame: visibleFrame)
+            : preferredPopupHeight(rows: state.visibleIndices.count)
         let popup = content.environment(\.locale, locale)
         LitheSettingsSelectPopupPresenter.shared.show(
             ownerID: popupID,
@@ -208,7 +238,78 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         ) {
             isPresented = false
         }
+        // A filtered list is shorter than the unfiltered one, so the popup has to
+        // follow the visible row count while the user types.
+        state.onPreferredHeightChange = { [weak state] in
+            guard let state else { return }
+            LitheSettingsSelectPopupPresenter.shared.resize(
+                ownerID: popupID,
+                preferredHeight: preferredPopupHeight(rows: state.visibleIndices.count),
+                state: state
+            )
+        }
         isPresented = true
+    }
+
+    /// Options matching the current query, as indices into `options`. Keeping
+    /// indices (rather than copied values) lets selection and availability keep
+    /// operating on the caller's own list.
+    private func visibleIndices(for query: String) -> [Int] {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return Array(options.indices)
+        }
+
+        return options.indices.filter { index in
+            let text = searchText(options[index])
+            let searchable = localizesTitles
+                ? String(localized: String.LocalizationValue(text), locale: locale)
+                : text
+            return LitheSettingsSelectSearch.matches(searchable, query: query)
+        }
+    }
+
+    /// Deterministic height for a searchable list: the search field plus whole
+    /// rows, so filtering shrinks the popup instead of leaving empty space.
+    /// Room the search field adds above the rows: its own height, the gap before
+    /// the first row, and the same top padding the rows container already owns.
+    private var searchFieldCost: CGFloat {
+        guard searchPrompt != nil else { return 0 }
+        return LitheSettingsSearchField.height
+            + SettingsSelectMetrics.searchSpacing
+            + SettingsSelectMetrics.popupPadding
+    }
+
+    /// How many rows fit before the popup reaches the shared height cap. With
+    /// search enabled the field takes part of that budget, so the popup stays
+    /// within `maximumPopupHeight` instead of growing past it.
+    private var maximumPopupRows: Int {
+        let rowSpace = SettingsSelectMetrics.maximumPopupHeight
+            - 2 * SettingsSelectMetrics.popupPadding
+            - searchFieldCost
+        return max(1, Int(rowSpace / SettingsSelectMetrics.itemHeight))
+    }
+
+    /// Deterministic height for a searchable list: whole rows plus the search
+    /// field, so filtering shrinks the popup instead of leaving empty space.
+    private func preferredPopupHeight(rows: Int) -> CGFloat {
+        let visibleRows = max(1, min(rows, maximumPopupRows))
+        return CGFloat(visibleRows) * SettingsSelectMetrics.itemHeight
+            + 2 * SettingsSelectMetrics.popupPadding
+            + searchFieldCost
+    }
+
+    /// Height for lists whose rows are not uniform, measured from the rows
+    /// themselves exactly as before the searchable variant existed.
+    private func measuredPopupHeight(
+        content: LitheSettingsSelectPopupContent<Value>,
+        visibleFrame: NSRect
+    ) -> CGFloat {
+        let measured = NSHostingView(rootView: content.rows.environment(\.locale, locale))
+        return min(
+            measured.fittingSize.height,
+            SettingsSelectMetrics.maximumPopupHeight,
+            max(1, visibleFrame.height - SettingsSelectMetrics.screenMargin)
+        )
     }
 
     private func preferredPopupWidth(maximumWidth: CGFloat) -> CGFloat {
@@ -251,28 +352,57 @@ private final class LitheSettingsSelectAnchorNSView: NSView {
 @MainActor
 private final class LitheSettingsSelectPopupState: ObservableObject {
     let selectedIndex: Int
+    /// Row highlighted inside `visibleIndices`, not inside `options`.
     @Published var highlightedIndex: Int
     @Published var keyboardScrollIndex: Int?
     @Published var popupHeight: CGFloat = 0
-    let optionCount: Int
+    /// Options currently shown, as indices into the caller's `options`.
+    @Published private(set) var visibleIndices: [Int]
+    /// Search query owned by the popup so filtering and keyboard selection share
+    /// one source of truth.
+    @Published var query = "" {
+        didSet { refreshVisibleIndices() }
+    }
+    let isSearchEnabled: Bool
     let onChoose: (Int) -> Void
+    /// Reports the height the popup should adopt after the visible row count
+    /// changes. Unused by the non-searchable variant.
+    var onPreferredHeightChange: (() -> Void)?
 
-    init(selectedIndex: Int, optionCount: Int, onChoose: @escaping (Int) -> Void) {
+    private let visibleIndicesProvider: (String) -> [Int]
+
+    init(
+        selectedIndex: Int,
+        visibleIndicesProvider: @escaping (String) -> [Int],
+        isSearchEnabled: Bool,
+        onChoose: @escaping (Int) -> Void
+    ) {
         self.selectedIndex = selectedIndex
-        highlightedIndex = selectedIndex
-        self.optionCount = optionCount
+        self.visibleIndicesProvider = visibleIndicesProvider
+        self.isSearchEnabled = isSearchEnabled
         self.onChoose = onChoose
+        let initialVisibleIndices = visibleIndicesProvider("")
+        visibleIndices = initialVisibleIndices
+        highlightedIndex = initialVisibleIndices.firstIndex(of: selectedIndex) ?? 0
+    }
+
+    func refreshVisibleIndices() {
+        visibleIndices = visibleIndicesProvider(query)
+        highlightedIndex = visibleIndices.firstIndex(of: selectedIndex) ?? 0
+        keyboardScrollIndex = highlightedIndex
+        onPreferredHeightChange?()
     }
 
     func handleKey(_ event: NSEvent, dismiss: () -> Void) -> Bool {
         switch event.keyCode {
         case 125, 126: // Down / Up
-            guard optionCount > 0 else { return true }
-            highlightedIndex = (highlightedIndex + (event.keyCode == 125 ? 1 : optionCount - 1)) % optionCount
+            guard !visibleIndices.isEmpty else { return true }
+            let step = event.keyCode == 125 ? 1 : visibleIndices.count - 1
+            highlightedIndex = (highlightedIndex + step) % visibleIndices.count
             keyboardScrollIndex = highlightedIndex
         case 36, 76: // Return / keypad Enter
-            guard optionCount > 0 else { return true }
-            onChoose(highlightedIndex)
+            guard visibleIndices.indices.contains(highlightedIndex) else { return true }
+            onChoose(visibleIndices[highlightedIndex])
         case 53: // Escape
             dismiss()
         default:
@@ -290,35 +420,61 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
     let localizesTitles: Bool
     let expandsToFitOptions: Bool
     let isAvailable: (Value) -> Bool
+    let searchPrompt: LocalizedStringKey?
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                rows
+        VStack(spacing: 0) {
+            if let searchPrompt {
+                LitheSettingsSearchField(searchPrompt, text: $state.query)
+                    .padding(.horizontal, SettingsSelectMetrics.popupPadding)
+                    .padding(.top, SettingsSelectMetrics.popupPadding)
+                    .padding(.bottom, SettingsSelectMetrics.searchSpacing)
             }
-            .onAppear { proxy.scrollTo(state.highlightedIndex) }
-            .onChange(of: state.keyboardScrollIndex) { index in
-                if let index { proxy.scrollTo(index) }
+
+            if state.visibleIndices.isEmpty {
+                emptyState
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        rows
+                    }
+                    .onAppear { proxy.scrollTo(state.highlightedIndex) }
+                    .onChange(of: state.keyboardScrollIndex) { index in
+                        if let index { proxy.scrollTo(index) }
+                    }
+                }
+                .scrollContentBackground(.hidden)
             }
         }
-        .scrollContentBackground(.hidden)
         .frame(width: width, height: state.popupHeight)
         .litheContextMenuSurface()
         .clipShape(RoundedRectangle(cornerRadius: SettingsSelectMetrics.popupCornerRadius))
     }
 
+    /// Searchable lists can legitimately match nothing; say so instead of
+    /// showing a blank panel that looks like a rendering failure.
+    private var emptyState: some View {
+        Text("No matching items")
+            .font(LitheTheme.uiFont(size: SettingsSelectMetrics.fontSize))
+            .foregroundStyle(LitheTheme.tertiaryText)
+            .padding(.horizontal, SettingsSelectMetrics.itemHorizontalPadding)
+            .frame(maxWidth: .infinity, minHeight: SettingsSelectMetrics.itemHeight, alignment: .leading)
+            .padding(SettingsSelectMetrics.popupPadding)
+    }
+
     var rows: some View {
         VStack(spacing: 0) {
-            ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+            ForEach(Array(state.visibleIndices.enumerated()), id: \.offset) { row, optionIndex in
+                let option = options[optionIndex]
                 Button {
-                    state.onChoose(index)
+                    state.onChoose(optionIndex)
                 } label: {
                     HStack {
                         (localizesTitles ? Text(LocalizedStringKey(title(option))) : Text(verbatim: title(option)))
                             .font(LitheTheme.uiFont(size: SettingsSelectMetrics.fontSize))
                             .foregroundStyle(
                                 isAvailable(option)
-                                    ? (state.highlightedIndex == index ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
+                                    ? (state.highlightedIndex == row ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
                                     : LitheTheme.tertiaryText
                             )
                             .lineLimit(expandsToFitOptions ? nil : 1)
@@ -331,18 +487,18 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
                     .padding(.vertical, expandsToFitOptions ? 4 : 0)
                     .frame(maxWidth: .infinity, minHeight: SettingsSelectMetrics.itemHeight, alignment: .leading)
                     .litheRowHover(
-                        isActive: state.highlightedIndex == index,
+                        isActive: state.highlightedIndex == row,
                         cornerRadius: SettingsSelectMetrics.controlCornerRadius,
                         activeBackground: LitheTheme.settingsSelection.opacity(isAvailable(option) ? 1 : 0.35)
                     )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.litheNoPress)
-                .accessibilityAddTraits(state.selectedIndex == index ? .isSelected : [])
+                .accessibilityAddTraits(state.selectedIndex == optionIndex ? .isSelected : [])
                 .onHover { hovering in
-                    if hovering { state.highlightedIndex = index }
+                    if hovering { state.highlightedIndex = row }
                 }
-                .id(index)
+                .id(row)
                 .help(isAvailable(option) ? "" : "Shell is not available at this path")
             }
         }
@@ -389,6 +545,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
     private var panel: LitheSettingsSelectPopupPanel?
     private weak var anchorWindow: NSWindow?
     private var anchorFrame: NSRect?
+    private var visibleFrame: NSRect?
     private var ownerID: UUID?
     private var onDismiss: (() -> Void)?
     private var localEventMonitor: Any?
@@ -416,8 +573,12 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
             backing: .buffered,
             defer: false
         )
-        panel.handleKey = { [weak self, weak state] event in
-            state?.handleKey(event) { self?.dismiss(ownerID: ownerID) } ?? false
+        panel.handleKey = { [weak self, weak state, weak panel] event in
+            guard let state else { return false }
+            // A composing input method owns navigation keys: intercepting them
+            // would commit or cancel the composition instead of moving in the list.
+            if state.isSearchEnabled, let panel, self?.isComposing(in: panel) == true { return false }
+            return state.handleKey(event) { self?.dismiss(ownerID: ownerID) }
         }
         panel.contentViewController = NSHostingController(rootView: content)
         panel.appearance = appearance
@@ -433,6 +594,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         self.panel = panel
         self.anchorWindow = anchorWindow
         self.anchorFrame = anchorFrame
+        self.visibleFrame = visibleFrame
         self.ownerID = ownerID
         self.onDismiss = onDismiss
         installEventMonitors()
@@ -440,6 +602,41 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         anchorWindow.addChildWindow(panel, ordered: .above)
         panel.orderFrontRegardless()
         panel.makeKey()
+        // The panel is key but has no text field of its own until the searchable
+        // content is loaded, so the caret is placed after the first layout pass.
+        if state.isSearchEnabled {
+            panel.contentView?.layoutSubtreeIfNeeded()
+            focusSearchField(in: panel)
+        }
+    }
+
+    /// Resizes an open popup after a searchable list changed its visible row
+    /// count. Reuses the anchored geometry so the popup keeps hugging its trigger
+    /// and stays inside the visible frame.
+    func resize(ownerID: UUID, preferredHeight: CGFloat, state: LitheSettingsSelectPopupState) {
+        guard ownerID == self.ownerID, let panel, let anchorFrame, let visibleFrame else { return }
+        let frame = LitheSettingsSelectPopupGeometry.frame(
+            anchor: anchorFrame,
+            size: NSSize(width: panel.frame.width, height: preferredHeight),
+            visibleFrame: visibleFrame
+        )
+        state.popupHeight = frame.height
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
+    }
+
+    private func focusSearchField(in panel: NSPanel) {
+        guard let content = panel.contentView, let field = searchField(in: content) else { return }
+        panel.makeFirstResponder(field)
+    }
+
+    private func isComposing(in panel: NSPanel) -> Bool {
+        guard let content = panel.contentView, let field = searchField(in: content) else { return false }
+        return (field.currentEditor() as? NSTextView)?.hasMarkedText() == true
+    }
+
+    private func searchField(in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.isEditable, field.isEnabled { return field }
+        return view.subviews.lazy.compactMap { self.searchField(in: $0) }.first
     }
 
     func dismiss(ownerID: UUID? = nil) {
@@ -450,6 +647,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         self.ownerID = nil
         anchorWindow = nil
         anchorFrame = nil
+        visibleFrame = nil
         let closingPanel = panel
         panel = nil
         if let closingPanel { closingPanel.parent?.removeChildWindow(closingPanel) }

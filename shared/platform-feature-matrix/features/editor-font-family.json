@@ -1,0 +1,41 @@
+{
+  "id": "editor-font-family",
+  "area": "编辑器",
+  "group": "排版",
+  "capability": "代码编辑器可选择已安装的等宽编程字体族，未安装时回退到随包分发的默认等宽字体",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/App/SettingsView.swift",
+      "macos/Sources/Lithe/Platform/MacOS/UI/MacEditorFontCatalog.swift",
+      "macos/Sources/Lithe/Models/Settings/EditorFontDefaults.swift",
+      "macos/Sources/Lithe/Models/Settings/EditorFontCoverage.swift",
+      "macos/Sources/Lithe/Models/Settings/AppSettings.swift",
+      "macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+      "macos/Sources/Lithe/Views/Diff/DiffReviewView.swift",
+      "macos/Sources/Lithe/Views/History/LocalHistoryView.swift",
+      "macos/Sources/Lithe/Views/Git/BranchComparisonView.swift",
+      "macos/Sources/Lithe/Views/App/SettingsSearchVocabulary.swift",
+      "macos/Tests/LitheTests/EditorFontFamilyTests.swift",
+      "macos/Tests/LitheTests/SettingsSearchVocabularyTests.swift",
+      "macos/Tests/LitheTests/SearchableSettingsSelectTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/settings/components/tabs/editor-settings.tsx",
+      "windows/tauri/src/features/settings/components/font-selector.tsx",
+      "windows/tauri/src/features/settings/stores/font.store.ts",
+      "windows/tauri/src/features/settings/lib/font-family-resolution.ts",
+      "windows/tauri/src/features/settings/config/typography-defaults.ts",
+      "windows/tauri/src-tauri/src/host.rs"
+    ]
+  },
+  "owner": "Editor / Settings",
+  "notes": "macOS 只列出等宽字体族，默认是随包分发的 JetBrains Mono，因此未改过设置的用户与旧版本渲染一致；终端、Output 工具窗、提交信息输入框和搜索结果里的 Before/After 小片段继续使用打包字体，与 IDEA 的 Editor/Console 字体分工一致；搜索的完整源码预览会跟随所选族，Agent 上报 Diff 弹窗因宿主刻意不依赖环境而保留打包字体。所选字族缺字时打包字族是第一回退：网页侧发 `\"所选族\", \"JetBrains Mono\", monospace` 字体栈，原生侧给非打包字族加打包字体描述符开头的级联表；打包字体也没有的字形继续走系统级联。设置页在所选字族缺少界面所需字符组时给出提示（打包默认字族豁免，要求集按界面语言取基本拉丁字母+界面标点，中文界面额外要求中文）。族名一律用带默认值的参数逐层传入，不给叶子 Diff 视图新增必需的环境对象。等宽限定同时保证原生 Diff 的单字符宽度度量仍然成立。存储值只保存族名，字体被卸载或重命名时由字体目录回退到默认族，设置项仍显示用户原值以便重新安装后恢复；字体枚举只在进程内内存中缓存且不失效，故新增字体需重启应用，不写入已签名安装包。Windows 默认等宽字体是 Geist Mono，并通过 validate_font 校验配置值。",
+  "verification": "macOS：在未安装任何额外字体的机器上打开设置 → 编辑器 → 显示，确认「Font」下拉只列出等宽字体族且默认显示 JetBrains Mono；输入关键字过滤（例如 menlo）确认列表收缩且面板高度跟随行数变化，↑/↓ 移动高亮、Return 应用、Esc 关闭、点击空白处关闭；选择另一等宽字体后确认所有已打开编辑器（含分栏编辑器和搜索替换预览）立即换字并重新测量字宽，行号栏与横向滚动范围同步更新；在工作区 Diff 与历史提交 Diff 中确认代码与行号使用同一字体。关闭设置重开及重启应用后确认选择保留，恢复默认后回到 JetBrains Mono。把已选字体移出系统字体目录后重开应用，确认编辑器回退到 JetBrains Mono 且设置项显示原族名并呈不可用样式，重新安装字体后再次生效。缺字回退：选一个不含中文的拉丁字体并在中文界面输入中文，确认编辑器、Diff 与完整搜索预览仍正常显示中文（由打包字体与系统级联提供），设置页 Font 行下方出现「该字体不包含中文字符」提示；换成随包默认 JetBrains Mono 时提示消失；再选一个用 CoreText 判定缺标点或符号的旧 GBK 字体，确认提示点名对应字符组，且源码里的标点仍能显示。切换明暗主题，并输入中文确认系统回退字形正常。比较安装包 Fonts 目录清单与 SHA-256，确认枚举与选择过程不修改已签名 bundle。Windows：进入设置 → 编辑器，确认字体族选择器只列出等宽字体，选择后编辑器即时更新并在重启后保留，未安装的配置值回退到默认等宽字体。"
+}

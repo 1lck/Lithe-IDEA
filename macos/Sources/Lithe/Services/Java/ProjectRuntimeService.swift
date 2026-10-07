@@ -40,6 +40,7 @@ final class ProjectRuntimeService: ObservableObject {
     @Published private(set) var settings = ProjectRuntimeSettings()
     private var activeServiceJavaHomePath = ""
     private var launchJavaRuntimes: [JavaRuntimeCandidate]?
+    private var runtimeSessionID = UUID()
 
     private let javaSelector: any JavaRuntimeSelecting
     private let runtimeLocator: any RuntimeLocator
@@ -68,6 +69,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func openProject(at url: URL) {
+        runtimeSessionID = UUID()
         discoveryTask?.cancel()
         activeDiscoveryID = nil
         let normalizedURL = url.standardizedFileURL
@@ -83,6 +85,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func closeProject() {
+        runtimeSessionID = UUID()
         discoveryTask?.cancel()
         discoveryTask = nil
         activeDiscoveryID = nil
@@ -107,10 +110,12 @@ final class ProjectRuntimeService: ObservableObject {
     /// value stays "Detecting…" when Settings is entered past the project page.
     func ensureRuntimesDiscovered() async {
         guard projectURL != nil, !hasDiscoveredRuntimes, !isDiscovering else { return }
-        await refreshAvailableRuntimes()
+        await performRuntimeRefresh()
     }
 
     func refreshAvailableRuntimes() async {
+        runtimeSessionID = UUID()
+        runtimeLocator.invalidateProbeCache()
         launchJavaRuntimes = nil
         discoveryTask?.cancel()
         discoveryTask = nil
@@ -506,14 +511,77 @@ final class ProjectRuntimeService: ObservableObject {
         return mavenRuntimes.first { $0.executablePath == executable }
     }
 
+    func loadRunConfigurationToolchainCandidates(
+        for project: MavenProject?, projectRoot: URL? = nil,
+        javaHomeOverride: String? = nil, mavenExecutableOverride: String? = nil
+    ) async throws -> [ProjectToolchainCandidate] {
+        let sessionID = runtimeSessionID
+        let capturedSettings = settings
+        let locator = runtimeLocator
+        func checkCurrent() throws {
+            guard !Task.isCancelled, runtimeSessionID == sessionID, settings == capturedSettings else { throw CancellationError() }
+        }
+        try checkCurrent()
+        if chooseJavaHome(overridePath: javaHomeOverride, detected: {
+            self.hasDiscoveredRuntimes ? self.javaRuntimes : self.launchJavaRuntimes
+        }) == nil {
+            let runtimes = await Self.backgroundProbe { cancelled in
+                locator.discoverJavaRuntimes(isCancelled: cancelled)
+            }
+            try checkCurrent()
+            launchJavaRuntimes = runtimes
+        }
+        let javaHome = javaHomeURL(overridePath: javaHomeOverride)
+        let explicitMaven = projectRoot.flatMap { mavenExecutable(at: $0, overridePath: mavenExecutableOverride) }
+        let knownMaven = project.flatMap(activeMavenRuntime)
+        let fallbackMaven = projectRoot.flatMap { mavenExecutable(at: $0) }
+        let probed: (JavaRuntimeCandidate?, MavenRuntimeCandidate?) = await Self.backgroundProbe { cancelled in
+            guard !cancelled() else { return (nil, nil) }
+            let java = javaHome.flatMap(locator.javaRuntime(at:))
+            guard !cancelled() else { return (nil, nil) }
+            let maven = explicitMaven.flatMap(locator.mavenRuntime(at:)) ?? knownMaven
+            guard !cancelled() else { return (nil, nil) }
+            return (java, maven ?? fallbackMaven.flatMap(locator.mavenRuntime(at:)))
+        }
+        try checkCurrent()
+        return Self.toolchainCandidates(java: probed.0, maven: probed.1)
+    }
+
+    /// Blocking platform probes run on a worker queue, never a cooperative executor.
+    private static func backgroundProbe<Value: Sendable>(
+        _ operation: @escaping @Sendable (@Sendable () -> Bool) -> Value
+    ) async -> Value {
+        let cancellation = RuntimeProbeCancellation()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(returning: operation { cancellation.isCancelled })
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
+    }
+
     func runConfigurationToolchainCandidates(
         for project: MavenProject?,
         projectRoot: URL? = nil,
         javaHomeOverride: String? = nil,
         mavenExecutableOverride: String? = nil
     ) -> [ProjectToolchainCandidate] {
-        var result: [ProjectToolchainCandidate] = []
         let java = javaHomeURL(overridePath: javaHomeOverride).flatMap(runtimeLocator.javaRuntime(at:))
+        let maven = projectRoot.flatMap { root in
+            mavenExecutable(at: root, overridePath: mavenExecutableOverride)
+                .flatMap(runtimeLocator.mavenRuntime(at:))
+        } ?? project.flatMap(activeMavenRuntime)
+            ?? projectRoot.flatMap { root in
+                mavenExecutable(at: root).flatMap(runtimeLocator.mavenRuntime(at:))
+            }
+        return Self.toolchainCandidates(java: java, maven: maven)
+    }
+
+    private static func toolchainCandidates(java: JavaRuntimeCandidate?, maven: MavenRuntimeCandidate?) -> [ProjectToolchainCandidate] {
+        var result: [ProjectToolchainCandidate] = []
         if let java {
             result.append(ProjectToolchainCandidate(
                 id: "project-jdk",
@@ -522,13 +590,6 @@ final class ProjectRuntimeService: ObservableObject {
                 vendor: java.vendor
             ))
         }
-        let maven = projectRoot.flatMap { root in
-            mavenExecutable(at: root, overridePath: mavenExecutableOverride)
-                .flatMap(runtimeLocator.mavenRuntime(at:))
-        } ?? project.flatMap(activeMavenRuntime)
-            ?? projectRoot.flatMap { root in
-                mavenExecutable(at: root).flatMap(runtimeLocator.mavenRuntime(at:))
-            }
         if let maven {
             result.append(ProjectToolchainCandidate(
                 id: "project-maven",
@@ -661,4 +722,12 @@ final class ProjectRuntimeService: ObservableObject {
         ((path as NSString).expandingTildeInPath as NSString).standardizingPath
     }
 
+}
+
+/// Shared only with the owned blocking worker; cancellation stops later probes.
+private final class RuntimeProbeCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    func cancel() { lock.lock(); defer { lock.unlock() }; cancelled = true }
 }

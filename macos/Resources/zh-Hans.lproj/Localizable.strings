@@ -211,7 +211,19 @@
 "Single row" = "单行";
 "Wrap into rows" = "多行展开";
 "Layout" = "布局";
+"Font" = "字体";
 "Font size" = "字体大小";
+"Search fonts" = "搜索字体";
+"No matching items" = "没有匹配项";
+"%@ does not include %@; Lithe renders those characters with %@ and the system font." = "%@ 不包含%@；Lithe 会用 %@ 和系统字体显示这些字符。";
+"basic Latin letters" = "基本拉丁字母";
+"punctuation and symbols" = "标点与符号";
+"Chinese characters" = "中文字符";
+"Japanese characters" = "日文字符";
+"Korean characters" = "韩文字符";
+"Greek letters" = "希腊字母";
+"Cyrillic letters" = "西里尔字母";
+"characters used by the interface and your files" = "界面和文件用到的字符";
 "File tree row height" = "文件树行高";
 "Show usages and Git author" = "显示引用数量和 Git 作者";
 "Show minimap" = "显示代码缩略图";
@@ -2618,6 +2630,9 @@
 "%lld more notifications" = "还有 %lld 条通知";
 "1 more notification" = "还有 1 条通知";
 
+// Notification merged from repeated messages; the first argument is the message.
+"%@ (%lld)" = "%@（%lld）";
+
 "Open notification history" = "打开通知历史";
 
 "Dismiss notification" = "关闭通知";
@@ -2683,7 +2698,8 @@
 
 "Waiting for permission…" = "等待授权…";
 
-"Agent is retrying…" = "Agent 正在重试…";
+"Reconnecting…" = "正在重连…";
+"Reconnecting %d/%d…" = "正在重连 %d/%d…";
 "Changes apply to the next turn." = "修改将在下一轮对话生效。";
 "The Agent did not confirm the selected session setting." = "Agent 未确认所选会话设置。";
 "The Agent no longer supports the selected session setting." = "Agent 已不再支持所选会话设置。";

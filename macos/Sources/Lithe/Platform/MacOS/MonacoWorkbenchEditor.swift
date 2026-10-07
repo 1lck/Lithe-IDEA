@@ -124,6 +124,7 @@ private struct MonacoWorkbenchContent: View {
             if MonacoWorkbenchResources.directory != nil {
                 MonacoWorkbenchSurface(session: session, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model,
                     fontSize: settings.editorFontSize,
+                    fontFamily: settings.editorFontFamily,
                     theme: MonacoWorkbenchThemeConfiguration(
                         colorTheme: settings.colorTheme,
                         isDark: colorScheme == .dark,
@@ -151,6 +152,10 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
     let markdownScrollPosition: Binding<MarkdownScrollPosition>?
     let model: AppModel
     let fontSize: Double
+    /// Configured programming font family. Resolved to an installed family
+    /// before it reaches the embedded editor, which looks fonts up by CSS family
+    /// name rather than PostScript name.
+    let fontFamily: String
     let theme: MonacoWorkbenchThemeConfiguration
     let wrap: Bool
     let minimap: Bool
@@ -168,7 +173,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
         coordinator.session.detachView(ownerID: coordinator.ownerID)
     }
     func updateNSView(_ view: NSView, context: Context) {
-        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, theme: theme, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers)
+        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers)
     }
 }
 
@@ -356,17 +361,17 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         selectMount()
     }
 
-    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
+    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
         guard mounts[ownerID] != nil else { return }
         self.model = model
         observeFind(model: model)
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
-            self.present(document: document, model: model, fontSize: fontSize, theme: theme, wrap: wrap, minimap: minimap, markers: markers)
+            self.present(document: document, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers)
             self.presentMarkdownScroll(document: document, binding: markdownScrollPosition)
             if let secondaryDocument {
                 self.hasSecondaryView = true
-                self.present(document: secondaryDocument, model: model, fontSize: fontSize, theme: theme, wrap: wrap, minimap: minimap, markers: secondaryMarkers, surface: "secondary")
+                self.present(document: secondaryDocument, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: secondaryMarkers, surface: "secondary")
             } else if self.hasSecondaryView {
                 self.hasSecondaryView = false
                 self.activeIDs.removeValue(forKey: "secondary")
@@ -686,7 +691,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         }
     }
 
-    private func present(document: EditorDocument, model: AppModel, fontSize: Double, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
+    private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
         guard viewOwnerID != nil else { return }
         let id = document.id.uuidString
         let liveIDs = Set(model.documentFeature.editorDocuments.map { $0.id.uuidString })
@@ -756,7 +761,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         }
         let configuration = MonacoWorkbenchDisplayConfiguration(
             fontSize: fontSize,
-            fontFamily: LitheTheme.editorFont(size: fontSize).familyName ?? "monospace",
+            // The embedded editor resolves fonts through CSS family names, and an
+            // uninstalled preference must not reach the web view as an
+            // unresolvable family, so resolve against the macOS font database here.
+            // A stack rather than one name: the embedded editor needs the bundled
+            // family as its explicit fallback for glyphs the chosen font lacks.
+            fontFamily: MacEditorFontCatalog.editorFontStack(fontFamily),
             wrap: wrap,
             minimap: minimap,
             theme: theme

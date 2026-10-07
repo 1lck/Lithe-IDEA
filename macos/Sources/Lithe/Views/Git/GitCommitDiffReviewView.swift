@@ -10,6 +10,9 @@ struct GitCommitDiffReviewView: View {
     let onClose: () -> Void
     let onOpenFile: () -> Void
     let onOpenCommitDiff: (GitCommitFile) -> Void
+    /// Family that renders and measures the commit diff. Defaults to the bundled
+    /// monospaced family so existing call sites and tests keep their rendering.
+    var fontFamily: String = EditorFontDefaults.monospacedFamily
 
     @State private var unified = false
     @State private var highlightsWords = true
@@ -207,20 +210,22 @@ struct GitCommitDiffReviewView: View {
             ? DiffCollapse.plan(rows: rows, expandedRegionIDs: expandedRegionIDs)
             : rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
         let kinds = displayRows.map { $0.layoutRow.kind }
-        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows))
-        let unifiedLayout = DiffUnifiedLayout(rows: rows, displayRows: displayRows)
+        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows, family: fontFamily))
+        let unifiedLayout = DiffUnifiedLayout(rows: rows, displayRows: displayRows, fontFamily: fontFamily)
         let measuredWidth = DiffLayoutMetrics.contentWidth(rows: rows, viewportWidth: 0,
-            minimumWidth: usesUnifiedPane ? 680 : 980, paneCount: usesUnifiedPane ? 1 : 2)
+            minimumWidth: usesUnifiedPane ? 680 : 980, paneCount: usesUnifiedPane ? 1 : 2, family: fontFamily)
         let selectedIDs = Set(differenceIndexByRow.compactMap { $0.value == selectedDifferenceIndex ? $0.key : nil })
         return GeometryReader { geometry in
             if usesUnifiedPane {
                 DiffUnifiedPaneView(layout: unifiedLayout, fileExtension: context.url.pathExtension,
                     contentWidth: measuredWidth, highlightsWords: highlightsWords, selectedRowIDs: selectedIDs,
+                    fontFamily: fontFamily,
                     onExpand: { expandedRegionIDs.insert($0.id) })
             } else {
                 DiffSplitPaneView(displayRows: displayRows, kinds: kinds, layout: layout,
                     fileExtension: context.url.pathExtension, contentWidth: max(geometry.size.width, measuredWidth),
                     viewportWidth: geometry.size.width, highlightsWords: highlightsWords,
+                    fontFamily: fontFamily,
                     header: { position in AnyView(
                         HStack(spacing: 0) {
                             versionLabel(parentHash, path: context.path).frame(width: position).clipped()

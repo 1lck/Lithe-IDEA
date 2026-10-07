@@ -15,6 +15,7 @@ final class AppSettings: ObservableObject {
         static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
+        static let editorFontFamily = "settings.editorFontFamily"
         static let editorSoftWrap = "settings.editorSoftWrap"
         static let editorMinimap = "settings.editorMinimap"
         static let projectTreeRowHeight = "settings.projectTreeRowHeight"
@@ -72,6 +73,13 @@ final class AppSettings: ObservableObject {
     }
     @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
+    /// 代码编辑器编程字体族。默认是随包分发的 JetBrains Mono，只有在用户
+    /// 显式选择系统字体后才偏离打包字体；终端、Output 工具窗和提交信息
+    /// 输入框继续使用打包字体，与 IDEA 的 Editor/Console 字体分工一致。
+    /// 存储值只保存族名，解析失败（字体被卸载）时由字体目录回退到默认族。
+    @Published var editorFontFamily: String {
+        didSet { defaults.set(editorFontFamily, forKey: Key.editorFontFamily) }
+    }
     /// 主编辑器软换行开关。默认关闭，与 IDEA 代码编辑器一致；
     /// 折行布局对超大文件有行数阈值兜底，见 `LitheTextViewportLayout`。
     @Published var editorSoftWrapEnabled: Bool {
@@ -182,6 +190,9 @@ final class AppSettings: ObservableObject {
         ) ?? .dark
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        editorFontFamily = EditorFontResolution.normalizedFamily(
+            defaults.string(forKey: Key.editorFontFamily)
+        )
         editorSoftWrapEnabled = defaults.object(forKey: Key.editorSoftWrap) as? Bool ?? false
         editorMinimapEnabled = defaults.object(forKey: Key.editorMinimap) as? Bool ?? true
         projectTreeRowHeight = defaults.object(forKey: Key.projectTreeRowHeight) as? Double ?? 24
@@ -349,6 +360,7 @@ final class AppSettings: ObservableObject {
         themePreference = .dark
         language = .english
         editorFontSize = 13
+        editorFontFamily = EditorFontDefaults.monospacedFamily
         editorSoftWrapEnabled = false
         editorMinimapEnabled = true
         projectTreeRowHeight = 24

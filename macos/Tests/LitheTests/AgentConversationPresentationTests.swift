@@ -264,7 +264,8 @@ struct AgentConversationPresentationTests {
         #expect(AgentResponseStatusRow(responseStatus: .thinking, hasStreamingThought: true).status == String(localized: "Responding…"))
         #expect(AgentResponseStatusRow(responseStatus: .stopping, hasStreamingThought: true).status == String(localized: "Stopping…"))
         #expect(AgentResponseStatusRow(responseStatus: .preparing).status == String(localized: "Preparing conversation…"))
-        #expect(AgentResponseStatusRow(responseStatus: .retrying).status == String(localized: "Agent is retrying…"))
+        #expect(AgentResponseStatusRow(responseStatus: .retrying).status == String(localized: "Reconnecting…"))
+        #expect(AgentResponseStatusRow(responseStatus: .retrying, hasStreamingThought: true, retryAttempt: 2, retryMaxAttempts: 5).status == String(format: String(localized: "Reconnecting %d/%d…"), 2, 5))
         #expect(AgentResponseStatusRow(responseStatus: .runningTools).status == String(localized: "Running tools…"))
         #expect(AgentResponseStatusRow(responseStatus: .waitingForPermission).status == String(localized: "Waiting for permission…"))
     }

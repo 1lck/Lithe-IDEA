@@ -70,6 +70,9 @@ protocol RuntimeLocator: Sendable {
     func discover() -> RuntimeDiscoveryResult
     /// Java-only probing for launch paths; never runs Maven or other tools.
     func discoverJavaRuntimes() -> [JavaRuntimeCandidate]
+    func discoverJavaRuntimes(isCancelled: @Sendable () -> Bool) -> [JavaRuntimeCandidate]
+    /// Explicit refresh invalidates the platform's in-memory version probes.
+    func invalidateProbeCache()
     func validJavaHome(path: String) -> URL?
     /// Returns the candidate reached by PATH, resolving platform symlinks.
     func javaHomeOnPath(in candidates: [JavaRuntimeCandidate]) -> URL?
@@ -85,6 +88,10 @@ protocol RuntimeLocator: Sendable {
 }
 
 extension RuntimeLocator {
+    func invalidateProbeCache() {}
+    func discoverJavaRuntimes(isCancelled: @Sendable () -> Bool) -> [JavaRuntimeCandidate] {
+        isCancelled() ? [] : discoverJavaRuntimes()
+    }
     func discoverJavaRuntimes() -> [JavaRuntimeCandidate] { discover().javaRuntimes }
     func javaHomeOnPath(in candidates: [JavaRuntimeCandidate]) -> URL? { nil }
     // Default implementation for test stubs and non-macOS locators that do
