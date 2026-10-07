@@ -187,26 +187,6 @@ const fullExtensions: ExtensionManifest[] = [
     },
   }),
   createLanguageToolExtension({
-    id: "lithe.go",
-    name: "Go",
-    displayName: "Go",
-    description:
-      "Go language support with completions, diagnostics, rename, references, and code actions via gopls.",
-    languages: [
-      {
-        id: "go",
-        extensions: [".go"],
-        aliases: ["Go", "golang"],
-        filenames: ["go.mod", "go.sum", "go.work"],
-      },
-    ],
-    lsp: {
-      name: "gopls",
-      runtime: "go",
-      package: "golang.org/x/tools/gopls",
-    },
-  }),
-  createLanguageToolExtension({
     id: "lithe.markdown",
     name: "Markdown",
     displayName: "Markdown",

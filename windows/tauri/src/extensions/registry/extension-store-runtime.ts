@@ -296,6 +296,7 @@ function toBackendToolConfig(
   },
   extensionVersion: string,
 ): BackendToolConfig | undefined {
+  if (input.runtime === "package") return undefined;
   const name = input.name?.trim();
   if (!name) {
     return undefined;
@@ -427,6 +428,10 @@ export function resolveInstalledExtensionId(
 
 /** Check the required server without downloading tools or modifying an installed extension. */
 export async function checkLanguageToolRequirements(languageId: string, manifest: ExtensionManifest): Promise<void> {
+  if (manifest.lsp?.runtime === "package") {
+    await resolvePackagedLanguageServer(manifest);
+    return;
+  }
   const config = getLanguageToolConfigSet(manifest);
   if (!config?.lsp) return;
   await invoke("check_language_tool_requirements", { languageId, tools: { lsp: config.lsp } });
@@ -481,11 +486,19 @@ async function getToolPath(
   }
 }
 
+export async function resolvePackagedLanguageServer(manifest: ExtensionManifest): Promise<{ serverPath: string; serverArgs: string[] }> {
+  return invoke("resolve_worker_resources", { pluginId: manifest.id, version: manifest.version });
+}
+
 export async function resolveToolPaths(
   languageId: string,
   manifest?: ExtensionManifest,
   options: { ensureInstalled?: boolean; repairMissing?: boolean } = {},
 ): Promise<ResolvedToolPathsResult> {
+  if (manifest?.lsp?.runtime === "package") {
+    const launch = await resolvePackagedLanguageServer(manifest);
+    return { toolPaths: { lsp: launch.serverPath }, issues: [] };
+  }
   const toolConfig = getLanguageToolConfigSet(manifest);
   let issues: ToolIssueMap = {};
 

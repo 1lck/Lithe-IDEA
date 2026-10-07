@@ -319,6 +319,34 @@ public struct LanguageDependencyDeclaration: Equatable, Codable, Sendable {
 
 /// Recognizes a language and routes its independently activated capabilities
 /// without loading the plugin Bundle.
+/// Read-only upstream launch configuration. Core validates paths and ownership
+/// before platform adapters resolve the executable in a verified package.
+public struct PluginLanguageServerLaunch: Equatable, Codable, Sendable {
+    public let source: String
+    public let executable: String
+    public let arguments: [String]
+    public let validationArguments: [String]
+    public let launcherRelativePath: String?
+}
+
+/// Additive wire projection: keep the layout of the published language-support
+/// DTO unchanged for native bundles compiled against the existing plugin API.
+public enum PluginLanguageServerDeclarations {
+    private struct Document: Decodable { let languageSupports: [Declaration]? }
+    private struct Declaration: Decodable {
+        let id: String
+        let languageServer: PluginLanguageServerLaunch?
+    }
+    public static func decode(from data: Data) throws -> [String: PluginLanguageServerLaunch] {
+        let document = try JSONDecoder().decode(Document.self, from: data)
+        var launches: [String: PluginLanguageServerLaunch] = [:]
+        for declaration in document.languageSupports ?? [] {
+            if let launch = declaration.languageServer { launches[declaration.id] = launch }
+        }
+        return launches
+    }
+}
+
 public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
     public let id: String
     public let displayName: String

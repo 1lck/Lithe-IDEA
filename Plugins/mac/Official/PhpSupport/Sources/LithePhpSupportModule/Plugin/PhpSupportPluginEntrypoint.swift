@@ -14,7 +14,7 @@ public final class PhpSupportPluginEntrypoint: NSObject, LithePluginEntrypoint {
                 PhpExecutionModule(executionHost: executionHost)
             },
             ModuleFactory(manifest: PhpLanguageServerModule.moduleManifest) {
-                PhpLanguageServerModule()
+                PhpLanguageServerModule(launch: context.languageServerLaunch(for: PhpSupportManifest.languageID) ?? PhpSupportManifest.languageServerLaunch)
             }
         ]
     }

@@ -3,19 +3,18 @@ import LitheModuleAPI
 
 @MainActor
 public final class PhpLanguageServerModule: LitheModule {
-    public static let moduleManifest = OfficialPluginCatalog.moduleManifest(
-        for: .languageServerExtension(phpLanguageID)
-    )!
+    public static let moduleManifest = PhpSupportManifest.languageServerModule
 
     public let manifest = moduleManifest
     private var capability: PhpLanguageServerCapability?
 
-    public init() {}
+    private let launch: PluginLanguageServerLaunch
+    public init(launch: PluginLanguageServerLaunch = PhpSupportManifest.languageServerLaunch) { self.launch = launch }
 
     public func activate(context: ModuleContext) async throws {
         let lifecycle = PhpLanguageServerLifecycle()
         context.resources.register(PhpLanguageServerResource(lifecycle: lifecycle))
-        capability = PhpLanguageServerCapability(lifecycle: lifecycle)
+        capability = PhpLanguageServerCapability(lifecycle: lifecycle, launch: launch)
     }
 
     public func prepareForSleep() async throws {}

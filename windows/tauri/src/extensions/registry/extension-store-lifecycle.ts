@@ -1,3 +1,4 @@
+import { pluginLifecycle } from "./plugin-lifecycle";
 import { localExtensionPackages } from "../packages/local-extension-package";
 import { extensionProcessOwner } from "@/extensions/run/extension-process-owner";
 import { invoke } from "@/platform/tauri-core";
@@ -150,7 +151,7 @@ function isCompleteExtensionPackage(
   );
 }
 
-export async function installExtensionLifecycle(params: {
+async function installExtensionEffects(params: {
   extensionId: string;
   extension: AvailableExtension;
   activateAfterInstall?: boolean;
@@ -158,8 +159,9 @@ export async function installExtensionLifecycle(params: {
   onLanguageInstalled: (
     runtimeManifest: AvailableExtension["manifest"],
     runtimeIssues: AvailableExtension["runtimeIssues"],
+    enabled: boolean,
   ) => void;
-  onNonLanguageInstalled: () => void;
+  onNonLanguageInstalled: (enabled: boolean) => void;
   reloadInstalledExtensions: () => Promise<void>;
 }) {
   const {
@@ -190,9 +192,16 @@ export async function installExtensionLifecycle(params: {
     try {
       if (
         extension.manifest.installation?.type === "local" &&
-        !localExtensionPackages.get(extensionId)
+        !(await localExtensionPackages.get(extensionId))
       )
         throw new Error("Import the plugin package before installing its language tools.");
+      const localPackage = extension.manifest.installation?.type === "local"
+        ? await localExtensionPackages.get(extensionId) : undefined;
+      if (localPackage?.nativePackage) {
+        await invoke("install_worker_resources", { pluginId: extensionId, version: extension.manifest.version,
+          stagingId: localPackage.nativePackage.stagingId ?? null });
+        checkCancelled();
+      }
       await installLanguageExtensionManifest(extensionId, extension.manifest, onProgress);
       checkCancelled();
 
@@ -235,9 +244,7 @@ export async function installExtensionLifecycle(params: {
         await activateExtensionContributions(extensionId, runtimeManifest);
       }
       checkCancelled();
-      if (extension.manifest.installation?.type === "local")
-        localExtensionPackages.markInstalled(extensionId);
-      onLanguageInstalled(runtimeManifest, resolvedTools.issues);
+      onLanguageInstalled(runtimeManifest, resolvedTools.issues, activateAfterInstall);
     } catch (error) {
       if (!extension.isInstalled) {
         await deactivateExtensionContributions(extensionId, extension.manifest);
@@ -257,7 +264,13 @@ export async function installExtensionLifecycle(params: {
               invoke("uninstall_language_tools", { languageId: language.id }),
             ),
           );
-          localExtensionPackages.remove(extensionId);
+          const failedPackage = await localExtensionPackages.get(extensionId);
+          const previousPackage = await localExtensionPackages.previous(extensionId);
+          if (failedPackage?.nativePackage && previousPackage?.manifest.version !== extension.manifest.version) await invoke("remove_worker_resources", {
+            pluginId: extensionId, version: extension.manifest.version,
+            stagingId: failedPackage.nativePackage.stagingId ?? null, allVersions: false,
+          });
+          if (!(await localExtensionPackages.previous(extensionId))) localExtensionPackages.remove(extensionId);
           extensionRegistry.unregisterExtension(extensionId);
         }
       }
@@ -279,7 +292,7 @@ export async function installExtensionLifecycle(params: {
     if (activateAfterInstall) {
       await activateExtensionContributions(extensionId, extension.manifest);
     }
-    onNonLanguageInstalled();
+    onNonLanguageInstalled(activateAfterInstall);
     return;
   }
 
@@ -296,10 +309,10 @@ export async function installExtensionLifecycle(params: {
   if (activateAfterInstall) {
     await activateExtensionContributions(extensionId, extension.manifest);
   }
-  onNonLanguageInstalled();
+  onNonLanguageInstalled(activateAfterInstall);
 }
 
-export async function uninstallExtensionLifecycle(params: {
+async function uninstallExtensionEffects(params: {
   extensionId: string;
   extension: AvailableExtension;
   onLanguageUninstalled: () => void;
@@ -318,7 +331,6 @@ export async function uninstallExtensionLifecycle(params: {
   if (languageConfigs.length > 0) {
     const languageIds = languageConfigs.map((language) => language.id);
 
-    await disableExtensionLifecycle({ extensionId, extension });
     await uninstallLanguageArtifacts(languageIds);
     await Promise.all(
       languageIds.map((languageId) => invoke("uninstall_language_tools", { languageId })),
@@ -329,6 +341,11 @@ export async function uninstallExtensionLifecycle(params: {
       state: "not-installed",
     });
     if (extension.manifest.installation?.type === "local") {
+      const localPackage = await localExtensionPackages.get(extensionId);
+      if (localPackage?.nativePackage) await invoke("remove_worker_resources", {
+        pluginId: extensionId, version: extension.manifest.version,
+        stagingId: localPackage.nativePackage.stagingId ?? null, allVersions: true,
+      });
       localExtensionPackages.remove(extensionId);
       extensionRegistry.unregisterExtension(extensionId);
     }
@@ -337,7 +354,6 @@ export async function uninstallExtensionLifecycle(params: {
   }
 
   if (isBundledContributionExtension(extension.manifest)) {
-    await disableExtensionLifecycle({ extensionId, extension });
     markBundledContributionExtensionUninstalled(extensionId);
     extensionRegistry.registerExtension(extension.manifest, {
       isBundled: false,
@@ -348,13 +364,12 @@ export async function uninstallExtensionLifecycle(params: {
     return;
   }
 
-  await disableExtensionLifecycle({ extensionId, extension });
   await invoke("uninstall_extension_new", { extensionId });
   await reloadInstalledExtensions();
   onNonLanguageUninstalled();
 }
 
-export async function enableExtensionLifecycle(params: {
+async function enableExtensionEffects(params: {
   extensionId: string;
   extension: AvailableExtension;
 }) {
@@ -440,7 +455,7 @@ export async function enableExtensionLifecycle(params: {
   await activateExtensionContributions(extensionId, extension.manifest);
 }
 
-export async function disableExtensionLifecycle(params: {
+async function disableExtensionEffects(params: {
   extensionId: string;
   extension: AvailableExtension;
 }) {
@@ -484,16 +499,6 @@ export async function disableExtensionLifecycle(params: {
         wasmParserLoader.unloadParser(language.id);
       }
     } catch (error) {
-      if (previous) {
-        extensionRegistry.registerExtension(previous.manifest, {
-          path: previous.path,
-          isBundled: previous.isBundled,
-          isEnabled: previous.isEnabled,
-          state: previous.state,
-        });
-      } else {
-        extensionRegistry.unregisterExtension(extensionId);
-      }
       throw error;
     }
     try {
@@ -512,17 +517,8 @@ export async function disableExtensionLifecycle(params: {
   });
   try {
     await deactivateExtensionContributions(extensionId, extension.manifest);
+    await extensionProcessOwner.stop(undefined, extensionId);
   } catch (error) {
-    if (previous) {
-      extensionRegistry.registerExtension(previous.manifest, {
-        path: previous.path,
-        isBundled: previous.isBundled,
-        isEnabled: previous.isEnabled,
-        state: previous.state,
-      });
-    } else {
-      extensionRegistry.unregisterExtension(extensionId);
-    }
     throw error;
   }
 }
@@ -574,4 +570,75 @@ export function buildInstalledExtensionMetadata(
     installed_at: new Date().toISOString(),
     enabled,
   };
+}
+
+// Core transitions bracket native effects, including update/reinstall and rollback
+// performed by callers. A rejected begin has no filesystem or process side effects.
+export async function installExtensionLifecycle(params: Parameters<typeof installExtensionEffects>[0]) {
+  const { extensionId, extension } = params;
+  await pluginLifecycle.restore(extensionId, extension.isInstalled, extension.isInstalled && extension.isEnabled);
+  const operation = crypto.randomUUID();
+  await pluginLifecycle.transition(extensionId, "beginInstall", operation);
+  let notifyInstalled: (enabled: boolean) => void = () => {};
+  try {
+    const current = await pluginLifecycle.snapshot(extensionId);
+    if (current.operationId !== operation || current.lifecycle.state !== "installing")
+      throw new Error("Extension installation was cancelled before it started");
+    await installExtensionEffects({ ...params, activateAfterInstall: false,
+      onLanguageInstalled: (manifest, issues) => { notifyInstalled = (enabled) => params.onLanguageInstalled(manifest, issues, enabled); },
+      onNonLanguageInstalled: () => { notifyInstalled = params.onNonLanguageInstalled; },
+    });
+    await pluginLifecycle.transition(extensionId, "completeInstall", operation);
+    if (extension.manifest.installation?.type === "local")
+      await localExtensionPackages.markInstalled(extensionId);
+  } catch (error) {
+    return pluginLifecycle.fail(extensionId, operation, error);
+  }
+  try {
+    if (params.activateAfterInstall !== false)
+      await enableExtensionLifecycle({ extensionId, extension: { ...extension, isInstalled: true, isEnabled: false } });
+    notifyInstalled(params.activateAfterInstall !== false);
+  } catch (error) {
+    // The verified package remains installed even if upstream startup fails.
+    notifyInstalled(false);
+    throw error;
+  }
+}
+
+export async function enableExtensionLifecycle(params: Parameters<typeof enableExtensionEffects>[0]) {
+  const { extensionId, extension } = params;
+  const current = await pluginLifecycle.restore(extensionId, extension.isInstalled, extension.isInstalled && extension.isEnabled);
+  if (current.lifecycle.state === "enabled") return;
+  const operation = crypto.randomUUID();
+  await pluginLifecycle.transition(extensionId, "enable", operation);
+  try {
+    await enableExtensionEffects(params);
+    await pluginLifecycle.transition(extensionId, "completeEnable", operation);
+  } catch (error) {
+    return pluginLifecycle.fail(extensionId, operation, error);
+  }
+}
+
+export async function disableExtensionLifecycle(params: Parameters<typeof disableExtensionEffects>[0]) {
+  const { extensionId, extension } = params;
+  await pluginLifecycle.restore(extensionId, extension.isInstalled, extension.isInstalled && extension.isEnabled);
+  const operation = crypto.randomUUID();
+  await pluginLifecycle.transition(extensionId, "disable", operation);
+  // Failed cleanup deliberately remains disabling, with resources owned and new
+  // starts rejected. Retrying disable may replace the operation token safely.
+  await disableExtensionEffects(params);
+  await pluginLifecycle.transition(extensionId, "completeDisable", operation);
+}
+
+export async function uninstallExtensionLifecycle(params: Parameters<typeof uninstallExtensionEffects>[0]) {
+  const { extensionId } = params;
+  await disableExtensionLifecycle(params);
+  const operation = crypto.randomUUID();
+  await pluginLifecycle.transition(extensionId, "uninstall", operation);
+  try {
+    await uninstallExtensionEffects(params);
+    await pluginLifecycle.transition(extensionId, "completeUninstall", operation);
+  } catch (error) {
+    return pluginLifecycle.fail(extensionId, operation, error);
+  }
 }

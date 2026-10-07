@@ -11,6 +11,7 @@ mod fonts;
 mod host;
 mod html_browser;
 mod language_tools;
+mod plugin_packages;
 mod logging;
 mod lsp;
 mod maven;
@@ -196,6 +197,11 @@ fn main() {
             window_title::update_window_title_context,
             lsp::lsp_resolve_java_launch,
             lsp::lsp_rebuild_java_index,
+            plugin_packages::stage_worker_resources,
+            plugin_packages::discard_worker_staging,
+            plugin_packages::install_worker_resources,
+            plugin_packages::resolve_worker_resources,
+            plugin_packages::remove_worker_resources,
             language_tools::get_tool_path,
             language_tools::install_language_tools,
             language_tools::check_language_tool_requirements,
@@ -223,6 +229,7 @@ fn main() {
 
     application.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
+            run::shutdown();
             language_tools::shutdown();
             debug::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {

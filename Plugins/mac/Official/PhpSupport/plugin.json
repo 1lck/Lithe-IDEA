@@ -30,7 +30,9 @@
         "kind": "whenIdle",
         "afterSeconds": 600
       },
-      "moduleDependencies": ["dev.lithe.workspace"],
+      "moduleDependencies": [
+        "dev.lithe.workspace"
+      ],
       "capabilityDependencies": [],
       "providedCapabilities": [
         "dev.lithe.capability.language.php.execution",
@@ -49,9 +51,13 @@
         "kind": "whenIdle",
         "afterSeconds": 600
       },
-      "moduleDependencies": ["dev.lithe.workspace"],
+      "moduleDependencies": [
+        "dev.lithe.workspace"
+      ],
       "capabilityDependencies": [],
-      "providedCapabilities": ["dev.lithe.capability.language.php.language-server"],
+      "providedCapabilities": [
+        "dev.lithe.capability.language.php.language-server"
+      ],
       "contributions": [],
       "required": false
     }
@@ -60,12 +66,26 @@
     {
       "id": "php",
       "displayName": "PHP",
-      "fileExtensions": ["php", "phtml"],
+      "fileExtensions": [
+        "php",
+        "phtml"
+      ],
       "fileNames": [],
-      "projectFileNames": ["composer.json"],
+      "projectFileNames": [
+        "composer.json"
+      ],
       "languageServerModuleID": "dev.lithe.language.php.language-server",
       "executionModuleID": "dev.lithe.language.php.execution",
-      "testingModuleID": "dev.lithe.language.php.execution"
+      "testingModuleID": "dev.lithe.language.php.execution",
+      "languageServer": {
+        "source": "package",
+        "executable": "intelephense",
+        "arguments": [
+          "--stdio"
+        ],
+        "validationArguments": [],
+        "launcherRelativePath": "Contents/Resources/LanguageServers/php/bin/intelephense"
+      }
     }
   ]
 }

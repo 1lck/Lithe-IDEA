@@ -1,0 +1,129 @@
+{
+  "pluginId": "lithe.fixture",
+  "steps": [
+    {
+      "request": {
+        "action": "restore",
+        "installed": false
+      },
+      "state": "discovered",
+      "resources": [],
+      "installed": false
+    },
+    {
+      "request": {
+        "action": "transition",
+        "transition": "beginInstall",
+        "operationId": "install"
+      },
+      "state": "installing",
+      "resources": [],
+      "installed": false
+    },
+    {
+      "request": {
+        "action": "transition",
+        "transition": "completeInstall",
+        "operationId": "install"
+      },
+      "state": "installed",
+      "resources": [],
+      "installed": true
+    },
+    {
+      "request": {
+        "action": "transition",
+        "transition": "enable",
+        "operationId": "enable"
+      },
+      "state": "enabling",
+      "resources": [],
+      "installed": true
+    },
+    {
+      "request": {
+        "action": "bindResource",
+        "resourceId": "lsp:fixture"
+      },
+      "state": "enabling",
+      "resources": [
+        "lsp:fixture"
+      ],
+      "installed": true
+    },
+    {
+      "request": {
+        "action": "transition",
+        "transition": "disable",
+        "operationId": "disable"
+      },
+      "state": "disabling",
+      "resources": [
+        "lsp:fixture"
+      ],
+      "installed": true
+    },
+    {
+      "request": {
+        "action": "transition",
+        "transition": "completeEnable",
+        "operationId": "enable"
+      },
+      "error": true
+    },
+    {
+      "request": {
+        "action": "transition",
+        "transition": "completeDisable",
+        "operationId": "disable"
+      },
+      "error": true
+    },
+    {
+      "request": {
+        "action": "bindResource",
+        "resourceId": "run:late"
+      },
+      "error": true
+    },
+    {
+      "request": {
+        "action": "releaseResource",
+        "resourceId": "lsp:fixture"
+      },
+      "state": "disabling",
+      "resources": [],
+      "installed": true
+    },
+    {
+      "request": {
+        "action": "transition",
+        "transition": "completeDisable",
+        "operationId": "disable"
+      },
+      "state": "disabled",
+      "resources": [],
+      "installed": true
+    },
+    {
+      "request": {
+        "action": "transition",
+        "transition": "uninstall",
+        "operationId": "uninstall"
+      },
+      "state": "uninstalling",
+      "resources": [],
+      "installed": true
+    },
+    {
+      "request": {
+        "action": "transition",
+        "transition": "completeUninstall",
+        "operationId": "uninstall"
+      },
+      "state": "uninstalled",
+      "resources": [],
+      "installed": false
+    }
+  ]
+}

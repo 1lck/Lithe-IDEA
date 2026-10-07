@@ -1,6 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
-import manifest from "../../../../../Plugins/win/Official/PhpSupport/plugin.json";
+import { useRealPluginCore } from "../testing/plugin-core-backend";
+import { beforeEach, afterEach, expect, test } from "bun:test";
+import manifest from "../../../../../shared/fixtures/plugins/windows-php-legacy-v1.json";
 import { LocalExtensionPackageStore, parseLocalExtensionPackage } from "./local-extension-package";
+
+let restoreCore: () => void;
+beforeEach(() => { restoreCore = useRealPluginCore(); });
+afterEach(() => restoreCore());
 
 const values = new Map<string, string>();
 const localExtensionPackages = new LocalExtensionPackageStore(() => ({
@@ -26,23 +31,23 @@ const packageText = (changes: Record<string, unknown> = {}) =>
   });
 afterEach(() => localExtensionPackages.remove(manifest.id));
 
-test("import is inactive until installation commits and uninstall removes the worker source", () => {
-  const pkg = parseLocalExtensionPackage(packageText());
-  localExtensionPackages.stage(pkg);
-  expect(localExtensionPackages.get(manifest.id)?.installed).toBe(false);
+test("import is inactive until installation commits and uninstall removes the worker source", async () => {
+  const pkg = await parseLocalExtensionPackage(packageText());
+  await localExtensionPackages.stage(pkg);
+  expect((await localExtensionPackages.get(manifest.id))?.installed).toBe(false);
   expect(
-    localExtensionPackages.list().find((entry) => entry.manifest.id === manifest.id)?.manifest.lsp
+    (await localExtensionPackages.list()).find((entry) => entry.manifest.id === manifest.id)?.manifest.lsp
       ?.requiredExecutables,
   ).toEqual(["node"]);
-  localExtensionPackages.markInstalled(manifest.id);
-  expect(localExtensionPackages.get(manifest.id)?.installed).toBe(true);
-  expect(() => localExtensionPackages.stage(pkg)).toThrow("Uninstall");
+  await localExtensionPackages.markInstalled(manifest.id);
+  expect((await localExtensionPackages.get(manifest.id))?.installed).toBe(true);
+  await expect(localExtensionPackages.stage(pkg)).rejects.toThrow("Disable");
   localExtensionPackages.remove(manifest.id);
-  expect(localExtensionPackages.get(manifest.id)).toBeUndefined();
+  expect(await localExtensionPackages.get(manifest.id)).toBeUndefined();
 });
 
-test("package input cannot grant arbitrary services or escape declared root files", () => {
-  const pkg = parseLocalExtensionPackage(
+test("package input cannot grant arbitrary services or escape declared root files", async () => {
+  const pkg = await parseLocalExtensionPackage(
     packageText({
       permissions: { secrets: true, network: ["*"] },
       formatter: { name: "unexpected" },
@@ -51,18 +56,40 @@ test("package input cannot grant arbitrary services or escape declared root file
   expect(pkg.manifest.permissions).toBeUndefined();
   expect(pkg.manifest.formatter).toBeUndefined();
   for (const file of ["../secret", "/secret", "C:\\secret", "a/b"]) {
-    expect(() =>
+    await expect(
       parseLocalExtensionPackage(
         packageText({ runActions: { manifestFiles: [file], executables: ["php"] } }),
       ),
-    ).toThrow();
+    ).rejects.toThrow();
   }
-  expect(() => parseLocalExtensionPackage(packageText({ main: "../plugin.js" }))).toThrow();
+  await expect(parseLocalExtensionPackage(packageText({ main: "../plugin.js" }))).rejects.toThrow();
 });
 
-test("malformed and oversized packages fail before storage", () => {
-  expect(() => parseLocalExtensionPackage("x")).toThrow();
-  expect(() => parseLocalExtensionPackage(" ".repeat(256 * 1024 + 1))).toThrow();
-  expect(() => parseLocalExtensionPackage(packageText({ languages: [] }))).toThrow();
-  expect(localExtensionPackages.get(manifest.id)).toBeUndefined();
+test("malformed and oversized packages fail before storage", async () => {
+  await expect(parseLocalExtensionPackage("x")).rejects.toThrow();
+  await expect(parseLocalExtensionPackage(" ".repeat(256 * 1024 + 1))).rejects.toThrow();
+  await expect(parseLocalExtensionPackage(packageText({ languages: [] }))).rejects.toThrow();
+  expect(await localExtensionPackages.get(manifest.id)).toBeUndefined();
+});
+
+test("replacement and rollback preserve the previous installed source atomically", async () => {
+  const first = await parseLocalExtensionPackage(packageText());
+  await localExtensionPackages.stage(first);
+  await localExtensionPackages.markInstalled(manifest.id);
+  const second = await parseLocalExtensionPackage(packageText({ version: "1.1.0" }));
+  await localExtensionPackages.stage(second, undefined, true);
+  expect((await localExtensionPackages.previous(manifest.id))?.manifest.version).toBe("1.0.0");
+  await localExtensionPackages.markInstalled(manifest.id);
+  await localExtensionPackages.rollback(manifest.id);
+  expect((await localExtensionPackages.get(manifest.id))?.manifest.version).toBe("1.0.0");
+  expect((await localExtensionPackages.previous(manifest.id))?.manifest.version).toBe("1.1.0");
+});
+
+test("interrupted replacement recovers the last committed version on startup", async () => {
+  await localExtensionPackages.stage(await parseLocalExtensionPackage(packageText()));
+  await localExtensionPackages.markInstalled(manifest.id);
+  await localExtensionPackages.stage(await parseLocalExtensionPackage(packageText({ version: "1.2.0" })), undefined, true);
+  await localExtensionPackages.recoverInterruptedReplacements();
+  expect((await localExtensionPackages.get(manifest.id))?.manifest.version).toBe("1.0.0");
+  expect((await localExtensionPackages.get(manifest.id))?.installed).toBe(true);
 });

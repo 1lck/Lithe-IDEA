@@ -8,9 +8,16 @@ afterEach(() => {
   disposeWorker = undefined;
 });
 
-test("independent PHP entrypoint activates in a worker and contributes plans over the host protocol", async () => {
+for (const fixture of [
+  { plugin: "PhpSupport", manifests: { "phpunit.xml": "<phpunit/>" },
+    expected: [{ id: "phpunit", executable: "php", arguments: ["vendor/bin/phpunit"] }] },
+  { plugin: "GoSupport", manifests: { "go.mod": "module example.com/test" },
+    expected: [{ id: "go:run", executable: "go", arguments: ["run", "."] },
+      { id: "go:test", executable: "go", arguments: ["test", "./..."] }] },
+]) {
+ test(`independent ${fixture.plugin} worker contributes and disposes run plans`, async () => {
   const source = await readFile(
-    new URL("../../../../../../Plugins/win/Official/PhpSupport/plugin.ts", import.meta.url),
+    new URL(`../../../../../../Plugins/win/Official/${fixture.plugin}/plugin.ts`, import.meta.url),
     "utf8",
   );
   const javascript = new Bun.Transpiler({ loader: "ts" }).transformSync(source);
@@ -60,12 +67,12 @@ test("independent PHP entrypoint activates in a worker and contributes plans ove
       type: "worker-call",
       id: 1,
       method: "discoverRunActions",
-      params: [{ "phpunit.xml": "<phpunit/>" }],
+      params: [fixture.manifests],
     });
     expect(await discovered).toMatchObject({
       type: "response",
       id: 1,
-      result: [{ id: "phpunit", executable: "php", arguments: ["vendor/bin/phpunit"] }],
+      result: fixture.expected,
     });
     const deactivated = receive("2");
     worker.postMessage({ type: "worker-call", id: 2, method: "deactivate", params: [] });
@@ -75,7 +82,7 @@ test("independent PHP entrypoint activates in a worker and contributes plans ove
       type: "worker-call",
       id: 3,
       method: "discoverRunActions",
-      params: [{ "phpunit.xml": "" }],
+      params: [fixture.manifests],
     });
     expect(await empty).toMatchObject({ result: [] });
   } finally {
@@ -83,3 +90,4 @@ test("independent PHP entrypoint activates in a worker and contributes plans ove
     disposeWorker = undefined;
   }
 }, 2000);
+}

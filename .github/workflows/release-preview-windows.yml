@@ -51,6 +51,12 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - name: Install Go for pinned plugin language servers
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.1'
+          cache: false
+
       - name: Set up Bun
         id: bun
         uses: oven-sh/setup-bun@v2
@@ -198,6 +204,19 @@ jobs:
           $actual = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
           if ($expected -ne $actual) { throw "Installer checksum mismatch" }
 
+      - name: Build signed optional language plugins
+        timeout-minutes: 15
+        env:
+          LITHE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.LITHE_PLUGIN_PACKAGE_PRIVATE_KEY }}
+        shell: pwsh
+        run: |
+          bun scripts/build-windows-language-plugin.ts PhpSupport windows-x86_64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun scripts/build-windows-language-plugin.ts GoSupport windows-x86_64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-windows-plugin-isolation.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Create or update rolling preview Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -224,3 +243,6 @@ jobs:
             "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe" `
             "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe.sha256" `
             --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $plugins = @(Get-ChildItem .artifacts/windows-plugins/*.lithe-extension | ForEach-Object { $_.FullName })
+          gh release upload $env:RELEASE_TAG @plugins --repo $env:GITHUB_REPOSITORY --clobber

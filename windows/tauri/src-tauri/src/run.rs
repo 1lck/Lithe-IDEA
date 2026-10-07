@@ -64,6 +64,7 @@ struct RunSessionKey {
 
 struct RunningSession {
     pid: u32,
+    process_tree: Option<Arc<lithe_git_host::ProcessTree>>,
     execution_id: Option<String>,
     stdin: Option<ChildStdin>,
 }
@@ -674,7 +675,7 @@ pub async fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result
     // owns the reservation and temporary file even if the awaiting task ends.
     tauri::async_runtime::spawn_blocking(move || {
         if let Some(pid) = previous_pid {
-            terminate_run_process(pid);
+            terminate_run_process(pid)?;
         }
         start_reserved_process(app, args, reservation)
     })
@@ -707,8 +708,8 @@ fn start_reserved_process(
     let mut current = sessions()
         .lock()
         .map_err(|_| "Run process state is unavailable".to_string())?;
-    let mut child = match command.spawn() {
-        Ok(child) => child,
+    let (mut child, process_tree) = match lithe_git_host::ProcessTree::spawn(&mut command) {
+        Ok(owned) => owned,
         Err(error) => {
             drop(argfile);
             return Err(spawn_failure_message(&args.executable, &arguments, &error));
@@ -724,6 +725,7 @@ fn start_reserved_process(
         session_key,
         RunningSession {
             pid,
+            process_tree: Some(Arc::clone(&process_tree)),
             execution_id: args.execution_id,
             stdin,
         },
@@ -754,6 +756,7 @@ fn start_reserved_process(
         args.window_label,
         args.session_id,
         child,
+        process_tree,
         pid,
         stdout_reader,
         stderr_reader,
@@ -796,10 +799,17 @@ pub async fn run_stop_process(
     session_id: String,
     execution_id: Option<String>,
 ) -> Result<(), String> {
-    if let Some(pid) = stop_session(&window_label, &session_id, execution_id.as_deref()) {
+    if let Some(pid) = stop_session(&window_label, &session_id, execution_id.as_deref())? {
         tauri::async_runtime::spawn_blocking(move || terminate_run_process(pid))
             .await
-            .map_err(|error| format!("Run stop failed: {error}"))?;
+            .map_err(|error| format!("Run stop failed: {error}"))??;
+        let mut current = sessions()
+            .lock()
+            .map_err(|_| "Run process state is unavailable")?;
+        let key = run_session_key(&window_label, &session_id);
+        if current.get(&key).is_some_and(|entry| entry.pid == pid) {
+            current.remove(&key);
+        }
     }
     Ok(())
 }
@@ -2162,6 +2172,7 @@ fn spawn_exit_waiter(
     window_label: String,
     session_id: String,
     mut child: Child,
+    process_tree: Arc<lithe_git_host::ProcessTree>,
     pid: u32,
     stdout_reader: thread::JoinHandle<()>,
     stderr_reader: thread::JoinHandle<()>,
@@ -2177,6 +2188,10 @@ fn spawn_exit_waiter(
         // The JVM reads the argument file while starting, so it is removed only
         // after the process it configured has ended.
         drop(argfile);
+        if let Err(error) = process_tree.stop(Duration::from_secs(5)) {
+            eprintln!("Run descendants could not be stopped after parent exit: {error}");
+            return;
+        }
         let _ = stdout_reader.join();
         let _ = stderr_reader.join();
         // Preserve the console contract: the final output batch is observable
@@ -2218,19 +2233,23 @@ fn take_owned_session(
     current.remove(key)
 }
 
-fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>) -> Option<u32> {
-    // Use the same lock/order as publication, so a stop cannot miss a process
-    // between its pending reservation and its running session.
-    let Ok(mut pending) = pending_launches().lock() else {
-        eprintln!("Run launch state is unavailable while stopping a session");
-        return None;
-    };
-    cancel_pending_launch(
-        &mut pending,
-        &run_session_key(window_label, session_id),
-        execution_id,
-    );
-    take_running_pid(window_label, session_id, execution_id)
+fn stop_session(
+    window_label: &str,
+    session_id: &str,
+    execution_id: Option<&str>,
+) -> Result<Option<u32>, String> {
+    let mut pending = pending_launches()
+        .lock()
+        .map_err(|_| "Run launch state is unavailable")?;
+    let key = run_session_key(window_label, session_id);
+    cancel_pending_launch(&mut pending, &key, execution_id);
+    let current = sessions()
+        .lock()
+        .map_err(|_| "Run process state is unavailable")?;
+    Ok(current
+        .get(&key)
+        .filter(|session| execution_id.is_none() || session.execution_id.as_deref() == execution_id)
+        .map(|session| session.pid))
 }
 
 fn take_running_pid(
@@ -2238,21 +2257,45 @@ fn take_running_pid(
     session_id: &str,
     execution_id: Option<&str>,
 ) -> Option<u32> {
-    sessions().lock().ok().and_then(|mut current| {
-        take_owned_session(
-            &mut current,
-            &run_session_key(window_label, session_id),
-            execution_id,
-        )
+    let current = sessions().lock().ok()?;
+    current
+        .get(&run_session_key(window_label, session_id))
+        .filter(|session| execution_id.is_none() || session.execution_id.as_deref() == execution_id)
         .map(|session| session.pid)
-    })
 }
 
-fn terminate_run_process(pid: u32) {
-    let mut command = Command::new("taskkill");
-    command.args(["/F", "/T", "/PID", &pid.to_string()]);
-    apply_creation_flags(&mut command);
-    let _ = command.output();
+fn terminate_run_process(pid: u32) -> Result<(), String> {
+    let tree = sessions()
+        .lock()
+        .map_err(|_| "Run process state is unavailable")?
+        .values()
+        .find(|session| session.pid == pid)
+        .and_then(|session| session.process_tree.clone());
+    if let Some(tree) = tree {
+        tree.stop(Duration::from_secs(5))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn shutdown() {
+    if let Ok(mut pending) = pending_launches().lock() {
+        pending.clear();
+    }
+    let trees = sessions()
+        .lock()
+        .map(|current| {
+            current
+                .values()
+                .filter_map(|session| session.process_tree.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for tree in trees {
+        if let Err(error) = tree.stop(Duration::from_secs(5)) {
+            eprintln!("Run shutdown failed: {error}");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2407,6 +2450,7 @@ mod tests {
         current.insert(
             key.clone(),
             RunningSession {
+                process_tree: None,
                 pid: 42,
                 execution_id: Some("replacement".into()),
                 stdin: None,
@@ -2430,6 +2474,7 @@ mod tests {
         current.insert(
             key.clone(),
             RunningSession {
+                process_tree: None,
                 pid: 42,
                 execution_id: None,
                 stdin: None,

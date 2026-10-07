@@ -7,6 +7,7 @@ CONFIGURATION="debug"
 TRIPLE=""
 OUTPUT_DIR=""
 SIGNING_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}"
+node "$ROOT_DIR/scripts/generate-plugin-manifests.mjs" --check >&2
 PLUGIN_ID=""
 BUNDLED_ONLY=false
 
@@ -102,7 +103,7 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     rm -rf "$package_dir"
     mkdir -p "$executable_dir"
     cp "$manifest" "$package_dir/plugin.json"
-    if [[ "$package_id" == "dev.lithe.plugin.php-support" ]]; then
+    if [[ -f "$plugin_source/language-server.json" ]]; then
         language_server_manifest="$plugin_source/language-server.json"
         [[ -f "$language_server_manifest" ]] || {
             print -u2 -- "PHP Support is missing its language-server manifest: $language_server_manifest"
@@ -129,6 +130,16 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
         "$ROOT_DIR/scripts/prepare-php-language-server.sh" \
             --manifest "$plugin_source/language-server.json" \
             --output "$bundle_dir/Contents/Resources/LanguageServers/php" >&2
+    fi
+
+    if [[ "$package_id" == "dev.lithe.plugin.go-support" ]]; then
+        go_arch="amd64"
+        [[ "$TRIPLE" == arm64-* ]] && go_arch="arm64"
+        node "$ROOT_DIR/scripts/prepare-go-language-server.mjs" \
+            --manifest "$plugin_source/language-server.json" \
+            --output "$bundle_dir/Contents/Resources/LanguageServers/go" \
+            --target "darwin-$go_arch" >&2
+        /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" "$bundle_dir/Contents/Resources/LanguageServers/go/bin/gopls"
     fi
 
     /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" "$bundle_dir"

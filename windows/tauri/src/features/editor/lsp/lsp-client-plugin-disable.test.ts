@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
+import * as adapter from "@/platform/lsp-core-adapter";
 import { LspClient } from "./lsp-client";
 
 describe("language extension shutdown", () => {
@@ -17,6 +18,10 @@ describe("language extension shutdown", () => {
       activeServerFiles,
       fileStartTasks: new Map(),
       workspaceStartTasks: new Map(),
+      serverScopes: new Map(),
+      activeLanguages: new Set(),
+      failedLanguageServers: new Map(),
+      updateLspStatus: () => {},
     });
     client.stopForFile = async (filePath) => {
       stoppedFiles.push(filePath);
@@ -32,19 +37,31 @@ describe("language extension shutdown", () => {
     expect(activeLanguageServers.has(rustServer)).toBe(true);
   });
 
-  test("reports a server that remains active after all attachments stop", async () => {
+  test("retains tracking when the native owner cannot confirm shutdown", async () => {
     const serverKey = "C:/work:go";
     const client = Object.create(LspClient.prototype) as LspClient;
+    const activeLanguageServers = new Set([serverKey]);
     Object.assign(client, {
-      activeLanguageServers: new Set([serverKey]),
-      activeServerFiles: new Map([[serverKey, new Set(["C:/work/main.go"])]]),
-      fileStartTasks: new Map(),
-      workspaceStartTasks: new Map(),
+      activeLanguageServers, fileStartTasks: new Map(), workspaceStartTasks: new Map(),
     });
-    client.stopForFile = async () => {};
+    const stop = spyOn(adapter, "invokeLsp").mockRejectedValue(new Error("Native cleanup failed"));
+    try {
+      await expect(client.stopLanguageServers(["go"])).rejects.toThrow("Native cleanup failed");
+      expect(activeLanguageServers.has(serverKey)).toBe(true);
+    } finally { stop.mockRestore(); }
+  });
 
-    await expect(client.stopLanguageServers(["go"])).rejects.toThrow(
-      "Language server remained active",
-    );
+  test("clears a workspace-only plugin after native shutdown confirms absence", async () => {
+    const serverKey = "C:/work:go";
+    const client = Object.create(LspClient.prototype) as LspClient;
+    const activeLanguageServers = new Set([serverKey]);
+    Object.assign(client, {
+      activeLanguageServers, activeServerFiles: new Map(),
+      fileStartTasks: new Map(), workspaceStartTasks: new Map(),
+      serverScopes: new Map(), activeLanguages: new Set(), failedLanguageServers: new Map(),
+      updateLspStatus: () => {},
+    });
+    await client.stopLanguageServers(["go"]);
+    expect(activeLanguageServers.has(serverKey)).toBe(false);
   });
 });

@@ -9,9 +9,9 @@ import Foundation
 public enum PluginPackageSignature {
     public static let schemaVersion = 1
     public static let algorithm = "ed25519"
-    public static let keyID = "lithe-official-plugins-v1"
+    public static let keyID = PluginPublisherIdentity.keyID
     /// Base64-encoded public key trusted for official separately distributed plugins.
-    public static let publisherPublicKeyBase64 = "5g83oIZu4TjOQr5g9KJcrNd2pgdXyEnvhJIXtrPoPyw="
+    public static let publisherPublicKeyBase64 = PluginPublisherIdentity.publicKeyBase64
     public static let signatureFileName = "lithe-plugin-signature.json"
 
     public struct Document: Codable, Equatable, Sendable {

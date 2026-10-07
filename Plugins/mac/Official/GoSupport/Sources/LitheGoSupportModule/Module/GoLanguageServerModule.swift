@@ -3,19 +3,18 @@ import LitheModuleAPI
 
 @MainActor
 public final class GoLanguageServerModule: LitheModule {
-    public static let moduleManifest = OfficialPluginCatalog.moduleManifest(
-        for: .languageServerExtension(goLanguageID)
-    )!
+    public static let moduleManifest = GoSupportManifest.languageServerModule
 
     public let manifest = moduleManifest
     private var capability: GoLanguageServerCapability?
 
-    public init() {}
+    private let launch: PluginLanguageServerLaunch
+    public init(launch: PluginLanguageServerLaunch = GoSupportManifest.languageServerLaunch) { self.launch = launch }
 
     public func activate(context: ModuleContext) async throws {
         let lifecycle = GoLanguageServerLifecycle()
         context.resources.register(GoLanguageServerResource(lifecycle: lifecycle))
-        capability = GoLanguageServerCapability(lifecycle: lifecycle)
+        capability = GoLanguageServerCapability(lifecycle: lifecycle, launch: launch)
     }
 
     public func prepareForSleep() async throws {}

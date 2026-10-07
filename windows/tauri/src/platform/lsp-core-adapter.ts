@@ -1,3 +1,4 @@
+import { pluginLifecycle } from "@/extensions/registry/plugin-lifecycle";
 import {
   getProjectPreparation,
   failProjectPreparation,
@@ -57,6 +58,10 @@ interface EventPumpOwner {
 
 interface Session {
   id: string;
+  pluginId?: string;
+  pluginResourceId?: string;
+  releasePluginResource?: () => Promise<void>;
+  nativeDestroyed?: boolean;
   workspacePath: string;
   languageId: string;
   files: Set<string>;
@@ -81,6 +86,8 @@ interface PendingFileAttachment {
 
 interface StoredSession {
   id: string;
+  pluginId?: string;
+  pluginResourceId?: string;
   workspacePath: string;
   languageId: string;
   files: string[];
@@ -168,6 +175,8 @@ function persistSessions(): void {
   const stored: StoredSession[] = [...sessions.values()]
     .map((session) => ({
       id: session.id,
+      pluginId: session.pluginId,
+      pluginResourceId: session.pluginResourceId,
       workspacePath: session.workspacePath,
       languageId: session.languageId,
       files: [...session.files].sort(),
@@ -263,6 +272,8 @@ function restorePersistedSessions(): void {
 
       const session: Session = {
         id: stored.id,
+        pluginId: typeof stored.pluginId === "string" ? stored.pluginId : undefined,
+        pluginResourceId: typeof stored.pluginResourceId === "string" ? stored.pluginResourceId : undefined,
         workspacePath: stored.workspacePath,
         languageId: stored.languageId,
         files: new Set(),
@@ -286,7 +297,7 @@ function restorePersistedSessions(): void {
       for (const file of stored.files) attachFile(session, file, crypto.randomUUID());
     }
     for (const session of sessions.values()) {
-      if (session.files.size === 0) {
+      if (session.files.size === 0 && !session.pluginId) {
         if (session.languageId === "java") clearProjectPreparation(session.workspacePath, session.id);
         removeSessionMappings(session);
       }
@@ -564,6 +575,7 @@ async function runEventPump(session: Session, owner: EventPumpOwner): Promise<vo
             (event.state === "failed" || event.state === "stopped"),
         )?.state;
       if (terminalState) {
+        if (session.pluginId) await stopSession(session);
         removeSessionMappings(session);
         persistSessions();
         if (terminalState === "failed") {
@@ -582,8 +594,8 @@ async function runEventPump(session: Session, owner: EventPumpOwner): Promise<vo
     rejectPendingOperations(session, error);
     transitionSessionLifecycle(session.lifecycle, "failed");
     if (session.languageId === "java") failProjectPreparation(session.workspacePath, session.id);
-    removeSessionMappings(session);
-    persistSessions();
+    if (session.pluginId) await cleanupFailedStart(sessionKey(session.workspacePath, session.languageId), session, owner.operation.operationId);
+    else { removeSessionMappings(session); persistSessions(); }
     owner.operation.failed(error);
     const details = String((error as Error & { details?: string }).details ?? "");
     // waitEvents returns process_failed/sessionStopped after an intentional stop.
@@ -629,9 +641,22 @@ async function stopAndDestroySession(
   session: Session,
   operationId: string,
 ): Promise<"stopped" | "timedOut"> {
+  if (session.nativeDestroyed) {
+    await session.releasePluginResource?.();
+    return "stopped";
+  }
   cancelEventPump(session, "session-stop-requested");
   transitionSessionLifecycle(session.lifecycle, "stopping", operationId);
-  await core("lsp.stopServer", { sessionId: session.id }, operationId);
+  try { await core("lsp.stopServer", { sessionId: session.id }, operationId); }
+  catch (reason) {
+    // destroyServer is idempotent for an absent session and rejects a live one.
+    // This also handles a WebView snapshot from a previous Core process.
+    await core("lsp.destroyServer", { sessionId: session.id }, operationId);
+    session.nativeDestroyed = true;
+    await session.releasePluginResource?.();
+    transitionSessionLifecycle(session.lifecycle, "stopped", operationId);
+    return "stopped";
+  }
 
   const deadline = Date.now() + SESSION_CLEANUP_TIMEOUT_MS;
   let lastDestroyError: unknown;
@@ -639,6 +664,8 @@ async function stopAndDestroySession(
   while (Date.now() < deadline) {
     try {
       await core("lsp.destroyServer", { sessionId: session.id }, operationId);
+      session.nativeDestroyed = true;
+      await session.releasePluginResource?.();
       transitionSessionLifecycle(session.lifecycle, "stopped", operationId);
       return "stopped";
     } catch (reason) {
@@ -661,6 +688,8 @@ async function stopAndDestroySession(
       lastPollError instanceof Error ? lastPollError.message : String(lastPollError ?? ""),
   });
   await core("lsp.destroyServer", { sessionId: session.id }, operationId);
+  session.nativeDestroyed = true;
+  await session.releasePluginResource?.();
   transitionSessionLifecycle(session.lifecycle, "stopped", operationId);
   return "timedOut";
 }
@@ -672,11 +701,10 @@ async function cleanupFailedStart(
 ): Promise<void> {
   if (session.languageId === "java") failProjectPreparation(session.workspacePath, session.id);
   stoppingSessionIds.add(session.id);
-  if (sessions.get(key) === session) sessions.delete(key);
-  removeSessionMappings(session);
-  persistSessions();
   try {
     await stopAndDestroySession(session, operationId);
+    removeSessionMappings(session);
+    persistSessions();
   } catch (reason) {
     frontendTrace("warn", "lsp.runtime", "Language-server cleanup failed", {
       operationId,
@@ -730,6 +758,8 @@ async function recoverSession(session: Session): Promise<Session | null> {
     languageId: session.languageId,
   });
   try {
+    if (session.pluginId && session.pluginResourceId)
+      session.releasePluginResource = await pluginLifecycle.reserve(session.pluginId, session.pluginResourceId, true);
     const events = await poll(session, 200);
     const state = [...events].reverse().find((event) => event.type === "stateChanged")?.state;
     if (state === "failed" || state === "stopped" || state === "stopping") {
@@ -738,8 +768,10 @@ async function recoverSession(session: Session): Promise<Session | null> {
           await stopAndDestroySession(session, operation.operationId);
         } else {
           await core("lsp.destroyServer", { sessionId: session.id }, operation.operationId);
+          await session.releasePluginResource?.();
         }
       } catch (reason) {
+        if (session.pluginId) throw reason;
         frontendTrace("warn", "lsp.runtime", "Could not destroy stale language-server session", {
           operationId: operation.operationId,
           sessionId: session.id,
@@ -770,8 +802,9 @@ async function recoverSession(session: Session): Promise<Session | null> {
     return session;
   } catch (reason) {
     if (session.languageId === "java") failProjectPreparation(session.workspacePath, session.id);
-    removeSessionMappings(session);
-    persistSessions();
+    if (session.pluginId) {
+      await stopSession(session);
+    } else { removeSessionMappings(session); persistSessions(); }
     operation.failed(reason);
     frontendTrace("warn", "lsp.runtime", "Could not recover language-server session", {
       operationId: operation.operationId,
@@ -796,6 +829,10 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
     ...args.tools?.lsp?.env,
     ...args.environment,
   };
+  const pluginId = typeof args.pluginId === "string" ? args.pluginId : undefined;
+  const pluginResourceId = pluginId ? `lsp:${operationId}` : undefined;
+  const releasePluginResource = pluginId && pluginResourceId
+    ? await pluginLifecycle.reserve(pluginId, pluginResourceId) : undefined;
   let started: { sessionId: string; state?: CoreLspSessionState };
   try {
     started = await core<{ sessionId: string; state?: CoreLspSessionState }>(
@@ -821,11 +858,15 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
       operationId,
     );
   } catch (reason) {
+    await releasePluginResource?.();
     operation.failed(reason, { stage: "processStart" });
     throw reason;
   }
   const session: Session = {
     id: started.sessionId,
+    pluginId,
+    pluginResourceId,
+    releasePluginResource,
     workspacePath,
     languageId,
     files: new Set(),
@@ -976,8 +1017,6 @@ async function stopSession(session: Session): Promise<void> {
   if (session.languageId === "java") clearProjectPreparation(session.workspacePath, session.id);
   const key = sessionKey(session.workspacePath, session.languageId);
   stoppingSessionIds.add(session.id);
-  removeSessionMappings(session);
-  persistSessions();
 
   let stopPromise = sessionStops.get(key);
   if (!stopPromise) {
@@ -988,6 +1027,8 @@ async function stopSession(session: Session): Promise<void> {
     });
     stopPromise = stopAndDestroySession(session, operation.operationId)
       .then((outcome) => {
+        removeSessionMappings(session);
+        persistSessions();
         if (outcome === "timedOut") {
           operation.timedOut({ stage: "cleanup" });
         } else {
@@ -1453,6 +1494,17 @@ function snapshotForSession(session: Session): LspSessionSnapshot {
 export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Promise<T> {
   if (command === "lsp_start" || command === "lsp_start_for_file") {
     await start(args);
+    return undefined as T;
+  }
+  if (command === "lsp_stop_languages") {
+    // Starts register synchronously before their first await. The Core plugin
+    // gate is already closed, so draining cannot admit a new owned process.
+    await Promise.allSettled([...sessionStarts.values()]);
+    const languages = new Set<string>(args.languageIds ?? []);
+    const results = await Promise.allSettled([...sessions.values()]
+      .filter((session) => languages.has(session.languageId)).map(stopSession));
+    const errors = results.filter((result) => result.status === "rejected");
+    if (errors.length) throw new Error(`Plugin language servers could not stop: ${errors.map((result) => String(result.reason)).join("; ")}`);
     return undefined as T;
   }
   if (command === "lsp_stop") {

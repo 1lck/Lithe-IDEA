@@ -6,7 +6,9 @@
   "macos": {
     "evidence": [
       "Plugins/mac/Official/PhpSupport/Sources/LithePhpSupportModule/Capabilities/PhpExecutionCapability.swift",
-      "macos/Tests/LitheTests/RealPhpIntegrationTests.swift"
+      "macos/Tests/LitheTests/RealPhpIntegrationTests.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLifecycleClient.swift",
+      "macos/Tests/LitheTests/PluginSessionContractTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -15,11 +17,14 @@
     "evidence": [
       "Plugins/win/Official/PhpSupport/plugin.ts",
       "windows/tauri/src/extensions/run",
-      "windows/tauri/src/extensions/ui/services/ui-extension-worker-runtime.test.ts"
+      "windows/tauri/src/extensions/ui/services/ui-extension-worker-runtime.test.ts",
+      "windows/tauri/src/extensions/registry/plugin-lifecycle.ts",
+      "windows/tauri/src-tauri/src/plugin_packages.rs",
+      "shared/fixtures/plugins/session-v1.json"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
   },
   "owner": "PHP Support",
-  "verification": "macOS 运行 PHP 文件和单条/整套 PHPUnit；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。"
+  "verification": "macOS 运行 PHP 文件和单条/整套 PHPUnit；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。 本次两端生命周期迁移需在目标平台验证：安装、启动途中禁用、清理失败后重试、重装、替换、回滚、重启恢复和卸载；旧操作完成不能重新启用插件，运行进程和 LSP 全部确认停止后才能删除资源。Windows 校验错误签名、篡改资源和路径逃逸均被拒绝；macOS 新原生版本必须等重启生效。Linux Core/Bun 测试及 Windows 交叉编译不能替代原生验证。"
 }

@@ -20,7 +20,7 @@ for (const state of ["removed", "incomplete", "disabled", "enabled"] as const) {
     const parsers = spyOn(extensionInstaller, "listInstalled").mockResolvedValue([
       { languageId: "php", extensionId: manifest.id, version: "1.0.0", size: 1 },
     ]);
-    const packages = spyOn(localExtensionPackages, "list").mockReturnValue(
+    const packages = spyOn(localExtensionPackages, "list").mockResolvedValue(
       state === "removed"
         ? []
         : [

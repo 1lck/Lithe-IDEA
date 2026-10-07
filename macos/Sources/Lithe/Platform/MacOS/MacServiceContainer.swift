@@ -161,6 +161,10 @@ final class MacServiceContainer {
             launchMode: moduleLaunchMode
         ))
         let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
+        moduleRuntime.activationOwnership = MacPluginModuleOwnership(
+            client: pluginPackageStore.lifecycle,
+            manifests: BuiltInPluginCatalog.manifests + bundledLanguageManifests + pluginStartup.activeNativeManifests
+        )
         let moduleRegistry = ModuleRegistry(
             runtime: moduleRuntime,
             pluginManifests: BuiltInPluginCatalog.manifests
@@ -216,23 +220,26 @@ final class MacServiceContainer {
             preconditionFailure("Invalid built-in module graph: \(error.localizedDescription)")
         }
         let activePluginIDs = Set(pluginStartup.activeNativeManifests.map(\.id))
-        let pluginToolRoots = pluginStartup.installedPlugins
-            .filter { activePluginIDs.contains($0.manifest.id) }
-            .compactMap { installed -> URL? in
-                guard installed.manifest.id == OfficialPluginCatalog.phpPluginID,
-                      case .nativeBundle = installed.manifest.entrypoint.kind,
-                      let bundlePath = installed.manifest.entrypoint.bundlePath else {
-                    return nil
-                }
-                return installed.packageURL
-                    .appendingPathComponent(bundlePath, isDirectory: true)
-                    .appendingPathComponent("Contents/Resources/LanguageServers/php", isDirectory: true)
-                    .standardizedFileURL
+        var pluginTools: [String: [URL]] = [:]
+        for installed in pluginStartup.installedPlugins where activePluginIDs.contains(installed.manifest.id) {
+            guard let bundlePath = installed.manifest.entrypoint.bundlePath else { continue }
+            let launches: [String: PluginLanguageServerLaunch]
+            do {
+                launches = try MacPluginLanguageServerPackageValidator.launches(packageAt: installed.packageURL, for: installed.manifest)
+            } catch {
+                NSLog("Plugin launch metadata became unavailable: %@", installed.manifest.id.rawValue)
+                continue
             }
+            for launch in launches.values where launch.source == "package" {
+                guard let relativePath = launch.launcherRelativePath else { continue }
+                pluginTools[launch.executable, default: []].append(installed.packageURL
+                    .appendingPathComponent(bundlePath).appendingPathComponent(relativePath))
+            }
+        }
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store,
-            toolDiscovery: MacRuntimeToolDiscovery(pluginToolRoots: pluginToolRoots)
+            toolDiscovery: MacRuntimeToolDiscovery(pluginTools: pluginTools)
         )
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a

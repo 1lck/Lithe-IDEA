@@ -346,6 +346,14 @@ while IFS=$'\t' read -r status first_path _; do
             # shared Core behavior or the isolated database/plugin test lanes.
             macos_release=true
             ;;
+        scripts/prepare-go-language-server.mjs|scripts/generate-plugin-manifests.mjs|scripts/build-windows-language-plugin.ts|scripts/build-windows-php-plugin.ts|scripts/verify-windows-plugin-isolation.mjs|shared/contracts/plugin-publisher.json)
+            plugins=true
+            swift=true
+            macos_release=true
+            windows=true
+            windows_rust=true
+            rust_core=true
+            ;;
         scripts/verify-official-plugins.sh|scripts/build-official-plugins.sh)
             plugins=true
             ;;

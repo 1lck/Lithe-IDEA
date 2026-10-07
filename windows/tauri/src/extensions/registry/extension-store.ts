@@ -63,6 +63,7 @@ interface ExtensionStoreState {
     updateExtension: (extensionId: string) => Promise<void>;
     checkForUpdates: () => Promise<string[]>;
     importLocalPackage: (text: string) => Promise<void>;
+    rollbackLocalPackage: (extensionId: string) => Promise<void>;
     updateInstallProgress: (extensionId: string, progress: number, error?: string) => void;
   };
 }
@@ -106,7 +107,7 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             if (manifest.languages?.some((language) => language.id in optionalLanguagePackages))
               extensionById.delete(id);
           }
-          for (const pkg of localExtensionPackages.list())
+          for (const pkg of await localExtensionPackages.list())
             extensionById.set(pkg.manifest.id, pkg.manifest);
           const extensions = Array.from(extensionById.values());
 
@@ -237,13 +238,14 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
       },
 
       importLocalPackage: async (text) => {
-        const pkg = parseLocalExtensionPackage(text);
+        const pkg = await parseLocalExtensionPackage(text);
         const existing = get().availableExtensions.get(pkg.manifest.id);
-        if (existing)
-          throw new Error("Uninstall the existing extension before importing a replacement.");
+        if (existing && (existing.manifest.installation?.type !== "local" || existing.isInstalling))
+          throw new Error("The existing plugin cannot be replaced while it is busy or managed externally.");
         // A package may not replace an installed language owned by another extension.
         for (const extension of get().availableExtensions.values()) {
           if (
+            extension.manifest.id !== pkg.manifest.id &&
             (extension.isInstalled || extension.isInstalling) &&
             extension.manifest.languages?.some((language) =>
               pkg.manifest.languages?.some((candidate) => candidate.id === language.id),
@@ -253,18 +255,65 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
               "Uninstall the existing language provider before importing this package.",
             );
         }
-        localExtensionPackages.stage(pkg);
-        markExtensionDisabled(pkg.manifest.id);
-        set((state) => {
-          state.availableExtensions.set(pkg.manifest.id, {
-            manifest: pkg.manifest,
-            isInstalled: false,
-            isEnabled: false,
-            isInstalling: false,
+        const wasEnabled = existing?.isInstalled === true && existing.isEnabled;
+        if (existing) await get().actions.disableExtension(pkg.manifest.id);
+        let staged = false;
+        try {
+          await localExtensionPackages.stage(pkg, text, !!existing);
+          staged = true;
+          markExtensionDisabled(pkg.manifest.id);
+          set((state) => {
+            state.availableExtensions.set(pkg.manifest.id, {
+              manifest: pkg.manifest, isInstalled: false, isEnabled: false, isInstalling: false,
+            });
           });
-        });
-        // Import installs the package disabled. Enable is a separate explicit action.
-        await get().actions.installExtension(pkg.manifest.id, false);
+          // Fresh imports stay disabled. Replacement preserves the user's setting.
+          await get().actions.installExtension(pkg.manifest.id, wasEnabled);
+        } catch (error) {
+          if (staged && existing && await localExtensionPackages.previous(pkg.manifest.id)) {
+            // Failed activation may still own resources. Stop them before switching
+            // metadata back to a different worker and native version.
+            await disableExtensionLifecycle({ extensionId: pkg.manifest.id,
+              extension: get().availableExtensions.get(pkg.manifest.id) ?? {
+                manifest: pkg.manifest, isInstalled: false, isEnabled: false, isInstalling: false,
+              } });
+            const restored = await localExtensionPackages.rollback(pkg.manifest.id);
+            set((state) => { state.availableExtensions.set(pkg.manifest.id, {
+              ...existing, manifest: restored.manifest, isEnabled: false, isInstalling: false,
+            }); });
+            await get().actions.installExtension(pkg.manifest.id, wasEnabled);
+          } else if (!staged && existing && wasEnabled) {
+            await get().actions.enableExtension(pkg.manifest.id);
+          }
+          throw error;
+        }
+      },
+
+      rollbackLocalPackage: async (extensionId) => {
+        const extension = get().availableExtensions.get(extensionId);
+        const previous = await localExtensionPackages.previous(extensionId);
+        if (!extension || !previous) throw new Error("No previous plugin version is available");
+        if (extension.isInstalling) throw new Error("Plugin operation is already running");
+        const wasEnabled = extension.isEnabled;
+        await get().actions.disableExtension(extensionId);
+        const restored = await localExtensionPackages.rollback(extensionId);
+        set((state) => { state.availableExtensions.set(extensionId, {
+          ...extension, manifest: restored.manifest, isEnabled: false, isInstalling: false,
+        }); });
+        try {
+          await get().actions.installExtension(extensionId, wasEnabled);
+        } catch (error) {
+          // A retained version can be damaged on disk. Restore the working
+          // selection only after the failed version has released its resources.
+          await disableExtensionLifecycle({ extensionId,
+            extension: get().availableExtensions.get(extensionId)! });
+          const recovered = await localExtensionPackages.rollback(extensionId);
+          set((state) => { state.availableExtensions.set(extensionId, {
+            ...extension, manifest: recovered.manifest, isEnabled: false, isInstalling: false,
+          }); });
+          await get().actions.installExtension(extensionId, wasEnabled);
+          throw error;
+        }
       },
 
       installExtension: async (extensionId: string, activateAfterInstall = true) => {
@@ -300,39 +349,39 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
                 }
               });
             },
-            onLanguageInstalled: (runtimeManifest, runtimeIssues) => {
-              if (activateAfterInstall) markExtensionEnabled(extensionId);
+            onLanguageInstalled: (runtimeManifest, runtimeIssues, enabled) => {
+              if (enabled) markExtensionEnabled(extensionId);
               else markExtensionDisabled(extensionId);
               set((state) => {
                 const ext = state.availableExtensions.get(extensionId);
                 if (ext) {
                   ext.isInstalling = false;
                   ext.isInstalled = true;
-                  ext.isEnabled = activateAfterInstall;
+                  ext.isEnabled = enabled;
                   ext.installProgress = 100;
                   ext.installError = undefined;
                   ext.manifest = runtimeManifest;
                   ext.runtimeIssues = runtimeIssues || [];
                   state.installedExtensions.set(
                     extensionId,
-                    buildInstalledExtensionMetadata(extensionId, ext, activateAfterInstall),
+                    buildInstalledExtensionMetadata(extensionId, ext, enabled),
                   );
                 }
                 state.availableExtensions = new Map(state.availableExtensions);
               });
             },
-            onNonLanguageInstalled: () => {
+            onNonLanguageInstalled: (enabled) => {
               set((state) => {
                 const ext = state.availableExtensions.get(extensionId);
                 if (ext) {
                   ext.isInstalling = false;
                   ext.isInstalled = true;
-                  ext.isEnabled = activateAfterInstall;
+                  ext.isEnabled = enabled;
                   ext.installProgress = 100;
                   ext.installError = undefined;
                   state.installedExtensions.set(
                     extensionId,
-                    buildInstalledExtensionMetadata(extensionId, ext, activateAfterInstall),
+                    buildInstalledExtensionMetadata(extensionId, ext, enabled),
                   );
                 }
                 state.availableExtensions = new Map(state.availableExtensions);
@@ -343,11 +392,13 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
 
+          const localPackage = extension.manifest.installation?.type === "local"
+            ? await localExtensionPackages.get(extensionId) : undefined;
           set((state) => {
             if (
               extension.manifest.installation?.type === "local" &&
               !extension.isInstalled &&
-              !localExtensionPackages.get(extensionId)
+              !localPackage
             )
               state.availableExtensions.delete(extensionId);
             const ext = state.availableExtensions.get(extensionId);
@@ -547,6 +598,7 @@ export const initializeExtensionStore = (): Promise<void> => {
 };
 
 async function initializeExtensionStoreImpl(): Promise<void> {
+  await localExtensionPackages.recoverInterruptedReplacements();
   const { loadAvailableExtensions, loadInstalledExtensions, checkForUpdates } =
     useExtensionStoreBase.getState().actions;
   await initializeExtensionStoreBootstrap({

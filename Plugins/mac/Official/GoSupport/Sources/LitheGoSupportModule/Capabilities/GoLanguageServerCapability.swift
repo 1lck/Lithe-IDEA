@@ -1,18 +1,21 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 
 @MainActor
 public final class GoLanguageServerCapability: NSObject, LanguageServerExtensionProviding {
-    public let configuration = LanguageServerExtensionConfiguration(
-        languageID: goLanguageID,
-        displayName: "Go",
-        executableNames: ["gopls"],
-        validationArguments: ["version"],
-        languageIdentifier: "go"
-    )
+    public let configuration: LanguageServerExtensionConfiguration
     public let lifecycle: any LanguageServerExtensionLifecycle
 
-    init(lifecycle: any LanguageServerExtensionLifecycle) {
+    init(lifecycle: any LanguageServerExtensionLifecycle, launch: PluginLanguageServerLaunch = GoSupportManifest.languageServerLaunch) {
+        configuration = LanguageServerExtensionConfiguration(
+            languageID: GoSupportManifest.languageID,
+            displayName: "Go",
+            executableNames: [launch.executable],
+            arguments: launch.arguments,
+            validationArguments: launch.validationArguments,
+            languageIdentifier: GoSupportManifest.languageID
+        )
         self.lifecycle = lifecycle
     }
 }

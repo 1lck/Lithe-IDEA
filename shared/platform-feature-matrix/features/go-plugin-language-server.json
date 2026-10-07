@@ -1,0 +1,27 @@
+{
+  "id": "go-plugin-language-server",
+  "area": "语言支持",
+  "group": "Go",
+  "capability": "Go 插件语言服务与运行测试",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "Plugins/mac/Official/GoSupport",
+      "scripts/prepare-go-language-server.mjs",
+      "macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "Plugins/win/Official/GoSupport",
+      "scripts/build-windows-language-plugin.ts",
+      "windows/tauri/src/extensions/run/extension-run-actions.ts",
+      "windows/tauri/src/platform/lsp-core-adapter.ts"
+    ]
+  },
+  "owner": "Go Support",
+  "verification": "两端使用固定 gopls 包打开含 go.mod 的项目，验证补全、诊断、定义跳转和关闭后重新启动；运行 go run . 和 go test ./...，保存成功后才启动，禁用/卸载停止所有派生进程。缺少用户 Go SDK 时明确报错。Windows 签名包导入默认禁用，验证替换、回滚及重新启动；macOS 验证包内 gopls 的签名、路径与文件哈希不变。原生验证完成前保持 pending。"
+}

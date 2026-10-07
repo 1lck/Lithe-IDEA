@@ -17,6 +17,7 @@ base64 = "0.22"
 comrak = { version = "0.54.0", default-features = false, features = ["shortcodes"] }
 rand = "0.8"
 regex = "1.11"
+ring = "0.17"
 quick-xml = "0.37"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rsa = { version = "0.9", features = ["pem"] }

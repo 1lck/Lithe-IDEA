@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "pluginID": "lithe.go",
+  "toolID": "gopls",
+  "version": "0.23.0",
+  "archiveURL": "https://proxy.golang.org/golang.org/x/tools/gopls/@v/v0.23.0.zip",
+  "archiveSHA256": "b3bb593ef163f614e358cdb14a9feede3cad2bfc9087b8e4dca73b2fff858b74",
+  "archiveFormat": "goModuleZip",
+  "archiveRoot": "golang.org/x/tools/gopls@v0.23.0",
+  "entrypoint": "main.go",
+  "license": "LICENSE"
+}

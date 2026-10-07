@@ -287,6 +287,57 @@ impl Drop for InputFile {
     }
 }
 
+/// Native process-tree ownership shared by streaming Run and bounded Git adapters.
+/// The Windows Job Object is assigned before the first child thread can run.
+pub struct ProcessTree(platform::Group);
+
+impl ProcessTree {
+    /// Starts a process whose descendants belong to this owner until confirmed stop.
+    pub fn spawn(command: &mut Command) -> io::Result<(Child, std::sync::Arc<Self>)> {
+        platform::prepare(command);
+        let mut child = command.spawn()?;
+        match platform::Group::new(&child) {
+            Ok(group) => Ok((child, std::sync::Arc::new(Self(group)))),
+            Err(error) => {
+                let _ = child.kill();
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while std::time::Instant::now() < deadline {
+                    if child.try_wait()?.is_some() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// Stops the complete group and confirms it is empty within a local deadline.
+    /// The caller retains ownership and can retry if termination is not confirmed.
+    pub fn stop(&self, timeout: Duration) -> io::Result<()> {
+        self.0.terminate(true);
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            if self.0.is_empty()? {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Process tree did not stop",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+impl Drop for ProcessTree {
+    fn drop(&mut self) {
+        self.0.terminate(true);
+    }
+}
+
 #[cfg(unix)]
 mod platform {
     use super::*;
@@ -316,6 +367,18 @@ mod platform {
     impl Group {
         pub fn new(child: &Child) -> io::Result<Self> {
             Ok(Self(child.id() as i32))
+        }
+        pub fn is_empty(&self) -> io::Result<bool> {
+            // SAFETY: signal zero only queries the group created by prepare().
+            if unsafe { libc::kill(-self.0, 0) } == 0 {
+                return Ok(false);
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                Ok(true)
+            } else {
+                Err(error)
+            }
         }
         pub fn terminate(&self, force: bool) {
             // SAFETY: a negative PID addresses only the process group we created.
@@ -369,6 +432,10 @@ mod platform {
         reader.read(&mut buffer[..count])
     }
     pub struct Group(HANDLE);
+    // SAFETY: Job Object handles permit concurrent kernel queries/termination;
+    // the owner closes the handle only after all Arc borrowers have gone away.
+    unsafe impl Send for Group {}
+    unsafe impl Sync for Group {}
     impl Group {
         pub fn new(child: &Child) -> io::Result<Self> {
             unsafe {
@@ -391,6 +458,23 @@ mod platform {
                 }
                 resume_child(child.id())?;
                 Ok(group)
+            }
+        }
+        pub fn is_empty(&self) -> io::Result<bool> {
+            // SAFETY: the owner keeps the job handle valid for the entire query.
+            unsafe {
+                let mut info: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = std::mem::zeroed();
+                if QueryInformationJobObject(
+                    self.0,
+                    JobObjectBasicAccountingInformation,
+                    &mut info as *mut _ as *mut _,
+                    std::mem::size_of_val(&info) as u32,
+                    std::ptr::null_mut(),
+                ) == 0
+                {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(info.ActiveProcesses == 0)
             }
         }
         pub fn terminate(&self, _force: bool) {

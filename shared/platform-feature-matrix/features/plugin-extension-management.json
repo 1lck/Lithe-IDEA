@@ -9,7 +9,9 @@
       "macos/Sources/Lithe/Views/App/SettingsView.swift",
       "macos/Sources/Lithe/Models/AppModel/AppModel+PluginManagement.swift",
       "macos/Tests/LitheTests/PluginManagementPresentationTests.swift",
-      "macos/Sources/Lithe/Platform/MacOS/Plugins"
+      "macos/Sources/Lithe/Platform/MacOS/Plugins",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLifecycleClient.swift",
+      "macos/Tests/LitheTests/PluginSessionContractTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -19,11 +21,14 @@
       "windows/tauri/src/extensions",
       "windows/tauri/src/features/settings",
       "windows/tauri/src-tauri/src/language_tools.rs",
-      "windows/tauri/src/extensions/registry/extension-store-lifecycle.test.ts"
+      "windows/tauri/src/extensions/registry/extension-store-lifecycle.test.ts",
+      "windows/tauri/src/extensions/registry/plugin-lifecycle.ts",
+      "windows/tauri/src-tauri/src/plugin_packages.rs",
+      "shared/fixtures/plugins/session-v1.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Extensions",
-  "verification": "macOS 全新安装时打开插件页，确认显示 PHP Support 未安装占位项，并可选择已签名的 PHP 插件包安装；选择非 PHP 包应被拒绝，安装后可搜索并启用、禁用 PHP，确认状态与重启恢复，且页面不显示无恢复路径的卸载操作；同时打开 Maven 面板确认插件内容不被遮挡。Windows 检查扩展管理入口和持久化。 Windows 缺少 Bun 或语言服务器时更新扩展，确认旧扩展的安装、启用和待更新状态保留，错误给出安装依赖后重试的提示；预检期间禁用或卸载扩展，确认返回后不会继续安装或重新启用；手动将 Marksman 等语言服务器安装到 PATH 后重启，确认能识别并启用。"
+  "verification": "macOS 全新安装时打开插件页，确认显示 PHP Support 未安装占位项，并可选择已签名的 PHP 插件包安装；选择非 PHP 包应被拒绝，安装后可搜索并启用、禁用 PHP，确认状态与重启恢复，且页面不显示无恢复路径的卸载操作；同时打开 Maven 面板确认插件内容不被遮挡。Windows 检查扩展管理入口和持久化。 Windows 缺少 Bun 或语言服务器时更新扩展，确认旧扩展的安装、启用和待更新状态保留，错误给出安装依赖后重试的提示；预检期间禁用或卸载扩展，确认返回后不会继续安装或重新启用；手动将 Marksman 等语言服务器安装到 PATH 后重启，确认能识别并启用。 本次两端生命周期迁移需在目标平台验证：安装、启动途中禁用、清理失败后重试、重装、替换、回滚、重启恢复和卸载；旧操作完成不能重新启用插件，运行进程和 LSP 全部确认停止后才能删除资源。Windows 校验错误签名、篡改资源和路径逃逸均被拒绝；macOS 新原生版本必须等重启生效。Linux Core/Bun 测试及 Windows 交叉编译不能替代原生验证。"
 }

@@ -14,7 +14,7 @@ public final class GoSupportPluginEntrypoint: NSObject, LithePluginEntrypoint {
                 GoExecutionModule(executionHost: executionHost)
             },
             ModuleFactory(manifest: GoLanguageServerModule.moduleManifest) {
-                GoLanguageServerModule()
+                GoLanguageServerModule(launch: context.languageServerLaunch(for: GoSupportManifest.languageID) ?? GoSupportManifest.languageServerLaunch)
             }
         ]
     }

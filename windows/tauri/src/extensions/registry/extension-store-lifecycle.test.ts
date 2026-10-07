@@ -1,4 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { useRealPluginCore } from "../testing/plugin-core-backend";
+import { beforeEach, afterEach, expect, test } from "bun:test";
+import { enableMapSet } from "immer";
 import { v0ExtensionManifest } from "@lithe/v0/manifest";
 import { getProvider } from "@/features/ai/services/providers/ai-provider-registry";
 import { unregisterAIProviderExtension } from "@/features/ai/services/providers/ai-provider-registry";
@@ -7,11 +9,67 @@ import { markBundledContributionExtensionUninstalled } from "./bundled-contribut
 import { extensionRegistry } from "./extension-registry";
 import { installExtensionLifecycle, updateExtensionLifecycle } from "./extension-store-lifecycle";
 
+let restoreCore: () => void;
+beforeEach(() => { restoreCore = useRealPluginCore(); });
+afterEach(() => restoreCore());
+
 afterEach(async () => {
   await deactivateExtensionContributions(v0ExtensionManifest.id, v0ExtensionManifest);
   unregisterAIProviderExtension(v0ExtensionManifest.id);
   markBundledContributionExtensionUninstalled(v0ExtensionManifest.id);
   extensionRegistry.unregisterExtension(v0ExtensionManifest.id);
+});
+
+test("failed rollback restores the working package after stopping the failed version", async () => {
+  const { spyOn } = await import("bun:test");
+  const { useExtensionStore } = await import("./extension-store");
+  const { LocalExtensionPackageStore, localExtensionPackages, parseLocalExtensionPackage } =
+    await import("../packages/local-extension-package");
+  const { default: php } = await import("../../../../../shared/fixtures/plugins/windows-php-legacy-v1.json");
+  const native = await import("@/platform/tauri-core");
+  const { LspClient } = await import("@/features/editor/lsp/lsp-client");
+  enableMapSet();
+  // Bun's test loader can also load Zustand's CommonJS Immer peer. Initialize
+  // that entrypoint as well; the production bundler uses a single ESM graph.
+  require("immer").enableMapSet();
+  const values = new Map<string, string>();
+  const packages = new LocalExtensionPackageStore(() => ({
+    get length() { return values.size; }, key: (index) => [...values.keys()][index] ?? null,
+    getItem: (key) => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); },
+    removeItem: (key) => { values.delete(key); },
+  }));
+  for (const version of ["1.0.0", "1.1.0"]) {
+    const pkg = await parseLocalExtensionPackage(JSON.stringify({ format: "lithe-worker-plugin",
+      version: 1, manifest: { ...php, version }, source: "export function activate() {}" }));
+    await packages.stage(pkg, undefined, version === "1.1.0");
+    await packages.markInstalled(php.id);
+  }
+  const snapshot = useExtensionStore.getState();
+  const current = (await packages.get(php.id))!;
+  const events: string[] = [];
+  const previous = spyOn(localExtensionPackages, "previous").mockImplementation(packages.previous.bind(packages));
+  const rollback = spyOn(localExtensionPackages, "rollback").mockImplementation(packages.rollback.bind(packages));
+  const invoke = spyOn(native, "invoke").mockImplementation((async () => undefined) as typeof native.invoke);
+  const stop = spyOn(LspClient.getInstance(), "stopLanguageServers").mockImplementation(async () => { events.push("stop"); });
+  try {
+    useExtensionStore.setState({ availableExtensions: new Map([[php.id, {
+      manifest: current.manifest, isInstalled: true, isEnabled: true, isInstalling: false,
+    }]]), actions: { ...snapshot.actions, installExtension: async (id, activate) => {
+      const selected = (await packages.get(id))!;
+      events.push(`install:${selected.manifest.version}`);
+      if (selected.manifest.version === "1.0.0") throw new Error("Retained version is damaged");
+      expect(activate).toBe(true);
+    } } });
+    await expect(useExtensionStore.getState().actions.rollbackLocalPackage(php.id))
+      .rejects.toThrow("Retained version is damaged");
+    expect((await packages.get(php.id))?.manifest.version).toBe("1.1.0");
+    expect(useExtensionStore.getState().availableExtensions.get(php.id)?.manifest.version).toBe("1.1.0");
+    expect(events).toEqual(["stop", "install:1.0.0", "stop", "install:1.1.0"]);
+  } finally {
+    useExtensionStore.setState(snapshot, true);
+    for (const spy of [previous, rollback, invoke, stop]) spy.mockRestore();
+    extensionRegistry.unregisterExtension(php.id);
+  }
 });
 
 test("updating a disabled bundled plugin never activates its runtime contribution", async () => {
@@ -51,7 +109,7 @@ test("cancelling PHP during parser installation never installs tools or activate
   const native = await import("@/platform/tauri-core");
   const { extensionInstaller } = await import("../installer/extension-installer");
   const { default: phpManifest } =
-    await import("../../../../../Plugins/win/Official/PhpSupport/plugin.json");
+    await import("../../../../../shared/fixtures/plugins/windows-php-legacy-v1.json");
   const { LspClient } = await import("@/features/editor/lsp/lsp-client");
   const { disableExtensionLifecycle } = await import("./extension-store-lifecycle");
   const manifest = {
@@ -107,7 +165,7 @@ test("disable wins over an in-flight PHP enable operation", async () => {
   const { spyOn } = await import("bun:test");
   const native = await import("@/platform/tauri-core");
   const { default: phpManifest } =
-    await import("../../../../../Plugins/win/Official/PhpSupport/plugin.json");
+    await import("../../../../../shared/fixtures/plugins/windows-php-legacy-v1.json");
   const { LspClient } = await import("@/features/editor/lsp/lsp-client");
   const { enableExtensionLifecycle, disableExtensionLifecycle } =
     await import("./extension-store-lifecycle");
@@ -150,7 +208,7 @@ test("worker activation failure closes the language gate and unloads its provide
   const { enableExtensionLifecycle } = await import("./extension-store-lifecycle");
   const { LspClient } = await import("@/features/editor/lsp/lsp-client");
   const { default: json } =
-    await import("../../../../../Plugins/win/Official/PhpSupport/plugin.json");
+    await import("../../../../../shared/fixtures/plugins/windows-php-legacy-v1.json");
   const manifest = json as import("../types/extension-manifest").ExtensionManifest;
   const extension = { manifest, isInstalled: true, isEnabled: false, isInstalling: false };
   const resolved = spyOn(runtime, "resolveToolPaths").mockResolvedValue({
@@ -183,7 +241,7 @@ for (const message of ["Bun is required", "Automatic installation is not support
     const { spyOn } = await import("bun:test");
     const runtime = await import("./extension-store-runtime");
     const { extensionInstaller } = await import("../installer/extension-installer");
-    const { default: json } = await import("../../../../../Plugins/win/Official/PhpSupport/plugin.json");
+    const { default: json } = await import("../../../../../shared/fixtures/plugins/windows-php-legacy-v1.json");
     const manifest = json as import("../types/extension-manifest").ExtensionManifest;
     const extension = { manifest, isInstalled: true, isEnabled: true, isInstalling: false };
     extensionRegistry.registerExtension(manifest, { isEnabled: true, state: "installed" });
@@ -215,7 +273,7 @@ test("disabling a language extension wins over an update prerequisite check", as
   const native = await import("@/platform/tauri-core");
   const { LspClient } = await import("@/features/editor/lsp/lsp-client");
   const { disableExtensionLifecycle } = await import("./extension-store-lifecycle");
-  const { default: json } = await import("../../../../../Plugins/win/Official/PhpSupport/plugin.json");
+  const { default: json } = await import("../../../../../shared/fixtures/plugins/windows-php-legacy-v1.json");
   const manifest = json as import("../types/extension-manifest").ExtensionManifest;
   const extension = { manifest, isInstalled: true, isEnabled: true, isInstalling: false };
   extensionRegistry.registerExtension(manifest, { isEnabled: true, state: "installed" });

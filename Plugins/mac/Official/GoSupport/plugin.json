@@ -30,7 +30,9 @@
         "kind": "whenIdle",
         "afterSeconds": 600
       },
-      "moduleDependencies": ["dev.lithe.workspace"],
+      "moduleDependencies": [
+        "dev.lithe.workspace"
+      ],
       "capabilityDependencies": [],
       "providedCapabilities": [
         "dev.lithe.capability.language.go.execution",
@@ -49,9 +51,13 @@
         "kind": "whenIdle",
         "afterSeconds": 600
       },
-      "moduleDependencies": ["dev.lithe.workspace"],
+      "moduleDependencies": [
+        "dev.lithe.workspace"
+      ],
       "capabilityDependencies": [],
-      "providedCapabilities": ["dev.lithe.capability.language.go.language-server"],
+      "providedCapabilities": [
+        "dev.lithe.capability.language.go.language-server"
+      ],
       "contributions": [],
       "required": false
     }
@@ -60,17 +66,39 @@
     {
       "id": "go",
       "displayName": "Go",
-      "fileExtensions": ["go"],
+      "fileExtensions": [
+        "go"
+      ],
       "fileNames": [],
-      "projectFileNames": ["go.mod", "go.work"],
+      "projectFileNames": [
+        "go.mod",
+        "go.work"
+      ],
       "dependencies": {
-        "managementFileNames": ["go.mod", "go.sum", "go.work", "go.work.sum", "vendor/modules.txt"],
-        "projectDependencyPaths": ["vendor"],
+        "managementFileNames": [
+          "go.mod",
+          "go.sum",
+          "go.work",
+          "go.work.sum",
+          "vendor/modules.txt"
+        ],
+        "projectDependencyPaths": [
+          "vendor"
+        ],
         "projectBinaryPaths": []
       },
       "languageServerModuleID": "dev.lithe.language.go.language-server",
       "executionModuleID": "dev.lithe.language.go.execution",
-      "testingModuleID": "dev.lithe.language.go.execution"
+      "testingModuleID": "dev.lithe.language.go.execution",
+      "languageServer": {
+        "source": "package",
+        "executable": "gopls",
+        "arguments": [],
+        "validationArguments": [
+          "version"
+        ],
+        "launcherRelativePath": "Contents/Resources/LanguageServers/go/bin/gopls"
+      }
     }
   ]
 }

@@ -3,9 +3,7 @@ import LitheModuleAPI
 
 @MainActor
 public final class PhpExecutionModule: LitheModule {
-    public static let moduleManifest = OfficialPluginCatalog.moduleManifest(
-        for: .languageExecutionExtension(phpLanguageID)
-    )!
+    public static let moduleManifest = PhpSupportManifest.executionModule
 
     public let manifest = moduleManifest
     private let executionHost: (any LanguageExecutionHostProviding)?

@@ -1,0 +1,58 @@
+{
+  "id": "lithe.go",
+  "name": "Go",
+  "displayName": "Go Support",
+  "description": "Go language support with packaged gopls and Go run/test commands. Requires Go.",
+  "version": "1.0.0",
+  "publisher": "Lithe",
+  "categories": [
+    "Language"
+  ],
+  "main": "plugin.js",
+  "languages": [
+    {
+      "id": "go",
+      "extensions": [
+        ".go"
+      ],
+      "aliases": [
+        "Go",
+        "golang"
+      ],
+      "filenames": [
+        "go.mod",
+        "go.sum",
+        "go.work"
+      ]
+    }
+  ],
+  "lsp": {
+    "name": "gopls",
+    "runtime": "package",
+    "server": {
+      "default": "resources/go/bin/gopls.exe"
+    },
+    "args": [],
+    "fileExtensions": [
+      ".go"
+    ],
+    "languageIds": [
+      "go"
+    ],
+    "requiredExecutables": [
+      "go"
+    ]
+  },
+  "runActions": {
+    "manifestFiles": [
+      "go.mod",
+      "go.work"
+    ],
+    "executables": [
+      "go"
+    ]
+  },
+  "installation": {
+    "type": "local"
+  }
+}

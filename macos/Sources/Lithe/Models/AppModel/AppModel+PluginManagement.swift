@@ -82,9 +82,9 @@ extension AppModel {
         return appliedPluginIDs
     }
 
-    func rollbackPlugin(_ pluginID: PluginID) {
+    func rollbackPlugin(_ pluginID: PluginID) async {
         do {
-            try services.pluginManager.rollback(pluginID)
+            try await services.pluginManager.rollback(pluginID)
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)

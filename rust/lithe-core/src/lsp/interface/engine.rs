@@ -1432,7 +1432,12 @@ impl LspEngine {
     }
 
     fn destroy(&self, session_id: &str) -> Result<(), CoreError> {
-        let session = self.session(session_id)?;
+        // Idempotent destruction lets recovered platform owners release a lease
+        // after Core has already removed a terminated session. Running sessions
+        // still require an explicit, confirmed stop before they can be destroyed.
+        let Some(session) = self.lock_sessions()?.get(session_id).cloned() else {
+            return Ok(());
+        };
         let lifecycle = session.lock_state()?.lifecycle;
         if !matches!(
             lifecycle,

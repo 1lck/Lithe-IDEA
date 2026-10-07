@@ -43,7 +43,7 @@ async function installRunProcessListeners(): Promise<void> {
         .getState()
         .actions.finishProcess(sessionId, event.payload.exitCode);
       releaseRunSessionWorkspace(sessionId);
-      extensionProcessOwner.finished(sessionId);
+      void extensionProcessOwner.finished(sessionId).catch((error) => console.error("Could not release plugin run:", error));
     });
   }
 }

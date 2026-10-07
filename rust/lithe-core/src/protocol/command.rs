@@ -36,6 +36,16 @@ pub enum CoreCommand {
     IdeHostControl,
     /// Reports the Core and protocol versions (`core.ping`).
     Ping,
+    /// Validates one installed plugin `plugin.json` against the Rust contract.
+    PluginValidateManifest,
+    /// Validates one plugin-owned `language-server.json` document.
+    PluginValidateLanguageServer,
+    /// Applies one deterministic plugin installation/enablement lifecycle action.
+    PluginLifecycle,
+    /// Manages live plugin operations and resource ownership (`plugin.session`).
+    PluginSession,
+    /// Validate and normalize a local worker package and its supported grants.
+    PluginValidateWorkerPackage,
     /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
     AgentStatus,
     /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
@@ -339,6 +349,11 @@ impl CoreCommand {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "core.ping" => Some(Self::Ping),
+            "plugin.validateManifest" => Some(Self::PluginValidateManifest),
+            "plugin.validateLanguageServer" => Some(Self::PluginValidateLanguageServer),
+            "plugin.lifecycle" => Some(Self::PluginLifecycle),
+            "plugin.session" => Some(Self::PluginSession),
+            "plugin.validateWorkerPackage" => Some(Self::PluginValidateWorkerPackage),
             "ideHost.control" => Some(Self::IdeHostControl),
             "agent.status" => Some(Self::AgentStatus),
             "agent.install" => Some(Self::AgentInstall),

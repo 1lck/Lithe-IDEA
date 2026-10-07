@@ -12,7 +12,9 @@
       "macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
       ".github/workflows/release-macos.yml",
       "macos/Sources/LithePluginPackageSigning/PluginPackageSignature.swift",
-      "macos/Tests/LitheTests/PluginPackageStoreTests.swift"
+      "macos/Tests/LitheTests/PluginPackageStoreTests.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLifecycleClient.swift",
+      "macos/Tests/LitheTests/PluginSessionContractTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -23,11 +25,14 @@
       "windows/tauri/src/extensions/registry/extension-store-lifecycle.ts",
       "windows/tauri/src-tauri/src/language_tools.rs",
       "windows/tauri/src/extensions/packages/local-extension-package.ts",
-      "scripts/verify-windows-plugin-isolation.mjs"
+      "scripts/verify-windows-plugin-isolation.mjs",
+      "windows/tauri/src/extensions/registry/plugin-lifecycle.ts",
+      "windows/tauri/src-tauri/src/plugin_packages.rs",
+      "shared/fixtures/plugins/session-v1.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "PHP Support",
-  "verification": "macOS 在干净安装上打开插件管理，确认可从当前发行渠道下载并安装 PHP、失败时可从磁盘导入；安装后重启，在 LSP 界面只控制当前项目开关和状态，验证重装、卸载均在重启后生效且用户工具保留。对官方 PHP 包将 plugin.json 的 signatureRequirement 从 publisherPackage 篡改为 sameTeamAsHost，确认 MacPluginPackageStore 在调用包 verifier 前按宿主 OfficialPluginCatalog 拒绝策略降级；删除或篡改 lithe-plugin-signature.json、manifest、版本或任意签名覆盖文件时也必须拒绝。Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。"
+  "verification": "macOS 在干净安装上打开插件管理，确认可从当前发行渠道下载并安装 PHP、失败时可从磁盘导入；安装后重启，在 LSP 界面只控制当前项目开关和状态，验证重装、卸载均在重启后生效且用户工具保留。对官方 PHP 包将 plugin.json 的 signatureRequirement 从 publisherPackage 篡改为 sameTeamAsHost，确认 MacPluginPackageStore 在调用包 verifier 前按宿主 OfficialPluginCatalog 拒绝策略降级；删除或篡改 lithe-plugin-signature.json、manifest、版本或任意签名覆盖文件时也必须拒绝。Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。 本次两端生命周期迁移需在目标平台验证：安装、启动途中禁用、清理失败后重试、重装、替换、回滚、重启恢复和卸载；旧操作完成不能重新启用插件，运行进程和 LSP 全部确认停止后才能删除资源。Windows 校验错误签名、篡改资源和路径逃逸均被拒绝；macOS 新原生版本必须等重启生效。Linux Core/Bun 测试及 Windows 交叉编译不能替代原生验证。"
 }

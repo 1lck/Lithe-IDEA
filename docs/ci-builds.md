@@ -258,9 +258,31 @@ The artifact behavior and compression setting follow
 reuse follows GitHub's
 [branch access restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching).
 
-Windows PHP Worker 插件使用 `bun scripts/build-windows-php-plugin.ts` 单独构建到
-`.artifacts/windows-plugins/`，通过 `node scripts/verify-windows-plugin-isolation.mjs`
-检查入口独立性。它绑定包格式、宿主 SDK 和当前 Bun 构建版本，没有 identity stamp，
-在资源清单中注册为不可复用；不随 Windows 应用构建复制。用户导入后的源码与状态
-位于 WebView 用户配置的 `lithe.worker-package:<id>`，也禁止跨 worktree 复用。
-CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker 协议和生命周期测试。
+Windows Go/PHP 插件通过 `bun scripts/build-windows-language-plugin.ts GoSupport|PhpSupport windows-x86_64`
+独立构建到 `.artifacts/windows-plugins/`。正式包要求与
+`shared/contracts/plugin-publisher.json` 公钥匹配的 `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`；
+CI 使用 `--test-signature` 生成不可在正式客户端安装的测试包。构建后运行
+`node scripts/verify-windows-plugin-isolation.mjs`，应用本身不导入这些插件源码。
+
+Go 构建需要 Go 1.27.1（可用 `LITHE_GO_EXECUTABLE` 指定路径），由 Go 自己解析和
+校验依赖，并额外按 `language-server.json` 校验固定 gopls 源码归档。
+`.artifacts/plugin-tools/go-module-cache`、`go-build/<target>`、构建后清理的
+`gopls-source-<UUID>` 校验源码解压目录和集成测试准备目录
+都注册为 `plugin-build-tools` 隔离资源：没有可靠的源码、工具链、平台和架构
+identity stamp，复用脚本直接拒绝，不进入复制或发布校验路由。生成的 Swift
+manifest 和 publisher identity 是 Git 跟踪源码，运行
+`node scripts/generate-plugin-manifests.mjs --check` 检查，不从其他工作树复制。
+
+Windows 导入后的 Worker 源码、当前/前一版本收据保存在 WebView 配置
+`lithe.worker-package:<id>`，完整签名资源写入
+`<platform-app-data>/worker-plugins/<plugin-id>/<version>`。同卷 `.staging/<UUID>`
+只用于安装原子重命名，失败时清理；版本文件保持只读，卸载删除该插件所有版本。
+这些路径不会改变安装目录、macOS 代码签名或 Sparkle delta；用户级缓存及工作区
+状态不属于插件包，不能跨工作树复制。对应 `installed-worker-plugins` 排除项和
+复用测试覆盖这些新路径。
+
+CI 的 PHP 集成测试显式设置 `LITHE_RUN_PHP_INTEGRATION=1`，预装 PHPUnit 和
+固定版本 Intelephense；缺少依赖或 Rust Core 时失败，不能静默跳过。
+Windows 前端契约测试先构建 Rust Core 动态库，通过真实 C ABI 执行共享 fixture。
+Linux 的前端测试或交叉编译不等价于 macOS/Windows 原生工作流通过；功能矩阵
+保持 `pending`，直到目标平台按记录完成验证。

@@ -777,6 +777,7 @@ export class LspClient {
           serverPath: launch.serverPath,
           serverArgs: launch.serverArgs,
           languageId: launch.languageId,
+          pluginId: launch.pluginId,
           providerId: launch.providerId,
           tools: launch.tools || null,
           initializationOptions: launch.initializationOptions || null,
@@ -1017,6 +1018,7 @@ export class LspClient {
           serverPath: launch.serverPath,
           serverArgs: launch.serverArgs,
           languageId,
+          pluginId: launch.pluginId,
           providerId: launch.providerId,
           tools: launch.tools || null,
           initializationOptions: launch.initializationOptions || null,
@@ -1252,6 +1254,7 @@ export class LspClient {
       .map(([, pending]) => pending.task);
     await Promise.allSettled(pendingStarts);
 
+    await invoke<void>("lsp_stop_languages", { languageIds: [...ownedLanguages] });
     const serverKeys = [...this.activeLanguageServers].filter((key) =>
       ownedLanguages.has(this.parseServerKey(key).languageId),
     );
@@ -1260,14 +1263,17 @@ export class LspClient {
       for (const path of paths) {
         await this.stopForFile(path);
       }
-      if (this.activeLanguageServers.has(serverKey)) {
-        throw new Error(`Language server remained active after disabling ${serverKey}`);
-      }
       const { workspacePath, languageId } = this.parseServerKey(serverKey);
       if (getLspWorkspaceSessionSnapshot({ workspacePath, languageId })) {
         throw new Error(`Language server session remained active after disabling ${serverKey}`);
       }
+      this.activeLanguageServers.delete(serverKey);
+      this.activeServerFiles.delete(serverKey);
+      this.serverScopes.delete(serverKey);
+      this.activeLanguages.delete(getLanguageDisplayName(languageId));
+      clearLanguageServerFailure(this.failedLanguageServers, serverKey);
     }
+    this.updateLspStatus();
   }
 
   async stopTrackedServer(serverKey: string): Promise<void> {

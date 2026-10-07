@@ -19,3 +19,8 @@ runs:
         swift --version
         xcodebuild -version
         xcrun --sdk macosx --show-sdk-version
+    - name: Install Go for pinned plugin language servers
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.27.1'
+        cache: false

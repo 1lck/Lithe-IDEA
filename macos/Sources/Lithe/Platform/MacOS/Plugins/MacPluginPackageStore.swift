@@ -77,6 +77,7 @@ final class MacPluginPackageStore {
     private static let retiredPluginIDs: Set<PluginID> = [
         PluginID("dev.lithe.plugin.linux-do-support")
     ]
+    let lifecycle = MacPluginLifecycleClient()
     private let rootURL: URL
     private let bundledRootURL: URL?
     private let hostVersion: PluginVersion
@@ -192,6 +193,7 @@ final class MacPluginPackageStore {
                 try MacPluginLanguageServerPackageValidator.validate(
                     packageAt: packageURL,
                     pluginManifest: manifest,
+                    hostVersion: hostVersion,
                     fileManager: fileManager
                 )
                 let candidate = InstalledPluginPackage(
@@ -254,6 +256,7 @@ final class MacPluginPackageStore {
                 try MacPluginLanguageServerPackageValidator.validate(
                     packageAt: packageURL,
                     pluginManifest: manifest,
+                    hostVersion: hostVersion,
                     fileManager: fileManager
                 )
                 installed.append(InstalledPluginPackage(
@@ -289,6 +292,24 @@ final class MacPluginPackageStore {
         deferActivationUntilRestart: Bool = false,
         replaceExisting: Bool = false
     ) throws -> InstalledPluginPackage {
+        let manifest = try loadManifest(at: sourceURL)
+        try validatePathComponent(manifest.id.rawValue)
+        let directory = rootURL.appendingPathComponent(manifest.id.rawValue, isDirectory: true)
+        try lifecycle.restore(manifest.id, installed: (try? installationRecord(at: directory)) != nil)
+        let installed = try lifecycle.transaction(manifest.id, begin: "beginInstall", complete: "completeInstall") {
+            try installPackageFiles(from: sourceURL, deferActivationUntilRestart: deferActivationUntilRestart, replaceExisting: replaceExisting)
+        }
+        if deferActivationUntilRestart {
+            try lifecycle.transition(manifest.id, "requireRestart", operationID: UUID().uuidString)
+        }
+        return installed
+    }
+
+    private func installPackageFiles(
+        from sourceURL: URL,
+        deferActivationUntilRestart: Bool,
+        replaceExisting: Bool
+    ) throws -> InstalledPluginPackage {
         let sourceManifest = try loadManifest(at: sourceURL)
         guard !Self.retiredPluginIDs.contains(sourceManifest.id) else {
             throw PluginPackageStoreError.retiredPlugin(sourceManifest.id)
@@ -314,6 +335,7 @@ final class MacPluginPackageStore {
             try MacPluginLanguageServerPackageValidator.validate(
                 packageAt: stagedURL,
                 pluginManifest: manifest,
+                hostVersion: hostVersion,
                 fileManager: fileManager
             )
         } catch {
@@ -384,6 +406,20 @@ final class MacPluginPackageStore {
         _ pluginID: PluginID,
         deferActivationUntilRestart: Bool = false
     ) throws -> InstalledPluginPackage {
+        try lifecycle.restore(pluginID, installed: true)
+        let installed = try lifecycle.transaction(pluginID, begin: "beginInstall", complete: "completeInstall") {
+            try rollbackFiles(pluginID, deferActivationUntilRestart: deferActivationUntilRestart)
+        }
+        if deferActivationUntilRestart {
+            try lifecycle.transition(pluginID, "requireRestart", operationID: UUID().uuidString)
+        }
+        return installed
+    }
+
+    private func rollbackFiles(
+        _ pluginID: PluginID,
+        deferActivationUntilRestart: Bool
+    ) throws -> InstalledPluginPackage {
         try validatePathComponent(pluginID.rawValue)
         let pluginDirectory = rootURL.appendingPathComponent(pluginID.rawValue, isDirectory: true)
         let record = try installationRecord(at: pluginDirectory)
@@ -403,6 +439,7 @@ final class MacPluginPackageStore {
         try MacPluginLanguageServerPackageValidator.validate(
             packageAt: previousPackageURL,
             pluginManifest: manifest,
+            hostVersion: hostVersion,
             fileManager: fileManager
         )
         let restored = PluginInstallationRecord(
@@ -421,6 +458,13 @@ final class MacPluginPackageStore {
     }
 
     func uninstall(_ pluginID: PluginID) throws {
+        try lifecycle.restore(pluginID, installed: true)
+        try lifecycle.transaction(pluginID, begin: "uninstall", complete: "completeUninstall") {
+            try uninstallFiles(pluginID)
+        }
+    }
+
+    private func uninstallFiles(_ pluginID: PluginID) throws {
         try validatePathComponent(pluginID.rawValue)
         let pluginDirectory = rootURL.appendingPathComponent(pluginID.rawValue, isDirectory: true)
         guard fileManager.fileExists(atPath: pluginDirectory.path) else {
@@ -438,6 +482,20 @@ final class MacPluginPackageStore {
     }
 
     func stageUninstall(_ pluginID: PluginID) throws {
+        try lifecycle.restore(pluginID, installed: true)
+        let operationID = UUID().uuidString
+        try lifecycle.transition(pluginID, "uninstall", operationID: operationID)
+        do {
+            try stageUninstallFiles(pluginID)
+        } catch {
+            do { try lifecycle.transition(pluginID, "fail", operationID: operationID) }
+            catch { NSLog("Could not record staged uninstall failure: %@", error.localizedDescription) }
+            throw error
+        }
+        // Deletion completes on the next launch; the current process stays gated.
+    }
+
+    private func stageUninstallFiles(_ pluginID: PluginID) throws {
         try validatePathComponent(pluginID.rawValue)
         let pluginDirectory = rootURL.appendingPathComponent(pluginID.rawValue, isDirectory: true)
         let record = try installationRecord(at: pluginDirectory)
@@ -461,6 +519,20 @@ final class MacPluginPackageStore {
     /// record is deliberately sufficient to schedule removal without opening
     /// the plugin manifest or loading any plugin code.
     func stageInvalidPackageUninstall(_ pluginID: PluginID) throws {
+        try lifecycle.restore(pluginID, installed: true)
+        let operationID = UUID().uuidString
+        try lifecycle.transition(pluginID, "uninstall", operationID: operationID)
+        do {
+            try stageInvalidPackageUninstallFiles(pluginID)
+        } catch {
+            do { try lifecycle.transition(pluginID, "fail", operationID: operationID) }
+            catch { NSLog("Could not record staged uninstall failure: %@", error.localizedDescription) }
+            throw error
+        }
+        // Deletion completes on the next launch; the current process stays gated.
+    }
+
+    private func stageInvalidPackageUninstallFiles(_ pluginID: PluginID) throws {
         try validatePathComponent(pluginID.rawValue)
         let pluginDirectory = rootURL.appendingPathComponent(pluginID.rawValue, isDirectory: true)
         let record = try installationRecord(at: pluginDirectory)

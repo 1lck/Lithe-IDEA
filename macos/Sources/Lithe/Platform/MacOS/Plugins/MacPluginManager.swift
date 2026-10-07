@@ -76,29 +76,53 @@ final class MacPluginManager: PluginManaging {
             throw PluginManagerError.requiredPluginCannotBeDisabled(pluginID)
         }
 
-        let registeredIDs = Set(moduleRuntime.snapshots().map(\.manifest.id))
-        let declarations: [PluginModuleDeclaration] = enabled
-            ? manifest.modules
-            : Array(manifest.modules.reversed())
-        for declaration in declarations {
-            let moduleID = declaration.manifest.id
-            if registeredIDs.contains(moduleID) {
-                try await moduleRuntime.setEnabled(enabled, for: moduleID)
-            } else {
-                configurationStore.setEnabledState(enabled, for: moduleID)
-                if enabled {
-                    configurationStore.setQuarantined(false, for: moduleID)
+        let lifecycle = packageStore.lifecycle
+        let current = try lifecycle.restore(pluginID, installed: true)
+        if current.lifecycle.state == "awaitingRestart" {
+            for declaration in manifest.modules {
+                configurationStore.setEnabledState(enabled, for: declaration.manifest.id)
+            }
+            restartRequiredPluginIDs.insert(pluginID)
+            return
+        }
+        let targetState = enabled ? "enabled" : "disabled"
+        let operationID = UUID().uuidString
+        if current.lifecycle.state != targetState {
+            try lifecycle.transition(pluginID, enabled ? "enable" : "disable", operationID: operationID)
+        }
+        do {
+            let registeredIDs = Set(moduleRuntime.snapshots().map(\.manifest.id))
+            let declarations: [PluginModuleDeclaration] = enabled
+                ? manifest.modules
+                : Array(manifest.modules.reversed())
+            for declaration in declarations {
+                let moduleID = declaration.manifest.id
+                if registeredIDs.contains(moduleID) {
+                    try await moduleRuntime.setEnabled(enabled, for: moduleID)
+                } else {
+                    configurationStore.setEnabledState(enabled, for: moduleID)
+                    if enabled {
+                        configurationStore.setQuarantined(false, for: moduleID)
+                    }
                 }
             }
-        }
 
-        if manifest.entrypoint.kind == .nativeBundle,
-           enabled != activeNativePluginIDs.contains(pluginID) {
-            restartRequiredPluginIDs.insert(pluginID)
-        } else if manifest.entrypoint.kind == .nativeBundle, !enabled {
-            // The module graph is stopped immediately, but Swift Bundle code
-            // remains mapped until this process exits.
-            restartRequiredPluginIDs.insert(pluginID)
+            if manifest.entrypoint.kind == .nativeBundle,
+               enabled != activeNativePluginIDs.contains(pluginID) {
+                restartRequiredPluginIDs.insert(pluginID)
+            } else if manifest.entrypoint.kind == .nativeBundle, !enabled {
+                // The module graph is stopped immediately, but Swift Bundle code
+                // remains mapped until this process exits.
+                restartRequiredPluginIDs.insert(pluginID)
+            }
+            if current.lifecycle.state != targetState {
+                try lifecycle.transition(pluginID, enabled ? "completeEnable" : "completeDisable", operationID: operationID)
+            }
+        } catch {
+            // Do not erase a resource reservation when a native process or an
+            // in-flight module activation has not finished stopping.
+            issues.append(PluginManagementIssue(pluginID: pluginID, message: error.localizedDescription))
+            throw error
         }
     }
 
@@ -135,6 +159,9 @@ final class MacPluginManager: PluginManaging {
             hostVersion: hostVersion
         )
         defer { try? FileManager.default.removeItem(at: downloaded.temporaryDirectory) }
+        let desiredStates = configurationStates(for: pluginID)
+        defer { restoreConfiguration(desiredStates) }
+        try await setEnabled(false, for: pluginID)
         let installed = try packageStore.installPackage(
             from: downloaded.packageURL,
             deferActivationUntilRestart: true,
@@ -153,7 +180,10 @@ final class MacPluginManager: PluginManaging {
         try refreshInstalledPlugins()
     }
 
-    func rollback(_ pluginID: PluginID) throws {
+    func rollback(_ pluginID: PluginID) async throws {
+        let desiredStates = configurationStates(for: pluginID)
+        defer { restoreConfiguration(desiredStates) }
+        try await setEnabled(false, for: pluginID)
         _ = try packageStore.rollback(pluginID, deferActivationUntilRestart: true)
         restartRequiredPluginIDs.insert(pluginID)
         try refreshInstalledPlugins()
@@ -182,6 +212,16 @@ final class MacPluginManager: PluginManaging {
         try packageStore.stageUninstall(pluginID)
         restartRequiredPluginIDs.insert(pluginID)
         try refreshInstalledPlugins()
+    }
+
+    private func configurationStates(for pluginID: PluginID) -> [ModuleID: Bool] {
+        Dictionary(uniqueKeysWithValues: (manifest(for: pluginID)?.modules ?? []).map {
+            ($0.manifest.id, configurationStore.enabledState(for: $0.manifest.id) ?? ($0.manifest.defaultState == .enabled))
+        })
+    }
+
+    private func restoreConfiguration(_ states: [ModuleID: Bool]) {
+        for (id, enabled) in states { configurationStore.setEnabledState(enabled, for: id) }
     }
 
     private func manifest(for pluginID: PluginID) -> PluginManifest? {

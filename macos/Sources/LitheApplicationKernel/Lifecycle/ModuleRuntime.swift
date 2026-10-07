@@ -15,6 +15,28 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
         var instance: (any LitheModule)?
     }
 
+    public var activationOwnership: (any ModuleActivationOwnership)?
+    private var pendingActivations: [ModuleID: UUID] = [:]
+    private var cancelledActivations: Set<UUID> = []
+    private var activationWaiters: [UUID: [UUID: CheckedContinuation<Void, Error>]] = [:]
+
+    private func waitForActivation(_ activationID: UUID, moduleID: ModuleID) async throws {
+        let waiterID = UUID()
+        let deadline = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            self?.activationWaiters[activationID]?.removeValue(forKey: waiterID)?
+                .resume(throwing: ModuleRuntimeError.activationDidNotStop(moduleID))
+        }
+        defer { deadline.cancel() }
+        try await withCheckedThrowingContinuation { continuation in
+            activationWaiters[activationID, default: [:]][waiterID] = continuation
+        }
+    }
+
+    private func completeActivation(_ activationID: UUID) {
+        guard let waiters = activationWaiters.removeValue(forKey: activationID) else { return }
+        for waiter in waiters.values { waiter.resume() }
+    }
     private var entries: [ModuleID: Entry] = [:]
     private var capabilities: [ModuleCapabilityID: (provider: ModuleID, value: AnyObject)] = [:]
     private var eventObservers: [UUID: @MainActor (ModuleEvent) -> Void] = [:]
@@ -143,6 +165,24 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
             }
         }
 
+        guard let latest = entries[id], latest.isEnabled else { throw ModuleRuntimeError.moduleDisabled(id) }
+        if let activationID = pendingActivations[id] {
+            try await waitForActivation(activationID, moduleID: id)
+            return try await activate(id)
+        }
+        if let instance = latest.instance, latest.state == .active || latest.state == .idle { return instance }
+        entry = latest
+
+        // Reserve before the first module-owned async start. Core rejects a
+        // second activation or a start that races plugin disable/uninstall.
+        try activationOwnership?.acquire(id)
+        let activationID = UUID()
+        pendingActivations[id] = activationID
+        defer {
+            if pendingActivations[id] == activationID { pendingActivations.removeValue(forKey: id) }
+            cancelledActivations.remove(activationID)
+            completeActivation(activationID)
+        }
         if !entry.factory.manifest.isRequired {
             addPendingActivation(id)
         }
@@ -163,6 +203,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
                 contributions: self
             )
             try await instance.activate(context: context)
+            guard !cancelledActivations.contains(activationID) else { throw CancellationError() }
             entry.resources.recordActivity()
             entry.instance = instance
             entry.state = .active
@@ -196,7 +237,9 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
                 publishStateChanged(id)
                 throw ModuleRuntimeError.activeResourcesRemain(module: id, kinds: activeKinds)
             }
-            entry.state = .failed(message: error.localizedDescription)
+            try activationOwnership?.release(id)
+            entry.isEnabled = entries[id]?.isEnabled ?? entry.isEnabled
+            entry.state = entry.isEnabled ? .failed(message: error.localizedDescription) : .disabled
             entries[id] = entry
             publishStateChanged(id)
             throw error
@@ -212,7 +255,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
             entry.isQuarantined = false
             recoveryStore?.setQuarantined(false, for: id)
         }
-        guard entry.isEnabled != enabled else {
+        if enabled && entry.isEnabled {
             entries[id] = entry
             return
         }
@@ -231,6 +274,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
             guard dependents.isEmpty else {
                 throw ModuleRuntimeError.enabledDependentsPreventDisable(module: id, dependents: dependents)
             }
+            entry.isEnabled = false
             entries[id] = entry
             try await shutdown(id)
             guard var stopped = entries[id] else { return }
@@ -318,6 +362,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
                 throw ModuleRuntimeError.activeResourcesRemain(module: id, kinds: activeKinds)
             }
             entry.resources.releaseStoppedResources()
+            try activationOwnership?.release(id)
             removeCapabilities(providedBy: id)
             removeContributions(for: id)
             entry.instance = nil
@@ -336,6 +381,12 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
 
     public func shutdown(_ id: ModuleID) async throws {
         guard var entry = entries[id] else { throw ModuleRuntimeError.unknownModule(id) }
+        if let activationID = pendingActivations[id] {
+            cancelledActivations.insert(activationID)
+            try await waitForActivation(activationID, moduleID: id)
+            guard let stopped = entries[id] else { return }
+            entry = stopped
+        }
         if let instance = entry.instance {
             await instance.shutdown()
         }
@@ -348,6 +399,9 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
             throw ModuleRuntimeError.activeResourcesRemain(module: id, kinds: activeKinds)
         }
         entry.resources.releaseStoppedResources()
+        // Pending activation retains the reservation until its late completion
+        // has been rejected and its own cleanup has finished.
+        if pendingActivations[id] == nil { try activationOwnership?.release(id) }
         removeCapabilities(providedBy: id)
         removeContributions(for: id)
         entry.instance = nil

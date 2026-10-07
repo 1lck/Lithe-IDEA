@@ -1,3 +1,4 @@
+import { pluginLifecycle } from "@/extensions/registry/plugin-lifecycle";
 import { localExtensionPackages } from "@/extensions/packages/local-extension-package";
 import { extensionRegistry } from "@/extensions/registry/extension-registry";
 import { discoverExtensionActions } from "@/extensions/run/extension-run-discovery";
@@ -15,6 +16,7 @@ interface LoadedExtension {
   extensionId: string;
   manifest: ExtensionManifest;
   worker?: Worker;
+  reservation?: Promise<() => Promise<void>>;
   entryPointUrl?: string;
   unloading?: boolean;
   ready?: boolean;
@@ -60,6 +62,10 @@ class UIExtensionHost {
     this.loaded.set(extensionId, loaded);
 
     try {
+      loaded.reservation = pluginLifecycle.reserve(extensionId, `worker:${crypto.randomUUID()}`);
+      await loaded.reservation;
+      if (loaded.unloading || this.loaded.get(extensionId) !== loaded)
+        throw new Error("Extension activation cancelled");
       if (!manifest.main) {
         actions.updateExtensionState(extensionId, "active");
         return;
@@ -67,7 +73,7 @@ class UIExtensionHost {
 
       const localPackage =
         manifest.installation?.type === "local"
-          ? localExtensionPackages.get(extensionId)
+          ? await localExtensionPackages.get(extensionId)
           : undefined;
       if (manifest.installation?.type === "local" && !localPackage)
         throw new Error("Plugin package is missing. Import it again.");
@@ -145,11 +151,17 @@ class UIExtensionHost {
         actions.updateExtensionState(extensionId, "error", message);
       }
       this.disposeWorker(loaded);
+      await this.releaseOwnership(loaded);
       if (this.loaded.get(extensionId) === loaded) {
         this.loaded.delete(extensionId);
       }
       throw error;
     }
+  }
+
+  private async releaseOwnership(loaded: LoadedExtension) {
+    const release = await loaded.reservation?.catch(() => undefined);
+    await release?.();
   }
 
   private async handleMessage(loaded: LoadedExtension, message: ExtensionWorkerMessage) {
@@ -248,6 +260,7 @@ class UIExtensionHost {
       await this.request(extensionId, "deactivate", []).catch(() => undefined);
     }
     this.disposeWorker(loaded);
+    await this.releaseOwnership(loaded);
     useUIExtensionStore.getState().actions.cleanupExtension(extensionId);
     this.loaded.delete(extensionId);
   }

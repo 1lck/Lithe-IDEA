@@ -48,7 +48,7 @@ export async function loadInstalledExtensionsSnapshot(
     // Backend command may not exist yet, continue with IndexedDB check.
   }
 
-  const localPackages = localExtensionPackages.list();
+  const localPackages = await localExtensionPackages.list();
   for (const pkg of localPackages.filter((entry) => entry.installed))
     backendInstalled.push({
       id: pkg.manifest.id,

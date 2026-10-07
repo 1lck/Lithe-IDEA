@@ -12,6 +12,7 @@ import { getRelativePath } from "@/utils/path-helpers";
 import { ensureWorkspaceGitBootstrap } from "@/features/workspace/services/workspace-git-bootstrap";
 
 export interface EditorLspLaunch {
+  pluginId?: string;
   providerId: string;
   languageId: string;
   serverPath: string;
@@ -77,7 +78,7 @@ export async function resolveEditorLspLaunch(
     };
   }
 
-  const [{ extensionRegistry }, { getLanguageToolConfigSet }] = await Promise.all([
+  const [{ extensionRegistry }, { getLanguageToolConfigSet, resolvePackagedLanguageServer }] = await Promise.all([
     import("@/extensions/registry/extension-registry"),
     import("@/extensions/registry/extension-store-runtime"),
   ]);
@@ -85,8 +86,13 @@ export async function resolveEditorLspLaunch(
   const serverPath = extensionRegistry.getLspServerPath(filePath);
   const languageId = extensionRegistry.getLanguageId(filePath);
   if (!serverPath || !languageId) return null;
+  if (extension?.manifest.lsp?.runtime === "package") {
+    const launch = await resolvePackagedLanguageServer(extension.manifest);
+    return { pluginId: extension.manifest.id, providerId: languageId, languageId, ...launch };
+  }
 
   return {
+    pluginId: extension?.manifest.id,
     providerId: languageId,
     languageId,
     serverPath,

@@ -23,7 +23,7 @@ struct MacRuntimeToolDiscoveryTests {
         let discovery = MacRuntimeToolDiscovery(
             homeDirectoryURL: root,
             resourceDirectoryURL: nil,
-            pluginToolRoots: [root]
+            pluginTools: ["intelephense": [root.appendingPathComponent("bin/intelephense")]]
         )
         let candidates = discovery.candidates(
             for: "intelephense",

@@ -33,6 +33,6 @@ protocol PluginManaging: AnyObject {
     func download(pluginID: PluginID) async throws
     func reinstall(pluginID: PluginID) async throws
     func installPackage(at packageURL: URL) throws
-    func rollback(_ pluginID: PluginID) throws
+    func rollback(_ pluginID: PluginID) async throws
     func uninstall(_ pluginID: PluginID) async throws
 }

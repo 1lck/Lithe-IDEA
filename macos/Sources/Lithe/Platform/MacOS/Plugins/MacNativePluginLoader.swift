@@ -81,7 +81,8 @@ final class MacNativePluginLoader {
             guard let entrypointType = principalClass as? LithePluginEntrypoint.Type else {
                 throw NativePluginLoaderError.invalidPrincipalClass(manifest.id)
             }
-            let factories = try entrypointType.init().moduleFactories(context: hostContext).sorted {
+            let factories = try entrypointType.init().moduleFactories(context: hostContext.withLanguageServerLaunches(
+                try MacPluginLanguageServerPackageValidator.launches(packageAt: installed.packageURL, for: manifest))).sorted {
                 $0.manifest.id < $1.manifest.id
             }
             let declarations = manifest.modules.sorted { $0.manifest.id < $1.manifest.id }

@@ -570,6 +570,7 @@ export const ExtensionsSidebar = () => {
     enableExtension,
     disableExtension,
     updateExtension,
+    rollbackLocalPackage,
   } = useExtensionStore.use.actions();
 
   useEffect(() => {
@@ -1566,6 +1567,20 @@ export const ExtensionsSidebar = () => {
         disabled: isInstalling,
         onClick: () => {
           void handleUpdate(extension);
+        },
+      });
+    }
+
+    if (extension.isInstalled && availableExtensions.get(extension.id)?.manifest.installation?.type === "local") {
+      items.push({
+        id: "rollback-plugin",
+        label: t("extensions.rollbackPlugin"),
+        icon: <Reset className="size-3.5" weight="duotone" />,
+        disabled: isInstalling,
+        onClick: () => {
+          void rollbackLocalPackage(extension.id).catch((error) => showToast({
+            message: getErrorMessage(error, t("extensions.unknownError")), type: "error", duration: 5000,
+          }));
         },
       });
     }

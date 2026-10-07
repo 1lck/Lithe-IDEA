@@ -1589,6 +1589,7 @@ describe("Rust Core LSP adapter failures", () => {
       "lsp_start_for_file",
       "lsp_stop",
       "lsp_stop_for_file",
+      "lsp_stop_languages",
       "lsp_workspace_files_changed",
       "lsp_retry_maven_profiles",
       "lsp_update_maven_configuration",

@@ -1,5 +1,13 @@
 import Foundation
 
+/// Reserves a plugin resource before module activation and releases it only
+/// after all module-owned native resources have stopped.
+@MainActor
+public protocol ModuleActivationOwnership: AnyObject {
+    func acquire(_ moduleID: ModuleID) throws
+    func release(_ moduleID: ModuleID) throws
+}
+
 @MainActor
 public protocol ModuleCapabilityResolver: AnyObject {
     func capability(_ id: ModuleCapabilityID) -> AnyObject?
@@ -103,6 +111,14 @@ public struct PluginHostContext {
         self.resolver = resolver
     }
 
+    public func languageServerLaunch(for languageID: String) -> PluginLanguageServerLaunch? {
+        (resolver as? PluginLaunchContextResolver)?.launches[languageID]
+    }
+
+    public func withLanguageServerLaunches(_ launches: [String: PluginLanguageServerLaunch]) -> PluginHostContext {
+        PluginHostContext(resolver: PluginLaunchContextResolver(base: resolver, launches: launches))
+    }
+
     public func service(_ id: PluginHostServiceID) -> AnyObject? {
         resolver.service(id)
     }
@@ -110,6 +126,19 @@ public struct PluginHostContext {
     public static var empty: PluginHostContext {
         PluginHostContext(resolver: EmptyPluginHostServiceResolver.shared)
     }
+}
+
+// The context retains exactly its original resolver storage. New per-plugin
+// metadata uses a scoped resolver, preserving the native entrypoint's value ABI.
+@MainActor
+private final class PluginLaunchContextResolver: PluginHostServiceResolving {
+    let base: any PluginHostServiceResolving
+    let launches: [String: PluginLanguageServerLaunch]
+    init(base: any PluginHostServiceResolving, launches: [String: PluginLanguageServerLaunch]) {
+        self.base = base
+        self.launches = launches
+    }
+    func service(_ id: PluginHostServiceID) -> AnyObject? { base.service(id) }
 }
 
 @MainActor
@@ -277,6 +306,7 @@ public enum ModuleRuntimeError: Error, Equatable, LocalizedError, Sendable {
     case activeDependentsPreventSleep(module: ModuleID, dependents: [ModuleID])
     case activeLeasesPreventSleep(module: ModuleID, reasons: [String])
     case activeResourcesRemain(module: ModuleID, kinds: [String])
+    case activationDidNotStop(ModuleID)
 
     public var errorDescription: String? {
         switch self {
@@ -309,6 +339,8 @@ public enum ModuleRuntimeError: Error, Equatable, LocalizedError, Sendable {
             "Module \(module) cannot sleep while dependent modules are active: \(dependents.map(\.rawValue).joined(separator: ", "))."
         case .activeLeasesPreventSleep(let module, let reasons):
             "Module \(module) cannot sleep while active leases remain: \(reasons.joined(separator: ", "))."
+        case .activationDidNotStop(let module):
+            "Module \(module) did not finish activation cleanup. Retry disabling it after the operation stops."
         case .activeResourcesRemain(let module, let kinds):
             "Module \(module) still owns active resources after stopping: \(kinds.joined(separator: ", "))."
         }

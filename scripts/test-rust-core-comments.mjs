@@ -27,7 +27,10 @@ for (const locale of ["C", "en_US.UTF-8"]) {
         copyFileSync(path.join(scripts, "verify-rust-core-comments.sh"), path.join(root, "scripts/verify-rust-core-comments.sh"));
         writeFileSync(path.join(root, "rust/lithe-core/src/lib.rs"), `//! Fixture module.\n${source}\n`);
         // Exercise the no-ripgrep path as well as the system awk used by CI.
-        for (const tool of ["dirname", "find", "awk", "ruby", "sed", "sort"]) {
+        // Ruby's macOS rbconfig invokes uname while bootstrapping. Keep the
+        // isolated PATH complete so the fixture tests the checker, not Ruby's
+        // host discovery.
+        for (const tool of ["dirname", "find", "awk", "ruby", "sed", "sort", "uname"]) {
           const located = spawnSync("/bin/sh", ["-c", `command -v ${tool}`], { encoding: "utf8", timeout: 2_000 });
           assert.equal(located.status, 0, `Required checker tool: ${tool}`);
           symlinkSync(located.stdout.trim(), path.join(bin, tool));

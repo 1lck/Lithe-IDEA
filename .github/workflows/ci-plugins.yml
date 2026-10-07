@@ -80,7 +80,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.plugins == 'true'
     runs-on: macos-26
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     steps:
       - name: Check out source
@@ -95,10 +95,25 @@ jobs:
           swiftpm: "true"
           cargo: "true"
 
+      - name: Prepare real PHP integration dependencies
+        uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          coverage: none
+
+      - name: Prepare fixed Intelephense and PHPUnit
+        timeout-minutes: 6
+        run: |
+          composer install --no-interaction --no-progress --working-dir=shared/fixtures/phpunit-project
+          scripts/prepare-php-language-server.sh --output .artifacts/plugin-tools/php-integration/PhpSupport.bundle/Contents/Resources/LanguageServers/php
+          echo "LITHE_RUN_PHP_INTEGRATION=1" >> "$GITHUB_ENV"
+          echo "LITHE_PHP_PLUGIN_PACKAGE=$GITHUB_WORKSPACE/.artifacts/plugin-tools/php-integration" >> "$GITHUB_ENV"
+
       # The suite deadline includes cold Rust Core and Swift compilation.
       - name: Run plugin-focused Swift tests
         timeout-minutes: 17
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 960 -- --filter '([Pp]lugin|LitheGoSupportModuleTests|LithePhpSupportModuleTests|LinuxDo)'
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 960 -- --filter '([Pp]lugin|LitheGoSupportModuleTests|LithePhpSupportModuleTests|RealPhpIntegrationTests|LinuxDo)'
 
       - name: Build and verify official plugin packages
         timeout-minutes: 10

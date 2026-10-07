@@ -125,7 +125,7 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
 
     func download(
         pluginID: PluginID,
-        hostVersion _: PluginVersion
+        hostVersion: PluginVersion
     ) async throws -> MacDownloadedPluginPackage {
         let archiveURL = try configuration.archiveURL(pluginID: pluginID)
         try Task.checkCancellation()
@@ -157,7 +157,8 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
                 )
                 try MacPluginLanguageServerPackageValidator.validate(
                     packageAt: packageURL,
-                    pluginManifest: manifest
+                    pluginManifest: manifest,
+                    hostVersion: hostVersion
                 )
             } catch let error as MacPluginLanguageServerPackageValidationError {
                 throw MacPluginPackageDownloadError.invalidLanguageServerPackage(

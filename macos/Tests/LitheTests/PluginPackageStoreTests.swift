@@ -5,6 +5,79 @@ import Testing
 
 struct PluginPackageStoreTests {
     @Test
+    func legacyBundledGoManifestDoesNotRequireAPackagedLanguageServer() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-go-package-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let bundledRoot = root.appendingPathComponent("bundled", isDirectory: true)
+        let package = bundledRoot.appendingPathComponent(OfficialPluginCatalog.goPluginID.rawValue)
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        // The published legacy shape used external tool discovery and must keep
+        // loading without the newly introduced packaged-server declaration.
+        try FileManager.default.copyItem(
+            at: repository.appendingPathComponent("shared/fixtures/plugins/go-legacy-v1.json"),
+            to: package.appendingPathComponent("plugin.json")
+        )
+        let store = MacPluginPackageStore(
+            rootURL: root.appendingPathComponent("installed", isDirectory: true),
+            bundledRootURL: bundledRoot,
+            verifier: TestPluginSignatureVerifier()
+        )
+        let result = try store.scanInstalledPlugins()
+        #expect(result.issues.isEmpty)
+        let go = try #require(result.packages.first)
+        #expect(go.manifest.id == OfficialPluginCatalog.goPluginID)
+        #expect(go.manifest.languageSupports?.first?.languageServerModuleID != nil)
+        #expect(go.manifest.modules.count == 2)
+        #expect(!FileManager.default.fileExists(atPath: package.appendingPathComponent("language-server.json").path))
+    }
+
+    @Test
+    func realGoManifestRequiresItsDeclaredPackagedServer() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-packaged-go-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = repository.appendingPathComponent("Plugins/mac/Official/GoSupport")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: source.appendingPathComponent("plugin.json"),
+                                         to: root.appendingPathComponent("plugin.json"))
+        let manifest = try JSONDecoder().decode(PluginManifest.self,
+            from: Data(contentsOf: root.appendingPathComponent("plugin.json")))
+        #expect(throws: MacPluginLanguageServerPackageValidationError.missingManifest) {
+            try MacPluginLanguageServerPackageValidator.validate(packageAt: root, pluginManifest: manifest)
+        }
+        try FileManager.default.copyItem(at: source.appendingPathComponent("language-server.json"),
+                                         to: root.appendingPathComponent("language-server.json"))
+        let launch = try #require(MacPluginLanguageServerPackageValidator.launches(packageAt: root, for: manifest)["go"])
+        let launcher = root.appendingPathComponent(try #require(manifest.entrypoint.bundlePath))
+            .appendingPathComponent(try #require(launch.launcherRelativePath))
+        try FileManager.default.createDirectory(at: launcher.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: launcher, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launcher.path)
+        try MacPluginLanguageServerPackageValidator.validate(packageAt: root, pluginManifest: manifest)
+    }
+
+    @Test
+    func phpPackageStillRequiresItsLanguageServerManifest() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-php-package-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makePHPPluginPackage(root: root, name: "missing-lsp", version: PluginVersion(major: 0, minor: 3, patch: 0))
+        try FileManager.default.removeItem(at: package.appendingPathComponent("language-server.json"))
+        let manifest = try JSONDecoder().decode(
+            PluginManifest.self, from: Data(contentsOf: package.appendingPathComponent("plugin.json"))
+        )
+        #expect(throws: MacPluginLanguageServerPackageValidationError.missingManifest) {
+            try MacPluginLanguageServerPackageValidator.validate(packageAt: package, pluginManifest: manifest)
+        }
+    }
+
+    @Test
     func bundledOfficialPluginIsVisibleWithoutAUserInstallation() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)

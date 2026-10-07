@@ -108,7 +108,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
 
     steps:
       - name: Check out source
@@ -178,14 +178,36 @@ jobs:
         shell: pwsh
         run: bun run typecheck
 
-      - name: Build and verify optional PHP worker plugin
+      - name: Install Rust for plugin contract tests
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install pinned Go for plugin builds
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.1'
+          cache: false
+
+      - name: Build plugin Core ABI for frontend contract tests
+        shell: pwsh
+        run: cargo build --manifest-path rust/Cargo.toml -p lithe-core
+
+      - name: Build and verify optional PHP and Go worker plugins
         shell: pwsh
         run: |
-          bun scripts/build-windows-php-plugin.ts
+          bun scripts/build-windows-language-plugin.ts PhpSupport windows-x86_64 --test-signature
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun scripts/build-windows-language-plugin.ts GoSupport windows-x86_64 --test-signature
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-windows-plugin-isolation.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-optional-plugins.json -- src/extensions/registry/extension-package-bootstrap.test.ts src/extensions/packages/local-extension-package.test.ts src/extensions/run src/extensions/ui/services/ui-extension-worker-runtime.test.ts src/extensions/registry/extension-store-lifecycle.test.ts src/features/run-actions/utils/run-action-discovery.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-optional-plugins.json -- src/extensions/registry/extension-package-bootstrap.test.ts src/extensions/packages/local-extension-package.test.ts src/extensions/run src/extensions/ui/services/ui-extension-worker-runtime.test.ts src/extensions/registry/extension-store-lifecycle.test.ts src/extensions/registry/plugin-session.test.ts src/features/run-actions/utils/run-action-discovery.test.ts
+
+      - name: Run packaged language servers through native Core
+        timeout-minutes: 3
+        env:
+          LITHE_RUN_PLUGIN_INTEGRATION: '1'
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --max-ms 45000 --report .artifacts/test-stability/windows-packaged-language-servers.json -- src/extensions/testing/packaged-language-servers.integration.test.ts
 
       - name: Verify PHP is absent from the application bundle
         shell: pwsh
@@ -197,10 +219,10 @@ jobs:
           } finally { Pop-Location }
           node scripts/verify-windows-plugin-isolation.mjs --dist
 
-      - name: Upload optional PHP plugin package
+      - name: Upload test-signed PHP and Go plugin fixtures
         uses: actions/upload-artifact@v6
         with:
-          name: windows-php-plugin
+          name: windows-language-plugin-test-fixtures
           path: .artifacts/windows-plugins/*.lithe-extension
           if-no-files-found: error
 

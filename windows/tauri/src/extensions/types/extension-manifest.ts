@@ -12,6 +12,7 @@ export type PlatformArch =
   | "win32-x64";
 
 export type ToolRuntime =
+  | "package"
   | "bun"
   | "node"
   | "python"
@@ -157,6 +158,7 @@ export interface LanguageContribution {
 
 export interface LspConfiguration {
   requiredExecutables?: string[];
+  runtimeExecutable?: "node";
   // Tool metadata for runtime installation
   name?: string;
   runtime?: ToolRuntime;

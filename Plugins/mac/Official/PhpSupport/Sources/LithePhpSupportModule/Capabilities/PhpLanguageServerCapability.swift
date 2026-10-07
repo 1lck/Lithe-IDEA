@@ -1,25 +1,21 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 
 @MainActor
 public final class PhpLanguageServerCapability: NSObject, LanguageServerExtensionProviding {
-    public let configuration = LanguageServerExtensionConfiguration(
-        languageID: phpLanguageID,
-        displayName: "PHP",
-        executableNames: ["intelephense"],
-        arguments: ["--stdio"],
-        // Intelephense advertises neither `--version` nor `--help`: both exit
-        // non-zero and dump its bundled source to stderr, and validation only
-        // accepts a zero exit code. Declaring one would reject every candidate
-        // and surface as "intelephense was not found". Absent validation
-        // arguments, the host treats a discovered candidate as usable and lets
-        // the stdio handshake decide.
-        validationArguments: [],
-        languageIdentifier: "php"
-    )
+    public let configuration: LanguageServerExtensionConfiguration
     public let lifecycle: any LanguageServerExtensionLifecycle
 
-    init(lifecycle: any LanguageServerExtensionLifecycle) {
+    init(lifecycle: any LanguageServerExtensionLifecycle, launch: PluginLanguageServerLaunch = PhpSupportManifest.languageServerLaunch) {
+        configuration = LanguageServerExtensionConfiguration(
+            languageID: PhpSupportManifest.languageID,
+            displayName: "PHP",
+            executableNames: [launch.executable],
+            arguments: launch.arguments,
+            validationArguments: launch.validationArguments,
+            languageIdentifier: PhpSupportManifest.languageID
+        )
         self.lifecycle = lifecycle
     }
 }

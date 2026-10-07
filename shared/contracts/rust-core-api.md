@@ -424,6 +424,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | Command | Purpose |
 | --- | --- |
 | `core.ping` | Verify the ABI and protocol version |
+| `plugin.validateManifest` | Validate one plugin-owned `plugin.json` against the host, API, entrypoint, module ownership, and language-support contract |
+| `plugin.validateLanguageServer` | Validate one plugin-owned `language-server.json` and its fixed archive/launcher paths |
+| `plugin.session` | Authoritative process-local plugin owner, operation tokens, resource reservations and commit barriers |
+| `plugin.validateWorkerPackage` | Normalize worker metadata or verify a signed native worker resource inventory |
+| `plugin.lifecycle` | Reduce plugin lifecycle state; completeDisable/uninstall require all owned resources to stop |
 | `community.discourse.auth.begin` | Create an ephemeral RSA-OAEP authorization session and return the Discourse browser URL |
 | `community.discourse.auth.complete` | Decrypt, validate, and consume one Discourse user API key callback |
 | `community.discourse.auth.revoke` | Revoke the current Discourse user API key |
@@ -1529,6 +1534,78 @@ The compatibility cases are in
 socket or process alive long enough to flush the frame, then closes it and
 calls `debug.destroySession`. A session allocates no process, socket, timer, or
 background task, and no session exists until Debug is used.
+
+### Plugin package contract and lifecycle
+
+Plugin manifests and language-server manifests are executable Rust Core
+contracts. The platform reads files from an installed package and passes their
+JSON to Core; Swift and TypeScript adapters may decode the result for display,
+but they must not add a second acceptance rule. `plugin.validateManifest`
+accepts `{ "hostVersion": "0.3.0", "manifest": { ...plugin.json... } }` and
+returns the normalized manifest when it is valid. It checks the schema and API
+versions, strict three-component versions, host compatibility, publisher
+signature policy, native/built-in entrypoint shape, sorted owned modules, and
+that every language capability points only at modules in that same package.
+The plugin manifest may use the installed-package `modules` declarations or the
+compact `moduleIDs` fixture representation; both describe the same ownership
+boundary.
+
+`plugin.validateLanguageServer` accepts
+`{ "pluginID": "...", "manifest": { ...language-server.json... } }` and
+returns the normalized tool description. Its source must be HTTPS, its archive
+checksum must be a 64-character SHA-256 value, its archive format must be a
+known supported format, and archive, entrypoint, and license paths
+must be non-empty relative paths without `..` components. Launcher arguments
+are ordered data and cannot contain NUL. The manifest carries the plugin ID,
+language ID, tool ID, exact version, fixed source archive, launcher path and
+arguments; it never carries a machine-specific executable path or a writable
+cache location. Downloading, checksum calculation, archive extraction, code
+signing, and executable discovery remain platform adapter work.
+
+`plugin.lifecycle` remains the pure reducer. Production hosts call `plugin.session`
+with `{ownerId, pluginId, action}`. Actions are `restore` (installed/enabled facts,
+accepted only on first use), `snapshot`, `transition` (transition/operationId),
+`bindResource`/`releaseResource` (resourceId), and `close`. Responses contain
+`lifecycle:{pluginId,state,generation,resources}`, `operationId`, and `installed`.
+Native handles remain in platform adapters. Resources are reserved before async
+startup; release follows confirmed native cleanup. A disable closes the gate even
+while resources are live; completeDisable and uninstall require an empty resource
+set. Completion tokens must match the accepted begin; disable supersedes pending
+operations, so a late install/enable completion cannot reopen a stopped plugin.
+Failure/reset cannot erase active ownership. AwaitingRestart protects native code
+already mapped into the macOS host; a fresh host restores durable installation
+state after pending filesystem actions. Close only accepts an idle owner.
+
+macOS leases cover each module's activation and all resources in its scope.
+Windows leases cover workers, owned Run processes and LSP sessions. A WebView
+reload keeps the owner ID, releases the previous document's dead workers, confirms
+native runs stopped, and adopts persisted LSP ownership. Cleanup errors retain the
+lease and reject destructive operations; an unrecoverable lost native handle
+requires application restart, never unconditional lease deletion.
+`shared/fixtures/plugins/session-v1.json` is executed by Rust, Swift and TypeScript.
+The lower-level reducer examples remain in `lifecycle-v1.json`.
+
+Language support declarations may include `languageServer` with `source`
+(`package` or legacy `system`), executable, arguments, validationArguments and a
+safe launcherRelativePath for packaged servers. Go and PHP use their plugin-owned
+launch declaration. Generated Swift projections are checked by
+`scripts/generate-plugin-manifests.mjs`; Windows manifests remain platform-owned.
+
+`plugin.validateWorkerPackage` accepts `{text}` and returns supported metadata,
+source and installation state. Legacy worker metadata is bounded at 256 KiB and
+cannot grant native resource paths. A `lithe-native-worker-plugin` v1 container
+contains a complete path/base64 inventory and a publisher signature; total JSON
+is bounded at 128 MiB. Core verifies Ed25519, portable paths, checksums, plugin
+identity/version, Windows architecture declaration and packaged LSP entrypoint.
+The publisher identity is compiled from `shared/contracts/plugin-publisher.json`;
+packages cannot select their own public key. Test signing does not alter product
+trust. The normalized `nativePackage` receipt authenticates the manifest and
+worker source on subsequent reads. Platforms reverify the complete inventory
+before install and launch, choose writable per-user version/staging directories,
+and resolve Node.js externally when the signed declaration requires it.
+
+`lsp.destroyServer` is idempotent for an absent session but rejects a live session.
+This lets a platform retry lease release after native cleanup has already completed.
 
 `lsp.builtinCompletions`, `lsp.builtinHover`, and `lsp.builtinNavigation` are
 the no-process lightweight language path. They accept current-file text, an
