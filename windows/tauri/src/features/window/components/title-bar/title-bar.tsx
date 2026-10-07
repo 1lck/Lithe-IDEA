@@ -1,3 +1,4 @@
+import { NewEntryDialogHost } from "@/features/file-explorer/components/new-entry-dialog-host";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -113,7 +114,10 @@ export const TitleBar = ({
       try {
         await syncWindowState();
         // A window opened in the background starts inactive without a focus event.
-        document.documentElement.toggleAttribute("data-window-inactive", !(await window.isFocused()));
+        document.documentElement.toggleAttribute(
+          "data-window-inactive",
+          !(await window.isFocused()),
+        );
         const unlistenResize = await window.onResized(() => {
           void syncWindowState();
         });
@@ -387,9 +391,7 @@ export const TitleBar = ({
             {!showCompactMenuBar ? projectControls : null}
           </ChromeGroup>
 
-          <ChromeGroup className="h-full">
-            {workbenchActions}
-          </ChromeGroup>
+          <ChromeGroup className="h-full">{workbenchActions}</ChromeGroup>
         </ContextMenuTrigger>
         {titleBarContextMenuContent}
       </ContextMenu>
@@ -458,6 +460,7 @@ const TitleBarWithSettings = ({
         showUpdateControl={showUpdateControl}
         onOpenProjectPicker={openProjectPicker}
       />
+      <NewEntryDialogHost />
       <SettingsDialog
         isOpen={isSettingsDialogVisible}
         onClose={() => setIsSettingsDialogVisible(false)}

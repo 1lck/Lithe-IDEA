@@ -1,0 +1,34 @@
+{
+  "id": "windows-java-new-menu",
+  "area": "项目",
+  "group": "文件创建",
+  "capability": "Windows New菜单与Java类型/包创建",
+  "owner": "Windows / Explorer",
+  "macos": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": ["shared/contracts/application-boundary.md"]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/file-explorer/components/new-java-entry-dialog.tsx",
+      "windows/tauri/src/features/file-explorer/components/file-explorer-tree.tsx",
+      "windows/tauri/src/features/file-explorer/lib/java-source-template.ts",
+      "windows/tauri/src/features/file-explorer/lib/java-source-template.test.ts",
+      "windows/tauri/src/features/file-explorer/lib/tree-dom-event.ts",
+      "windows/tauri/src/features/file-explorer/lib/tree-dom-event.test.tsx",
+      "windows/tauri/src/features/file-explorer/services/create-java-entry.ts",
+      "windows/tauri/src/features/file-explorer/services/create-java-entry.test.ts",
+      "windows/tauri/src/features/file-explorer/stores/new-entry.store.ts",
+      "windows/tauri/src/features/file-explorer/stores/new-entry.store.test.ts",
+      "windows/tauri/src/features/file-explorer/components/new-entry-dialog-host.tsx",
+      "windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx",
+      "windows/tauri/src/features/window/components/window-menu-bar.tsx",
+      "windows/tauri/src/features/window/components/title-bar/title-bar.tsx"
+    ]
+  },
+  "verification": "从File→New与资源树New创建文件、目录、Java类型和包；确认类/接口/枚举/record/注解/异常/抽象类/package-info模板、名称校验、同名保护、选中目录及workspace切换保护；检查树中的portal菜单不会被树键盘/鼠标事件拦截。",
+  "notes": "这是初始源码模板与产品菜单，不是Java语义模型。包名仅根据常规源码目录提供建议，自定义源码根需要用户确认；模块向导是后续独立改动。"
+}

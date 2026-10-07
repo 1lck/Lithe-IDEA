@@ -15,6 +15,7 @@ mod lsp;
 mod maven;
 mod memory;
 mod platform;
+mod project_scaffold;
 mod project_window_registry;
 mod project_windows;
 mod run;
@@ -118,6 +119,8 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            project_scaffold::spring_initializr_metadata,
+            project_scaffold::create_project_scaffold,
             date_time::format_system_date_time,
             document::read_document_file,
             document::read_document_file_details,

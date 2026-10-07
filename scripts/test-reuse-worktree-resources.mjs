@@ -64,6 +64,14 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("workspace-generated project scaffolds cannot be reused as build resources", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("workspace-project-scaffolds"));
+    const rejected = reuse(["--resource", "workspace-project-scaffolds"]);
+    assert.notEqual(rejected.status, 0);
+    assert.match(diagnostics(rejected), /workspace-project-scaffolds is isolated/);
+  });
   await test("bundled UI fonts come from Git and cannot be copied from worktree artifacts", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);

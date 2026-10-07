@@ -164,6 +164,17 @@
       ],
       "identity": "Generated from current worktree capability records and evidence paths; no sealed version/platform/architecture/toolchain identity stamp",
       "reason": "Always validate and regenerate in the target worktree or CI checkout. Never copy at any reuse stage; source revisions may differ even on the same platform."
+    },
+    {
+      "id": "workspace-project-scaffolds",
+      "reusable": false,
+      "locations": [
+        "<user-selected-parent>/.lithe-new-*/",
+        "<user-selected-parent>/<project-name>/",
+        "in-memory Spring Initializr response buffers"
+      ],
+      "identity": "User-selected destination and live Initializr metadata; mutable generated projects have no sealed build/worktree resource identity",
+      "reason": "Project creation owns bounded downloads, temporary sibling staging and exclusive destination publication. Staging is removed on failure; successfully created projects belong to the user, including when workspace attachment fails. Never reuse, copy or share these resources between build worktrees."
     }
   ]
 }

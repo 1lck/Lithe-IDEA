@@ -1,0 +1,28 @@
+{
+  "id": "windows-independent-module-wizard",
+  "area": "项目",
+  "group": "模块",
+  "capability": "Windows独立Java / Spring Boot模块向导",
+  "owner": "Windows / Workspace",
+  "macos": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": ["shared/contracts/application-boundary.md"]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/window/components/new-module-dialog.tsx",
+      "windows/tauri/src/features/window/services/create-workspace-module.ts",
+      "windows/tauri/src/features/window/services/create-workspace-module.test.ts",
+      "windows/tauri/src/features/file-explorer/stores/new-entry.store.ts",
+      "windows/tauri/src/features/file-explorer/stores/new-entry.store.test.ts",
+      "windows/tauri/src/features/file-explorer/components/new-entry-dialog-host.tsx",
+      "windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx",
+      "windows/tauri/src/features/window/components/window-menu-bar.tsx"
+    ]
+  },
+  "verification": "从File或资源树New→Module创建Java及Spring Boot模块，验证使用当前项目作为建议父目录、成功后加入当前工作区且不切换根项目；创建中切换工作区、挂载失败与重试均不能重复创建或删除已完成目录。对比父POM/Gradle settings在前后保持不变。",
+  "notes": "依赖独立项目脚手架与New菜单。仅创建独立模块并附加工作区文件夹，不建立父构建聚合和模块依赖；本条目不宣称Gradle调试能力。"
+}

@@ -1,3 +1,6 @@
+import { javaModuleChinese, javaModuleEnglish } from "./java-module-creation";
+import { javaEntryChinese, javaEntryEnglish } from "./java-entry-creation";
+import { javaProjectChinese, javaProjectEnglish } from "./java-project-creation";
 import { changelistsChinese, changelistsEnglish } from "./git-changelists";
 import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-commit";
 import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
@@ -7,6 +10,9 @@ export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 
 const catalogs = {
   "en-US": {
+    ...javaModuleEnglish,
+    ...javaEntryEnglish,
+    ...javaProjectEnglish,
     ...aiCommitEnglish,
     ...workspaceCommitEnglish,
     ...changelistsEnglish,
@@ -4587,6 +4593,9 @@ const catalogs = {
     "welcome.backToProjects": "Back to projects",
   },
   "zh-CN": {
+    ...javaModuleChinese,
+    ...javaEntryChinese,
+    ...javaProjectChinese,
     ...aiCommitChinese,
     ...workspaceCommitChinese,
     ...changelistsChinese,

@@ -1,0 +1,27 @@
+{
+  "id": "windows-java-spring-project-wizard",
+  "area": "工作区",
+  "group": "项目创建",
+  "capability": "Windows Java / Spring Initializr 项目向导",
+  "owner": "Windows / Workspace",
+  "macos": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": ["shared/contracts/application-boundary.md"]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/window/components/new-project-content.tsx",
+      "windows/tauri/src/features/window/components/spring-project-fields.tsx",
+      "windows/tauri/src/features/window/lib/new-project-model.ts",
+      "windows/tauri/src/features/window/lib/new-project-location.test.ts",
+      "windows/tauri/src/features/window/lib/spring-initializr.ts",
+      "windows/tauri/src/features/window/lib/spring-initializr.test.ts",
+      "windows/tauri/src-tauri/src/project_scaffold.rs"
+    ]
+  },
+  "verification": "从新项目向导创建普通Java与Spring Boot项目，验证动态版本/依赖选择、重复点击、用户选定路径、失败重试与同名目标保护；通过构造ZIP验证路径穿越、链接、条目/体积上限和清理。此条目只描述Windows向导；不宣称macOS或全部Gradle运行支持。",
+  "notes": "Initializr拥有Spring版本和依赖目录；向导不执行下载的构建脚本。独立项目创建不改写已有父项目构建文件。"
+}

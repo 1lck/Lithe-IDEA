@@ -123,6 +123,9 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存；包
 
 ### 独立工作树的本地编译
 
+项目创建向导的 Spring Initializr 响应仅在内存中暂存；解压暂存目录和最终项目位于用户选择的父目录。它们是用户工作区的可变内容，不是编译缓存，已在 `scripts/worktree-resources.json` 以 `workspace-project-scaffolds` 排除；通用隔离资源校验路由必须拒绝复制。失败时仅清理本次暂存目录，不覆盖既有目标；创建成功但工作区挂载失败时保留项目供用户恢复。不可把项目、暂存目录或网络响应注册为跨工作树可复用资源。
+
+
 功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
 `<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。
 它依赖当前 checkout 的能力记录、证据路径及提交信息，没有可靠的版本、平台、

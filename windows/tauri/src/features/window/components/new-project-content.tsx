@@ -1,3 +1,5 @@
+import { SpringProjectFields } from "./spring-project-fields";
+import type { SpringProjectOptions } from "../lib/spring-initializr";
 import { homeDir } from "@tauri-apps/api/path";
 import { invoke } from "@/platform/tauri-core";
 import { exists } from "@tauri-apps/plugin-fs";
@@ -38,6 +40,7 @@ import {
   getNewProjectPath,
   getProjectNameError,
   getStarterCommand,
+  loadDefaultProjectLocation,
   inferProjectNameFromRepositoryUrl,
   type NewProjectSource,
   type ProjectPackageManager,
@@ -72,6 +75,8 @@ export default function NewProjectContent({
 }: NewProjectContentProps) {
   const { t } = useTranslation();
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const creatingRef = useRef(false);
+  const [springOptions, setSpringOptions] = useState<SpringProjectOptions | null>(null);
   const repositoryInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"source" | "details" | "creating">(
     initialSource ? "details" : "source",
@@ -95,6 +100,22 @@ export default function NewProjectContent({
         badge: t("welcome.builtIn"),
         icon: FolderPlus,
         keywords: ["blank", "folder", "local", "empty"],
+      },
+      {
+        id: "java",
+        label: t("javaProject.project"),
+        description: t("javaProject.projectDescription"),
+        badge: t("welcome.builtIn"),
+        icon: Code,
+        keywords: ["jdk", "java", "main"],
+      },
+      {
+        id: "spring-boot",
+        label: t("javaProject.spring"),
+        description: t("javaProject.springDescription"),
+        badge: "Initializr",
+        icon: RocketLaunch,
+        keywords: ["java", "spring", "maven", "gradle", "boot"],
       },
       {
         id: "nextjs",
@@ -130,11 +151,7 @@ export default function NewProjectContent({
     return t("welcome.newProject");
   };
 
-  useEffect(() => {
-    void homeDir()
-      .then(setLocationPath)
-      .catch(() => setLocationPath(""));
-  }, []);
+  useEffect(() => loadDefaultProjectLocation(homeDir, setLocationPath), []);
 
   useEffect(() => {
     if (step !== "details") return;
@@ -173,10 +190,12 @@ export default function NewProjectContent({
     !projectNameError &&
     !!locationPath.trim() &&
     (source !== "clone" || !!repositoryUrl.trim()) &&
+    (source !== "spring-boot" || springOptions !== null) &&
     step === "details";
 
   const chooseSource = (nextSource: NewProjectSource) => {
     setSource(nextSource);
+    setSpringOptions(null);
     setStep("details");
     setProjectName("");
     setRepositoryUrl("");
@@ -237,7 +256,8 @@ export default function NewProjectContent({
   };
 
   const createProject = async () => {
-    if (!canCreate) return;
+    if (!canCreate || creatingRef.current) return;
+    creatingRef.current = true;
 
     setStep("creating");
     setErrorMessage("");
@@ -251,6 +271,15 @@ export default function NewProjectContent({
         await invoke("git_clone", {
           repositoryUrl: repositoryUrl.trim(),
           destinationPath,
+        });
+      } else if (source === "empty" || source === "java" || source === "spring-boot") {
+        await invoke<string>("create_project_scaffold", {
+          request: {
+            parentPath: locationPath.trim(),
+            name: projectName.trim(),
+            source,
+            ...(source === "spring-boot" ? springOptions : {}),
+          },
         });
       } else {
         await createNewDirectory(locationPath.trim(), projectName.trim());
@@ -273,6 +302,8 @@ export default function NewProjectContent({
       console.error("Failed to create project:", error);
       setErrorMessage(error instanceof Error ? error.message : String(error));
       setStep("details");
+    } finally {
+      creatingRef.current = false;
     }
   };
 
@@ -280,7 +311,11 @@ export default function NewProjectContent({
     return (
       <>
         <CommandHeader onClose={onClose}>
-          <CommandHeaderAction type="button" aria-label={t("welcome.backToProjects")} onClick={onBack}>
+          <CommandHeaderAction
+            type="button"
+            aria-label={t("welcome.backToProjects")}
+            onClick={onBack}
+          >
             <ArrowLeft />
           </CommandHeaderAction>
           <CommandInput
@@ -436,6 +471,14 @@ export default function NewProjectContent({
             </InputGroup>
           </Field>
 
+          {source === "spring-boot" && (
+            <SpringProjectFields
+              projectName={projectName}
+              onChange={setSpringOptions}
+              initialOptions={springOptions}
+            />
+          )}
+
           {source === "nextjs" || source === "vite-react" ? (
             <Field>
               <FieldLabel htmlFor="new-project-package-manager">
@@ -448,9 +491,7 @@ export default function NewProjectContent({
                 onChange={(value) => setPackageManager(value as ProjectPackageManager)}
                 size="md"
               />
-              <FieldDescription>
-                {t("newProject.packageManagerDescription")}
-              </FieldDescription>
+              <FieldDescription>{t("newProject.packageManagerDescription")}</FieldDescription>
             </Field>
           ) : null}
 
