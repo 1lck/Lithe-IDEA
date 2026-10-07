@@ -1,3 +1,4 @@
+import { useFontStore } from "../stores/font.store";
 import { expect, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -17,6 +18,7 @@ test("the actual Editor settings route uses the shared font-size control and per
   const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   const previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
   const previousSettings = useSettingsStore.getState().settings;
+  const previousFonts = useFontStore.getState();
   const workspaceId = "editor-font-size-routing-test";
   const save = spyOn(persistence, "debouncedSaveSettingsToStore").mockImplementation(() => {});
   const sideEffect = spyOn(effects, "applySettingSideEffect").mockImplementation(() => {});
@@ -28,6 +30,13 @@ test("the actual Editor settings route uses the shared font-size control and per
   let root: Root | undefined;
   try {
     environment.IS_REACT_ACT_ENVIRONMENT = true;
+    useFontStore.setState({
+      actions: {
+        ...previousFonts.actions,
+        loadAvailableFonts: async () => {},
+        loadMonospaceFonts: async () => {},
+      },
+    });
     useSettingsStore.setState({ settings: { ...previousSettings, fontSize: 16 } });
     useUIState.getStore(workspaceId).setState({ settingsInitialTab: "editor" });
     document.body.append(host);
@@ -66,6 +75,7 @@ test("the actual Editor settings route uses the shared font-size control and per
       save.mockRestore();
       sideEffect.mockRestore();
       useSettingsStore.setState({ settings: previousSettings });
+      useFontStore.setState(previousFonts, true);
       workspaceRuntimeRegistry.removeWorkspace(workspaceId);
       if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
       else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;

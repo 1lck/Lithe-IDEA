@@ -8,6 +8,7 @@ interface SwitchProps {
   disabled?: boolean;
   size?: "sm" | "md";
   className?: string;
+  "aria-label"?: string;
 }
 
 const switchRootVariants = cva(
@@ -52,9 +53,11 @@ export default function Switch({
   disabled = false,
   size = "md",
   className,
+  "aria-label": ariaLabel,
 }: SwitchProps) {
   return (
     <SwitchPrimitive.Root
+      aria-label={ariaLabel}
       data-setting-interactive-root="true"
       data-setting-primary-control="true"
       checked={checked}

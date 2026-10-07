@@ -7,6 +7,7 @@ mod debug;
 mod diagnostics;
 mod document;
 mod file_events;
+mod fonts;
 mod host;
 mod html_browser;
 mod language_tools;
@@ -166,9 +167,9 @@ fn main() {
             logging::record_startup_milestone,
             host::get_system_theme,
             host::set_native_window_appearance,
-            host::get_system_fonts,
-            host::get_monospace_fonts,
-            host::validate_font,
+            fonts::get_system_fonts,
+            fonts::get_monospace_fonts,
+            fonts::validate_font,
             host::get_bundled_extensions_path,
             host::read_local_file,
             host::read_local_file_bounded,

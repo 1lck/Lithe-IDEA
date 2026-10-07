@@ -22,14 +22,6 @@ pub fn apply_window_taskbar_icon(window: &WebviewWindow) {
 }
 
 #[derive(Debug, Serialize)]
-pub struct FontInfo {
-    name: String,
-    family: String,
-    style: String,
-    is_monospace: bool,
-}
-
-#[derive(Debug, Serialize)]
 pub struct SymlinkInfo {
     is_symlink: bool,
     target: Option<String>,
@@ -531,12 +523,6 @@ mod tests {
         assert!(visible_width >= 26, "visible width: {visible_width}");
         assert!(visible_height >= 26, "visible height: {visible_height}");
     }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn background_font_queries_do_not_create_windows_console() {
-        assert_eq!(super::font_query_process_creation_flags(), 0x0800_0000);
-    }
 }
 
 #[tauri::command]
@@ -560,101 +546,6 @@ pub fn set_native_window_appearance(
     window
         .set_theme(Some(theme))
         .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub fn get_system_fonts() -> Vec<FontInfo> {
-    platform_fonts()
-}
-
-#[tauri::command]
-pub fn get_monospace_fonts() -> Vec<FontInfo> {
-    platform_fonts()
-        .into_iter()
-        .filter(|font| font.is_monospace)
-        .collect()
-}
-
-#[tauri::command]
-pub fn validate_font(font_family: String) -> bool {
-    platform_fonts()
-        .iter()
-        .any(|font| font.family.eq_ignore_ascii_case(font_family.trim()))
-}
-
-#[cfg(target_os = "windows")]
-fn platform_fonts() -> Vec<FontInfo> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    let mut command = Command::new("reg.exe");
-    command
-        .args([
-            "query",
-            r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
-        ])
-        .creation_flags(font_query_process_creation_flags());
-    let output = command.output();
-    let text = output
-        .ok()
-        .filter(|value| value.status.success())
-        .map(|value| String::from_utf8_lossy(&value.stdout).into_owned())
-        .unwrap_or_default();
-    let mut families = text
-        .lines()
-        .filter_map(|line| line.split("    REG_").next())
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with("HKEY_"))
-        .map(|name| {
-            name.trim_end_matches(" (TrueType)")
-                .trim_end_matches(" (OpenType)")
-        })
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    families.extend(["Geist Sans".into(), "Geist Mono".into()]);
-    families.sort_by_key(|name| name.to_lowercase());
-    families.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
-    families
-        .into_iter()
-        .map(|family| FontInfo {
-            is_monospace: is_probably_monospace(&family),
-            name: family.clone(),
-            family,
-            style: "Regular".into(),
-        })
-        .collect()
-}
-
-#[cfg(target_os = "windows")]
-fn font_query_process_creation_flags() -> u32 {
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    CREATE_NO_WINDOW
-}
-
-#[cfg(not(target_os = "windows"))]
-fn platform_fonts() -> Vec<FontInfo> {
-    [
-        ("Geist Sans", false),
-        ("Geist Mono", true),
-        ("Menlo", true),
-        ("SF Mono", true),
-    ]
-    .into_iter()
-    .map(|(family, is_monospace)| FontInfo {
-        name: family.into(),
-        family: family.into(),
-        style: "Regular".into(),
-        is_monospace,
-    })
-    .collect()
-}
-
-#[cfg(target_os = "windows")]
-fn is_probably_monospace(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    ["mono", "code", "console", "courier", "fixed", "terminal"]
-        .iter()
-        .any(|token| lower.contains(token))
 }
 
 #[tauri::command]

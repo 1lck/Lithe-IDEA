@@ -21,7 +21,7 @@ interface FontActions {
   clearError: () => void;
 }
 
-const FONT_CACHE_KEY = "lithe_font_cache_v2";
+const FONT_CACHE_KEY = "lithe_font_cache_v3_directwrite";
 const FONT_CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 const FALLBACK_FONTS: FontInfo[] = [
   {
@@ -45,6 +45,7 @@ interface FontCache {
 }
 
 const loadFontsFromCache = (): FontCache | null => {
+  if (typeof localStorage === "undefined") return null;
   try {
     const cached = localStorage.getItem(FONT_CACHE_KEY);
     if (!cached) return null;
@@ -61,7 +62,11 @@ const loadFontsFromCache = (): FontCache | null => {
     return cache;
   } catch (error) {
     console.error("Failed to load fonts from cache:", error);
-    localStorage.removeItem(FONT_CACHE_KEY);
+    try {
+      localStorage.removeItem(FONT_CACHE_KEY);
+    } catch {
+      /* Storage may be unavailable. */
+    }
     return null;
   }
 };

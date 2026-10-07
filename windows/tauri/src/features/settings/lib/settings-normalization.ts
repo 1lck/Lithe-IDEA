@@ -22,6 +22,7 @@ import {
   SIDEBAR_ACTIVITY_ITEM_IDS,
   normalizeItemOrder,
 } from "@/features/layout/config/item-order";
+import { normalizeEditorFontSize } from "./editor-font-size";
 import { normalizeUiFontSize } from "@/features/settings/lib/ui-font-size";
 import type { Settings, SettingsSection } from "@/features/settings/types/settings.types";
 
@@ -479,11 +480,21 @@ function normalizeAISettings(settings: Settings): Settings {
 export function normalizeSettings(settings: Settings): Settings {
   const normalizedSettings = normalizeAISettings(settings);
   normalizedSettings.aiCommit = normalizeCommitAI(settings.aiCommit);
-  normalizedSettings.gitExecutable = typeof settings.gitExecutable === "string" ? settings.gitExecutable : "";
+  normalizedSettings.gitExecutable =
+    typeof settings.gitExecutable === "string" ? settings.gitExecutable : "";
   normalizedSettings.gitUseCredentialHelper = settings.gitUseCredentialHelper !== false;
-  normalizedSettings.gitFetchPrune = typeof settings.gitFetchPrune === "boolean" ? settings.gitFetchPrune : true;
-  normalizedSettings.gitFetchSubmodules = ["inherit", "no", "onDemand", "yes"].includes(settings.gitFetchSubmodules) ? settings.gitFetchSubmodules : "inherit";
-  normalizedSettings.gitFetchTags = ["inherit", "all", "none", "prune"].includes(settings.gitFetchTags) ? settings.gitFetchTags : "inherit";
+  normalizedSettings.gitFetchPrune =
+    typeof settings.gitFetchPrune === "boolean" ? settings.gitFetchPrune : true;
+  normalizedSettings.gitFetchSubmodules = ["inherit", "no", "onDemand", "yes"].includes(
+    settings.gitFetchSubmodules,
+  )
+    ? settings.gitFetchSubmodules
+    : "inherit";
+  normalizedSettings.gitFetchTags = ["inherit", "all", "none", "prune"].includes(
+    settings.gitFetchTags,
+  )
+    ? settings.gitFetchTags
+    : "inherit";
   if (normalizedSettings.gitFetchTags === "prune") normalizedSettings.gitFetchPrune = true;
 
   normalizedSettings.coreFeatures = {
@@ -502,6 +513,11 @@ export function normalizeSettings(settings: Settings): Settings {
   }
 
   normalizedSettings.uiFontSize = normalizeUiFontSize(normalizedSettings.uiFontSize);
+  normalizedSettings.fontSize = normalizeEditorFontSize(normalizedSettings.fontSize);
+  normalizedSettings.editorFontLigatures =
+    typeof normalizedSettings.editorFontLigatures === "boolean"
+      ? normalizedSettings.editorFontLigatures
+      : defaultSettings.editorFontLigatures;
   normalizedSettings.fontFamily = normalizeConfiguredFontFamily(
     normalizedSettings.fontFamily,
     DEFAULT_MONO_FONT_FAMILY,
@@ -545,7 +561,8 @@ export function normalizeSettings(settings: Settings): Settings {
     (normalizedSettings as { fileTreeSortOrder?: unknown }).fileTreeSortOrder,
   );
   normalizedSettings.projectOpenDefaultDestination = normalizeProjectOpenDestination(
-    (normalizedSettings as { projectOpenDefaultDestination?: unknown }).projectOpenDefaultDestination,
+    (normalizedSettings as { projectOpenDefaultDestination?: unknown })
+      .projectOpenDefaultDestination,
     (normalizedSettings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow,
   );
   delete (normalizedSettings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow;
@@ -614,11 +631,23 @@ export function normalizeSettingValue<K extends keyof Settings>(
   value: Settings[K],
 ): Settings[K] {
   if (key === "aiCommit") return normalizeCommitAI(value) as Settings[K];
-  if (key === "gitFetchSubmodules") return (["inherit", "no", "onDemand", "yes"].includes(String(value)) ? value : "inherit") as Settings[K];
-  if (key === "gitFetchTags") return (["inherit", "all", "none", "prune"].includes(String(value)) ? value : "inherit") as Settings[K];
+  if (key === "gitFetchSubmodules")
+    return (
+      ["inherit", "no", "onDemand", "yes"].includes(String(value)) ? value : "inherit"
+    ) as Settings[K];
+  if (key === "gitFetchTags")
+    return (
+      ["inherit", "all", "none", "prune"].includes(String(value)) ? value : "inherit"
+    ) as Settings[K];
   if (key === "uiFontSize") {
     return normalizeUiFontSize(value as number) as Settings[K];
   }
+
+  if (key === "fontSize") return normalizeEditorFontSize(value) as Settings[K];
+  if (key === "editorFontLigatures")
+    return (
+      typeof value === "boolean" ? value : defaultSettings.editorFontLigatures
+    ) as Settings[K];
 
   if (key === "fontFamily") {
     return normalizeConfiguredFontFamily(value as string, DEFAULT_MONO_FONT_FAMILY) as Settings[K];
