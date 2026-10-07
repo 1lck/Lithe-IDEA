@@ -91,6 +91,7 @@ private final class PendingPluginModule: LitheModule, ModuleResource {
     func prepareForSleep() async throws {}
     func sleep() async {}
     func shutdown() async {}
+    func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
     func stopModuleResource() async { isModuleResourceActive = false }
 }
 

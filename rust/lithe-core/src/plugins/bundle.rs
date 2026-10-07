@@ -168,7 +168,9 @@ fn receipt_package(
         ));
     }
     if manifest["lsp"]["runtime"] != "package" {
-        return Err(invalid("Signed native resources require the package runtime"));
+        return Err(invalid(
+            "Signed native resources require the package runtime",
+        ));
     }
     let entrypoint = manifest["lsp"]["server"]["default"]
         .as_str()
