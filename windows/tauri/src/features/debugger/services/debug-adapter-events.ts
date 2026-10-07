@@ -97,7 +97,9 @@ function handleStateChanged(sessionId: string, event: Record<string, unknown>) {
   if (state === "paused") {
     useDebuggerStore.getState().actions.setSessionStatus("paused");
   } else if (state === "running") {
-    useDebuggerStore.getState().actions.setSessionStatus("running");
+    // Core normalizes DAP continued into stateChanged; clear paused inspection
+    // through the same owner instead of leaving a contradictory paused badge.
+    handleContinued();
   } else if (state === "failed") {
     const message =
       typeof event.message === "string" && event.message
@@ -125,11 +127,12 @@ async function handleStopped(sessionId: string, event: Record<string, unknown>) 
     description: typeof event.description === "string" ? event.description : undefined,
   });
 
-  if (typeof threadId === "number") {
-    await requestStackTrace(sessionId, threadId);
-  } else {
-    await requestThreads(sessionId);
-  }
+  // A stopped thread ID is not the thread list. Fetch both from the adapter;
+  // a late list response must not select its first thread over the paused one.
+  await Promise.all([
+    ...(typeof threadId === "number" ? [requestStackTrace(sessionId, threadId)] : []),
+    requestThreads(sessionId),
+  ]);
 }
 
 function handleContinued() {
@@ -159,7 +162,10 @@ async function handleOperationCompleted(sessionId: string, event: Record<string,
   }
   // HCR is correlated by its caller; refresh paused frames without resuming execution.
   if (kind === "redefineClasses") {
-    if (store.activeSession?.status === "paused" && typeof store.stoppedState?.threadId === "number") {
+    if (
+      store.activeSession?.status === "paused" &&
+      typeof store.stoppedState?.threadId === "number"
+    ) {
       await requestStackTrace(sessionId, store.stoppedState.threadId);
     }
     return;
@@ -172,16 +178,17 @@ async function handleOperationCompleted(sessionId: string, event: Record<string,
       const threads = toThreads(result?.threads);
       store.actions.setThreads(threads);
       const firstThreadId = threads[0]?.id;
-      if (typeof firstThreadId === "number") {
-        await requestStackTrace(sessionId, firstThreadId);
+      if (
+        store.activeSession?.status === "paused" &&
+        typeof store.stoppedState?.threadId !== "number" &&
+        typeof firstThreadId === "number"
+      ) {
+        await selectDebugThread(sessionId, firstThreadId);
       }
       return;
     }
     case "stackTrace": {
-      if (
-        context.command !== "stackTrace" ||
-        context.threadId !== store.stoppedState?.threadId
-      ) {
+      if (context.command !== "stackTrace" || context.threadId !== store.stoppedState?.threadId) {
         return;
       }
       const frames = toStackFrames(result?.stackFrames);

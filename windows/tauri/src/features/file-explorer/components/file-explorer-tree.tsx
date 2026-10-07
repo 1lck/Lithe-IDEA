@@ -1,3 +1,4 @@
+import { isTreeDomEvent } from "../lib/tree-dom-event";
 import ignore from "ignore";
 import {
   CursorClickIcon as CursorClick,
@@ -983,6 +984,7 @@ function FileExplorerTreeComponent({
 
   const handleContainerClick = useCallback(
     (e: React.MouseEvent) => {
+      if (!isTreeDomEvent(e)) return;
       const t = getTargetItem(e.target);
       if (!t) {
         e.preventDefault();
@@ -1014,6 +1016,7 @@ function FileExplorerTreeComponent({
 
   const handleContainerDoubleClick = useCallback(
     (e: React.MouseEvent) => {
+      if (!isTreeDomEvent(e)) return;
       const t = getTargetItem(e.target);
       if (!t) return;
       e.preventDefault();
@@ -1033,6 +1036,7 @@ function FileExplorerTreeComponent({
 
   const handleContainerContextMenu = useCallback(
     (e: React.MouseEvent) => {
+      if (!isTreeDomEvent(e)) return;
       const t = getTargetItem(e.target);
       if (t) {
         handleContextMenu(e, t.path, t.isDir);
@@ -1048,6 +1052,7 @@ function FileExplorerTreeComponent({
 
   const handleContainerMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      if (!isTreeDomEvent(e)) return;
       if (e.button !== 0) return;
       const t = getTargetItem(e.target);
       if (!t) return;
@@ -1058,6 +1063,7 @@ function FileExplorerTreeComponent({
 
   const handleContainerMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      if (!isTreeDomEvent(e)) return;
       if (mouseDownInfo && !dragState.isDragging) {
         const dx = e.clientX - mouseDownInfo.x;
         const dy = e.clientY - mouseDownInfo.y;
@@ -1112,16 +1118,19 @@ function FileExplorerTreeComponent({
           "border-2! border-dashed! border-primary! bg-primary! bg-opacity-10!",
       )}
       data-tree-focused={hasTreeFocus ? "true" : undefined}
-      onFocusCapture={() => {
+      onFocusCapture={(e) => {
+        if (!isTreeDomEvent(e)) return;
         setHasTreeFocus(true);
         setFocusedPath((current) => current || activePath || visibleRows[0]?.file.path);
       }}
       onBlurCapture={(e) => {
+        if (!isTreeDomEvent(e)) return;
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
           setHasTreeFocus(false);
         }
       }}
       onKeyDown={(e) => {
+        if (!isTreeDomEvent(e)) return;
         const mod = e.metaKey || e.ctrlKey;
         if (mod && e.key.toLowerCase() === "f") {
           e.preventDefault();
@@ -1174,7 +1183,9 @@ function FileExplorerTreeComponent({
                 onJavaClassFailed: (error) => {
                   if (error instanceof JavaClipboardPasteError) {
                     if (error.code === "exists") {
-                      toast.error(t("files.javaClassAlreadyExists", { name: error.fileName ?? "" }));
+                      toast.error(
+                        t("files.javaClassAlreadyExists", { name: error.fileName ?? "" }),
+                      );
                       return;
                     }
                     if (error.code === "remote") {

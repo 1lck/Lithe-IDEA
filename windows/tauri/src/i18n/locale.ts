@@ -1,3 +1,4 @@
+import { javaEntryChinese, javaEntryEnglish } from "./java-entry-creation";
 import { changelistsChinese, changelistsEnglish } from "./git-changelists";
 import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-commit";
 import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
@@ -7,6 +8,7 @@ export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 
 const catalogs = {
   "en-US": {
+    ...javaEntryEnglish,
     ...aiCommitEnglish,
     ...workspaceCommitEnglish,
     ...changelistsEnglish,
@@ -3033,6 +3035,10 @@ const catalogs = {
     "git.log.filterPlaceholder": "{field} filter",
     "git.log.hideDecorations": "Hide branch and tag labels",
     "git.log.showDecorations": "Show branch and tag labels",
+    "git.log.showLongEdges": "Show long graph edges",
+    "git.log.collapseLongEdges": "Collapse long graph edges",
+    "git.log.goToParent": "Go to parent commit {hash}",
+    "git.log.goToChild": "Go to child commit {hash}",
     "git.log.noMatch": "No commits match this filter",
     "git.log.noCommits": "No commits in this view",
     "git.log.openDiffHint": "Double-click or press Enter to open commit diff",
@@ -4589,6 +4595,7 @@ const catalogs = {
     "welcome.backToProjects": "Back to projects",
   },
   "zh-CN": {
+    ...javaEntryChinese,
     ...aiCommitChinese,
     ...workspaceCommitChinese,
     ...changelistsChinese,
@@ -7477,6 +7484,10 @@ const catalogs = {
     "git.log.filterPlaceholder": "{field} 筛选",
     "git.log.hideDecorations": "隐藏分支和标签",
     "git.log.showDecorations": "显示分支和标签",
+    "git.log.showLongEdges": "显示图谱长边",
+    "git.log.collapseLongEdges": "收起图谱长边",
+    "git.log.goToParent": "跳转到父提交 {hash}",
+    "git.log.goToChild": "跳转到子提交 {hash}",
     "git.log.noMatch": "没有符合筛选条件的提交",
     "git.log.noCommits": "此视图中没有提交",
     "git.log.openDiffHint": "双击或按 Enter 打开提交差异",

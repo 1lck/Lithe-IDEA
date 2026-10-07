@@ -1,4 +1,4 @@
-The macOS Git graph projection and upstream regression fixtures adapt portions
+The macOS and Windows Git graph projections, painting, and upstream regression fixtures adapt portions
 of JetBrains IntelliJ Platform Community, Copyright 2000-2024 JetBrains s.r.o.
 and contributors, licensed under the Apache License, Version 2.0.
 
@@ -13,8 +13,11 @@ GraphColorManagerImpl, DefaultColorGenerator, MergeCommitsHighlighter,
 the expUI / Islands theme graph colors, and the recommended graph width
 calculation. Git traversal follows GitLogProvider date order.
 Swift adaptation and native integration: Lithe contributors.
+TypeScript adaptation and Windows SVG integration: Lithe contributors.
 See .agents/notes/implemented/feature/2026-09-13-macos-git-graph-intellij-layout.md
 for source links and behavior.
+Windows behavior is recorded in
+.agents/notes/implemented/feature/2026-09-25-windows-git-graph-branch-colors.md.
 
 Reference presentation and current-branch highlighting follow Community
 c7f91397daa3a961b4e78bc634fe467a0a7d9ade: GitRefManager, SimpleRefGroup,

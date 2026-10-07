@@ -77,6 +77,7 @@ beforeEach(() => {
   spies.push(
     spyOn(controller, "useGitLogController").mockImplementation(() => ({
       history: { references: [reference], recentReferences: [], commits: [], hasMore: false },
+      repositoryCommits: [],
       loadState: "ready",
       error: null,
       selectedReference: reference,

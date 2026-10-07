@@ -19,6 +19,22 @@ pub struct ProjectWindowRegistry {
 }
 
 impl ProjectWindowRegistry {
+    pub fn title_snapshot(&self) -> Vec<RegisteredTitleProject> {
+        use std::os::windows::io::AsRawHandle;
+        // 只复制登记条目的进程内标识和归属，不查询目录或复制操作系统句柄。
+        self.owners
+            .iter()
+            .map(|(identity, owner)| RegisteredTitleProject {
+                identity: RegisteredTitleIdentity {
+                    handle: identity.as_raw_handle() as usize,
+                    label: owner.label.clone(),
+                    workspace_id: owner.workspace_id.clone(),
+                },
+                owner: owner.clone(),
+            })
+            .collect()
+    }
+
     pub fn identity(path: &Path) -> Result<Handle, String> {
         if !path.is_dir() {
             return Err("Project directory is unavailable".into());
@@ -63,6 +79,18 @@ impl ProjectWindowRegistry {
     pub fn retain_windows(&mut self, exists: impl Fn(&str) -> bool) {
         self.owners.retain(|_, owner| exists(&owner.label));
     }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RegisteredTitleIdentity {
+    handle: usize,
+    label: String,
+    workspace_id: Option<String>,
+}
+
+pub struct RegisteredTitleProject {
+    pub identity: RegisteredTitleIdentity,
+    pub owner: ProjectWindowOwner,
 }
 
 #[cfg(test)]

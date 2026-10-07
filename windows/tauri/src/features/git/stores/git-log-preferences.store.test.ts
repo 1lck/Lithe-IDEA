@@ -5,6 +5,7 @@ describe("Git Log preferences", () => {
   test("shows worktree repositories and collapses tags by default", () => {
     expect(useGitLogPreferencesStore.getState().showWorktreeRepositories).toBe(true);
     expect(useGitLogPreferencesStore.getState().collapsedReferenceSections).toEqual(["tag"]);
+    expect(useGitLogPreferencesStore.getState().showLongGraphEdges).toBe(false);
   });
 
   test("persists read-only view preferences through focused actions", () => {
@@ -14,6 +15,7 @@ describe("Git Log preferences", () => {
     actions.setFilterQuery("graph");
     actions.setFilterScope("author");
     actions.setShowDecorations(false);
+    actions.setShowLongGraphEdges(true);
     actions.setShowMyBranchesOnly(true);
     actions.setShowWorktreeRepositories(false);
     actions.setMainPanelLayout({ references: 20, commits: 55, inspector: 25 });
@@ -26,6 +28,7 @@ describe("Git Log preferences", () => {
       filterQuery: "graph",
       filterScope: "author",
       showDecorations: false,
+      showLongGraphEdges: true,
       showMyBranchesOnly: true,
       showWorktreeRepositories: false,
       mainPanelLayout: { references: 20, commits: 55, inspector: 25 },
@@ -46,6 +49,7 @@ describe("Git Log preferences", () => {
     actions.setFilterQuery("");
     actions.setFilterScope("text");
     actions.setShowDecorations(true);
+    actions.setShowLongGraphEdges(false);
     actions.setShowMyBranchesOnly(false);
     actions.setShowWorktreeRepositories(true);
     actions.setMainPanelLayout({ references: 19, commits: 57, inspector: 24 });

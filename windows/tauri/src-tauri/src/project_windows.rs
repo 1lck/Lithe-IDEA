@@ -68,6 +68,7 @@ pub async fn release_pending_project_window(
         .lock()
         .await
         .release_pending(window.label());
+    crate::window_title::release_pending(&app, window.label());
     Ok(())
 }
 

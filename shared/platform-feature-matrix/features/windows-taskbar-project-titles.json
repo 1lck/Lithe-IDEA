@@ -1,0 +1,28 @@
+{
+  "id": "windows-taskbar-project-titles",
+  "area": "工作区",
+  "group": "工作区生命周期",
+  "capability": "Windows 任务栏与 Alt+Tab 显示项目展示名和活动文件，同名项目附加路径，工具页只显示项目",
+  "macos": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      ".agents/notes/implemented/feature/2026-10-02-windows-taskbar-project-titles.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/window/utils/window-title-context.ts",
+      "windows/tauri/src/features/window/services/window-title-source.ts",
+      "windows/tauri/src/features/window/services/window-title-focus.ts",
+      "windows/tauri/src/features/window/services/window-title-sync.ts",
+      "windows/tauri/src/features/window/hooks/use-native-window-title.ts",
+      "windows/tauri/src-tauri/src/window_title.rs"
+    ]
+  },
+  "owner": "Workspace",
+  "verification": "Windows：打开两个不同项目与不同目录的同名项目，检查任务栏悬停和 Alt+Tab 标题；切换项目、分屏、文件、终端、搜索与 Diff，确认文件名只来自当前活动文件。搜索侧栏获得焦点时清除文件名，返回编辑器时恢复；仅可见不清除文件名。修改项目别名、关闭项目或窗口，确认其余窗口的重名路径同步恢复。覆盖独立文件、预览源文件、中文、UNC 路径、启动恢复与初始化身份刷新；测试已应用但应答失败后的 A/B/A 恢复、登记快照复用、路径回退、统一截止时间、迟到回调及窗口销毁，生成前端和宿主逐测试计时报告。",
+  "notes": "仅 Windows 原生标题展示；复用已有项目与窗口归属，不改变应用内布局。Windows 11 初版已验证原生标题、文件切换、Markdown 预览、终端焦点、跨窗口重名恢复及 Alt+Tab 标题；2026-10-05 修复后另用临时样例验证搜索聚焦清除文件名、侧栏可见时返回编辑器恢复文件名、关闭侧栏恢复。失败与超时由可控回归测试验证；任务栏悬停和 Windows 10 外观仍待验证。"
+}

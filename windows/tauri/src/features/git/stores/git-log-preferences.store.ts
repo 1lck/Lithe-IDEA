@@ -21,6 +21,7 @@ interface GitLogPreferencesStore {
   filterQuery: string;
   filterScope: GitLogFilterScope;
   showDecorations: boolean;
+  showLongGraphEdges: boolean;
   showMyBranchesOnly: boolean;
   showWorktreeRepositories: boolean;
   mainPanelLayout: GitLogPanelLayout;
@@ -34,6 +35,7 @@ interface GitLogPreferencesStore {
     setFilterQuery: (query: string) => void;
     setFilterScope: (scope: GitLogFilterScope) => void;
     setShowDecorations: (show: boolean) => void;
+    setShowLongGraphEdges: (show: boolean) => void;
     setShowMyBranchesOnly: (show: boolean) => void;
     setShowWorktreeRepositories: (show: boolean) => void;
     setMainPanelLayout: (layout: GitLogPanelLayout) => void;
@@ -73,6 +75,7 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
       filterQuery: "",
       filterScope: "text",
       showDecorations: true,
+      showLongGraphEdges: false,
       showMyBranchesOnly: false,
       showWorktreeRepositories: true,
       mainPanelLayout: DEFAULT_MAIN_LAYOUT,
@@ -86,6 +89,7 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
         setFilterQuery: (filterQuery) => set({ filterQuery }),
         setFilterScope: (filterScope) => set({ filterScope }),
         setShowDecorations: (showDecorations) => set({ showDecorations }),
+        setShowLongGraphEdges: (showLongGraphEdges) => set({ showLongGraphEdges }),
         setShowMyBranchesOnly: (showMyBranchesOnly) => set({ showMyBranchesOnly }),
         setShowWorktreeRepositories: (showWorktreeRepositories) =>
           set({ showWorktreeRepositories }),
@@ -166,6 +170,7 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
           markedReferenceFullNamesByRepository:
             persistedPreferences.markedReferenceFullNamesByRepository ?? {},
           showWorktreeRepositories: persistedPreferences.showWorktreeRepositories ?? true,
+          showLongGraphEdges: persistedPreferences.showLongGraphEdges === true,
           authorColumnWidth: normalizeGitLogColumnWidth(
             "author",
             persistedPreferences.authorColumnWidth,

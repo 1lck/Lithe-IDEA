@@ -276,6 +276,17 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
             return Ok(owner.label);
         }
     }
+    let initial_path = request
+        .as_ref()
+        .filter(|request| request.get("remoteConnectionId").is_none())
+        .and_then(|request| request.get("path").and_then(Value::as_str));
+    let initial_title = crate::window_title::prepare_initial_title(
+        &app,
+        &label,
+        initial_path,
+        project_path.is_some(),
+        &registry.title_snapshot(),
+    );
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     if let Some(request) = request.and_then(|value| value.as_object().cloned()) {
         query.append_pair("target", "open");
@@ -312,7 +323,7 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
     };
     let result = (|| {
         WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(path.into()))
-            .title("Lithe")
+            .title(&initial_title)
             .decorations(false)
             .inner_size(1280.0, 800.0)
             .min_inner_size(720.0, 480.0)
@@ -324,10 +335,12 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
     match result {
         Ok(window) => {
             apply_window_taskbar_icon(&window);
+            crate::window_title::window_created(&app);
             Ok(label)
         }
         Err(error) => {
             registry.release(&label, None);
+            crate::window_title::remove_window(&app, &label);
             Err(error)
         }
     }

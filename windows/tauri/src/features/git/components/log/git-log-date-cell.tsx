@@ -64,7 +64,7 @@ export function GitLogDateCell({
   return (
     <span
       ref={cellRef}
-      className="min-w-0 flex-1 overflow-clip px-2 text-ellipsis whitespace-nowrap text-left text-foreground tabular-nums"
+      className="git-log-commit-text min-w-0 flex-1 overflow-clip px-2 text-ellipsis whitespace-nowrap text-left text-foreground tabular-nums"
     >
       {formatGitLogDate(date, t, utcOffsetMinutes, now, presentation)}
     </span>

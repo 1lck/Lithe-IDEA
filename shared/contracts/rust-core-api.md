@@ -1261,8 +1261,8 @@ combines `git.references` with the first `git.historyPage`. New clients use
 `order` preserves the original `git log --topo-order` behavior. `"date"` uses
 `git log --date-order`: committer date descending whenever the child-before-
 parent constraint permits, independently of the displayed author date. macOS
-requests date order for the log page and repository graph; existing clients
-retain topology order. A cursor is bound to its root, reference, and order;
+and Windows Git Log request date order for their pages and repository graph;
+other clients that omit the field retain topology order. A cursor is bound to its root, reference, and order;
 continuations must repeat the same order. A mismatched order returns
 `invalid_request` without consuming the cursor. The portable request example is
 `shared/fixtures/git/history-page-date-request-v1.json`.

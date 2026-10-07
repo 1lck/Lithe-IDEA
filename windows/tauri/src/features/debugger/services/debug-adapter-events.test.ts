@@ -38,9 +38,7 @@ mock.module("@/features/debugger/services/debug-adapter-service", () => ({
   },
 }));
 
-const { initializeDebuggerEventBridge, selectDebugThread } = await import(
-  "./debug-adapter-events"
-);
+const { initializeDebuggerEventBridge, selectDebugThread } = await import("./debug-adapter-events");
 const { useDebuggerStore } = await import("../stores/debugger.store");
 
 // The bridge returns the awaited event-handling promise, so tests await the
@@ -100,9 +98,14 @@ test("stopped events pause the session and cascade into stack trace requests", a
     threadId: 3,
     description: undefined,
   });
-  expect(sendDebugAdapterRequest).toHaveBeenCalledWith("session-1", "stackTrace", {
-    threadId: 3,
-  }, getRequestOperationId(0));
+  expect(sendDebugAdapterRequest).toHaveBeenCalledWith(
+    "session-1",
+    "stackTrace",
+    {
+      threadId: 3,
+    },
+    getRequestOperationId(0),
+  );
   expect(state.pendingRequests[getRequestOperationId(0)]).toEqual({
     command: "stackTrace",
     threadId: 3,
@@ -122,7 +125,7 @@ test("selecting another thread clears stale inspection data and ignores its late
 
   await selectDebugThread("session-1", 2);
 
-  const selectedStackOperationId = getRequestOperationId(1);
+  const selectedStackOperationId = getRequestOperationId(2);
   const selectedState = useDebuggerStore.getState();
   expect(selectedStackOperationId).not.toBe(oldStackOperationId);
   expect(selectedState.stoppedState?.threadId).toBe(2);
@@ -151,7 +154,7 @@ test("selecting another thread clears stale inspection data and ignores its late
     { id: 21, name: "current", line: 3, column: 1, sourcePath: undefined },
   ]);
   expect(currentState.selectedFrameId).toBe(21);
-  expect(currentState.pendingRequests[getRequestOperationId(2)]).toEqual({
+  expect(currentState.pendingRequests[getRequestOperationId(3)]).toEqual({
     command: "scopes",
     frameId: 21,
   });
@@ -160,6 +163,8 @@ test("selecting another thread clears stale inspection data and ignores its late
 test("normalized thread results fill the thread list and cascade further", async () => {
   await initializeDebuggerEventBridge();
   startSession("session-1");
+  useDebuggerStore.getState().actions.setSessionStatus("paused");
+  useDebuggerStore.getState().actions.setStoppedState({ reason: "pause" });
   useDebuggerStore.getState().actions.registerAdapterRequest("threads-op", {
     command: "threads",
   });
@@ -173,9 +178,14 @@ test("normalized thread results fill the thread list and cascade further", async
   const state = useDebuggerStore.getState();
   expect(state.threads).toEqual([{ id: 1, name: "main" }]);
   expect(state.pendingRequests["threads-op"]).toBeUndefined();
-  expect(sendDebugAdapterRequest).toHaveBeenCalledWith("session-1", "stackTrace", {
-    threadId: 1,
-  }, getRequestOperationId(0));
+  expect(sendDebugAdapterRequest).toHaveBeenCalledWith(
+    "session-1",
+    "stackTrace",
+    {
+      threadId: 1,
+    },
+    getRequestOperationId(0),
+  );
   expect(state.pendingRequests[getRequestOperationId(0)]).toEqual({
     command: "stackTrace",
     threadId: 1,
@@ -316,14 +326,14 @@ test("failed states end the session and request native teardown", async () => {
   expect(stopDebugAdapterSession).toHaveBeenCalledWith("session-1");
 });
 
-
 test("hot replacement refreshes paused frames without resuming or touching another session", async () => {
   await initializeDebuggerEventBridge();
   startSession("session-1");
   await emitMessage("session-1", { type: "stopped", reason: "breakpoint", threadId: 3 });
   sendDebugAdapterRequest.mockClear();
   const completed = {
-    type: "operationCompleted", operationId: "hot-replace",
+    type: "operationCompleted",
+    operationId: "hot-replace",
     result: { kind: "redefineClasses", changedClasses: ["example.Main"] },
   };
   await emitMessage("old-session", completed);
@@ -335,4 +345,53 @@ test("hot replacement refreshes paused frames without resuming or touching anoth
   useDebuggerStore.getState().actions.setSessionStatus("running");
   await emitMessage("session-1", completed);
   expect(sendDebugAdapterRequest).not.toHaveBeenCalled();
+});
+
+test("thread discovery preserves the stopped thread instead of selecting the first listed thread", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+  await emitMessage("session-1", { type: "stopped", reason: "breakpoint", threadId: 7 });
+  expect(sendDebugAdapterRequest.mock.calls.map((call) => call[1])).toEqual([
+    "stackTrace",
+    "threads",
+  ]);
+  const threadOperation = getRequestOperationId(1);
+  await emitMessage("session-1", {
+    type: "operationCompleted",
+    operationId: threadOperation,
+    result: {
+      kind: "threads",
+      threads: [
+        { id: 1, name: "worker" },
+        { id: 7, name: "main" },
+      ],
+    },
+  });
+  expect(useDebuggerStore.getState().threads).toHaveLength(2);
+  expect(useDebuggerStore.getState().stoppedState?.threadId).toBe(7);
+  expect(sendDebugAdapterRequest).toHaveBeenCalledTimes(2);
+});
+
+test("normalized running events clear stale paused inspection and ignore its late stack result", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+  await emitMessage("session-1", { type: "stopped", reason: "breakpoint", threadId: 7 });
+  const stackOperation = getRequestOperationId(0);
+  const actions = useDebuggerStore.getState().actions;
+  actions.setThreads([{ id: 7, name: "main" }]);
+  actions.setStackFrames([{ id: 1, name: "main", line: 9, column: 1 }]);
+  actions.setScopes([{ name: "Local", variablesReference: 1 }]);
+  actions.setVariables(1, [{ name: "probe", value: "41", variablesReference: 0 }]);
+  await emitMessage("session-1", { type: "stateChanged", state: "running" });
+  await emitMessage("session-1", {
+    type: "operationCompleted",
+    operationId: stackOperation,
+    result: { kind: "stackTrace", stackFrames: [{ id: 1, name: "stale", line: 9, column: 1 }] },
+  });
+  const state = useDebuggerStore.getState();
+  expect(state.activeSession?.status).toBe("running");
+  expect(state.stoppedState).toBeNull();
+  expect(state.stackFrames).toEqual([]);
+  expect(state.variablesByReference).toEqual({});
+  expect(state.threads).toEqual([{ id: 7, name: "main" }]);
 });

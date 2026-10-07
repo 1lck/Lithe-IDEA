@@ -30,9 +30,11 @@ import { TooltipProvider } from "./ui/tooltip";
 import { WindowResizeBorder } from "./features/window/components/window-resize-border";
 import { DialogServiceProvider } from "@/ui/dialog";
 import { LogFallbackNotification } from "@/features/logging/log-fallback-notification";
+import { useNativeWindowTitle } from "@/features/window/hooks/use-native-window-title";
 
 function WorkbenchApp() {
   useAppBootstrap();
+  useNativeWindowTitle();
   const reduceMotion = useSettingsStore((state) => state.settings.reduceMotion);
 
   useEffect(() => {

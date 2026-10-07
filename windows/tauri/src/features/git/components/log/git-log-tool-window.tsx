@@ -105,6 +105,7 @@ export function GitLogToolWindow() {
   const pendingReferenceSelectionRef = useRef<GitReference | null>(null);
   const {
     history,
+    repositoryCommits,
     loadState,
     error,
     selectedReference,
@@ -120,6 +121,7 @@ export function GitLogToolWindow() {
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
   const [previewRequest, setPreviewRequest] = useState(0);
+  const [graphNavigationRequest, setGraphNavigationRequest] = useState(0);
   const [isReferenceOperating, setIsReferenceOperating] = useState(false);
   const branchUpdateScope = `${workspaceId}\0${repoPath ?? ""}`;
   const latestBranchUpdateScopeRef = useRef(branchUpdateScope);
@@ -229,6 +231,7 @@ export function GitLogToolWindow() {
     setSelectedCommitHashes(new Set([head.hash]));
     selectionAnchorRef.current = head.hash;
     setSelectedCommit(head);
+    setGraphNavigationRequest((request) => request + 1);
   }, [history.commits, selectedReference, setFilterQuery]);
   const emptyWorkingTreeEntries = useMemo<Record<WorkingTreeDiffScope, WorkingTreeDiffEntry[]>>(
     () => ({
@@ -774,8 +777,12 @@ export function GitLogToolWindow() {
             <GitCommitTable
               emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} onShowConsole={() => setPanel("console")} />}
               commits={history.commits}
+              repositoryCommits={repositoryCommits}
+              references={history.references}
+              selectedReference={selectedReference}
               selectedCommit={activeSelectedCommit}
               selectedCommitHashes={selectedCommitHashes}
+              navigationRequest={graphNavigationRequest}
               isMutatingHistory={isReferenceMutationPending}
               hasMore={history.hasMore}
               isLoadingMore={isLoadingMore}

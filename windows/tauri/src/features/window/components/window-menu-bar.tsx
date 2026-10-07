@@ -1,3 +1,6 @@
+import { openNewEntry } from "@/features/file-explorer/stores/new-entry.store";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useUIState } from "@/features/window/stores/ui-state.store";
 import { invoke } from "@/platform/tauri-core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -40,6 +43,8 @@ const WindowMenuBar = ({
 }: Props) => {
   const { t } = useTranslation();
   const themes = useRegisteredThemes();
+  const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const canCreateJava = !!rootFolderPath && !/^(?:remote|wsl):\/\//.test(rootFolderPath);
   const menuWindowRaiseRef = useRef<{ restoreTo: boolean } | null>(null);
   const firstMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const shouldRaiseWindowForMenu = (IS_WINDOWS || IS_LINUX) && Boolean(activeMenu);
@@ -135,15 +140,59 @@ const WindowMenuBar = ({
     () => ({
       File: (
         <MenubarContent>
-          <MenubarItem shortcut="mod+n" onClick={() => handleCommand("workbench.newTab")}>
-            {t("menu.newTab")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+shift+n" onClick={handleNewWindow}>
-            {t("menu.newWindow")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleClickEmit("menu_new_file")}>
-            {t("menu.newFile")}
-          </MenubarItem>
+          <MenubarSub>
+            <MenubarSubTrigger>{t("javaEntry.newMenu")}</MenubarSubTrigger>
+            <MenubarSubContent>
+              <MenubarItem shortcut="mod+n" onClick={() => handleCommand("workbench.newTab")}>
+                {t("menu.newTab")}
+              </MenubarItem>
+              <MenubarItem shortcut="mod+shift+n" onClick={handleNewWindow}>
+                {t("menu.newWindow")}
+              </MenubarItem>
+              <MenubarItem
+                onClick={() => {
+                  useUIState.getState().setIsProjectPickerVisible(true, "new-project");
+                  closeMenu();
+                }}
+              >
+                {t("titleProject.newProject")}
+              </MenubarItem>
+              <MenubarItem onClick={() => handleClickEmit("menu_new_file")}>
+                {t("menu.newFile")}
+              </MenubarItem>
+              <MenubarItem
+                disabled={!rootFolderPath}
+                onClick={() => {
+                  if (rootFolderPath)
+                    void useFileSystemStore
+                      .getState()
+                      .handleCreateNewFolderInDirectory(rootFolderPath);
+                  closeMenu();
+                }}
+              >
+                {t("files.newFolder")}
+              </MenubarItem>
+              <MenubarSeparator />
+              <MenubarItem
+                disabled={!canCreateJava}
+                onClick={() => {
+                  openNewEntry("java");
+                  closeMenu();
+                }}
+              >
+                {t("javaEntry.newType")}
+              </MenubarItem>
+              <MenubarItem
+                disabled={!canCreateJava}
+                onClick={() => {
+                  openNewEntry("package");
+                  closeMenu();
+                }}
+              >
+                {t("javaEntry.newPackage")}
+              </MenubarItem>
+            </MenubarSubContent>
+          </MenubarSub>
           <MenubarItem shortcut="mod+o" onClick={() => handleClickEmit("menu_open_folder")}>
             {t("menu.openFolder")}
           </MenubarItem>
@@ -256,10 +305,7 @@ const WindowMenuBar = ({
           <MenubarItem shortcut="alt+down" onClick={() => handleCommand("editor.moveLineDown")}>
             {t("menu.moveLineDown")}
           </MenubarItem>
-          <MenubarItem
-            shortcut="mod+alt+l"
-            onClick={() => handleCommand("editor.formatDocument")}
-          >
+          <MenubarItem shortcut="mod+alt+l" onClick={() => handleCommand("editor.formatDocument")}>
             {t("menu.formatDocument")}
           </MenubarItem>
           <MenubarItem
@@ -532,7 +578,16 @@ const WindowMenuBar = ({
         </MenubarContent>
       ),
     }),
-    [closeMenu, handleClickEmit, handleCommand, handleNewWindow, t, themes],
+    [
+      closeMenu,
+      handleClickEmit,
+      handleCommand,
+      handleNewWindow,
+      t,
+      themes,
+      rootFolderPath,
+      canCreateJava,
+    ],
   );
 
   return (

@@ -1,3 +1,5 @@
+import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
+import { bindMonacoDebugDecorations } from "@/features/debugger/services/monaco-debug-decorations";
 import { runEditorCommand, type EditorCommand } from "@lithe/editor/editor-commands";
 import "../engines/monaco/monaco-environment";
 import "monaco-editor/min/vs/editor/editor.main.css";
@@ -1231,6 +1233,7 @@ export function MonacoEditor({
     window.addEventListener("keydown", handleWindowSelectAllShortcut, true);
 
     const disposables = [
+      bindMonacoDebugDecorations(editor, filePath),
       editor.onContextMenu((event) => {
         event.event.preventDefault();
         event.event.stopPropagation();
@@ -1361,6 +1364,20 @@ export function MonacoEditor({
             );
             return;
           }
+        }
+        if (
+          filePath.toLowerCase().endsWith(".java") &&
+          !editor.getRawOptions().readOnly &&
+          event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+          event.target.position &&
+          mouseEvent.leftButton
+        ) {
+          mouseEvent.preventDefault();
+          mouseEvent.stopPropagation();
+          useDebuggerStore
+            .getState()
+            .actions.toggleBreakpoint(filePath, event.target.position.lineNumber - 1);
+          return;
         }
         if (
           isEditorGoToDefinitionModifierClick(mouseEvent) &&

@@ -16,7 +16,18 @@ interface RunExitEvent {
 let outputUnlisten: UnlistenFn | undefined;
 let exitUnlisten: UnlistenFn | undefined;
 
-export async function ensureRunProcessListeners(): Promise<void> {
+let installing: Promise<void> | undefined;
+
+/** Toolbar and Run pane can mount together; both share the same in-flight setup. */
+export function ensureRunProcessListeners(): Promise<void> {
+  if (!installing)
+    installing = installRunProcessListeners().finally(() => {
+      installing = undefined;
+    });
+  return installing;
+}
+
+async function installRunProcessListeners(): Promise<void> {
   const currentWindow = getCurrentWebviewWindow();
   if (!outputUnlisten) {
     outputUnlisten = await currentWindow.listen<RunOutputEvent>("run-output", (event) => {

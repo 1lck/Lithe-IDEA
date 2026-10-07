@@ -53,6 +53,7 @@ beforeEach(() => {
           .slice(0, options.count)
           .map((commit, index) => ({ index, key: commit.hash, start: index * 30, size: 30 })),
       getTotalSize: () => options.count * 30,
+      measure: () => {},
       scrollToIndex: () => {},
     })) as unknown as typeof virtualization.useVirtualizer),
     spyOn(menus, "ContextMenu").mockImplementation(content),
@@ -185,11 +186,11 @@ const press = async (key: string, options: KeyboardEventInit = {}, target = view
 test("Clicking commit content gives the list focus and arrow keys change the active commit", async () => {
   await renderTable(new Set([commits[0]!.hash]));
   await act(async () => row(0).querySelector("span")!.click());
-  expect(document.activeElement).toBe(viewport());
+  expect(document.activeElement === viewport()).toBe(true);
   await press("ArrowDown");
   expect(row(1).getAttribute("aria-pressed")).toBe("true");
   expect(onSelect.mock.calls[onSelect.mock.calls.length - 1]?.[0]).toEqual(commits[1]);
-  expect(document.activeElement).toBe(viewport());
+  expect(document.activeElement === viewport()).toBe(true);
   // A context menu can restore focus to its trigger; navigation returns it to
   // the stable viewport before virtualization can remove that row.
   row(1).focus();

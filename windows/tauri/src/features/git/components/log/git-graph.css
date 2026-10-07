@@ -1,0 +1,82 @@
+.git-graph-tone {
+  color: var(--git-graph-light);
+}
+
+.dark .git-graph-tone,
+:root[data-theme-type="dark"] .git-graph-tone {
+  color: var(--git-graph-dark);
+}
+
+.git-log-commit-viewport {
+  --git-log-current-branch: #edf3ff;
+  --git-log-merge-foreground: #818594;
+  --git-log-focused-selection: #d0dffe;
+  --git-log-inactive-selection: #e9eaee;
+  --git-log-hover: #e9eaec;
+  --git-log-reference-text: #6c707e;
+  --git-log-head: #ffaf0f;
+  --git-log-branch: #369650;
+  --git-log-remote: #834df0;
+  --git-log-tag: #6c707e;
+}
+.dark .git-log-commit-viewport,
+:root[data-theme-type="dark"] .git-log-commit-viewport {
+  --git-log-current-branch: #1d2336;
+  --git-log-merge-foreground: #6f737a;
+  --git-log-focused-selection: #2a4371;
+  --git-log-inactive-selection: #33353b;
+  --git-log-hover: color-mix(in srgb, var(--background) 92.941176%, white);
+  --git-log-reference-text: #6f737a;
+  --git-log-head: #f5d273;
+  --git-log-branch: #5fad65;
+  --git-log-remote: #b589ec;
+  --git-log-tag: #868a91;
+}
+.git-log-commit-row {
+  --git-log-row-background: var(--background);
+  background: var(--git-log-row-background);
+}
+.git-log-commit-row[data-current-branch="true"] {
+  --git-log-row-background: var(--git-log-current-branch);
+}
+.git-log-commit-row[aria-pressed="true"] {
+  --git-log-row-background: var(--git-log-inactive-selection);
+}
+.git-log-commit-viewport:focus-within:not([data-window-active="false"])
+  .git-log-commit-row[aria-pressed="true"] {
+  --git-log-row-background: var(--git-log-focused-selection);
+}
+.git-log-commit-row[aria-pressed="false"]:hover {
+  background: var(--git-log-hover);
+}
+.git-log-commit-row[data-merge="true"][aria-pressed="false"] .git-log-commit-text {
+  color: var(--git-log-merge-foreground);
+}
+.git-graph-reference-group {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0 4px;
+  gap: 1px;
+  color: var(--git-log-reference-text, var(--subtle-foreground));
+}
+.git-graph-reference-icons {
+  flex-shrink: 0;
+}
+.git-graph-reference-title {
+  overflow: hidden;
+}
+[data-reference-kind="head"] {
+  color: var(--git-log-head);
+}
+[data-reference-kind="branch"] {
+  color: var(--git-log-branch);
+}
+[data-reference-kind="remote"] {
+  color: var(--git-log-remote);
+}
+[data-reference-kind="tag"] {
+  color: var(--git-log-tag);
+}

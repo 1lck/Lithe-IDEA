@@ -200,6 +200,8 @@ export const getGitHistoryPage = async (
           repoPath: resolvedRepoPath,
           limit,
           operationId,
+          // Repeat on continuations: Core binds a cursor to its traversal order.
+          order: "date",
           ...(cursor ? { cursor } : {}),
           ...(reference ? { reference } : {}),
         }),

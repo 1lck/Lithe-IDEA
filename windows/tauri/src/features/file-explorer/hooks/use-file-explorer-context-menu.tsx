@@ -1,3 +1,4 @@
+import { openNewEntry } from "../stores/new-entry.store";
 import {
   CaretDoubleUpIcon as CaretDoubleUp,
   CheckCircleIcon as CheckCircle,
@@ -259,9 +260,7 @@ export function useFileExplorerContextMenu({
           await createAndCheckoutBranch(path, branchName, "HEAD");
           toast.success(t("git.log.branchCreated", { name: branchName }));
         } catch (error) {
-          toast.error(
-            error instanceof Error ? error.message : t("git.log.branchCreateFailed"),
-          );
+          toast.error(error instanceof Error ? error.message : t("git.log.branchCreateFailed"));
         } finally {
           setIsGitOperationRunning(false);
         }
@@ -494,22 +493,74 @@ export function useFileExplorerContextMenu({
 
     const items: MenuItem[] = [];
 
-    if (contextMenu.isDir) {
-      items.push(
+    const directory = contextMenu.isDir ? contextMenu.path : getDirName(contextMenu.path);
+    const newItems: MenuItem[] = [
+      {
+        id: "new-file",
+        label: t("files.newFile"),
+        icon: <FilePlus />,
+        onClick: () => onStartInlineEditing(directory, false),
+      },
+      {
+        id: "new-folder",
+        label: t("files.newFolder"),
+        icon: <FolderPlus />,
+        disabled: !onCreateNewFolderInDirectory,
+        onClick: () => onStartInlineEditing(directory, true),
+      },
+    ];
+    if (!isVirtualWorkspacePath(directory)) {
+      newItems.push(
         {
-          id: "new-file",
-          label: t("files.newFile"),
+          id: "new-java-type",
+          label: t("javaEntry.newType"),
           icon: <FilePlus />,
-          onClick: () => onStartInlineEditing(contextMenu.path, false),
-        },
-        {
-          id: "new-folder",
-          label: t("files.newFolder"),
-          icon: <FolderPlus />,
           onClick: () => {
-            if (onCreateNewFolderInDirectory) onStartInlineEditing(contextMenu.path, true);
+            openNewEntry("java", directory, rootFolderPath);
           },
         },
+        {
+          id: "new-java-package",
+          label: t("javaEntry.newPackage"),
+          icon: <FolderPlus />,
+          onClick: () => {
+            openNewEntry("package", directory, rootFolderPath);
+          },
+        },
+      );
+    }
+    if (contextMenu.isDir && onGenerateImage)
+      newItems.push({
+        id: "generate-image",
+        label: t("files.generateImage"),
+        icon: <ImageIcon />,
+        onClick: () => onGenerateImage(directory),
+      });
+    if (
+      !contextMenu.isDir &&
+      isEnvFileName(getBaseName(contextMenu.path, "")) &&
+      !isVirtualWorkspacePath(contextMenu.path) &&
+      onCreateNewFileInDirectory
+    ) {
+      newItems.push(
+        ...ENV_TEMPLATE_TARGETS.map((target) => ({
+          id: target.id,
+          label: t(target.labelKey),
+          icon: <FilePlus />,
+          onClick: () => void createEnvTemplateFile(contextMenu.path, target.fileName),
+        })),
+      );
+    }
+    items.push({
+      id: "new",
+      label: t("javaEntry.newMenu"),
+      children: newItems,
+      onClick: () => {},
+    });
+    items.push({ id: "sep-new", label: "", separator: true, onClick: () => {} });
+
+    if (contextMenu.isDir) {
+      items.push(
         {
           id: "upload-files",
           label: t("files.uploadFiles"),
@@ -612,23 +663,9 @@ export function useFileExplorerContextMenu({
         );
       }
 
-      if (onGenerateImage) {
-        items.push({
-          id: "generate-image",
-          label: t("files.generateImage"),
-          icon: <ImageIcon />,
-          onClick: () => onGenerateImage(contextMenu.path),
-        });
-      }
-
       items.push({ id: "sep-dir", label: "", separator: true, onClick: () => {} });
     } else {
       const fileName = getBaseName(contextMenu.path, "");
-      const canCreateEnvTemplate =
-        isEnvFileName(fileName) &&
-        !contextMenu.path.startsWith("remote://") &&
-        Boolean(onCreateNewFileInDirectory);
-
       items.push(
         {
           id: "open",
@@ -708,17 +745,7 @@ export function useFileExplorerContextMenu({
           capabilities: getExplorerGitFileMenuCapabilities(gitFileContext),
           disabled: isGitOperationRunning,
         }),
-        ...(canCreateEnvTemplate
-          ? [
-              { id: "sep-env-template", label: "", separator: true, onClick: () => {} },
-              ...ENV_TEMPLATE_TARGETS.map((target, index) => ({
-                id: target.id,
-                label: t(target.labelKey),
-                icon: index === 0 ? <FilePlus /> : menuIconSpacer,
-                onClick: () => void createEnvTemplateFile(contextMenu.path, target.fileName),
-              })),
-            ]
-          : []),
+
         {
           id: "properties",
           label: t("files.properties"),
@@ -946,7 +973,11 @@ export function useFileExplorerContextMenu({
         )}
 
         {propertiesDialog && (
-          <Dialog title={t("files.properties")} icon={Info} onClose={() => setPropertiesDialog(null)}>
+          <Dialog
+            title={t("files.properties")}
+            icon={Info}
+            onClose={() => setPropertiesDialog(null)}
+          >
             <dl className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 font-sans ui-text-base">
               <dt className="text-subtle-foreground">{t("files.propertiesFile")}</dt>
               <dd className="min-w-0 wrap-break-word text-foreground">

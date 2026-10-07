@@ -44,22 +44,31 @@ const getGitReferences = mock(
     recentReferences: [mainReference()],
   }),
 );
-const getGitHistoryPage = mock(
-  async (
-    repoPath: string,
-    _cursor?: string,
-    _limit?: number,
-    _operationId?: string,
-    _reference?: string,
-  ): Promise<GitHistoryPage> => ({
-    commits: [commitFor(repoPath)],
-    hasMore: false,
-  }),
-);
-const cancelGitHistoryOperation = mock(async () => {});
-const closeGitHistoryCursor = mock(async () => {});
+const defaultHistoryPage = async (
+  repoPath: string,
+  _cursor?: string,
+  _limit?: number,
+  _operationId?: string,
+  _reference?: string,
+): Promise<GitHistoryPage> => ({
+  commits: [commitFor(repoPath)],
+  hasMore: false,
+});
+const getGitHistoryPage = mock(defaultHistoryPage);
+const cancelGitHistoryOperation = mock(async (_operationId: string) => {});
+const closeGitHistoryCursor = mock(async (_repoPath: string, _cursor: string) => {});
+const visiblePageCalls = () => getGitHistoryPage.mock.calls.filter((call) => call[2] !== 5_000);
 
 beforeEach(() => {
+  getGitHistoryPage.mockReset();
+  getGitHistoryPage.mockImplementation(defaultHistoryPage);
+  getGitReferences.mockReset();
+  getGitReferences.mockImplementation(async () => ({
+    references: [mainReference()],
+    recentReferences: [mainReference()],
+  }));
+  cancelGitHistoryOperation.mockClear();
+  closeGitHistoryCursor.mockClear();
   restoreDom = installHappyDom();
   originalCustomEvent = globalThis.CustomEvent;
   originalActEnvironment = actGlobal.IS_REACT_ACT_ENVIRONMENT;
@@ -85,6 +94,14 @@ type ControllerRender = {
   repoPath: string;
   commitMessages: string[];
 };
+
+function graphGate() {
+  let release!: (page: GitHistoryPage) => void;
+  const promise = new Promise<GitHistoryPage>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
 
 function mountController(): {
   read: () => GitLogController;
@@ -153,6 +170,176 @@ afterEach(() => {
 });
 
 describe("Git Log controller repository lifecycle", () => {
+  test("shows the visible page before bounded repository context finishes and closes its independent cursor", async () => {
+    const gate = graphGate();
+    getGitHistoryPage.mockImplementation((...args) =>
+      args[2] === 5_000 ? gate.promise : defaultHistoryPage(...args),
+    );
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      expect(harness.read().loadState).toBe("ready");
+      expect(harness.read().history.commits).toEqual([commitFor("C:/repo-a")]);
+      expect(harness.read().repositoryCommits).toEqual([]);
+      const graphCalls = getGitHistoryPage.mock.calls.filter((call) => call[2] === 5_000);
+      expect(graphCalls).toHaveLength(1);
+      expect(graphCalls[0][4]).toBeUndefined();
+      await act(async () =>
+        gate.release({
+          commits: [commitFor("C:/repo-a")],
+          hasMore: true,
+          nextCursor: "graph-cursor",
+        }),
+      );
+      expect(harness.read().repositoryCommits).toEqual([commitFor("C:/repo-a")]);
+      expect(closeGitHistoryCursor).toHaveBeenCalledWith("C:/repo-a", "graph-cursor");
+    } finally {
+      await act(async () => {
+        gate.release({ commits: [], hasMore: false });
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("repository switches cancel graph reads and close late cursors without publishing old context", async () => {
+    const gate = graphGate();
+    getGitHistoryPage.mockImplementation((...args) =>
+      args[0] === "C:/repo-a" && args[2] === 5_000 ? gate.promise : defaultHistoryPage(...args),
+    );
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      const graphOperation = getGitHistoryPage.mock.calls.find((call) => call[2] === 5_000)![3]!;
+      await harness.render("C:/repo-b");
+      expect(cancelGitHistoryOperation).toHaveBeenCalledWith(graphOperation);
+      await act(async () =>
+        gate.release({
+          commits: [commitFor("C:/repo-a")],
+          hasMore: true,
+          nextCursor: "late-repo-a",
+        }),
+      );
+      expect(harness.read().repositoryCommits).toEqual([commitFor("C:/repo-b")]);
+      expect(closeGitHistoryCursor).toHaveBeenCalledWith("C:/repo-a", "late-repo-a");
+    } finally {
+      await act(async () => {
+        gate.release({ commits: [], hasMore: false });
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("pagination keeps the in-flight graph read and visible cursor independent", async () => {
+    const gate = graphGate();
+    getGitHistoryPage.mockImplementation((...args) =>
+      args[2] === 5_000
+        ? gate.promise
+        : Promise.resolve({
+            commits: [{ ...commitFor(args[0]), hash: args[1] ? "older" : "tip" }],
+            hasMore: !args[1],
+            nextCursor: args[1] ? undefined : "visible-cursor",
+          }),
+    );
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      await act(async () => {
+        await harness.read().loadMore();
+      });
+      expect(harness.read().history.commits.map((commit) => commit.hash)).toEqual(["tip", "older"]);
+      expect(getGitHistoryPage.mock.calls.filter((call) => call[2] === 5_000)).toHaveLength(1);
+      expect(cancelGitHistoryOperation.mock.calls.some(([id]) => id.includes("-graph-"))).toBe(
+        false,
+      );
+      expect(visiblePageCalls()[1][1]).toBe("visible-cursor");
+      await act(async () => gate.release({ commits: [commitFor("C:/repo-a")], hasMore: false }));
+      expect(harness.read().repositoryCommits).toEqual([commitFor("C:/repo-a")]);
+    } finally {
+      await act(async () => {
+        gate.release({ commits: [], hasMore: false });
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("a newer refresh owns graph context even when the previous refresh returns last", async () => {
+    const gate = graphGate();
+    let graphReads = 0;
+    const newest = { ...commitFor("C:/repo-a"), hash: "newest" };
+    getGitHistoryPage.mockImplementation((...args) => {
+      if (args[2] !== 5_000) return defaultHistoryPage(...args);
+      graphReads += 1;
+      return graphReads === 1
+        ? gate.promise
+        : Promise.resolve({ commits: [newest], hasMore: false });
+    });
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      const graphOperation = getGitHistoryPage.mock.calls.find((call) => call[2] === 5_000)![3]!;
+      await act(async () => {
+        await harness.read().refresh();
+      });
+      expect(cancelGitHistoryOperation).toHaveBeenCalledWith(graphOperation);
+      await act(async () =>
+        gate.release({
+          commits: [commitFor("C:/repo-a")],
+          nextCursor: "old-refresh",
+          hasMore: true,
+        }),
+      );
+      expect(harness.read().repositoryCommits).toEqual([newest]);
+      expect(closeGitHistoryCursor).toHaveBeenCalledWith("C:/repo-a", "old-refresh");
+    } finally {
+      await act(async () => {
+        gate.release({ commits: [], hasMore: false });
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("unmount cancels context ownership and releases a late graph cursor", async () => {
+    const gate = graphGate();
+    getGitHistoryPage.mockImplementation((...args) =>
+      args[2] === 5_000 ? gate.promise : defaultHistoryPage(...args),
+    );
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      const operation = getGitHistoryPage.mock.calls.find((call) => call[2] === 5_000)![3]!;
+      await act(async () => harness.root.unmount());
+      expect(cancelGitHistoryOperation).toHaveBeenCalledWith(operation);
+      await act(async () =>
+        gate.release({ commits: [commitFor("C:/repo-a")], hasMore: true, nextCursor: "unmounted" }),
+      );
+      expect(closeGitHistoryCursor).toHaveBeenCalledWith("C:/repo-a", "unmounted");
+    } finally {
+      await act(async () => {
+        gate.release({ commits: [], hasMore: false });
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("unexpected graph failures retain the usable visible history and report diagnostics", async () => {
+    const error = new Error("graph request failed");
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    getGitHistoryPage.mockImplementation((...args) =>
+      args[2] === 5_000 ? Promise.reject(error) : defaultHistoryPage(...args),
+    );
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      expect(harness.read().loadState).toBe("ready");
+      expect(harness.read().history.commits).toEqual([commitFor("C:/repo-a")]);
+      expect(harness.read().repositoryCommits).toEqual([]);
+      expect(log).toHaveBeenCalledWith("Failed to load Git graph context:", error);
+    } finally {
+      await act(async () => harness.root.unmount());
+      log.mockRestore();
+    }
+  });
+
   test("rejects a refresh callback captured by the previous repository", async () => {
     const harness = mountController();
     try {
@@ -182,7 +369,7 @@ describe("Git Log controller repository lifecycle", () => {
     }
   });
 
-  test("loads a pending cross-repository reference with a single history request", async () => {
+  test("loads a pending cross-repository reference with a single visible history request", async () => {
     const harness = mountController();
     try {
       await harness.render("C:/repo-a");
@@ -204,8 +391,8 @@ describe("Git Log controller repository lifecycle", () => {
 
       await harness.render("C:/repo-b", preferredReference);
 
-      expect(getGitHistoryPage).toHaveBeenCalledTimes(1);
-      expect(getGitHistoryPage.mock.calls[0]?.[4]).toBe("refs/heads/feature");
+      expect(visiblePageCalls()).toHaveLength(1);
+      expect(visiblePageCalls()[0]?.[4]).toBe("refs/heads/feature");
       expect(harness.read().selectedReference?.fullName).toBe("refs/heads/feature");
       expect(harness.read().history.commits[0]?.message).toBe("C:/repo-b");
     } finally {
@@ -215,7 +402,7 @@ describe("Git Log controller repository lifecycle", () => {
     }
   });
 
-  test("selects a remote symbolic HEAD with exactly one history request", async () => {
+  test("selects a remote symbolic HEAD with exactly one visible history request", async () => {
     const harness = mountController();
     try {
       await harness.render("C:/repo-a");
@@ -245,8 +432,8 @@ describe("Git Log controller repository lifecycle", () => {
         harness.read().selectReference(originHead);
       });
 
-      expect(getGitHistoryPage).toHaveBeenCalledTimes(1);
-      expect(getGitHistoryPage.mock.calls[0]?.[4]).toBe("refs/remotes/origin/HEAD");
+      expect(visiblePageCalls()).toHaveLength(1);
+      expect(visiblePageCalls()[0]?.[4]).toBe("refs/remotes/origin/HEAD");
       expect(harness.read().selectedReference?.fullName).toBe("refs/remotes/origin/HEAD");
     } finally {
       await act(async () => {
@@ -277,7 +464,7 @@ describe("Git Log controller repository lifecycle", () => {
         harness.read().selectReference(deletedReference);
       });
 
-      expect(getGitHistoryPage).toHaveBeenCalledTimes(2);
+      expect(visiblePageCalls()).toHaveLength(2);
       expect(harness.read().selectedReference).toBeNull();
     } finally {
       await act(async () => {
@@ -326,7 +513,7 @@ describe("Git Log controller repository lifecycle", () => {
       }
 
       expect(wasCancelled).toBe(true);
-      expect(getGitHistoryPage).toHaveBeenCalledTimes(1);
+      expect(visiblePageCalls()).toHaveLength(1);
     } finally {
       globalThis.setTimeout = originalSetTimeout;
       globalThis.clearTimeout = originalClearTimeout;

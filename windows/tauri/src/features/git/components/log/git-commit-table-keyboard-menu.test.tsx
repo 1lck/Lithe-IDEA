@@ -56,6 +56,7 @@ beforeEach(() => {
           size: 30,
         })),
       getTotalSize: () => options.count * 30,
+      measure: () => {},
       scrollToIndex() {},
     })) as unknown as typeof virtualization.useVirtualizer),
   );
@@ -189,7 +190,7 @@ test("Escape closes the real menu and returns focus to the stable viewport", asy
   await act(async () => {
     await Promise.resolve();
   });
-  expect(document.activeElement).toBe(viewport());
+  expect(document.activeElement === viewport()).toBe(true);
   await key("ArrowDown");
   expect(host.querySelector('[data-git-commit-index="1"]')?.getAttribute("aria-pressed")).toBe(
     "true",

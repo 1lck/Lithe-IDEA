@@ -68,7 +68,10 @@ describe("Git commit message details", () => {
     // The shared fixture is the Rust Core response shape for `git.commit`.
     const fixture = JSON.parse(
       readFileSync(
-        new URL("../../../../../../shared/fixtures/git/commit-lookup-response-v1.json", import.meta.url),
+        new URL(
+          "../../../../../../shared/fixtures/git/commit-lookup-response-v1.json",
+          import.meta.url,
+        ),
         "utf8",
       ),
     ) as { body: string };
@@ -116,6 +119,39 @@ describe("Git commit message details", () => {
 });
 
 describe("Git commit history reads", () => {
+  test("first and continuation pages use the shared IDEA date-order contract", async () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        new URL(
+          "../../../../../../shared/fixtures/git/history-page-date-request-v1.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    await getGitHistoryPage("C:/repo", undefined, 50, "date-first", "refs/heads/main");
+    await getGitHistoryPage("C:/repo", "date-cursor", 50, "date-next", "refs/heads/main");
+    const pages = invoke.mock.calls.filter(([command]) => command === "git_history_page");
+    expect(pages).toHaveLength(2);
+    expect(pages.map(([, args]) => args)).toEqual([
+      {
+        repoPath: "C:/repo",
+        limit: 50,
+        operationId: "date-first",
+        reference: "refs/heads/main",
+        order: fixture.order,
+      },
+      {
+        repoPath: "C:/repo",
+        limit: 50,
+        operationId: "date-next",
+        reference: "refs/heads/main",
+        cursor: "date-cursor",
+        order: fixture.order,
+      },
+    ]);
+  });
+
   test("keeps superseded reference and page request cancellation out of error logs", async () => {
     const consoleError = spyOn(console, "error").mockImplementation(() => {});
 
@@ -139,10 +175,7 @@ describe("Git commit history reads", () => {
       gitReadError = new Error("history backend unavailable");
 
       expect(await getGitHistoryPage("C:/repo", undefined, 50, "page-2")).toBeNull();
-      expect(consoleError).toHaveBeenCalledWith(
-        "Failed to get git history page:",
-        gitReadError,
-      );
+      expect(consoleError).toHaveBeenCalledWith("Failed to get git history page:", gitReadError);
     } finally {
       consoleError.mockRestore();
     }
