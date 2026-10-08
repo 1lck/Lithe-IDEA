@@ -166,6 +166,23 @@ test("Git diff preserves whitespace paths and emits both rename endpoints", () =
   assert.equal(selectSuites({ root, groups, changes }).full, true);
 }), 10000);
 
+test("selection preserves Bun substring filters including sibling directories", () => fixture((root, put) => {
+  for (const name of ["run", "run-actions"]) {
+    put(`features/${name}/filter.test.ts`, `import { test } from "bun:test"; test("${name}", () => {});`);
+  }
+  put("features/run-actions/action.ts", "export const action = 1;");
+  const result = spawnSync("bun", ["test", "--timeout", "1000", "src/features/run"], {
+    cwd: resolve(root, "windows/tauri"), encoding: "utf8", timeout: 5000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /2 pass/);
+  const plan = selectSuites({ root, groups: { ...groups, run: { tests: ["src/features/run"] } }, changes: [
+    { status: "M", path: prefix + "features/run-actions/action.ts" },
+  ] });
+  assert.equal(plan.full, false);
+  assert.ok(plan.selected.run.length, "The existing run command also owns run-actions tests");
+}), 10000);
+
 test("real repository terminal changes keep Java, document and debugger suites skipped", () => {
   const plan = selectSuites({ changes: [{ status: "M", path: prefix + "features/terminal/utils/terminal-keyboard.ts" }] });
   assert.equal(plan.full, false);

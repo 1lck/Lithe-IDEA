@@ -23,9 +23,9 @@ function sourceFiles(root, directory = sourceRoot) {
 
 function matches(path, filter) {
   const relative = path.slice("windows/tauri/".length);
-  return filter.startsWith("src/")
-    ? relative === filter || relative.startsWith(filter + "/")
-    : relative.includes(filter);
+  // Existing commands pass bare Bun filename filters, not ./ explicit paths.
+  // Bun includes sibling names as well: src/features/run also runs run-actions.
+  return relative.includes(filter);
 }
 
 function localDependency(root, importer, specifier) {
