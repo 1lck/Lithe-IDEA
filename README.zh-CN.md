@@ -269,6 +269,17 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
+      <a href="https://www.packyapi.ai/register?aff=dWNN">
+        <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
+      </a>
+    </td>
+    <td>
+      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> 是一家稳定、高效的 API 中转服务商，一句话接入主流大模型。统一域名、统一密钥、智能容灾切换，97% 可用性。人民币 1:1 充值，无汇率无手续费坑，新用户首充立享折扣 + $1 免费体验额度，多分组折扣低至 2 折起，提供专属 Codex/Claude Code 高速通道。<br>
+      <a href="https://www.packyapi.ai/register?aff=dWNN">点此链接注册，立即开始使用！</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
       <a href="https://torchai.ai/sign-up?aff=FdkE">
         <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
       </a>

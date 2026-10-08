@@ -273,6 +273,17 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
   </tr>
   <tr>
     <td width="112" align="center">
+      <a href="https://www.packyapi.ai/register?aff=dWNN">
+        <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
+      </a>
+    </td>
+    <td>
+      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> is a stable, efficient API relay service that connects you to leading large language models. It offers a unified domain, a single API key, intelligent failover, and 97% availability. Top up in RMB at a 1:1 rate with no exchange-rate costs or transaction fees. New users receive a first-top-up discount plus $1 in free trial credit. Discounts across multiple service groups reach up to 80% off, with dedicated high-speed channels for Codex and Claude Code.<br>
+      <a href="https://www.packyapi.ai/register?aff=dWNN">Register to get started!</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
       <a href="https://torchai.ai/sign-up?aff=FdkE">
         <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
       </a>
