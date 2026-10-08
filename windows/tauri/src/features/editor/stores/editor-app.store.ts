@@ -227,6 +227,21 @@ function showSaveFailure(bufferName: string, automatic = false) {
   toast.error(t(automatic ? "editor.autoSaveFailed" : "editor.saveFailed", { name: bufferName }));
 }
 
+/**
+ * Drops queued autosave continuations that were waiting on a write which did not
+ * save. Save paths outside the store closure cannot reach the scheduler, so they
+ * route through the workspace store that owns the queued task.
+ */
+function cancelAutoSaveContinuations(workspaceId: string, operationId: string) {
+  // A removed workspace already dropped its queued autosaves, and looking the
+  // store up would recreate the runtime that the save just closed.
+  if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return;
+  useEditorAppStore
+    .getStore(workspaceId)
+    .getState()
+    .actions.cancelAutoSaveContinuation(operationId);
+}
+
 function markBufferSavedIfUnchanged(
   workspaceId: string,
   bufferId: string,
@@ -377,7 +392,10 @@ async function saveEditorBufferById(
       options.expectedEncoding ?? saveBuffer.saveEncoding ?? saveBuffer.readEncoding ?? saveBuffer.encoding,
       options.expectedIdentity ?? saveBuffer.diskIdentity,
     );
-    if (!persisted.saved) return "cancelled";
+    if (!persisted.saved) {
+      cancelAutoSaveContinuations(workspaceId, claimedSave.context.operationId);
+      return "cancelled";
+    }
     await finishDocumentSave(workspaceId, claimedSave, contentToSave);
 
     try {
@@ -423,6 +441,7 @@ async function saveEditorBufferById(
   } catch (error) {
     console.error("Error saving file:", error);
     if (claimedSave) {
+      cancelAutoSaveContinuations(workspaceId, claimedSave.context.operationId);
       await rejectDocumentSave(workspaceId, claimedSave, error);
     } else {
       markBufferDirty(activeBuffer.id, true);
@@ -439,11 +458,20 @@ function getDirtyEditorBuffers(buffers: PaneContent[]): EditorContent[] {
   );
 }
 
+/** One queued autosave debounce, optionally continuing an in-flight write. */
+interface AutoSaveTask {
+  timeoutId: ReturnType<typeof setTimeout>;
+  context: DocumentSaveContext;
+  /**
+   * Set when this debounce continues an in-flight write instead of a fresh edit:
+   * the id of the write it waits on. When that write fails, conflicts, or is
+   * cancelled, the continuation is dropped so the newer text stays unsaved.
+   */
+  continuesOperationId?: string;
+}
+
 interface AppState {
-  autoSaveTasks: Record<
-    string,
-    { timeoutId: ReturnType<typeof setTimeout>; context: DocumentSaveContext }
-  >;
+  autoSaveTasks: Record<string, AutoSaveTask>;
   quickEditState: {
     isOpen: boolean;
     selectedText: string;
@@ -471,6 +499,11 @@ interface AppActions {
     selectionRange: { start: number; end: number };
   }) => void;
   cleanup: () => void;
+  /**
+   * Drops a queued autosave continuation that was waiting on `operationId`. A
+   * continuation must not outlive a write that failed or conflicted.
+   */
+  cancelAutoSaveContinuation: (operationId: string) => void;
 }
 
 /** Timer seam so autosave debounce can be driven without wall-clock waits in tests. */
@@ -559,6 +592,7 @@ export const createEditorAppStore = (
             const armAutoSave = (
               target: { path: string; name: string },
               text: string,
+              continuesOperationId?: string,
             ) => {
               const previousAutoSave = get().autoSaveTasks[bufferId];
               if (previousAutoSave) {
@@ -575,7 +609,11 @@ export const createEditorAppStore = (
               }, AUTO_SAVE_DELAY_MILLISECONDS);
 
               set((state) => {
-                state.autoSaveTasks[bufferId] = { timeoutId, context: autoSaveContext };
+                state.autoSaveTasks[bufferId] = {
+                  timeoutId,
+                  context: autoSaveContext,
+                  continuesOperationId,
+                };
               });
             };
 
@@ -586,6 +624,11 @@ export const createEditorAppStore = (
             ) => {
               let claim: ClaimedDocumentSave | null = null;
               try {
+                // Autosave can be switched off while this debounce is queued.
+                if (!useSettingsStore.getState().settings.autoSave) {
+                  traceDocumentSaveCancellation(autoSaveContext, "auto-save-disabled");
+                  return;
+                }
                 const latestBeforeSave = getBufferById(
                   bufferStore.getState().buffers,
                   bufferId,
@@ -605,22 +648,28 @@ export const createEditorAppStore = (
                 );
                 if (!claim) {
                   // Another write, manual or an earlier autosave, still owns this
-                  // document. Continue with this text once it settles; otherwise
-                  // the newer revision stays dirty forever. Each wait re-reads
-                  // live state, so it ends when the text is superseded, the
-                  // document closes, or autosave turns off. A conflict or I/O
-                  // failure ends the wait instead of becoming a retry.
+                  // document. Continue with this text once that write succeeds;
+                  // otherwise the newer revision stays dirty forever. Each wait
+                  // re-reads live state, so it ends when the text is superseded,
+                  // the document closes, autosave turns off, or the awaited write
+                  // fails or conflicts and drops every continuation of its id.
                   const latest = getBufferById(bufferStore.getState().buffers, bufferId);
+                  const ownerOperationId =
+                    latest &&
+                    isEditorContent(latest) &&
+                    latest.documentLifecycle?.status === "saving"
+                      ? latest.documentLifecycle.operationId
+                      : undefined;
                   if (
                     latest &&
                     isEditorContent(latest) &&
                     latest.isDirty &&
                     latest.content === text &&
                     latest.path === target.path &&
-                    latest.documentLifecycle?.status === "saving" &&
+                    ownerOperationId &&
                     useSettingsStore.getState().settings.autoSave
                   ) {
-                    armAutoSave({ path: latest.path, name: latest.name }, text);
+                    armAutoSave({ path: latest.path, name: latest.name }, text, ownerOperationId);
                   }
                   return;
                 }
@@ -638,7 +687,12 @@ export const createEditorAppStore = (
                   saveEncoding,
                   latestBeforeSave.diskIdentity,
                 );
-                if (!persisted.saved) return;
+                if (!persisted.saved) {
+                  // A conflict or lost ownership ends the wait; the newer text
+                  // must stay unsaved instead of being written by the waiter.
+                  get().actions.cancelAutoSaveContinuation(autoSaveContext.operationId);
+                  return;
+                }
                 await finishDocumentSave(workspaceId, claim, text);
 
                 const rootFolderPath = useFileSystemStore
@@ -654,6 +708,7 @@ export const createEditorAppStore = (
                 }
               } catch (error) {
                 console.error("Error saving file:", error);
+                get().actions.cancelAutoSaveContinuation(autoSaveContext.operationId);
                 if (claim) await rejectDocumentSave(workspaceId, claim, error);
                 else markBufferDirty(bufferId, true);
                 showSaveFailure(target.name, true);
@@ -767,6 +822,17 @@ export const createEditorAppStore = (
           set((state) => {
             state.autoSaveTasks = {};
           });
+        },
+
+        cancelAutoSaveContinuation: (operationId: string) => {
+          for (const [bufferId, task] of Object.entries(get().autoSaveTasks)) {
+            if (task.continuesOperationId !== operationId) continue;
+            scheduler.clearTimer(task.timeoutId);
+            traceDocumentSaveCancellation(task.context, "predecessor-write-not-saved");
+            set((state) => {
+              delete state.autoSaveTasks[bufferId];
+            });
+          }
         },
       },
     })),
