@@ -46,13 +46,7 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 const SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const LOAD_SESSION_TIMEOUT: Duration = Duration::from_secs(60);
-/// Absolute wall-clock limit for one upstream prompt, including tool and
-/// permission waits. A stalled prompt must not keep a session busy forever.
-const PROMPT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
-const PROMPT_TIMEOUT_MESSAGE: &str =
-    "The Agent did not respond within 10 minutes. The turn was stopped; try again.";
 const STOP_TIMEOUT: Duration = Duration::from_secs(3);
-const PERMISSION_TIMEOUT: Duration = Duration::from_secs(300);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
 /// Upper bound on `session/list` pages so a misbehaving cursor cannot loop forever.
 const MAX_SESSION_LIST_PAGES: usize = 50;
@@ -429,6 +423,11 @@ pub enum AgentEvent {
     TurnCancelling {
         session_id: String,
     },
+    /// Advisory silence notice only; the prompt remains busy and is never replayed.
+    TurnActivity {
+        session_id: String,
+        quiet: bool,
+    },
     Sessions {
         token: String,
         sessions: Vec<AgentSessionSummary>,
@@ -443,12 +442,15 @@ pub enum AgentEvent {
         request_id: String,
         request: serde_json::Value,
     },
-    /// A temporary failure ended one attempt; the same busy turn is reconnecting.
+    /// The same busy turn is reconnecting, without implying another Host prompt.
     TurnRetrying {
         session_id: String,
         turn_id: String,
         attempt: u32,
-        max_attempts: u32,
+        /// Only pre-work recovery has a Host attempt limit. Native recovery
+        /// after work owns its budget and omits this field.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_attempts: Option<u32>,
     },
     /// The agent acknowledged the prompt's completion, including cancellation.
     TurnFinished {
@@ -881,6 +883,7 @@ where
     let cancel_permissions = permissions.clone();
     let stop_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let stopped = stop_requested.clone();
+    let finished_permissions = permissions.clone();
     let result = Client
         .builder()
         .on_receive_notification(
@@ -908,8 +911,8 @@ where
                         session_id: session_id.clone(),
                         update,
                     });
-                    if let Some((turn_id, attempt)) = reconnect {
-                        updates(AgentEvent::TurnRetrying { session_id, turn_id, attempt, max_attempts: prompt_retry::MAX_ATTEMPTS });
+                    if let Some((turn_id, attempt, max_attempts)) = reconnect {
+                        updates(AgentEvent::TurnRetrying { session_id, turn_id, attempt, max_attempts });
                     }
                 }
                 Ok(())
@@ -917,21 +920,24 @@ where
             agent_client_protocol::on_receive_notification!(),
         )
         .on_receive_request(
-            async move |request: RequestPermissionRequest, responder, _| {
+            async move |request: RequestPermissionRequest, responder, connection| {
                 let session_id = request.session_id.0.to_string();
                 let request_id = uuid::Uuid::new_v4().to_string();
                 let (reply, receiver) = oneshot::channel();
                 // Register under the permission lock only while the turn is
                 // still running, so a concurrent cancel cannot miss it.
-                let registered = match permissions.lock() {
+                let activity = match permissions.lock() {
                     Ok(mut pending) => {
                         let running = permission_turns
                             .lock()
-                            .is_ok_and(|turns| turns.get(&session_id).is_some_and(|turn| {
-                                turn.retry.send_modify(|state| state.progress());
-                                !turn.cancelling
-                            }));
-                        if running {
+                            .ok()
+                            .and_then(|turns| {
+                                turns.get(&session_id)
+                                    .filter(|turn| !turn.cancelling)
+                                    .map(|turn| turn.retry.clone())
+                            });
+                        if let Some(activity) = &running {
+                            activity.send_modify(|state| state.permission_started());
                             pending.insert(
                                 request_id.clone(),
                                 PendingPermission {
@@ -942,13 +948,13 @@ where
                         }
                         running
                     }
-                    Err(_) => false,
+                    Err(_) => None,
                 };
-                if !registered {
+                let Some(activity) = activity else {
                     return responder.respond(RequestPermissionResponse::new(
                         RequestPermissionOutcome::Cancelled,
                     ));
-                }
+                };
                 if let Ok(value) = serde_json::to_value(&request) {
                     requests(AgentEvent::Permission {
                         session_id,
@@ -956,26 +962,31 @@ where
                         request: value,
                     });
                 }
-                let selected = tokio::time::timeout(PERMISSION_TIMEOUT, receiver)
-                    .await
-                    .ok()
-                    .and_then(Result::ok)
-                    .flatten();
-                if let Ok(mut pending) = permissions.lock() {
-                    pending.remove(&request_id);
-                }
-                let outcome = match selected.filter(|id| {
-                    request
-                        .options
-                        .iter()
-                        .any(|option| option.option_id.0.as_ref() == id)
-                }) {
-                    Some(id) => {
-                        RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(id))
+                let permissions = permissions.clone();
+                // The SDK dispatches callbacks in order. Move the user wait into
+                // an SDK-owned task so updates, other permissions and EOF can flow.
+                connection.spawn(async move {
+                    // A user decision has no deadline. Cancellation, turn completion
+                    // and connection shutdown all settle the owned pending request.
+                    let selected = receiver.await.ok().flatten();
+                    if let Ok(mut pending) = permissions.lock() {
+                        pending.remove(&request_id);
                     }
-                    None => RequestPermissionOutcome::Cancelled,
-                };
-                responder.respond(RequestPermissionResponse::new(outcome))
+                    activity.send_modify(|state| state.permission_finished());
+                    let outcome = match selected.filter(|id| {
+                        request
+                            .options
+                            .iter()
+                            .any(|option| option.option_id.0.as_ref() == id)
+                    }) {
+                        Some(id) => {
+                            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(id))
+                        }
+                        None => RequestPermissionOutcome::Cancelled,
+                    };
+                    responder.respond(RequestPermissionResponse::new(outcome))
+                })?;
+                Ok(())
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -1219,13 +1230,14 @@ where
                         let prompt_permissions = cancel_permissions.clone();
                         let cancel_deadline = cancel_deadline_tx.clone();
                         tasks.spawn(async move {
-                            let result = prompt_retry::wait(response.as_mut(), retry_changes).await;
+                            let result = prompt_retry::wait(response.as_mut(), retry_changes, |quiet| {
+                                emit(AgentEvent::TurnActivity { session_id: session_id.clone(), quiet });
+                            }).await;
                             if result.is_err() {
                                 let timeout_message = retry.borrow().timeout_message();
-                                // Treat an expired prompt like a cancellation, but keep the
-                                // turn registered until the agent acknowledges it. This
-                                // prevents a late upstream response from overlapping a new
-                                // prompt in the same session.
+                                // Cancel an expired recovery budget, but keep the turn
+                                // registered until the agent acknowledges it to prevent a
+                                // late response from overlapping a new prompt.
                                 let current = turns.lock().is_ok_and(|mut turns| {
                                     let Some(turn) = turns.get_mut(&session_id) else {
                                         return false;
@@ -1304,7 +1316,7 @@ where
                             emit(match result {
                                 Ok(Ok(response)) => prompt::finished(session_id, response),
                                 Ok(Err(error)) => failed(None, Some(session_id), prompt_retry::error_message(&error)),
-                                Err(_) => unreachable!("prompt timeout handled above"),
+                                Err(_) => unreachable!("recovery deadline handled above"),
                             });
                         });
                     }
@@ -1320,7 +1332,7 @@ where
                                 Some(turn.generation)
                             });
                         // A request registered after the caller's rejection but before
-                        // this point would otherwise wait for its timeout.
+                        // this point would otherwise remain pending after cancellation.
                         reject_pending_permissions(&cancel_permissions, Some(&session_id));
                         if let Some(generation) = generation {
                             let _ = connection
@@ -1351,6 +1363,8 @@ where
         })
         .await
         .map_err(|error| error.to_string());
+    // EOF and protocol failures also revoke approvals owned by this connection.
+    reject_pending_permissions(&finished_permissions, None);
     match result {
         Ok(()) if !stop_requested.load(Ordering::SeqCst) => {
             Err("The Agent connection closed unexpectedly".into())

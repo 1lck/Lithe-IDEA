@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import * as lspAdapter from "@/platform/lsp-core-adapter";
+import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
+import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -6,7 +8,11 @@ import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useSpringStore } from "../stores/spring.store";
 import { EMPTY_SPRING_INDEX, type SpringIndex } from "../types/spring.types";
-import { useSpringIndex, type SpringIndexDependencies } from "./use-spring-index";
+import {
+  subscribeSpringDependencyReady,
+  useSpringIndex,
+  type SpringIndexDependencies,
+} from "./use-spring-index";
 
 const WORKSPACE_A = "spring-index-hook-a";
 const WORKSPACE_B = "spring-index-hook-b";
@@ -51,6 +57,8 @@ let root: Root;
 let restoreDom: () => void;
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousAct: boolean | undefined;
+let previousLsp: ReturnType<typeof useLspStore.getState>;
+let restoreSessionLookup: (() => void) | undefined;
 
 function Probe() {
   useSpringIndex(dependencies);
@@ -68,6 +76,8 @@ beforeEach(() => {
   restoreDom = installHappyDom();
   previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
   environment.IS_REACT_ACT_ENVIRONMENT = true;
+  previousLsp = useLspStore.getState();
+  useLspStore.setState({ lspStatus: { ...previousLsp.lspStatus, lifecycleBySession: {} } });
   scheduled = [];
   requestIndex = mock(async (args) => index(args.root));
   dependencies = {
@@ -93,6 +103,9 @@ afterEach(async () => {
   try {
     await act(async () => root.unmount());
   } finally {
+    restoreSessionLookup?.();
+    restoreSessionLookup = undefined;
+    useLspStore.setState(previousLsp);
     container.remove();
     workspaceRuntimeRegistry.resetForTests();
     if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
@@ -262,4 +275,86 @@ test("JDT readiness requests a dependency refresh and its subscription is dispos
   const count = scheduled.length;
   ready!();
   expect(scheduled).toHaveLength(count);
+});
+
+function useProductionReadyObserver() {
+  const lookup = spyOn(lspAdapter, "getLspWorkspaceSessionSnapshot").mockImplementation(
+    ({ workspacePath, languageId }) => ({
+      id: workspacePath === ROOT_A ? "java-a" : "java-b",
+      workspacePath,
+      languageId,
+      phase: "ready",
+      operationId: "test-import",
+      featureState: { phase: "unknown" },
+    }),
+  );
+  restoreSessionLookup = () => lookup.mockRestore();
+  dependencies.subscribeDependencyReady = subscribeSpringDependencyReady;
+}
+
+test("the production observer refreshes dependency metadata for serviceReady without double-refreshing its ready alias", async () => {
+  useProductionReadyObserver();
+  await mount();
+  await act(async () =>
+    useLspStore.getState().actions.updateLanguageLifecycle("java-a", "serverConnected"),
+  );
+  expect(scheduled).toHaveLength(0);
+  await act(async () =>
+    useLspStore.getState().actions.updateLanguageLifecycle("java-a", "serviceReady"),
+  );
+  expect(scheduled).toHaveLength(1);
+  await act(async () => {
+    useLspStore.getState().actions.updateLanguageLifecycle("java-a", "serviceReady");
+    useLspStore.getState().actions.updateLanguageLifecycle("java-a", "fullyReady");
+  });
+  expect(scheduled).toHaveLength(1);
+  await act(async () => scheduled[0].reload());
+  expect(requestIndex.mock.calls[1][0].refreshDependencyMetadata).toBe(true);
+  expect(requestIndex.mock.calls[1][0].root).toBe(ROOT_A);
+  await act(async () => {
+    useLspStore.getState().actions.updateLanguageLifecycle("java-a", "failed");
+    useLspStore.getState().actions.updateLanguageLifecycle("java-a", "serviceReady");
+  });
+  expect(scheduled).toHaveLength(2);
+  await act(async () => scheduled[1].reload());
+  expect(requestIndex.mock.calls[2][0].refreshDependencyMetadata).toBe(true);
+});
+
+test("the production observer keeps legacy fullyReady compatibility and disposes its real subscription", async () => {
+  useProductionReadyObserver();
+  await mount();
+  await act(async () =>
+    useLspStore.getState().actions.updateLanguageLifecycle("java-a", "fullyReady"),
+  );
+  expect(scheduled).toHaveLength(1);
+  await act(async () => root.render(null));
+  expect(scheduled[0].cancelled).toBe(true);
+  await act(async () => {
+    useLspStore.getState().actions.updateLanguageLifecycle("java-a", "failed");
+    useLspStore.getState().actions.updateLanguageLifecycle("java-a", "fullyReady");
+  });
+  expect(scheduled).toHaveLength(1);
+});
+
+test("ready events from another or retired workspace do not refresh the active Spring owner", async () => {
+  useProductionReadyObserver();
+  await mount();
+  await act(async () =>
+    useLspStore.getState().actions.updateLanguageLifecycle("unrelated", "serviceReady"),
+  );
+  expect(scheduled).toHaveLength(0);
+  await activateB();
+  await act(async () =>
+    useLspStore.getState().actions.updateLanguageLifecycle("java-a", "serviceReady"),
+  );
+  expect(scheduled).toHaveLength(0);
+  await act(async () =>
+    useLspStore.getState().actions.updateLanguageLifecycle("java-b", "serviceReady"),
+  );
+  expect(scheduled).toHaveLength(1);
+  await act(async () => scheduled[0].reload());
+  expect(requestIndex.mock.calls[requestIndex.mock.calls.length - 1]![0].root).toBe(ROOT_B);
+  expect(
+    requestIndex.mock.calls[requestIndex.mock.calls.length - 1]![0].refreshDependencyMetadata,
+  ).toBe(true);
 });

@@ -321,6 +321,12 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
 
+    /// Dismiss the advisory for this quiet interval without resending the prompt.
+    public func continueWaiting() {
+        guard let sessionID = selectedSessionID else { return }
+        conversations[sessionID]?.isQuiet = false
+    }
+
     public func answerPermission(optionID: String?) {
         guard let sessionID = selectedSessionID,
               let permission = conversations[sessionID]?.permission else { return }
@@ -412,14 +418,22 @@ public final class AgentConnectionModel: ObservableObject {
                   conversations[sessionID]?.isCancelling != true,
                   let turnID = event["turnId"] as? String, !turnID.isEmpty,
                   turnID != conversations[sessionID]?.previousRetryTurnID,
-                  let attempt = event["attempt"] as? Int,
-                  let maximum = event["maxAttempts"] as? Int,
-                  maximum > 1, attempt > 1, attempt <= maximum else { return }
+                  let attempt = event["attempt"] as? Int, attempt > 1 else { return }
+            let maximum = event["maxAttempts"] as? Int
+            if event["maxAttempts"] != nil {
+                guard let maximum, maximum > 1, attempt <= maximum else { return }
+            }
             flushPendingText()
             conversations[sessionID]?.retryTurnID = turnID
             conversations[sessionID]?.retryAttempt = attempt
             conversations[sessionID]?.retryMaxAttempts = maximum
             conversations[sessionID]?.responsePhase = .retrying
+        case "turnActivity":
+            guard let sessionID, conversations[sessionID]?.isResponding == true,
+                  conversations[sessionID]?.isCancelling != true,
+                  let quiet = event["quiet"] as? Bool,
+                  conversations[sessionID]?.isQuiet != quiet else { return }
+            conversations[sessionID]?.isQuiet = quiet
         case "turnCancelling":
             guard let sessionID else { return }
             conversations[sessionID]?.isCancelling = true
@@ -733,6 +747,7 @@ public final class AgentConnectionModel: ObservableObject {
         conversation.messages.append(message)
         conversation.activeTurn = AgentTurnStatistics(id: message.id, startedAt: prompt.submittedAt)
         conversation.isResponding = true
+        conversation.isQuiet = false
         conversation.responsePhase = .waiting
         conversation.retryTurnID = nil
         conversation.retryAttempt = nil

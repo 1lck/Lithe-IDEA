@@ -29,7 +29,10 @@ Agent prompt completion may include Agent-reported token counters; their account
 scope belongs to the provider and is separate from context occupancy and subscription
 quota. Platforms may measure locally observed turns with a monotonic clock, including
 tools and permission waits, and freeze elapsed time at completion, failure or disconnect.
-Missing usage and unmeasured replayed history remain unknown. See the
+Normal Agent turns and permission decisions have no total-duration deadline. Quiet
+activity notices are advisory and retain the busy turn; stop remains acknowledged
+with bounded process cleanup. Missing usage and unmeasured replayed history remain
+unknown. See the
 [Agent host contract](rust-core-api.md) and `fixtures/agent/acp-events-v1.json`.
 
 Agent activity presentation uses the selected session's reported plan, pending

@@ -20,6 +20,7 @@ import { getChatTitleFromSessionInfo } from "@/features/ai/lib/acp-session-info"
 import { normalizeAcpWorkspacePath } from "@/features/ai/lib/acp-workspace-path";
 import { getFollowUpActionsInstruction } from "@/features/ai/lib/follow-up-actions";
 import { buildContextPrompt } from "../utils/ai-context-builder";
+import { AcpActivityMonitor } from "../lib/acp-activity-monitor";
 
 interface AcpHandlers {
   onChunk: (chunk: string) => void;
@@ -33,6 +34,7 @@ interface AcpHandlers {
   onEvent?: (event: AcpEvent) => void;
   onImageChunk?: (data: string, mediaType: string) => void;
   onResourceChunk?: (uri: string, name: string | null) => void;
+  onActivityQuiet?: (quiet: boolean) => void;
 }
 
 interface AcpListeners {
@@ -42,7 +44,6 @@ interface AcpListeners {
 const ACP_STATUS_TIMEOUT_MS = 5_000;
 const ACP_START_TIMEOUT_MS = 15_000;
 const ACP_PROMPT_TIMEOUT_MS = 10_000;
-const ACP_FIRST_RESPONSE_TIMEOUT_MS = 20_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout>;
@@ -67,14 +68,15 @@ export class AcpStreamHandler {
   private cancelled = false;
   private wasRunning = false;
   private activeSessionId: string | null = null;
-  private awaitingFirstResponse = false;
-  private firstResponseTimeout: ReturnType<typeof setTimeout> | null = null;
+  private activity: AcpActivityMonitor;
 
   constructor(
     private agentId: string,
     private handlers: AcpHandlers,
     private chatId?: string,
-  ) {}
+  ) {
+    this.activity = new AcpActivityMonitor((quiet) => this.handlers.onActivityQuiet?.(quiet));
+  }
 
   static async warmup(agentId: string, chatId?: string): Promise<void> {
     const handler = new AcpStreamHandler(
@@ -94,13 +96,12 @@ export class AcpStreamHandler {
       AcpStreamHandler.activeHandler = this;
       await this.setupListeners();
       await this.ensureAgentRunning();
-      this.awaitingFirstResponse = true;
+      this.activity.start();
       await withTimeout(
         invoke("send_acp_prompt", { prompt: this.buildPrompt(userMessage, context) }),
         ACP_PROMPT_TIMEOUT_MS,
         `${this.agentId} did not accept the prompt in time`,
       );
-      this.armFirstResponseTimeout();
     } catch (error) {
       console.error("ACP agent error:", error);
       this.fail(this.formatStartupError(error));
@@ -533,6 +534,7 @@ export class AcpStreamHandler {
   }
 
   private handlePermissionRequest(event: Extract<AcpEvent, { type: "permission_request" }>): void {
+    this.activity.permissionRequested(event.requestId);
     if (this.handlers.onPermissionRequest) {
       this.handlers.onPermissionRequest(event);
     } else {
@@ -561,8 +563,6 @@ export class AcpStreamHandler {
   }
 
   private markPromptActivity(event: AcpEvent): void {
-    if (!this.awaitingFirstResponse) return;
-
     switch (event.type) {
       case "user_message_chunk":
       case "content_chunk":
@@ -576,23 +576,9 @@ export class AcpStreamHandler {
       case "plan_update":
       case "prompt_complete":
       case "ui_action":
-        this.awaitingFirstResponse = false;
-        if (this.firstResponseTimeout) {
-          clearTimeout(this.firstResponseTimeout);
-          this.firstResponseTimeout = null;
-        }
+        this.activity.progress();
         break;
     }
-  }
-
-  private armFirstResponseTimeout(): void {
-    if (!this.awaitingFirstResponse || this.sessionComplete || this.cancelled) return;
-
-    this.firstResponseTimeout = setTimeout(() => {
-      this.fail(
-        `${this.agentId} accepted the prompt but did not return any activity. Restart the agent session and try again.`,
-      );
-    }, ACP_FIRST_RESPONSE_TIMEOUT_MS);
   }
 
   private fail(error: string, canReconnect?: boolean): void {
@@ -605,11 +591,7 @@ export class AcpStreamHandler {
 
   private cleanup(): void {
     console.log("Cleaning up ACP listeners...");
-    this.awaitingFirstResponse = false;
-    if (this.firstResponseTimeout) {
-      clearTimeout(this.firstResponseTimeout);
-      this.firstResponseTimeout = null;
-    }
+    this.activity.stop();
     this.pendingNewMessage = false;
     this.activeTools.clear();
 
@@ -638,9 +620,11 @@ export class AcpStreamHandler {
     cancelled = false,
     optionId?: string,
   ): Promise<void> {
+    const handler = AcpStreamHandler.activeHandler;
     await invoke("respond_acp_permission", {
       args: { requestId, approved, cancelled, optionId },
     });
+    handler?.activity.permissionAnswered(requestId);
   }
 
   // Static method to get available agents

@@ -159,7 +159,10 @@ struct AgentTranscriptView: View {
                                     startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
                                     hasStreamingThought: liveThoughtID != nil,
                                     retryAttempt: conversation?.retryAttempt,
-                                    retryMaxAttempts: conversation?.retryMaxAttempts
+                                    retryMaxAttempts: conversation?.retryMaxAttempts,
+                                    isQuiet: conversation?.isQuiet == true,
+                                    onContinueWaiting: { feature.continueWaiting() },
+                                    onStop: { feature.cancel() }
                                 ).id("responding")
                             }
                         }

@@ -42,6 +42,19 @@ struct AgentResponseStatusRow: View {
     var hasStreamingThought = false
     var retryAttempt: Int?
     var retryMaxAttempts: Int?
+    var isQuiet = false
+    var onContinueWaiting: () -> Void = {}
+    var onStop: () -> Void = {}
+
+    var showsQuietNotice: Bool {
+        isQuiet && responseStatus != .waitingForPermission && responseStatus != .stopping
+    }
+
+    var quietNotice: String {
+        String(localized: responseStatus == .retrying
+               ? "Connection recovery is taking longer. The Agent is still retrying."
+               : "No recent progress has been received. The task is still active.")
+    }
 
     var status: String {
         switch responseStatus {
@@ -62,19 +75,34 @@ struct AgentResponseStatusRow: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text(status).accessibilityIdentifier("agent-response-status")
-                if let startedAt {
-                    let elapsed = AgentTurnStatistics(id: "waiting", startedAt: startedAt).elapsed(at: .now)
-                    Text(AgentTurnStatisticsPresentation.duration(elapsed)).monospacedDigit()
+        VStack(alignment: .leading, spacing: 6) {
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(status).accessibilityIdentifier("agent-response-status")
+                    if let startedAt {
+                        let elapsed = AgentTurnStatistics(id: "waiting", startedAt: startedAt).elapsed(at: .now)
+                        Text(AgentTurnStatisticsPresentation.duration(elapsed)).monospacedDigit()
+                    }
                 }
+                .font(LitheTheme.uiFont(size: 12))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .padding(.leading, 2)
+                .help("Elapsed since sending, including tools and permission waits.")
             }
-            .font(LitheTheme.uiFont(size: 12))
-            .foregroundStyle(LitheTheme.secondaryText)
-            .padding(.leading, 2)
-            .help("Elapsed since sending, including tools and permission waits.")
+            if showsQuietNotice {
+                Text(quietNotice)
+                    .font(LitheTheme.uiFont(size: 12))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("agent-quiet-notice")
+                HStack(spacing: 12) {
+                    Button("Continue waiting", action: onContinueWaiting)
+                    Button("Stop", action: onStop)
+                }
+                .buttonStyle(.plain)
+                .font(LitheTheme.uiFont(size: 12))
+            }
         }
     }
 }

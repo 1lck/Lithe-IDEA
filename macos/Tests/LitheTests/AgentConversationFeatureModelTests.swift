@@ -9,6 +9,104 @@ import Testing
 @MainActor
 struct AgentConversationFeatureModelTests {
     @Test
+    func quietNoticeKeepsTheTurnBusyAndContinueWaitingDoesNotReplayIt() async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            try feature.send("Build the project")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            let turn = feature.selectedConversation?.activeTurn
+            let commandCount = connection.commands.count
+            clock.advance(3600)
+            try feature.receive(event("turnActivityQuiet"))
+            #expect(feature.selectedConversation?.isQuiet == true)
+            #expect(feature.selectedConversation?.isResponding == true)
+            #expect(feature.selectedConversation?.activeTurn == turn)
+            #expect(feature.selectedConversation?.errorMessage == nil)
+            #expect(throws: AgentConversationError.sessionBusy) { try feature.send("Overlap") }
+            feature.continueWaiting()
+            #expect(feature.selectedConversation?.isQuiet == false)
+            #expect(connection.commands.count == commandCount)
+            try feature.receive(event("turnActivityQuiet"))
+            try feature.receive(event("turnActivityResumed"))
+            #expect(feature.selectedConversation?.isQuiet == false)
+            try feature.receive(event("turnFinished"))
+            #expect(feature.selectedConversation?.completedTurns.last?.duration == 3600)
+            try feature.receive(event("turnActivityQuiet"))
+            #expect(feature.selectedConversation?.isQuiet == false)
+        }
+    }
+
+    @Test
+    func quietNoticeIsScopedToItsSessionAndCannotOverrideStopping() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.send("First turn")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            feature.startNewConversation()
+            try feature.send("Second turn")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any, "sessionId": "session-2"]))
+            try feature.receive(event("turnActivityQuiet"))
+            #expect(feature.conversations["session-1"]?.isQuiet == true)
+            #expect(feature.selectedConversation?.isQuiet == false)
+            feature.cancel()
+            try feature.receive(event("turnActivityQuiet", ["sessionId": "session-2"]))
+            #expect(feature.selectedConversation?.isQuiet == false)
+            #expect(feature.selectedConversation?.responseStatus == .stopping)
+        }
+    }
+
+    @Test
+    func nativeRecoveryKeepsOneTurnAndContinueWaitingCannotReplayTools() async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            try feature.send("Start the service and finish the files")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("toolCall"))
+            let messages = feature.selectedConversation?.messages
+            let turn = feature.selectedConversation?.activeTurn
+            let commands = connection.commands.count
+            clock.advance(301)
+            try feature.receive(event("turnRecovering"))
+            try feature.receive(event("turnActivityQuiet"))
+            #expect(feature.selectedConversation?.responseStatus == .retrying)
+            #expect(feature.selectedConversation?.retryAttempt == 6)
+            #expect(feature.selectedConversation?.retryMaxAttempts == nil)
+            #expect(feature.selectedConversation?.isQuiet == true)
+            #expect(feature.selectedConversation?.messages == messages)
+            #expect(feature.selectedConversation?.activeTurn == turn)
+            #expect(throws: AgentConversationError.sessionBusy) { try feature.send("Overlap") }
+            feature.continueWaiting()
+            #expect(feature.selectedConversation?.isQuiet == false)
+            #expect(feature.selectedConversation?.responseStatus == .retrying)
+            #expect(connection.commands.count == commands)
+            try feature.receive(event("turnActivityResumed"))
+            try feature.receive(event("agentMessageChunk"))
+            #expect(feature.selectedConversation?.responseStatus != .retrying)
+            try feature.receive(event("turnFinished"))
+            #expect(feature.selectedConversation?.completedTurns.last?.duration == 301)
+            try feature.receive(event("turnRecovering"))
+            #expect(feature.selectedConversation?.responseStatus == nil)
+        }
+    }
+
+    @Test
+    func nativeRecoveryTerminalFailurePreservesWorkForExplicitContinuation() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.send("Finish the task")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("toolCall", ["update": ["sessionUpdate": "tool_call", "toolCallId": "completed", "kind": "execute", "title": "Start service", "status": "completed"]]))
+            let messages = feature.selectedConversation?.messages
+            try feature.receive(event("turnRecovering"))
+            let commands = connection.commands.count
+            try feature.receive(event("requestFailed", ["token": NSNull(), "message": "Stream recovery exhausted"]))
+            #expect(feature.selectedConversation?.isResponding == false)
+            #expect(feature.selectedConversation?.messages == messages)
+            #expect(feature.selectedConversation?.errorMessage == "Stream recovery exhausted")
+            #expect(connection.commands.count == commands, "Terminal failure cannot resend completed tools")
+            try feature.send("Check completed work, then finish the remaining steps")
+            #expect(connection.commands.last?["kind"] as? String == "prompt")
+            #expect(connection.commands.last?["sessionId"] as? String == "session-1")
+        }
+    }
+
+    @Test
     func codexNativeFailureMetadataAndHostCountsKeepOneTimedTurn() async throws {
         try await withStatisticsFeature { feature, connection, clock in
             try feature.send("Try Codex")

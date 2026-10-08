@@ -91,6 +91,8 @@ public struct AgentConversation: Equatable, Sendable {
     public var isResponding = false
     public var isLoading = false
     public var isCancelling = false
+    /// A Host advisory, never a failure or permission to send another prompt.
+    public var isQuiet = false
     public var configOptions: [AgentSessionConfigOption] = []
     public var pendingConfigToken: String?
     /// Choices for the next turn, separate from the Agent-confirmed configuration.
@@ -118,6 +120,7 @@ public struct AgentConversation: Equatable, Sendable {
     public init() {}
 
     mutating func finishTurn(at instant: ContinuousClock.Instant, usage: AgentTurnUsage? = nil) {
+        isQuiet = false
         if let retryTurnID { previousRetryTurnID = retryTurnID }
         retryTurnID = nil
         retryAttempt = nil

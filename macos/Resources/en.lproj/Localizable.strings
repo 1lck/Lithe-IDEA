@@ -1431,3 +1431,7 @@
 "Deep reasoning for complex tasks" = "Deep reasoning for complex tasks";
 "Extra deep reasoning for demanding tasks" = "Extra deep reasoning for demanding tasks";
 "Maximum reasoning depth" = "Maximum reasoning depth";
+
+"No recent progress has been received. The task is still active." = "No recent progress has been received. The task is still active.";
+"Connection recovery is taking longer. The Agent is still retrying." = "Connection recovery is taking longer. The Agent is still retrying.";
+"Continue waiting" = "Continue waiting";

@@ -8,6 +8,9 @@ export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 
 const catalogs = {
   "en-US": {
+    "agent.quietNotice": "No recent progress has been received. The task is still active.",
+    "agent.continueWaiting": "Continue waiting",
+    "agent.stop": "Stop",
     ...javaEntryEnglish,
     ...aiCommitEnglish,
     ...workspaceCommitEnglish,
@@ -4595,6 +4598,9 @@ const catalogs = {
     "welcome.backToProjects": "Back to projects",
   },
   "zh-CN": {
+    "agent.quietNotice": "暂未收到新的进度，任务仍在进行。",
+    "agent.continueWaiting": "继续等待",
+    "agent.stop": "停止",
     ...javaEntryChinese,
     ...aiCommitChinese,
     ...workspaceCommitChinese,

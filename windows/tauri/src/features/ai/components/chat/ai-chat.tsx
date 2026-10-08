@@ -43,6 +43,7 @@ import {
   MessageScrollerViewport,
 } from "@/ui/message-scroller";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useChatActions, useChatState } from "../../hooks/use-chat-store";
 import AIChatInputBar from "../input/chat-input-bar";
 import { AcpPermissionPrompt, type AcpPermissionRequest } from "./acp-permission-prompt";
@@ -71,6 +72,8 @@ const AIChat = memo(function AIChat({
   const abortControllerRef = useRef<AbortController | null>(null);
   const [permissionQueue, setPermissionQueue] = useState<AcpPermissionRequest[]>([]);
   const [acpEvents, setAcpEvents] = useState<ChatAcpEvent[]>([]);
+  const { t } = useTranslation();
+  const [quietTurnId, setQuietTurnId] = useState<string | null>(null);
   const [isMessageSearchOpen, setIsMessageSearchOpen] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [activeMessageSearchIndex, setActiveMessageSearchIndex] = useState(0);
@@ -899,6 +902,8 @@ details: ${errorDetails || mainError}
           );
         },
         targetChatId,
+        undefined,
+        (quiet) => setQuietTurnId(quiet ? currentAssistantMessageId : null),
       );
     } catch (error) {
       console.error("Failed to start streaming:", error);
@@ -1114,6 +1119,16 @@ details: ${errorDetails || mainError}
               queuedCount={permissionQueue.length - 1}
               onRespond={handlePermission}
             />
+          ) : null}
+
+          {!useInitialComposer && quietTurnId === surfaceStreamingMessageId && isSurfaceTyping && !currentPermission ? (
+            <div className="px-4 py-2 text-muted-foreground" role="status">
+              <p>{t("agent.quietNotice")}</p>
+              <div className="mt-1 flex gap-3">
+                <button type="button" onClick={() => setQuietTurnId(null)}>{t("agent.continueWaiting")}</button>
+                <button type="button" onClick={stopStreaming}>{t("agent.stop")}</button>
+              </div>
+            </div>
           ) : null}
 
           {!useInitialComposer ? (

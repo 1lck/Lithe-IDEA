@@ -1,4 +1,4 @@
-//! Shared API-key recovery budgets, cancellation and failure normalization.
+//! Shared prompt activity, API-key recovery budgets and failure normalization.
 //!
 //! The native CLI has one retry budget for permanent and temporary errors and
 //! may honor minutes of Retry-After. Disable that layer through public options;
@@ -23,11 +23,30 @@ use tokio::{sync::watch, time::Instant};
 use crate::{codex_retry, AgentEvent, Emit};
 
 pub(crate) const MAX_ATTEMPTS: u32 = 5;
-/// Total reconnecting window, excluding the first attempt and cancellation ACK.
+/// Pre-work reconnecting window, excluding the first attempt and cancellation ACK.
 pub(crate) const RETRY_WINDOW: Duration = Duration::from_secs(20);
+
+/// Both native clients use this advisory threshold; silence cannot prove a stall.
+pub(crate) fn quiet_notice_delay() -> Duration {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Policy {
+        quiet_notice_milliseconds: u64,
+    }
+    static DELAY: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *DELAY.get_or_init(|| {
+        let policy: Policy = serde_json::from_str(include_str!(
+            "../../../shared/contracts/agent-turn-policy.json"
+        ))
+        .expect("valid bundled Agent turn policy");
+        Duration::from_millis(policy.quiet_notice_milliseconds)
+    })
+}
 
 #[derive(Clone)]
 pub(crate) struct State {
+    last_progress: Instant,
+    pending_permissions: usize,
     eligible: bool,
     pub(crate) cancelling: bool,
     deadline: Option<Instant>,
@@ -35,6 +54,9 @@ pub(crate) struct State {
     provider_message: Option<String>,
     native: bool,
     native_attempt: u32,
+    /// Native recovery after work has no Host deadline. Its first warning starts
+    /// an advisory clock; repeated warnings cannot postpone that notice.
+    recovery_since: Option<Instant>,
     /// Retained across prompts of this session so delayed old warnings cannot
     /// enter a fresh turn after its predecessor's terminal response.
     native_sequence: Arc<AtomicU64>,
@@ -45,6 +67,8 @@ pub(crate) struct State {
 impl State {
     pub(crate) fn new(enabled: bool) -> Self {
         Self {
+            last_progress: Instant::now(),
+            pending_permissions: 0,
             eligible: enabled,
             cancelling: false,
             deadline: None,
@@ -52,6 +76,7 @@ impl State {
             provider_message: None,
             native: false,
             native_attempt: 1,
+            recovery_since: None,
             native_sequence: Arc::new(AtomicU64::new(0)),
             stop_message: None,
             native_replay_safe: false,
@@ -68,11 +93,13 @@ impl State {
     }
 
     /// Output or a permission request makes replay unsafe and ends the short
-    /// retry window. Normal reasoning, tool and permission limits still apply.
+    /// retry window. The upstream Agent still owns its model and tool budgets.
     pub(crate) fn progress(&mut self) {
+        self.last_progress = Instant::now();
         self.eligible = false;
         self.native_replay_safe = false;
         self.deadline = None;
+        self.recovery_since = None;
         if self.native && self.stop_message.is_none() {
             self.native_attempt = 1;
         }
@@ -80,6 +107,16 @@ impl State {
         if self.stop_message.is_some() {
             self.deadline = Some(Instant::now());
         }
+    }
+
+    pub(crate) fn permission_started(&mut self) {
+        self.progress();
+        self.pending_permissions += 1;
+    }
+
+    pub(crate) fn permission_finished(&mut self) {
+        self.pending_permissions = self.pending_permissions.saturating_sub(1);
+        self.progress();
     }
 
     /// AIR's public failure extension suppresses synthetic assistant error text.
@@ -108,7 +145,7 @@ impl State {
     pub(crate) fn observe_native_retry(
         &mut self,
         update: &serde_json::Value,
-    ) -> Option<(String, u32)> {
+    ) -> Option<(String, u32, Option<u32>)> {
         if !self.native
             || self.cancelling
             || self.stop_message.is_some()
@@ -143,10 +180,17 @@ impl State {
         if failure["severity"] != "warning" || native["willRetry"] != true {
             return None;
         }
+        self.last_failure = Some(message.clone());
+        self.native_attempt = self.native_attempt.saturating_add(1);
+        if !self.native_replay_safe {
+            // The engine owns this in-flight stream and its configured budget.
+            // A Host deadline or second counter can abort recoverable work;
+            // resending the prompt could execute its tools a second time.
+            self.recovery_since.get_or_insert_with(Instant::now);
+            return Some((turn_id, self.native_attempt, None));
+        }
         self.deadline
             .get_or_insert_with(|| Instant::now() + RETRY_WINDOW);
-        self.last_failure = Some(message.clone());
-        self.native_attempt += 1;
         if self.native_attempt > MAX_ATTEMPTS {
             self.stop_message = Some(format!(
                 "Reconnecting failed after five attempts. {message}"
@@ -154,7 +198,7 @@ impl State {
             self.deadline = Some(Instant::now());
             return None;
         }
-        Some((turn_id, self.native_attempt))
+        Some((turn_id, self.native_attempt, Some(MAX_ATTEMPTS)))
     }
 
     pub(crate) fn timeout_message(&self) -> String {
@@ -165,7 +209,7 @@ impl State {
             Some(message) if self.deadline.is_some() => {
                 format!("Reconnecting exceeded 20 seconds. The turn was stopped. {message}")
             }
-            _ => crate::PROMPT_TIMEOUT_MESSAGE.into(),
+            _ => "The Agent connection stopped before the turn finished.".into(),
         }
     }
 
@@ -357,7 +401,7 @@ pub(crate) async fn run(
             } else {
                 attempt + 1
             },
-            max_attempts: MAX_ATTEMPTS,
+            max_attempts: Some(MAX_ATTEMPTS),
         });
         // Four delays total 7.5 seconds. Provider Retry-After is not propagated
         // into this interactive policy; the user may retry again after failure.
@@ -387,20 +431,42 @@ pub(crate) async fn run(
 
 /// Keep the in-flight future alive on timeout so its owner can cancel and await
 /// acknowledgment before releasing the turn or stopping the process tree.
-pub(crate) async fn wait<F, T>(response: F, mut changes: watch::Receiver<State>) -> Result<T, ()>
+pub(crate) async fn wait<F, T>(
+    response: F,
+    mut changes: watch::Receiver<State>,
+    activity: impl Fn(bool),
+) -> Result<T, ()>
 where
     F: Future<Output = T>,
 {
-    let absolute = Instant::now() + crate::PROMPT_TIMEOUT;
+    let mut quiet_since = None;
     tokio::pin!(response);
     loop {
-        let deadline = changes
-            .borrow()
-            .deadline
-            .map_or(absolute, |retry| retry.min(absolute));
+        let state = changes.borrow().clone();
+        let suppressed =
+            state.cancelling || state.pending_permissions > 0 || state.deadline.is_some();
+        let notice_since = state.recovery_since.unwrap_or(state.last_progress);
+        if quiet_since.is_some_and(|previous| previous != notice_since || suppressed) {
+            quiet_since = None;
+            activity(false);
+        }
+        let notice =
+            (!suppressed && quiet_since.is_none()).then(|| notice_since + quiet_notice_delay());
+        // Only pre-work recovery and terminal failures have a hard deadline.
+        // Native recovery after work remains active until its engine ends it.
+        let deadline = state.deadline.or(notice);
         tokio::select! {
             result = &mut response => return Ok(result),
-            _ = tokio::time::sleep_until(deadline) => return Err(()),
+            _ = async {
+                match deadline {
+                    Some(deadline) => tokio::time::sleep_until(deadline).await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if state.deadline.is_some() { return Err(()); }
+                quiet_since = Some(notice_since);
+                activity(true);
+            },
             changed = changes.changed() => if changed.is_err() { return Err(()); },
         }
     }

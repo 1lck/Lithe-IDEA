@@ -39,15 +39,28 @@ export interface SpringIndexDependencies {
   subscribeDependencyReady?: (root: string, reload: () => void) => () => void;
 }
 
+function isDependencyReady(phase: string | undefined): boolean {
+  // The Core adapter emits serviceReady; keep the legacy client alias too.
+  return phase === "serviceReady" || phase === "fullyReady";
+}
+
+/** Observe the current workspace Java session, not readiness in another project. */
+export const subscribeSpringDependencyReady: NonNullable<
+  SpringIndexDependencies["subscribeDependencyReady"]
+> = (root, reload) =>
+  useLspStore.subscribe((state, previous) => {
+    const session = getLspWorkspaceSessionSnapshot({ workspacePath: root, languageId: "java" });
+    if (!session) return;
+    const phase = state.lspStatus.lifecycleBySession[session.id];
+    if (
+      isDependencyReady(phase) &&
+      !isDependencyReady(previous.lspStatus.lifecycleBySession[session.id])
+    )
+      reload();
+  });
+
 const defaultDependencies: SpringIndexDependencies = {
-  subscribeDependencyReady: (root, reload) =>
-    useLspStore.subscribe((state, previous) => {
-      const session = getLspWorkspaceSessionSnapshot({ workspacePath: root, languageId: "java" });
-      if (!session) return;
-      const phase = state.lspStatus.lifecycleBySession[session.id];
-      if (phase === "fullyReady" && previous.lspStatus.lifecycleBySession[session.id] !== phase)
-        reload();
-    }),
+  subscribeDependencyReady: subscribeSpringDependencyReady,
   requestIndex: requestSpringIndex,
   resolveMetadataRepository: resolveMavenMetadataRepository,
   scheduleReload: (reload) => {

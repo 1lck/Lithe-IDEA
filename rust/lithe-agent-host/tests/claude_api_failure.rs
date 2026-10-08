@@ -317,8 +317,8 @@ fn run_local_api_turn(status: u16) {
                 max_attempts,
                 ..
             } => {
-                eprintln!("local status {status}, retry attempt {attempt}/{max_attempts}");
-                assert_eq!(max_attempts, 5);
+                eprintln!("local status {status}, retry attempt {attempt}/{max_attempts:?}");
+                assert_eq!(max_attempts, Some(5));
                 attempts.push(attempt);
             }
             AgentEvent::Update { update, .. }

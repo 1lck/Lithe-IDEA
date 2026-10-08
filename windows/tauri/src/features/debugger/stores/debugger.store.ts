@@ -1,3 +1,4 @@
+import { debugSourcePathKey } from "../utils/debug-source-path";
 import { create } from "zustand";
 import { createSelectors } from "@/utils/zustand-selectors";
 import type {
@@ -183,12 +184,15 @@ export const useDebuggerStore = createSelectors(
 
       toggleBreakpoint: (filePath, line) => {
         set((state) => {
-          const existing = state.breakpoints.find(
-            (breakpoint) => breakpoint.filePath === filePath && breakpoint.line === line,
-          );
+          const key = debugSourcePathKey(filePath);
+          const matchesLocation = (breakpoint: DebugBreakpoint) =>
+            debugSourcePathKey(breakpoint.filePath) === key && breakpoint.line === line;
+          const existing = state.breakpoints.some(matchesLocation);
 
+          // A click removes the visible location, including duplicate aliases
+          // persisted before mutation and projection shared the same identity.
           const nextBreakpoints = existing
-            ? state.breakpoints.filter((breakpoint) => breakpoint.id !== existing.id)
+            ? state.breakpoints.filter((breakpoint) => !matchesLocation(breakpoint))
             : [
                 ...state.breakpoints,
                 {
@@ -429,7 +433,10 @@ export const useDebuggerStore = createSelectors(
       },
 
       getBreakpointsForFile: (filePath) => {
-        return get().breakpoints.filter((breakpoint) => breakpoint.filePath === filePath);
+        const key = debugSourcePathKey(filePath);
+        return get().breakpoints.filter(
+          (breakpoint) => debugSourcePathKey(breakpoint.filePath) === key,
+        );
       },
     },
   })),

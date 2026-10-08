@@ -14,12 +14,15 @@
       "shared/fixtures/debug",
       "windows/tauri/src/features/debugger/services/debug-session-actions.test.ts",
       "windows/tauri/src/features/debugger/services/monaco-debug-decorations.test.ts",
-      "windows/tauri/src/features/maven/services/maven-module-debug.test.ts"
+      "windows/tauri/src/features/maven/services/maven-module-debug.test.ts",
+      "windows/tauri/src/features/debugger/utils/debug-source-path.ts",
+      "windows/tauri/src/features/debugger/stores/debugger-breakpoints.test.ts",
+      ".github/workflows/ci-windows.yml"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
   },
   "owner": "Debug",
-  "verification": "设置、命中、禁用和重新定位断点，确认调试会话生命周期。 Windows验证Java gutter增删断点、禁用断点和暂停行装饰；只读编辑器不增删断点，切换/销毁编辑器后订阅与装饰均释放。",
-  "notes": "Windows 真实调试产品链路仍在 #466 跟进。 本次Windows改动保留Core/JDT的DAP及Java目标所有权，仅修复前端事件、请求和资源生命周期；完整界面及跨平台验收保持pending。"
+  "verification": "设置、命中、禁用和重新定位断点，确认调试会话生命周期。 Windows验证Java gutter增删断点、禁用断点和暂停行装饰；只读编辑器不增删断点，切换/销毁编辑器后订阅与装饰均释放。 Windows盘符路径的大小写/分隔符别名必须在 gutter mutation、按文件查询和 Monaco 投影使用同一字面身份；第二次点击移除可见位置及其历史重复别名，保留其他行/模块和原始持久化路径。POSIX大小写保持区分，真实store与隔离localStorage回归登记Windows CI。",
+  "notes": "Windows 真实调试产品链路仍在 #466 跟进。 本次Windows改动保留Core/JDT的DAP及Java目标所有权，仅修复前端事件、请求和资源生命周期；完整界面及跨平台验收保持pending。 路径键复用既有装饰规则，不等同于原生文件句柄/符号链接身份，不全量迁移用户断点。"
 }
