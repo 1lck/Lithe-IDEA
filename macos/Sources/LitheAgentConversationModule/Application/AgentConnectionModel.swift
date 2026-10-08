@@ -418,9 +418,11 @@ public final class AgentConnectionModel: ObservableObject {
                   conversations[sessionID]?.isCancelling != true,
                   let turnID = event["turnId"] as? String, !turnID.isEmpty,
                   turnID != conversations[sessionID]?.previousRetryTurnID,
-                  let attempt = event["attempt"] as? Int,
-                  let maximum = event["maxAttempts"] as? Int,
-                  maximum > 1, attempt > 1, attempt <= maximum else { return }
+                  let attempt = event["attempt"] as? Int, attempt > 1 else { return }
+            let maximum = event["maxAttempts"] as? Int
+            if event["maxAttempts"] != nil {
+                guard let maximum, maximum > 1, attempt <= maximum else { return }
+            }
             flushPendingText()
             conversations[sessionID]?.retryTurnID = turnID
             conversations[sessionID]?.retryAttempt = attempt

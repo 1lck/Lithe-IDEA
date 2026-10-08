@@ -41,6 +41,7 @@
     "turnActivityQuiet": { "kind": "turnActivity", "sessionId": "session-1", "quiet": true },
     "turnActivityResumed": { "kind": "turnActivity", "sessionId": "session-1", "quiet": false },
     "turnRetrying": { "kind": "turnRetrying", "sessionId": "session-1", "turnId": "host-turn-1", "attempt": 2, "maxAttempts": 5 },
+    "turnRecovering": { "kind": "turnRetrying", "sessionId": "session-1", "turnId": "native-turn-1", "attempt": 6 },
     "claudeSessionFailure": {
       "kind": "update", "sessionId": "session-1",
       "update": { "sessionUpdate": "session_info_update", "_meta": { "jetbrains": { "air": { "version": 1, "sessionFailure": { "id": "upstream-turn-1:error", "revision": 1, "category": "access", "severity": "error", "title": "Sign in to continue using Claude.", "details": "API Error: 401 Invalid API key", "actions": ["login"] } } } } }

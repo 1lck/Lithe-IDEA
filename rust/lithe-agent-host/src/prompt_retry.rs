@@ -23,7 +23,7 @@ use tokio::{sync::watch, time::Instant};
 use crate::{codex_retry, AgentEvent, Emit};
 
 pub(crate) const MAX_ATTEMPTS: u32 = 5;
-/// Total reconnecting window, excluding the first attempt and cancellation ACK.
+/// Pre-work reconnecting window, excluding the first attempt and cancellation ACK.
 pub(crate) const RETRY_WINDOW: Duration = Duration::from_secs(20);
 
 /// Both native clients use this advisory threshold; silence cannot prove a stall.
@@ -54,6 +54,9 @@ pub(crate) struct State {
     provider_message: Option<String>,
     native: bool,
     native_attempt: u32,
+    /// Native recovery after work has no Host deadline. Its first warning starts
+    /// an advisory clock; repeated warnings cannot postpone that notice.
+    recovery_since: Option<Instant>,
     /// Retained across prompts of this session so delayed old warnings cannot
     /// enter a fresh turn after its predecessor's terminal response.
     native_sequence: Arc<AtomicU64>,
@@ -73,6 +76,7 @@ impl State {
             provider_message: None,
             native: false,
             native_attempt: 1,
+            recovery_since: None,
             native_sequence: Arc::new(AtomicU64::new(0)),
             stop_message: None,
             native_replay_safe: false,
@@ -95,6 +99,7 @@ impl State {
         self.eligible = false;
         self.native_replay_safe = false;
         self.deadline = None;
+        self.recovery_since = None;
         if self.native && self.stop_message.is_none() {
             self.native_attempt = 1;
         }
@@ -140,7 +145,7 @@ impl State {
     pub(crate) fn observe_native_retry(
         &mut self,
         update: &serde_json::Value,
-    ) -> Option<(String, u32)> {
+    ) -> Option<(String, u32, Option<u32>)> {
         if !self.native
             || self.cancelling
             || self.stop_message.is_some()
@@ -175,10 +180,17 @@ impl State {
         if failure["severity"] != "warning" || native["willRetry"] != true {
             return None;
         }
+        self.last_failure = Some(message.clone());
+        self.native_attempt = self.native_attempt.saturating_add(1);
+        if !self.native_replay_safe {
+            // The engine owns this in-flight stream and its configured budget.
+            // A Host deadline or second counter can abort recoverable work;
+            // resending the prompt could execute its tools a second time.
+            self.recovery_since.get_or_insert_with(Instant::now);
+            return Some((turn_id, self.native_attempt, None));
+        }
         self.deadline
             .get_or_insert_with(|| Instant::now() + RETRY_WINDOW);
-        self.last_failure = Some(message.clone());
-        self.native_attempt += 1;
         if self.native_attempt > MAX_ATTEMPTS {
             self.stop_message = Some(format!(
                 "Reconnecting failed after five attempts. {message}"
@@ -186,7 +198,7 @@ impl State {
             self.deadline = Some(Instant::now());
             return None;
         }
-        Some((turn_id, self.native_attempt))
+        Some((turn_id, self.native_attempt, Some(MAX_ATTEMPTS)))
     }
 
     pub(crate) fn timeout_message(&self) -> String {
@@ -389,7 +401,7 @@ pub(crate) async fn run(
             } else {
                 attempt + 1
             },
-            max_attempts: MAX_ATTEMPTS,
+            max_attempts: Some(MAX_ATTEMPTS),
         });
         // Four delays total 7.5 seconds. Provider Retry-After is not propagated
         // into this interactive policy; the user may retry again after failure.
@@ -433,14 +445,15 @@ where
         let state = changes.borrow().clone();
         let suppressed =
             state.cancelling || state.pending_permissions > 0 || state.deadline.is_some();
-        if quiet_since.is_some_and(|previous| previous != state.last_progress || suppressed) {
+        let notice_since = state.recovery_since.unwrap_or(state.last_progress);
+        if quiet_since.is_some_and(|previous| previous != notice_since || suppressed) {
             quiet_since = None;
             activity(false);
         }
-        let notice = (!suppressed && quiet_since.is_none())
-            .then(|| state.last_progress + quiet_notice_delay());
-        // Only a reported recovery failure has a hard deadline. Normal prompts,
-        // silent tools and user decisions remain active until their owner ends them.
+        let notice =
+            (!suppressed && quiet_since.is_none()).then(|| notice_since + quiet_notice_delay());
+        // Only pre-work recovery and terminal failures have a hard deadline.
+        // Native recovery after work remains active until its engine ends it.
         let deadline = state.deadline.or(notice);
         tokio::select! {
             result = &mut response => return Ok(result),
@@ -451,7 +464,7 @@ where
                 }
             } => {
                 if state.deadline.is_some() { return Err(()); }
-                quiet_since = Some(state.last_progress);
+                quiet_since = Some(notice_since);
                 activity(true);
             },
             changed = changes.changed() => if changed.is_err() { return Err(()); },
