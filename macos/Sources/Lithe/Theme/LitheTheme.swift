@@ -741,6 +741,10 @@ enum LitheTheme {
 
     /// Commit tool-window values shared by the Changes sidebar and editor.
     enum Commit {
+        // GitStashBranchComponent -> GitRefManager, Islands/expUI GitLog colors.
+        static var savedBranchIcon: Color { controlColor(light: 0x369650, dark: 0x5FAD65) }
+        static var savedHeadIcon: Color { controlColor(light: 0xFFAF0F, dark: 0xF5D273) }
+
         // Islands Dark editor scheme; IntelliJ Light inherits Default file-status colors.
         static var fileModified: Color { controlColor(light: 0x0032A0, dark: 0x70AEFF) }
         static var fileAdded: Color { controlColor(light: 0x0A7700, dark: 0x73BD79) }

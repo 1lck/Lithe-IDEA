@@ -42,6 +42,30 @@ Commit/Shelf 页签的留白以同一 Community revision 的 `IslandsUICustomiza
 焦点 2pt 边框；SwiftUI 选择器在展开或键盘聚焦时使用焦点描边。继承的 `Component.arc=8`
 对应半径 4，控件高 28；其余设置输入框维持原有描边宽度。弹出列表布局不变。
 
+### Stash / Shelf 浏览
+
+沿用 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`platform/vcs-impl/src/com/intellij/openapi/vcs/changes/savedPatches/SavedPatchesUi.kt`
+和 `plugins/git4idea/backend/src/stash/ui/GitStashContentProvider.kt`：上下分栏默认比例
+0.5，下半区承载文件树和底部恢复动作。Lithe 使用现有 `LitheSplitPaneView`、
+Git Log 原生文件树与 `GitCommitDiffReviewView`，避免为保存记录建立第二套 Diff。
+创建 Stash / Shelf 入口按用户要求放在中间工具栏，通过 Commit 共享弹窗输入；
+原有名称、Untracked（仅 Stash）、保存/恢复/删除服务不变，Shelf 记录仍可访问。
+分支标签遵循 `GitStashBranchComponent` → `GitRefManager` 的
+`VersionControl.GitLog.localBranchIconColor`（深色 #5FAD65、浅色 #369650）与
+`headIconColor`（深色 #F5D273、浅色 #FFAF0F）；不能直接展示灰色 SVG 原色。
+记录行复用 `BranchPopupRowControl` 的非激活原位展开窗口，hover 展示完整名称、日期、
+分支，屏幕边界约束与滚动/关闭清理沿用原实现；展开区域也转交共享右键菜单，不能
+为了 hover 丢失 Apply/Pop/Restore/Drop。
+
+预览先固定 Stash 的对象 SHA，再用 Git 导出包含未跟踪文件的只读补丁，不能读取当前
+工作区冒充保存版本。Shelf 的 index 与 worktree 补丁是两个连续版本，必须分开选择，
+不能拼成同一文件的净 Diff。Core `git.patchPreview` 的 `metadataOnly` 路径仅解析安全
+文件名、不检查工作区适用性，不生成应用授权 token，冲突期间仍可浏览保存内容。
+当前按文件顺序解析，复杂路径交给 Git；大量文件的后续优化应批量返回 Core 文件段元数据。
+异步加载由页面 task 的选择标识取消，迟到结果不覆盖新选择；Diff 使用不可变快照。
+组件与 Core 用例不能代替真实工作区深浅主题、窄宽度、弹窗和点击操作验收。
+
 ### Commit 文件树
 
 Commit 文件树参考同一 Community revision 的 `ChangesTreeCellRenderer`、

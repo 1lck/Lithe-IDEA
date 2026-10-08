@@ -1403,6 +1403,7 @@ struct WorkbenchView: View {
                         commitWorkflow: model.commitWorkflow,
                         workbench: model.workbenchFeature,
                         hasBackgroundImage: model.workbenchBackgroundFeature.hasImage,
+                        openSavedDiff: { model.showSavedChangesDiff($0, version: $1, file: $2) },
                         selectChange: { model.selectChange($0) },
                         setStaging: { model.setStaging($0, staged: $1) },
                         openFile: { model.openFile($0, displayPath: $1) },

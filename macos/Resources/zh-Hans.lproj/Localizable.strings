@@ -2719,3 +2719,13 @@
 "Name:" = "名称：";
 
 "Include in commit" = "包含在提交中";
+
+"Stash Changes" = "储藏更改";
+
+"Shelve Changes" = "搁置更改";
+
+"Select saved changes" = "选择已保存的更改";
+
+"Could not load saved changes" = "无法加载已保存的更改";
+
+"Could not inspect saved file" = "无法读取已保存的文件";

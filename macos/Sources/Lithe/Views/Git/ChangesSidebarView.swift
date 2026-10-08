@@ -12,6 +12,7 @@ struct ChangesSidebarView: View {
     @Environment(\.colorScheme) private var colorScheme
     let workbench: WorkbenchFeatureModel
     let hasBackgroundImage: Bool
+    let openSavedDiff: (GitSavedChangesSnapshot, String, GitCommitFile) -> Void
     let selectChange: (GitChange) -> Void
     let setStaging: ([GitChange], Bool) -> Void
     let openFile: (URL, String) -> Void
@@ -23,10 +24,6 @@ struct ChangesSidebarView: View {
     @State private var commitToolActive = false
     @State private var changelistExpanded: [String: Bool] = [:]
     @State private var repositoryExpanded: [String: Bool] = [:]
-    @State private var stashMessage = "WIP"
-    @State private var includeUntracked = true
-    @State private var selectedStash: GitStash?
-    @State private var selectedShelf: GitShelfEntry?
     @State private var pendingDropStash: GitStash?
     @State private var pendingDropShelf: GitShelfEntry?
     @State private var pendingDiscardSelection: [GitChange] = []
@@ -221,202 +218,8 @@ struct ChangesSidebarView: View {
     private static let defaultCommitAreaHeight = LitheTheme.Commit.areaMinimumHeight
 
     private var shelfContent: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 6) {
-                HStack(spacing: 6) {
-                    TextField("Save message", text: $stashMessage)
-                        .litheSettingsTextField()
-
-                    Toggle("Untracked", isOn: $includeUntracked)
-                        .toggleStyle(.checkbox)
-                        .font(LitheTheme.settingsFont)
-                        .fixedSize()
-                }
-                HStack(spacing: 6) {
-                    Spacer()
-                    Button {
-                        Task {
-                            await feature.stashWorkingTree(
-                                message: stashMessage,
-                                includeUntracked: includeUntracked
-                            )
-                            selectedStash = nil
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            if feature.isPerformingStashOperation {
-                                ProgressView().controlSize(.mini)
-                            }
-                            Text("Stash")
-                        }
-                    }
-                    .buttonStyle(LithePrimaryButtonStyle())
-                    .disabled(!canStash)
-
-                    Button {
-                        Task {
-                            await feature.shelveWorkingTree(message: stashMessage)
-                            selectedShelf = nil
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            if feature.isPerformingShelfOperation {
-                                ProgressView().controlSize(.mini)
-                            }
-                            Text("Shelf")
-                        }
-                    }
-                    .buttonStyle(LitheSecondaryButtonStyle())
-                    .disabled(!canShelf)
-                }
-            }
-            .environment(\.lithePointingHandCursorEnabled, false)
-            .padding(8)
-            .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
-
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-
-            if feature.gitStashes.isEmpty && feature.gitShelves.isEmpty {
-                VStack(spacing: 9) {
-                    Image(systemName: "archivebox")
-                        .font(LitheTheme.uiFont(size: 28, weight: .light))
-                    Text("No saved changes")
-                    Text("Stash or shelf changes here to switch branches safely.")
-                        .font(LitheTheme.uiFont(size: 11.5))
-                        .multilineTextAlignment(.center)
-                }
-                .font(LitheTheme.uiFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(20)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        if !feature.gitShelves.isEmpty {
-                            savedChangesSectionHeader("Lithe Shelves")
-                            ForEach(feature.gitShelves) { shelf in
-                                shelfRow(shelf)
-                            }
-                        }
-                        if !feature.gitStashes.isEmpty {
-                            savedChangesSectionHeader("Git Stashes")
-                            ForEach(feature.gitStashes) { stash in
-                                stashRow(stash)
-                            }
-                        }
-                    }
-                    .padding(7)
-                }
-            }
-        }
-    }
-
-    private func stashRow(_ stash: GitStash) -> some View {
-        Button {
-            selectedStash = stash
-        } label: {
-            HStack(spacing: 8) {
-                LitheSystemIcon(systemImage: "archivebox")
-                    .foregroundStyle(LitheTheme.accent)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(stash.message.isEmpty ? stash.reference : stash.message)
-                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    HStack(spacing: 5) {
-                        Text(stash.reference)
-                        if let branch = stash.branch, !branch.isEmpty {
-                            Text("·")
-                            Text(branch)
-                        }
-                        Text("·")
-                        Text(stash.date)
-                    }
-                    .font(LitheTheme.uiFont(size: 10))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-                }
-                Spacer(minLength: 4)
-            }
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .background(
-                selectedStash?.id == stash.id
-                    ? LitheTheme.subtleSelection
-                    : LitheTheme.sidebar
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .litheContextMenu {
-            [
-                .action("Apply", systemImage: "arrow.down.circle", action: {
-                    Task { await feature.applyStash(stash) }
-                }),
-                .action("Pop", systemImage: "arrow.up.circle", action: {
-                    Task { await feature.applyStash(stash, pop: true) }
-                }),
-                .separator,
-                .action("Drop", role: .destructive, action: { pendingDropStash = stash })
-            ]
-        }
-    }
-
-    private func savedChangesSectionHeader(_ title: String) -> some View {
-        HStack {
-            Text(LocalizedStringKey(title))
-                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Spacer()
-        }
-        .padding(.horizontal, 8)
-        .padding(.top, 6)
-        .padding(.bottom, 3)
-    }
-
-    private func shelfRow(_ shelf: GitShelfEntry) -> some View {
-        Button {
-            selectedShelf = shelf
-        } label: {
-            HStack(spacing: 8) {
-                LitheSystemIcon(systemImage: "shippingbox")
-                    .foregroundStyle(LitheTheme.accent)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(shelf.message)
-                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    Text("\(shelf.paths.count) file(s) · \(shelf.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(LitheTheme.uiFont(size: 10))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 4)
-            }
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .background(
-                selectedShelf?.id == shelf.id
-                    ? LitheTheme.subtleSelection
-                    : LitheTheme.sidebar
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .litheContextMenu {
-            [
-                .action("Restore", systemImage: "arrow.uturn.backward", action: {
-                    Task { await feature.applyShelf(shelf) }
-                }),
-                .action("Drop", role: .destructive, action: { pendingDropShelf = shelf })
-            ]
-        }
+        GitSavedChangesView(feature: feature, isActive: commitToolActive, openDiff: openSavedDiff,
+            dropStash: { pendingDropStash = $0 }, dropShelf: { pendingDropShelf = $0 })
     }
 
     private var commitToolbar: some View {
@@ -926,14 +729,6 @@ struct ChangesSidebarView: View {
         return changes.contains(where: isEffectivelyStaged) ? .mixed : .off
     }
 
-    private var canStash: Bool {
-        !feature.activeRepositoryChanges.isEmpty && !feature.isPerformingStashOperation
-    }
-
-    private var canShelf: Bool {
-        !feature.activeRepositoryChanges.isEmpty && !feature.isPerformingShelfOperation
-    }
-
     private func fileNameColor(_ change: GitChange) -> Color {
         if change.isUntracked { return LitheTheme.Commit.fileUntracked }
         switch change.kind {
@@ -946,9 +741,8 @@ struct ChangesSidebarView: View {
     }
 
     private func selectRequestedStashIfNeeded() {
-        guard let reference = feature.requestedStashReference else { return }
+        guard feature.requestedStashReference != nil else { return }
         selectedTab = .shelf
-        selectedStash = feature.gitStashes.first(where: { $0.reference == reference })
     }
 
     private func changeDisplayName(_ change: GitChange) -> String {
@@ -1122,7 +916,7 @@ private enum CommitTab: String, CaseIterable, Identifiable {
     case shelf
 
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String { self == .shelf ? "Stash" : "Commit" }
 }
 
 /// ChangesTreeCellRenderer uses a 24pt ThreeStateCheckBox with a 16pt painted square.

@@ -141,6 +141,9 @@ struct GitCommitDiffReviewView: View {
     }
 
     private var files: [GitCommitFile] {
+        if context.commit.hash.hasPrefix("saved:"), let snapshot = feature.savedDiffSnapshot {
+            return snapshot.files.filter { $0.version == feature.savedDiffVersion }.map(\.file)
+        }
         guard feature.selectedGitCommit?.hash == context.commit.hash,
               feature.selectedGitCommitFiles.contains(where: { $0.id == context.file.id }) else { return [context.file] }
         return feature.selectedGitCommitFiles

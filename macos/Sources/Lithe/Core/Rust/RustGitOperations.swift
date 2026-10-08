@@ -192,6 +192,11 @@ struct RustGitOperations: GitOperations, Sendable {
             .mapError { GitPatchFailure($0.userMessage) }
     }
 
+    func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure> {
+        core.gitPatchPreview(at: rootURL, patch: patch, target: .worktree, metadataOnly: true)
+            .mapError { GitPatchFailure($0.userMessage) }
+    }
+
     func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure> {
         core.gitPatchPreview(at: rootURL, patch: patch, target: target)
             .mapError { GitPatchFailure($0.userMessage) }
