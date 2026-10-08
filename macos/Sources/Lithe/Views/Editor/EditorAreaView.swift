@@ -126,7 +126,9 @@ struct EditorAreaView: View {
                     )
                 } else if let feature = model.gitFeatureIfActive,
                           let selectedChange = feature.selectedChange {
-                    DiffReviewView(feature: feature, change: selectedChange,
+                    RepositoryDiffView(feature: feature, change: selectedChange,
+                        onClose: { feature.closeWorkingTreeDiff() },
+                        onOpenFile: { model.openFile(selectedChange.url) },
                         fontFamily: settings.editorFontFamily)
                 } else {
                     VStack(spacing: 0) {
@@ -1021,7 +1023,7 @@ struct EditorAreaView: View {
 
             if model.isRepositoryDiffSelected {
                 if let feature = model.gitFeatureIfActive, let context = feature.selectedGitCommitDiffContext {
-                    GitCommitDiffReviewView(feature: feature, context: context,
+                    RepositoryDiffView(feature: feature, context: context,
                         onClose: { model.closeGitCommitDiff() },
                         onOpenFile: { model.openFile(context.url) },
                         onOpenCommitDiff: { file in

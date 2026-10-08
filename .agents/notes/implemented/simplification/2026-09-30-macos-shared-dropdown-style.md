@@ -48,7 +48,7 @@ Commit/Shelf 页签的留白以同一 Community revision 的 `IslandsUICustomiza
 `platform/vcs-impl/src/com/intellij/openapi/vcs/changes/savedPatches/SavedPatchesUi.kt`
 和 `plugins/git4idea/backend/src/stash/ui/GitStashContentProvider.kt`：上下分栏默认比例
 0.5，下半区承载文件树和底部恢复动作。Lithe 使用现有 `LitheSplitPaneView`、
-Git Log 原生文件树与 `GitCommitDiffReviewView`，避免为保存记录建立第二套 Diff。
+Git Log 原生文件树与 `RepositoryDiffView`，避免为保存记录建立第二套 Diff。
 Stash 分隔条关闭已有 `highlightsOnHover` 开关，悬停和拖动均保持原色，保留拖动热区。
 创建 Stash / Shelf 入口按用户要求放在中间工具栏，通过 Commit 共享弹窗输入；
 原有名称、Untracked（仅 Stash）、保存/恢复/删除服务不变，Shelf 记录仍可访问。
@@ -529,3 +529,15 @@ Agent 输入区底栏的切换菜单向上展开，菜单底边锚定触发控�
 
 - `macos/EditorFrontend/context-menu.ts`
 - `macos/Sources/Lithe/Views/Editor/MonacoEditorContextMenu.swift`
+
+### 统一 Repository Diff 面板
+
+Commit 工作区、项目树文件/目录差异、编辑器行变更和冲突文件入口，与 Git Log、
+Stash/Shelf 共用 `RepositoryDiffView`。它以原 Git Log 新版工具栏和原生单栏/双栏为
+唯一面板，删除 `DiffReviewView`、旧单栏行、旧连接带与 `DiffMapView`，不保留备用旧路径。
+仍在使用的字体/布局度量和语法高亮分别归 `DiffLayoutMetrics`、`DiffSyntaxHighlighter`。
+工作区模式保留搜索、空白比较、整文件暂存/取消暂存/丢弃与差异块动作，继续调用原有
+GitFeatureModel 写入及确认流程；只读历史/保存记录模式不提供这些写入动作。
+差异块入口锚定该 hunk 的首个差异行；纯删除使用左栏，新版单栏也保留动作。
+分支比较、本地历史与 Agent 的嵌入式预览继续复用 `DiffPaneView` → `DiffSplitPaneView`，
+它们不承载仓库暂存操作，也不是被删除的旧工作区面板。

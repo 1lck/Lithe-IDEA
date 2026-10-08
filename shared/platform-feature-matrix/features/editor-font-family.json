@@ -14,7 +14,7 @@
       "macos/Sources/Lithe/Models/Settings/AppSettings.swift",
       "macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift",
       "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
-      "macos/Sources/Lithe/Views/Diff/DiffReviewView.swift",
+      "macos/Sources/Lithe/Views/Diff/RepositoryDiffView.swift",
       "macos/Sources/Lithe/Views/History/LocalHistoryView.swift",
       "macos/Sources/Lithe/Views/Git/BranchComparisonView.swift",
       "macos/Sources/Lithe/Views/App/SettingsSearchVocabulary.swift",
