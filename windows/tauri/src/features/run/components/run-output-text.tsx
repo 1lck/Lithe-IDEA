@@ -4,6 +4,8 @@ import {
   ContextMenu,
   ContextMenuCheckboxItem,
   ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/ui/context-menu";
 import { cn } from "@/utils/cn";
@@ -15,6 +17,8 @@ export function RunOutputText({
   wrapLines = true,
   wrapLabel,
   onToggleWrapLines,
+  snapshotLabel,
+  onSnapshotOutput,
 }: {
   source: string;
   emptyLabel: string;
@@ -26,6 +30,10 @@ export function RunOutputText({
    *  callback is provided, so store-less consumers stay unchanged. */
   wrapLabel?: string;
   onToggleWrapLines?: () => void;
+  /** Freezes the currently buffered output into a read-only snapshot so the
+   *  live buffer can keep evicting old lines without losing what is shown. */
+  snapshotLabel?: string;
+  onSnapshotOutput?: () => void;
 }) {
   const preRef = useRef<HTMLPreElement>(null);
   const spans = useMemo(() => renderRunOutput(source), [source]);
@@ -100,6 +108,14 @@ export function RunOutputText({
         {content}
       </ContextMenuTrigger>
       <ContextMenuContent>
+        {onSnapshotOutput && source ? (
+          <>
+            <ContextMenuItem onClick={() => onSnapshotOutput()}>
+              {snapshotLabel}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        ) : null}
         <ContextMenuCheckboxItem
           checked={wrapLines}
           onCheckedChange={() => onToggleWrapLines()}
