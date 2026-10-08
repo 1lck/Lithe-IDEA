@@ -27,6 +27,7 @@ export function parseArguments(arguments_) {
     suiteTimeoutMs: 1200000,
     report: null,
     keepGoing: false,
+    testFilter: null,
   };
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
@@ -45,6 +46,12 @@ export function parseArguments(arguments_) {
       options.suiteTimeoutMs = positiveInteger(arguments_[++index], "--suite-timeout-ms");
     } else if (argument === "--report") options.report = path.resolve(arguments_[++index]);
     else if (argument === "--keep-going") options.keepGoing = true;
+    else if (argument === "--test-filter") {
+      options.testFilter = arguments_[++index];
+      if (!options.testFilter?.trim() || options.testFilter.startsWith("--")) {
+        throw new Error("--test-filter requires a nonempty test-name substring.");
+      }
+    }
     else throw new Error(`Unknown argument: ${argument}`);
   }
   if (!options.manifest) throw new Error("--manifest is required.");
@@ -135,6 +142,7 @@ export async function run(
       warnMs: options.warnMs,
       maxMs: options.maxMs,
       testBudgets: options.testBudgets ?? [],
+      testFilter: options.testFilter ?? null,
       suiteTimeoutMs: options.suiteTimeoutMs,
       buildDurationMs,
       suite: {
@@ -221,7 +229,7 @@ export async function run(
       );
       const listed = await runProcessImpl({
         command: artifact.executable,
-        args: ["--list", "--color", "never"],
+        args: [...(options.testFilter ? [options.testFilter] : []), "--list", "--color", "never"],
         cwd,
         timeoutMs: enumerationBudget.timeoutMs,
       });

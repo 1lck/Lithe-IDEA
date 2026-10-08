@@ -18,6 +18,17 @@ static verifier, Swift runner, and Rust runner are Node.js-only.
 The Windows timing harness passes an explicit timeout to Bun and reads the
 JUnit duration for every executed test case.
 
+Windows PR CI selects the existing frontend suites through
+`scripts/select-windows-ci-tests.mjs` and `scripts/windows-ci-test-suites.json`.
+Selection combines feature ownership with transitive runtime imports and literal
+source/glob inputs. Computed module targets retain their consumers as baseline
+checks. Global configuration, declarations, assets, native contracts, unknown
+ownership, deleted files and scan failures fall back to every registered suite.
+Full typechecking/build/boundary validation remains unconditional; main and
+manual events run every suite. Keep the registry and workflow steps together.
+New unregistered test files changed in a PR run in separate processes; move them
+into an owning suite without removing its isolation, random seeds or deadlines.
+
 ## Rust
 
 - Prefer channels, barriers, and injected clocks to `thread::sleep`. Channel
@@ -60,13 +71,14 @@ deadline. The workspace commit submodule publication test also gets 30 seconds
 because it creates two local remotes and runs multiple real Git pushes. Other
 multi-repository coverage includes
 `tests::git::git_write_updates_a_noncurrent_branch_without_switching_head`,
-which also gets 30 seconds in both SharedRust and real-JDT lanes: it builds a
-bare remote and two working repositories, pushes and fetches commits, then
-checks branch updates with an attached and detached HEAD. A Windows real-JDT
-run reached the 15-second process deadline during this case, while the same
-revision passed it in 2.4 seconds in SharedRust. This scoped allowance covers
-native process and filesystem variability without changing assertions; other
-cases retain the normal 15-second budget. The Rust runner's repeatable
+which gets 30 seconds in SharedRust: it builds a bare remote and two working
+repositories, pushes and fetches commits, then checks branch updates with an
+attached and detached HEAD. The real-JDT lane now selects only
+`lsp::interface::engine::real_jdt_tests::` via `--test-filter`, so it does not
+repeat Git or other Core cases. The filter is a libtest test-name substring;
+no match fails the lane. Omitting it retains the full suite. Filtering reduces
+execution, while Cargo still compiles the crate's test executables.
+The Rust runner's repeatable
 `--test-budget prefix=milliseconds` option uses the most specific matching
 prefix, records each case's effective budget in JSON, uses that budget for
 HTML/JUnit classification, and remains capped by the shared suite deadline.

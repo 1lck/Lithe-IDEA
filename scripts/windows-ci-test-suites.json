@@ -1,0 +1,326 @@
+{
+  "schemaVersion": 1,
+  "groups": {
+    "optional_plugins": {
+      "step": "Build and verify optional PHP worker plugin",
+      "tests": [
+        "src/extensions/registry/extension-package-bootstrap.test.ts",
+        "src/extensions/packages/local-extension-package.test.ts",
+        "src/extensions/run",
+        "src/extensions/ui/services/ui-extension-worker-runtime.test.ts",
+        "src/extensions/registry/extension-store-lifecycle.test.ts",
+        "src/features/run-actions/utils/run-action-discovery.test.ts"
+      ]
+    },
+    "platform": {
+      "step": "Test Windows platform",
+      "tests": [
+        "src/platform"
+      ]
+    },
+    "documents": {
+      "step": "Test Windows documents",
+      "tests": [
+        "src/features/editor/stores/editor-app.store.test.ts",
+        "src/features/editor/services/document-external-change-workflow.test.ts",
+        "src/features/editor/services/document-save-lifecycle.test.ts",
+        "src/features/editor/services/document-watch-controller.test.ts"
+      ]
+    },
+    "java_navigation": {
+      "step": "Test Windows java-navigation",
+      "tests": [
+        "src/features/editor/lsp/language-server-navigation.test.ts",
+        "src/features/editor/lsp/java-navigation-marker-loader.test.ts",
+        "src/features/editor/engines/monaco/java-implementation-markers.test.ts",
+        "src/features/editor/engines/monaco/java-run-markers.test.ts"
+      ]
+    },
+    "definition_link": {
+      "step": "Test Windows definition-link",
+      "tests": [
+        "src/features/editor/engines/monaco/definition-link.test.ts",
+        "src/features/editor/engines/monaco/definition-link-scheduler.test.ts"
+      ]
+    },
+    "semantic_tokens": {
+      "step": "Test Windows semantic-tokens",
+      "tests": [
+        "src/features/editor/lsp/lsp-client-semantic-tokens.test.ts",
+        "src/features/editor/lsp/lsp-client-navigation-context.test.ts",
+        "src/features/editor/engines/monaco/semantic-token-provider.test.ts"
+      ]
+    },
+    "editor_ownership": {
+      "step": "Test Windows editor-ownership",
+      "tests": [
+        "src/features/editor/extensions/api.owner-navigation.test.ts"
+      ]
+    },
+    "java_workspace": {
+      "step": "Test Windows java-workspace",
+      "tests": [
+        "src/features/editor/lsp/java-workspace-language-server.test.ts",
+        "src/features/editor/lsp/java-workspace-change-scheduler.test.ts"
+      ]
+    },
+    "debug_events": {
+      "step": "Test Windows debug-events",
+      "tests": [
+        "src/features/debugger/services/debug-adapter-events.test.ts"
+      ]
+    },
+    "debug_service": {
+      "step": "Test Windows debug-service",
+      "tests": [
+        "src/features/debugger/services/debug-adapter-service.test.ts"
+      ]
+    },
+    "maven_run_markers": {
+      "step": "Test Windows maven-run-markers",
+      "tests": [
+        "src/features/maven/stores/maven.store.test.ts",
+        "src/features/maven/services/java-test-discovery.test.ts"
+      ]
+    },
+    "run": {
+      "step": "Test Windows run",
+      "tests": [
+        "src/features/run"
+      ]
+    },
+    "java_clipboard": {
+      "step": "Test Windows java-clipboard",
+      "tests": [
+        "src/features/file-explorer/lib/java-clipboard-class.test.ts",
+        "src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts"
+      ]
+    },
+    "file_watcher": {
+      "step": "Test Windows file-watcher",
+      "tests": [
+        "src/features/file-system/services/file-watcher-listener.test.ts",
+        "src/features/file-system/stores/file-watcher.store.test.ts"
+      ]
+    },
+    "notifications": {
+      "step": "Test Windows notifications",
+      "tests": [
+        "src/features/notifications"
+      ]
+    },
+    "debug_ownership": {
+      "step": "Test Java debug session ownership and cleanup",
+      "tests": [
+        "src/features/debugger/services/debug-session-actions.test.ts",
+        "src/features/debugger/services/debug-session-resources.test.ts",
+        "src/features/debugger/services/monaco-debug-decorations.test.ts",
+        "src/features/maven/services/maven-module-debug.test.ts",
+        "src/features/debugger/stores/debugger-breakpoints.test.ts"
+      ]
+    },
+    "java_creation": {
+      "step": "Test Java file and package creation",
+      "tests": [
+        "src/features/file-explorer/lib/java-source-template.test.ts",
+        "src/features/file-explorer/lib/tree-dom-event.test.tsx",
+        "src/features/file-explorer/services/create-java-entry.test.ts",
+        "src/features/file-explorer/stores/new-entry.store.test.ts",
+        "src/utils/java-name-validation.test.ts"
+      ]
+    },
+    "workspace_lifecycle": {
+      "step": "Test workspace open, replace, and close lifecycle",
+      "tests": [
+        "src/features/workspace/services/workspace-lifecycle.test.ts",
+        "src/features/window/services/project-window-router.test.ts"
+      ]
+    },
+    "window_title": {
+      "step": "Test native window title context and lifecycle",
+      "tests": [
+        "src/features/window/utils/window-title-context.test.ts",
+        "src/features/window/services/window-title-source.test.ts",
+        "src/features/window/services/window-title-sync.test.ts",
+        "src/features/window/services/window-title-focus.test.ts"
+      ]
+    },
+    "git_gutter": {
+      "step": "Test Git gutter changes and inline review lifecycle",
+      "tests": [
+        "src/features/git/utils/git-gutter-changes.test.ts",
+        "src/features/editor/engines/monaco/git-gutter-peek-session.test.ts"
+      ]
+    },
+    "tabs": {
+      "step": "Test editor tab scrolling and lifecycle",
+      "tests": [
+        "src/features/tabs"
+      ]
+    },
+    "svg": {
+      "step": "Test SVG editor preview modes and live updates",
+      "tests": [
+        "src/features/editor/components/svg-editor.test.tsx"
+      ]
+    },
+    "welcome": {
+      "step": "Test welcome clone and modal isolation",
+      "tests": [
+        "src/features/layout/components/welcome-screen.integration.test.tsx",
+        "src/features/maven/components/maven-source-root-rows.test.tsx",
+        "src/features/window/stores/ui-state/modal-slice.test.ts",
+        "src/features/window/utils/project-picker-mode.test.ts"
+      ]
+    },
+    "git_paths": {
+      "step": "Test Windows Git path identity",
+      "tests": [
+        "src/features/git/api/git-repo-api.test.ts",
+        "src/utils/path-helpers.test.ts"
+      ]
+    },
+    "git_messages": {
+      "step": "Test Git commit messages and asynchronous diff ownership",
+      "tests": [
+        "src/features/git/api/git-commits-api.test.ts",
+        "src/features/git/components/log/git-commit-details.test.tsx",
+        "src/features/git/hooks/use-git-diff-actions.test.tsx"
+      ]
+    },
+    "git_queries": {
+      "step": "Test Git query recovery and isolation",
+      "tests": [
+        "src/features/git/api/git-status-api.test.ts",
+        "src/features/git/hooks/use-git-data-controller.integration.test.tsx",
+        "src/features/git/stores/git-repository.store.test.ts",
+        "src/features/git/stores/git.store.test.ts",
+        "src/features/git/runtime/git-status-refresh-host.test.tsx",
+        "src/features/workspace/services/workspace-startup-priority.test.ts",
+        "src/features/workspace/services/workspace-git-bootstrap.test.ts",
+        "src/features/file-system/controllers/project-file-scan-coordinator.test.ts",
+        "src/features/editor/lsp/resolve-editor-lsp-launch.test.ts",
+        "src/features/git/utils/monaco-diff-rows.test.ts",
+        "src/features/git/utils/git-diff-parser.test.ts",
+        "src/features/git/utils/git-graph-layout.test.ts",
+        "src/features/git/utils/monaco-diff-hunk-actions.test.ts",
+        "src/features/git/services/git-execution-journal.test.ts"
+      ]
+    },
+    "git_preview": {
+      "step": "Test Git Log previews, dates, columns, and workbench layout",
+      "tests": [
+        "src/features/git/utils/monaco-diff-rows.test.ts",
+        "src/features/git/utils/commit-diff-chrome-geometry.test.ts",
+        "src/features/git/utils/independent-commit-diff.test.ts",
+        "src/features/git/components/diff/independent-commit-diff-surface.test.ts",
+        "src/features/git/hooks/use-commit-file-preview.test.tsx",
+        "src/features/git/utils/commit-file-diff-navigation.test.ts",
+        "src/features/git/components/diff/commit-file-diff-toolbar.test.tsx",
+        "src/features/git/utils/commit-file-diff-appearance.test.ts",
+        "src/features/git/utils/commit-diff-blocks.test.ts",
+        "src/features/git/utils/commit-diff-blocks.integration.test.ts",
+        "src/features/git/services/commit-diff-review.test.ts",
+        "src/features/git/components/diff/monaco-commit-block-controls.test.ts",
+        "src/features/git/hooks/use-commit-diff-review.test.tsx",
+        "src/features/git/utils/diff-buffer-label.test.ts",
+        "src/features/git/hooks/use-git-log-column-resize.test.tsx",
+        "src/features/git/components/log/git-log-date-cell.test.tsx",
+        "src/features/git/components/log/git-commit-file-tree.test.ts",
+        "src/features/git/utils/git-log-columns.test.ts",
+        "src/features/git/utils/git-log-date.test.ts",
+        "src/features/git/utils/multi-file-diff.test.ts",
+        "src/utils/document-resize-session.test.ts",
+        "src/features/layout/components/plugin-activity-rail.test.ts",
+        "src/features/layout/components/workbench-panel-frame.test.ts",
+        "src/features/layout/config/item-order.test.ts",
+        "src/features/keymaps/defaults/default-keymaps.git-log.test.ts",
+        "src/features/terminal/stores/terminal.store.test.ts"
+      ]
+    },
+    "git_graph": {
+      "step": "Test Git graph layout, rendering, navigation, and commit inspector",
+      "tests": [
+        "src/features/git/components/log/git-commit-inspector.test.tsx",
+        "src/features/git/components/log/git-commit-table.filter.test.tsx",
+        "src/features/git/components/log/git-commit-table.navigation.test.tsx",
+        "src/features/git/components/log/git-commit-table.presentation.test.tsx",
+        "src/features/git/components/log/git-commit-table-keyboard-menu.test.tsx",
+        "src/features/git/components/log/git-commit-table-tag.test.tsx",
+        "src/features/git/components/log/git-graph-row.test.ts",
+        "src/features/git/components/log/git-graph-row.theme.test.tsx",
+        "src/features/git/components/log/git-log-branch-actions.test.tsx",
+        "src/features/git/hooks/use-git-graph-paint.test.tsx",
+        "src/features/git/hooks/use-git-log-controller.integration.test.tsx",
+        "src/features/git/stores/git-log-preferences.store.test.ts",
+        "src/features/git/utils/git-graph-colors.test.ts",
+        "src/features/git/utils/git-graph-geometry.test.ts",
+        "src/features/git/utils/git-graph-highlights.test.ts",
+        "src/features/git/utils/git-graph-reference-group.test.ts"
+      ]
+    },
+    "git_commit_panel": {
+      "step": "Test Commit panel layout and history picker",
+      "tests": [
+        "src/features/git/hooks/use-git-commit-picker.test.tsx",
+        "src/features/git/hooks/use-git-commit-area-resize.test.tsx",
+        "src/features/git/components/git-commit-panel.test.tsx"
+      ]
+    },
+    "git_staging": {
+      "step": "Test workspace Git commit adapters and staging",
+      "tests": [
+        "git-workspace-commit",
+        "git-status-api.test.ts",
+        "git-status-model.test.ts",
+        "ai-commit-context.test.ts",
+        "working-tree-diff-refresh.test.ts",
+        "file-context-menu-git-file-items.test.ts",
+        "git-workspace-status-panel.test.tsx",
+        "store.test.ts",
+        "git-changelist-bar.test.tsx"
+      ]
+    },
+    "terminal": {
+      "step": "Test terminal discovery, default shell, profiles, and tab layout",
+      "tests": [
+        "src/features/terminal/stores/shells.store.test.ts",
+        "src/features/terminal/utils/terminal-profiles.test.ts",
+        "src/features/terminal/utils/terminal-keyboard.test.ts",
+        "src/features/settings/lib/default-shell-options.test.ts",
+        "src/features/terminal/components/terminal-tab-strip.test.tsx"
+      ]
+    },
+    "quick_open": {
+      "step": "Test quick-open file search, number input steppers and editor settings route",
+      "tests": [
+        "src/features/quick-open/hooks/use-file-loader.test.tsx",
+        "src/features/quick-open/hooks/use-file-search.test.tsx",
+        "src/ui/number-input.test.tsx",
+        "src/features/settings/components/editor-settings-routing.test.tsx"
+      ]
+    },
+    "wheel": {
+      "step": "Test wheel scroll animation and container wheel ownership",
+      "tests": [
+        "src/ui/wheel-scroll-animation.test.ts",
+        "src/ui/scroll-container-wheel.integration.test.ts"
+      ]
+    },
+    "font_settings": {
+      "step": "Test system font settings and search matching",
+      "tests": [
+        "src/features/settings/components/editor-font-settings.test.tsx",
+        "src/features/settings/lib/editor-font-size.test.ts",
+        "src/utils/search-match.test.ts"
+      ]
+    },
+    "spring": {
+      "step": "Test Spring dependency readiness and properties completion",
+      "tests": [
+        "src/features/spring/utils/spring-property-completion.test.ts",
+        "src/features/spring/hooks/use-spring-index.test.tsx"
+      ]
+    }
+  }
+}

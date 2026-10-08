@@ -17,12 +17,16 @@ for (const file of await files(path.join(root, "windows/tauri/src"))) {
   if (/extensions\/languages\/full-extensions\.ts$/.test(file)) assert(!source.includes("intelephense"), "PHP language configuration must live in its package");
 }
 const pkgPath = path.join(root, ".artifacts/windows-plugins/lithe.php-1.0.0.lithe-extension");
-const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
-assert.equal(pkg.manifest.id, "lithe.php");
-assert.equal(pkg.manifest.main, "plugin.js");
-assert(pkg.source.includes("discoverRunActions"));
-assert(!/(?:from\s*["']@\/|import\s*\(["']@\/)/.test(pkg.source), "Plugin must not import application services");
-console.log("Windows PHP plugin package is independent of host production imports.");
+// Host validation also runs for PRs that do not build the optional package.
+// The default mode still requires and verifies the independently built plugin.
+if (!process.argv.includes("--host-only")) {
+  const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
+  assert.equal(pkg.manifest.id, "lithe.php");
+  assert.equal(pkg.manifest.main, "plugin.js");
+  assert(pkg.source.includes("discoverRunActions"));
+  assert(!/(?:from\s*["']@\/|import\s*\(["']@\/)/.test(pkg.source), "Plugin must not import application services");
+  console.log("Windows PHP plugin package is independent of host production imports.");
+}
 if (process.argv.includes("--dist")) {
   for (const file of await files(path.join(root, "windows/tauri/dist"))) {
     if (!/\.(js|json)$/.test(file)) continue;

@@ -44,6 +44,65 @@ scratch path；Xcode 26.6/Swift 6.3.3 继续使用原来的默认路径。插件
 （`x86_64`）包，两个架构任务在资源允许时并行运行。需要任意分支的完整包时，
 开发者可以手动运行工作流。
 
+功能矩阵的能力记录只描述实现程度、证据和验收动作，产品运行时不读取它们。
+分类器因此只对 `shared/platform-feature-matrix/features/<id>.json` 的规范文件名
+使用轻量路径；独立矩阵工作流仍校验内容、证据路径及平台改动的记录要求。
+例如，普通 Swift 源码与对应能力记录一起修改时只选择源码需要的 Swift 通道，
+不会因为能力 JSON 再开启 Rust Core 和 Windows 构建。矩阵的公共元数据、未知
+文件名、嵌套目录、共享契约和测试夹具仍保持原有共享通道覆盖；不要排除整个
+`shared/` 目录。重命名和复制分别分类旧路径与新路径并取并集，避免丢失原文件的
+所有权；任一端未知时仍回退到全部验证。分类日志逐路径显示匹配类别和通道，标准输出只保留工作流消费的布尔值。
+
+共享编辑器 `frontend/editor/` 和 Bun workspace 清单影响两端网页宿主，选择
+Swift、macOS 资源打包及 Windows 前端验证；它们不影响 Rust Core、数据库 crate
+或原生插件模块，不再使用未知路径的全量回退。macOS 专属入口
+`macos/EditorFrontend/`、Monaco 验证宿主及构建脚本只选择 macOS 通道。
+Windows PHP Worker 的构建和隔离校验脚本只选择 Windows 前端通道。
+普通 PR 的共享编辑器纯逻辑测试只在 Linux 分类 job 执行一次，两端的宿主类型与 WebKit
+集成继续由产品通道验证，避免在两个打包架构和 Windows 上重复同一组测试。
+单独手动运行 Windows CI 保留编辑器和工具回归，避免依赖未触发的另一个工作流。
+例如，修改共享编辑器同时修改 Rust Core 时，两组通道取并集，Rust 验证不能被
+编辑器例外遮蔽；新增未知前端目录仍全量回退，不能把所有 TypeScript 当成同一类。
+
+真实磁盘镜像（DMG）回滚集成测试只在已选中的 Swift job 中执行一次。更新模块、
+进程执行 adapter、相关测试与公共测试辅助代码变化时选择该步骤；Swift 和打包
+通道同时被选中时也执行，避免混合改动漏检。仅打包的任务继续由自身的 bundle
+验证负责，不因此增加一轮完整 Swift 编译。普通界面源码改动保留主 Swift 测试，
+但不再创建、签名、挂载同一个临时 DMG 两次；主测试调用仍排除该集成套件。
+手动全量运行会选择该步骤，分类输出缺失或非法时 macOS 分类 job 明确失败。
+
+三类 Swift 套件由 macOS CI 的同一 job 负责。先编译完整 SwiftPM 测试图一次，
+再按 `swift`、`plugins`、`swift_database` 分别执行，插件被选中时继续验证官方包。
+不再启动独立插件和数据库产品工作流；保留原有 gate 名称，并让 macOS gate
+依赖插件与数据库 gate；未涉及的 gate 跳过且不占 runner，macOS gate 显式检查
+该结果。Rust 数据库测试仍在 Linux，Core/Swift bridge 保持独立
+macOS job，以免把所有平台验证变成一条串行长队。多个 Swift 套件同时被选中时
+会串行执行，可能增加空闲 runner 条件下的测试阶段墙钟时间；减少编译和占用
+runner 是本次取舍，不改变单套件期限或跳过选中的测试。
+
+真实 JDT 验证只受 Rust 的 LSP 引擎、语言 adapter、JDK/JDT 工具准备及相关测试
+影响。Java 界面文件的名字并不能证明它改变了 Rust 集成路径，因此不再按
+`*java*` 启动真实 JDT。comment-only 修改仍执行 Core 注释校验。JDT job 只运行
+真实 JDT 模块，避免重复 SharedRust 的全部用例；测试过滤为空必须失败，Cargo
+仍编译当前 crate，过滤只减少执行工作，不冒称编译裁剪。
+
+Windows 前端内部按既有套件选择测试，而不是每次执行所有功能。先覆盖改动所属
+功能的套件，再使用 Bun 语法扫描补选传递导入、重导出、字面量动态导入、源文件
+读取和 Vite glob 的消费者。计算得到目标的动态导入无法证明与改动无关，其消费者
+继续作为基础检查。完整类型检查、应用构建和边界校验每次保留。
+这样终端键盘逻辑改动可跳过 Java 导航与调试器；不要只按编辑文件所在目录裁剪，
+因为公共设置状态会影响多个功能。公共 helper、声明、非代码资源、原生接口、
+未知模块、删除/重命名及扫描失败全量回退，`main` 和手动运行仍验证全部套件。
+
+套件清单与条件步骤必须同步维护。新增但尚未登记的测试在 PR 中单独启动进程，
+避免扩大 mock 泄漏；已有隔离进程、随机种子和本地期限不变。PHP 插件包只在
+选中时生成和上传，应用隔离校验使用独立 host 模式，不能因为没有插件产物而
+跳过应用源码或构建输出检查。选择依据与测试报告一同上传。
+
+CI 工具报告同时负责执行其硬耗时预算：先写诊断，再将超预算或功能失败返回给
+分类 job 和 gate。真实 Rust 二进制回归包含编译成本，沿用 60 秒本地期限作为
+独立预算；其余工具测试维持 15 秒，避免报告与门禁给出不同结果。
+
 Git 性能基线和 Git 状态观察属于专项验证。只有 Git 生产代码、对应专项测试或
 测试工具链发生变化时才运行；普通搜索、编辑器或设置界面改动不会为无关的
 Git 性能测试增加等待时间。推送到 `main` 或手动运行时，再使用相同编译产物
@@ -131,6 +190,13 @@ Job Object（Windows 用于管理整棵子进程树的对象），设置最后�
 会增加文档-only 或不需要产品包的构建时间和存储成本。macOS 只在产品构建
 lane 被选中时上传测试包；Windows PR 不上传安装包。
 
+### 把所有共享 JSON 都视为文档
+
+共享契约和测试夹具会影响产品行为，按扩展名跳过会漏掉跨平台回归。只豁免
+经过消费者审计、用于能力描述的规范记录；矩阵内容不合法仍由独立校验明确失败。
+能力记录改名仍须通过 ID 与文件名匹配的矩阵校验；移动到共享契约时仍选择
+契约消费者的验证，不扩大例外的信任范围。
+
 Windows PR 曾经只要命中产品 lane 就先生成完整 NSIS 包，导致前端与 Rust
 测试必须等待 Release 编译结束。安装包不是合并判断的输入，且 preview 发布
 工作流已经提供可安装产物，因此 Windows PR 完全移除打包步骤，而不是仅把它
@@ -151,9 +217,17 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 后果
 
+- 产品工作流由四条减少到两条，最多三轮 Swift 测试编译合为一轮；多个套件
+  同时命中时串行执行，仍需用真实 PR 数据验证总体反馈时间。
+- 共享编辑器纯逻辑和工具脚本不再跨产品重复执行；真实 JDT 不再重跑全部 Core。
+
 - 普通 macOS Swift PR 更快得到必需检查结果；被选中的打包改动仍获得两个架构
   的真实安装物。
 - Git 专项验证不会再延长无关 Swift 改动的反馈时间。
+- 能力记录不再扩大平台源码的测试集合；独立矩阵校验必须继续运行，是否作为
+  必需检查阻止合入由管理员维护有效保护规则，不能把分类成功等同于矩阵有效。
+- 已知编辑器与 Worker 工具路径只验证实际消费者；未知路径继续承担全量回退。
+- 普通 Swift 改动不再等待无关的 DMG 回滚集成步骤，更新相关改动保留一次完整验证。
 - 帧采样只绘制可见区域，减少与屏幕无关的测试工作；它不衡量完整历史的一次
   批量导出，也不等同于需要显式开启的真实窗口帧率采样。
 - Windows 前端失败与 Rust 失败可以独立、并行反馈，不再等待 NSIS 安装包。
@@ -165,6 +239,10 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 验证
 
+- `./scripts/test-classify-ci-changes.sh`
+- `node --test scripts/test-platform-feature-matrix.mjs scripts/test-ci-workflows.mjs`
+- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --report .artifacts/test-stability/windows-ci-selector.json -- scripts/select-windows-ci-tests.test.ts`
+- `./scripts/verify-platform-feature-matrix.sh`
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml`
 - `./scripts/test-macos.sh`
 - `./scripts/test-git-performance-baseline.sh`

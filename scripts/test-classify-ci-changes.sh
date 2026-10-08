@@ -3,6 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+if (( $# > 1 )); then
+    printf 'Usage: %s [case-name]\n' "$0" >&2
+    exit 2
+fi
+TEST_CASE="${1:-}"
+cases_run=0
 TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 
@@ -13,6 +19,7 @@ cd "$TEST_ROOT"
 git init -q
 git config user.email "ci@example.invalid"
 git config user.name "CI Test"
+git config commit.gpgsign false
 mkdir -p \
     Casks \
     Plugins/mac/Official/GoSupport \
@@ -35,6 +42,7 @@ mkdir -p \
     rust/lithe-core/tests \
     rust/lithe-db-sidecar/src \
     shared/fixtures/core \
+    shared/platform-feature-matrix/features \
     windows/tauri/src \
     windows/tauri/src-tauri/src
 printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 1 }' > rust/lithe-core/src/lib.rs
@@ -61,6 +69,8 @@ printf '%s\n' 'struct GoSupportTests {}' > Plugins/mac/Official/GoSupport/Tests/
 printf '%s\n' '{"id":"dev.lithe.go-support"}' > Plugins/mac/Official/GoSupport/plugin.json
 printf '%s\n' '{"id":"dev.lithe.win.example-support"}' > Plugins/win/ExampleSupport/plugin.json
 printf '%s\n' '{"operation":"test"}' > shared/fixtures/core/test.json
+printf '%s\n' '{"id":"sample","capability":"Sample"}' > shared/platform-feature-matrix/features/sample.json
+printf '%s\n' '{"schemaVersion":4}' > shared/platform-feature-matrix/metadata.json
 printf '%s\n' 'export const value = 1;' > windows/tauri/src/value.ts
 printf '%s\n' 'fn main() {}' > windows/tauri/src-tauri/src/main.rs
 printf '%s\n' '# Test' > README.md
@@ -82,6 +92,11 @@ classification() {
     local metadata="${10}"
     local git_validation="${11:-false}"
     local java_jdt="${12:-false}"
+    local macos_rollback="${13:-false}"
+    local editor_tests="${14:-false}"
+    if [[ $# -lt 13 && "$swift" == true && "$macos_release" == true ]]; then
+        macos_rollback=true
+    fi
 
     printf 'swift=%s\n' "$swift"
     printf 'plugins=%s\n' "$plugins"
@@ -95,6 +110,8 @@ classification() {
     printf 'rust_comments=%s\n' "$rust_comments"
     printf 'metadata=%s\n' "$metadata"
     printf 'git_validation=%s\n' "$git_validation"
+    printf 'macos_rollback=%s\n' "$macos_rollback"
+    printf 'editor_tests=%s\n' "$editor_tests"
 }
 
 assert_classification() {
@@ -102,6 +119,10 @@ assert_classification() {
     local expected="$2"
     shift 2
 
+    if [[ -n "$TEST_CASE" && "$TEST_CASE" != "$name" ]]; then
+        return
+    fi
+    cases_run=$((cases_run + 1))
     git reset --hard -q "$BASE_REVISION"
     git clean -fdq
     "$@"
@@ -109,10 +130,14 @@ assert_classification() {
     git commit -q -m "$name"
 
     local actual
-    actual="$(scripts/classify-ci-changes.sh "$BASE_REVISION" HEAD)"
+    actual="$(scripts/classify-ci-changes.sh "$BASE_REVISION" HEAD 2> "$TEST_ROOT/classification.log")"
     if [[ "$actual" != "$expected" ]]; then
         printf 'Classifier case %s failed:\nExpected:\n%s\nActual:\n%s\n' \
             "$name" "$expected" "$actual" >&2
+        exit 1
+    fi
+    if ! [[ -s "$TEST_ROOT/classification.log" ]]; then
+        printf 'Classifier case %s produced no path diagnostics\n' "$name" >&2
         exit 1
     fi
 }
@@ -168,6 +193,116 @@ rename_rust_to_markdown() {
     mkdir -p docs
     git mv rust/lithe-core/src/lib.rs docs/lib.md
 }
+modify_feature_record() { printf '%s\n' '{"id":"sample","capability":"Updated"}' > shared/platform-feature-matrix/features/sample.json; }
+add_feature_record() { printf '%s\n' '{"id":"another"}' > shared/platform-feature-matrix/features/another.json; }
+delete_feature_record() { rm shared/platform-feature-matrix/features/sample.json; }
+modify_feature_metadata() { printf '%s\n' '{"schemaVersion":5}' > shared/platform-feature-matrix/metadata.json; }
+modify_nested_feature_record() {
+    mkdir -p shared/platform-feature-matrix/features/nested
+    printf '%s\n' '{}' > shared/platform-feature-matrix/features/nested/sample.json
+}
+modify_unknown_shared_path() { printf '%s\n' '{}' > shared/unknown.json; }
+modify_swift_and_feature_record() { modify_swift_source; modify_feature_record; }
+modify_windows_and_feature_record() { modify_windows_frontend; modify_feature_record; }
+modify_rust_and_feature_record() { modify_rust_code; modify_feature_record; }
+modify_fixture_and_feature_record() { modify_shared_fixture; modify_feature_record; }
+rename_feature_record() { git mv shared/platform-feature-matrix/features/sample.json shared/platform-feature-matrix/features/renamed.json; }
+rename_feature_to_fixture() { git mv shared/platform-feature-matrix/features/sample.json shared/fixtures/core/sample.json; }
+rename_fixture_to_feature() { git mv shared/fixtures/core/test.json shared/platform-feature-matrix/features/test.json; }
+delete_shared_fixture() { rm shared/fixtures/core/test.json; }
+modify_shared_editor() {
+    mkdir -p frontend/editor/src
+    printf '%s\n' 'export const value = 1;' > frontend/editor/src/source-text.ts
+}
+modify_macos_editor() {
+    mkdir -p macos/EditorFrontend
+    printf '%s\n' 'export const value = 1;' > macos/EditorFrontend/context-menu.ts
+}
+modify_editor_build() { printf '%s\n' '#!/bin/zsh' 'print -- editor' > scripts/build-editor.sh; }
+modify_editor_boundary_verifier() { printf '%s\n' 'console.log("editor");' > scripts/verify-editor-boundaries.mjs; }
+modify_web_workspace() { printf '%s\n' '{"workspaces":["frontend/editor","windows/tauri"]}' > package.json; }
+modify_bun_lock() { printf '%s\n' '{"lockfileVersion":1}' > bun.lock; }
+modify_bun_config() { printf '%s\n' '[install]' 'linker="isolated"' > bunfig.toml; }
+modify_windows_worker_build() { printf '%s\n' 'console.log("worker");' > scripts/build-windows-php-plugin.ts; }
+modify_windows_worker_verifier() { printf '%s\n' 'console.log("worker");' > scripts/verify-windows-plugin-isolation.mjs; }
+modify_unknown_frontend() {
+    mkdir -p frontend/unknown
+    printf '%s\n' 'export const value = 1;' > frontend/unknown/value.ts
+}
+modify_update_source() {
+    mkdir -p macos/Sources/Lithe/Platform/MacOS/Updates
+    printf '%s\n' 'struct UpdateChecker {}' > macos/Sources/Lithe/Platform/MacOS/Updates/UpdateChecker.swift
+}
+modify_process_runner() {
+    mkdir -p macos/Sources/Lithe/Platform/MacOS/Process
+    printf '%s\n' 'struct ProcessRunner {}' > macos/Sources/Lithe/Platform/MacOS/Process/MacProcessRunner.swift
+}
+modify_rollback_test() { printf '%s\n' 'struct StableRollbackTests {}' > macos/Tests/LitheTests/StableRollbackTests.swift; }
+modify_shared_test_gate() { printf '%s\n' 'struct TestGate {}' > macos/Tests/LitheTests/TestGate.swift; }
+modify_editor_and_rust() { modify_shared_editor; modify_rust_code; }
+modify_editor_and_database() { modify_shared_editor; modify_database_swift; }
+
+assert_classification shared-editor \
+    "$(classification true false false false false true true false false false false false true true)" modify_shared_editor
+assert_classification macos-editor \
+    "$(classification true false false false false true false false false false)" modify_macos_editor
+assert_classification editor-build \
+    "$(classification true false false false false true false false false false)" modify_editor_build
+assert_classification editor-boundary-verifier \
+    "$(classification true false false false false true true false false false false false true true)" modify_editor_boundary_verifier
+assert_classification web-workspace \
+    "$(classification true false false false false true true false false false false false true true)" modify_web_workspace
+assert_classification bun-lock \
+    "$(classification true false false false false true true false false false false false true true)" modify_bun_lock
+assert_classification bun-config \
+    "$(classification true false false false false true true false false false false false true true)" modify_bun_config
+assert_classification windows-worker-build \
+    "$(classification false false false false false false true false false false)" modify_windows_worker_build
+assert_classification windows-worker-verifier \
+    "$(classification false false false false false false true false false false)" modify_windows_worker_verifier
+assert_classification unknown-frontend \
+    "$(classification true true true true true true true true false false true true true true)" modify_unknown_frontend
+assert_classification update-source \
+    "$(classification true false false false false false false false false false false false true)" modify_update_source
+assert_classification process-runner \
+    "$(classification true false false false false false false false false false false false true)" modify_process_runner
+assert_classification rollback-test \
+    "$(classification true false false false false false false false false false false false true)" modify_rollback_test
+assert_classification shared-test-gate \
+    "$(classification true false false false false false false false false false false false true)" modify_shared_test_gate
+assert_classification editor-and-rust \
+    "$(classification true false false true false true true true false false false false true true)" modify_editor_and_rust
+assert_classification editor-and-database \
+    "$(classification true false true false false true true false false false false false true true)" modify_editor_and_database
+
+assert_classification feature-record \
+    "$(classification false false false false false false false false false false)" modify_feature_record
+assert_classification add-feature-record \
+    "$(classification false false false false false false false false false false)" add_feature_record
+assert_classification delete-feature-record \
+    "$(classification false false false false false false false false false false)" delete_feature_record
+assert_classification feature-metadata \
+    "$(classification true false false true false false true true false false)" modify_feature_metadata
+assert_classification nested-feature-record \
+    "$(classification true false false true false false true true false false)" modify_nested_feature_record
+assert_classification unknown-shared-path \
+    "$(classification true false false true false false true true false false)" modify_unknown_shared_path
+assert_classification swift-and-feature-record \
+    "$(classification true false false false false false false false false false)" modify_swift_and_feature_record
+assert_classification windows-and-feature-record \
+    "$(classification false false false false false false true false false false)" modify_windows_and_feature_record
+assert_classification rust-and-feature-record \
+    "$(classification false false false true false true true true false false)" modify_rust_and_feature_record
+assert_classification fixture-and-feature-record \
+    "$(classification true false false true false false true true false false)" modify_fixture_and_feature_record
+assert_classification rename-feature-record \
+    "$(classification false false false false false false false false false false)" rename_feature_record
+assert_classification rename-feature-to-fixture \
+    "$(classification true false false true false false true true false false)" rename_feature_to_fixture
+assert_classification rename-fixture-to-feature \
+    "$(classification true false false true false false true true false false)" rename_fixture_to_feature
+assert_classification delete-shared-fixture \
+    "$(classification true false false true false false true true false false)" delete_shared_fixture
 
 assert_classification readme \
     "$(classification false false false false false false false false false false)" \
@@ -212,7 +347,7 @@ assert_classification macos-performance-baseline \
     "$(classification false false false false false true false false false false)" \
     modify_macos_performance_baseline
 assert_classification unknown-script \
-    "$(classification true true true true true true true true false false true true)" \
+    "$(classification true true true true true true true true false false true true true true)" \
     modify_unknown_script
 assert_classification swift-test \
     "$(classification true false false false false false false false false false)" \
@@ -272,7 +407,7 @@ assert_classification worktree-resource-registry \
     "$(classification true true true true false true true true false false)" \
     modify_worktree_resource_registry
 assert_classification test-stability-runner \
-    "$(classification true true true true false false true true false false true)" \
+    "$(classification true true true true false false true true false false true true false true)" \
     modify_test_stability_runner
 modify_swift_version() { printf '%s\n' '6.3.3' > .swift-version; }
 modify_macos_toolchain_action() {
@@ -292,10 +427,84 @@ assert_classification metadata \
     "$(classification false false false false false false false false false true)" \
     modify_metadata
 assert_classification classifier \
-    "$(classification true true true true true true true true false false true true)" \
+    "$(classification true true true true true true true true false false true true true true)" \
     modify_classifier
 assert_classification rename-rust-to-markdown \
-    "$(classification true true true true true true true true false false true true)" \
+    "$(classification false false false true false true true true false false)" \
     rename_rust_to_markdown
 
-printf '%s\n' 'CI change classifier tests passed'
+
+modify_windows_java_view() {
+    mkdir -p windows/tauri/src/features/editor/components
+    printf '%s\n' 'export const value = 1;' > windows/tauri/src/features/editor/components/java-view.tsx
+}
+modify_macos_java_view() {
+    mkdir -p macos/Sources/Lithe/Views/Community
+    printf '%s\n' 'struct JavaView {}' > macos/Sources/Lithe/Views/Community/JavaView.swift
+}
+modify_java_documentation() {
+    mkdir -p macos/Sources/Lithe/Platform/MacOS/Process
+    printf '%s\n' '# Process notes' > macos/Sources/Lithe/Platform/MacOS/Process/README.md
+    mkdir -p windows/tauri/java
+    printf '%s\n' '# Java usage' > windows/tauri/java/README.md
+}
+modify_jdt_transport() {
+    mkdir -p rust/lithe-core/src/lsp/interface
+    printf '%s\n' '//! Transport boundary.' 'pub fn connect() {}' > rust/lithe-core/src/lsp/interface/transport.rs
+}
+modify_real_jdt_test() {
+    mkdir -p rust/lithe-core/src/lsp/interface
+    printf '%s\n' '#[test]' 'fn real_jdt_test() {}' > rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs
+}
+modify_java_comment() {
+    printf '%s\n' '// Java normalization.' 'pub fn normalize() {}' > rust/lithe-core/src/lsp/languages/java_tests.rs
+}
+rename_swift_source() { git mv macos/Sources/Lithe/App.swift macos/Sources/Lithe/RenamedApp.swift; }
+rename_windows_to_swift() { git mv windows/tauri/src/value.ts macos/Sources/Lithe/Moved.swift; }
+rename_to_unknown() { git mv macos/Sources/Lithe/App.swift unknown-source.swift; }
+modify_macos_ci() {
+    mkdir -p .github/workflows
+    printf '%s\n' 'name: macOS CI' > .github/workflows/ci-macos.yml
+}
+assert_classification windows-java-view \
+    "$(classification false false false false false false true false false false)" modify_windows_java_view
+assert_classification macos-java-view \
+    "$(classification true false false false false false false false false false)" modify_macos_java_view
+assert_classification java-documentation \
+    "$(classification false false false false false false false false false false)" modify_java_documentation
+assert_classification jdt-transport \
+    "$(classification false false false true false true true true false false false true)" modify_jdt_transport
+assert_classification real-jdt-test \
+    "$(classification false false false true false false false false false false false true)" modify_real_jdt_test
+assert_classification java-comment \
+    "$(classification false false false false false false false false true false)" modify_java_comment
+assert_classification rename-swift-source \
+    "$(classification true false false false false false false false false false)" rename_swift_source
+assert_classification rename-windows-to-swift \
+    "$(classification true false false false false false true false false false)" rename_windows_to_swift
+assert_classification rename-to-unknown \
+    "$(classification true true true true true true true true false false true true true true)" rename_to_unknown
+assert_classification macos-ci \
+    "$(classification true true true true true true false false false false true false true true)" modify_macos_ci
+
+modify_windows_selector() { printf '%s\n' 'export const version = 1;' > scripts/select-windows-ci-tests.mjs; }
+modify_windows_selector_test() { printf '%s\n' 'export const version = 1;' > scripts/select-windows-ci-tests.test.ts; }
+modify_windows_suite_registry() { printf '%s\n' '{}' > scripts/windows-ci-test-suites.json; }
+modify_ci_reporter() { printf '%s\n' 'export const version = 1;' > scripts/report-ci-tool-tests.mjs; }
+modify_ci_orchestration_test() { printf '%s\n' 'export const version = 1;' > scripts/test-ci-workflows.mjs; }
+assert_classification windows-selector \
+    "$(classification false false false false false false true false false false)" modify_windows_selector
+assert_classification windows-selector-test \
+    "$(classification false false false false false false true false false false)" modify_windows_selector_test
+assert_classification windows-suite-registry \
+    "$(classification false false false false false false true false false false)" modify_windows_suite_registry
+assert_classification ci-report-tool \
+    "$(classification false false false false false false false false false false)" modify_ci_reporter
+assert_classification ci-orchestration-test \
+    "$(classification false false false false false false false false false false)" modify_ci_orchestration_test
+
+if (( cases_run == 0 )); then
+    printf 'Unknown classifier test case: %s\n' "$TEST_CASE" >&2
+    exit 2
+fi
+printf 'CI change classifier tests passed (%s cases)\n' "$cases_run"

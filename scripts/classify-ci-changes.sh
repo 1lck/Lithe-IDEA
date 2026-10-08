@@ -50,8 +50,11 @@ java_jdt=false
 rust_comments=false
 metadata=false
 git_validation=false
+macos_rollback=false
+editor_tests=false
 
 enable_all_validation() {
+    editor_tests=true
     swift=true
     plugins=true
     swift_database=true
@@ -62,21 +65,57 @@ enable_all_validation() {
     windows_rust=true
     java_jdt=true
     git_validation=true
+    macos_rollback=true
 }
 
-while IFS=$'\t' read -r status first_path _; do
-    if [[ "$status" == R* || "$status" == C* ]]; then
-        # Renames and copies can cross ownership boundaries, so classify them
-        # conservatively instead of trusting only the destination extension.
-        enable_all_validation
-        break
-    fi
+enable_shared_validation() {
+    swift=true
+    rust_core=true
+    windows=true
+    windows_rust=true
+}
 
-    path="$first_path"
+validation_lanes=(swift plugins swift_database rust_core rust_database macos_release windows windows_rust java_jdt rust_comments metadata git_validation macos_rollback editor_tests)
+combined_validation=()
+
+record_classification() {
+    local index lane selected=""
+    # Within an already selected Swift lane, package-sensitive changes also
+    # exercise the signed disk-image boundary. Packaging-only lanes retain
+    # their own bundle checks without adding a second Swift compilation.
+    if [[ "$macos_release" == true && "$swift" == true ]]; then
+        macos_rollback=true
+    fi
+    for index in "${!validation_lanes[@]}"; do
+        lane="${validation_lanes[$index]}"
+        if [[ "${!lane}" == true ]]; then
+            combined_validation[$index]=true
+            selected="${selected:+$selected,}$lane"
+        fi
+    done
+    # Keep GitHub output on stdout machine-readable; each path's independent
+    # selection goes to the Actions log, including lanes already selected earlier.
+    printf 'CI classification: status=%q path=%q destination=%q rule=%s selected=%s\n' \
+        "$status" "$first_path" "${second_path:-}" "$rule" "${selected:-none}" >&2
+}
+
+classify_path() {
+    for lane in "${validation_lanes[@]}"; do
+        printf -v "$lane" '%s' false
+    done
+    rule=product-path
+    path="$1"
+    first_path="$path"
     lowercase_path="${path,,}"
 
     case "$lowercase_path" in
-        .github/workflows/ci-windows.yml|third_party/jdtls/*|third_party/jdk/*|scripts/prepare-jdtls.*|scripts/prepare-jdk.*|rust/lithe-core/src/lsp/interface/engine.rs|rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs|rust/lithe-core/src/lsp/languages/java*|rust/lithe-core/src/lsp/languages/jdt*|macos/*java*|windows/*java*)
+        macos/sources/lithe/platform/macos/updates/*|macos/sources/lithe/platform/macos/process/*|macos/sources/lithe/core/ports/processrunner.swift|macos/sources/lithe/views/app/stablerollbackcontrol.swift|macos/sources/lithe/views/app/updatecontrol.swift|macos/tests/lithetests/stablerollback*|macos/tests/lithetests/updatecheckertests.swift|macos/tests/lithetests/testgate.swift|macos/tests/lithetests/testprocess.swift|macos/tests/lithetests/support/*)
+            macos_rollback=true
+            ;;
+    esac
+
+    case "$lowercase_path" in
+        .github/workflows/ci-windows.yml|third_party/jdtls/*|third_party/jdk/*|scripts/prepare-jdtls.*|scripts/prepare-jdk.*|rust/lithe-core/src/lsp/interface/*|rust/lithe-core/src/lsp/mod.rs|rust/lithe-core/src/lsp/languages/*)
             java_jdt=true
             ;;
     esac
@@ -85,15 +124,32 @@ while IFS=$'\t' read -r status first_path _; do
         *.md|*.mdx)
             # Text-only documentation still receives git diff validation in the
             # workflow, but does not reserve a macOS or Windows runner.
+            rule=documentation
+            java_jdt=false
+            macos_rollback=false
             ;;
         casks/*|scripts/update-homebrew-cask.rb)
             metadata=true
+            rule=release-metadata
+            ;;
+        scripts/select-windows-ci-tests.mjs|scripts/select-windows-ci-tests.test.ts|scripts/windows-ci-test-suites.json)
+            windows=true
+            rule=windows-test-selection
+            ;;
+        scripts/report-ci-tool-tests.mjs|scripts/test-ci-workflows.mjs)
+            # Classification jobs run these Node regressions without product builds.
+            rule=ci-orchestration-tooling
             ;;
         scripts/classify-ci-changes.sh|scripts/test-classify-ci-changes.sh)
             # A classifier change must exercise every lane that it can select.
             enable_all_validation
+            rule=classifier
             ;;
         .github/workflows/ci-macos.yml)
+            plugins=true
+            swift_database=true
+            rust_database=true
+            editor_tests=true
             swift=true
             rust_core=true
             macos_release=true
@@ -107,6 +163,7 @@ while IFS=$'\t' read -r status first_path _; do
             rust_database=true
             ;;
         .github/workflows/ci-windows.yml)
+            editor_tests=true
             windows=true
             windows_rust=true
             ;;
@@ -125,6 +182,8 @@ while IFS=$'\t' read -r status first_path _; do
             git_validation=true
             ;;
         .agents/skills/write-stable-tests/scripts/*)
+            editor_tests=true
+            java_jdt=true
             # Test policy and timing infrastructure can select or reject every
             # product test lane, but does not affect release packaging.
             swift=true
@@ -145,6 +204,27 @@ while IFS=$'\t' read -r status first_path _; do
             swift_database=true
             macos_release=true
             git_validation=true
+            ;;
+        frontend/editor/*|package.json|bun.lock|bunfig.toml|scripts/verify-editor-boundaries.mjs)
+            editor_tests=true
+            # The shared Monaco package feeds both web hosts, not native Rust
+            # or the isolated database/plugin modules. macOS packaging owns
+            # shared editor tests and the real WebKit probe.
+            swift=true
+            macos_release=true
+            windows=true
+            rule=shared-editor
+            ;;
+        macos/editorfrontend/*|macos/experiments/monaco/*|scripts/build-editor.sh|scripts/package-macos-monaco.sh|scripts/probe-macos-monaco.sh)
+            swift=true
+            macos_release=true
+            rule=macos-editor
+            ;;
+        scripts/build-windows-php-plugin.ts|scripts/verify-windows-plugin-isolation.mjs)
+            # These scripts build and verify browser worker packages; native
+            # Rust and the macOS plugin implementation do not consume them.
+            windows=true
+            rule=windows-worker-plugin
             ;;
         plugins/mac/*|macos/tests/litheofficialpluginverifier/*)
             plugins=true
@@ -274,9 +354,10 @@ while IFS=$'\t' read -r status first_path _; do
             # skip unit tests and integrated release builds.
             if [[ "$status" == M* ]] && rust_diff_is_comment_only "$path"; then
                 rust_comments=true
+                java_jdt=false
             else
                 rust_core=true
-                if [[ "$lowercase_path" != rust/lithe-core/src/tests/* && "$lowercase_path" != */tests.rs ]]; then
+                if [[ "$lowercase_path" != rust/lithe-core/src/tests/* && "$lowercase_path" != */tests.rs && "$lowercase_path" != rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs ]]; then
                     macos_release=true
                     windows=true
                     windows_rust=true
@@ -314,13 +395,21 @@ while IFS=$'\t' read -r status first_path _; do
             windows=true
             windows_rust=true
             ;;
+        shared/platform-feature-matrix/features/*.json)
+            # Only canonical capability records are descriptive data. Unknown
+            # names and nested paths retain shared-contract coverage.
+            if [[ "$path" =~ ^shared/platform-feature-matrix/features/[a-z0-9]+(-[a-z0-9]+)*\.json$ ]]; then
+                rule=feature-record
+            else
+                enable_shared_validation
+                rule=shared-contract
+            fi
+            ;;
         shared/*)
             # Non-Markdown shared contracts and fixtures are compatibility
             # surfaces consumed by Swift, Rust Core, and the Windows product.
-            swift=true
-            rust_core=true
-            windows=true
-            windows_rust=true
+            enable_shared_validation
+            rule=shared-contract
             ;;
         windows/tauri/src-tauri/*.rs|windows/tauri/src-tauri/cargo.toml|windows/tauri/src-tauri/cargo.lock|windows/tauri/crates/*)
             windows=true
@@ -401,9 +490,33 @@ while IFS=$'\t' read -r status first_path _; do
             # New or unclassified repository areas are validated conservatively
             # until their ownership is made explicit above.
             enable_all_validation
+            rule=unknown-path
             ;;
     esac
+    record_classification
+}
+
+while IFS=$'\t' read -r status first_path second_path; do
+    original_path="$first_path"
+    destination_path="${second_path:-}"
+    classify_path "$original_path"
+    if [[ "$status" == R* || "$status" == C* ]]; then
+        # A move must retain the old owner's validation and validate the new
+        # owner too. Unknown endpoints still select all product lanes.
+        [[ -n "$destination_path" ]]
+        classify_path "$destination_path"
+    fi
 done < <(git diff --name-status --find-renames "$BASE_REVISION" "$HEAD_REVISION")
+
+for index in "${!validation_lanes[@]}"; do
+    printf -v "${validation_lanes[$index]}" '%s' "${combined_validation[$index]:-false}"
+done
+
+# Mixed paths can select Swift and packaging independently; their union also
+# needs the disk-image integration step in the selected Swift job.
+if [[ "$swift" == true && "$macos_release" == true ]]; then
+    macos_rollback=true
+fi
 
 printf 'swift=%s\n' "$swift"
 printf 'plugins=%s\n' "$plugins"
@@ -417,3 +530,5 @@ printf 'java_jdt=%s\n' "$java_jdt"
 printf 'rust_comments=%s\n' "$rust_comments"
 printf 'metadata=%s\n' "$metadata"
 printf 'git_validation=%s\n' "$git_validation"
+printf 'macos_rollback=%s\n' "$macos_rollback"
+printf 'editor_tests=%s\n' "$editor_tests"

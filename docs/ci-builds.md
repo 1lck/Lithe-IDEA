@@ -59,6 +59,153 @@ Bun 或前端依赖。CI 复用计时脚本已使用的 runner Node.js，本地�
 
 ## Build time and caches
 
+### preview 多 PR 的合入流程
+
+在合并队列落地前，为已准备完成的 PR 排定合入顺序，只同步下一个准备合入的
+PR。前一个合入后，其余等待中的 PR 继续保留当前分支；不要批量调用
+`gh pr update-branch`。下一个 PR 仍需满足目标分支的检查、审批及冲突解决要求。
+本仓库工作流中未发现批量同步 PR 的操作；GitHub App 或仓库外自动化需由维护者
+另行核实。测试失败、runner 排队、待审批和文本冲突应分别处理。
+
+能力记录 `shared/platform-feature-matrix/features/<id>.json` 采用矩阵轻量校验，
+自身不选择产品重任务。分类器只接受直接目录下符合矩阵 ID 规则的 JSON 文件名；
+混合源码改动仍选择源码所需通道。矩阵公共元数据、共享契约、fixture、未知路径
+保持保守覆盖。重命名和复制分别分类旧路径与新路径，取两侧通道的并集。`Verify Platform Feature Matrix` 始终检查矩阵
+内容及证据，PR 中的平台改动仍要求实质性能力记录更新。
+
+进一步的按需分类如下。混合改动取所有涉及通道的并集；没有确认所有权的路径
+继续全量回退。表中只描述产品通道，矩阵、文本及其他必要轻量检查仍正常运行。
+
+| 触碰的代码 | 选择的产品验证 |
+| --- | --- |
+| Windows 前端 + 能力记录 | Windows 前端，不因能力记录启动 macOS/Rust |
+| 普通 macOS Swift + 能力记录 | 主 Swift 编译和测试，不额外跑 Rust/插件/数据库/安装包 |
+| `frontend/editor/`、根 Bun workspace 配置、编辑器边界脚本 | Swift、macOS 打包/WebKit、Windows 前端 |
+| `macos/EditorFrontend/`、macOS Monaco 宿主及构建脚本 | Swift、macOS 打包/WebKit |
+| Windows PHP Worker 构建和隔离校验脚本 | Windows 前端 |
+| 共享契约/fixture | Swift、Rust Core、Windows 前端和原生 Rust |
+| 已知路径的重命名/复制 | 旧路径与新路径各自需要的通道并集 |
+| 未知路径，或移动的一侧未知 | 全量回退 |
+| Java 界面源码/说明文件 | 所属平台验证，不因文件名启动真实 JDT |
+| JDT/LSP 运行引擎、语言适配、工具 manifest/准备脚本 | 真实 JDT 验证及各自产品通道 |
+| 仅真实 JDT 测试文件 | Core 测试、真实 JDT，不增加安装包和 Windows 前端 |
+
+自动产品工作流从四条减少到两条：**macOS CI** 接管插件、数据库通道，
+**Windows CI** 继续负责 Windows。原来的 `Plugin CI gate`、`Database CI gate`
+检查名保留在 macOS 工作流内。普通、插件、数据库的 Swift 测试先共用一次编译，
+然后按分类运行各自套件；插件包验证仍在插件被选中时运行。Rust 数据库测试
+继续使用 Linux，Rust Core/Swift bridge 保持独立 macOS job，避免所有测试串行。
+未涉及插件/数据库时，其独立 gate 直接跳过，不申请 Linux runner；macOS gate
+检查它们确实被跳过。分类失败时 gate 仍执行并拒绝放行。
+
+普通 PR 的共享编辑器纯逻辑测试由 `editor_tests` 选择，在 Linux 分类 job 中运行一次，
+不再由两个 macOS 打包架构和 Windows 重复执行。两端宿主仍验证各自类型和
+集成边界，macOS 包敏感改动继续执行真实 WebKit 测试。下载缓存、工作树资源
+和 relay 的脚本回归统一在 Linux 执行，Windows 工作流不再重复运行同一批脚本。
+单独手动运行 Windows CI 时仍执行编辑器及工具回归，避免依赖未触发的 macOS 工作流。
+
+Windows 的真实 JDT job 使用 Rust 计时工具的 `--test-filter`，只执行
+`lsp::interface::engine::real_jdt_tests::` 模块。普通 Core 测试由 SharedRust
+负责；过滤不会减少 Cargo 对该 crate 的编译，但避免逐测试进程再跑整套 Core。
+空过滤结果必须失败，不能因拼错名字得到成功。Windows 前端移除重复的
+`definition-link-scheduler` 和 `lsp-core-adapter` 调用，保留各自一次验证。
+
+Windows 前端在产品通道内部进一步选择 35 个测试套件。清单位于
+`scripts/windows-ci-test-suites.json`，`scripts/select-windows-ci-tests.mjs`
+对 PR base 与检出的 test-merge SHA 比较；同一功能目录的既有套件先被选中，
+再用 Bun 的语法扫描补选传递导入、重导出、字面量动态导入、源文件读取 URL
+和 Vite glob 的消费者。无法静态确定目标的动态导入消费者保留为基础检查。
+类型导入不参与运行时依赖选择，完整类型检查仍每次执行。
+
+例如，终端键盘处理逻辑目前选择平台路由、终端及有关 Git 套件，而不运行 Java
+导航、文档生命周期和调试器套件。不要仅凭目录名排除消费者：设置归一化会被
+许多模块导入，选中范围仍然较大。公共 helper、配置、声明、非代码资源、原生
+接口、未知功能目录、删除/重命名及扫描失败都回退到全部既有套件；`main` 与
+手动运行也执行全部套件。PR 比较范围缺失或不可读时直接失败。
+
+新增测试若不在已有套件中，本次 PR 会以独立进程执行，防止模块 mock 泄漏。
+正式加入套件时同步更新清单和 workflow；清单与条件步骤的对应关系由回归检查。
+现有随机种子、进程隔离和本地期限保留，选中套件为空必须失败。每次前端运行
+仍完成完整类型检查、应用构建和平台边界校验；PHP 独立插件仅按需构建和上传，
+应用源码及输出的 PHP 隔离检查使用 `--host-only --dist`，不依赖未选中的插件包。
+选择依据随测试产物保存为 `windows-ci-selection.txt`，步骤摘要显示运行/跳过集合。
+
+CI 工具计时报告由 `scripts/report-ci-tool-tests.mjs` 生成，写完诊断产物后根据
+同一预算返回失败，避免 HTML/JUnit 标红而 gate 通过。普通用例仍为 15 秒，
+编译并运行真实 Rust 二进制的集成回归与其 Node 本地期限一致，单独为 60 秒。
+
+合并 Swift job 会让同时命中多个套件时的测试阶段串行，收益来自减少冷编译和
+macOS runner 需求；不承诺在空闲 runner 上每一种 PR 都缩短墙钟时间。job 总期限
+按所选阶段的原有期限之和扩大，各套件、Git 专项和 DMG 集成的本地期限不变。
+
+Swift CI 的真实 DMG 回滚套件由 `macos_rollback` 选择，更新模块、进程执行
+依赖、相关测试及公共测试辅助代码发生变化时运行；Swift 和包敏感通道的混合
+改动也运行。主测试调用排除这个套件，专用步骤只执行一次，避免重复创建和
+挂载相同测试磁盘镜像。手动全量运行仍执行；仅打包的任务保留自身的 bundle
+验证，不为此额外编译 Swift。分类输出非法或缺失使分类 job 失败。
+
+普通 Swift 源码仍保留主测试集合：一个文件可能被其他模块调用，不能仅根据
+文件名猜测依赖并只跑同名测试。测试过滤不等于减少 SwiftPM 编译目标，也不能
+将本次通道裁剪声称为已测量的编译提速。
+
+分类步骤的日志输出 `status`、`path`、`destination`、`rule` 和 `selected`，
+可定位哪个路径选择了哪些通道。`selected=none` 只表示该路径不增加产品任务；
+不代表矩阵校验、审核或整个 PR 已通过。对照同一提交的分类摘要和 job 结果，
+不要用其他提交的绿灯判断当前改动。
+
+#### 管理员核对必需检查
+
+2026-10-08 读取的 `preview` 有效 ruleset 要求 `macOS CI gate`，并开启
+`strict_required_status_checks_policy`。此规则要求待合入分支保持最新，正是每次
+目标分支前进后需要同步的配置原因。经典保护接口未获可用读取结果；管理员仍须
+核对所有叠加规则和 bypass，不能把这次 ruleset 快照当作完整配置。
+
+建议核对以下真实 job 名称，并先在部署后的 PR 上取得结果，再修改 required
+checks。macOS gate 汇总 Swift、Core/bridge、打包，并依赖插件和数据库 gate；
+Windows gate 仍由独立工作流提供，必须单独配置才会阻止 Windows 失败的合入。
+
+| 检查名 | 验证范围 |
+| --- | --- |
+| `macOS CI gate` | macOS 分类、所有选中 Swift 套件、Rust Core/bridge、打包、插件及数据库 gate |
+| `Windows CI gate` | Windows 分类、前端、原生 Rust、按需真实 JDT |
+| `Database CI gate` | 同一分类结果、共享 Swift job 中的数据库套件、Linux 数据库 crate |
+| `Plugin CI gate` | 同一分类结果、共享 Swift job 中的插件测试及包验证 |
+| `Verify and publish matrix views` | 矩阵工具、内容、证据、PR 更新门禁 |
+
+切换前记录原 ruleset、实际 check 名及来源 App，保留回滚配置。保留现有审核、
+CODEOWNERS 和讨论解决要求；不要为提速默认关闭它们，也不要用管理员绕过作为
+日常合入路径。还应验证所有 gate 拒绝分类失败、非法或缺失选择值，以及被选任务
+失败、取消或意外跳过；新增检查名必须先由 workflow 稳定上报，再加入保护。
+不要使用顶层 `paths` 跳过必需 workflow。
+
+#### 后续合并队列的启用条件
+
+当前仓库属于个人账号，GitHub 原生 Merge Queue 的公开仓库支持范围是组织仓库，
+见 [GitHub 官方说明](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)。
+迁入组织或安装第三方队列 App 需管理员单独决策；分类修复不会改变 strict，
+也不会自动消除其同步要求。
+
+选定队列方案后，先为所有必需 workflow 适配 `merge_group`，并统一测试事件比较
+范围：PR 使用 base 与 test-merge SHA，队列使用 payload 的 base/head SHA，
+push 使用明确范围，手动运行全量验证。缺失或不可取的提交必须失败或全量回退。
+检出和测试必须针对包含队列前序 PR 的组合提交，不能切回原 PR head。矩阵
+工作流要验证组合源码内容，label 等 PR 元数据约束仍在 PR 阶段执行。
+
+还需明确队列的 macOS 架构策略、每组独立 concurrency、失败及移除后重建流程，
+先用 1–2 的队列构建并发试运行，再依据数据调整。自动合入不等于合并队列，
+GitHub 的 Merge limits 也不合并不同组的 CI 构建。部署并验证队列检查后，
+管理员才能启用队列；回滚时恢复已记录的保护及顺序合入流程。
+
+关闭 strict 的过渡路线必须另行接受组合失败风险，并先实现可靠的合并后回归
+及同源码版本发布门禁。当前产品 CI 不监听 `push: preview` 或 `merge_group`，
+不能直接关闭 strict。若取消旧 push 运行，最新验证要覆盖完整代码，或自上一次
+完整通过的祖先提交累计分类；仅比较 `before..after` 会漏掉被取消运行的改动。
+
+改造前后保留可比 PR 的运行明细，分别统计目标分支同步、源码修复、手动重试、
+队列重建与取消次数，以及 job 排队、执行时间、runner-minutes 和审核完成到合入
+时间。样本足够后报告中位数与 P95；分类回归只能证明覆盖范围，不证明实际
+构建或排队提速百分比。缓存和 runner 容量的后续投入应根据这些数据决定。
+
 The September 12, 2026 investigation found two separate sources of delay:
 
 | Observed run | Total elapsed | Main cost |

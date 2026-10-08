@@ -19,12 +19,17 @@ jobs:
     name: Classify changes
     runs-on: ubuntu-latest
     outputs:
+      plugins: ${{ steps.classify.outputs.plugins }}
+      swift_database: ${{ steps.classify.outputs.swift_database }}
+      rust_database: ${{ steps.classify.outputs.rust_database }}
+      editor_tests: ${{ steps.classify.outputs.editor_tests }}
       swift: ${{ steps.classify.outputs.swift }}
       rust_core: ${{ steps.classify.outputs.rust_core }}
       macos_release: ${{ steps.classify.outputs.macos_release }}
       rust_comments: ${{ steps.classify.outputs.rust_comments }}
       metadata: ${{ steps.classify.outputs.metadata }}
       git_validation: ${{ steps.classify.outputs.git_validation }}
+      macos_rollback: ${{ steps.classify.outputs.macos_rollback }}
 
     steps:
       - name: Check out source
@@ -32,9 +37,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Test CI change classifier
+      - name: Test CI classification and orchestration
+        timeout-minutes: 3
         shell: bash
-        run: ./scripts/test-classify-ci-changes.sh
+        run: |
+          ./scripts/test-classify-ci-changes.sh
+          mkdir -p .artifacts/test-stability
+          node --test --test-timeout=60000 \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/ci-workflows.junit.xml \
+            scripts/test-ci-workflows.mjs
 
       - name: Test release scripts and Markdown preview
         timeout-minutes: 2
@@ -43,27 +55,17 @@ jobs:
           node --test --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
             scripts/test-download-sparkle-baseline.mjs scripts/test-reuse-worktree-resources.mjs scripts/test-markdown-preview.mjs \
-            scripts/test-codex-config-relay.mjs
+            scripts/test-codex-config-relay.mjs scripts/test-verify-download-cache.mjs
 
-      - name: Generate Sparkle download timing report
+      - name: Generate CI tool timing reports
         if: always()
-        run: |
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          import { parseJUnitCases } from './.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs';
-          import { writeTestReportArtifacts } from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs';
-          const stem = '.artifacts/test-stability/sparkle-baseline';
-          const tests = parseJUnitCases(fs.readFileSync(`${stem}.junit.xml`, 'utf8'));
-          if (tests.length === 0) throw new Error('Missing Sparkle download test results');
-          fs.writeFileSync(`${stem}.json`, JSON.stringify({ runner: 'node', warnMs: 1000, maxMs: 15000, tests }));
-          writeTestReportArtifacts(`${stem}.json`);
-          NODE
+        run: node scripts/report-ci-tool-tests.mjs
 
-      - name: Upload Sparkle download timing report
+      - name: Upload CI tool timing reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-stability-sparkle-baseline
+          name: test-stability-ci-tooling
           path: .artifacts/test-stability/
           if-no-files-found: error
 
@@ -98,17 +100,42 @@ jobs:
         run: |
           if [[ "$MANUAL" == "true" ]]; then
             {
+              echo "plugins=true"
+              echo "swift_database=true"
+              echo "rust_database=true"
+              echo "editor_tests=true"
               echo "swift=true"
               echo "rust_core=true"
               echo "macos_release=true"
               echo "rust_comments=false"
               echo "metadata=true"
               echo "git_validation=true"
+              echo "macos_rollback=true"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Bun for selected shared editor tests
+        if: steps.classify.outputs.editor_tests == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: frontend/editor/package.json
+
+      - name: Test shared editor source model once
+        if: steps.classify.outputs.editor_tests == 'true'
+        timeout-minutes: 3
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory frontend/editor --suite-timeout-ms 120000 --report .artifacts/test-stability/shared-editor.json
+
+      - name: Upload shared editor test reports
+        if: always() && steps.classify.outputs.editor_tests == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stability-shared-editor
+          path: .artifacts/test-stability/shared-editor.*
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Validate changed text
         if: steps.base.outputs.manual == 'false'
@@ -143,31 +170,48 @@ jobs:
       - name: Summarize selected lanes
         shell: bash
         env:
+          PLUGINS: ${{ steps.classify.outputs.plugins }}
+          SWIFT_DATABASE: ${{ steps.classify.outputs.swift_database }}
+          RUST_DATABASE: ${{ steps.classify.outputs.rust_database }}
+          EDITOR_TESTS: ${{ steps.classify.outputs.editor_tests }}
           SWIFT: ${{ steps.classify.outputs.swift }}
           RUST_CORE: ${{ steps.classify.outputs.rust_core }}
           MACOS_RELEASE: ${{ steps.classify.outputs.macos_release }}
           RUST_COMMENTS: ${{ steps.classify.outputs.rust_comments }}
           METADATA: ${{ steps.classify.outputs.metadata }}
           GIT_VALIDATION: ${{ steps.classify.outputs.git_validation }}
+          MACOS_ROLLBACK: ${{ steps.classify.outputs.macos_rollback }}
         run: |
+          for selected in "$PLUGINS" "$SWIFT_DATABASE" "$RUST_DATABASE" "$EDITOR_TESTS" "$SWIFT" "$RUST_CORE" "$MACOS_RELEASE" "$RUST_COMMENTS" "$METADATA" "$GIT_VALIDATION" "$MACOS_ROLLBACK"; do
+            if [[ "$selected" != "true" && "$selected" != "false" ]]; then
+              echo "Invalid or missing macOS CI selection: $selected" >&2
+              exit 1
+            fi
+          done
           {
             echo "### macOS CI lanes"
             echo "| Lane | Run |"
             echo "| --- | --- |"
             echo "| Swift tests | $SWIFT |"
+            echo "| Plugin tests and packages | $PLUGINS |"
+            echo "| Swift database tests | $SWIFT_DATABASE |"
+            echo "| Rust database tests | $RUST_DATABASE |"
+            echo "| Shared editor tests | $EDITOR_TESTS |"
             echo "| Rust Core tests | $RUST_CORE |"
             echo "| Release package verification | $MACOS_RELEASE |"
             echo "| Rust comment verification | $RUST_COMMENTS |"
             echo "| Metadata validation | $METADATA |"
             echo "| Git performance and observation | $GIT_VALIDATION |"
+            echo "| Signed rollback disk image | $MACOS_ROLLBACK |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   swift-tests:
     name: Swift tests
     needs: changes
-    if: needs.changes.outputs.swift == 'true'
+    if: needs.changes.outputs.swift == 'true' || needs.changes.outputs.plugins == 'true' || needs.changes.outputs.swift_database == 'true'
     runs-on: macos-26
-    timeout-minutes: 65
+    # One compilation followed by selected suites, each with its own deadline.
+    timeout-minutes: 110
 
     steps:
       - name: Check out source
@@ -188,6 +232,7 @@ jobs:
         run: ./scripts/test-macos.sh list > /dev/null
 
       - name: Run Swift unit tests
+        if: needs.changes.outputs.swift == 'true'
         timeout-minutes: 17
         run: |
           ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
@@ -198,17 +243,7 @@ jobs:
             --skip GitStatusObservationTests \
             --skip LitheGitPerformanceTests \
             --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
-            --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
-
-      - name: Run stable rollback disk image integration test
-        timeout-minutes: 3
-        run: |
-          # Creating and mounting a real disk image has variable runner latency.
-          ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
-            --report .artifacts/test-stability/macos-rollback-dmg.json \
-            --max-seconds 45 --suite-timeout-seconds 120 -- \
-            --skip-build \
-            --filter fullSignedDiskImageStagesWithoutChangingInstalledApp
+            --skip '([Pp]lugin|LitheGoSupportModuleTests|LithePhpSupportModuleTests|LinuxDo)'
 
       - name: Run Git performance baseline
         if: needs.changes.outputs.git_validation == 'true'
@@ -226,6 +261,7 @@ jobs:
             --filter GitStatusObservationTests
 
       - name: Run stable rollback disk image integration tests
+        if: needs.changes.outputs.macos_rollback == 'true'
         timeout-minutes: 3
         run: |
           # Builds, signs, and mounts a real disk image; CI runners measured
@@ -235,6 +271,21 @@ jobs:
             --max-seconds 60 --suite-timeout-seconds 150 -- \
             --skip-build \
             --filter StableRollbackDiskImageIntegrationTests
+
+      - name: Run plugin-focused Swift tests
+        if: needs.changes.outputs.plugins == 'true'
+        timeout-minutes: 17
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 960 -- --skip-build --filter '([Pp]lugin|LitheGoSupportModuleTests|LithePhpSupportModuleTests|LinuxDo)'
+
+      - name: Build and verify official plugin packages
+        if: needs.changes.outputs.plugins == 'true'
+        timeout-minutes: 10
+        run: ./scripts/verify-official-plugins.sh
+
+      - name: Run database-focused Swift tests
+        if: needs.changes.outputs.swift_database == 'true'
+        timeout-minutes: 17
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-database.json --suite-timeout-seconds 960 -- --skip-build --filter '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)'
 
       - name: Generate combined Swift test report
         if: always()
@@ -315,9 +366,6 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: frontend/editor/package.json
-
-      - name: Test shared editor source model
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory frontend/editor --report .artifacts/test-stability/shared-editor.json
 
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
@@ -441,6 +489,39 @@ jobs:
             echo "The app is ad-hoc signed for testing. Check the CI gate for the combined test result."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  rust-database-tests:
+    name: Rust database tests
+    needs: changes
+    if: needs.changes.outputs.rust_database == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Restore Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+
+      - name: Validate database container configuration
+        run: docker compose -f infra/docker/database-validation/compose.yaml config --quiet
+
+      - name: Check formatting and test database crates
+        run: |
+          cargo fmt --manifest-path rust/Cargo.toml -p lithe-db-sidecar -p lithe-db-mcp -- --check
+          cargo test --manifest-path rust/Cargo.toml -p lithe-db-sidecar
+          cargo test --manifest-path rust/Cargo.toml -p lithe-db-mcp
+
   gate:
     name: macOS CI gate
     needs:
@@ -448,16 +529,22 @@ jobs:
       - swift-tests
       - rust-core-tests
       - release-build
+      - plugin-gate
+      - database-gate
     if: always()
     runs-on: ubuntu-latest
 
     steps:
       - name: Verify required jobs
         env:
+          PLUGIN_SELECTED: ${{ needs.changes.outputs.plugins }}
+          DATABASE_SELECTED: ${{ needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_database == 'true' }}
+          PLUGIN_GATE_RESULT: ${{ needs.plugin-gate.result }}
+          DATABASE_GATE_RESULT: ${{ needs.database-gate.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           SWIFT_RESULT: ${{ needs.swift-tests.result }}
           RUST_CORE_RESULT: ${{ needs.rust-core-tests.result }}
-          SWIFT_SELECTED: ${{ needs.changes.outputs.swift }}
+          SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.plugins == 'true' || needs.changes.outputs.swift_database == 'true' }}
           RUST_CORE_SELECTED: ${{ needs.changes.outputs.rust_core }}
           RELEASE_SELECTED: ${{ needs.changes.outputs.macos_release }}
           RELEASE_RESULT: ${{ needs.release-build.result }}
@@ -469,10 +556,73 @@ jobs:
             local result="$2"
             if [[ "$selected" == "true" ]]; then
               [[ "$result" == "success" ]]
-            else
+            elif [[ "$selected" == "false" ]]; then
               [[ "$result" == "skipped" ]]
+            else
+              return 1
             fi
           }
+          require_selected_job "$PLUGIN_SELECTED" "$PLUGIN_GATE_RESULT"
+          require_selected_job "$DATABASE_SELECTED" "$DATABASE_GATE_RESULT"
           require_selected_job "$SWIFT_SELECTED" "$SWIFT_RESULT"
           require_selected_job "$RUST_CORE_SELECTED" "$RUST_CORE_RESULT"
           require_selected_job "$RELEASE_SELECTED" "$RELEASE_RESULT"
+
+  plugin-gate:
+    name: Plugin CI gate
+    needs:
+      - changes
+      - swift-tests
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.plugins == 'true')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify required jobs
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          PLUGIN_SELECTED: ${{ needs.changes.outputs.plugins }}
+          PLUGIN_RESULT: ${{ needs.swift-tests.result }}
+        shell: bash
+        run: |
+          [[ "$CHANGES_RESULT" == "success" ]]
+          [[ "$PLUGIN_SELECTED" == "true" || "$PLUGIN_SELECTED" == "false" ]]
+          if [[ "$PLUGIN_SELECTED" == "true" ]]; then
+            [[ "$PLUGIN_RESULT" == "success" ]]
+          fi
+
+  database-gate:
+    name: Database CI gate
+    needs:
+      - changes
+      - swift-tests
+      - rust-database-tests
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_database == 'true')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify required jobs
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SWIFT_DATABASE_SELECTED: ${{ needs.changes.outputs.swift_database }}
+          RUST_DATABASE_SELECTED: ${{ needs.changes.outputs.rust_database }}
+          SWIFT_DATABASE_RESULT: ${{ needs.swift-tests.result }}
+          RUST_DATABASE_RESULT: ${{ needs.rust-database-tests.result }}
+        shell: bash
+        run: |
+          [[ "$CHANGES_RESULT" == "success" ]]
+          require_selected_job() {
+            local selected="$1"
+            local result="$2"
+            if [[ "$selected" == "true" ]]; then
+              [[ "$result" == "success" ]]
+            elif [[ "$selected" == "false" ]]; then
+              [[ "$result" == "skipped" ]]
+            else
+              return 1
+            fi
+          }
+          [[ "$SWIFT_DATABASE_SELECTED" == "true" || "$SWIFT_DATABASE_SELECTED" == "false" ]]
+          if [[ "$SWIFT_DATABASE_SELECTED" == "true" ]]; then
+            [[ "$SWIFT_DATABASE_RESULT" == "success" ]]
+          fi
+          require_selected_job "$RUST_DATABASE_SELECTED" "$RUST_DATABASE_RESULT"
