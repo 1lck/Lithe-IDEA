@@ -16,6 +16,7 @@ extension RustCoreBridge {
         let patch: String
         let target: GitPatchTarget
         let expectedState: String?
+        var metadataOnly: Bool = false
     }
 
     func gitPatchExport(at root: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, CoreCallError> {
@@ -24,9 +25,9 @@ extension RustCoreBridge {
         ))
     }
 
-    func gitPatchPreview(at root: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, CoreCallError> {
+    func gitPatchPreview(at root: URL, patch: String, target: GitPatchTarget, metadataOnly: Bool = false) -> Result<GitPatchPreview, CoreCallError> {
         executeResult(command: "git.patchPreview", payload: PatchApplyRequest(
-            root: root.standardizedFileURL.path, patch: patch, target: target, expectedState: nil
+            root: root.standardizedFileURL.path, patch: patch, target: target, expectedState: nil, metadataOnly: metadataOnly
         ))
     }
 

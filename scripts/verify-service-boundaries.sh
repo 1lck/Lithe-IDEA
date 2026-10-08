@@ -33,10 +33,9 @@ feature_aggregate_violations=$(rg --pcre2 -n "$feature_aggregate_pattern" macos/
 scoped_git_ui_paths=(
     macos/Sources/Lithe/Views/Git/GitLogView.swift
     macos/Sources/Lithe/Views/Git/BranchComparisonView.swift
-    macos/Sources/Lithe/Views/Git/GitCommitDiffReviewView.swift
+    macos/Sources/Lithe/Views/Diff/RepositoryDiffView.swift
     macos/Sources/Lithe/Views/Git/GitWorktreesView.swift
     macos/Sources/Lithe/Views/Git/BranchSwitcherPopover.swift
-    macos/Sources/Lithe/Views/Diff/DiffReviewView.swift
 )
 git_ui_aggregate_violations=$(rg --pcre2 -n "$feature_aggregate_pattern" "${scoped_git_ui_paths[@]}" || true)
 callback_injection_violations=$(rg --pcre2 -n "$callback_injection_pattern" macos/Sources/Lithe/Models/AppModel || true)

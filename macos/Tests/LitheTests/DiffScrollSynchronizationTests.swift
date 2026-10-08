@@ -23,6 +23,67 @@ struct DiffScrollSynchronizationTests {
     }
 
     @Test
+    func workingChangesUseNativeSharedPaneForModifiedAddedAndDeletedFiles() async throws {
+        let suite = "lithe-working-diff-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let root = URL(fileURLWithPath: "/workspace")
+        let patch = "diff --git a/a.swift b/a.swift\n--- a/a.swift\n+++ b/a.swift\n@@ -1 +1 @@\n-old\n+new\n"
+        let feature = GitFeatureModel(service: GitService(operations: DiffToolbarGitOperations(root: root)),
+            diffDocumentProvider: { _, _ in DiffParser.parseDocument(patch) })
+        defer { feature.reset() }
+        for status: Character in ["M", "A", "D"] {
+            let change = GitChange(repositoryRoot: root, path: "a.swift", originalPath: nil,
+                indexStatus: status == "A" ? "A" : " ", workTreeStatus: status == "A" ? " " : status)
+            await feature.selectChange(change)
+            let host = NSHostingView(rootView: RepositoryDiffView(feature: feature, change: change,
+                onClose: { feature.closeWorkingTreeDiff() }, onOpenFile: {}).environmentObject(model))
+            host.frame = NSRect(x: 0, y: 0, width: 1000, height: 300)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
+            let editors = descendants(host).compactMap { $0 as? DiffNativeTextView }
+            #expect(editors.count == (status == "M" ? 2 : 1))
+            #expect(!descendants(host).compactMap { $0 as? DiffStripeScroller }.isEmpty)
+            #expect(editors.contains { $0.column?.lines.isEmpty == false })
+        }
+        await model.shutdownProjectSession()
+    }
+
+    @Test
+    func switchingFilesRefreshesMountedStripesWithoutRecreatingThem() {
+        let sync = DiffScrollSynchronization()
+        let left = DiffStripeScroller(frame: NSRect(x: 0, y: 0, width: 14, height: 200))
+        let right = DiffStripeScroller(frame: left.frame)
+        let leftScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let rightScroll = NSScrollView(frame: leftScroll.frame)
+        sync.leftStripe = left
+        sync.rightStripe = right
+        sync.attach(leftScroll, side: .left)
+        sync.attach(rightScroll, side: .right)
+        defer { sync.detach(side: .left); sync.detach(side: .right) }
+        let first = rows()
+        let second = [DiffRow(oldLine: 1, newLine: nil, left: "removed", right: nil, kind: .removal, sequence: 0)]
+        for source in [first, second, []] {
+            let layout = DiffSplitLayout.plan(
+                displayRows: source.enumerated().map { .row($0.element, index: $0.offset) },
+                kinds: source.map(\.kind))
+            sync.configure(layout)
+            for stripe in [left, right] {
+                #expect(stripe.transitions.map(\.kind) == layout.transitions.map(\.kind))
+                #expect(stripe.transitions.map(\.leftRange) == layout.transitions.map(\.leftRange))
+                #expect(stripe.transitions.map(\.rightRange) == layout.transitions.map(\.rightRange))
+            }
+            #expect(left.sourceHeight == max(1, layout.leftHeight))
+            #expect(right.sourceHeight == max(1, layout.rightHeight))
+        }
+    }
+
+    @Test
     func boundaryMappingPreservesMatchingLinesAndClampsInsertions() {
         let rows = rows()
         let layout = DiffSplitLayout.plan(displayRows: rows.enumerated().map { .row($0.element, index: $0.offset) }, kinds: rows.map(\.kind))
@@ -267,7 +328,7 @@ struct DiffScrollSynchronizationTests {
         let model = AppModel(settings: settings, services:
             MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
         do {
-            let hosting = NSHostingView(rootView: GitCommitDiffReviewView(feature: feature, context: context, onClose: { model.closeGitCommitDiff() }, onOpenFile: {}, onOpenCommitDiff: { _ in }).environmentObject(model).environment(\.colorScheme, dark ? .dark : .light))
+            let hosting = NSHostingView(rootView: RepositoryDiffView(feature: feature, context: context, onClose: { model.closeGitCommitDiff() }, onOpenFile: {}, onOpenCommitDiff: { _ in }).environmentObject(model).environment(\.colorScheme, dark ? .dark : .light))
             hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 250)
             let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = hosting
@@ -366,7 +427,7 @@ struct DiffScrollSynchronizationTests {
         let settings = AppSettings(store: store)
         let model = AppModel(settings: settings, services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
         func content() -> AnyView {
-            AnyView(GitCommitDiffReviewView(feature: feature, context: context, onClose: { model.closeGitCommitDiff() },
+            AnyView(RepositoryDiffView(feature: feature, context: context, onClose: { model.closeGitCommitDiff() },
                 onOpenFile: { openedFile = true }, onOpenCommitDiff: { requestedFile = $0 }).environmentObject(model))
         }
         let host = NSHostingView(rootView: content())

@@ -3,6 +3,7 @@ import type { GitDiff, GitDiffStat, GitReference } from "../types/git.types";
 import { registerGitCacheInvalidator } from "../runtime/git-cache-registry";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import { gitDiffCache } from "../utils/git-diff-cache";
+import { FULL_FILE_CONTEXT_LINES } from "../utils/git-diff-helpers";
 import {
   isNotGitRepositoryError,
   resolveRepositoryForFile,
@@ -239,12 +240,10 @@ export const getFileDiff = async (
 };
 
 /**
- * Git's largest accepted `--unified` value. A single-file review asks for the
- * whole file as context so omitted regions can be revealed without inventing
- * source text; Git emits one hunk per file at this size.
+ * Whole-file context stays below half of Git's signed 32-bit limit: xdiff
+ * doubles it when merging adjacent changes. Larger values overflow on Windows
+ * and emit overlapping full-file hunks for separate changes.
  */
-const FULL_FILE_CONTEXT_LINES = 2_147_483_647;
-
 const markFullContext = (diff: GitDiff | null): GitDiff | null =>
   diff ? { ...diff, is_full_context: true } : diff;
 

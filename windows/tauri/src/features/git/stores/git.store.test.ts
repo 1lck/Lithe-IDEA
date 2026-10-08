@@ -30,7 +30,7 @@ const loadInitialHistory = (
 ) => {
   store.getState().actions.prepareRepositoryLoad(repoPath);
   store.getState().actions.loadFreshGitData({
-    gitStatus: null,
+    repositoryStatuses: {},
     commits: initialCommits,
     hasMoreCommits: true,
     branches: [],
@@ -125,7 +125,7 @@ describe("Git operation state refresh", () => {
     const store = createGitStore();
     store.getState().actions.prepareRepositoryLoad("C:/repo");
     store.getState().actions.loadFreshGitData({
-      gitStatus: null,
+      repositoryStatuses: {},
       commits: [],
       hasMoreCommits: false,
       branches: [],
@@ -141,7 +141,7 @@ describe("Git operation state refresh", () => {
     });
 
     store.getState().actions.refreshGitData({
-      gitStatus: null,
+      repositoryStatuses: {},
       repoPath: "C:/repo",
     });
 
@@ -209,13 +209,15 @@ describe("Git working-tree publication ordering", () => {
       const oldVersion = actions.beginWorkingTreeRefresh();
       const oldStatus = status(false);
       let releaseHistory!: () => void;
-      const historyGate = new Promise<void>((resolve) => { releaseHistory = resolve; });
+      const historyGate = new Promise<void>((resolve) => {
+        releaseHistory = resolve;
+      });
       // The old status has already been read; only unrelated history is pending.
       const fullRefresh = historyGate.then(() => {
         const data = {
           repoPath: "C:/repo",
           workingTreeVersion: oldVersion,
-          gitStatus: oldStatus,
+          repositoryStatuses: { "C:/repo": oldStatus },
           operationState: oldOperation,
           commits: [commit(1)],
           hasMoreCommits: false,
@@ -230,7 +232,7 @@ describe("Git working-tree publication ordering", () => {
         actions.refreshGitData({
           repoPath: "C:/repo",
           workingTreeVersion: actions.beginWorkingTreeRefresh(),
-          gitStatus: stagedStatus,
+          repositoryStatuses: { "C:/repo": stagedStatus },
           operationState: null,
         });
         expect(store.getState().gitStatus).toBe(stagedStatus);
@@ -259,13 +261,25 @@ describe("Git working-tree publication ordering", () => {
       const newer = actions.beginWorkingTreeRefresh();
       expect(onChange).not.toHaveBeenCalled();
       const firstStatus = status(false);
-      actions.refreshGitData({ repoPath: "C:/repo", workingTreeVersion: older, gitStatus: firstStatus });
+      actions.refreshGitData({
+        repoPath: "C:/repo",
+        workingTreeVersion: older,
+        repositoryStatuses: { "C:/repo": firstStatus },
+      });
       expect(store.getState().gitStatus).toBe(firstStatus);
       const latestStatus = status(true);
-      actions.refreshGitData({ repoPath: "C:/repo", workingTreeVersion: newer, gitStatus: latestStatus });
+      actions.refreshGitData({
+        repoPath: "C:/repo",
+        workingTreeVersion: newer,
+        repositoryStatuses: { "C:/repo": latestStatus },
+      });
       expect(store.getState().gitStatus).toBe(latestStatus);
       const latestState = store.getState();
-      actions.refreshGitData({ repoPath: "C:/repo", workingTreeVersion: older, gitStatus: firstStatus });
+      actions.refreshGitData({
+        repoPath: "C:/repo",
+        workingTreeVersion: older,
+        repositoryStatuses: { "C:/repo": firstStatus },
+      });
       expect(store.getState()).toBe(latestState);
     } finally {
       unsubscribe();
@@ -282,32 +296,94 @@ describe("Git working-tree publication ordering", () => {
     actions.refreshGitData({
       repoPath: "C:/repo",
       workingTreeVersion: previousSession,
-      gitStatus: status(true),
+      repositoryStatuses: { "C:/repo": status(true) },
       operationState: oldOperation,
     });
     expect(store.getState().gitStatus).toBeNull();
+    expect(store.getState().operationState).toBeNull();
+  });
+
+  for (const [name, before, after] of [
+    ["resolved conflict clears the banner", oldOperation, null],
+    ["new conflict reaches the banner", null, oldOperation],
+  ] as const) {
+    test(`a newer status-only publication does not reject an older full read's operation state: ${name}`, () => {
+      const store = createGitStore();
+      const { actions } = store.getState();
+      actions.prepareRepositoryLoad("C:/repo");
+      actions.refreshGitData({
+        repoPath: "C:/repo",
+        workingTreeVersion: actions.beginWorkingTreeRefresh(),
+        repositoryStatuses: { "C:/repo": status(false) },
+        operationState: before,
+      });
+      // Event order: the Commit controller starts a full read, then the global host
+      // starts and publishes a status-only read before the operation state returns.
+      const fullRead = actions.beginWorkingTreeRefresh();
+      const hostStatus = status(true);
+      actions.publishRepositoryStatuses({ "C:/repo": hostStatus }, actions.beginWorkingTreeRefresh());
+      expect(store.getState().gitStatus).toBe(hostStatus);
+
+      actions.refreshGitData({
+        repoPath: "C:/repo",
+        workingTreeVersion: fullRead,
+        repositoryStatuses: { "C:/repo": status(false) },
+        operationState: after,
+      });
+
+      expect(store.getState().operationState).toEqual(after);
+      // The older file snapshot is still rejected: it must not roll the list back.
+      expect(store.getState().gitStatus).toBe(hostStatus);
+    });
+  }
+
+  test("an older operation state is still rejected after a newer one was published", () => {
+    const store = createGitStore();
+    const { actions } = store.getState();
+    actions.prepareRepositoryLoad("C:/repo");
+    const olderRead = actions.beginWorkingTreeRefresh();
+    actions.refreshGitData({
+      repoPath: "C:/repo",
+      workingTreeVersion: actions.beginWorkingTreeRefresh(),
+      repositoryStatuses: { "C:/repo": status(true) },
+      operationState: null,
+    });
+    actions.refreshGitData({
+      repoPath: "C:/repo",
+      workingTreeVersion: olderRead,
+      repositoryStatuses: { "C:/repo": status(false) },
+      operationState: oldOperation,
+    });
     expect(store.getState().operationState).toBeNull();
   });
 });
 
 describe("Git refresh notifications", () => {
   const snapshot: GitStatus = {
-    branch: "main", ahead: 0, behind: 0,
+    branch: "main",
+    ahead: 0,
+    behind: 0,
     files: [{ path: "draft.ts", status: "modified", staged: false }],
   };
 
   test("ten identical refreshes produce no store notifications", () => {
     const store = createGitStore();
     loadInitialHistory(store, "C:/repo", commits(50));
-    store.getState().actions.setGitStatus(snapshot);
+    store.getState().actions.publishRepositoryStatuses({ "C:/repo": snapshot });
     const previous = store.getState();
     let notifications = 0;
-    const unsubscribe = store.subscribe(() => { notifications++; });
+    const unsubscribe = store.subscribe(() => {
+      notifications++;
+    });
     try {
       for (let index = 0; index < 10; index++) {
         store.getState().actions.refreshGitData({
-          repoPath: "C:/repo", gitStatus: structuredClone(snapshot),
-          commits: commits(50), hasMoreCommits: true, branches: [], operationState: null,
+          repoPath: "C:/repo",
+          repositoryStatuses: { "C:/repo": structuredClone(snapshot) },
+          commits: commits(50),
+          hasMoreCommits: true,
+          branches: [],
+          operationState: null,
         });
         store.getState().actions.setStashes([]);
       }
@@ -321,12 +397,15 @@ describe("Git refresh notifications", () => {
   test("a staging change updates status while retaining unchanged history", () => {
     const store = createGitStore();
     loadInitialHistory(store, "C:/repo", commits(50));
-    store.getState().actions.setGitStatus(snapshot);
+    store.getState().actions.publishRepositoryStatuses({ "C:/repo": snapshot });
     const previous = store.getState();
     store.getState().actions.refreshGitData({
       repoPath: "C:/repo",
-      gitStatus: { ...snapshot, files: [{ ...snapshot.files[0]!, staged: true }] },
-      commits: commits(50), hasMoreCommits: true,
+      repositoryStatuses: {
+        "C:/repo": { ...snapshot, files: [{ ...snapshot.files[0]!, staged: true }] },
+      },
+      commits: commits(50),
+      hasMoreCommits: true,
     });
     expect(store.getState().gitStatus?.files[0]?.staged).toBe(true);
     expect(store.getState().gitStatus).not.toBe(previous.gitStatus);
@@ -336,15 +415,117 @@ describe("Git refresh notifications", () => {
   test("pagination and operation changes are not lost when status is unchanged", () => {
     const store = createGitStore();
     loadInitialHistory(store, "C:/repo", commits(50));
-    store.getState().actions.setGitStatus(snapshot);
+    store.getState().actions.publishRepositoryStatuses({ "C:/repo": snapshot });
     store.getState().actions.refreshGitData({
-      repoPath: "C:/repo", gitStatus: structuredClone(snapshot),
-      commits: commits(50), hasMoreCommits: false, branches: ["main"],
+      repoPath: "C:/repo",
+      repositoryStatuses: { "C:/repo": structuredClone(snapshot) },
+      commits: commits(50),
+      hasMoreCommits: false,
+      branches: ["main"],
       operationState: { kind: "rebase", reference: "main", step: 1, total: 2, conflictedPaths: [] },
     });
     expect(store.getState().gitStatus).toBe(snapshot);
     expect(store.getState().hasMoreCommits).toBe(false);
     expect(store.getState().branches).toEqual(["main"]);
     expect(store.getState().operationState?.kind).toBe("rebase");
+  });
+});
+
+describe("Unified repository status", () => {
+  const repo = "C:/workspace";
+  const child = "C:/workspace/service";
+  const status = (branch: string, behind: number): GitStatus => ({
+    branch,
+    ahead: 0,
+    behind,
+    files: [{ path: "src/main.ts", status: "modified", staged: false }],
+  });
+
+  test("external checkout updates toolbar, closed Commit snapshot and file tree atomically", () => {
+    const store = createGitStore();
+    const { actions } = store.getState();
+    actions.setWorkspaceRepository(repo);
+    actions.prepareRepositoryLoad(repo);
+    actions.publishRepositoryStatuses({ [repo]: status("old", 3) });
+    actions.updateSourceControlSession(repo, { commitMessage: "Keep my draft" });
+    const observations: number[] = [];
+    const unsubscribe = store.subscribe((state) => {
+      const toolbar = state.repositoryStatuses[repo];
+      expect(state.gitStatus).toBe(toolbar);
+      expect(state.workspaceGitStatus).toBe(toolbar);
+      observations.push(toolbar!.behind);
+    });
+    try {
+      actions.publishRepositoryStatuses({ [repo]: status("latest", 0) });
+      expect(observations).toEqual([0]);
+      expect(store.getState().gitStatus?.branch).toBe("latest");
+      expect(store.getState().sourceControlSessions[repo]?.commitMessage).toBe("Keep my draft");
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("late bootstrap and Commit reads cannot restore old tracking counts or files", () => {
+    const store = createGitStore();
+    const { actions } = store.getState();
+    actions.setWorkspaceRepository(repo);
+    actions.prepareRepositoryLoad(repo);
+    const bootstrap = actions.beginWorkingTreeRefresh();
+    const commitRead = actions.beginWorkingTreeRefresh();
+    const current = status("latest", 0);
+    current.files = [];
+    actions.publishRepositoryStatuses({ [repo]: current }, actions.beginWorkingTreeRefresh());
+    actions.publishRepositoryStatuses({ [repo]: status("old", 3) }, bootstrap);
+    actions.refreshGitData({
+      repoPath: repo,
+      repositoryStatuses: { [repo]: status("old", 3) },
+      workingTreeVersion: commitRead,
+    });
+    expect(store.getState().repositoryStatuses[repo]).toBe(current);
+    expect(store.getState().gitStatus).toBe(current);
+    expect(store.getState().workspaceGitStatus).toBe(current);
+  });
+
+  test("multi-repository Commit projection keeps file identity and root decorations separate", () => {
+    const store = createGitStore();
+    const { actions } = store.getState();
+    actions.setWorkspaceRepository(repo);
+    actions.prepareRepositoryLoad(child);
+    const parentStatus = status("parent", 2);
+    const childStatus = status("child", 0);
+    actions.publishRepositoryStatuses({ [repo]: parentStatus, [child]: childStatus }, undefined, [
+      repo,
+      child,
+    ]);
+    expect(store.getState().gitStatus?.branch).toBe("child");
+    expect(store.getState().gitStatus?.behind).toBe(0);
+    expect(
+      store
+        .getState()
+        .gitStatus?.files.map((file) => [
+          file.path,
+          file.repositoryPath,
+          file.repositoryRelativePath,
+        ]),
+    ).toEqual([
+      ["workspace/src/main.ts", repo, "src/main.ts"],
+      ["service/src/main.ts", child, "src/main.ts"],
+    ]);
+    expect(store.getState().workspaceGitStatus).toBe(parentStatus);
+    actions.publishRepositoryStatuses({ [child]: status("next-child", 4) });
+    expect(store.getState().gitStatus?.behind).toBe(4);
+    expect(store.getState().workspaceGitStatus).toBe(parentStatus);
+  });
+
+  test("clearing the workspace discards pending global status publication", () => {
+    const store = createGitStore();
+    const { actions } = store.getState();
+    actions.setWorkspaceRepository(repo);
+    const pending = actions.beginWorkingTreeRefresh();
+    actions.setWorkspaceRepository(null);
+    actions.publishRepositoryStatuses({ [repo]: status("old", 3) }, pending);
+    expect(store.getState().repositoryStatuses).toEqual({});
+    expect(store.getState().gitStatus).toBeNull();
+    expect(store.getState().workspaceGitStatus).toBeNull();
   });
 });

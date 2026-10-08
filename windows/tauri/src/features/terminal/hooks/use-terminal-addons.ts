@@ -1,4 +1,3 @@
-import { ask } from "@tauri-apps/plugin-dialog";
 import { open } from "@tauri-apps/plugin-shell";
 import { ClipboardAddon, type ClipboardSelectionType } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
@@ -12,8 +11,6 @@ import {
   parseTerminalFileLinks,
   type TerminalFileLink,
 } from "@/features/terminal/utils/terminal-file-links";
-import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { createTranslator } from "@/i18n/locale";
 import { writeClipboardText } from "@/utils/clipboard";
 
 export interface TerminalAddons {
@@ -74,19 +71,8 @@ export function loadWebglRenderer(
 
 export function loadWebLinksAddon(terminal: Terminal): void {
   const webLinksAddon = new WebLinksAddon(async (_event: MouseEvent, uri: string) => {
-    const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
-
     try {
-      const confirmed = await ask(t("terminal.openExternalLinkConfirm", { url: uri }), {
-        title: t("terminal.openExternalLink"),
-        kind: "warning",
-        okLabel: t("ui.open"),
-        cancelLabel: t("ui.cancel"),
-      });
-
-      if (confirmed) {
-        await open(uri);
-      }
+      await open(uri);
     } catch (error) {
       console.error("Failed to open link:", error);
     }

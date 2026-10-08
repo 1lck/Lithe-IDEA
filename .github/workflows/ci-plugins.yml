@@ -80,7 +80,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.plugins == 'true'
     runs-on: macos-26
-    timeout-minutes: 35
+    timeout-minutes: 55
 
     steps:
       - name: Check out source
@@ -95,10 +95,14 @@ jobs:
           swiftpm: "true"
           cargo: "true"
 
-      # The suite deadline includes cold Rust Core and Swift compilation.
+      # Compile and discover tests before starting the test execution deadline.
+      - name: Build Swift tests
+        timeout-minutes: 20
+        run: ./scripts/test-macos.sh list > /dev/null
+
       - name: Run plugin-focused Swift tests
         timeout-minutes: 17
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 960 -- --filter '([Pp]lugin|LitheGoSupportModuleTests|LithePhpSupportModuleTests|LinuxDo)'
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 960 -- --skip-build --filter '([Pp]lugin|LitheGoSupportModuleTests|LithePhpSupportModuleTests|LinuxDo)'
 
       - name: Build and verify official plugin packages
         timeout-minutes: 10

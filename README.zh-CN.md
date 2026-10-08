@@ -45,7 +45,7 @@ https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
   </tr>
   <tr>
     <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="Lithe QQ 群二维码"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr-2026-09.png" width="280" alt="Lithe 微信群二维码"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr-2026-10.png" width="280" alt="Lithe 微信群二维码"></a></td>
   </tr>
 </table>
 </div>
@@ -265,6 +265,17 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> 提供多款主流大模型的便捷中转服务，让开发者可以更轻松地把 AI 能力接入日常开发流程。其支持也帮助 Lithe 持续完善 AI 辅助体验。感谢 FastAI 对本项目的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://www.packyapi.ai/register?aff=dWNN">
+        <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
+      </a>
+    </td>
+    <td>
+      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> 是一家稳定、高效的 API 中转服务商，一句话接入主流大模型。统一域名、统一密钥、智能容灾切换，97% 可用性。人民币 1:1 充值，无汇率无手续费坑，新用户首充立享折扣 + $1 免费体验额度，多分组折扣低至 2 折起，提供专属 Codex/Claude Code 高速通道。<br>
+      <a href="https://www.packyapi.ai/register?aff=dWNN">点此链接注册，立即开始使用！</a>
     </td>
   </tr>
   <tr>

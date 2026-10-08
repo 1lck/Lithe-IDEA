@@ -108,3 +108,13 @@ The fileTypes/toml.svg and toml_dark.svg pair is copied unmodified from
 platform/icons/src/expui/fileTypes at Community revision
 c7f91397daa3a961b4e78bc634fe467a0a7d9ade. The shared file icon catalog selects
 the light resource in light mode and its dark sibling in dark mode.
+
+Commit checkbox assets in commit/ come from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade
+platform/platform-resources/src/themes/expUI/icons/dark/checkBox*.svg.
+Dark SVGs are unchanged; light siblings apply the same revision expUI_light.theme.json
+Checkbox ColorPalette substitutions, preserving upstream geometry and state variants.
+
+Saved Changes toolbar icons (IntelliJ Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade):
+- savedChanges/stash{,_dark}.svg: platform/vcs-impl/resources/icons/new/stash{,_dark}.svg
+- savedChanges/shelve{,_dark}.svg: platform/vcs-impl/resources/icons/Shelve{,_dark}.svg
+Copyright JetBrains s.r.o. and contributors, Apache-2.0. Original geometry and colors retained.

@@ -15,11 +15,13 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features/terminal"
+      "windows/tauri/src/features/terminal",
+      "windows/tauri/src/features/terminal/hooks/use-terminal-addons.ts",
+      ".agents/notes/implemented/simplification/2026-10-08-windows-terminal-direct-web-links.md"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Terminal",
-  "verification": "验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。 macOS 安装原有支持列表中的 Nerd Font Mono，使用 Starship pastel-powerline 核对圆弧、Git/Bun 图标和拼接效果；注册打包 UI 字体后终端选择与 12.5pt 字号不变，未安装 Nerd Font 时回退到 Menlo 或系统等宽字体。 安装包必须包含完整 JetBrains Mono Nerd Font Mono 四个字型及许可；在未安装 Nerd Font 的机器上仍能直接显示完整提示符，粗斜体符号与文字使用相同字体度量，发行 bundle 字节不变。"
+  "verification": "验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。 macOS 安装原有支持列表中的 Nerd Font Mono，使用 Starship pastel-powerline 核对圆弧、Git/Bun 图标和拼接效果；注册打包 UI 字体后终端选择与 12.5pt 字号不变，未安装 Nerd Font 时回退到 Menlo 或系统等宽字体。 安装包必须包含完整 JetBrains Mono Nerd Font Mono 四个字型及许可；在未安装 Nerd Font 的机器上仍能直接显示完整提示符，粗斜体符号与文字使用相同字体度量，发行 bundle 字节不变。 Windows 终端点击识别出的 localhost、127.0.0.1 和 HTTPS 网页链接时直接打开系统默认浏览器，不显示外部链接确认；文件路径继续打开 IDE 文件，浏览器打开失败记录错误。真实 Windows 产品交互验收 pending。"
 }

@@ -2,16 +2,18 @@ import SwiftUI
 import LitheGitModule
 
 struct GitPatchPresentation: ViewModifier {
+    @Environment(\.locale) private var locale
     @ObservedObject var editor: GitPatchFeatureModel
     let surface: GitPatchFeatureModel.Surface
 
     func body(content: Content) -> some View {
-        content.sheet(isPresented: Binding(
+        content.background(LitheCenteredPopup(isPresented: Binding(
             get: { editor.mode != nil && editor.surface == surface },
             set: { if !$0 && editor.surface == surface { editor.dismiss() } }
-        )) {
+        ), allowsDismiss: !editor.isBusy,
+           dialogTitle: String(localized: editor.mode == .export ? "Create Patch" : "Apply Patch", locale: locale)) {
             GitPatchDialog(editor: editor)
-        }
+        }.frame(width: 0, height: 0).allowsHitTesting(false))
     }
 }
 
@@ -19,23 +21,16 @@ struct GitPatchToolbar: View {
     let feature: GitFeatureModel
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 2) {
             Button {
                 guard let root = feature.gitRepositoryRoot else { return }
                 feature.patchExchange.beginExport(at: root)
             } label: { Image(systemName: "doc.badge.arrow.up") }
-                .buttonStyle(.litheNoPress).help("Create Patch…").lithePointer()
+                .litheToolbarIconButton(isEnabled: feature.gitRepositoryRoot != nil).help("Create Patch…")
                 .accessibilityLabel("Create Patch")
-                .disabled(feature.gitRepositoryRoot == nil)
-            Button {
-                guard let root = feature.gitRepositoryRoot else { return }
-                feature.patchExchange.beginImport(at: root, surface: .changes)
-            } label: { Image(systemName: "doc.badge.arrow.down") }
-                .buttonStyle(.litheNoPress).help("Apply Patch…").lithePointer()
-                .accessibilityLabel("Apply Patch")
-                .disabled(feature.gitRepositoryRoot == nil)
+
         }
-        .font(LitheTheme.uiFont(size: 13))
+        .font(LitheTheme.uiFont(size: LitheTheme.Metrics.toolbarIconSize))
         .foregroundStyle(LitheTheme.secondaryText)
     }
 }
@@ -45,8 +40,6 @@ private struct GitPatchDialog: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Text(LocalizedStringKey(editor.mode == .export ? "Create Patch" : "Apply Patch"))
-                .font(LitheTheme.uiFont(size: 17, weight: .semibold))
             if editor.mode == .export { exportControls } else { importControls }
             if !editor.files.isEmpty { fileList }
             if !editor.patchText.isEmpty { rawPreview }
@@ -68,10 +61,15 @@ private struct GitPatchDialog: View {
             }
             footer
         }
-        .padding(20)
+        .font(LitheTheme.uiFont(size: 13))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .frame(width: 700)
-        .background(LitheTheme.raised)
-        .interactiveDismissDisabled(editor.isBusy)
+        .foregroundStyle(LitheTheme.primaryText)
+        .buttonStyle(LitheCommitDialogButtonStyle())
+        .background(LitheCommitDialogStyle.background)
+        .environment(\.lithePointingHandCursorEnabled, false)
+        .onExitCommand { if !editor.isBusy { editor.dismiss() } }
     }
 
     private var exportControls: some View {
@@ -81,7 +79,7 @@ private struct GitPatchDialog: View {
                     Text("Base \(editor.baseRevision.prefix(12)) → Target \(editor.targetRevision.prefix(12))")
                         .font(LitheTheme.uiFont(size: 12, design: .monospaced)).textSelection(.enabled)
                     Spacer()
-                    Button("Swap Direction") { editor.swapRevisions() }.disabled(editor.isBusy).lithePointer()
+                    Button("Swap Direction") { editor.swapRevisions() }.disabled(editor.isBusy)
                 }
                 Text("The patch changes the base commit's tree into the target commit's tree.")
                     .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
@@ -101,8 +99,8 @@ private struct GitPatchDialog: View {
     private var importControls: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Button("Open Patch…") { editor.chooseImportFile() }.disabled(editor.isBusy).lithePointer()
-                Button("Paste Patch") { editor.pasteImport() }.disabled(editor.isBusy).lithePointer()
+                Button("Open Patch…") { editor.chooseImportFile() }.disabled(editor.isBusy)
+                Button("Paste Patch") { editor.pasteImport() }.disabled(editor.isBusy)
                 if !editor.importedName.isEmpty {
                     Text(editor.importedName).font(LitheTheme.uiFont(size: 11)).lineLimit(1)
                         .foregroundStyle(LitheTheme.secondaryText)
@@ -124,8 +122,8 @@ private struct GitPatchDialog: View {
                 Text("\(editor.files.count) files").font(LitheTheme.uiFont(size: 11, weight: .medium))
                 Spacer()
                 if editor.mode == .export {
-                    Button("Select All") { editor.selectAllPaths(true) }.lithePointer()
-                    Button("Clear") { editor.selectAllPaths(false) }.lithePointer()
+                    Button("Select All") { editor.selectAllPaths(true) }
+                    Button("Clear") { editor.selectAllPaths(false) }
                 }
             }
             .font(LitheTheme.uiFont(size: 11)).disabled(editor.isBusy)
@@ -150,7 +148,7 @@ private struct GitPatchDialog: View {
                 }
                 .padding(9)
             }
-            // A sheet measures its ideal height before lazy rows are laid out.
+            // The panel measures its ideal height before lazy rows are laid out.
             // Reserve visible space so discovery never collapses the file picker.
             .frame(height: 135)
             .background(LitheTheme.inputBackground)
@@ -184,26 +182,26 @@ private struct GitPatchDialog: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             if editor.mode == .export {
                 Button("Refresh Files") { editor.refreshFiles() }
-                    .disabled(editor.isBusy).lithePointer()
+                    .disabled(editor.isBusy)
                 Button("Generate Preview") { editor.generateExport() }
-                    .disabled(!editor.canGenerateExport).lithePointer()
+                    .disabled(!editor.canGenerateExport)
             } else {
                 Button("Check Again") { editor.inspectImport() }
-                    .disabled(editor.isBusy || editor.importedPatch.isEmpty).lithePointer()
+                    .disabled(editor.isBusy || editor.importedPatch.isEmpty)
             }
             if editor.isBusy { ProgressView().controlSize(.small) }
             Spacer()
             Button("Close") { editor.dismiss() }.keyboardShortcut(.cancelAction)
-                .disabled(editor.isBusy).lithePointer()
+                .disabled(editor.isBusy)
             if editor.mode == .export {
                 Button("Save Patch…") { editor.saveExport() }
-                    .buttonStyle(.borderedProminent).disabled(!editor.canSave).lithePointer()
+                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).disabled(!editor.canSave)
             } else {
                 Button("Apply Patch") { Task { await editor.confirmApply() } }
-                    .buttonStyle(.borderedProminent).disabled(!editor.canApply).lithePointer()
+                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).disabled(!editor.canApply)
             }
         }
     }

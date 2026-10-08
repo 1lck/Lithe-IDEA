@@ -46,6 +46,8 @@ struct DiffUnifiedPaneView: View {
     let highlightsWords: Bool
     let selectedRowIDs: Set<DiffRowID>
     var fontFamily: String = EditorFontDefaults.monospacedFamily
+    var currentSearchMatchID: DiffRowID? = nil
+    var rowOverlay: (DiffRow) -> AnyView = { _ in AnyView(EmptyView()) }
     var onExpand: (DiffCollapsedRegion) -> Void = { _ in }
     @StateObject private var text = DiffNativeColumnState()
     @StateObject private var synchronization = DiffScrollSynchronization()
@@ -64,7 +66,7 @@ struct DiffUnifiedPaneView: View {
                                 DiffNativeCodeColumn(state: text, layoutIdentity: layout.identity,
                                     items: layout.items, side: .right, fileExtension: fileExtension,
                                     highlightsWords: highlightsWords, selectedRowIDs: selectedRowIDs,
-                                    currentSearchMatchID: nil, fontFamily: fontFamily, unified: true)
+                                    currentSearchMatchID: currentSearchMatchID, fontFamily: fontFamily, unified: true)
                                 LazyVStack(spacing: 0) {
                                     ForEach(Array(layout.items.enumerated()), id: \.offset) { _, item in
                                         if case let .collapsed(region) = item.displayRow {
@@ -73,7 +75,12 @@ struct DiffUnifiedPaneView: View {
                                             }
                                         } else if item.isScrollAnchor {
                                             Color.clear.frame(height: item.height)
-                                                .id(item.displayRow.layoutRow.id).allowsHitTesting(false)
+                                                .allowsHitTesting(false)
+                                                .overlay(alignment: .topLeading) {
+                                                    rowOverlay(item.displayRow.layoutRow)
+                                                        .frame(width: max(0, geometry.size.width - layout.stripeLayout.lineNumberGutterWidth * 2 - LitheScrollBarStyle.editorThickness), alignment: .trailing)
+                                                }
+                                                .id(item.displayRow.layoutRow.id)
                                         } else { Color.clear.frame(height: item.height).allowsHitTesting(false) }
                                     }
                                 }

@@ -113,7 +113,7 @@ pub(crate) fn permanent(failure: &Value) -> bool {
 
 /// Native HTTP 429 can exhaust immediately: its public HTTP retry policy
 /// excludes rate limits. Only that typed gap may use the pre-work Host replay;
-/// all native stream retries and this fallback share one five-attempt budget.
+/// pre-work native retries and this fallback share one five-attempt budget.
 pub(crate) fn rate_limit(error: &agent_client_protocol::Error) -> bool {
     let Some(native) = error
         .data

@@ -35,6 +35,7 @@ struct BranchPopupRowView<Label: View>: NSViewRepresentable {
 final class BranchPopupRowControl: NSControl {
     var render: ((Bool, Bool) -> AnyView)?
     var onPress: (() -> Void)?
+    var onSecondaryPress: ((NSPoint) -> Void)?
     var isPresented = false
     private var isHovered = false
     private let hosting = NSHostingView(rootView: AnyView(EmptyView()))
@@ -97,6 +98,12 @@ final class BranchPopupRowControl: NSControl {
         refresh()
     }
     override func mouseDown(with event: NSEvent) { performClick(nil) }
+    override func rightMouseDown(with event: NSEvent) {
+        guard let onSecondaryPress else { super.rightMouseDown(with: event); return }
+        let point = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+        closeExpansion()
+        onSecondaryPress(point)
+    }
     override func performClick(_ sender: Any?) { if isEnabled { closeExpansion(); onPress?() } }
     override func accessibilityPerformPress() -> Bool {
         guard isEnabled else { return false }
@@ -146,6 +153,10 @@ final class BranchPopupRowControl: NSControl {
         content.autoresizingMask = [.width, .height]
         overlay.addSubview(content)
         overlay.onPress = { [weak self] in self?.performClick(nil) }
+        overlay.onSecondaryPress = { [weak self] point in
+            self?.closeExpansion()
+            self?.onSecondaryPress?(point)
+        }
         overlay.onExit = { [weak self] in self?.isHovered = false; self?.refresh() }
         overlay.onScroll = { [weak self] event in
             guard let self else { return }
@@ -169,6 +180,7 @@ final class BranchPopupRowControl: NSControl {
 /// The expansion remains clickable, while its parent popup retains keyboard focus.
 private final class BranchPopupExpansionView: NSView {
     var onPress: (() -> Void)?
+    var onSecondaryPress: ((NSPoint) -> Void)?
     var onExit: (() -> Void)?
     var onScroll: ((NSEvent) -> Void)?
     override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
@@ -179,6 +191,9 @@ private final class BranchPopupExpansionView: NSView {
                                        owner: self, userInfo: nil))
     }
     override func mouseDown(with event: NSEvent) { onPress?() }
+    override func rightMouseDown(with event: NSEvent) {
+        onSecondaryPress?(event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation)
+    }
     override func mouseExited(with event: NSEvent) { onExit?() }
     override func scrollWheel(with event: NSEvent) { onScroll?(event) }
 }

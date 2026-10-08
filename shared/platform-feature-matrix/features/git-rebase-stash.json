@@ -5,7 +5,8 @@
   "capability": "Rebase 与 Stash",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Git"
+      "macos/Sources/Lithe/Views/Git",
+      "macos/Sources/LitheGitModule/Models/GitSavedChangesSnapshot.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -18,5 +19,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Git",
-  "verification": "执行交互式 Rebase 和 Stash 保存/恢复，确认中断、冲突和继续操作。"
+  "verification": "执行 Rebase 和 Stash 保存/恢复，确认冲突处理。macOS Stash 页使用上下可调整分栏；中间图标打开创建 Stash/Shelf 弹窗，名称和 Untracked 原语义不变。选择保存记录后查看含未跟踪文件的文件树，复用 Git Log 只读 Diff；Shelf 暂存/工作区补丁分版本查看。验证 Apply/Pop/Restore 与右键删除、切换记录和仓库时旧加载不覆盖新选择。组件和 Core 检查后仍需真实界面深浅主题验收；Windows 未同步此布局。 分支标签按上游分支类型着色，hover 原位展开完整名称/日期/分支且不改变行布局；展开区域仍可右键操作。Stash 分隔条悬停/拖动不变亮；从保存记录 Diff 返回 Git Log 文件时必须显示历史内容，Git 自定义颜色/无前缀设置不得影响保存记录文件路径。连续切换文件时左右 Diff 滚动条标记须同步替换，切到无差异内容须清空旧标记。"
 }

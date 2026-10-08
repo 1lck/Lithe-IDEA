@@ -9,7 +9,7 @@ struct SettingsAppearanceContainerTests {
     @Test
     func settingsInputRolesUseDistinctIDEAStyleSurfaces() throws {
         for (appearanceName, expected) in [
-            (NSAppearance.Name.darkAqua, [0x2B2D30, 0x393B40]),
+            (NSAppearance.Name.darkAqua, [0x2B2D30, 0x26282C]),
             (.aqua, [0xFFFFFF, 0xFFFFFF])
         ] {
             let appearance = try #require(NSAppearance(named: appearanceName))

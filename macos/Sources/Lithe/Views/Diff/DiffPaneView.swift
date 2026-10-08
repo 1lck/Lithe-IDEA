@@ -3,7 +3,7 @@ import LitheGitModule
 
 /// Shared side-by-side diff surface.
 ///
-/// `DiffReviewView`, `LocalHistoryView`, `ProjectLocalHistoryView` and
+/// `LocalHistoryView`, `ProjectLocalHistoryView` and
 /// `BranchComparisonView` all needed the same four things: measure the widest
 /// line, size the canvas past the viewport so long lines stay reachable, draw
 /// the connector ribbons underneath, and lay the rows out in a `LazyVStack`.

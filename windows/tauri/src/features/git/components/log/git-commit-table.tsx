@@ -126,7 +126,7 @@ export function GitCommitTable({
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const paint = useGitGraphPaint();
-  const visibleRows = useMemo(
+  const graphLayout = useMemo(
     () =>
       layoutGitGraph(
         commits,
@@ -138,9 +138,10 @@ export function GitCommitTable({
             )
           : undefined,
         { repositoryCommits, references, displayMode: showLongGraphEdges ? "expanded" : "compact" },
-      ).rows,
+      ),
     [commits, repositoryCommits, references, query, scope, showLongGraphEdges],
   );
+  const visibleRows = graphLayout.rows;
   const visibleCommitHashes = useMemo(
     () => visibleRows.map((row) => row.commit.hash),
     [visibleRows],
@@ -215,7 +216,7 @@ export function GitCommitTable({
   useLayoutEffect(() => {
     const element = scrollRef.current;
     if (!element) return;
-    return bindScrollContainerWheel(element);
+    return bindScrollContainerWheel(element, { smooth: true });
   }, []);
 
   useEffect(() => {
@@ -510,6 +511,7 @@ export function GitCommitTable({
                         onNavigateHash={navigateToHash}
                         referenceGroup={referenceGroups.get(row.commit.hash)}
                         referenceMetrics={referenceMetrics}
+                        recommendedLaneCount={graphLayout.recommendedLaneCount}
                       />
                       <div className="relative flex h-full w-(--git-log-author-width) shrink-0 items-center">
                         <span className="git-log-commit-text min-w-0 flex-1 overflow-clip px-2 text-ellipsis whitespace-nowrap text-foreground">

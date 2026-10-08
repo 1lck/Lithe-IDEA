@@ -524,7 +524,7 @@ const initializeLocalWorkspaceInBackground = (
   // Restored editors may have already published this workspace's bootstrap.
   // Do not erase it before the background path joins the completed task.
   if (!options.preserveGitStatus && gitStore.getState().currentWorkspaceRepoPath !== path) {
-    gitStore.getState().actions.setWorkspaceGitStatus(null, path);
+    gitStore.getState().actions.setWorkspaceRepository(path);
   }
 
   const startJavaWorkspaceDetection = () => {
@@ -641,7 +641,7 @@ const initializeLocalWorkspaceInBackground = (
         isCurrent: isCurrentActivation,
         onGitBootstrapError: (error) => {
           if (isCurrentActivation()) {
-            gitStore.getState().actions.setWorkspaceGitStatus(null, path);
+            gitStore.getState().actions.setWorkspaceRepository(path);
           }
           console.error("Failed to bootstrap workspace Git before Java:", error);
         },
@@ -650,7 +650,7 @@ const initializeLocalWorkspaceInBackground = (
       logWorkspaceOpenStep("end", "backgroundInit", path, backgroundInitStartedAt);
     } catch (error) {
       if (get().rootFolderPath === path) {
-        gitStore.getState().actions.setWorkspaceGitStatus(null, path);
+        gitStore.getState().actions.setWorkspaceRepository(path);
       }
       logWorkspaceOpenStep("error", "backgroundInit", path, backgroundInitStartedAt);
       console.error(errorContext, error);
@@ -793,7 +793,7 @@ const initializeRemoteWorkspaceSession = async (
   get: FileSystemGet,
 ) => {
   await useFileWatcherStore.getStore(workspaceId).getState().actions.setProjectRoot("");
-  useGitStore.getStore(workspaceId).getState().actions.setWorkspaceGitStatus(null, null);
+  useGitStore.getStore(workspaceId).getState().actions.setWorkspaceRepository(null);
 
   try {
     const restoreStartedAt = performance.now();
@@ -817,7 +817,7 @@ const initializeWslWorkspaceSession = async (
   get: FileSystemGet,
 ) => {
   await useFileWatcherStore.getStore(workspaceId).getState().actions.setProjectRoot("");
-  useGitStore.getStore(workspaceId).getState().actions.setWorkspaceGitStatus(null, null);
+  useGitStore.getStore(workspaceId).getState().actions.setWorkspaceRepository(null);
 
   try {
     const restoreStartedAt = performance.now();

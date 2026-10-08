@@ -59,6 +59,9 @@ pub struct PatchPreviewRequest {
     pub root: String,
     pub patch: String,
     pub target: PatchTarget,
+    /// Inspect saved patch paths without checking against the current worktree.
+    #[serde(default)]
+    pub metadata_only: bool,
 }
 
 /// A patch application tied to the exact content and repository state reviewed.
@@ -299,8 +302,17 @@ fn export_worktree(
 pub fn preview(request: PatchPreviewRequest) -> Result<PatchPreviewResponse, CoreError> {
     let root = checkout_root(&request.root)?;
     validate_nonempty_patch(&request.patch)?;
-    ensure_no_operation(&root)?;
     let files = patch_files(&root, &request.patch)?;
+    if request.metadata_only {
+        return Ok(PatchPreviewResponse {
+            applicable: false,
+            files,
+            diagnostic: String::new(),
+            expected_state: None,
+            byte_length: request.patch.len(),
+        });
+    }
+    ensure_no_operation(&root)?;
     let before = state_token(&root, &request.patch, request.target, &files)?;
     let output = capture_git_with_options(
         &root,

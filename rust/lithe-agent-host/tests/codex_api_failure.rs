@@ -222,7 +222,7 @@ fn run(status: u16, long: bool, recover: bool, partial: bool, cancel: bool, mixe
                 max_attempts,
                 ..
             } => {
-                assert_eq!(max_attempts, 5);
+                assert_eq!(max_attempts, if reply.is_empty() { Some(5) } else { None });
                 attempts.push(attempt);
                 if cancel {
                     handle

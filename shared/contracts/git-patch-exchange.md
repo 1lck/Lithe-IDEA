@@ -48,6 +48,13 @@ and nullable `expectedState`. No files are modified. Malformed or unsafe paths,
 empty patches, and active merge/rebase/cherry-pick/revert operations are rejected.
 An applicability failure returns `applicable: false` and no execution token.
 
+For read-only saved-change browsing, `git.patchPreview` also accepts optional
+`metadataOnly: true` (default `false`). This validates patch size and paths and
+returns the Git-parsed file summary without inspecting applicability, reading
+working-file state, or rejecting an ongoing merge/rebase. It always returns
+`applicable: false` and `expectedState: null`; the result cannot authorize Apply.
+Normal preview and application semantics are unchanged.
+
 `git.patchApply` accepts those same inputs plus the exact `expectedState` from
 the preview. Core binds the token to patch content, destination mode, repository,
 HEAD/branch, raw index bytes (including entry flags), and working-file content.

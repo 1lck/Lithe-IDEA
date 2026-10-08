@@ -4,8 +4,7 @@ import { getSymlinkInfo } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useFileSystemFolderDrop } from "@/features/file-system/hooks/use-file-system-folder-drop";
 import { openDroppedWorkspacePaths } from "@/features/file-system/utils/open-dropped-workspace-paths";
-import { useGitStore } from "@/features/git/stores/git.store";
-import { isGitChangeRelevant, subscribeToGitChanges } from "@/features/git/events/git-events";
+import { GitStatusRefreshHost } from "@/features/git/runtime/git-status-refresh-host";
 import { closeMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useMavenResolutionNotifications } from "@/features/maven/hooks/use-maven-resolution-problems";
@@ -116,8 +115,6 @@ export function MainLayout() {
     getUpdateControlVisibility(rootFolderPath);
   const switchToProject = useFileSystemStore.use.switchToProject?.();
   const setIsSwitchingProject = useFileSystemStore.use.setIsSwitchingProject?.();
-  const refreshWorkspaceGitStatus = useGitStore((state) => state.actions.refreshWorkspaceGitStatus);
-  const setWorkspaceGitStatus = useGitStore((state) => state.actions.setWorkspaceGitStatus);
   const onboardingOpen = useOnboardingStore((state) => state.isOpen);
   const onboardingContext = useOnboardingStore((state) => state.context);
   const consumeOnboardingOpenRequest = useOnboardingStore(
@@ -258,31 +255,9 @@ export function MainLayout() {
     restoreWorkspace();
   }, [switchToProject, setIsSwitchingProject]);
 
-  useEffect(() => {
-    if (!rootFolderPath) {
-      setWorkspaceGitStatus(null, null);
-      return;
-    }
-
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-    const unsubscribe = subscribeToGitChanges((change) => {
-      if (!isGitChangeRelevant(change, rootFolderPath)) return;
-
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        void refreshWorkspaceGitStatus(rootFolderPath);
-      }, 300);
-    });
-
-    return () => {
-      unsubscribe();
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [rootFolderPath, refreshWorkspaceGitStatus, setWorkspaceGitStatus]);
-
   return (
     <div className="lithe-layout-shell relative flex size-full flex-col overflow-hidden bg-surface">
+      <GitStatusRefreshHost />
       {/* Drag-and-drop overlay */}
       {isDraggingOver && !getInternalTabDragData() && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm">

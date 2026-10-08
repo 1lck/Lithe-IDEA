@@ -196,6 +196,7 @@ export function GitCommitFileTree({
     <ScrollArea
       className="min-h-0 flex-1"
       orientation="both"
+      smoothWheelScroll
       contentClassName="p-1.5"
       viewportProps={{ ref: viewportRef }}
       reserveScrollbarGutter

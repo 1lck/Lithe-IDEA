@@ -442,12 +442,15 @@ pub enum AgentEvent {
         request_id: String,
         request: serde_json::Value,
     },
-    /// A temporary failure ended one attempt; the same busy turn is reconnecting.
+    /// The same busy turn is reconnecting, without implying another Host prompt.
     TurnRetrying {
         session_id: String,
         turn_id: String,
         attempt: u32,
-        max_attempts: u32,
+        /// Only pre-work recovery has a Host attempt limit. Native recovery
+        /// after work owns its budget and omits this field.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_attempts: Option<u32>,
     },
     /// The agent acknowledged the prompt's completion, including cancellation.
     TurnFinished {
@@ -908,8 +911,8 @@ where
                         session_id: session_id.clone(),
                         update,
                     });
-                    if let Some((turn_id, attempt)) = reconnect {
-                        updates(AgentEvent::TurnRetrying { session_id, turn_id, attempt, max_attempts: prompt_retry::MAX_ATTEMPTS });
+                    if let Some((turn_id, attempt, max_attempts)) = reconnect {
+                        updates(AgentEvent::TurnRetrying { session_id, turn_id, attempt, max_attempts });
                     }
                 }
                 Ok(())

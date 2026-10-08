@@ -355,7 +355,7 @@ enum LitheTheme {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             return isDark
-                ? NSColor(srgbRed: 57.0 / 255, green: 59.0 / 255, blue: 64.0 / 255, alpha: 1)
+                ? NSColor(srgbRed: 38.0 / 255, green: 40.0 / 255, blue: 44.0 / 255, alpha: 1)
                 : .white
         })
     }
@@ -741,6 +741,18 @@ enum LitheTheme {
 
     /// Commit tool-window values shared by the Changes sidebar and editor.
     enum Commit {
+        // GitStashBranchComponent -> GitRefManager, Islands/expUI GitLog colors.
+        static var savedBranchIcon: Color { controlColor(light: 0x369650, dark: 0x5FAD65) }
+        static var savedHeadIcon: Color { controlColor(light: 0xFFAF0F, dark: 0xF5D273) }
+
+        // Islands Dark editor scheme; IntelliJ Light inherits Default file-status colors.
+        static var fileModified: Color { controlColor(light: 0x0032A0, dark: 0x70AEFF) }
+        static var fileAdded: Color { controlColor(light: 0x0A7700, dark: 0x73BD79) }
+        static var fileDeleted: Color { controlColor(light: 0x616161, dark: 0x6F737A) }
+        static var fileRenamed: Color { controlColor(light: 0x007C7C, dark: 0x70AEFF) }
+        static var fileConflicted: Color { controlColor(light: 0xFF0000, dark: 0xDE6A66) }
+        static var fileUntracked: Color { controlColor(light: 0x993300, dark: 0xE88F89) }
+
         static let toolbarHeight = Metrics.toolbarHeight
         static let listMinimumHeight: CGFloat = 120
         static let areaMinimumHeight: CGFloat = 124
@@ -763,7 +775,8 @@ enum LitheTheme {
             activeTheme == .lithe ? controlColor(light: 0xDDDFE4, dark: 0x33353B) : divider
         }
         static let toolbarFontSize: CGFloat = 12.5
-        static let tabItemHorizontalPadding: CGFloat = 12
+        // ContentLabel uses 12pt insets; Islands paints the tab 4pt inside its bounds.
+        static let tabItemHorizontalPadding: CGFloat = 8
         static let metadataFontSize: CGFloat = 12
         static let amendFontSize: CGFloat = 13
         static let actionIconSize: CGFloat = 16

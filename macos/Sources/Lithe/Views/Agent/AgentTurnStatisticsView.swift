@@ -47,7 +47,13 @@ struct AgentResponseStatusRow: View {
     var onStop: () -> Void = {}
 
     var showsQuietNotice: Bool {
-        isQuiet && responseStatus != .waitingForPermission && responseStatus != .stopping && responseStatus != .retrying
+        isQuiet && responseStatus != .waitingForPermission && responseStatus != .stopping
+    }
+
+    var quietNotice: String {
+        String(localized: responseStatus == .retrying
+               ? "Connection recovery is taking longer. The Agent is still retrying."
+               : "No recent progress has been received. The task is still active.")
     }
 
     var status: String {
@@ -85,7 +91,7 @@ struct AgentResponseStatusRow: View {
                 .help("Elapsed since sending, including tools and permission waits.")
             }
             if showsQuietNotice {
-                Text("No recent progress has been received. The task is still active.")
+                Text(quietNotice)
                     .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)

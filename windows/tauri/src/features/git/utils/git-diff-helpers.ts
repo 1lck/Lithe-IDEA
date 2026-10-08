@@ -2,6 +2,8 @@ import type { DiffLineWithIndex, ParsedHunk } from "../types/git-diff.types";
 import type { GitDiff, GitDiffLine, GitDiffSplitRow, GitHunk } from "../types/git.types";
 export { getDiffLineVisualState, getDiffLineVisualType } from "./diff-viewer-visuals";
 
+export const FULL_FILE_CONTEXT_LINES = 1_073_741_823;
+
 export interface DiffHunkRange {
   oldStart: number;
   oldCount: number;

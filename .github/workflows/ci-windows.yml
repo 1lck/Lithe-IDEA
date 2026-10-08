@@ -254,6 +254,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-maven-module-debug.json -- src/features/maven/services/maven-module-debug.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debugger-breakpoint-paths.json -- src/features/debugger/stores/debugger-breakpoints.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Java file and package creation
         shell: pwsh
@@ -334,6 +336,7 @@ jobs:
             "src/features/git/hooks/use-git-data-controller.integration.test.tsx",
             "src/features/git/stores/git-repository.store.test.ts",
             "src/features/git/stores/git.store.test.ts",
+            "src/features/git/runtime/git-status-refresh-host.test.tsx",
             "src/features/workspace/services/workspace-startup-priority.test.ts",
             "src/features/workspace/services/workspace-git-bootstrap.test.ts",
             "src/features/file-system/controllers/project-file-scan-coordinator.test.ts",
@@ -427,6 +430,11 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-quick-open-number-input.json -- src/features/quick-open/hooks/use-file-loader.test.tsx src/features/quick-open/hooks/use-file-search.test.tsx src/ui/number-input.test.tsx src/features/settings/components/editor-settings-routing.test.tsx
 
+      - name: Test wheel scroll animation and container wheel ownership
+        shell: pwsh
+        timeout-minutes: 3
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-wheel-scroll.json -- src/ui/wheel-scroll-animation.test.ts src/ui/scroll-container-wheel.integration.test.ts
+
       - name: Test system font settings and search matching
         shell: pwsh
         timeout-minutes: 4
@@ -437,6 +445,16 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-font-size.json -- src/features/settings/lib/editor-font-size.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-search-match.json -- src/utils/search-match.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test Spring dependency readiness and properties completion
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-spring-property-completion.json -- src/features/spring/utils/spring-property-completion.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-spring-index-readiness.json -- src/features/spring/hooks/use-spring-index.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows frontend test reports

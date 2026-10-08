@@ -52,6 +52,8 @@ export interface GitGraphRow {
 export interface GitGraphLayout {
   rows: GitGraphRow[];
   laneCount: number;
+  /** IDEA's weighted visible-edge width; a baseline, not the widest row. */
+  recommendedLaneCount: number;
   hasMissingParents: boolean;
 }
 
@@ -74,6 +76,50 @@ export interface GitGraphLayoutOptions {
   references?: readonly GitReference[];
   repositoryCommits?: readonly GitCommit[];
   displayMode?: keyof typeof GIT_GRAPH_DISPLAY_OPTIONS;
+}
+
+const RECOMMENDED_WIDTH_SAMPLE_SIZE = 20_000;
+const RECOMMENDED_WIDTH_WEIGHT_RATIO = 0.1;
+
+/** PrintElementGeneratorImpl's weighted mean + deviation, using edge intervals. */
+function recommendedGraphWidth(
+  rowCount: number,
+  edges: readonly GraphEdge[],
+  display: (typeof GIT_GRAPH_DISPLAY_OPTIONS)[keyof typeof GIT_GRAPH_DISPLAY_OPTIONS],
+): number {
+  const count = Math.min(RECOMMENDED_WIDTH_SAMPLE_SIZE, rowCount);
+  if (count <= 1) return count;
+  const changes = new Int32Array(count + 1);
+  const missing = new Int32Array(count);
+  const add = (start: number, end: number) => {
+    if (start >= count) return;
+    changes[start] += 1;
+    changes[Math.min(end, count)] -= 1;
+  };
+  for (const edge of edges) {
+    if (edge.down === null) {
+      if (edge.up < count) missing[edge.up] += 1;
+    } else if (edge.down - edge.up < display.longEdgeSize) {
+      add(edge.up, edge.down);
+    } else {
+      add(edge.up, edge.up + display.visiblePartSize + 1);
+      add(edge.down - display.visiblePartSize, edge.down);
+    }
+  }
+  let current = 0;
+  let previous = 0;
+  let sum = 0;
+  let squares = 0;
+  for (let row = 0; row < count; row += 1) {
+    current += changes[row];
+    const width = Math.max(previous, current + missing[row]);
+    const weight = 2 / (count * (RECOMMENDED_WIDTH_WEIGHT_RATIO + 1))
+      * (1 + (RECOMMENDED_WIDTH_WEIGHT_RATIO - 1) * row / (count - 1));
+    sum += width * weight;
+    squares += width * width * weight;
+    previous = current;
+  }
+  return Math.round(sum + Math.sqrt(Math.max(0, squares - sum * sum)));
 }
 
 function stableElementKey(element: GraphElement): number {
@@ -347,7 +393,7 @@ export function layoutGitGraph(
   options: GitGraphLayoutOptions = {},
 ): GitGraphLayout {
   let commits = inputCommits;
-  if (commits.length === 0) return { rows: [], laneCount: 0, hasMissingParents: false };
+  if (commits.length === 0) return { rows: [], laneCount: 0, recommendedLaneCount: 0, hasMissingParents: false };
 
   const remoteNames = new Set(
     options.references
@@ -440,7 +486,7 @@ export function layoutGitGraph(
       ? [row]
       : [],
   );
-  if (visible.length === 0) return { rows: [], laneCount: 0, hasMissingParents: false };
+  if (visible.length === 0) return { rows: [], laneCount: 0, recommendedLaneCount: 0, hasMissingParents: false };
   const visibleCommits = visible.map((row) => commits[row]);
   const indices = visible.map((row) => permanent.indices[row]);
   const colors = visible.map((row) => permanent.colors[row]);
@@ -595,6 +641,7 @@ export function layoutGitGraph(
   return {
     rows,
     laneCount: Math.max(1, ...rows.map((row) => row.laneCount)),
+    recommendedLaneCount: recommendedGraphWidth(visibleCommits.length, edges, display),
     hasMissingParents: edges.some((edge) => edge.down === null),
   };
 }

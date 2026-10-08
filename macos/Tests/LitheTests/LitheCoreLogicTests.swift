@@ -2815,45 +2815,6 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    @MainActor
-    func diffMapGroupsAdjacentChangesAndKeepsSingleLinesVisible() {
-        var rows: [DiffRow] = []
-        func append(_ kind: DiffRowKind, count: Int) {
-            for _ in 0..<count {
-                rows.append(
-                    DiffRow(
-                        oldLine: rows.count + 1,
-                        newLine: rows.count + 1,
-                        left: "l",
-                        right: "r",
-                        kind: kind,
-                        sequence: rows.count
-                    )
-                )
-            }
-        }
-
-        append(.context, count: 40)
-        append(.addition, count: 3)
-        append(.context, count: 50)
-        append(.removal, count: 1)
-        append(.context, count: 6)
-
-        let markers = DiffMapView(rows: rows) { _ in }.markers
-
-        // A three-line run is one band, not three ticks.
-        #expect(markers.count == 2)
-        #expect(markers.map(\.kind) == [.addition, .removal])
-        #expect(abs(markers[0].start - 40.0 / 100.0) < 0.001)
-        #expect(abs(markers[0].extent - 3.0 / 100.0) < 0.001)
-
-        // A single removal is floored so it stays clickable rather than
-        // collapsing to a sub-pixel sliver.
-        #expect(markers[1].extent >= DiffMapView.minimumExtent)
-        #expect(markers[1].id == rows[93].id)
-    }
-
-    @Test
     func markdownPreviewUsesAdaptiveDebouncingAndDecodesCorePayload() throws {
         #expect(MarkdownPreviewDebounce.nanoseconds(forByteCount: 1_000) == 120_000_000)
         #expect(MarkdownPreviewDebounce.nanoseconds(forByteCount: 20_000) == 220_000_000)

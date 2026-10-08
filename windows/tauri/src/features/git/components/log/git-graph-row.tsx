@@ -25,6 +25,7 @@ export const GitGraphRow = memo(function GitGraphRow({
   onNavigateHash,
   referenceGroup,
   referenceMetrics,
+  recommendedLaneCount = 1,
 }: {
   row: GraphRow;
   showDecorations: boolean;
@@ -32,8 +33,9 @@ export const GitGraphRow = memo(function GitGraphRow({
   onNavigateHash?: (hash: string) => void;
   referenceGroup?: GitGraphReferenceGroup;
   referenceMetrics?: GitGraphReferenceMetrics;
+  recommendedLaneCount?: number;
 }) {
-  const width = paint.titleOffset(row.lane, row.printElements);
+  const width = paint.titleOffset(row.lane, row.printElements, recommendedLaneCount);
   const node = paint.nodeRect(row.lane);
 
   return (

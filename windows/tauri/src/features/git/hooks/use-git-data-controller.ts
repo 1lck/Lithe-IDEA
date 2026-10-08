@@ -6,7 +6,7 @@ import { getBranches } from "../api/git-branches-api";
 import { getOperationState } from "../api/git-integration-api";
 import { clearRepositoryDiscoveryCache } from "../api/git-repo-api";
 import { getStashes } from "../api/git-stash-api";
-import { getWorkspaceGitStatus } from "../api/git-status-api";
+import { getRepositoryGitStatuses } from "../api/git-status-api";
 import {
   isGitChangeRelevant,
   isPassiveGitChange,
@@ -66,7 +66,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     try {
       const repoPaths = useRepositoryStore.getState().availableRepoPaths;
       const statusRepoPaths = repoPaths.length > 0 ? repoPaths : [repoPath];
-      const status = await getWorkspaceGitStatus(statusRepoPaths, repoPath);
+      const repositoryStatuses = await getRepositoryGitStatuses(statusRepoPaths);
 
       if (
         requestId !== requestIdRef.current ||
@@ -75,10 +75,10 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         return;
       }
 
-      if (!status) throw new Error("Git status query returned no snapshot");
+      if (!repositoryStatuses[repoPath]) throw new Error("Git status query returned no snapshot");
       setFailedRepoPath(null);
       gitActions.refreshGitData({
-        gitStatus: status,
+        repositoryStatuses,
         workingTreeVersion,
         repoPath,
       });
@@ -106,7 +106,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         }
 
         gitActions.refreshGitData({
-          gitStatus: status,
+          repositoryStatuses,
           workingTreeVersion,
           branches,
           operationState: operationStateResult.ok ? operationStateResult.value : null,
@@ -154,7 +154,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
           const repoPaths = useRepositoryStore.getState().availableRepoPaths;
           const statusRepoPaths = repoPaths.length > 0 ? repoPaths : [repoPath];
           const [status, branches, stashes, operationStateResult] = await Promise.all([
-            getWorkspaceGitStatus(statusRepoPaths, repoPath, source),
+            getRepositoryGitStatuses(statusRepoPaths, source),
             shouldRefreshRefs ? getBranches(repoPath, source) : Promise.resolve(undefined),
             shouldRefreshStashes ? getStashes(repoPath, source) : Promise.resolve(undefined),
             // Operation state rides along on every refresh: staging a file or
@@ -174,10 +174,10 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
             return;
           }
 
-          if (!status) throw new Error("Git status query returned no snapshot");
+          if (!status[repoPath]) throw new Error("Git status query returned no snapshot");
           setFailedRepoPath(null);
           gitActions.refreshGitData({
-            gitStatus: status,
+            repositoryStatuses: status,
             workingTreeVersion,
             branches,
             operationState: operationStateResult.ok ? operationStateResult.value : undefined,

@@ -962,7 +962,7 @@ export function GitReferenceTree({
   useLayoutEffect(() => {
     const element = scrollRef.current;
     if (!element) return;
-    return bindScrollContainerWheel(element);
+    return bindScrollContainerWheel(element, { smooth: true });
   }, []);
 
   const renderSections = (

@@ -1,12 +1,11 @@
 import SwiftUI
 import LitheGitModule
 
-/// Read-only commit diff opened from the changed-files pane of Git Log.
-/// Working-tree diffs keep using DiffReviewView because they expose stage and
-/// discard actions; historical commit diffs deliberately do not.
-struct GitCommitDiffReviewView: View {
+/// Shared repository diff. Working changes retain mutation actions; saved/history inputs stay read-only.
+struct RepositoryDiffView: View {
     @ObservedObject var feature: GitFeatureModel
-    let context: GitCommitDiffContext
+    let context: GitCommitDiffContext?
+    let change: GitChange?
     let onClose: () -> Void
     let onOpenFile: () -> Void
     let onOpenCommitDiff: (GitCommitFile) -> Void
@@ -14,6 +13,27 @@ struct GitCommitDiffReviewView: View {
     /// monospaced family so existing call sites and tests keep their rendering.
     var fontFamily: String = EditorFontDefaults.monospacedFamily
 
+    init(feature: GitFeatureModel, context: GitCommitDiffContext,
+         onClose: @escaping () -> Void, onOpenFile: @escaping () -> Void,
+         onOpenCommitDiff: @escaping (GitCommitFile) -> Void,
+         fontFamily: String = EditorFontDefaults.monospacedFamily) {
+        self.feature = feature; self.context = context; change = nil
+        self.onClose = onClose; self.onOpenFile = onOpenFile
+        self.onOpenCommitDiff = onOpenCommitDiff; self.fontFamily = fontFamily
+    }
+
+    init(feature: GitFeatureModel, change: GitChange,
+         onClose: @escaping () -> Void, onOpenFile: @escaping () -> Void,
+         fontFamily: String = EditorFontDefaults.monospacedFamily) {
+        self.feature = feature; self.change = change; context = nil
+        self.onClose = onClose; self.onOpenFile = onOpenFile
+        onOpenCommitDiff = { _ in }; self.fontFamily = fontFamily
+    }
+
+    @State private var diffSearchQuery = ""
+    @State private var selectedDiffSearchIndex = 0
+    @FocusState private var diffSearchFocused: Bool
+    @State private var showsSearch = false
     @State private var unified = false
     @State private var highlightsWords = true
     @State private var selectedDifferenceIndex = 0
@@ -24,6 +44,7 @@ struct GitCommitDiffReviewView: View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
                 toolbar(proxy: proxy)
+                if showsSearch { diffSearchControl(proxy: proxy).padding(.horizontal, 8) }
                 if usesUnifiedPane || feature.isLoadingDiff || feature.diffRows.isEmpty {
                     versionHeader
                 }
@@ -51,13 +72,15 @@ struct GitCommitDiffReviewView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.Diff.background)
-        .onChange(of: context.id) { _ in
+        .onChange(of: context?.id ?? change?.id ?? "") { _ in
             selectedDifferenceIndex = 0
             expandedRegionIDs = []
+            selectedDiffSearchIndex = 0
         }
+        .onChange(of: diffSearchQuery) { _ in selectedDiffSearchIndex = 0 }
     }
 
-    private var usesUnifiedPane: Bool { unified || context.kind == .added || context.kind == .deleted }
+    private var usesUnifiedPane: Bool { unified || kind == .added || kind == .deleted }
 
     private func toolbar(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 4) {
@@ -72,9 +95,10 @@ struct GitCommitDiffReviewView: View {
                 onOpenFile()
             } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/edit", size: 16, preservesOriginalColors: true)
-            }.litheToolbarIconButton(isEnabled: context.kind != .deleted)
+            }.litheToolbarIconButton(isEnabled: kind != .deleted)
                 .accessibilityLabel("Open in editor").workbenchHoverHelp(Text("Open in editor"))
             toolbarDivider
+            if context != nil {
             Button { navigateFile(by: -1) } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/left", size: 16, preservesOriginalColors: true)
             }.litheToolbarIconButton(isEnabled: fileIndex.map { $0 > 0 } ?? false)
@@ -86,6 +110,7 @@ struct GitCommitDiffReviewView: View {
             }.litheToolbarIconButton(isEnabled: fileIndex.map { $0 + 1 < files.count } ?? false)
                 .accessibilityLabel("Next file").workbenchHoverHelp(Text("Next file"))
             toolbarDivider
+            }
             Button {
                 collapsesUnchangedRegions.toggle()
                 expandedRegionIDs = []
@@ -96,6 +121,9 @@ struct GitCommitDiffReviewView: View {
                 .accessibilityLabel("Collapse unchanged fragments")
                 .accessibilityValue(collapsesUnchangedRegions ? "On" : "Off")
                 .workbenchHoverHelp(Text("Collapse unchanged fragments"))
+            Button { showsSearch.toggle() } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/search", size: 16, preservesOriginalColors: true)
+            }.litheToolbarIconButton().accessibilityLabel("Search diff")
             Spacer()
             Text(differenceStarts.count == 1 ? "1 difference" : "\(differenceStarts.count) differences")
                 .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.primaryText)
@@ -122,6 +150,20 @@ struct GitCommitDiffReviewView: View {
             }
             LitheMenu {
                 LitheContextMenuItem.toggle("Highlight words", isOn: $highlightsWords)
+                if let change {
+                    for mode in GitDiffWhitespaceMode.allCases {
+                        LitheContextMenuItem.action(mode.title, checked: feature.gitDiffWhitespaceMode == mode) {
+                            Task { await feature.reloadSelectedChangeDiff(whitespace: mode) }
+                        }
+                    }
+                    LitheContextMenuItem.separator
+                    if change.isStaged && !change.hasWorkingTreeChange {
+                        LitheContextMenuItem.action("Unstage") { Task { await feature.unstageSelectedChange() } }
+                    } else {
+                        LitheContextMenuItem.action("Stage File") { Task { await feature.stageSelectedChange() } }
+                        LitheContextMenuItem.action("Discard") { feature.requestDiscardSelectedChange() }
+                    }
+                }
                 LitheContextMenuItem.separator
                 LitheContextMenuItem.action("Close diff") { onClose() }
             } label: {
@@ -141,12 +183,19 @@ struct GitCommitDiffReviewView: View {
     }
 
     private var files: [GitCommitFile] {
+        guard let context else { return [] }
+        if context.commit.hash.hasPrefix("saved:"), let snapshot = feature.savedDiffSnapshot {
+            return snapshot.files.filter { $0.version == feature.savedDiffVersion }.map(\.file)
+        }
         guard feature.selectedGitCommit?.hash == context.commit.hash,
               feature.selectedGitCommitFiles.contains(where: { $0.id == context.file.id }) else { return [context.file] }
         return feature.selectedGitCommitFiles
     }
 
-    private var fileIndex: Int? { files.firstIndex { $0.id == context.file.id } }
+    private var fileIndex: Int? { context.flatMap { value in files.firstIndex { $0.id == value.file.id } } }
+    private var fileURL: URL { context?.url ?? change!.url }
+    private var path: String { context?.path ?? change!.path }
+    private var kind: GitChangeKind { context?.kind ?? change!.kind }
 
     private func navigateFile(by offset: Int) {
         guard let index = fileIndex, files.indices.contains(index + offset) else { return }
@@ -172,13 +221,13 @@ struct GitCommitDiffReviewView: View {
         Group {
             if usesUnifiedPane {
                 VStack(spacing: LitheTheme.Diff.titleGap) {
-                    versionLabel(parentHash, path: context.path)
-                    versionLabel(context.commit.shortHash, path: nil)
+                    versionLabel(leftVersionTitle, path: change?.originalPath ?? path)
+                    versionLabel(rightVersionTitle, path: change?.path)
                 }
             } else {
                 HStack(spacing: 0) {
-                    versionLabel(parentHash, path: context.path)
-                    versionLabel(context.commit.shortHash, path: nil)
+                    versionLabel(leftVersionTitle, path: change?.originalPath ?? path)
+                    versionLabel(rightVersionTitle, path: change?.path)
                 }
             }
         }.padding(.vertical, LitheTheme.Diff.titleInset)
@@ -187,12 +236,29 @@ struct GitCommitDiffReviewView: View {
          .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.Diff.titleSeparator).frame(height: 1) }
     }
 
-    private var parentHash: String { context.commit.parentHashes.first.map { String($0.prefix(8)) } ?? "Empty" }
+    private var leftVersionTitle: String {
+        guard let change else { return context?.commit.parentHashes.first.map { String($0.prefix(8)) } ?? "Empty" }
+        if change.kind == .added { return "Empty file" }
+        if change.kind == .deleted { return "Deleted version" }
+        if change.kind == .moved || change.kind == .copied { return "Original location" }
+        if change.hasWorkingTreeChange { return "Index version" }
+        return "Repository version"
+    }
+
+    private var rightVersionTitle: String {
+        guard let change else { return context?.commit.shortHash ?? "" }
+        if change.kind == .deleted { return "Empty file" }
+        if change.kind == .added { return "Added version" }
+        if change.kind == .moved { return "Moved version" }
+        if change.kind == .copied { return "Copied version" }
+        return change.isStaged && !change.hasWorkingTreeChange ? "Staged version" : "Current version"
+    }
+
 
     private func versionLabel(_ hash: String, path: String?) -> some View {
         HStack(spacing: 0) {
             LitheIDEAIcon(resourcePath: "expui/general/locked", size: LitheTheme.Diff.titleIconSize, preservesOriginalColors: true)
-            Text(hash).font(LitheTheme.uiFont(size: 13, weight: .regular)).foregroundStyle(LitheTheme.Diff.titleForeground)
+            Text(change == nil ? hash : String(localized: String.LocalizationValue(hash))).font(LitheTheme.uiFont(size: 13, weight: .regular)).foregroundStyle(LitheTheme.Diff.titleForeground)
                 .fixedSize()
             if let path {
                 Text(path).font(LitheTheme.uiFont(size: 13, weight: .regular)).foregroundStyle(LitheTheme.Diff.pathForeground)
@@ -206,8 +272,16 @@ struct GitCommitDiffReviewView: View {
     private func diffContent(proxy: ScrollViewProxy) -> some View {
         // Patch hunk headers are metadata. Preserve source row IDs for existing navigation.
         let rows = feature.diffRows.filter { $0.kind != .information }
+        var actionHunks: [DiffRowID: DiffHunk] = [:]
+        if change != nil {
+            let hunks = Dictionary(feature.diffHunks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            var seen = Set<String>()
+            for row in rows where row.kind.isCommitDifference {
+                if let id = row.hunkID, seen.insert(id).inserted, let hunk = hunks[id] { actionHunks[row.id] = hunk }
+            }
+        }
         let displayRows = collapsesUnchangedRegions
-            ? DiffCollapse.plan(rows: rows, expandedRegionIDs: expandedRegionIDs)
+            ? DiffCollapse.plan(rows: rows, expandedRegionIDs: expandedRegionIDs, pinnedRowIDs: Set(diffSearchMatches))
             : rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
         let kinds = displayRows.map { $0.layoutRow.kind }
         let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows, family: fontFamily))
@@ -217,24 +291,29 @@ struct GitCommitDiffReviewView: View {
         let selectedIDs = Set(differenceIndexByRow.compactMap { $0.value == selectedDifferenceIndex ? $0.key : nil })
         return GeometryReader { geometry in
             if usesUnifiedPane {
-                DiffUnifiedPaneView(layout: unifiedLayout, fileExtension: context.url.pathExtension,
+                DiffUnifiedPaneView(layout: unifiedLayout, fileExtension: fileURL.pathExtension,
                     contentWidth: measuredWidth, highlightsWords: highlightsWords, selectedRowIDs: selectedIDs,
-                    fontFamily: fontFamily,
+                    fontFamily: fontFamily, currentSearchMatchID: selectedDiffSearchRowID,
+                    rowOverlay: { row in AnyView(hunkActions(actionHunks[row.id])) },
                     onExpand: { expandedRegionIDs.insert($0.id) })
             } else {
                 DiffSplitPaneView(displayRows: displayRows, kinds: kinds, layout: layout,
-                    fileExtension: context.url.pathExtension, contentWidth: max(geometry.size.width, measuredWidth),
+                    fileExtension: fileURL.pathExtension, contentWidth: max(geometry.size.width, measuredWidth),
                     viewportWidth: geometry.size.width, highlightsWords: highlightsWords,
                     fontFamily: fontFamily,
                     header: { position in AnyView(
                         HStack(spacing: 0) {
-                            versionLabel(parentHash, path: context.path).frame(width: position).clipped()
-                            versionLabel(context.commit.shortHash, path: nil)
+                            versionLabel(leftVersionTitle, path: change?.originalPath ?? path).frame(width: position).clipped()
+                            versionLabel(rightVersionTitle, path: change?.path)
                         }.padding(.vertical, LitheTheme.Diff.titleInset).padding(.bottom, 1)
                          .background(LitheTheme.Diff.background)
                          .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.Diff.titleSeparator).frame(height: 1) }
                     ) },
-                    selectedRowIDs: selectedIDs, onExpand: { expandedRegionIDs.insert($0.id) })
+                    selectedRowIDs: selectedIDs, searchMatchIDs: Set(diffSearchMatches),
+                    currentSearchMatchID: selectedDiffSearchRowID,
+                    onExpand: { expandedRegionIDs.insert($0.id) }) { row, side in
+                        if side == (row.kind == .removal ? .left : .right) { hunkActions(actionHunks[row.id]) }
+                    }
             }
         }.background(LitheTheme.Diff.background)
     }
@@ -277,6 +356,92 @@ struct GitCommitDiffReviewView: View {
         selectedDifferenceIndex = next
         withAnimation(.easeOut(duration: 0.18)) {
             proxy.scrollTo(starts[next], anchor: .center)
+        }
+    }
+
+    private func diffSearchControl(proxy: ScrollViewProxy) -> some View {
+        HStack(spacing: 4) {
+            LitheSystemIcon(systemImage: "magnifyingglass")
+                .font(LitheTheme.uiFont(size: 10.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+
+            LitheSearchTextField("Search diff", text: $diffSearchQuery)
+                .font(LitheTheme.uiFont(size: 11.5))
+                .frame(width: 145)
+                .focused($diffSearchFocused)
+                .macReturnKeyHandler(isEnabled: diffSearchFocused) { isShiftPressed in
+                    navigateDiffSearch(
+                        by: isShiftPressed ? -1 : 1,
+                        proxy: proxy
+                    )
+                }
+
+            Text(diffSearchLabel)
+                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(minWidth: 34, alignment: .trailing)
+                .monospacedDigit()
+
+            Button {
+                navigateDiffSearch(by: -1, proxy: proxy)
+            } label: {
+                Image(systemName: "chevron.up")
+            }
+            .litheIconButton()
+            .disabled(diffSearchMatches.isEmpty)
+            .help("Previous diff match")
+
+            Button {
+                navigateDiffSearch(by: 1, proxy: proxy)
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .litheIconButton()
+            .disabled(diffSearchMatches.isEmpty)
+            .help("Next diff match")
+        }
+        .litheSearchField(isFocused: diffSearchFocused)
+        .onAppear { diffSearchFocused = false }
+    }
+
+    private var diffSearchMatches: [DiffRowID] {
+        let query = diffSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        let foldedQuery = query.localizedLowercase
+        return feature.diffRows.filter { $0.kind != .information }.compactMap { row in
+            let texts = [row.left, row.rightText].compactMap { $0 }
+            return texts.contains(where: { $0.localizedLowercase.contains(foldedQuery) }) ? row.id : nil
+        }
+    }
+
+    private var selectedDiffSearchRowID: DiffRowID? {
+        guard !diffSearchMatches.isEmpty else { return nil }
+        let index = min(max(selectedDiffSearchIndex, 0), diffSearchMatches.count - 1)
+        return diffSearchMatches[index]
+    }
+
+    private var diffSearchLabel: String {
+        guard !diffSearchMatches.isEmpty else { return diffSearchQuery.isEmpty ? "" : "0/0" }
+        let index = min(max(selectedDiffSearchIndex, 0), diffSearchMatches.count - 1)
+        return "\(index + 1)/\(diffSearchMatches.count)"
+    }
+
+    private func navigateDiffSearch(by offset: Int, proxy: ScrollViewProxy) {
+        let matches = diffSearchMatches
+        guard !matches.isEmpty else { return }
+        let current = min(max(selectedDiffSearchIndex, 0), matches.count - 1)
+        let next = (current + offset + matches.count) % matches.count
+        selectedDiffSearchIndex = next
+        withAnimation(.easeOut(duration: 0.18)) {
+            proxy.scrollTo(matches[next], anchor: .center)
+        }
+    }
+
+    @ViewBuilder
+    private func hunkActions(_ hunk: DiffHunk?) -> some View {
+        if let change, let hunk {
+            DiffHunkActionsView(feature: feature, hunk: hunk, change: change,
+                isMutationEnabled: feature.gitDiffWhitespaceMode == .doNotIgnore)
         }
     }
 
