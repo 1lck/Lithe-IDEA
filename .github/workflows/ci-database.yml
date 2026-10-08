@@ -86,7 +86,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.swift_database == 'true'
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Check out source
@@ -101,10 +101,14 @@ jobs:
           swiftpm: "true"
           cargo: "true"
 
-      # The suite deadline includes cold Rust Core and Swift compilation.
+      # Compile and discover tests before starting the test execution deadline.
+      - name: Build Swift tests
+        timeout-minutes: 20
+        run: ./scripts/test-macos.sh list > /dev/null
+
       - name: Run database-focused Swift tests
         timeout-minutes: 17
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-database.json --suite-timeout-seconds 960 -- --filter '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)'
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-database.json --suite-timeout-seconds 960 -- --skip-build --filter '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)'
 
       - name: Generate combined database test report
         if: always()
