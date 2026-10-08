@@ -231,7 +231,7 @@ describe("Git status review diffs", () => {
       repoPath: "C:/repo",
       filePath: "src/App.tsx",
       worktreeSnapshot: true,
-      contextLines: 2_147_483_647,
+      contextLines: 1_073_741_823,
     });
   });
 
@@ -245,7 +245,7 @@ describe("Git status review diffs", () => {
       repoPath: "C:/repo",
       filePath: "src/App.tsx",
       staged: true,
-      contextLines: 2_147_483_647,
+      contextLines: 1_073_741_823,
     });
   });
 });

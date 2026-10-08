@@ -78,8 +78,18 @@ const INTERNAL_REF_PREFIX: &str = "refs/lithe/";
 const GIT_COMMIT_DATE_ARGUMENT: &str = "--date=format:%Y/%m/%d %H:%M %z";
 const DEFAULT_REPOSITORY_SCAN_MAX_DIRECTORIES: usize = usize::MAX;
 const DEFAULT_REPOSITORY_SCAN_MAX_DEPTH: usize = usize::MAX;
+const FULL_FILE_CONTEXT_LINES: usize = 1_073_741_823;
 static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static AUTO_STASH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn append_full_file_context_arguments(arguments: &mut Vec<String>, context_lines: usize) {
+    if context_lines >= FULL_FILE_CONTEXT_LINES {
+        // Git xdiff combines nearby hunks using this value. Pin it to zero for
+        // whole-file reviews so user configuration cannot reintroduce the
+        // signed 32-bit overflow present in older Git for Windows releases.
+        arguments.push("--inter-hunk-context=0".into());
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1912,6 +1922,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         }
         arguments
     };
+    append_full_file_context_arguments(&mut arguments, request.context_lines);
     if request.ignore_all_whitespace {
         arguments.push("--ignore-all-space".to_string());
     }
@@ -1956,6 +1967,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
                 "--no-index".into(),
                 format!("--unified={}", request.context_lines),
             ];
+            append_full_file_context_arguments(&mut untracked_arguments, request.context_lines);
             if request.ignore_all_whitespace {
                 untracked_arguments.push("--ignore-all-space".into());
             }
@@ -2017,6 +2029,7 @@ fn worktree_snapshot_diff(
         "--binary".to_string(),
         format!("--unified={}", request.context_lines),
     ];
+    append_full_file_context_arguments(&mut arguments, request.context_lines);
     if request.ignore_all_whitespace {
         arguments.push("--ignore-all-space".to_string());
     }
@@ -2064,6 +2077,7 @@ fn worktree_snapshot_diff(
             "--no-index".into(),
             format!("--unified={}", request.context_lines),
         ];
+        append_full_file_context_arguments(&mut untracked_arguments, request.context_lines);
         if request.ignore_all_whitespace {
             untracked_arguments.push("--ignore-all-space".into());
         }

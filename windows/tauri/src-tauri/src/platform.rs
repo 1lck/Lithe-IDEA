@@ -1357,7 +1357,7 @@ mod tests {
                 "repoPath": "C:/work",
                 "filePath": "src/main.rs",
                 "worktreeSnapshot": true,
-                "contextLines": 2_147_483_647u32
+                "contextLines": 1_073_741_823u32
             }),
         )
         .unwrap();
@@ -1369,7 +1369,7 @@ mod tests {
                 "root": "C:/work",
                 "pathspecs": ["src/main.rs"],
                 "worktreeSnapshot": true,
-                "contextLines": 2_147_483_647u32
+                "contextLines": 1_073_741_823u32
             })
         );
     }

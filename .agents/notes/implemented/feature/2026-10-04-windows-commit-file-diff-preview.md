@@ -253,6 +253,12 @@ Monaco 颜色变量参考固定 0.55.1 的 `browser/widget/diffEditor/style.css`
 
 ## 后果
 
+完整文件上下文使用 `FULL_FILE_CONTEXT_LINES = 1_073_741_823`，不能使用 Git 接受的最大值 `2_147_483_647`。
+Git 的 xdiff（补丁生成引擎）合并相邻修改时会计算两倍上下文；Windows 的有符号 32 位整数会溢出，
+将多处修改拆成互相重叠的整文件 hunk（补丁区块）。这会让同一源文件内容重复显示、行号反复回到 1，
+也会使块包含失去安全的完整文件输入。工作区、HEAD 到磁盘快照和暂存区读取共用安全上限，Core 还会在实际 Git
+参数中显式加入 `--inter-hunk-context=0`，避免用户配置在旧版 Git for Windows 中重新触发溢出；不能在视图层去重掩盖补丁错误。
+
 一个固定预览标签可以浏览整个比较集合，也能保留同路径的多个提交版本。
 代价是缓冲区保存完整集合，即使当前只显示一个文件；Git API 本来就返回完整集合。
 历史预览继续采用现有补丁上下文范围，不在前端补造缺失的源码。
@@ -261,6 +267,11 @@ Monaco 颜色变量参考固定 0.55.1 的 `browser/widget/diffEditor/style.css`
 macOS 本次不修改，双端功能矩阵保持目标产品运行验收待验证的状态。
 
 ## 验证
+
+- #1123 回归：`commit-diff-blocks.integration.test.ts` 用真实 Git 在已有文件的三个不相邻位置修改，
+  检查普通工作区、快照和暂存区补丁均只有一个完整 hunk；左右源行恰好出现一次，保持单调行号和三个可操作块。
+- 旧版 Git 配置回归：`rust/lithe-core/src/tests/git.rs` 在临时仓库设置非零 `diff.interHunkContext`，
+  通过 Core 的三种完整文件读取路径检查仍只返回一个 hunk、48 行单调且用户配置保持不变。
 
 - 2026-10-05 审核修复回归：Git 与 Core 结果适配前端计时组 626 项通过。四个真实 Git EOF/CRLF 场景精确比较
   暂存区和实际提交 blob 字节；index-only 与二进制夹具核对真实 MM 状态和整文件包含。
