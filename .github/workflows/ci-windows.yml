@@ -254,6 +254,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-maven-module-debug.json -- src/features/maven/services/maven-module-debug.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debugger-breakpoint-paths.json -- src/features/debugger/stores/debugger-breakpoints.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Java file and package creation
         shell: pwsh
@@ -437,6 +439,16 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-font-size.json -- src/features/settings/lib/editor-font-size.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-search-match.json -- src/utils/search-match.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test Spring dependency readiness and properties completion
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-spring-property-completion.json -- src/features/spring/utils/spring-property-completion.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-spring-index-readiness.json -- src/features/spring/hooks/use-spring-index.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows frontend test reports

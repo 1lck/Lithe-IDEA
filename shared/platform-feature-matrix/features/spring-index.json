@@ -20,12 +20,13 @@
       "windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx",
       "windows/tauri/src/features/spring/utils/spring-property-completion.ts",
       "windows/tauri/src/features/spring/utils/spring-property-completion.test.ts",
-      "windows/tauri/src/features/editor/engines/monaco/lsp-providers.ts"
+      "windows/tauri/src/features/editor/engines/monaco/lsp-providers.ts",
+      ".github/workflows/ci-windows.yml"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Java / Spring",
-  "verification": "使用 Spring fixture 对比配置、Bean、Endpoint 索引、刷新和失效处理。 Windows配置补全：打开Java/Spring项目的application.properties及profile配置，验证依赖属性补全、前缀替换、持续编辑与Java导入完成后的元数据刷新；注释、值、续行及其他项目不得提供错误建议。",
+  "verification": "使用 Spring fixture 对比配置、Bean、Endpoint 索引、刷新和失效处理。 Windows配置补全：打开Java/Spring项目的application.properties及profile配置，验证依赖属性补全、前缀替换、持续编辑与Java导入完成后的元数据刷新；注释、值、续行及其他项目不得提供错误建议。 Windows实际 Spring hook 回归以真实 LSP store 的 serviceReady 触发依赖元数据刷新，兼容 fullyReady 且同一 ready 阶段不重复刷新；覆盖恢复后的重新就绪、其他/已退役工作区和真实订阅卸载，使用手动调度而非计时等待。",
   "notes": "Windows通过既有Core Spring索引提供Monaco配置键补全，保留元数据仓库并在JDT导入完成后刷新。此能力不修复资源复制到target/classes的新鲜度。"
 }

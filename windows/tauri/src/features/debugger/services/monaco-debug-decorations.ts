@@ -1,12 +1,7 @@
 import type { editor } from "monaco-editor";
-import { normalizePath } from "@/utils/path-helpers";
+import { debugSourcePathKey } from "../utils/debug-source-path";
 import { useDebuggerStore } from "../stores/debugger.store";
 import type { DebugBreakpoint, DebugStackFrame } from "../types/debugger.types";
-
-function pathKey(path: string): string {
-  const normalized = normalizePath(path);
-  return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
-}
 
 /** Projection of the existing breakpoint/frame owner, not another debugger model. */
 export function debugDecorations(
@@ -14,7 +9,7 @@ export function debugDecorations(
   breakpoints: DebugBreakpoint[],
   frame?: DebugStackFrame,
 ): editor.IModelDeltaDecoration[] {
-  const key = pathKey(filePath);
+  const key = debugSourcePathKey(filePath);
   const line = (number: number) => ({
     startLineNumber: number,
     startColumn: 1,
@@ -22,7 +17,7 @@ export function debugDecorations(
     endColumn: 1,
   });
   const decorations: editor.IModelDeltaDecoration[] = breakpoints
-    .filter((point) => pathKey(point.filePath) === key)
+    .filter((point) => debugSourcePathKey(point.filePath) === key)
     .map((point) => ({
       range: line(point.line + 1),
       options: {
@@ -33,7 +28,7 @@ export function debugDecorations(
         stickiness: 1,
       },
     }));
-  if (frame?.sourcePath && pathKey(frame.sourcePath) === key && frame.line > 0) {
+  if (frame?.sourcePath && debugSourcePathKey(frame.sourcePath) === key && frame.line > 0) {
     decorations.push({
       range: line(frame.line),
       options: {

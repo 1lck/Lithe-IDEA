@@ -45,7 +45,7 @@ Welcome to join the Lithe community, share your experience, ask questions, and f
   </tr>
   <tr>
     <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="QR code for the Lithe QQ group"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr-2026-09.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr-2026-10.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
   </tr>
 </table>
 </div>
@@ -269,6 +269,17 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
     <td>
       <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> provides convenient relay access to a range of leading large language models, making it easier to connect AI capabilities to everyday development workflows. Its support helps Lithe continue improving its AI-assisted experience. Thank you to FastAI for supporting this project!
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://www.packyapi.ai/register?aff=dWNN">
+        <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
+      </a>
+    </td>
+    <td>
+      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> is a stable, efficient API relay service that connects you to leading large language models. It offers a unified domain, a single API key, intelligent failover, and 97% availability. Top up in RMB at a 1:1 rate with no exchange-rate costs or transaction fees. New users receive a first-top-up discount plus $1 in free trial credit. Discounts across multiple service groups reach up to 80% off, with dedicated high-speed channels for Codex and Claude Code.<br>
+      <a href="https://www.packyapi.ai/register?aff=dWNN">Register to get started!</a>
     </td>
   </tr>
   <tr>
