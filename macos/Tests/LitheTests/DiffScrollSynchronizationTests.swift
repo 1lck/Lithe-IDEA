@@ -23,6 +23,35 @@ struct DiffScrollSynchronizationTests {
     }
 
     @Test
+    func switchingFilesRefreshesMountedStripesWithoutRecreatingThem() {
+        let sync = DiffScrollSynchronization()
+        let left = DiffStripeScroller(frame: NSRect(x: 0, y: 0, width: 14, height: 200))
+        let right = DiffStripeScroller(frame: left.frame)
+        let leftScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let rightScroll = NSScrollView(frame: leftScroll.frame)
+        sync.leftStripe = left
+        sync.rightStripe = right
+        sync.attach(leftScroll, side: .left)
+        sync.attach(rightScroll, side: .right)
+        defer { sync.detach(side: .left); sync.detach(side: .right) }
+        let first = rows()
+        let second = [DiffRow(oldLine: 1, newLine: nil, left: "removed", right: nil, kind: .removal, sequence: 0)]
+        for source in [first, second, []] {
+            let layout = DiffSplitLayout.plan(
+                displayRows: source.enumerated().map { .row($0.element, index: $0.offset) },
+                kinds: source.map(\.kind))
+            sync.configure(layout)
+            for stripe in [left, right] {
+                #expect(stripe.transitions.map(\.kind) == layout.transitions.map(\.kind))
+                #expect(stripe.transitions.map(\.leftRange) == layout.transitions.map(\.leftRange))
+                #expect(stripe.transitions.map(\.rightRange) == layout.transitions.map(\.rightRange))
+            }
+            #expect(left.sourceHeight == max(1, layout.leftHeight))
+            #expect(right.sourceHeight == max(1, layout.rightHeight))
+        }
+    }
+
+    @Test
     func boundaryMappingPreservesMatchingLinesAndClampsInsertions() {
         let rows = rows()
         let layout = DiffSplitLayout.plan(displayRows: rows.enumerated().map { .row($0.element, index: $0.offset) }, kinds: rows.map(\.kind))

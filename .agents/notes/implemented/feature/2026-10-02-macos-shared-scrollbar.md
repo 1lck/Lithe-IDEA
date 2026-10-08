@@ -46,6 +46,9 @@ macOS 已使用 `litheScrollViewChrome` 的滚动区默认共用 IDEA 滚动条�
   避免没有滚动溢出时将一行修改拉伸成很长的标记。宽标记在滑块下面绘制，
   滑块覆盖时颜色自然混合，不另加轮廓、间隔或圆角。
   hover 重绘仅在原生控件内，不发布滚动状态到父级，也不重建正文缓存。
+  Diff 布局切换时由 `DiffScrollSynchronization.configure` 直接替换已挂载的左右轨道标记；
+  同步对象身份不变时 SwiftUI 可能跳过 representable 更新，不能只靠该回调刷新标记。
+  无差异布局同样清空旧标记，不通过重建整个 Diff 或重置滚动位置规避刷新。
 
 共享调用者包括 Project/Dependencies 树、Settings、Keyboard Shortcuts、Project Runtime、
 LSP Control Center/Language Server Setup、Git Log/Console/Worktrees，以及 Diff 单栏/双栏。
