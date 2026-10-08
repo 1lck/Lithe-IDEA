@@ -49,6 +49,7 @@ Commit/Shelf 页签的留白以同一 Community revision 的 `IslandsUICustomiza
 和 `plugins/git4idea/backend/src/stash/ui/GitStashContentProvider.kt`：上下分栏默认比例
 0.5，下半区承载文件树和底部恢复动作。Lithe 使用现有 `LitheSplitPaneView`、
 Git Log 原生文件树与 `GitCommitDiffReviewView`，避免为保存记录建立第二套 Diff。
+Stash 分隔条关闭已有 `highlightsOnHover` 开关，悬停和拖动均保持原色，保留拖动热区。
 创建 Stash / Shelf 入口按用户要求放在中间工具栏，通过 Commit 共享弹窗输入；
 原有名称、Untracked（仅 Stash）、保存/恢复/删除服务不变，Shelf 记录仍可访问。
 分支标签遵循 `GitStashBranchComponent` → `GitRefManager` 的
@@ -64,6 +65,9 @@ Git Log 原生文件树与 `GitCommitDiffReviewView`，避免为保存记录建�
 文件名、不检查工作区适用性，不生成应用授权 token，冲突期间仍可浏览保存内容。
 当前按文件顺序解析，复杂路径交给 Git；大量文件的后续优化应批量返回 Core 文件段元数据。
 异步加载由页面 task 的选择标识取消，迟到结果不覆盖新选择；Diff 使用不可变快照。
+Git Log 文件点击始终走历史 Diff；保存记录内的前后文件导航由编辑器显式传入快照，
+不能通过当前 Diff 类型改变 Git Log 入口的语义。补丁导出固定无颜色与 a/b 路径前缀，
+避免用户 Git 配置影响下游文件段识别及路径剥离。
 组件与 Core 用例不能代替真实工作区深浅主题、窄宽度、弹窗和点击操作验收。
 
 ### Commit 文件树

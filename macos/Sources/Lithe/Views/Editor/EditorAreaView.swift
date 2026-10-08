@@ -1024,7 +1024,14 @@ struct EditorAreaView: View {
                     GitCommitDiffReviewView(feature: feature, context: context,
                         onClose: { model.closeGitCommitDiff() },
                         onOpenFile: { model.openFile(context.url) },
-                        onOpenCommitDiff: { model.showGitCommitDiff(for: $0) },
+                        onOpenCommitDiff: { file in
+                            if context.commit.hash.hasPrefix("saved:"),
+                               let snapshot = feature.savedDiffSnapshot, let version = feature.savedDiffVersion {
+                                model.showSavedChangesDiff(snapshot, version: version, file: file)
+                            } else {
+                                model.showGitCommitDiff(for: file)
+                            }
+                        },
                         fontFamily: settings.editorFontFamily)
                 } else {
                     Text("Select a changed file in Git Log")

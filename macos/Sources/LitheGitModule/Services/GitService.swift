@@ -1217,7 +1217,7 @@ package struct GitService: Sendable {
                         throw GitPatchFailure("Could not load saved changes")
                     }
                     identity = commit.hash
-                    let result = operations.run(arguments: ["-c", "core.quotepath=false", "stash", "show", "--include-untracked", "--patch", "--binary", "--no-ext-diff", "--no-textconv", commit.hash], workingDirectory: root.path, input: nil)
+                    let result = operations.run(arguments: ["-c", "core.quotepath=false", "stash", "show", "--include-untracked", "--patch", "--binary", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "--no-ext-diff", "--no-textconv", commit.hash], workingDirectory: root.path, input: nil)
                     guard result.exitCode == 0 else { throw GitPatchFailure(result.output) }
                     patches = [("Stash", commit.parentHashes.first.map { String($0.prefix(8)) } ?? "HEAD", result.standardOutput ?? result.output)]
                 } else if let shelf {

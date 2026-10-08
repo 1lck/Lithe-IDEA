@@ -2100,11 +2100,6 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func showGitCommitDiff(for file: GitCommitFile) async {
-        if selectedGitCommitDiffContext?.commit.hash.hasPrefix("saved:") == true,
-           let snapshot = savedDiffSnapshot, let version = savedDiffVersion {
-            showSavedChangesDiff(snapshot, version: version, file: file)
-            return
-        }
         guard let gitRepositoryRoot, let commit = selectedGitCommit else { return }
         let context = GitCommitDiffContext(
             repositoryRoot: gitRepositoryRoot,
