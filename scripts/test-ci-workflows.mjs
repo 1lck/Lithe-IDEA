@@ -54,6 +54,18 @@ test("an over-budget CI tool writes diagnostics and then fails the workflow", { 
   assert.ok(macos.includes("run: node scripts/report-ci-tool-tests.mjs"));
 });
 
+test("CI tooling dashboard aggregates every current lane", { timeout: 5_000 }, (t) => {
+  const directory = mkdtempSync(resolve(tmpdir(), "lithe-ci-dashboard-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  for (const [lane, name] of [["ci-workflows", "workflow scenario"], ["sparkle-baseline", "download scenario"]]) {
+    writeFileSync(resolve(directory, `${lane}.junit.xml`), `<testsuite><testcase name="${name}" time="0.01"/></testsuite>`);
+  }
+  reportTools(directory);
+  const html = readFileSync(resolve(directory, "index.html"), "utf8");
+  assert.ok(html.includes("workflow scenario"));
+  assert.ok(html.includes("download scenario"));
+});
+
 test("host PHP isolation does not require an unselected package and still rejects source and dist leaks", { timeout: 10_000 }, (t) => {
   const directory = mkdtempSync(resolve(tmpdir(), "lithe-ci-php-isolation-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));

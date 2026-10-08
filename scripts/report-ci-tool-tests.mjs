@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseJUnitCases } from "../.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs";
-import { writeTestReportArtifacts } from "../.agents/skills/write-stable-tests/scripts/generate-test-report.mjs";
+import { renderHTML, writeTestReportArtifacts } from "../.agents/skills/write-stable-tests/scripts/generate-test-report.mjs";
 
 export function toolReport(tests) {
   if (tests.length === 0) throw new Error("Missing CI tooling test results");
@@ -27,16 +27,21 @@ export function budgetFailures(report) {
 export function reportTools(directory) {
   let reports = 0;
   const failures = [];
+  const entries = [];
   for (const name of ["ci-workflows", "sparkle-baseline"]) {
     const stem = resolve(directory, name);
     if (!existsSync(`${stem}.junit.xml`)) continue;
     const report = toolReport(parseJUnitCases(readFileSync(`${stem}.junit.xml`, "utf8")));
     writeFileSync(`${stem}.json`, JSON.stringify(report, null, 2) + "\n");
     writeTestReportArtifacts(`${stem}.json`);
+    entries.push({ path: `${stem}.json`, source: `${name}.json`, report });
     failures.push(...budgetFailures(report).map((test) => `${name}: ${test.name}`));
     reports++;
   }
   if (reports === 0) throw new Error("Missing CI tooling test results");
+  // Each lane writes a standalone index; publish one dashboard containing all
+  // current lanes before uploading the tooling artifact, including on failure.
+  writeFileSync(resolve(directory, "index.html"), renderHTML(entries, "Lithe CI Tooling Test Report"));
   // Write all available diagnostics before failing the classification job/gate.
   if (failures.length) throw new Error(`CI tooling tests failed or exceeded their budget:\n${failures.join("\n")}`);
 }
