@@ -9,7 +9,8 @@ import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace
 import { saveWorkspaceBeforeLaunch } from "../services/save-workspace-before-launch";
 import { getBufferById } from "../utils/buffer-index";
 import { useBufferStore } from "./buffer.store";
-import { useEditorAppStore } from "./editor-app.store";
+import { createEditorAppStore, useEditorAppStore } from "./editor-app.store";
+import type { DocumentLifecycleDecision } from "@/platform/document-lifecycle";
 
 const WORKSPACE_A = "editor-app-test-a";
 const WORKSPACE_B = "editor-app-test-b";
@@ -368,4 +369,142 @@ test.each([false, true])("guarded save preserves conflicts and does not revive a
     save.mockRestore(); record.mockRestore(); decide.mockRestore();
     settings.useSettingsStore.setState((state) => ({ settings: { ...state.settings, formatOnSave: previousFormat } }));
   }
+});
+
+/** Debounce timers advanced by the test instead of wall-clock delays. */
+class ManualTimer {
+  private nextId = 1;
+  private readonly callbacks = new Map<number, () => void | Promise<void>>();
+
+  readonly set = (callback: () => void | Promise<void>) => {
+    const id = this.nextId++;
+    this.callbacks.set(id, callback);
+    return id as unknown as ReturnType<typeof setTimeout>;
+  };
+
+  readonly clear = (timer: ReturnType<typeof setTimeout>) => {
+    this.callbacks.delete(timer as unknown as number);
+  };
+
+  get size(): number {
+    return this.callbacks.size;
+  }
+
+  async fireNext(): Promise<void> {
+    const id = [...this.callbacks.keys()].sort((left, right) => left - right)[0];
+    if (id === undefined) throw new Error("No timer is scheduled.");
+    const callback = this.callbacks.get(id);
+    this.callbacks.delete(id);
+    await callback?.();
+  }
+}
+
+async function flushUntil(predicate: () => boolean, description: string): Promise<void> {
+  for (let attempt = 0; attempt < 64; attempt += 1) {
+    if (predicate()) return;
+    await Promise.resolve();
+  }
+  throw new Error(`Autosave never reached: ${description}`);
+}
+
+describe("editor autosave continuation", () => {
+  test("continues the delayed autosave while an earlier write is still in flight", async () => {
+    const documentFiles = await import("@/platform/document-files");
+    const lifecycle = await import("@/platform/document-lifecycle");
+    const history = await import("@/features/local-history/api/local-history-api");
+    const settings = await import("@/features/settings/stores/settings.store");
+    const previousAutoSave = settings.useSettingsStore.getState().settings.autoSave;
+    settings.useSettingsStore.setState((state) => ({ settings: { ...state.settings, autoSave: true } }));
+
+    const writes: { path: string; content: string; release: () => void }[] = [];
+    const save = spyOn(documentFiles, "saveDocumentFile").mockImplementation(
+      async (path: string, content: string) => {
+        await new Promise<void>((resolve) => {
+          writes.push({ path, content, release: resolve });
+        });
+        return { status: "saved" };
+      },
+    );
+    const record = spyOn(history, "recordLocalHistoryFile").mockResolvedValue(null);
+    const decide = spyOn(lifecycle, "decideDocumentLifecycle").mockImplementation(
+      async (state, event): Promise<DocumentLifecycleDecision> => {
+        if (event.type === "saveStarted") {
+          if (state.status !== "dirty") {
+            return { state, action: state.status === "conflict" ? "showConflict" : "none" };
+          }
+          return {
+            state: {
+              status: "saving",
+              revision: state.revision,
+              savedRevision: state.savedRevision,
+              saveRevision: state.revision,
+              operationId: event.operationId,
+            },
+            action: "writeToDisk",
+          };
+        }
+        if (event.type === "saveSucceeded") {
+          if (state.status !== "saving" || state.operationId !== event.operationId) {
+            return { state, action: "ignoreStaleResult" };
+          }
+          return {
+            state: state.revision === state.saveRevision
+              ? { status: "clean", revision: state.revision }
+              : { status: "dirty", revision: state.revision, savedRevision: state.saveRevision },
+            action: "none",
+          };
+        }
+        throw new Error(`Unexpected transition: ${event.type}`);
+      },
+    );
+
+    const timer = new ManualTimer();
+    const store = createEditorAppStore(WORKSPACE_A, {
+      setTimer: timer.set,
+      clearTimer: timer.clear,
+    });
+    try {
+      setWorkspaceBuffers(
+        WORKSPACE_A,
+        [editorBuffer("a", "first line", { path: "C:/workspace/a.txt", isVirtual: false })],
+        "a",
+      );
+
+      await store.getState().actions.handleContentChange("a", "first line!");
+      await flushUntil(() => timer.size === 1, "the first debounce");
+      await timer.fireNext();
+      await flushUntil(() => writes.length === 1, "the first write request");
+      expect(writes[0]?.content).toBe("first line!");
+
+      // A burst of edits settles while that write still owns the document, so
+      // its own debounce is refused and must be re-armed instead of dropped.
+      await store.getState().actions.handleContentChange("a", "first line!!");
+      await flushUntil(() => timer.size === 1, "the replacement debounce");
+      await timer.fireNext();
+      await flushUntil(() => timer.size === 1, "a debounce that continues the autosave");
+      expect(writes).toHaveLength(1);
+      expect(getEditorBuffer(WORKSPACE_A, "a").isDirty).toBe(true);
+
+      writes[0]?.release();
+      await flushUntil(
+        () => getEditorBuffer(WORKSPACE_A, "a").documentLifecycle?.status === "dirty",
+        "the first write to settle with newer text still pending",
+      );
+      await timer.fireNext();
+      await flushUntil(() => writes.length === 2, "the continued write request");
+      expect(writes[1]?.content).toBe("first line!!");
+      writes[1]?.release();
+      await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "a saved document");
+
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(getEditorBuffer(WORKSPACE_A, "a").savedContent).toBe("first line!!");
+    } finally {
+      for (const write of writes) write.release();
+      store.getState().actions.cleanup();
+      save.mockRestore();
+      record.mockRestore();
+      decide.mockRestore();
+      settings.useSettingsStore.setState((state) => ({ settings: { ...state.settings, autoSave: previousAutoSave } }));
+    }
+  }, 1_000);
 });

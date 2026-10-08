@@ -473,7 +473,27 @@ interface AppActions {
   cleanup: () => void;
 }
 
-const createEditorAppStore = (workspaceId: string) =>
+/** Timer seam so autosave debounce can be driven without wall-clock waits in tests. */
+export interface EditorAppScheduler {
+  setTimer: (
+    callback: () => void | Promise<void>,
+    milliseconds: number,
+  ) => ReturnType<typeof setTimeout>;
+  clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
+}
+
+const defaultEditorAppScheduler: EditorAppScheduler = {
+  setTimer: (callback, milliseconds) => setTimeout(() => void callback(), milliseconds),
+  clearTimer: (timer) => clearTimeout(timer),
+};
+
+/** Debounce window that batches a burst of edits into one write. */
+const AUTO_SAVE_DELAY_MILLISECONDS = 150;
+
+export const createEditorAppStore = (
+  workspaceId: string,
+  scheduler: EditorAppScheduler = defaultEditorAppScheduler,
+) =>
   createStore<AppState>()(
     immer((set, get) => ({
       autoSaveTasks: {},
@@ -535,90 +555,126 @@ const createEditorAppStore = (workspaceId: string) =>
               updateBufferContent(activeBuffer.id, content, true);
             }
 
+            // Arms the debounced autosave; a later edit replaces this pending timer.
+            const armAutoSave = (
+              target: { path: string; name: string },
+              text: string,
+            ) => {
+              const previousAutoSave = get().autoSaveTasks[bufferId];
+              if (previousAutoSave) {
+                scheduler.clearTimer(previousAutoSave.timeoutId);
+                traceDocumentSaveCancellation(previousAutoSave.context, "superseded-by-edit");
+              }
+              const autoSaveContext: DocumentSaveContext = {
+                bufferId,
+                path: target.path,
+                operationId: crypto.randomUUID(),
+              };
+              const timeoutId = scheduler.setTimer(() => {
+                void runAutoSave(autoSaveContext, text, target);
+              }, AUTO_SAVE_DELAY_MILLISECONDS);
+
+              set((state) => {
+                state.autoSaveTasks[bufferId] = { timeoutId, context: autoSaveContext };
+              });
+            };
+
+            const runAutoSave = async (
+              autoSaveContext: DocumentSaveContext,
+              text: string,
+              target: { path: string; name: string },
+            ) => {
+              let claim: ClaimedDocumentSave | null = null;
+              try {
+                const latestBeforeSave = getBufferById(
+                  bufferStore.getState().buffers,
+                  bufferId,
+                );
+                if (
+                  !latestBeforeSave ||
+                  !isEditorContent(latestBeforeSave) ||
+                  latestBeforeSave.content !== text
+                ) {
+                  traceDocumentSaveCancellation(autoSaveContext, "stale-content");
+                  return;
+                }
+                claim = await claimDocumentSave(
+                  workspaceId,
+                  latestBeforeSave,
+                  autoSaveContext.operationId,
+                );
+                if (!claim) {
+                  // Another write, manual or an earlier autosave, still owns this
+                  // document. Continue with this text once it settles; otherwise
+                  // the newer revision stays dirty forever. Each wait re-reads
+                  // live state, so it ends when the text is superseded, the
+                  // document closes, or autosave turns off. A conflict or I/O
+                  // failure ends the wait instead of becoming a retry.
+                  const latest = getBufferById(bufferStore.getState().buffers, bufferId);
+                  if (
+                    latest &&
+                    isEditorContent(latest) &&
+                    latest.isDirty &&
+                    latest.content === text &&
+                    latest.path === target.path &&
+                    latest.documentLifecycle?.status === "saving" &&
+                    useSettingsStore.getState().settings.autoSave
+                  ) {
+                    armAutoSave({ path: latest.path, name: latest.name }, text);
+                  }
+                  return;
+                }
+                await recordLocalHistoryBeforeWrite(target.path, "auto-save");
+                const expectedContent = latestBeforeSave.acknowledgedDiskContent === undefined
+                  ? latestBeforeSave.savedContent
+                  : latestBeforeSave.acknowledgedDiskContent;
+                const saveEncoding = latestBeforeSave.saveEncoding ?? latestBeforeSave.readEncoding ?? latestBeforeSave.encoding;
+                const persisted = await persistClaimedDocument(
+                  workspaceId,
+                  claim,
+                  text,
+                  expectedContent,
+                  saveEncoding,
+                  saveEncoding,
+                  latestBeforeSave.diskIdentity,
+                );
+                if (!persisted.saved) return;
+                await finishDocumentSave(workspaceId, claim, text);
+
+                const rootFolderPath = useFileSystemStore
+                  .getStore(workspaceId)
+                  .getState().rootFolderPath;
+                if (rootFolderPath) {
+                  emitGitChanged({
+                    repoPath: rootFolderPath,
+                    filePath: target.path,
+                    scopes: ["working-tree"],
+                    source: "auto-save",
+                  });
+                }
+              } catch (error) {
+                console.error("Error saving file:", error);
+                if (claim) await rejectDocumentSave(workspaceId, claim, error);
+                else markBufferDirty(bufferId, true);
+                showSaveFailure(target.name, true);
+              } finally {
+                set((state) => {
+                  if (
+                    state.autoSaveTasks[bufferId]?.context.operationId ===
+                    autoSaveContext.operationId
+                  ) {
+                    delete state.autoSaveTasks[bufferId];
+                  }
+                });
+              }
+            };
+
             if (
               !activeBuffer.isVirtual &&
               !activeBuffer.path.startsWith("untitled:") &&
               settings.autoSave
             ) {
-              const previousAutoSave = get().autoSaveTasks[bufferId];
-              if (previousAutoSave) {
-                clearTimeout(previousAutoSave.timeoutId);
-                traceDocumentSaveCancellation(previousAutoSave.context, "superseded-by-edit");
-              }
-              const autoSaveContext: DocumentSaveContext = {
-                bufferId,
-                path: activeBuffer.path,
-                operationId: crypto.randomUUID(),
-              };
-              const timeoutId = setTimeout(async () => {
-                let claim: ClaimedDocumentSave | null = null;
-                try {
-                  const latestBeforeSave = getBufferById(
-                    bufferStore.getState().buffers,
-                    bufferId,
-                  );
-                  if (
-                    !latestBeforeSave ||
-                    !isEditorContent(latestBeforeSave) ||
-                    latestBeforeSave.content !== content
-                  ) {
-                    traceDocumentSaveCancellation(autoSaveContext, "stale-content");
-                    return;
-                  }
-                  claim = await claimDocumentSave(
-                    workspaceId,
-                    latestBeforeSave,
-                    autoSaveContext.operationId,
-                  );
-                  if (!claim) return;
-                  await recordLocalHistoryBeforeWrite(activeBuffer.path, "auto-save");
-                  const expectedContent = latestBeforeSave.acknowledgedDiskContent === undefined
-                    ? latestBeforeSave.savedContent
-                    : latestBeforeSave.acknowledgedDiskContent;
-                  const saveEncoding = latestBeforeSave.saveEncoding ?? latestBeforeSave.readEncoding ?? latestBeforeSave.encoding;
-                  const persisted = await persistClaimedDocument(
-                    workspaceId,
-                    claim,
-                    content,
-                    expectedContent,
-                    saveEncoding,
-                    saveEncoding,
-                    latestBeforeSave.diskIdentity,
-                  );
-                  if (!persisted.saved) return;
-                  await finishDocumentSave(workspaceId, claim, content);
-
-                  const rootFolderPath = useFileSystemStore
-                    .getStore(workspaceId)
-                    .getState().rootFolderPath;
-                  if (rootFolderPath) {
-                    emitGitChanged({
-                      repoPath: rootFolderPath,
-                      filePath: activeBuffer.path,
-                      scopes: ["working-tree"],
-                      source: "auto-save",
-                    });
-                  }
-                } catch (error) {
-                  console.error("Error saving file:", error);
-                  if (claim) await rejectDocumentSave(workspaceId, claim, error);
-                  else markBufferDirty(bufferId, true);
-                  showSaveFailure(activeBuffer.name, true);
-                } finally {
-                  set((state) => {
-                    if (
-                      state.autoSaveTasks[bufferId]?.context.operationId ===
-                      autoSaveContext.operationId
-                    ) {
-                      delete state.autoSaveTasks[bufferId];
-                    }
-                  });
-                }
-              }, 150);
-
-              set((state) => {
-                state.autoSaveTasks[bufferId] = { timeoutId, context: autoSaveContext };
-              });
+              armAutoSave(activeBuffer, content);
             }
           }
         },
@@ -651,7 +707,7 @@ const createEditorAppStore = (workspaceId: string) =>
           if (!current.isDirty && (current.saveEncoding ?? current.readEncoding ?? current.encoding) === encoding) return "saved";
           const pendingAutoSave = get().autoSaveTasks[current.id];
           if (pendingAutoSave) {
-            clearTimeout(pendingAutoSave.timeoutId);
+            scheduler.clearTimer(pendingAutoSave.timeoutId);
             set((state) => { delete state.autoSaveTasks[current.id]; });
           }
           const wasDirty = current.isDirty;
@@ -705,7 +761,7 @@ const createEditorAppStore = (workspaceId: string) =>
         cleanup: () => {
           const { autoSaveTasks } = get();
           for (const task of Object.values(autoSaveTasks)) {
-            clearTimeout(task.timeoutId);
+            scheduler.clearTimer(task.timeoutId);
             traceDocumentSaveCancellation(task.context, "workspace-cleanup");
           }
           set((state) => {

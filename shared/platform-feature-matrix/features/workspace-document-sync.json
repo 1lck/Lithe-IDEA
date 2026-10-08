@@ -14,11 +14,14 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/editor",
-      "windows/tauri/src/features/file-system"
+      "windows/tauri/src/features/file-system",
+      "windows/tauri/src/features/editor/stores/editor-app.store.ts",
+      "windows/tauri/src/features/editor/stores/editor-app.store.test.ts"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Workspace",
-  "verification": "编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为。"
+  "notes": "Windows 延迟自动保存对齐 macOS 的“写入成功但仍有更晚输入就继续保存”语义：写入进行中到期的那次自动保存不再被丢弃，而是在该写入结束后继续保存最新正文。I/O 失败和冲突不重试；文档关闭、关闭自动保存或请求被更晚的编辑取代时停止续存。共享生命周期状态机不变，前端回归改为注入手动计时器验证；完整产品实机验收仍为 pending。",
+  "verification": "编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为；另在 Windows 于写入进行中继续连续编辑，确认更晚的正文仍被写入且未保存标记消失。"
 }
