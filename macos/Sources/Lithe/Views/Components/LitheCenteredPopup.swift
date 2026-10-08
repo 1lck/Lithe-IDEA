@@ -98,7 +98,8 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate {
             panel.backgroundColor = LitheCommitDialogStyle.backgroundNSColor
             panel.isOpaque = true
         }
-        panel.hasShadow = true
+        // Titled Commit dialogs already have a native border; the modal-panel shadow is too heavy.
+        panel.hasShadow = dialogTitle == nil
         panel.delegate = self
         panel.contentViewController = contentController
         parent.addChildWindow(panel, ordered: .above)

@@ -27,6 +27,7 @@ struct LitheCenteredPopupTests {
         while !(panel.firstResponder is NSTextView), clock.now < deadline { await Task.yield() }
         #expect(panel.firstResponder is NSTextView)
         #expect(panel.styleMask.contains(.titled))
+        #expect(!panel.hasShadow)
         #expect(!panel.styleMask.contains(.miniaturizable))
         #expect(panel.title == "New Changelist")
         #expect(host.view.bounds.width == 340)
@@ -192,6 +193,7 @@ struct LitheCenteredPopupTests {
         let panel = try #require(host.view.window as? NSPanel)
         #expect(panel.parent === parent)
         #expect(panel.styleMask == .borderless)
+        #expect(panel.hasShadow)
         #expect(panel.animationBehavior == .none)
         #expect(!panel.isOpaque)
         #expect(abs(panel.frame.midX - parent.frame.midX) < 1)
