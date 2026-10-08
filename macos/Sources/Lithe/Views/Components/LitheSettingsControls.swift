@@ -22,6 +22,7 @@ private struct LitheSettingsControlChrome: ViewModifier {
     let background: Color
     let border: Color
     let cornerRadius: CGFloat
+    var lineWidth: CGFloat = 1
 
     func body(content: Content) -> some View {
         content
@@ -31,7 +32,7 @@ private struct LitheSettingsControlChrome: ViewModifier {
             }
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(border, lineWidth: 1)
+                    .strokeBorder(border, lineWidth: lineWidth)
             }
     }
 }
@@ -123,6 +124,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
     private let searchPrompt: LocalizedStringKey?
     private let searchText: (Value) -> String
     @State private var isPresented = false
+    @FocusState private var isFocused: Bool
     @State private var popupID = UUID()
     @State private var popupAnchor = LitheSettingsSelectAnchorReference()
 
@@ -177,12 +179,14 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             .frame(width: width, height: SettingsSelectMetrics.controlHeight, alignment: .leading)
             .litheSettingsControlChrome(
                 background: LitheTheme.settingsSelectBackground,
-                border: isPresented ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
+                border: isPresented || isFocused ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder,
+                lineWidth: isPresented || isFocused ? 2 : 1
             )
             .background(LitheSettingsSelectAnchorView(reference: popupAnchor))
             .contentShape(Rectangle())
         }
         .buttonStyle(.litheNoPress)
+        .focused($isFocused)
         .lithePointer()
         .accessibilityLabel(Text(LocalizedStringKey(accessibilityLabel)))
         .accessibilityValue(localizesTitles ? Text(LocalizedStringKey(title(selection))) : Text(verbatim: title(selection)))
@@ -893,9 +897,10 @@ extension View {
     func litheSettingsControlChrome(
         background: Color = LitheTheme.settingsControlBackground,
         border: Color = LitheTheme.settingsControlBorder,
-        cornerRadius: CGFloat = SettingsSelectMetrics.controlCornerRadius
+        cornerRadius: CGFloat = SettingsSelectMetrics.controlCornerRadius,
+        lineWidth: CGFloat = 1
     ) -> some View {
-        modifier(LitheSettingsControlChrome(background: background, border: border, cornerRadius: cornerRadius))
+        modifier(LitheSettingsControlChrome(background: background, border: border, cornerRadius: cornerRadius, lineWidth: lineWidth))
     }
 
     func litheSettingsTextField() -> some View {

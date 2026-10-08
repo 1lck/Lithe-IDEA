@@ -19,7 +19,10 @@
       "macos/Sources/Lithe/Application/Composition/CommitWorkflowComposition.swift",
       "macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift",
       "macos/Tests/LitheTests/CommitWorkflowChangelistTests.swift",
-      "macos/Tests/LitheTests/ContextMenuCoverageTests.swift"
+      "macos/Tests/LitheTests/ContextMenuCoverageTests.swift",
+      "macos/Sources/Lithe/Views/Components/LitheCenteredPopup.swift",
+      "macos/Tests/LitheTests/LitheCenteredPopupTests.swift",
+      "macos/Sources/Lithe/Views/Components/LitheCommitDialogStyle.swift"
     ]
   },
   "windows": {
@@ -38,6 +41,6 @@
     ]
   },
   "owner": "Git",
-  "verification": "macOS 与 Windows 分别创建本地配置列表，将 application.yaml 移入其中并保持默认列表为当前提交列表；点击全部暂存只能包含默认列表。外部暂存配置文件时提交必须被拦截，取消暂存后只提交功能文件，保留其后续未暂存编辑及配置内容。验证新建、重命名、删除确认、文件多选移动（Windows 同时支持目录）、分组勾选、当前列表切换、重启及文件干净后再次修改的归属；多仓库、工作树与项目互不串组，重命名的旧新路径都受保护。子模块父引用被排除时提交失败，关闭父引用联动后可提交子仓库。保存数据损坏或写入失败时禁止继续暂存和提交。 Windows 两个项目窗口先同时初始化，交错修改不同工作区后用第三个实例重载，配置归属和提交排除范围都必须保留；验证旧格式迁移不覆盖原数据。macOS 在差异读取或 AI 生成期间切换列表、切走再切回或修改归属，旧结果不得回填当前提交说明。 macOS 更改列表下拉使用共享 LitheSettingsSelect，按列表 ID 切换；默认名称随界面语言本地化，自定义名称原样显示，提交中或存储不可用时禁止编辑和切换。",
+  "verification": "macOS Commit 文件树使用 13pt 文件名、路径及计数、24pt 行高、19pt 层级缩进、16pt 文件类型图标和 24pt 三态复选框画布；按 Islands 编辑配色显示修改、新增、删除、重命名、冲突及未跟踪，分组无常驻选中背景。核对明暗主题、普通/部分/全选、禁用/键盘焦点、行点击、Command/Shift 多选和原暂存目标；资源回归不能代替完整应用验收。macOS 共享下拉选择器闭合框遵循 Islands：深色底 #26282C、浅色白底，1pt 普通边框、2pt 展开或键盘聚焦描边，28pt 高及 4pt 圆角；验证设置页与 Commit 的深浅外观、键盘聚焦及选择功能。macOS 变更列表行的新增、重命名、删除图标成组靠右，下拉选择器保持左侧；调整面板宽度时检查对齐与点击。macOS Commit/Shelf 标题页签首项左侧留白 8pt、可见页签间距 8pt，文字距选中框左右各 8pt；核对深浅主题、切换及窄面板时右侧按钮可用。macOS Commit 对话框打开时，点击后台新增/编辑不会覆盖当前名称或编辑对象；关闭后恢复，字段和按钮继承应用语言。macOS 与 Windows 分别创建本地配置列表，将 application.yaml 移入其中并保持默认列表为当前提交列表；点击全部暂存只能包含默认列表。外部暂存配置文件时提交必须被拦截，取消暂存后只提交功能文件，保留其后续未暂存编辑及配置内容。验证新建、重命名、删除确认、文件多选移动（Windows 同时支持目录）、分组勾选、当前列表切换、重启及文件干净后再次修改的归属；多仓库、工作树与项目互不串组，重命名的旧新路径都受保护。子模块父引用被排除时提交失败，关闭父引用联动后可提交子仓库。保存数据损坏或写入失败时禁止继续暂存和提交。 Windows 两个项目窗口先同时初始化，交错修改不同工作区后用第三个实例重载，配置归属和提交排除范围都必须保留；验证旧格式迁移不覆盖原数据。macOS 在差异读取或 AI 生成期间切换列表、切走再切回或修改归属，旧结果不得回填当前提交说明。 macOS 更改列表下拉使用共享 LitheSettingsSelect，按列表 ID 切换；默认名称随界面语言本地化，自定义名称原样显示，提交中或存储不可用时禁止编辑和切换。 macOS 新建与重命名弹窗使用共享输入框、主次按钮和浮层外观；检查名称输入、中文组合输入、Enter 保存、Escape 取消及错误提示。 macOS 变更列表选择器使用共享菜单最小宽度，与新增、重命名及删除按钮按 Commit 工具栏间距紧凑排列；三个按钮使用 IDEA 明暗图标及共享工具栏按钮样式，禁用状态弱化且无悬停高亮。批量暂存与提交范围说明只在选择器悬停提示中显示，父仓库引用选项独占下一行。 macOS 新建及重命名变更列表使用 LitheCenteredPopup 的带标题栏对话框配置；确认输入焦点、Enter 保存、Escape 取消和主窗口移动时居中。 确认新建、重命名变更列表使用独立的共享对话框样式；新建文件/目录保留 lithePopupNameField；中文组合输入及 Enter 提交正常。 macOS 共享居中弹窗需在单次点击后立即显示，关闭和重新打开无需其他交互；重复点击不得新增窗口，取消或卸载后不得显示过期弹窗。原生 SwiftUI 状态回归由 LitheCenteredPopupTests 覆盖。 macOS Commit 新建、重命名变更列表试用 LitheCommitDialogStyle：原生标题栏、带直角焦点边框的名称框和共享主次按钮，保留现有名称、Cancel/Save、校验及存储逻辑；不添加备注、激活选项或自动命名。失焦保留，Esc/关闭取消。新建文件/目录的轻量输入框不受影响。",
   "notes": "双端均已接入本地分组、持久化及共享 Core pathScope 提交保护。分组按完整文件路径，不支持单文件内按 hunk 拆分；不自动重写暂存区。macOS 使用偏好存储 adapter，Windows 使用按工作区独立键保存的 WebView 本地存储。两端原生构建和交互验收均待目标平台验证。"
 }

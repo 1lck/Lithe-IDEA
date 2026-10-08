@@ -2715,3 +2715,7 @@
 
 "No recent progress has been received. The task is still active." = "暂未收到新的进度，任务仍在进行。";
 "Continue waiting" = "继续等待";
+
+"Name:" = "名称：";
+
+"Include in commit" = "包含在提交中";

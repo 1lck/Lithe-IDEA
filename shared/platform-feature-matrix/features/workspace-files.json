@@ -5,7 +5,8 @@
   "capability": "文件树与文件操作",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Workspace"
+      "macos/Sources/Lithe/Views/Workspace",
+      "macos/Sources/Lithe/Views/Components/LitheCenteredPopup.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -18,5 +19,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Workspace",
-  "verification": "新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。"
+  "verification": "新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。 macOS 新建文件与目录复用居中无边框 LitheCenteredPopup，主窗口移动/关闭及失焦取消保持原行为；创建输入框保留原有 plain 样式、13pt 字体、IDEA NewItemSimplePopupPanel 的 32pt 高度及 13pt 输入留白，聚焦时无独立边框和底色；focusedNewItemFieldBlendsIntoPopup 验证深浅模式实际聚焦渲染，文件重命名输入框使用共享 litheSettingsTextField，检查初始焦点、中文输入、空名称拒绝与 Enter 提交。 macOS 共享居中弹窗需在单次点击后立即显示，关闭和重新打开无需其他交互；重复点击不得新增窗口，取消或卸载后不得显示过期弹窗。原生 SwiftUI 状态回归由 LitheCenteredPopupTests 覆盖。"
 }

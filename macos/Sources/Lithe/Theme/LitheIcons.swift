@@ -302,7 +302,7 @@ enum LitheIcons {
         case "json", "json5": return .json
         case "db", "sqlite", "sqlite3", "sql", "mv": return .database
         case "md", "markdown", "rst", "adoc": return .markdown
-        case "txt", "log": return .plainText
+        case "txt", "log", "strings": return .plainText
         case "csv", "tsv": return .csv
         case "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "tiff": return .image
         case "zip", "gz", "tar", "so", "dylib", "dll", "icns", "pdf", "woff", "woff2", "ttf", "otf": return .binary
