@@ -310,12 +310,12 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://www.ccsub.net">
+      <a href="https://www.ccsub.net/register?ref=FKVAWH6E">
         <img src="./docs/assets/sponsors/ccsub.svg" width="112" alt="CCSub">
       </a>
     </td>
     <td>
-      <a href="https://www.ccsub.net"><strong>CCSub</strong></a> 提供统一 API 接入，一个密钥即可调用 Claude、GPT、Gemini 和 DeepSeek 等模型，兼容 Claude Code、Codex、Cursor 等 AI 编程工具。新用户注册可获 $5 体验额度。感谢 CCSub 对 Lithe 的支持！
+      <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> 提供统一 API 接入，一个密钥即可调用 Claude、GPT、Gemini 和 DeepSeek 等模型，兼容 Claude Code、Codex、Cursor 等 AI 编程工具。新用户注册可获 $5 体验额度。感谢 CCSub 对 Lithe 的支持！
     </td>
   </tr>
   <tr>

@@ -314,12 +314,12 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://www.ccsub.net">
+      <a href="https://www.ccsub.net/register?ref=FKVAWH6E">
         <img src="./docs/assets/sponsors/ccsub.svg" width="112" alt="CCSub">
       </a>
     </td>
     <td>
-      <a href="https://www.ccsub.net"><strong>CCSub</strong></a> provides access to Claude, GPT, Gemini, and DeepSeek through one API key, with support for Claude Code, Codex, Cursor, and other AI coding tools. New users receive $5 in trial credit. Thank you to CCSub for supporting Lithe!
+      <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> provides access to Claude, GPT, Gemini, and DeepSeek through one API key, with support for Claude Code, Codex, Cursor, and other AI coding tools. New users receive $5 in trial credit. Thank you to CCSub for supporting Lithe!
     </td>
   </tr>
   <tr>
