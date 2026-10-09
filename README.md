@@ -258,6 +258,17 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
   FastAI provides convenient relay access to a range of leading large language models, making it easier to connect AI capabilities to everyday development workflows. Its support helps Lithe continue improving its AI-assisted experience. Thank you to FastAI for supporting this project! Scan the QR code above to join the FastAI Token community chat group #2 (group ID: 1073874006).
 </p>
 
+<p align="center">
+  <a href="https://pateway.ai/?ch=68i69k">
+    <img src="./docs/assets/sponsors/patewayai-banner-en.png" width="720" alt="PatewayAI">
+  </a>
+</p>
+<p align="center">
+  Special thanks to PatewayAI for sponsoring this project!<br>
+  PatewayAI focuses on premium official-source API relay, supporting Claude, GPT, and leading Chinese models with transparent billing and enterprise-level services.<br>
+  Economy mode rates are as low as 5% of official pricing. <a href="https://pateway.ai/?ch=68i69k">Sign up for trial credits</a>, earn free credits in periodic campaigns, and receive mutual referral bonuses of up to $150 USD.
+</p>
+
 <a href="mailto:2188718831@qq.com">Want to be featured below?</a>
 
 <table>
@@ -273,13 +284,22 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
   </tr>
   <tr>
     <td width="112" align="center">
+      <a href="https://pateway.ai/?ch=68i69k">
+        <img src="./docs/assets/sponsors/patewayai-logo.png" width="112" alt="PatewayAI">
+      </a>
+    </td>
+    <td>
+      <a href="https://pateway.ai/?ch=68i69k"><strong>PatewayAI</strong></a> provides official-source API relay for Claude, GPT, and leading Chinese models, with transparent billing and enterprise-level services. Sign up for trial credits and take part in periodic free-credit campaigns. Thank you to PatewayAI for supporting Lithe!
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
       <a href="https://www.packyapi.ai/register?aff=dWNN">
         <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
       </a>
     </td>
     <td>
-      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> is a stable, efficient API relay service that connects you to leading large language models. It offers a unified domain, a single API key, intelligent failover, and 97% availability. Top up in RMB at a 1:1 rate with no exchange-rate costs or transaction fees. New users receive a first-top-up discount plus $1 in free trial credit. Discounts across multiple service groups reach up to 80% off, with dedicated high-speed channels for Codex and Claude Code.<br>
-      <a href="https://www.packyapi.ai/register?aff=dWNN">Register to get started!</a>
+      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> provides API relay access to leading models through one key, with intelligent failover and dedicated Codex and Claude Code channels. Top up in RMB at a 1:1 rate with no transaction fees. New users receive a first-top-up discount and $1 in trial credit.
     </td>
   </tr>
   <tr>
@@ -290,6 +310,16 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
     <td>
       <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://www.ccsub.net">
+        <img src="./docs/assets/sponsors/ccsub.svg" width="112" alt="CCSub">
+      </a>
+    </td>
+    <td>
+      <a href="https://www.ccsub.net"><strong>CCSub</strong></a> provides access to Claude, GPT, Gemini, and DeepSeek through one API key, with support for Claude Code, Codex, Cursor, and other AI coding tools. New users receive $5 in trial credit. Thank you to CCSub for supporting Lithe!
     </td>
   </tr>
   <tr>
@@ -315,11 +345,11 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
   <tr>
     <td width="112" align="center">
       <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info">
-        <img src="./docs/assets/sponsors/rainyun.png" width="112" alt="RainYun (雨云)">
+        <img src="./docs/assets/sponsors/rainyun.png" width="112" alt="RainYun">
       </a>
     </td>
     <td>
-      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>RainYun (雨云)</strong></a> offers cloud servers for deploying applications, hosting websites, and running development and test environments. Thank you to RainYun for supporting Lithe and its continued development!
+      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>RainYun</strong></a> offers cloud servers for deploying applications, hosting websites, and running development and test environments. Thank you to RainYun for supporting Lithe and its continued development!
     </td>
   </tr>
 </table>
