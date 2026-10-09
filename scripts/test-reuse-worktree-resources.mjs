@@ -84,6 +84,17 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /sparkle-baseline-staging.*\.baseline-.*cannot be reused/);
   });
+  await test("CI compilation caches do not permit copying Swift or Rust build state across worktrees", { timeout: 15000 }, async () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("swift-rust-build-state"));
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const state = registry.excludedResources.find(resource => resource.id === "swift-rust-build-state");
+    assert.deepEqual(state.locations, [".build/", "rust/target/", "windows/tauri/src-tauri/target/"]);
+    const refused = reuse(["--resource", "swift-rust-build-state"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /swift-rust-build-state.*cannot be reused/);
+  });
   await test("frontend install temp data and dependencies cannot cross worktrees", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);

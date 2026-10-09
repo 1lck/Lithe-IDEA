@@ -75,10 +75,31 @@ Windows PHP Worker 的构建和隔离校验脚本只选择 Windows 前端通道�
 再按 `swift`、`plugins`、`swift_database` 分别执行，插件被选中时继续验证官方包。
 不再启动独立插件和数据库产品工作流；保留原有 gate 名称，并让 macOS gate
 依赖插件与数据库 gate；未涉及的 gate 跳过且不占 runner，macOS gate 显式检查
-该结果。Rust 数据库测试仍在 Linux，Core/Swift bridge 保持独立
-macOS job，以免把所有平台验证变成一条串行长队。多个 Swift 套件同时被选中时
-会串行执行，可能增加空闲 runner 条件下的测试阶段墙钟时间；减少编译和占用
-runner 是本次取舍，不改变单套件期限或跳过选中的测试。
+该结果。Rust 数据库测试仍在 Linux；Rust Core 与 Swift bridge 改为同一 macOS
+测试 job 中的两个条件步骤，Core-only 改动也启动这个 job。gate 按 Swift、插件、
+数据库、Core 的选择并集检查该 job，不能因没有普通 Swift 改动而跳过 bridge。
+多个套件同时命中时会串行执行；目标是减少计算总量与 runner 占用，不保证空闲
+runner 条件下的最短墙钟时间。每个套件保留自己的期限与失败处理。
+
+2026-10-08 的 #1150 全量记录中，独立 bridge job 排队约 10 分钟，再执行约
+19 分钟；其中两轮 Swift 编译分别约 216 秒与 269 秒。普通 Swift job 已经编译
+完整应用和测试，因此继续拆分执行并不能节省这些重复构建。现在
+`verify-rust-core.sh --rust-only` 保留所有 macOS Rust/native/MCP 验证；
+`--bridge-only` 通过 `test-macos.sh list` 检查当前源码与链接输入，再验证 C ABI、
+应用符号、真实 AskPass/Git/HTTP 流程及 Swift bridge 集成。无参数入口仍顺序
+完成全部验证，不把 Linux 测试当作 macOS native 验证的替代品。
+
+bridge 不再另用 `--triple`、scratch path 或额外链接参数构建整套 Swift 产品；
+编译与运行统一使用 `test-macos.sh` 的参数，集成执行传入 `--skip-build`。前面的
+构建检查不能跳过，缺少应用、符号、测试结果或集成失败都必须失败。独立 C ABI
+探针仍使用当前 Rust archive，并跟随 SwiftPM 的 SDK 配置；临时探针目录由脚本
+退出清理。同一 job 的全部测试诊断统一上传到 `test-stability-macos`。
+
+Swift/Core 测试 job 启用现有 macOS Cargo 编译缓存，以 runner 的原生架构选择
+已有缓存分区；工具链、SDK、构建参数及依赖身份约束和失败后的冷构建回退不变。
+没有新增下载目录、缓存命名空间或 Swift `.build` 缓存。Swift/Cargo 仍判断当前
+源码是否需要重新编译，不能把缓存命中视为测试通过。跨本地工作树只复用已校验
+的依赖下载，`.build/` 与 `rust/target/` 等可变状态走资源清单的拒绝路由。
 
 真实 JDT 验证只受 Rust 的 LSP 引擎、语言 adapter、JDK/JDT 工具准备及相关测试
 影响。Java 界面文件的名字并不能证明它改变了 Rust 集成路径，因此不再按
@@ -185,6 +206,13 @@ Job Object（Windows 用于管理整棵子进程树的对象），设置最后�
 可以降低 CI 成本，但无法发现另一架构上的编译、链接和打包问题。macOS 产品
 仍保持双架构验证，只有通用包组装复用已经验证过的编译结果。
 
+### 为每个 Swift/bridge 套件增加独立 runner 或共享 `.build`
+
+独立 job 会重新编译相同 SwiftPM 图，macOS 并发不足时还会排队。直接传递整个
+`.build` 又引入源码、绝对路径、SDK、工具链与链接参数不一致的风险。本轮选择
+同一 checkout 中的增量构建，不添加最终 Swift 产品缓存；代价是 Rust 与 Swift
+步骤串行，需根据真实运行记录衡量反馈时间。
+
 ### 为所有 CI 任务强制上传完整安装包
 
 会增加文档-only 或不需要产品包的构建时间和存储成本。macOS 只在产品构建
@@ -217,8 +245,9 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 后果
 
-- 产品工作流由四条减少到两条，最多三轮 Swift 测试编译合为一轮；多个套件
-  同时命中时串行执行，仍需用真实 PR 数据验证总体反馈时间。
+- 产品工作流由四条减少到两条，主、插件、数据库与 bridge 的完整 Swift 测试
+  编译共用同一构建路径；全量 PR 从四个 macOS job 实例减少为三个（测试加双架构
+  打包）。多个套件同时命中时串行执行，仍需用真实 PR 数据验证总体反馈时间。
 - 共享编辑器纯逻辑和工具脚本不再跨产品重复执行；真实 JDT 不再重跑全部 Core。
 
 - 普通 macOS Swift PR 更快得到必需检查结果；被选中的打包改动仍获得两个架构
@@ -238,6 +267,15 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - 构建工作流调整时必须同步检查缓存键、包架构、gate 依赖和 artifact 保留期。
 
 ## 验证
+
+本轮本地验收使用 Swift 6.3.3 与 SDK 26.5：完整 Core 入口、真实 Git/C ABI 及
+9 项 Swift bridge 集成通过；86 个分类场景、16 项工作流回归和 45 项工具回归
+通过，新增用例均写入 HTML/JUnit，预算未放宽。主 Swift 通道未全部通过：
+6 个原生弹窗、像素与字体用例在未修改的 `e170b9da` 基线也复现失败；一次原生
+界面进程 signal 11 后单独复跑通过。保留这些诊断，不把定向 bridge 通过等同于
+主 Swift 全通过。CI Xcode 26.6 的最终验收与缓存命中收益仍待一次完整线上验证。
+本机系统 Ruby 的隔离 PATH 回归通过 `RUBYOPT=--disable-gems` 避免预加载 RubyGems
+额外调用 `uname`；未修改现有注释断言或线上 Ruby 配置。
 
 - `./scripts/test-classify-ci-changes.sh`
 - `node --test scripts/test-platform-feature-matrix.mjs scripts/test-ci-workflows.mjs`

@@ -94,7 +94,8 @@ PR。前一个合入后，其余等待中的 PR 继续保留当前分支；不�
 **Windows CI** 继续负责 Windows。原来的 `Plugin CI gate`、`Database CI gate`
 检查名保留在 macOS 工作流内。普通、插件、数据库的 Swift 测试先共用一次编译，
 然后按分类运行各自套件；插件包验证仍在插件被选中时运行。Rust 数据库测试
-继续使用 Linux，Rust Core/Swift bridge 保持独立 macOS job，避免所有测试串行。
+继续使用 Linux。Rust Core 与 Swift bridge 现在也在同一个 macOS 测试 job 中按需
+运行；Core-only 改动会启动该 job，即使没有普通 Swift、插件或数据库改动。
 未涉及插件/数据库时，其独立 gate 直接跳过，不申请 Linux runner；macOS gate
 检查它们确实被跳过。分类失败时 gate 仍执行并拒绝放行。
 
@@ -134,9 +135,49 @@ CI 工具计时报告由 `scripts/report-ci-tool-tests.mjs` 生成，写完诊�
 同一预算返回失败，避免 HTML/JUnit 标红而 gate 通过。普通用例仍为 15 秒，
 编译并运行真实 Rust 二进制的集成回归与其 Node 本地期限一致，单独为 60 秒。
 
-合并 Swift job 会让同时命中多个套件时的测试阶段串行，收益来自减少冷编译和
-macOS runner 需求；不承诺在空闲 runner 上每一种 PR 都缩短墙钟时间。job 总期限
-按所选阶段的原有期限之和扩大，各套件、Git 专项和 DMG 集成的本地期限不变。
+合并 Swift/Core job 会让同时命中多个套件时的测试阶段串行，收益来自减少重复
+编译和 macOS runner 需求；不承诺在空闲 runner 上每一种 PR 都缩短墙钟时间。
+job 总期限为 150 分钟；Rust 验证、Swift 编译各 20 分钟，bridge 集成步骤 17 分钟，
+集成计时工具仍为 900 秒。其余套件、Git 专项和 DMG 集成的本地期限不变。
+
+#### Rust Core 与 Swift 编译复用
+
+本地默认入口仍完整验证 Rust、C ABI、应用链接和真实 Git 集成：
+
+```bash
+./scripts/verify-rust-core.sh
+```
+
+只迭代其中一部分时可显式选择：
+
+```bash
+./scripts/verify-rust-core.sh --rust-only
+./scripts/verify-rust-core.sh --bridge-only
+```
+
+CI 把这两部分放入 `Swift tests` job，中间使用 `test-macos.sh list` 构建全部测试。
+bridge 入口仍执行一次当前输入的增量构建检查，不盲信旧二进制；随后集成测试使用
+`--skip-build`。所有报告（含 `git-host-rust`、`git-execution-integration` 和
+`git-console-bridge`）统一从 **test-stability-macos** artifact 下载，不再另有
+`git-execution-integration-macos` artifact。失败时仍生成和上传可用诊断。
+
+该 job 使用现有 macOS Cargo 中间编译缓存，以 runner 原生架构分区；完整的环境
+身份检查和冷构建回退继续执行。不缓存 Swift `.build`，不跨工作树搬运编译状态。
+没有减少 macOS native Rust 测试、bridge 集成或双架构打包覆盖。
+
+对照 #1150 最后一次 [macOS 全量验收](https://github.com/1lck/Lithe-IDEA/actions/runs/37812721442)：
+原 bridge job 排队约 10.1 分钟、执行约 19 分钟，其中两轮 Swift 编译约 216 秒和
+269 秒；主 Swift job 的编译约 13.1 分钟。新的 full PR 图只有三个 macOS 实例
+（共享测试加双架构包），不再是四个。这些旧数据说明重复工作的来源，不是本次
+线上提速承诺；比较前后 runner-minutes 时排除排队，并同时记录墙钟时间。
+
+本地 Swift 6.3.3/SDK 26.5 验证中，冷测试构建约 214 秒；同一工作树随后执行完整
+Core/bridge 验证时，Swift 增量构建约 3.1 秒，真实 Swift bridge 9 项全部通过。
+本地 SDK 不等于 CI 的 Xcode 26.6，缓存收益及线上时间仍需最终提交的一次验收确认。
+完整主 Swift 通道本地未通过：一次原生界面用例进程 signal 11，单独复跑通过；
+诊断运行另有 6 个弹窗、像素颜色和字体用例失败。这 6 个用例也在未修改的
+`e170b9da` 基线复现，不能归为本次编译复用的新增回归，也不能宣称主 Swift 全通过。
+CI 的测试集合与断言均未为这些本机问题放宽。
 
 Swift CI 的真实 DMG 回滚套件由 `macos_rollback` 选择，更新模块、进程执行
 依赖、相关测试及公共测试辅助代码发生变化时运行；Swift 和包敏感通道的混合
@@ -240,6 +281,20 @@ GitHub queue delays remain outside these build steps. Compare warm-cache runs
 with these baselines before claiming a measured improvement. A runner pool
 change should be evaluated separately if queueing continues to dominate.
 
+### runner 容量与消耗
+
+增加 workflow 文件或 `max-parallel` 不会扩大账号的 runner 配额。按
+[GitHub 官方限制](https://docs.github.com/en/actions/reference/limits#job-concurrency-limits-for-github-hosted-runners)，
+Free/Pro/Team 默认 macOS 并发都为 5，标准与 larger runner 共用这个 macOS 上限；
+升级 Pro 并不直接增加 macOS 数量。实际账号可能已有额外额度，需所有者核实。
+GitHub Support 可接受并发提升申请，由仓库所有者提供公开仓库、持续排队记录和
+目标并发；本次代码修改不表示额度已申请或批准。
+
+继续保留同一 PR 的 `cancel-in-progress`，不要取消其他 PR 的必要验证。准备下一次
+提交时先完成本地回归，再推送最终版本，避免每个中间修正都启动冷构建。管理员
+申请额度、迁移账号套餐或引入专用隔离 Mac runner，需要独立处理，不在 YAML
+中假设不存在的 runner。公开 PR 不应在持有个人资料或发布签名凭据的开发机上运行。
+
 ### macOS Git 真实窗口性能采样
 
 普通 `./scripts/test-macos.sh` 和 `./scripts/test-git-performance-baseline.sh`
@@ -270,6 +325,13 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 与报告留出一分钟。冷构建不再消耗测试执行预算；单测试预算和无输出看门狗保持不变。
 
 ### 独立工作树的本地编译
+
+`.build/`、`rust/target/` 和 `windows/tauri/src-tauri/target/` 在资源清单中显式
+登记为 `swift-rust-build-state`，复用脚本拒绝复制。它们属于当前 checkout/job 的
+可变编译状态，没有可发布的 worktree identity stamp。CI Cargo 缓存按工具链、
+SDK、OS、架构、配置和依赖身份恢复中间输出后仍运行 Cargo，这不允许本地工作树
+复制、软链接或共享这些目录。只复制下文允许且校验通过的下载资源；编译复用
+只发生在本次工作树内，不改动安装包，也不影响签名或 Sparkle delta。
 
 功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
 `<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。

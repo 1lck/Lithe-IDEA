@@ -144,6 +144,8 @@ async function requiredFile(root, relativePath, resourceID) {
 
 async function validatorArguments(resource, cachePath, targetRoot) {
   if (resource.validator === "cargo") {
+    // Local worktrees may copy verified crate downloads, not CI compilation
+    // outputs. Swift/Cargo build state uses the registry's exclusion route.
     const lockPaths = [];
     for (const relativePath of ["rust/Cargo.lock", "windows/tauri/src-tauri/Cargo.lock"]) {
       const candidate = path.join(targetRoot, relativePath);

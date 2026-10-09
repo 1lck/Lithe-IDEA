@@ -208,10 +208,11 @@ jobs:
   swift-tests:
     name: Swift tests
     needs: changes
-    if: needs.changes.outputs.swift == 'true' || needs.changes.outputs.plugins == 'true' || needs.changes.outputs.swift_database == 'true'
+    if: needs.changes.outputs.swift == 'true' || needs.changes.outputs.plugins == 'true' || needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_core == 'true'
     runs-on: macos-26
-    # One compilation followed by selected suites, each with its own deadline.
-    timeout-minutes: 110
+    # Core/bridge shares the canonical Swift build instead of a second runner.
+    # Individual build and suite deadlines remain separate.
+    timeout-minutes: 150
 
     steps:
       - name: Check out source
@@ -220,16 +221,33 @@ jobs:
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
       - name: Prepare verified SwiftPM cache
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
           cargo: "true"
+          cargo-build: "true"
+          cargo-build-architecture: ${{ runner.arch == 'ARM64' && 'arm64' || 'x86_64' }}
+
+      - name: Run Rust Core tests
+        if: needs.changes.outputs.rust_core == 'true'
+        timeout-minutes: 20
+        run: ./scripts/verify-rust-core.sh --rust-only
 
       # Compile and discover tests before starting the test execution deadline.
       - name: Build Swift tests
         timeout-minutes: 20
         run: ./scripts/test-macos.sh list > /dev/null
+
+      - name: Verify Swift bridge and Git integrations
+        if: needs.changes.outputs.rust_core == 'true'
+        timeout-minutes: 17
+        run: ./scripts/verify-rust-core.sh --bridge-only
 
       - name: Run Swift unit tests
         if: needs.changes.outputs.swift == 'true'
@@ -299,49 +317,6 @@ jobs:
           path: |
             .artifacts/test-stability/
             .artifacts/performance/
-          if-no-files-found: ignore
-          retention-days: 14
-
-  rust-core-tests:
-    name: Rust Core and Swift bridge tests
-    needs: changes
-    if: needs.changes.outputs.rust_core == 'true'
-    runs-on: macos-26
-    # Cold Rust and Swift builds can consume 30 minutes before report upload.
-    # Individual test harness deadlines still bound the integration suites.
-    timeout-minutes: 40
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v7
-
-      - name: Set up Swift 6.3.3 and Xcode
-        uses: ./.github/actions/setup-macos-toolchain
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Prepare verified dependency caches
-        uses: ./.github/actions/prepare-macos-dependency-cache
-        with:
-          swiftpm: "true"
-          cargo: "true"
-
-      - name: Run Rust Core tests and verify the Swift bridge
-        run: ./scripts/verify-rust-core.sh
-
-      - name: Upload Git execution test reports
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: git-execution-integration-macos
-          path: |
-            .artifacts/test-stability/git-execution-integration.*
-            .artifacts/test-stability/git-host-rust.*
-            .artifacts/test-stability/git-console-bridge.*
-            .artifacts/test-stability/rust-comment-checker.xml
           if-no-files-found: ignore
           retention-days: 14
 
@@ -527,7 +502,6 @@ jobs:
     needs:
       - changes
       - swift-tests
-      - rust-core-tests
       - release-build
       - plugin-gate
       - database-gate
@@ -543,9 +517,7 @@ jobs:
           DATABASE_GATE_RESULT: ${{ needs.database-gate.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           SWIFT_RESULT: ${{ needs.swift-tests.result }}
-          RUST_CORE_RESULT: ${{ needs.rust-core-tests.result }}
-          SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.plugins == 'true' || needs.changes.outputs.swift_database == 'true' }}
-          RUST_CORE_SELECTED: ${{ needs.changes.outputs.rust_core }}
+          SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.plugins == 'true' || needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_core == 'true' }}
           RELEASE_SELECTED: ${{ needs.changes.outputs.macos_release }}
           RELEASE_RESULT: ${{ needs.release-build.result }}
         shell: bash
@@ -565,7 +537,6 @@ jobs:
           require_selected_job "$PLUGIN_SELECTED" "$PLUGIN_GATE_RESULT"
           require_selected_job "$DATABASE_SELECTED" "$DATABASE_GATE_RESULT"
           require_selected_job "$SWIFT_SELECTED" "$SWIFT_RESULT"
-          require_selected_job "$RUST_CORE_SELECTED" "$RUST_CORE_RESULT"
           require_selected_job "$RELEASE_SELECTED" "$RELEASE_RESULT"
 
   plugin-gate:

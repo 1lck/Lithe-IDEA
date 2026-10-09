@@ -29,6 +29,13 @@
   ],
   "excludedResources": [
     {
+      "id": "swift-rust-build-state",
+      "reusable": false,
+      "locations": [".build/", "rust/target/", "windows/tauri/src-tauri/target/"],
+      "identity": "Mutable SwiftPM and Cargo outputs depend on checkout source, toolchain, SDK, OS, architecture, build profile and linker arguments; no sealed worktree publication stamp",
+      "reason": "Only one checkout/job may incrementally reuse its own outputs after SwiftPM/Cargo verifies current inputs. GitHub Actions may restore Cargo intermediate outputs using the existing environment-partitioned compilation cache and must still run Cargo; that is not permission to copy, symlink or share build state across local worktrees. Never reuse final executables or Swift .build state across worktrees. No worktree copy stage is permitted."
+    },
+    {
       "id": "sparkle-baseline-staging",
       "reusable": false,
       "locations": [
