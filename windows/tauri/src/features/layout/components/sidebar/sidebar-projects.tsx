@@ -96,7 +96,7 @@ export function SidebarProjectDots({
                   )}
                 />
               </ContextMenuTrigger>
-              <ContextMenuContent side="top" sideOffset={6} align="center">
+              <ContextMenuContent>
                 <ContextMenuItem
                   disabled={isActive || isSwitchingProject}
                   onClick={() => onSelectProject(project.id)}

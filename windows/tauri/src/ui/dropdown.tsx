@@ -136,6 +136,8 @@ interface MenuItemsListProps {
 }
 
 const MENU_SUBMENU_ESTIMATED_WIDTH = 240;
+const MENU_SUBMENU_ESTIMATED_ITEM_HEIGHT = 30;
+const MENU_SUBMENU_VIEWPORT_PADDING = 8;
 
 interface MenuSubmenuItemProps {
   item: MenuItem;
@@ -170,9 +172,19 @@ function MenuSubmenuItem({
       rect.right + MENU_SUBMENU_ESTIMATED_WIDTH > viewportWidth - 8
         ? Math.max(8, rect.left - MENU_SUBMENU_ESTIMATED_WIDTH)
         : rect.right;
-    setPosition({ left, top: rect.top });
+    // Like JMenu, align the submenu with its parent row but slide it up when it would run
+    // past the bottom of the window.
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const estimatedHeight =
+      (item.children?.length ?? 0) * MENU_SUBMENU_ESTIMATED_ITEM_HEIGHT +
+      MENU_SUBMENU_VIEWPORT_PADDING;
+    const top = Math.max(
+      MENU_SUBMENU_VIEWPORT_PADDING,
+      Math.min(rect.top, viewportHeight - MENU_SUBMENU_VIEWPORT_PADDING - estimatedHeight),
+    );
+    setPosition({ left, top });
     setIsOpen(true);
-  }, []);
+  }, [item.children]);
 
   const closeSubmenu = useCallback(() => setIsOpen(false), []);
 
@@ -606,16 +618,11 @@ export function Dropdown(props: DropdownProps) {
       applyMaxHeight(maxH);
       applyLockedWidth();
 
-      const menuSize = getMenuLayoutSize(menu);
+      // Same rule as IDEA's JPopupMenu.show(): the top-left corner is the click point, and a
+      // menu that does not fit is slid back inside by the clamp below, never flipped around
+      // the pointer.
       x = point.x;
       y = point.y;
-
-      if (x + menuSize.width > vp.left + vp.width - VIEWPORT_PADDING) {
-        x = point.x - menuSize.width;
-      }
-      if (y + menuSize.height > vp.top + vp.height - VIEWPORT_PADDING) {
-        y = point.y - menuSize.height;
-      }
     } else {
       return;
     }
