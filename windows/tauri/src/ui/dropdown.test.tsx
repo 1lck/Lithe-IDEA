@@ -110,7 +110,7 @@ function menu() {
   return document.querySelector<HTMLDivElement>('[role="menu"]')!.parentElement!;
 }
 
-test("edge context menu stays under the pointer when focus follows its entrance animation", async () => {
+test("edge context menu slides inside the window and stays put when focus follows its entrance animation", async () => {
   const select = mock(() => {});
   function Parent() {
     const [, rerender] = useState(0);
@@ -129,7 +129,9 @@ test("edge context menu stays under the pointer when focus follows its entrance 
   }
   await render(<Parent />);
   const initial = { left: menu().style.left, top: menu().style.top, width: menu().style.width };
-  expect(initial).toEqual({ left: "540px", top: "234px", width: "240px" });
+  // Like IDEA's JPopupMenu: the click point stays the top-left corner unless the menu would
+  // leave the window, in which case it slides inside instead of flipping around the pointer.
+  expect(initial).toEqual({ left: "776px", top: "626px", width: "240px" });
 
   scale = 1;
   const button = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
@@ -198,7 +200,8 @@ test("a menu still repositions when its content becomes taller", async () => {
       {} as ResizeObserver,
     );
   });
-  expect(menu().style.top).toBe("132px");
+  // The taller menu slides up to fit; it is not flipped above the click point.
+  expect(menu().style.top).toBe("524px");
 });
 
 test("a menu item with children opens a nested submenu", async () => {
