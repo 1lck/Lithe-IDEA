@@ -18,7 +18,6 @@ import { useGitWorkspaceReferences } from "../../hooks/use-git-workspace-referen
 import { useGitDiffActions } from "../../hooks/use-git-diff-actions";
 import {
   checkoutGitReference,
-  createAndCheckoutBranch,
   deleteBranch,
   localBranchReference,
   renameBranch,
@@ -65,6 +64,7 @@ import type {
 import { GitCommitInspector } from "./git-commit-inspector";
 import { GitCommitTable } from "./git-commit-table";
 import { GitLogTitleBar } from "./git-log-title-bar";
+import { GitCreateBranchDialog } from "./git-create-branch-dialog";
 import { GitCreateTagDialog } from "./git-create-tag-dialog";
 import { GitReferenceTree } from "./git-reference-tree";
 import GitRemoteManager from "../git-remote-manager";
@@ -142,6 +142,11 @@ export function GitLogToolWindow() {
     repoPath: string;
     commit: GitCommit;
   } | null>(null);
+  const [branchRequest, setBranchRequest] = useState<{
+    workspaceId: string;
+    repoPath: string;
+    reference: GitReference;
+  } | null>(null);
   const emptyContextMenu = useDropdownMenu();
   const selectionAnchorRef = useRef<string | null>(null);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
@@ -169,10 +174,12 @@ export function GitLogToolWindow() {
     selectionAnchorRef.current = null;
     setShowFetchOptions(false);
     setTagRequest(null);
+    setBranchRequest(null);
   }, [repoPath]);
 
   useEffect(() => {
     setTagRequest(null);
+    setBranchRequest(null);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -330,20 +337,7 @@ export function GitLogToolWindow() {
       return;
     }
     if (action === "createBranch") {
-      const name = await showPromptDialog(t("git.log.branchNamePrompt"), {
-        title: t("git.log.createBranchFromTitle", { reference: reference.shortName }),
-      });
-      if (!name?.trim()) return;
-      setIsReferenceOperating(true);
-      try {
-        await createAndCheckoutBranch(repoPath, name.trim(), reference);
-        toast.success(t("git.log.branchCreated", { name: name.trim() }));
-        await refresh();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : t("git.log.branchCreateFailed"));
-      } finally {
-        setIsReferenceOperating(false);
-      }
+      setBranchRequest({ workspaceId, repoPath, reference });
       return;
     }
 
@@ -862,6 +856,19 @@ export function GitLogToolWindow() {
         </ResizablePanelGroup>
       )}
       </>}
+      {branchRequest?.repoPath === repoPath && branchRequest.workspaceId === workspaceId ? (
+        <GitCreateBranchDialog
+          key={`${branchRequest.repoPath}\0${branchRequest.reference.fullName}`}
+          repoPath={branchRequest.repoPath}
+          reference={branchRequest.reference}
+          references={history.references}
+          onCreated={async (name) => {
+            toast.success(t("git.log.branchCreated", { name }));
+            await refresh();
+          }}
+          onClose={() => setBranchRequest(null)}
+        />
+      ) : null}
       {tagRequest?.repoPath === repoPath && tagRequest.workspaceId === workspaceId ? (
         <GitCreateTagDialog
           key={`${tagRequest.repoPath}\0${tagRequest.commit.hash}`}
