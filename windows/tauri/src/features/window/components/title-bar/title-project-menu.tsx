@@ -13,7 +13,6 @@ import {
 } from "@/features/window/utils/title-project-menu-model";
 import type { ProjectPickerMode } from "@/features/window/utils/project-picker-mode";
 import {
-  CheckIcon,
   FolderOpenIcon,
   GitBranchIcon,
   PlusIcon,
@@ -82,7 +81,6 @@ function ProjectMenuRow({
       title={missing ? unavailableLabel : undefined}
       className={cn(
         "min-h-11 w-full items-start gap-2 rounded-md px-2 py-1.5",
-        active && "bg-selected text-foreground",
         onRemove && "pr-9",
       )}
     >
@@ -232,12 +230,12 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
               path={project.path}
               iconPath={project.customIcon}
               active={project.isActive}
-              disabled={isSwitchingProject}
+              // The current project stays enabled so it is never greyed out; clicking it is a no-op.
+              disabled={isSwitchingProject && !project.isActive}
               onClick={() => {
                 if (project.isActive) return;
                 closeAndRun(() => void switchToProject(project.id));
               }}
-              trailing={project.isActive ? <CheckIcon className="size-4 self-center text-primary" /> : null}
             />
           ))}
         </DropdownMenuGroup>
