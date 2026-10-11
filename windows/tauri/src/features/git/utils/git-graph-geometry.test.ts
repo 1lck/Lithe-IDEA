@@ -81,3 +81,25 @@ for (const scale of [1, 1.25, 2]) {
     }
   });
 }
+
+test("HEAD node follows IDEA HeadNodePainter: outer radius +2, shrunk by delta per ring", () => {
+  // 26px rows at 1x: outer = floor(12 * 26 / 22) = 14 -> odd 13, delta = floor(2 * 26 / 22) = 2.
+  const one = gitGraphPaintMetrics(26, 1);
+  const circles = one.headNodeCircles(0);
+  expect(circles.map((circle) => circle.width)).toEqual([13, 9, 5]);
+  // All rings share one center, so they read as concentric.
+  const centers = circles.map((c) => [c.x + c.width / 2, c.y + c.height / 2]);
+  expect(new Set(centers.map(([x]) => x)).size).toBe(1);
+  expect(new Set(centers.map(([, y]) => y)).size).toBe(1);
+  expect(circles[0].width).toBeGreaterThan(one.nodeDiameter);
+});
+
+for (const scale of [1.25, 2]) {
+  test(`HEAD node rings stay on physical pixels at ${scale}x`, () => {
+    for (const circle of gitGraphPaintMetrics(26, scale).headNodeCircles(1)) {
+      expect(circle.x * scale).toBeCloseTo(Math.round(circle.x * scale), 8);
+      expect(circle.y * scale).toBeCloseTo(Math.round(circle.y * scale), 8);
+      expect(circle.width * scale).toBeCloseTo(Math.round(circle.width * scale), 8);
+    }
+  });
+}

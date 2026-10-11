@@ -47,7 +47,11 @@
   --git-log-row-background: var(--git-log-focused-selection);
 }
 .git-log-commit-row[aria-pressed="false"]:hover {
-  background: var(--git-log-hover);
+  --git-log-row-background: var(--git-log-hover);
+}
+/* HEAD node middle ring uses the row background, like IDEA's commitStyle.background. */
+.git-graph-head-gap {
+  color: var(--git-log-row-background, var(--background));
 }
 .git-log-commit-row[data-merge="true"][aria-pressed="false"] .git-log-commit-text {
   color: var(--git-log-merge-foreground);

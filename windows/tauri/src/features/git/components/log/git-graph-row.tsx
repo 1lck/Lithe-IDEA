@@ -37,6 +37,8 @@ export const GitGraphRow = memo(function GitGraphRow({
 }) {
   const width = paint.titleOffset(row.lane, row.printElements, recommendedLaneCount);
   const node = paint.nodeRect(row.lane);
+  // GraphTableModel.withPossibleHeadNode: a row carrying the HEAD ref gets the HEAD node.
+  const isHead = row.labels.some((label) => label.kind === "head");
 
   return (
     <>
@@ -70,15 +72,30 @@ export const GitGraphRow = memo(function GitGraphRow({
             />
           );
         })}
-        <ellipse
-          cx={node.x + node.width / 2}
-          cy={node.y + node.height / 2}
-          rx={node.width / 2}
-          ry={node.height / 2}
-          className="git-graph-tone"
-          style={tone(row.colorIndex)}
-          fill="currentColor"
-        />
+        {isHead ? (
+          paint.headNodeCircles(row.lane).map((circle, index) => (
+            <ellipse
+              key={index}
+              cx={circle.x + circle.width / 2}
+              cy={circle.y + circle.height / 2}
+              rx={circle.width / 2}
+              ry={circle.height / 2}
+              className={index === 1 ? "git-graph-head-gap" : "git-graph-tone"}
+              style={index === 1 ? undefined : tone(row.colorIndex)}
+              fill="currentColor"
+            />
+          ))
+        ) : (
+          <ellipse
+            cx={node.x + node.width / 2}
+            cy={node.y + node.height / 2}
+            rx={node.width / 2}
+            ry={node.height / 2}
+            className="git-graph-tone"
+            style={tone(row.colorIndex)}
+            fill="currentColor"
+          />
+        )}
       </svg>
       {onNavigateHash && (
         <GitGraphArrowTargets row={row} paint={paint} onNavigateHash={onNavigateHash} />

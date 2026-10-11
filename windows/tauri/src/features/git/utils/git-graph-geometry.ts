@@ -5,6 +5,8 @@
 export const GIT_GRAPH_ROW_HEIGHT = 26;
 const GRAPH_BASELINE_ROW_HEIGHT = 22;
 const GRAPH_MAX_RECOMMENDED_LANES = 6;
+const GRAPH_CIRCLE_RADIUS = 4;
+const GRAPH_HEAD_RADIUS_DELTA = 2;
 
 export interface GraphPoint {
   x: number;
@@ -39,7 +41,15 @@ export function gitGraphPaintMetrics(rowHeight = GIT_GRAPH_ROW_HEIGHT, backingSc
   const lineWidth = Math.max(pixel, align((1.5 * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT, true));
   const nodeDiameter = align((8 * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT, true);
   const nodeRadius = align(nodeDiameter / 2);
-  const line = (element: GraphPaintElement): { start: GraphPoint; end: GraphPoint } => {
+  // HeadNodePainter: the HEAD commit grows by RADIUS_DELTA and is drawn as
+  // outer (node color) / middle (row background) / inner (node color) circles.
+  const headDelta = align((GRAPH_HEAD_RADIUS_DELTA * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT);
+  const headOuterDiameter = align(
+    (2 * (GRAPH_CIRCLE_RADIUS + GRAPH_HEAD_RADIUS_DELTA) * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT,
+    true,
+  );
+  const headOuterRadius = align(headOuterDiameter / 2);
+  const line =(element: GraphPaintElement): { start: GraphPoint; end: GraphPoint } => {
     const gap = element.isTerminal ? nodeRadius / 2 + 1 : 0;
     const endY =
       element.position === element.adjacentPosition
@@ -70,6 +80,19 @@ export function gitGraphPaintMetrics(rowHeight = GIT_GRAPH_ROW_HEIGHT, backingSc
       width: nodeDiameter,
       height: nodeDiameter,
     }),
+    /** Concentric circles of the HEAD node, outermost first: node, background, node. */
+    headNodeCircles: (lane: number) => {
+      const centerX = laneCenter + lane * laneSpacing;
+      return [0, 1, 2].map((step) => {
+        const diameter = headOuterDiameter - 2 * headDelta * step;
+        return {
+          x: centerX - headOuterRadius + headDelta * step,
+          y: rowCenter - headOuterRadius + headDelta * step,
+          width: diameter,
+          height: diameter,
+        };
+      });
+    },
     arrowArms: (element: GraphPaintElement) => {
       const { start, end } = line(element);
       const length = Math.max(1, Math.hypot(end.x - start.x, end.y - start.y));
