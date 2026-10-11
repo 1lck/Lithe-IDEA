@@ -110,6 +110,15 @@ export function GitLogToolWindow() {
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const pendingReferenceSelectionRef = useRef<GitReference | null>(null);
+  // The Branch filter is restored once per repository open; later renders must not reuse it.
+  const restoredRepoPathRef = useRef<string | null>(null);
+  const preferredReference =
+    pendingReferenceSelectionRef.current ??
+    (repoPath && restoredRepoPathRef.current !== repoPath
+      ? (useGitLogPreferencesStore.getState().selectedReferenceByRepository[
+          normalizeRepositoryPath(repoPath)
+        ] ?? null)
+      : null);
   const {
     history,
     repositoryCommits,
@@ -121,7 +130,7 @@ export function GitLogToolWindow() {
     forgetReference,
     refresh,
     loadMore,
-  } = useGitLogController(repoPath, pendingReferenceSelectionRef.current);
+  } = useGitLogController(repoPath, preferredReference);
   const { referencesByRepository, errorsByRepository, ensureRepository, retryRepository } =
     useGitWorkspaceReferences(availableRepoPaths, repoPath);
   const pullWorkflow = useGitPullWorkflow({ repoPath: repoPath ?? "", refresh });
@@ -161,7 +170,7 @@ export function GitLogToolWindow() {
   const emptyContextMenu = useDropdownMenu();
   const selectionAnchorRef = useRef<string | null>(null);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
-  const { setFilterQuery, setMainPanelLayout, renameMarkedReference } =
+  const { setFilterQuery, setMainPanelLayout, renameMarkedReference, setSelectedReference } =
     useGitLogPreferencesStore.use.actions();
   const currentReference = useMemo(
     () => history.references.find((reference) => reference.isCurrent) ?? null,
@@ -208,6 +217,16 @@ export function GitLogToolWindow() {
     // repository switch; clear it so a later switch cannot reuse it.
     pendingReferenceSelectionRef.current = null;
   }, [repoPath]);
+
+  useEffect(() => {
+    restoredRepoPathRef.current = repoPath;
+  }, [repoPath]);
+
+  // Persist only once the load settled: by then a branch that no longer exists has already
+  // fallen back to "All", so a stale name is never written back.
+  useEffect(() => {
+    if (repoPath && loadState === "ready") setSelectedReference(repoPath, selectedReference);
+  }, [loadState, repoPath, selectedReference, setSelectedReference]);
 
   const clearHistorySelection = useCallback(async () => {
     setSelectedCommitHashes(new Set());
@@ -649,7 +668,21 @@ export function GitLogToolWindow() {
     );
   };
 
-  const handleReferenceAction = (action: GitReferenceAction, reference: GitReference) => {
+  const handleReferenceSelect = (reference: GitReference | null) => {
+    setSelectedCommit(null);
+    if (
+      repoPath &&
+      reference?.repositoryPath &&
+      normalizeRepositoryPath(reference.repositoryPath) !== normalizeRepositoryPath(repoPath)
+    ) {
+      pendingReferenceSelectionRef.current = reference;
+      selectRepository(reference.repositoryPath);
+      return;
+    }
+    selectReference(reference);
+  };
+
+  const handleReferenceAction =(action: GitReferenceAction, reference: GitReference) => {
     if (pullWorkflow.isPullLocked && isGitReferencePullAction(action, reference)) return;
     switch (action) {
       case "checkout":
@@ -797,19 +830,7 @@ export function GitLogToolWindow() {
               repositoryPaths={availableRepoPaths}
               activeRepoPath={repoPath}
               selectedReference={selectedReference}
-              onSelect={(reference) => {
-                setSelectedCommit(null);
-                if (
-                  reference?.repositoryPath &&
-                  normalizeRepositoryPath(reference.repositoryPath) !==
-                    normalizeRepositoryPath(repoPath)
-                ) {
-                  pendingReferenceSelectionRef.current = reference;
-                  selectRepository(reference.repositoryPath);
-                  return;
-                }
-                selectReference(reference);
-              }}
+              onSelect={handleReferenceSelect}
               isMutating={isReferenceMutationPending}
               isPullLocked={pullWorkflow.isPullLocked}
               onReferenceAction={handleReferenceAction}
@@ -876,6 +897,7 @@ export function GitLogToolWindow() {
                 }
               }}
               onLoadMore={() => void loadMore()}
+              onSelectReference={handleReferenceSelect}
             />
           </ResizablePanel>
           <ResizableHandle />

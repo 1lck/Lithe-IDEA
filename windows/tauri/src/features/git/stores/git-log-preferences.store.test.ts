@@ -8,6 +8,25 @@ describe("Git Log preferences", () => {
     expect(useGitLogPreferencesStore.getState().showLongGraphEdges).toBe(false);
   });
 
+  test("remembers the Branch filter per repository and forgets it for All", () => {
+    const actions = useGitLogPreferencesStore.getState().actions;
+    const main = {
+      fullName: "refs/heads/main",
+      shortName: "main",
+      kind: "local",
+      peelsToCommit: true,
+      isCurrent: true,
+    } as const;
+    actions.setSelectedReference("C:/work/one", main);
+    actions.setSelectedReference("C:/work/two", null);
+    const stored = useGitLogPreferencesStore.getState().selectedReferenceByRepository;
+    expect(Object.values(stored).map((reference) => reference.fullName)).toEqual([
+      "refs/heads/main",
+    ]);
+    actions.setSelectedReference("C:/work/one", null);
+    expect(useGitLogPreferencesStore.getState().selectedReferenceByRepository).toEqual({});
+  });
+
   test("persists read-only view preferences through focused actions", () => {
     const actions = useGitLogPreferencesStore.getState().actions;
     const repoPath = "C:/work/project";

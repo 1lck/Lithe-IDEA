@@ -19,6 +19,7 @@ import { FloatingPopoverContent } from "@/ui/popover";
 import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { matchesSearchQuery } from "@/utils/search-match";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import { CaretRightIcon, CheckIcon, MagnifyingGlassIcon as Search } from "@/ui/icons";
 
 export const DROPDOWN_TRIGGER_BASE = cn(
@@ -728,6 +729,23 @@ export function Dropdown(props: DropdownProps) {
       }
     }
   }, [isOpen, searchable]);
+
+  // WebView2 can latch wheel events onto clipped descendants, so a long menu sometimes does
+  // not scroll under the pointer; apply the delta to the menu's own scroller instead.
+  useEffect(() => {
+    if (!isOpen) return;
+    let unbind: (() => void) | undefined;
+    const bind = () => {
+      const menu = menuRef.current;
+      if (menu) unbind = bindScrollContainerWheel(menu);
+      return menu !== null;
+    };
+    const frame = bind() ? 0 : requestAnimationFrame(bind);
+    return () => {
+      cancelAnimationFrame(frame);
+      unbind?.();
+    };
+  }, [isOpen]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

@@ -154,6 +154,21 @@ HEAD 提交节点对照 Community `fb72b4df43aba102479eb0502d20b03586b9c5b8` 中
 因此当前分支背景、hover 和选中行都不会露出实心底色；其他提交仍是单个实心节点。
 目前未实现 IDEA 的节点 hover 高亮，所以不绘制 HeadNodePainter 的 selected 分支。
 
+### 工具栏文本筛选与 Branch 筛选
+
+对照 Community `VcsLogClassicFilterUi.TextFilterField`：文本筛选只在 Enter（或清除）时
+应用，输入过程只修改本地草稿，宽度按其最小宽度 150px 取固定值；外部清空筛选
+（如定位分支头）会同步草稿。输入法组词期间的 Enter 不触发。
+
+Branch 下拉对应 `BranchFilterPopupComponent`，选择结果就是日志控制器的已选引用，
+与左侧引用树共用同一入口 `handleReferenceSelect`（含跨仓库引用切换）。
+分组由 `groupGitLogBranchFilterReferences` 产生：Local、每个远程一组（不含 Tags，标签不是分支），
+忽略远程符号 `HEAD`。所选引用按仓库路径保存在 `git-log-preferences` 的
+`selectedReferenceByRepository`，只在一次加载到 `ready` 后写入，因此已删除的
+分支会先回退为 All 再落盘，不会写回过期名称；重新打开项目时作为控制器的初始
+引用，沿用既有的“引用缺失则回退全部”逻辑。控制器在同一仓库内因 `load` 身份变化
+重跑时保留当前选择，避免语言切换清掉筛选。
+
 ### 图形与提交文字按行混排
 
 Windows 不再把六列当作标题的最小固定留白。对照 Community

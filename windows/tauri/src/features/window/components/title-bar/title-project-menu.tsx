@@ -240,30 +240,30 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
           ))}
         </DropdownMenuGroup>
 
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="px-2 pt-1.5 pb-1 font-normal ui-text-xs">
-            {t("titleProject.recentProjects")}
-          </DropdownMenuLabel>
-          {projects.recentProjects.length === 0 ? (
-            <div className="px-2 py-3 text-subtle-foreground ui-text-xs">
-              {t("titleProject.noRecentProjects")}
-            </div>
-          ) : null}
-          {projects.recentProjects.map((folder) => (
-            <ProjectMenuRow
-              key={folder.path}
-              name={folder.name}
-              path={folder.path}
-              iconPath={folder.customIcon}
-              missing={folder.missing}
-              unavailableLabel={t("fileSystem.recentProjectUnavailableBadge")}
-              removeLabel={t("welcome.removeRecent", { name: folder.name })}
-              onRemove={() => removeFromRecents(folder.path)}
-              onClick={() => closeAndRun(() => void openRecentFolder(folder.path))}
-            />
-          ))}
-        </DropdownMenuGroup>
+        {/* No recent projects: hide the whole section instead of showing an empty placeholder. */}
+        {projects.recentProjects.length > 0 ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="px-2 pt-1.5 pb-1 font-normal ui-text-xs">
+                {t("titleProject.recentProjects")}
+              </DropdownMenuLabel>
+              {projects.recentProjects.map((folder) => (
+                <ProjectMenuRow
+                  key={folder.path}
+                  name={folder.name}
+                  path={folder.path}
+                  iconPath={folder.customIcon}
+                  missing={folder.missing}
+                  unavailableLabel={t("fileSystem.recentProjectUnavailableBadge")}
+                  removeLabel={t("welcome.removeRecent", { name: folder.name })}
+                  onRemove={() => removeFromRecents(folder.path)}
+                  onClick={() => closeAndRun(() => void openRecentFolder(folder.path))}
+                />
+              ))}
+            </DropdownMenuGroup>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
