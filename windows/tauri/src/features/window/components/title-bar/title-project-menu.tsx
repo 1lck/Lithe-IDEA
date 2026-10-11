@@ -17,6 +17,7 @@ import {
   FolderOpenIcon,
   GitBranchIcon,
   PlusIcon,
+  XIcon,
 } from "@/ui/icons";
 import {
   DropdownMenu,
@@ -40,38 +41,93 @@ function ProjectMenuRow({
   path,
   iconPath,
   active = false,
+  missing = false,
   trailing,
   onClick,
+  onRemove,
+  removeLabel,
+  unavailableLabel,
   disabled = false,
 }: {
   name: string;
   path: string;
   iconPath?: string;
   active?: boolean;
+  /** The folder was found missing when it was last opened; IntelliJ greys such rows out. */
+  missing?: boolean;
   trailing?: ReactNode;
   onClick: () => void;
+  /** Drops the row from the recent list. Only recent rows pass it; open projects use close. */
+  onRemove?: () => void;
+  removeLabel?: string;
+  unavailableLabel?: string;
   disabled?: boolean;
 }) {
-  return (
+  const row = (
     <DropdownMenuItem
       aria-current={getTitleProjectMenuItemAriaCurrent(active)}
       onClick={onClick}
+      // IntelliJ's Remove-selected action is bound to Delete; Backspace is its macOS spelling.
+      onKeyDown={
+        onRemove
+          ? (event) => {
+              if (event.key !== "Delete" && event.key !== "Backspace") return;
+              event.preventDefault();
+              event.stopPropagation();
+              onRemove();
+            }
+          : undefined
+      }
       disabled={disabled}
+      title={missing ? unavailableLabel : undefined}
       className={cn(
         "min-h-11 w-full items-start gap-2 rounded-md px-2 py-1.5",
         active && "bg-selected text-foreground",
+        onRemove && "pr-9",
       )}
     >
       {/* IntelliJ's project popup uses a 20px avatar aligned to the top, 8px before the name. */}
-      <ProjectAvatar name={name} path={path} customIconPath={iconPath} className="mt-0.5" />
-      <span className="min-w-0 flex-1 text-left">
+      <ProjectAvatar
+        name={name}
+        path={path}
+        customIconPath={iconPath}
+        missing={missing}
+        className="mt-0.5"
+      />
+      <span className={cn("min-w-0 flex-1 text-left", missing && "opacity-60")}>
         <span className="block truncate font-medium text-foreground ui-text-sm">{name}</span>
         <span className="block truncate text-subtle-foreground ui-text-xs">{path}</span>
       </span>
       {trailing}
     </DropdownMenuItem>
   );
+
+  if (!onRemove) return row;
+
+  // The remove button is a sibling of the menu item, not a child: a click inside the item would
+  // also run its open action and close the menu, while the user only wants to prune the list.
+  return (
+    <div className="group/project-row relative">
+      {row}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label={removeLabel}
+        title={removeLabel}
+        onClick={onRemove}
+        className={cn(
+          "absolute top-1/2 right-2 -translate-y-1/2 focus-visible:opacity-100 group-hover/project-row:opacity-100 group-has-data-highlighted/project-row:opacity-100",
+          // A missing project's only useful action is removal, so IntelliJ shows it permanently.
+          missing ? "opacity-100" : "opacity-0",
+        )}
+      >
+        <XIcon />
+      </Button>
+    </div>
+  );
 }
+
 
 export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps) {
   const { t } = useTranslation();
@@ -79,6 +135,7 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
   const activeProject = projectTabs.find((project) => project.isActive);
   const recentFolders = useRecentFoldersStore((state) => state.recentFolders);
   const openRecentFolder = useRecentFoldersStore((state) => state.actions.openRecentFolder);
+  const removeFromRecents = useRecentFoldersStore((state) => state.actions.removeFromRecents);
   const handleOpenFolder = useFileSystemStore((state) => state.handleOpenFolder);
   const switchToProject = useFileSystemStore((state) => state.switchToProject);
   const isSwitchingProject = useFileSystemStore((state) => state.isSwitchingProject);
@@ -201,6 +258,10 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
               name={folder.name}
               path={folder.path}
               iconPath={folder.customIcon}
+              missing={folder.missing}
+              unavailableLabel={t("fileSystem.recentProjectUnavailableBadge")}
+              removeLabel={t("welcome.removeRecent", { name: folder.name })}
+              onRemove={() => removeFromRecents(folder.path)}
               onClick={() => closeAndRun(() => void openRecentFolder(folder.path))}
             />
           ))}
