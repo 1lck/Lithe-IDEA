@@ -240,7 +240,13 @@ export function useGitLogController(
     stateRepoPathRef.current = repoPath;
     historyRef.current = EMPTY_HISTORY;
     setRepositoryCommits([]);
-    const initialReference = preferredReferenceRef.current;
+    // This effect also re-runs when `load` changes identity (for example on a language
+    // change). Within the same repository keep the reference the user picked instead of
+    // dropping back to the stored initial one.
+    const initialReference =
+      stateRepoPathRef.current === repoPath && selectedReferenceRef.current
+        ? selectedReferenceRef.current
+        : preferredReferenceRef.current;
     preferredReferenceRef.current = null;
     selectedReferenceRef.current = initialReference;
     setHistory(EMPTY_HISTORY);
