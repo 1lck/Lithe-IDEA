@@ -12,6 +12,8 @@ final class WorkbenchFeatureModel: ObservableObject {
         case gitLog
         case terminal
         case agent
+        case database
+        case databaseServices
         case references
         case problems
         case maven
@@ -58,7 +60,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     /// visible while they are open.
     static func isRightDocked(_ toolWindow: ToolWindow) -> Bool {
         switch toolWindow {
-        case .maven, .agent: true
+        case .maven, .agent, .database: true
         default: false
         }
     }

@@ -1,5 +1,6 @@
 import SwiftUI
 import LitheModuleAPI
+import LitheDatabaseModule
 import LitheDebugModule
 import LitheExecutionModule
 import LitheGitModule
@@ -17,6 +18,7 @@ enum WorkbenchModuleUIComposition {
                 gitRegistration,
                 languageRegistration,
                 executionRegistration,
+                databaseRegistration,
                 debugRegistration
             ])
         } catch {
@@ -144,7 +146,7 @@ enum WorkbenchModuleUIComposition {
         renderers: [
             .init(
                 id: "execution.maven",
-                ideaAssetPath: "maven/toolWindowMaven.svg",
+                ideaAssetPath: "maven/expui/toolwindow/maven@20x20.svg",
                 isVisible: { $0.hasMavenProject },
                 isSelected: { $0.workbenchFeature.isVisible(.maven) },
                 content: { model in
@@ -197,6 +199,46 @@ enum WorkbenchModuleUIComposition {
                     }
                     return AnyView(LanguageTestsView(service: service))
                 }
+            )
+        ]
+    )
+
+    private static let databaseRegistration = WorkbenchModuleUIRegistry.Registration(
+        contributions: DatabaseModule.moduleContributions,
+        actions: [
+            .init(id: "database.services.toggle", perform: { model in
+                _ = model.toggleToolWindow(.databaseServices)
+            }),
+            .init(id: "database.toggle", perform: { model in
+                if model.workbenchFeature.isVisible(.database) {
+                    model.workbenchFeature.setVisibility(.database, isVisible: false)
+                } else {
+                    Task { await model.activateDatabaseModule() }
+                }
+            })
+        ],
+        renderers: [
+            .init(id: "database.services", ideaAssetPath: "expui/toolwindows/services@20x20.svg",
+                isVisible: { $0.databaseFeatureIfActive != nil },
+                isSelected: { $0.workbenchFeature.isVisible(.databaseServices) },
+                content: { model in
+                    guard let feature = model.databaseFeatureIfActive else { return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView) }
+                    return AnyView(DatabaseServicesView().environmentObject(feature))
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.databaseFeatureIfActive) }),
+            .init(
+                id: "database.workspace",
+                ideaAssetPath: "database/expui/dbms@20x20.svg",
+                isVisible: { _ in true },
+                isSelected: { $0.workbenchFeature.isVisible(.database) },
+                content: { model in
+                    guard let feature = model.databaseFeatureIfActive else {
+                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
+                    }
+                    return AnyView(DatabaseSidebarView().environmentObject(feature))
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.databaseFeatureIfActive) },
+                rightSidebarBehavior: .docked
             )
         ]
     )

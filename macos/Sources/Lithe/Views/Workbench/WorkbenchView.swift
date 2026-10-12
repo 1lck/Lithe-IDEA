@@ -1094,11 +1094,7 @@ struct WorkbenchView: View {
                 VStack(spacing: 0) {
                     ForEach(model.availableSidebarDestinations) { destination in
                         Button {
-                            if destination == .database {
-                                Task { await model.activateDatabaseModule() }
-                            } else {
-                                model.workbenchFeature.selectedSidebar = destination
-                            }
+                            model.workbenchFeature.selectedSidebar = destination
                         } label: {
                             LitheIDEAIcon(
                                 resourcePath: destination.ideaAssetPath,
@@ -1436,15 +1432,6 @@ struct WorkbenchView: View {
                 } else {
                     WorkbenchModuleUIRegistry.moduleLoadingView
                         .task { _ = await model.activateSearchModule() }
-                }
-            case .database:
-                if let feature = model.databaseFeatureIfActive {
-                    DatabaseSidebarView()
-                        .environmentObject(feature)
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .task { await model.activateDatabaseModule() }
                 }
             }
         }

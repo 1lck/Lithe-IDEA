@@ -5,6 +5,9 @@ enum EditorTabItem: Hashable, Identifiable {
     case document(UUID)
     case terminal(UUID)
     case media(UUID)
+    case database(UUID?)
+    case databaseQuery(profileID: UUID, queryID: UUID)
+    case databaseOverview
     case repositoryDiff
 
     var id: Self { self }

@@ -7,6 +7,11 @@ import Foundation
 final class EditorTabOrderFeatureModel: ObservableObject {
     @Published private(set) var items: [EditorTabItem] = []
 
+    @Published var databaseSelected = false
+    @Published var databaseProfileSelected: UUID?
+    @Published var databaseOverviewSelected = false
+    @Published var databaseQuerySelected: UUID?
+
     @Published var repositoryDiffSelected = false
     var repositoryDiffReturnTab: EditorTabItem?
     var repositoryDiffRequestID: UUID?
@@ -81,7 +86,7 @@ final class EditorTabOrderFeatureModel: ObservableObject {
                       reorderedExistingIDs.indices.contains(existingIndex) else { continue }
                 next.append(.document(reorderedExistingIDs[existingIndex]))
                 existingIndex += 1
-            case .terminal, .media, .repositoryDiff:
+            case .terminal, .media, .repositoryDiff, .database, .databaseQuery, .databaseOverview:
                 next.append(item)
             }
         }

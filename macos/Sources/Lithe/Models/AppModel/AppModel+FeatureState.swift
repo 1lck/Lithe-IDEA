@@ -1,3 +1,4 @@
+import LitheDatabaseModule
 import Foundation
 import LitheCoreContracts
 import LitheGitModule
@@ -76,7 +77,10 @@ extension AppModel {
     var activeDocumentID: UUID? {
         get { documentFeature.activeDocumentID }
         set {
-            if newValue != nil { editorTabOrderFeature.repositoryDiffSelected = false }
+            if newValue != nil {
+                editorTabOrderFeature.repositoryDiffSelected = false
+                editorTabOrderFeature.databaseSelected = false
+            }
             let previousDocumentID = documentFeature.activeDocumentID
             documentFeature.activeDocumentID = newValue
             guard previousDocumentID != newValue else { return }
@@ -86,15 +90,155 @@ extension AppModel {
 
     var isRepositoryDiffSelected: Bool {
         // These surfaces take precedence over the editor tabs in EditorAreaView.
-        selectedSidebar != .database && selectedChange == nil && branchComparison == nil
+        !isDatabaseWorkspaceSelected && selectedChange == nil && branchComparison == nil
             && editorTabOrderFeature.contains(.repositoryDiff) && (editorTabOrderFeature.repositoryDiffSelected
             || activeDocument == nil && activeEditorTerminalSession == nil && activeMediaDocument == nil)
     }
     var editorTabItems: [EditorTabItem] {
-        editorTabOrderFeature.items
+        editorTabOrderFeature.items.filter { item in
+            switch item {
+            case .database(let profileID?):
+                return databaseFeatureIfActive?.profiles.contains(where: { $0.id == profileID }) == true
+            case let .databaseQuery(profileID, queryID):
+                return databaseFeatureIfActive?.sqlTab(queryID, profileID: profileID) != nil
+            default: return true
+            }
+        }
+    }
+
+    var activeDatabaseEditorTab: EditorTabItem {
+        if editorTabOrderFeature.databaseOverviewSelected { return .databaseOverview }
+        if let queryID = editorTabOrderFeature.databaseQuerySelected, let profileID = editorTabOrderFeature.databaseProfileSelected {
+            return .databaseQuery(profileID: profileID, queryID: queryID)
+        }
+        return .database(editorTabOrderFeature.databaseProfileSelected)
+    }
+
+    var isDatabaseWorkspaceSelected: Bool {
+        editorTabOrderFeature.databaseSelected && editorTabOrderFeature.contains(activeDatabaseEditorTab)
+            && databaseFeatureIfActive != nil && selectedChange == nil && branchComparison == nil
+    }
+
+    func openDatabaseWorkspace(overview: Bool = false, queryID: UUID? = nil) {
+        guard let feature = databaseFeatureIfActive else { return }
+        let item: EditorTabItem
+        if let queryID {
+            guard let profileID = feature.selectedProfileID, feature.sqlTab(queryID, profileID: profileID) != nil else { return }
+            item = .databaseQuery(profileID: profileID, queryID: queryID)
+            feature.selectedSQLTabID = queryID
+        } else {
+            item = overview ? .databaseOverview : .database(feature.selectedProfileID)
+        }
+        editorTabOrderFeature.databaseProfileSelected = feature.selectedProfileID
+        editorTabOrderFeature.databaseQuerySelected = queryID
+        if queryID != nil { feature.workspaceSection = .sql }
+        else if !overview && feature.workspaceSection == .sql { feature.workspaceSection = .data }
+        if !editorTabOrderFeature.contains(item) { editorTabOrderFeature.moveToEnd(item) }
+        editorTabOrderFeature.databaseOverviewSelected = overview
+        selectedChange = nil
+        closeBranchComparison()
+        editorTabOrderFeature.repositoryDiffSelected = false
+        editorTabOrderFeature.databaseSelected = true
+    }
+
+    func selectDatabaseWorkspace(profileID: UUID?, refresh: Bool = false, table: String? = nil, queryID: UUID? = nil) {
+        guard let feature = databaseFeatureIfActive else { return }
+        if let profileID, let profile = feature.profiles.first(where: { $0.id == profileID }) {
+            let needsRefresh = refresh || feature.selectedProfileID != profileID
+            if feature.selectedProfileID != profileID { feature.activateProfile(profile) }
+            if let table { feature.selectTable(table) }
+            // Navigation belongs to the click, not the completion of database I/O.
+            openDatabaseWorkspace(queryID: queryID)
+            if (needsRefresh || table != nil), profile.kind.supportsDataGrid {
+                Task {
+                    guard databaseFeatureIfActive === feature, feature.selectedProfileID == profileID else { return }
+                    if needsRefresh {
+                        await feature.refreshTables()
+                    } else if let table, feature.selectedTable == table {
+                        await feature.openTable(table)
+                    }
+                }
+            }
+        } else if profileID == nil {
+            if feature.selectedProfileID != nil { feature.showGlobalHistory() }
+            openDatabaseWorkspace()
+        }
+    }
+
+    func openDatabaseQuery(profileID: UUID, sql: String = "") {
+        guard let feature = databaseFeatureIfActive,
+              let profile = feature.profiles.first(where: { $0.id == profileID }), profile.kind.isSQLDatabase else { return }
+        let switchedProfile = feature.selectedProfileID != profileID
+        if switchedProfile { feature.activateProfile(profile) }
+        if let tab = feature.selectedSQLTab, tab.sql.isEmpty, !tab.isRunning,
+           !editorTabOrderFeature.contains(.databaseQuery(profileID: profileID, queryID: tab.id)) {
+            feature.updateSQL(sql, in: tab.id)
+        } else {
+            feature.addSQLTab(sql: sql)
+        }
+        selectDatabaseWorkspace(profileID: profileID, refresh: switchedProfile, queryID: feature.selectedSQLTabID)
+    }
+
+    func removeDatabaseConnection(_ profile: DatabaseProfile) {
+        guard let feature = databaseFeatureIfActive, feature.remove(profile) else { return }
+        // Remove background tabs first, so fallback cannot reopen another deleted console.
+        let removed = editorTabOrderFeature.items.filter {
+            switch $0 {
+            case .database(let id): return id == profile.id
+            case .databaseQuery(let id, _): return id == profile.id
+            default: return false
+            }
+        }
+        for item in removed where item != activeDatabaseEditorTab { closeDatabaseTab(item) }
+        if removed.contains(activeDatabaseEditorTab) { closeDatabaseTab(activeDatabaseEditorTab) }
+    }
+
+    func closeDatabaseTab(_ item: EditorTabItem) {
+        let wasSelected = isDatabaseWorkspaceSelected && activeDatabaseEditorTab == item
+        editorTabOrderFeature.remove(item)
+        if case let .databaseQuery(profileID, queryID) = item {
+            databaseFeatureIfActive?.closeSQLTab(queryID, profileID: profileID)
+        }
+        guard wasSelected else { return }
+        editorTabOrderFeature.databaseSelected = false
+        editorTabOrderFeature.databaseProfileSelected = nil
+        editorTabOrderFeature.databaseQuerySelected = nil
+        editorTabOrderFeature.databaseOverviewSelected = false
+        if let next = editorTabItems.last(where: {
+            switch $0 {
+            case .database, .databaseQuery, .databaseOverview: return true
+            default: return false
+            }
+        }) {
+            switch next {
+            case .database(let profileID): selectDatabaseWorkspace(profileID: profileID)
+            case let .databaseQuery(profileID, queryID): selectDatabaseWorkspace(profileID: profileID, queryID: queryID)
+            case .databaseOverview: openDatabaseWorkspace(overview: true)
+            default: break
+            }
+        }
+    }
+
+    func closeDatabaseWorkspace(overview: Bool? = nil) {
+        guard let overview else {
+            workbenchFeature.setVisibility(.databaseServices, isVisible: false)
+            editorTabOrderFeature.databaseSelected = false
+            editorTabOrderFeature.databaseProfileSelected = nil
+            editorTabOrderFeature.databaseQuerySelected = nil
+            for item in editorTabOrderFeature.items {
+                switch item {
+                case .database, .databaseQuery: editorTabOrderFeature.remove(item)
+                default: break
+                }
+            }
+            editorTabOrderFeature.remove(.databaseOverview)
+            return
+        }
+        closeDatabaseTab(overview ? .databaseOverview : .database(editorTabOrderFeature.databaseProfileSelected))
     }
 
     func selectRepositoryDiffTab() {
+        editorTabOrderFeature.databaseSelected = false
         guard editorTabOrderFeature.contains(.repositoryDiff) else { return }
         if !editorTabOrderFeature.repositoryDiffSelected {
             editorTabOrderFeature.repositoryDiffReturnTab = activeEditorTerminalSession.map { .terminal($0.id) }
@@ -134,6 +278,12 @@ extension AppModel {
         guard moved else { return }
 
         switch item {
+        case .databaseOverview:
+            openDatabaseWorkspace(overview: true)
+        case .database(let profileID):
+            selectDatabaseWorkspace(profileID: profileID)
+        case let .databaseQuery(profileID, queryID):
+            selectDatabaseWorkspace(profileID: profileID, queryID: queryID)
         case .repositoryDiff:
             selectRepositoryDiffTab()
         case .document(let documentID):

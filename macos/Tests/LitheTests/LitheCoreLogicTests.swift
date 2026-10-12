@@ -1465,7 +1465,7 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func databaseInvalidSQLClearsPreviousExecutionState() async throws {
+    func databaseFailedSQLClearsPreviousResultsAndRecordsFailure() async throws {
         let preferences = DatabaseTestKeyValueStore()
         let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
         let profile = DatabaseProfile(name: "SQLite", kind: .sqlite, path: "/tmp/lithe-test.sqlite")
@@ -1476,6 +1476,10 @@ struct LitheCoreLogicTests {
             let id = object["id"] as! String
             let method = object["method"] as! String
             let result: String
+            if method == "query", let params = object["params"] as? [String: Any],
+               (params["sql"] as? String)?.contains("missing_table") == true {
+                return ProcessResult(output: #"{"id":"\#(id)","ok":false,"error":{"code":"syntax_error","message":"no such table: missing_table"}}"#, exitCode: 0)
+            }
             if method == "query" {
                 result = #"{"rows":[{"value":1}],"columns":["value"],"truncated":false}"#
             } else {
@@ -1495,12 +1499,21 @@ struct LitheCoreLogicTests {
         #expect(feature.selectedSQLTab?.result?.rows.count == 1)
         #expect(feature.selectedSQLTab?.execution != nil)
 
-        feature.updateSQL("SELEC 1", in: tabID)
+        feature.updateSQL("SELECT * FROM missing_table", in: tabID)
         await feature.runSQL(in: tabID)
         #expect(feature.selectedSQLTab?.result == nil)
-        #expect(feature.selectedSQLTab?.execution == nil)
+        #expect(feature.selectedSQLTab?.execution?.rowsReturned == nil)
+        #expect(feature.selectedSQLTab?.execution != nil)
+        #expect(feature.selectedSQLTab?.statementExecutions.last?.errorMessage?.contains("missing_table") == true)
+        #expect(feature.sqlHistory.count == 2)
         #expect(feature.selectedSQLTab?.rowsAffected == nil)
         #expect(feature.selectedSQLTab?.errorMessage != nil)
+
+        // Empty input is rejected before execution and must not create another history entry.
+        feature.updateSQL(" ", in: tabID)
+        await feature.runSQL(in: tabID)
+        #expect(feature.selectedSQLTab?.execution == nil)
+        #expect(feature.sqlHistory.count == 2)
     }
 
     @Test
@@ -1843,14 +1856,14 @@ struct LitheCoreLogicTests {
         }
         #expect(sqlRequests.map(\.0) == ["execute", "query", "execute"])
         #expect(sqlRequests.map(\.1) == [
-            "INSERT INTO items VALUES (1)",
-            "SELECT 1",
-            "UPDATE items SET value = 2 WHERE id = 1"
+            "INSERT INTO items\nVALUES(1)",
+            "SELECT\n    1",
+            "UPDATE items\nSET value = 2\nWHERE id = 1"
         ])
         #expect(feature.selectedSQLTab?.result?.rows.count == 1)
         #expect(feature.selectedSQLTab?.rowsAffected == 5)
         #expect(feature.selectedSQLTab?.execution?.rowsReturned == 1)
-        #expect(feature.sqlHistory.first?.sql.contains("SELECT 1") == true)
+        #expect(feature.sqlHistory.first?.sql.contains("SELECT\n    1") == true)
     }
 
     @Test
@@ -1892,9 +1905,12 @@ struct LitheCoreLogicTests {
                   let params = object["params"] as? [String: Any] else { return nil }
             return params["sql"] as? String
         }
-        #expect(querySQL == ["SELECT 1", "SELECT bad"])
+        #expect(querySQL == ["SELECT\n    1", "SELECT\n    bad"])
         #expect(feature.selectedSQLTab?.errorMessage?.contains("Statement 2 failed") == true)
-        #expect(feature.sqlHistory.isEmpty)
+        #expect(feature.sqlHistory.count == 1)
+        #expect(feature.sqlHistory.first?.sql == feature.selectedSQLTab?.sql)
+        #expect(feature.selectedSQLTab?.statementExecutions.count == 2)
+        #expect(feature.selectedSQLTab?.statementExecutions.last?.errorMessage != nil)
     }
 
     @Test
@@ -1930,12 +1946,50 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func databaseSQLFormatterPreservesQuotedTextAndNormalizesKeywords() {
+    func databaseSQLFormatterPreservesQuotedTextAndWordCase() {
         let formatted = DatabaseSQLFormatter.format("select  name, 'a  b' from users where id=1;")
-        #expect(formatted.contains("SELECT name, 'a  b' FROM users WHERE id = 1;"))
+        #expect(formatted.contains("select\n    name, 'a  b' from users\nwhere id=1;"))
         let withComment = DatabaseSQLFormatter.format("select -- keep this text\nfrom users")
         #expect(withComment.contains("-- keep this text"))
-        #expect(withComment.contains("FROM users"))
+        #expect(withComment.contains("\nfrom users"))
+    }
+
+    @Test(arguments: [#"SELECT 'C:\', 'a,b';"#, #"SELECT E'it\'s FROM here', 'a,b';"#, #"UPDATE settings SET path='C:\', note='a,b';"#])
+    func databaseSQLFormatterLeavesSessionDependentEscapesVerbatim(sql: String) {
+        #expect(DatabaseSQLFormatter.format(sql) == sql)
+    }
+
+    @Test(arguments: ["\u{0301}a,b", "\u{0301}a''b, c", "\u{FE0F}a,b; DROP TABLE t; --"])
+    func databaseSQLScannersPreserveCombiningMarksInsideLiterals(literal: String) {
+        let sql = "SELECT '\(literal)' AS value;"
+        let formatted = DatabaseSQLFormatter.format(sql)
+        #expect(formatted.contains("'\(literal)'"))
+        #expect(DatabaseSQLFormatter.format(formatted) == formatted)
+        let analysis = DatabaseSQLAnalyzer.analyze(formatted)
+        #expect(analysis.kind == .query)
+        #expect(analysis.statementCount == 1)
+        #expect(analysis.statements.first?.contains("'\(literal)'") == true)
+    }
+
+    @Test(arguments: [
+        "select a>=1, b<>2, c!=3, 1.25, t.column::text from t;",
+        #"select E'it\'s from here', X'AB', [a]]b], `from`, 'where; 😀' from t;"#,
+        "select 'a'\n'b' from t;",
+        "select t.order, t.from, t.select from t;",
+        "select /* outer /* nested */ comment */ a from t;",
+        "select a # keep FROM here\nfrom t;",
+        "select $$begin SELECT x FROM t; end$$;"
+    ])
+    func databaseSQLFormatterPreservesLiteralAndOperatorTokens(sql: String) {
+        let formatted = DatabaseSQLFormatter.format(sql)
+        #expect(DatabaseSQLFormatter.format(formatted) == formatted)
+        if sql.contains("$$") { #expect(formatted == sql) }
+        else {
+            // Layout may change whitespace/case, but never an operator or a protected literal/comment.
+            for token in [">=", "<>", "!=", "1.25", "t.column::text", "t.order", "t.from", "t.select", #"E'it\'s from here'"#, "X'AB'", "[a]]b]", "`from`", "'where; 😀'", "'a'\n'b'", "/* outer /* nested */ comment */", "# keep FROM here"] where sql.contains(token) {
+                #expect(formatted.contains(token))
+            }
+        }
     }
 
     @Test

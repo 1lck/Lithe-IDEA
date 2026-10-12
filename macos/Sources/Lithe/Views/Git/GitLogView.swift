@@ -107,7 +107,7 @@ struct GitLogView: View {
         .background(LitheToolWindowActivityTracker(isActive: $gitToolActive))
         .focusable()
         .focused($gitToolFocused)
-        .gitLogFocusEffectHidden()
+        .litheFocusEffectHidden()
         .onChange(of: [gitToolFocused, gitLogSearchFocused, gitLogCommitListFocused,
                        branchSearchFocused, gitLogPathFocused]) { focusStates in
             gitToolActive = focusStates.contains(true)
@@ -1314,7 +1314,7 @@ struct GitLogView: View {
                 )
                 .focusable()
                 .focused($gitLogCommitListFocused)
-                .gitLogFocusEffectHidden()
+                .litheFocusEffectHidden()
                 .onMoveCommand { direction in
                     switch direction {
                     case .up: moveGitLogCommitSelection(by: -1)
@@ -2016,16 +2016,6 @@ enum GitLogCommitSelection {
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func gitLogFocusEffectHidden() -> some View {
-        if #available(macOS 14.0, *) {
-            focusEffectDisabled()
-        } else {
-            self
-        }
-    }
-}
 
 private struct GitLogFilterTaskIdentity: Hashable {
     let searchQuery: String

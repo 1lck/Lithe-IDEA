@@ -7,6 +7,50 @@ import Testing
 @Suite("Shared search field chrome", .serialized)
 struct LitheSearchFieldStyleTests {
     @Test(arguments: [ColorScheme.dark, .light])
+    func outsideClickReleasesOnlyTheOwningSearchEditor(scheme: ColorScheme) throws {
+        let host = NSHostingView(rootView: VStack {
+            HStack {
+                LitheSearchTextField("Search", text: .constant("typed")).frame(width: 180)
+                LitheSearchTextField("Other", text: .constant("")).frame(width: 180)
+            }
+            Color.clear.frame(height: 100)
+        }.environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 160),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.makeFirstResponder(nil); window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        func descendants<T: NSView>(_ view: NSView, of type: T.Type) -> [T] {
+            (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants($0, of: type) }
+        }
+        let fields = descendants(host, of: NSTextField.self).sorted { $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX }
+        let observers = descendants(host, of: LitheTextFieldEditingView.self).sorted { $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX }
+        #expect(fields.count == 2)
+        #expect(observers.count == 2)
+        let field = try #require(fields.first)
+        let owner = try #require(observers.first)
+        let sibling = try #require(observers.last)
+        #expect(window.makeFirstResponder(field))
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        func click(at point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: 1))
+        }
+        let inside = try click(at: editor.convert(NSPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: nil))
+        owner.releaseFocusForOutsideClick(inside)
+        #expect(window.firstResponder === editor)
+        let outside = try click(at: NSPoint(x: 200, y: 20))
+        sibling.releaseFocusForOutsideClick(outside)
+        #expect(window.firstResponder === editor)
+        owner.releaseFocusForOutsideClick(outside)
+        #expect(field.currentEditor() == nil)
+        #expect(window.firstResponder !== editor)
+        #expect(field.stringValue == "typed")
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light])
     func popupSearchUsesItsSurfaceWithoutChangingSharedGeometry(scheme: ColorScheme) throws {
         let host = NSHostingView(rootView: HStack(spacing: 0) {
             LitheSearchTextField("Search", text: .constant(""))

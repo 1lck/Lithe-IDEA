@@ -67,8 +67,6 @@ struct MavenView: View {
     private var toolWindowHeader: some View {
         LitheToolWindowHeader(
             title: "Maven",
-            systemImage: "shippingbox",
-            ideaAssetPath: "maven/expui/toolwindow/maven.svg",
             subtitle: feature.project?.displayName
         ) {
             LitheSidebarHideButton(title: "Maven") {

@@ -2732,6 +2732,28 @@
 
 "Could not inspect saved file" = "无法读取已保存的文件";
 
+"Database Overview" = "数据库概览";
+
+"Non-Introspected" = "未内省";
+
+"Switch current database" = "切换当前数据库";
+
+"%@ Query History" = "%@ 查询历史";
+
+"Result %d" = "结果 %d";
+
+"%d rows retrieved in %d ms" = "取回 %d 行，耗时 %d 毫秒";
+
+"%llu rows affected in %d ms" = "影响 %llu 行，耗时 %d 毫秒";
+
+"No query output" = "暂无查询输出";
+
+"SQL execution markers" = "SQL 执行状态标记";
+
+"Succeeded, line %d" = "成功，第 %d 行";
+
+"Failed, line %d" = "失败，第 %d 行";
+
 "Update required" = "需要更新";
 
 "Adds PHP language-server integration, formatting, running, and test support." = "提供 PHP 语言服务器集成、格式化、运行和测试支持。";

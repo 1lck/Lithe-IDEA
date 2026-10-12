@@ -1454,3 +1454,29 @@
 "Expand All" = "Expand All";
 
 "Collapse All" = "Collapse All";
+
+"Database Overview" = "Database Overview";
+
+"Non-Introspected" = "Non-Introspected";
+
+"Switch current database" = "Switch current database";
+
+"%@ Query History" = "%@ Query History";
+
+"Result %d" = "Result %d";
+
+"%d rows retrieved in %d ms" = "%d rows retrieved in %d ms";
+
+"%llu rows affected in %d ms" = "%llu rows affected in %d ms";
+
+"No query output" = "No query output";
+
+"Services" = "Services";
+
+"Output" = "Output";
+
+"SQL execution markers" = "SQL execution markers";
+
+"Succeeded, line %d" = "Succeeded, line %d";
+
+"Failed, line %d" = "Failed, line %d";
