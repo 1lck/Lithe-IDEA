@@ -583,6 +583,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
+| `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
+| `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
+| `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
+| `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
 
 ### Maven test results
 
@@ -2374,6 +2378,31 @@ Re-running it over already-redacted text is a no-op.
 confirm a diagnostic export — and the zip's contents — are deterministic
 across runs and across platforms. Hosts gather the environment and file facts
 natively; this command only shapes and sorts them.
+
+### Declarative plugins
+
+The `plugins.declarative.*` commands implement
+[`plugins/v1`](plugins/v1/README.md). They are pure: they never read the
+package or the workspace, so hosts pass the parsed `plugin.json` and the
+relevant facts with every call.
+
+`plugins.declarative.validate` accepts `{ "manifest": object }` and returns
+`{ "status": "ok", "plugin": object }` with the normalized manifest (names
+lowercased and sorted, argument order preserved), or
+`{ "status": "rejected", "error": { "code", "message", "field"? } }` with a
+stable `plugin.*` code.
+
+`plugins.declarative.runPlan`, `plugins.declarative.discoverTests`, and
+`plugins.declarative.testPlan` accept
+`{ "manifest": object, "languageID": string, "request": object }` and
+revalidate the manifest first. Their requests are respectively
+`{ relativeFilePath, arguments? }`, `{ relativeProjectFilePaths }`, and
+`{ scope: { kind: "workspace" } | { kind: "file", relativeFilePath } |
+{ kind: "testCase", identifier, relativeFilePath? }, relativeProjectFilePaths }`.
+Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
+`label` and `frameworkID` for tests) or `items`; refusals use the same
+`rejected` shape. Only a malformed payload is an `invalid_request` failure.
+`shared/contracts/plugins/v1/fixtures/` holds the golden cases.
 
 ### Git patch discovery and rebase amendment preconditions
 

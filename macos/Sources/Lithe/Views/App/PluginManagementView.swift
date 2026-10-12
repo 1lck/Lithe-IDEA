@@ -31,14 +31,23 @@ struct PluginManagementView: View {
     }
 
     private var selectedPlugin: PluginManagementSnapshot? {
-        filteredPlugins.first { $0.id == selectedPluginID } ?? filteredPlugins.first
+        if let selectedPluginID, selectedPluginID == availablePHPManifest?.id {
+            return nil
+        }
+        return filteredPlugins.first { $0.id == selectedPluginID } ?? filteredPlugins.first
     }
 
-    private var availablePHPManifest: PluginManifest? {
+    private var availablePHPManifest: OfficialPluginCatalog.Entry? {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard let manifest = PluginManagementListContent(plugins: model.pluginSnapshots).availablePHPManifest,
               query.isEmpty || manifest.displayName.lowercased().contains(query) else { return nil }
         return manifest
+    }
+
+    /// Why the installed PHP package could not be accepted, for example a
+    /// retired native package that must be replaced.
+    private var phpInstallationIssue: String? {
+        model.pluginManagementIssues.first { $0.pluginID == OfficialPluginCatalog.phpPluginID }?.message
     }
 
     private var enabledPluginCount: Int {
@@ -132,7 +141,7 @@ struct PluginManagementView: View {
     }
 
     private func pluginRow(_ plugin: PluginManagementSnapshot) -> some View {
-        let presentation = phpPresentation
+        let presentation = presentation(for: plugin.id)
         let isSelected = selectedPlugin?.id == plugin.id
         let isHovered = hoveredPluginID == plugin.id
         return HStack(spacing: 10) {
@@ -174,8 +183,9 @@ struct PluginManagementView: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    private func availablePluginRow(_ manifest: PluginManifest) -> some View {
-        HStack(spacing: 10) {
+    private func availablePluginRow(_ manifest: OfficialPluginCatalog.Entry) -> some View {
+        let isSelected = selectedPlugin == nil
+        return HStack(spacing: 10) {
             Image(systemName: phpPresentation.systemImage)
                 .font(LitheTheme.uiFont(size: 22))
                 .foregroundStyle(phpPresentation.tint)
@@ -183,7 +193,7 @@ struct PluginManagementView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(LocalizedStringKey(manifest.displayName))
                     .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                Text(LocalizedStringKey("Not installed"))
+                Text(LocalizedStringKey(phpInstallationIssue == nil ? "Not installed" : "Update required"))
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
             }
@@ -192,12 +202,18 @@ struct PluginManagementView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LitheTheme.settingsSelection)
+        .background(isSelected ? LitheTheme.settingsSelection : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 1) {
+            selectedPluginID = manifest.id
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 
     @ViewBuilder private var detail: some View {
         if let plugin = selectedPlugin {
-            let presentation = phpPresentation
+            let presentation = presentation(for: plugin.id)
             let isEnabled = effectiveEnabledState(for: plugin)
             let hasPendingChange = pendingEnabledStates[plugin.id] != nil
             VStack(alignment: .leading, spacing: 0) {
@@ -220,7 +236,8 @@ struct PluginManagementView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(LitheTheme.accent)
                     .disabled(isApplyingChanges || isManagingPackage || plugin.isRequired)
-                    if plugin.id == OfficialPluginCatalog.phpPluginID {
+                    if OfficialPluginCatalog.entry(for: plugin.id)?.distribution == .download,
+                       plugin.origin != .bundled {
                         Button {
                             performPackageAction { await model.reinstallPHPPlugin() }
                         } label: {
@@ -269,6 +286,12 @@ struct PluginManagementView: View {
                     .font(LitheTheme.uiFont(size: 22, weight: .bold))
                 Text(LocalizedStringKey("Download PHP Support from the official signed plugin package."))
                     .foregroundStyle(LitheTheme.secondaryText)
+                if let phpInstallationIssue {
+                    Label(phpInstallationIssue, systemImage: "exclamationmark.triangle.fill")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: 10) {
                     Button {
                         performPackageAction { await model.downloadPHPPlugin() }
@@ -365,18 +388,28 @@ struct PluginManagementView: View {
             summary: "Adds PHP language-server integration, formatting, running, and test support."
         )
     }
+
+    private func presentation(for pluginID: PluginID) -> PluginPresentation {
+        guard pluginID == OfficialPluginCatalog.goPluginID else { return phpPresentation }
+        return PluginPresentation(
+            systemImage: "chevron.left.forwardslash.chevron.right",
+            tint: LitheTheme.accent,
+            summary: "Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately."
+        )
+    }
 }
 
 struct PluginManagementListContent {
     let plugins: [PluginManagementSnapshot]
 
-    var availablePHPManifest: PluginManifest? {
-        guard plugins.isEmpty else { return nil }
-        return OfficialPluginCatalog.manifests.first { $0.id == OfficialPluginCatalog.phpPluginID }
+    /// PHP is offered for download until a valid package is installed.
+    var availablePHPManifest: OfficialPluginCatalog.Entry? {
+        guard !plugins.contains(where: { $0.id == OfficialPluginCatalog.phpPluginID }) else { return nil }
+        return OfficialPluginCatalog.entry(for: OfficialPluginCatalog.phpPluginID)
     }
 
     init(plugins: [PluginManagementSnapshot]) {
-        self.plugins = plugins.filter { $0.id == OfficialPluginCatalog.phpPluginID }
+        self.plugins = plugins.filter { OfficialPluginCatalog.entry(for: $0.id) != nil }
     }
 }
 

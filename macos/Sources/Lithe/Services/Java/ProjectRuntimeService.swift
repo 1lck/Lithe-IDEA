@@ -9,7 +9,7 @@ enum ProjectRuntimeProcessKind: Sendable {
 extension ProjectRuntimeService: RunRuntimePort {}
 
 extension ProjectRuntimeService: LanguageToolRuntimePort {
-    package func languageToolProcessEnvironment() -> [String: String] {
+    package func languageToolProcessEnvironment(runtimeTools: [String]) -> [String: String] {
         var environment = processEnvironment()
         // Node-based language servers (Intelephense, TypeScript, …) start
         // through launchers that read LITHE_NODE_PATH. An app opened from the
@@ -22,7 +22,31 @@ extension ProjectRuntimeService: LanguageToolRuntimePort {
            let node = executableCandidates("node").first(where: { $0.source != .project }) {
             environment["LITHE_NODE_PATH"] = node.executableURL.path
         }
+        // Declared runtime dependencies are also put on PATH because servers
+        // such as gopls run the tool themselves and cannot be pointed at it
+        // through a launcher variable. The same project-local exclusion applies.
+        var searchPath = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        for tool in runtimeTools {
+            let key = Self.runtimeToolEnvironmentKey(tool)
+            if environment[key]?.isEmpty ?? true,
+               let candidate = executableCandidates(tool).first(where: { $0.source != .project }) {
+                environment[key] = candidate.executableURL.path
+            }
+            guard let configured = environment[key], configured.hasPrefix("/") else { continue }
+            let directory = URL(fileURLWithPath: configured).deletingLastPathComponent().path
+            if !searchPath.contains(directory) {
+                searchPath.insert(directory, at: 0)
+            }
+        }
+        if !runtimeTools.isEmpty {
+            environment["PATH"] = searchPath.joined(separator: ":")
+        }
         return environment
+    }
+
+    static func runtimeToolEnvironmentKey(_ tool: String) -> String {
+        let name = String(tool.uppercased().map { $0.isLetter || $0.isNumber ? $0 : "_" })
+        return "LITHE_\(name)_PATH"
     }
 
     package func missingLanguageToolMessage(_ name: String) -> String {

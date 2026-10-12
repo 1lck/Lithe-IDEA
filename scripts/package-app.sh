@@ -131,38 +131,19 @@ fi
 
 OFFICIAL_PLUGIN_DESTINATION="$APP_DIR/Contents/Resources/OfficialPlugins"
 mkdir -p "$OFFICIAL_PLUGIN_DESTINATION"
+# Declarative plugin packages contain no native code and are identical for
+# every architecture, so one build serves arm64, x86_64, and universal apps.
 if [[ "$ARCH" == "universal" ]]; then
-    arm64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
-        --configuration release \
-        --triple "$ARM64_TRIPLE")
-    x86_64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
-        --configuration release \
-        --triple "$X86_64_TRIPLE")
-    for arm64_plugin in "$arm64_plugin_root"/*(/N); do
-        plugin_id="${arm64_plugin:t}"
-        x86_64_plugin="$x86_64_plugin_root/$plugin_id"
-        [[ -d "$x86_64_plugin" ]] || { print -u2 -- "Missing x86_64 plugin package: $plugin_id"; exit 1; }
-        cp -R "$arm64_plugin" "$OFFICIAL_PLUGIN_DESTINATION/$plugin_id"
-        bundle_path=$(/usr/bin/plutil -extract entrypoint.bundlePath raw "$arm64_plugin/plugin.json")
-        executable_name=$(/usr/bin/plutil -extract CFBundleExecutable raw "$arm64_plugin/$bundle_path/Contents/Info.plist")
-        plugin_executable="$bundle_path/Contents/MacOS/$executable_name"
-        universal_plugin=$(mktemp "$OFFICIAL_PLUGIN_DESTINATION/$plugin_id/.plugin.XXXXXX")
-        lipo -create \
-            "$arm64_plugin/$plugin_executable" \
-            "$x86_64_plugin/$plugin_executable" \
-            -output "$universal_plugin"
-        mv "$universal_plugin" "$OFFICIAL_PLUGIN_DESTINATION/$plugin_id/$plugin_executable"
-        codesign --force --sign "$SIGNING_IDENTITY" \
-            "$OFFICIAL_PLUGIN_DESTINATION/$plugin_id/$bundle_path"
-    done
+    plugin_triple="$ARM64_TRIPLE"
 else
-    plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
-        --configuration release \
-        --triple "$ARCH-apple-macosx")
-    for plugin_package in "$plugin_root"/*(/N); do
-        cp -R "$plugin_package" "$OFFICIAL_PLUGIN_DESTINATION/${plugin_package:t}"
-    done
+    plugin_triple="$ARCH-apple-macosx"
 fi
+plugin_root=$(scripts/build-official-plugins.sh --bundled-only \
+    --configuration release \
+    --triple "$plugin_triple")
+for plugin_package in "$plugin_root"/*(/N); do
+    cp -R "$plugin_package" "$OFFICIAL_PLUGIN_DESTINATION/${plugin_package:t}"
+done
 
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
 zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"

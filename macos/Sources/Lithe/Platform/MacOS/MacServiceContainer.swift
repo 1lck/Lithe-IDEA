@@ -74,7 +74,6 @@ final class MacServiceContainer {
         runConfigurationOperations providedRunConfigurationOperations: (any RunConfigurationOperations)? = nil,
         gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
-        pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
         platformUI providedPlatformUI: (any PlatformUI)? = nil,
         gitPerformanceLogger: (any GitPerformanceLogger)? = nil
     ) {
@@ -130,11 +129,8 @@ final class MacServiceContainer {
             localStore: secureStore,
             configurationSources: aiConfigurationSources
         )
-        let pluginHostServices = MacPluginHostServiceRegistry()
         let ideCapabilityRegistry = IdeCapabilityRegistry()
-        pluginHostServices.register(ideCapabilityRegistry, for: .ideCapabilities)
         let languageExecutionHost = MacLanguageExecutionHost(processRegistry: processRegistry)
-        pluginHostServices.register(languageExecutionHost, for: .languageExecution)
         let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
         let moduleStore = providedModuleStore ?? MacModuleConfigurationStore(store: store)
         // Database is now an internal on-demand workspace feature, so an old
@@ -148,24 +144,19 @@ final class MacServiceContainer {
             launchMode: moduleLaunchMode
         )
         moduleLifecycleCoordinator = ModuleLifecycleCoordinator(runtime: moduleRuntime)
-        let pluginPackageStore = MacPluginPackageStore(fileStorage: fileStorage)
-        let pluginStartup = MacPluginStartupLoader(
-            packageStore: pluginPackageStore,
-            nativeLoader: MacNativePluginLoader(
-                hostContext: PluginHostContext(resolver: pluginHostServices)
-            ),
-            runtimeRecovery: pluginRuntimeRecovery
-        ).load(policy: MacPluginLoadPolicy(
-            configurationStore: moduleStore,
-            recoveryStore: moduleStore,
-            launchMode: moduleLaunchMode
-        ))
+        let declarativePluginOperations = RustDeclarativePluginOperations(core: rustCore)
+        let pluginPackageStore = MacPluginPackageStore(
+            fileStorage: fileStorage,
+            validator: declarativePluginOperations
+        )
+        let pluginStartup = MacPluginStartupLoader(packageStore: pluginPackageStore)
+            .load(recoveryStore: moduleStore)
         let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
         let moduleRegistry = ModuleRegistry(
             runtime: moduleRuntime,
             pluginManifests: BuiltInPluginCatalog.manifests
                 + bundledLanguageManifests
-                + pluginStartup.activeNativeManifests
+                + pluginStartup.registeredManifests
         )
         do {
             try moduleRegistry.register(ModuleFactory(manifest: WorkspaceFoundationModule.moduleManifest) {
@@ -215,24 +206,10 @@ final class MacServiceContainer {
         } catch {
             preconditionFailure("Invalid built-in module graph: \(error.localizedDescription)")
         }
-        let activePluginIDs = Set(pluginStartup.activeNativeManifests.map(\.id))
-        let pluginToolRoots = pluginStartup.installedPlugins
-            .filter { activePluginIDs.contains($0.manifest.id) }
-            .compactMap { installed -> URL? in
-                guard installed.manifest.id == OfficialPluginCatalog.phpPluginID,
-                      case .nativeBundle = installed.manifest.entrypoint.kind,
-                      let bundlePath = installed.manifest.entrypoint.bundlePath else {
-                    return nil
-                }
-                return installed.packageURL
-                    .appendingPathComponent(bundlePath, isDirectory: true)
-                    .appendingPathComponent("Contents/Resources/LanguageServers/php", isDirectory: true)
-                    .standardizedFileURL
-            }
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store,
-            toolDiscovery: MacRuntimeToolDiscovery(pluginToolRoots: pluginToolRoots)
+            toolDiscovery: MacRuntimeToolDiscovery()
         )
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
@@ -572,10 +549,12 @@ final class MacServiceContainer {
                     operations: localHistoryOperations
                 )
             })
-            for pluginID in pluginStartup.factoriesByPlugin.keys.sorted() {
-                for factory in pluginStartup.factoriesByPlugin[pluginID] ?? [] {
-                    try moduleRegistry.register(factory)
-                }
+            for factory in Self.declarativePluginFactories(
+                pluginStartup.registeredPlugins,
+                executionHost: languageExecutionHost,
+                planner: declarativePluginOperations
+            ) {
+                try moduleRegistry.register(factory)
             }
             for specification in BundledLanguagePluginCatalog.specifications {
                 if specification.supportsLanguageServer {
@@ -670,5 +649,60 @@ final class MacServiceContainer {
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
         moduleLifecycleCoordinator.start()
         Task { try? await moduleRegistry.startEagerModules() }
+    }
+
+    /// Host-owned module factories for declarative plugins. The plugins'
+    /// declarations configure the same language-server and execution modules
+    /// the host uses for bundled languages; no plugin code is loaded.
+    static func declarativePluginFactories(
+        _ plugins: [InstalledPluginPackage],
+        executionHost: any LanguageExecutionHostProviding,
+        planner: any DeclarativeExecutionPlanning
+    ) -> [ModuleFactory] {
+        plugins.flatMap { installed -> [ModuleFactory] in
+            let descriptor = installed.descriptor
+            let modules = Dictionary(uniqueKeysWithValues: descriptor.pluginManifest.modules.map {
+                ($0.manifest.id, $0.manifest)
+            })
+            let languageNames = Dictionary(uniqueKeysWithValues: (descriptor.pluginManifest.languageSupports ?? []).map {
+                ($0.id, $0.displayName)
+            })
+            let servers = descriptor.languageServers.compactMap { server -> ModuleFactory? in
+                guard let manifest = modules[.languageServerExtension(server.languageID)] else { return nil }
+                let configuration = LanguageServerExtensionConfiguration(
+                    languageID: server.languageID,
+                    displayName: languageNames[server.languageID] ?? server.languageID,
+                    executableNames: server.executableNames,
+                    arguments: server.arguments,
+                    validationArguments: server.validationArguments,
+                    runtimeTools: server.runtimeTools,
+                    // A packaged server is read in place from the installed,
+                    // read-only plugin version directory of this plugin only.
+                    executableURL: server.packagedRelativePath.map {
+                        installed.packageURL.appendingPathComponent($0).standardizedFileURL
+                    },
+                    languageIdentifier: server.languageIdentifier
+                )
+                return ModuleFactory(manifest: manifest) {
+                    BundledLanguageServerModule(manifest: manifest, configuration: configuration)
+                }
+            }
+            let templates = DeclarativeExecutionTemplates(
+                manifest: descriptor.normalizedManifest,
+                planner: planner
+            )
+            let executions = descriptor.executionProviders.compactMap { provider -> ModuleFactory? in
+                guard let manifest = modules[.languageExecutionExtension(provider.languageID)] else { return nil }
+                return ModuleFactory(manifest: manifest) {
+                    BundledLanguageExecutionModule(
+                        manifest: manifest,
+                        languageID: provider.languageID,
+                        executionHost: executionHost,
+                        templates: templates
+                    )
+                }
+            }
+            return servers + executions
+        }
     }
 }

@@ -51,6 +51,19 @@ pub fn execute_json(request: &str) -> String {
 }
 
 /// Decode an agent management payload and run `operation` on it.
+/// Declarative plugin commands decode their own payloads so manifest content
+/// problems surface as `rejected` outcomes rather than Core failures.
+fn plugin_response(
+    id: Option<String>,
+    payload: serde_json::Value,
+    operation: fn(serde_json::Value) -> Result<serde_json::Value, CoreError>,
+) -> CoreResponse {
+    match operation(payload) {
+        Ok(data) => CoreResponse::success(id, data),
+        Err(error) => CoreResponse::failure(id, error),
+    }
+}
+
 fn agent_response<T: serde::de::DeserializeOwned>(
     id: Option<String>,
     payload: serde_json::Value,
@@ -130,6 +143,26 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::PluginsDeclarativeValidate => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::validate_command,
+        ),
+        CoreCommand::PluginsDeclarativeRunPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::run_plan_command,
+        ),
+        CoreCommand::PluginsDeclarativeDiscoverTests => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::discover_tests_command,
+        ),
+        CoreCommand::PluginsDeclarativeTestPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::test_plan_command,
+        ),
         CoreCommand::AgentInstall => agent_response(id, parsed.payload, crate::agent::install),
         CoreCommand::AgentUninstall => agent_response(id, parsed.payload, crate::agent::uninstall),
         CoreCommand::AgentInstallCli => {

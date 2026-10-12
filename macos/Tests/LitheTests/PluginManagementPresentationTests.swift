@@ -5,23 +5,20 @@ import LitheModuleAPI
 @Suite("Plugin management presentation")
 struct PluginManagementPresentationTests {
     @Test
-    func onlyOfficialPHPPluginAppearsInSettings() throws {
-        let phpManifest = try #require(
-            OfficialPluginCatalog.manifests.first { $0.id == OfficialPluginCatalog.phpPluginID }
-        )
-        let goManifest = try #require(
-            OfficialPluginCatalog.manifests.first { $0.id != OfficialPluginCatalog.phpPluginID }
-        )
+    func onlyOfficialPluginsAppearInSettings() throws {
+        let php = try DeclarativePluginTestSupport.officialDescriptor("PhpSupport").pluginManifest
+        let go = try DeclarativePluginTestSupport.officialDescriptor("GoSupport").pluginManifest
         let pythonManifest = try #require(
             BundledLanguagePluginCatalog.manifests.first { $0.languageSupports?.first?.id == "python" }
         )
         let content = PluginManagementListContent(plugins: [
-            snapshot(phpManifest),
-            snapshot(goManifest),
+            snapshot(php),
+            snapshot(go),
             snapshot(pythonManifest),
         ])
 
-        #expect(content.plugins.map(\.id) == [phpManifest.id])
+        #expect(content.plugins.map(\.id) == [php.id, go.id])
+        #expect(content.availablePHPManifest == nil)
     }
 
     @Test
@@ -29,6 +26,16 @@ struct PluginManagementPresentationTests {
         let content = PluginManagementListContent(plugins: [])
 
         #expect(content.plugins.isEmpty)
+        #expect(content.availablePHPManifest?.id == OfficialPluginCatalog.phpPluginID)
+    }
+
+    /// Go ships inside Lithe, so PHP stays downloadable next to it.
+    @Test
+    func bundledGoDoesNotHideThePHPInstallEntry() throws {
+        let go = try DeclarativePluginTestSupport.officialDescriptor("GoSupport").pluginManifest
+        let content = PluginManagementListContent(plugins: [snapshot(go)])
+
+        #expect(content.plugins.map(\.id) == [OfficialPluginCatalog.goPluginID])
         #expect(content.availablePHPManifest?.id == OfficialPluginCatalog.phpPluginID)
     }
 

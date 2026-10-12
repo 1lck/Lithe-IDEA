@@ -5575,6 +5575,50 @@ struct EditorDocumentTests {
         #expect(!storage.fileExists(at: file))
     }
 
+    /// Language servers point outside the workspace (Go's standard library,
+    /// stubs bundled with a server). Those jumps open read-only; any other
+    /// open of an outside path is still refused.
+    @Test @MainActor
+    func navigationTargetsOutsideTheWorkspaceOpenReadOnly() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/external-navigation/project")
+        let external = URL(fileURLWithPath: "/in-memory/external-navigation/goroot/src/fmt/print.go")
+        let storage = InMemoryFileStorage()
+        try storage.writeData(Data("package fmt\n".utf8), to: external)
+        let feature = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "workspace"),
+            documentLifecycleDecider: DocumentFeatureGuardedPersistenceTests.PersistenceDecider(),
+            fileOperations: EmptyWorkspaceFileOperations(savedTextStorage: storage),
+            fileStorage: storage, binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        var notifications: [String] = []
+        feature.configure(
+            workspaceURLProvider: { workspace }, autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 }, notify: { notifications.append($0) },
+            onDocumentOpened: { _ in }, onDocumentChanged: { _ in }, onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in }, onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in }, onDocumentCollectionChanged: {}, onProjectCloseReady: {}
+        )
+        defer { feature.reset() }
+
+        await feature.openFileAsync(external, isReadOnly: false, displayPath: nil, activateWhenReady: true)
+        #expect(feature.activeDocument == nil)
+        #expect(notifications == ["This file is outside the current workspace"])
+
+        await feature.openFileAsync(
+            external, isReadOnly: true, displayPath: nil, activateWhenReady: true,
+            allowsOutsideWorkspace: true
+        )
+        let document = try #require(feature.activeDocument)
+        #expect(document.url == external)
+        #expect(document.text == "package fmt\n")
+        #expect(document.isReadOnly)
+
+        document.applyLiveEditorText("package changed\n")
+        let save = try #require(feature.saveEditorDocument(document))
+        await save.value
+        #expect(try String(data: storage.readData(from: external), encoding: .utf8) == "package fmt\n")
+    }
+
     @Test(arguments: ["save", "cancel", "reset"]) @MainActor
     func cancellingSaveAllDuringRemoteDrainDoesNotWrite(ending: String) async throws {
         let cancel = ending != "save"

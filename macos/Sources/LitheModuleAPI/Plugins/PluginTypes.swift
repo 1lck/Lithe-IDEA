@@ -120,7 +120,12 @@ public struct PluginVendor: Equatable, Codable, Sendable {
 
 public enum PluginEntrypointKind: String, Codable, Sendable {
     case builtIn
+    /// Retired in-process Swift bundle. Still decoded so an installed legacy
+    /// package can be recognized and replaced, but never loaded.
     case nativeBundle
+    /// Data-only package whose processes the host launches itself; see
+    /// shared/contracts/plugins/v1/README.md.
+    case declarative
 }
 
 public struct PluginEntrypoint: Equatable, Codable, Sendable {
@@ -147,6 +152,8 @@ public struct PluginEntrypoint: Equatable, Codable, Sendable {
     public static func builtIn(targetName: String) -> Self {
         Self(kind: .builtIn, targetName: targetName)
     }
+
+    public static let declarative = Self(kind: .declarative)
 }
 
 public struct PluginModuleDeclaration: Equatable, Codable, Sendable {
@@ -413,6 +420,12 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
 public struct PluginManifest: Equatable, Codable, Sendable {
     public static let currentSchemaVersion = 1
     public static let currentAPIVersion = 1
+    /// `plugin.json` schema of a declarative package (plugin contract v1).
+    public static let declarativeSchemaVersion = 2
+    /// Declarative plugin API levels this host supports. Rust Core enforces
+    /// the same list (`SUPPORTED_PLUGIN_API_VERSIONS`) when it validates a
+    /// manifest; the Lithe application version plays no part.
+    public static let supportedDeclarativeAPIVersions: Set<Int> = [1]
 
     public let schemaVersion: Int
     public let id: PluginID

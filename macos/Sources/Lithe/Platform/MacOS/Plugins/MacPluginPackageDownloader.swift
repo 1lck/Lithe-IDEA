@@ -19,7 +19,6 @@ enum MacPluginPackageDownloadError: Error, Equatable, LocalizedError {
     case invalidEndpoint
     case httpStatus(Int)
     case invalidArchive
-    case invalidLanguageServerPackage(String)
     case extractionFailed(String)
 
     var errorDescription: String? {
@@ -32,8 +31,6 @@ enum MacPluginPackageDownloadError: Error, Equatable, LocalizedError {
             return "The official plugin server returned HTTP \(status)."
         case .invalidArchive:
             return "The downloaded plugin archive does not contain a valid plugin package."
-        case .invalidLanguageServerPackage(let detail):
-            return "The downloaded PHP plugin does not contain a valid language-server package: \(detail)"
         case .extractionFailed(let detail):
             return "The downloaded plugin archive could not be extracted: \(detail)"
         }
@@ -87,7 +84,7 @@ struct MacPluginDistributionConfiguration: Equatable, Sendable {
     }()
 
     func archiveURL(pluginID: PluginID) throws -> URL {
-        guard pluginID == OfficialPluginCatalog.phpPluginID,
+        guard OfficialPluginCatalog.entry(for: pluginID)?.distribution == .download,
               architecture == "arm64" || architecture == "x86_64" else {
             throw MacPluginPackageDownloadError.unsupportedPlugin(pluginID)
         }
@@ -149,25 +146,9 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
         try fileManager.createDirectory(at: extractionRoot, withIntermediateDirectories: true)
         do {
             try extract(archiveURLOnDisk, into: extractionRoot)
-            let packageURL = try findPackage(in: extractionRoot, pluginID: pluginID)
-            do {
-                let manifest = try JSONDecoder().decode(
-                    PluginManifest.self,
-                    from: Data(contentsOf: packageURL.appendingPathComponent("plugin.json"))
-                )
-                try MacPluginLanguageServerPackageValidator.validate(
-                    packageAt: packageURL,
-                    pluginManifest: manifest
-                )
-            } catch let error as MacPluginLanguageServerPackageValidationError {
-                throw MacPluginPackageDownloadError.invalidLanguageServerPackage(
-                    error.localizedDescription
-                )
-            } catch {
-                throw MacPluginPackageDownloadError.invalidLanguageServerPackage(
-                    "plugin.json could not be decoded"
-                )
-            }
+            // The package store validates the declaration, signature, and
+            // packaged executables before anything is installed.
+            let packageURL = try Self.findPackage(in: extractionRoot, pluginID: pluginID, fileManager: fileManager)
             return MacDownloadedPluginPackage(
                 packageURL: packageURL,
                 temporaryDirectory: extractionRoot
@@ -234,7 +215,11 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
         process.waitUntilExit()
     }
 
-    private func findPackage(in root: URL, pluginID: PluginID) throws -> URL {
+    /// Identifies the package by its `id` only. Any manifest schema is
+    /// accepted here; the package store owns schema, signature, and trust
+    /// validation, so a declarative (schema 2) package is found as reliably
+    /// as a retired native one.
+    static func findPackage(in root: URL, pluginID: PluginID, fileManager: FileManager = .default) throws -> URL {
         guard let enumerator = fileManager.enumerator(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -250,8 +235,8 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
                   isDirectory == true else { continue }
             let packageURL = candidate.deletingLastPathComponent().standardizedFileURL
             guard let data = try? Data(contentsOf: candidate),
-                  let manifest = try? JSONDecoder().decode(PluginManifest.self, from: data),
-                  manifest.id == pluginID else { continue }
+                  let identity = try? JSONDecoder().decode(PackageIdentity.self, from: data),
+                  identity.id == pluginID.rawValue else { continue }
             matches.append(packageURL)
         }
         guard matches.count == 1 else {
@@ -260,4 +245,7 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
         return matches[0]
     }
 
+    private struct PackageIdentity: Decodable {
+        let id: String
+    }
 }

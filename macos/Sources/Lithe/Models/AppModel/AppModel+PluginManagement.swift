@@ -16,9 +16,12 @@ extension AppModel {
             prompt: "Install"
         ) else { return }
         do {
+            // Only the plugin ID is needed to reject a wrong selection; the
+            // package store validates the full declaration while installing.
+            struct PackageIdentity: Decodable { let id: String }
             let manifestURL = packageURL.appendingPathComponent("plugin.json")
-            let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(contentsOf: manifestURL))
-            guard manifest.id == OfficialPluginCatalog.phpPluginID else {
+            let identity = try JSONDecoder().decode(PackageIdentity.self, from: Data(contentsOf: manifestURL))
+            guard identity.id == OfficialPluginCatalog.phpPluginID.rawValue else {
                 showNotification(NSLocalizedString("Select a PHP Support plugin package.", comment: "Wrong plugin package selected"))
                 return
             }

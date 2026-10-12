@@ -43,12 +43,13 @@ for plugin in "${plugins[@]}"; do
             print -u2 -- "PHP plugin language-server manifest is missing: $plugin"
             exit 1
         }
-        php_launcher="$plugin/PhpSupport.bundle/Contents/Resources/LanguageServers/php/bin/intelephense"
+        php_launcher="$plugin/language-server/bin/intelephense"
         [[ -x "$php_launcher" ]] || {
             print -u2 -- "PHP plugin Intelephense launcher is missing: $php_launcher"
             exit 1
         }
-        /usr/bin/codesign --verify --deep --strict "$plugin/PhpSupport.bundle"
+    fi
+    if [[ -f "$plugin/lithe-plugin-signature.json" ]]; then
         if [[ -z "$package_signer_binary" ]]; then
             swift build "${SWIFT_BUILD_ARGS[@]}" --product LithePluginPackageSigner
             signer_bin_dir=$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)
@@ -61,4 +62,4 @@ for plugin in "${plugins[@]}"; do
         "$package_signer_binary" --verify "$plugin"
     fi
 done
-print "Verified ${#plugins[@]} official native plugin package(s)"
+print "Verified ${#plugins[@]} official declarative plugin package(s)"

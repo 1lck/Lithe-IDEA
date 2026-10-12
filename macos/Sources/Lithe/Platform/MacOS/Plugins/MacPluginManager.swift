@@ -9,7 +9,10 @@ final class MacPluginManager: PluginManaging {
     private let configurationStore: MacModuleConfigurationStore
     private let launchMode: ModuleLaunchMode
     private let managedBuiltInPlugins: [PluginManifest]
-    private let activeNativePluginIDs: Set<PluginID>
+    /// Plugins whose host-owned modules were registered at launch. Their
+    /// enablement changes apply immediately; anything installed later needs
+    /// a restart to join the module graph.
+    private let registeredPluginIDs: Set<PluginID>
     private let packageDownloader: any MacPluginPackageDownloading
     private let hostVersion: PluginVersion
     private let allowsLocalDevelopmentPackages: Bool
@@ -37,7 +40,7 @@ final class MacPluginManager: PluginManaging {
         self.managedBuiltInPlugins = managedBuiltInPlugins.sorted { $0.id < $1.id }
         self.packageDownloader = packageDownloader
         self.hostVersion = hostVersion
-        activeNativePluginIDs = Set(startup.activeNativeManifests.map(\.id))
+        registeredPluginIDs = Set(startup.registeredPlugins.map(\.manifest.id))
         installedPlugins = Dictionary(
             uniqueKeysWithValues: startup.installedPlugins.map { ($0.manifest.id, $0) }
         )
@@ -96,18 +99,16 @@ final class MacPluginManager: PluginManaging {
             }
         }
 
-        if manifest.entrypoint.kind == .nativeBundle,
-           enabled != activeNativePluginIDs.contains(pluginID) {
-            restartRequiredPluginIDs.insert(pluginID)
-        } else if manifest.entrypoint.kind == .nativeBundle, !enabled {
-            // The module graph is stopped immediately, but Swift Bundle code
-            // remains mapped until this process exits.
+        // Declarative plugins run no code in this process, so a registered
+        // plugin is enabled or disabled live. Only a plugin installed after
+        // launch waits for the next module graph.
+        if manifest.entrypoint.kind == .declarative, !registeredPluginIDs.contains(pluginID) {
             restartRequiredPluginIDs.insert(pluginID)
         }
     }
 
     func download(pluginID: PluginID) async throws {
-        guard pluginID == OfficialPluginCatalog.phpPluginID else {
+        guard OfficialPluginCatalog.entry(for: pluginID)?.distribution == .download else {
             throw PluginManagerError.onlineDownloadUnavailable(pluginID)
         }
         guard installedPlugins[pluginID] == nil else {
@@ -122,8 +123,8 @@ final class MacPluginManager: PluginManaging {
             from: downloaded.packageURL,
             deferActivationUntilRestart: true,
             // The action is only exposed when no valid installation exists.
-            // Allow replacement so an older or unreadable package directory
-            // can be repaired with the package that carries Intelephense.
+            // Allow replacement so a retired native package or an unreadable
+            // directory is repaired with the current declarative package.
             replaceExisting: true
         )
         restartRequiredPluginIDs.insert(installed.manifest.id)
@@ -133,6 +134,9 @@ final class MacPluginManager: PluginManaging {
     func reinstall(pluginID: PluginID) async throws {
         guard installedPlugins[pluginID] != nil else {
             throw PluginManagerError.unknownPlugin(pluginID)
+        }
+        guard OfficialPluginCatalog.entry(for: pluginID)?.distribution == .download else {
+            throw PluginManagerError.onlineDownloadUnavailable(pluginID)
         }
         let downloaded = try await packageDownloader.download(
             pluginID: pluginID,
@@ -152,10 +156,7 @@ final class MacPluginManager: PluginManaging {
         // Only development builds record an unsigned package from disk as a
         // development package, and only when its trust model requires a
         // publisher signature; release builds keep the signed-package path.
-        let manifest = try JSONDecoder().decode(
-            PluginManifest.self,
-            from: Data(contentsOf: packageURL.appendingPathComponent("plugin.json"))
-        )
+        let manifest = try packageStore.inspectPackage(at: packageURL).pluginManifest
         let isDevelopmentPackage = allowsLocalDevelopmentPackages
             && MacOfficialPluginSignatureVerifier.isUnsignedDevelopmentPackage(
                 at: packageURL,
@@ -191,7 +192,7 @@ final class MacPluginManager: PluginManaging {
             ))
             return
         }
-        if activeNativePluginIDs.contains(pluginID) {
+        if registeredPluginIDs.contains(pluginID) {
             try await setEnabled(false, for: pluginID)
         }
         guard !installed.manifest.modules.contains(where: { $0.manifest.isRequired }) else {

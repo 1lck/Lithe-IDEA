@@ -46,6 +46,14 @@ pub enum CoreCommand {
     AgentInstallCli,
     /// Parses credential-free Agent provider metadata (`agent.parseProviderConfiguration`).
     AgentParseProviderConfiguration,
+    /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
+    PluginsDeclarativeValidate,
+    /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
+    PluginsDeclarativeRunPlan,
+    /// Lists a declarative plugin's workspace and file tests (`plugins.declarative.discoverTests`).
+    PluginsDeclarativeDiscoverTests,
+    /// Expands a declarative plugin's test template (`plugins.declarative.testPlan`).
+    PluginsDeclarativeTestPlan,
     /// Starts a Discourse user API key authorization (`community.discourse.auth.begin`).
     CommunityDiscourseAuthBegin,
     /// Decrypts and verifies a Discourse authorization callback (`community.discourse.auth.complete`).
@@ -345,6 +353,10 @@ impl CoreCommand {
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
             "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
+            "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
+            "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
+            "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),
+            "plugins.declarative.testPlan" => Some(Self::PluginsDeclarativeTestPlan),
             "community.discourse.auth.begin" => Some(Self::CommunityDiscourseAuthBegin),
             "community.discourse.auth.complete" => Some(Self::CommunityDiscourseAuthComplete),
             "community.discourse.topics" => Some(Self::CommunityDiscourseTopics),

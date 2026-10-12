@@ -38,16 +38,17 @@ struct PluginManagerTests {
         })
         #expect(markdown.languageServerModuleID == nil)
         #expect(yaml.languageServerModuleID == .languageServerExtension("yaml"))
-        let officialLanguagePlugins = OfficialPluginCatalog.manifests.filter {
-            !($0.languageSupports ?? []).isEmpty
+        let officialLanguagePlugins = try ["GoSupport", "PhpSupport"].map {
+            try DeclarativePluginTestSupport.officialDescriptor($0).pluginManifest
         }
+        #expect(Set(officialLanguagePlugins.map(\.id)) == Set(OfficialPluginCatalog.entries.map(\.id)))
         #expect(officialLanguagePlugins.flatMap(\.modules).allSatisfy {
             $0.manifest.defaultState == .disabled
         })
         _ = try ValidatedPluginCatalog(
             manifests: BuiltInPluginCatalog.manifests
                 + BundledLanguagePluginCatalog.manifests
-                + OfficialPluginCatalog.manifests,
+                + officialLanguagePlugins,
             hostVersion: BuiltInPluginCatalog.hostVersion
         )
     }
@@ -59,14 +60,13 @@ struct PluginManagerTests {
         let preferences = PluginManagerKeyValueStore()
         let configuration = MacModuleConfigurationStore(store: preferences)
         let manager = MacPluginManager(
-            packageStore: MacPluginPackageStore(rootURL: root),
+            packageStore: makeStore(root: root),
             moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
             configurationStore: configuration,
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [],
-                activeNativeManifests: [],
-                factoriesByPlugin: [:],
+                registeredPlugins: [],
                 issues: []
             )
         )
@@ -82,14 +82,13 @@ struct PluginManagerTests {
         let configuration = MacModuleConfigurationStore(store: preferences)
         let runtime = ModuleRuntime(configurationStore: configuration, recoveryStore: configuration)
         let manager = MacPluginManager(
-            packageStore: MacPluginPackageStore(rootURL: root),
+            packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [],
-                activeNativeManifests: [],
-                factoriesByPlugin: [:],
+                registeredPlugins: [],
                 issues: []
             ),
             managedBuiltInPlugins: []
@@ -101,57 +100,62 @@ struct PluginManagerTests {
     }
 
     @Test
-    func enablingUnloadedNativePluginPersistsPreferenceAndRequiresRestart() async throws {
+    func enablingAPluginInstalledAfterLaunchPersistsPreferenceAndRequiresRestart() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let preferences = PluginManagerKeyValueStore()
         let configuration = MacModuleConfigurationStore(store: preferences)
         let runtime = ModuleRuntime(configurationStore: configuration, recoveryStore: configuration)
-        let installed = installedPlugin(defaultState: .disabled)
+        let installed = try installedPlugin()
         let manager = MacPluginManager(
-            packageStore: MacPluginPackageStore(rootURL: root),
+            packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [installed],
-                activeNativeManifests: [],
-                factoriesByPlugin: [:],
+                registeredPlugins: [],
                 issues: []
             )
         )
 
         try await manager.setEnabled(true, for: installed.manifest.id)
 
-        #expect(configuration.enabledState(for: pluginManagerModuleManifest.id) == true)
+        #expect(configuration.enabledState(for: pluginModuleID) == true)
         let snapshot = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
         #expect(snapshot.isEnabled)
         #expect(snapshot.requiresRestart)
     }
 
+    /// A declarative plugin registered at launch has no code mapped in the
+    /// process, so enabling and disabling apply without a restart.
     @Test
-    func disablingLoadedNativePluginStopsItsModuleAndRequiresRestart() async throws {
+    func registeredPluginIsDisabledAndReEnabledWithoutRestart() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let preferences = PluginManagerKeyValueStore()
         let configuration = MacModuleConfigurationStore(store: preferences)
-        configuration.setEnabledState(true, for: pluginManagerModuleManifest.id)
+        configuration.setEnabledState(true, for: pluginModuleID)
         let runtime = ModuleRuntime(configurationStore: configuration, recoveryStore: configuration)
         let recorder = PluginManagerModuleRecorder()
-        try runtime.register(ModuleFactory(manifest: pluginManagerModuleManifest) {
-            PluginManagerTestModule(recorder: recorder)
+        let installed = try installedPlugin()
+        let moduleManifest = try #require(installed.manifest.modules.first?.manifest)
+        let workspace = try #require(BuiltInModuleCatalog.manifest(for: .workspace))
+        try runtime.register(ModuleFactory(manifest: workspace) {
+            PluginManagerWorkspaceModule(manifest: workspace)
         })
-        _ = try await runtime.activate(pluginManagerModuleManifest.id)
-        let installed = installedPlugin(defaultState: .enabled)
+        try runtime.register(ModuleFactory(manifest: moduleManifest) {
+            PluginManagerTestModule(manifest: moduleManifest, recorder: recorder)
+        })
+        _ = try await runtime.activate(pluginModuleID)
         let manager = MacPluginManager(
-            packageStore: MacPluginPackageStore(rootURL: root),
+            packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [installed],
-                activeNativeManifests: [installed.manifest],
-                factoriesByPlugin: [:],
+                registeredPlugins: [installed],
                 issues: []
             )
         )
@@ -159,10 +163,15 @@ struct PluginManagerTests {
         try await manager.setEnabled(false, for: installed.manifest.id)
 
         #expect(recorder.shutdownCount == 1)
-        #expect(try runtime.snapshot(for: pluginManagerModuleManifest.id).state == .disabled)
-        let snapshot = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
-        #expect(!snapshot.isEnabled)
-        #expect(snapshot.requiresRestart)
+        #expect(try runtime.snapshot(for: pluginModuleID).state == .disabled)
+        let disabled = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
+        #expect(!disabled.isEnabled)
+        #expect(!disabled.requiresRestart)
+
+        try await manager.setEnabled(true, for: installed.manifest.id)
+        let enabled = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
+        #expect(enabled.isEnabled)
+        #expect(!enabled.requiresRestart)
     }
 
     @Test
@@ -171,19 +180,18 @@ struct PluginManagerTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let preferences = PluginManagerKeyValueStore()
         let configuration = MacModuleConfigurationStore(store: preferences)
-        configuration.setEnabledState(true, for: pluginManagerModuleManifest.id)
-        configuration.setQuarantined(true, for: pluginManagerModuleManifest.id)
+        configuration.setEnabledState(true, for: pluginModuleID)
+        configuration.setQuarantined(true, for: pluginModuleID)
         let runtime = ModuleRuntime(configurationStore: configuration, recoveryStore: configuration)
-        let installed = installedPlugin(defaultState: .enabled)
+        let installed = try installedPlugin()
         let manager = MacPluginManager(
-            packageStore: MacPluginPackageStore(rootURL: root),
+            packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [installed],
-                activeNativeManifests: [],
-                factoriesByPlugin: [:],
+                registeredPlugins: [],
                 issues: []
             )
         )
@@ -194,10 +202,37 @@ struct PluginManagerTests {
 
         try await manager.setEnabled(true, for: installed.manifest.id)
 
-        #expect(!configuration.isQuarantined(pluginManagerModuleManifest.id))
+        #expect(!configuration.isQuarantined(pluginModuleID))
         let enabled = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
         #expect(enabled.isEnabled)
         #expect(enabled.requiresRestart)
+    }
+
+    @Test
+    func bundledPluginCannotBeDownloadedOrReinstalled() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configuration = MacModuleConfigurationStore(store: PluginManagerKeyValueStore())
+        let go = try DeclarativePluginTestSupport.officialDescriptor("GoSupport")
+        let installed = InstalledPluginPackage(
+            descriptor: go,
+            installation: PluginInstallationRecord(pluginID: go.id, activeVersion: go.pluginManifest.version, origin: .bundled),
+            packageURL: root
+        )
+        let manager = MacPluginManager(
+            packageStore: makeStore(root: root),
+            moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
+            configurationStore: configuration,
+            launchMode: .normal,
+            startup: MacPluginStartupResult(installedPlugins: [installed], registeredPlugins: [installed], issues: [])
+        )
+
+        await #expect(throws: PluginManagerError.onlineDownloadUnavailable(go.id)) {
+            try await manager.reinstall(pluginID: go.id)
+        }
+        await #expect(throws: PluginManagerError.onlineDownloadUnavailable(go.id)) {
+            try await manager.download(pluginID: go.id)
+        }
     }
 
     private func temporaryRoot() -> URL {
@@ -205,42 +240,22 @@ struct PluginManagerTests {
             .appendingPathComponent("lithe-plugin-manager-\(UUID().uuidString)", isDirectory: true)
     }
 
-    private func installedPlugin(defaultState: ModuleDefaultState) -> InstalledPluginPackage {
-        let manifest = PluginManifest(
-            id: PluginID("dev.example.manager-plugin"),
-            displayName: "Manager Plugin",
-            version: BuiltInPluginCatalog.hostVersion,
-            hostCompatibility: PluginHostCompatibility(
-                minimum: BuiltInPluginCatalog.hostVersion,
-                maximumExclusive: PluginVersion(major: 0, minor: 4, patch: 0)
-            ),
-            vendor: PluginVendor(
-                id: "dev.example",
-                displayName: "Example",
-                signatureRequirement: .sameTeamAsHost
-            ),
-            entrypoint: PluginEntrypoint(
-                kind: .nativeBundle,
-                bundleIdentifier: "dev.example.manager-plugin",
-                principalClass: "ExamplePlugin",
-                bundlePath: "Example.bundle"
-            ),
-            modules: [PluginModuleDeclaration(manifest: ModuleManifest(
-                id: pluginManagerModuleManifest.id,
-                displayName: pluginManagerModuleManifest.displayName,
-                scope: pluginManagerModuleManifest.scope,
-                defaultState: defaultState,
-                activationPolicy: pluginManagerModuleManifest.activationPolicy,
-                sleepPolicy: pluginManagerModuleManifest.sleepPolicy,
-                dependencies: pluginManagerModuleManifest.dependencies,
-                providedCapabilities: pluginManagerModuleManifest.providedCapabilities
-            ))]
+    private func makeStore(root: URL) -> MacPluginPackageStore {
+        MacPluginPackageStore(rootURL: root, validator: DeclarativePluginTestSupport.operations)
+    }
+
+    private func installedPlugin() throws -> InstalledPluginPackage {
+        let descriptor = try DeclarativePluginTestSupport.descriptor(
+            DeclarativePluginTestSupport.manifestObject(
+                id: "dev.example.manager-plugin",
+                version: PluginVersion(major: 0, minor: 3, patch: 0)
+            )
         )
         return InstalledPluginPackage(
-            manifest: manifest,
+            descriptor: descriptor,
             installation: PluginInstallationRecord(
-                pluginID: manifest.id,
-                activeVersion: manifest.version,
+                pluginID: descriptor.id,
+                activeVersion: descriptor.pluginManifest.version,
                 origin: .marketplace
             ),
             packageURL: temporaryRoot()
@@ -248,25 +263,38 @@ struct PluginManagerTests {
     }
 }
 
-private let pluginManagerModuleManifest = ModuleManifest(
-    id: ModuleID("dev.example.manager-module"),
-    displayName: "Manager Module",
-    scope: .application,
-    defaultState: .enabled,
-    activationPolicy: .onDemand
-)
+private let pluginModuleID = ModuleID.languageServerExtension("fixture")
 
 @MainActor
 private final class PluginManagerTestModule: LitheModule {
-    let manifest = pluginManagerModuleManifest
+    let manifest: ModuleManifest
     private let recorder: PluginManagerModuleRecorder
 
-    init(recorder: PluginManagerModuleRecorder) { self.recorder = recorder }
+    init(manifest: ModuleManifest, recorder: PluginManagerModuleRecorder) {
+        self.manifest = manifest
+        self.recorder = recorder
+    }
     func activate(context: ModuleContext) async throws {}
     func prepareForSleep() async throws {}
     func sleep() async {}
     func shutdown() async { recorder.shutdownCount += 1 }
-    func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
+    func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] {
+        Dictionary(uniqueKeysWithValues: manifest.providedCapabilities.map { ($0, NSObject()) })
+    }
+}
+
+/// Satisfies the workspace dependency every language module declares.
+@MainActor
+private final class PluginManagerWorkspaceModule: LitheModule {
+    let manifest: ModuleManifest
+    private let capability = NSObject()
+
+    init(manifest: ModuleManifest) { self.manifest = manifest }
+    func activate(context: ModuleContext) async throws {}
+    func prepareForSleep() async throws {}
+    func sleep() async {}
+    func shutdown() async {}
+    func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [.workspaceFoundation: capability] }
 }
 
 @MainActor

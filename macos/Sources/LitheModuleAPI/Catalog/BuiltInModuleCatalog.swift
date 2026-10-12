@@ -205,131 +205,91 @@ public enum BuiltInPluginCatalog {
     }
 }
 
-/// Optional official packages distributed through the same native plugin path
-/// as marketplace updates. These manifests are not part of the host's static
-/// module graph and become available only when their signed package exists.
+/// Official declarative plugins the host recognizes before they are installed.
+/// The host pins each plugin's trust policy so a package cannot downgrade the
+/// signature it must carry; the package's own `plugin.json` remains the source
+/// of its language and process declarations.
 public enum OfficialPluginCatalog {
-    private static let goLanguageID = "go"
-    private static let phpLanguageID = "php"
-    public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
-    public static let publisherPackageVendor = PluginVendor(
-        id: BuiltInPluginCatalog.vendor.id,
-        displayName: BuiltInPluginCatalog.vendor.displayName,
-        signatureRequirement: .publisherPackage
-    )
+    public enum Distribution: Equatable, Sendable {
+        /// Shipped inside the application bundle and sealed by its signature.
+        case bundled
+        /// Downloaded on demand as a publisher-signed package.
+        case download
+    }
 
-    public static let manifests: [PluginManifest] = [
-        PluginManifest(
-            id: PluginID("dev.lithe.plugin.go-support"),
+    public struct Entry: Equatable, Sendable {
+        public let id: PluginID
+        public let displayName: String
+        public let signatureRequirement: PluginSignatureRequirement
+        public let distribution: Distribution
+        public let languageID: String
+        public let languageDisplayName: String
+        /// Used to suggest the plugin for a project before it is installed.
+        public let fileExtensions: [String]
+        public let projectFileNames: [String]
+    }
+
+    public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
+    public static let goPluginID = PluginID("dev.lithe.plugin.go-support")
+
+    public static let entries: [Entry] = [
+        Entry(
+            id: goPluginID,
             displayName: "Go Support",
-            version: BuiltInPluginCatalog.hostVersion,
-            hostCompatibility: PluginHostCompatibility(
-                minimum: BuiltInPluginCatalog.hostVersion,
-                maximumExclusive: PluginVersion(major: 0, minor: 4, patch: 0)
-            ),
-            vendor: BuiltInPluginCatalog.vendor,
-            entrypoint: PluginEntrypoint(
-                kind: .nativeBundle,
-                bundleIdentifier: "dev.lithe.plugin.go-support.bundle",
-                principalClass: "LitheGoSupportPluginEntrypoint",
-                bundlePath: "GoSupport.bundle"
-            ),
-            modules: [
-                PluginModuleDeclaration(manifest: ModuleManifest(
-                    id: .languageExecutionExtension(goLanguageID),
-                    displayName: "Go Execution",
-                    scope: .workspace,
-                    defaultState: .disabled,
-                    activationPolicy: .onDemand,
-                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-                    dependencies: [.module(.workspace)],
-                    providedCapabilities: [
-                        .languageExecutionExtension(goLanguageID),
-                        .languageTestingExtension(goLanguageID)
-                    ]
-                )),
-                PluginModuleDeclaration(manifest: ModuleManifest(
-                    id: .languageServerExtension(goLanguageID),
-                    displayName: "Go Language Server",
-                    scope: .workspace,
-                    defaultState: .disabled,
-                    activationPolicy: .onDemand,
-                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-                    dependencies: [.module(.workspace)],
-                    providedCapabilities: [.languageServerExtension(goLanguageID)]
-                ))
-            ],
-            languageSupports: [LanguageSupportDeclaration(
-                id: goLanguageID,
-                displayName: "Go",
-                fileExtensions: ["go"],
-                projectFileNames: ["go.mod", "go.work"],
-                dependencies: LanguageDependencyDeclaration(
-                    managementFileNames: ["go.mod", "go.sum", "go.work", "go.work.sum", "vendor/modules.txt"],
-                    projectDependencyPaths: ["vendor"]
-                ),
-                languageServerModuleID: .languageServerExtension(goLanguageID),
-                executionModuleID: .languageExecutionExtension(goLanguageID),
-                testingModuleID: .languageExecutionExtension(goLanguageID)
-            )]
+            signatureRequirement: .sameTeamAsHost,
+            distribution: .bundled,
+            languageID: "go",
+            languageDisplayName: "Go",
+            fileExtensions: ["go"],
+            projectFileNames: ["go.mod", "go.work"]
         ),
-        PluginManifest(
+        Entry(
             id: phpPluginID,
             displayName: "PHP Support",
-            version: BuiltInPluginCatalog.hostVersion,
-            hostCompatibility: PluginHostCompatibility(
-                minimum: BuiltInPluginCatalog.hostVersion,
-                maximumExclusive: PluginVersion(major: 0, minor: 4, patch: 0)
-            ),
-            vendor: publisherPackageVendor,
-            entrypoint: PluginEntrypoint(
-                kind: .nativeBundle,
-                bundleIdentifier: "dev.lithe.plugin.php-support.bundle",
-                principalClass: "LithePhpSupportPluginEntrypoint",
-                bundlePath: "PhpSupport.bundle"
-            ),
-            modules: [
-                PluginModuleDeclaration(manifest: ModuleManifest(
-                    id: .languageExecutionExtension(phpLanguageID),
-                    displayName: "PHP Execution",
-                    scope: .workspace,
-                    defaultState: .disabled,
-                    activationPolicy: .onDemand,
-                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-                    dependencies: [.module(.workspace)],
-                    providedCapabilities: [
-                        .languageExecutionExtension(phpLanguageID),
-                        .languageTestingExtension(phpLanguageID)
-                    ]
-                )),
-                PluginModuleDeclaration(manifest: ModuleManifest(
-                    id: .languageServerExtension(phpLanguageID),
-                    displayName: "PHP Language Server",
-                    scope: .workspace,
-                    defaultState: .disabled,
-                    activationPolicy: .onDemand,
-                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-                    dependencies: [.module(.workspace)],
-                    providedCapabilities: [.languageServerExtension(phpLanguageID)]
-                ))
-            ],
-            languageSupports: [LanguageSupportDeclaration(
-                id: phpLanguageID,
-                displayName: "PHP",
-                fileExtensions: ["php", "phtml"],
-                projectFileNames: ["composer.json"],
-                languageServerModuleID: .languageServerExtension(phpLanguageID),
-                executionModuleID: .languageExecutionExtension(phpLanguageID),
-                testingModuleID: .languageExecutionExtension(phpLanguageID)
-            )]
+            signatureRequirement: .publisherPackage,
+            distribution: .download,
+            languageID: "php",
+            languageDisplayName: "PHP",
+            fileExtensions: ["php", "phtml"],
+            projectFileNames: ["composer.json"]
         )
     ]
 
-    public static func manifest(forModule id: ModuleID) -> PluginManifest? {
-        manifests.first { plugin in plugin.modules.contains { $0.manifest.id == id } }
+    public static func entry(for id: PluginID) -> Entry? {
+        entries.first { $0.id == id }
+    }
+}
+
+/// Module manifests the host synthesizes for language capabilities, shared by
+/// bundled language specifications and declarative plugins so both run under
+/// the same lifecycle policy.
+public enum LanguageExtensionModuleManifests {
+    public static func languageServer(languageID: String, displayName: String) -> ModuleManifest {
+        ModuleManifest(
+            id: .languageServerExtension(languageID),
+            displayName: "\(displayName) Language Server",
+            scope: .workspace,
+            defaultState: .disabled,
+            activationPolicy: .onDemand,
+            sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
+            dependencies: [.module(.workspace)],
+            providedCapabilities: [.languageServerExtension(languageID)]
+        )
     }
 
-    public static func moduleManifest(for id: ModuleID) -> ModuleManifest? {
-        manifest(forModule: id)?.modules.first { $0.manifest.id == id }?.manifest
+    public static func execution(languageID: String, displayName: String) -> ModuleManifest {
+        ModuleManifest(
+            id: .languageExecutionExtension(languageID),
+            displayName: "\(displayName) Execution",
+            scope: .workspace,
+            defaultState: .disabled,
+            activationPolicy: .onDemand,
+            sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
+            dependencies: [.module(.workspace)],
+            providedCapabilities: [
+                .languageExecutionExtension(languageID),
+                .languageTestingExtension(languageID)
+            ]
+        )
     }
 }

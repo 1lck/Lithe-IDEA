@@ -146,7 +146,13 @@ while IFS=$'\t' read -r status first_path _; do
             macos_release=true
             git_validation=true
             ;;
-        plugins/mac/*|macos/tests/litheofficialpluginverifier/*)
+        plugins/mac/*)
+            # Official declarative manifests are validated by the Rust Core
+            # contract tests as well as by the packaged plugin lane.
+            plugins=true
+            rust_core=true
+            ;;
+        macos/tests/litheofficialpluginverifier/*)
             plugins=true
             ;;
         plugins/win/*)
@@ -155,7 +161,7 @@ while IFS=$'\t' read -r status first_path _; do
             windows=true
             windows_rust=true
             ;;
-        macos/tests/lithetests/nativepluginloadertests.swift|macos/tests/lithetests/pluginmanagementpresentationtests.swift|macos/tests/lithetests/pluginmanagertests.swift|macos/tests/lithetests/pluginpackagestoretests.swift)
+        macos/tests/lithetests/declarativeplugintestsupport.swift|macos/tests/lithetests/pluginlocaldevelopmenttests.swift|macos/tests/lithetests/pluginmanagementpresentationtests.swift|macos/tests/lithetests/pluginmanagertests.swift|macos/tests/lithetests/pluginpackagestoretests.swift)
             plugins=true
             ;;
         macos/sources/lithe/litheapp.swift|macos/sources/lithe/application/features/pluginmanagement.swift|macos/sources/lithe/core/language/pluginlanguageprovidercatalogsource.swift|macos/sources/lithe/models/appmodel/appmodel+pluginmanagement.swift|macos/sources/lithe/platform/macos/plugins/*|macos/sources/lithe/views/app/pluginmanagementview.swift|macos/sources/lithe/views/workbench/workbenchmoduleuicomposition.swift|macos/sources/litheapplicationkernel/plugins/*|macos/sources/lithemoduleapi/catalog/bundledlanguageplugincatalog.swift|macos/sources/lithemoduleapi/plugins/*)

@@ -2731,3 +2731,13 @@
 "Could not load saved changes" = "无法加载已保存的更改";
 
 "Could not inspect saved file" = "无法读取已保存的文件";
+
+"Update required" = "需要更新";
+
+"Adds PHP language-server integration, formatting, running, and test support." = "提供 PHP 语言服务器集成、格式化、运行和测试支持。";
+
+"Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately." = "通过 gopls 提供 Go 语言服务器集成、运行和测试支持。需要另行安装 gopls 和 Go。";
+
+"Download PHP Support from the official signed plugin package." = "从官方签名的插件包下载 PHP 支持。";
+
+"Only source files of the current language can be opened from outside the workspace" = "工作区外只能打开当前语言的源码文件";

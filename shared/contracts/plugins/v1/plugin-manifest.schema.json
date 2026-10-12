@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/plugins/v1/plugin-manifest.schema.json",
+  "title": "Lithe declarative plugin manifest (plugin contract v1)",
+  "description": "Shape of plugin.json for a declarative plugin. Semantic rules that JSON Schema cannot express (cross references, permissions, activation events, template variables) are defined in README.md and enforced by plugins.declarative.validate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "displayName", "version", "pluginAPIVersion", "vendor", "languages"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "pluginAPIVersion": { "type": "integer", "minimum": 1 },
+    "vendor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "signatureRequirement"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string", "minLength": 1 },
+        "signatureRequirement": { "enum": ["sameTeamAsHost", "publisherPackage"] }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": { "enum": ["languageServer.launch", "process.run", "process.test"] }
+    },
+    "activationEvents": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^(onLanguage|onRun|onTest):[a-z0-9+_-]+$" }
+    },
+    "languages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/language" }
+    },
+    "languageServers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/languageServer" }
+    },
+    "executionProviders": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/executionProvider" }
+    }
+  },
+  "$defs": {
+    "fileNameList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "language": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9+_-]+$" },
+        "displayName": { "type": "string", "minLength": 1 },
+        "fileExtensions": { "$ref": "#/$defs/fileNameList" },
+        "fileNames": { "$ref": "#/$defs/fileNameList" },
+        "projectFileNames": { "$ref": "#/$defs/fileNameList" },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "managementFileNames": { "$ref": "#/$defs/fileNameList" },
+            "projectDependencyPaths": { "$ref": "#/$defs/fileNameList" },
+            "projectBinaryPaths": { "$ref": "#/$defs/fileNameList" }
+          }
+        }
+      }
+    },
+    "languageServer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["languageID", "launch"],
+      "properties": {
+        "languageID": { "type": "string" },
+        "languageIdentifier": { "type": "string", "minLength": 1 },
+        "launch": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "path"],
+              "properties": {
+                "kind": { "const": "packaged" },
+                "path": { "type": "string", "minLength": 1 }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "commands"],
+              "properties": {
+                "kind": { "const": "systemCommand" },
+                "commands": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "type": "string", "pattern": "^[^/\\\\\\s]+$" }
+                }
+              }
+            }
+          ]
+        },
+        "arguments": { "type": "array", "items": { "type": "string" } },
+        "validationArguments": { "type": "array", "items": { "type": "string" } },
+        "runtimeDependencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tool"],
+            "properties": { "tool": { "enum": ["go", "node"] } }
+          }
+        }
+      }
+    },
+    "executable": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["command"], "not": { "required": ["toolchain"] } },
+        { "required": ["toolchain"], "not": { "required": ["command"] } }
+      ],
+      "properties": {
+        "command": { "type": "string", "pattern": "^[^/\\\\\\s]+$" },
+        "toolchain": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+      }
+    },
+    "argument": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "when"],
+          "properties": {
+            "value": { "type": "string" },
+            "when": { "enum": ["fileSelected", "noFileSelected"] }
+          }
+        }
+      ]
+    },
+    "argumentList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/argument" }
+    },
+    "executionProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["languageID"],
+      "properties": {
+        "languageID": { "type": "string" },
+        "run": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["executable", "arguments"],
+          "properties": {
+            "executable": { "$ref": "#/$defs/executable" },
+            "arguments": { "$ref": "#/$defs/argumentList" }
+          }
+        },
+        "test": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "frameworkID",
+            "workspaceLabel",
+            "projectMarkers",
+            "testFilePatterns",
+            "executable",
+            "workspaceArguments",
+            "fileArguments",
+            "testCaseArguments"
+          ],
+          "properties": {
+            "frameworkID": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+            "workspaceLabel": { "type": "string", "minLength": 1 },
+            "projectMarkers": { "$ref": "#/$defs/fileNameList" },
+            "testFilePatterns": { "$ref": "#/$defs/fileNameList" },
+            "executable": { "$ref": "#/$defs/executable" },
+            "workspaceArguments": { "$ref": "#/$defs/argumentList" },
+            "fileArguments": { "$ref": "#/$defs/argumentList" },
+            "testCaseArguments": { "$ref": "#/$defs/argumentList" }
+          }
+        }
+      }
+    }
+  }
+}

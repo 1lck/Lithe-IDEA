@@ -16,7 +16,7 @@ PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、No
 
 - `scripts/official-plugin-distribution.mjs` 显式列出随主程序分发的官方插件。PHP 不在其中；`build-official-plugins.sh --plugin-id dev.lithe.plugin.php-support` 仍能独立构建插件包，用户通过已有插件管理的 Install 入口安装签名与宿主一致的包。
 - macOS 的 PHP 语言服务和执行模块均默认禁用、按需激活。安装后的包提供 `.php`、`.phtml` 和 `composer.json` 声明；没有包时不注册它的进程能力。共享的轻量语法识别不需要下载或启动外部进程。
-- macOS 的 PHP 插件包携带由 `language-server.json` 固定版本和 SHA-256 的 Intelephense 包。插件管理页下载并校验插件包，运行时把 Intelephense 保存在同一个用户级插件版本目录中；重装、回滚和卸载都处理同一份目录。Node.js 仍是 Intelephense 的外部运行时，PHP、Composer 和项目 PHPUnit 仍由用户自行提供；本地目录导入只用于离线或故障恢复。从 Dock 或 Finder 打开的 Lithe 只继承 launchd 的精简 PATH，里面没有 Homebrew 或 nvm/volta/fnm 安装的 Node；因此宿主在启动语言服务器前用运行时工具发现找到 `node`，通过 `LITHE_NODE_PATH` 传给插件里的 launcher，用户已设置的 `LITHE_NODE_PATH` 优先。语言服务器会在打开文件时自动启动，因此这里绝不选用项目目录里的 `node`（如 `.lithe/bin/node`），只用全局安装的 Node，避免打开不可信项目就执行项目自带的程序。
+- macOS 的 PHP 插件是声明式包（`plugin.json` + Intelephense，无原生代码，见 [声明式语言插件](2026-10-12-declarative-language-plugins.md)），携带由 `language-server.json` 固定版本和 SHA-256 的 Intelephense 包。插件管理页下载并校验插件包，运行时把 Intelephense 保存在同一个用户级插件版本目录中；重装、回滚和卸载都处理同一份目录。Node.js 仍是 Intelephense 的外部运行时，PHP、Composer 和项目 PHPUnit 仍由用户自行提供；本地目录导入只用于离线或故障恢复。从 Dock 或 Finder 打开的 Lithe 只继承 launchd 的精简 PATH，里面没有 Homebrew 或 nvm/volta/fnm 安装的 Node；因此宿主在启动语言服务器前用运行时工具发现找到 `node`，通过 `LITHE_NODE_PATH` 传给插件里的 launcher，用户已设置的 `LITHE_NODE_PATH` 优先。语言服务器会在打开文件时自动启动，因此这里绝不选用项目目录里的 `node`（如 `.lithe/bin/node`），只用全局安装的 Node，避免打开不可信项目就执行项目自带的程序。
 - macOS 下载地址使用宿主 App 的 `CFBundleShortVersionString` 组成 Release tag 和 zip 文件名；`BuiltInPluginCatalog.hostVersion` 只用于插件 API 兼容性校验，不能用来定位发布资产。
 - Windows 的配置、Composer/PHPUnit 解析和入口位于 `Plugins/win/Official/PhpSupport`，通过独立 `.lithe-extension` 包分发。宿主不能静态或动态 import 这份实现；只有轻量的语言到包 ID 对应表保留在宿主。插件管理的“导入插件包”入口安装后默认禁用，用户再选择启用。
 - Windows 显式安装 PHP 扩展时才下载解析器，并使用用户的 Bun 安装 Intelephense；同时检查 Node.js，因为安装包管理器与语言服务器运行时不是同一概念。缺失时给出安装引导，不后台下载运行时。
@@ -25,8 +25,8 @@ PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、No
 ### 能力与生命周期
 
 - PHP 的 LSP 使用现有 Rust Core 会话，以 `intelephense --stdio` 启动。符号、类型和诊断仍由上游服务拥有；主机不实现第二套 PHP 语义分析。
-- macOS 插件管理页是 PHP 包和 Intelephense 的生命周期唯一入口：构建阶段按 `language-server.json` 下载并校验 npm tarball，把 launcher 和运行包放入插件 bundle；下载器再下载完整插件 zip，`MacPluginPackageStore` 先按宿主内置 `OfficialPluginCatalog` 固定官方插件的签名策略，拒绝包内 manifest 将 `publisherPackage` 降级为 `sameTeamAsHost`，随后验证原生 bundle，并用内置 publisher Ed25519 公钥验证完整包清单、插件 ID、版本和文件 SHA-256，最后验证语言服务器 launcher。安装、重装、回滚和卸载都针对同一个插件版本目录执行，因此不会留下脱离插件的 LSP。LSP 控制中心只显示当前项目的 PHP 语言服务器开关和运行状态，发现未安装、未启用或待重启时引导回插件管理页，不提供包操作按钮。
-- macOS 运行和测试使用插件模块持有的执行 session。相对文件名不做 trim，以 `-` 开头时加 `./`，避免把文件名当作命令选项。
+- macOS 插件管理页是 PHP 包和 Intelephense 的生命周期唯一入口：构建阶段按 `language-server.json` 下载并校验 npm tarball，把 launcher 和运行包放入插件包的 `language-server/`；下载器再下载完整插件 zip，`MacPluginPackageStore` 先由 Rust Core 校验 `plugin.json`，再按宿主内置 `OfficialPluginCatalog` 固定官方插件的签名策略，拒绝包内 manifest 将 `publisherPackage` 降级为 `sameTeamAsHost`，随后用内置 publisher Ed25519 公钥验证完整包清单、插件 ID、版本和文件 SHA-256，最后确认声明的 launcher 是包内可执行文件。已安装的旧原生包（0.3.0）显示"需要更新"，不再加载，重新下载即替换。安装、重装、回滚和卸载都针对同一个插件版本目录执行，因此不会留下脱离插件的 LSP。LSP 控制中心只显示当前项目的 PHP 语言服务器开关和运行状态，发现未安装、未启用或待重启时引导回插件管理页，不提供包操作按钮。
+- macOS 运行和测试使用宿主执行模块持有的执行 session，命令由 `plugin.json` 的模板经 Rust Core 展开。相对文件名不做 trim，以 `-` 开头时加 `./`，避免把文件名当作命令选项。
 - Windows 只有已安装且启用 PHP 扩展时才读取 Composer/PHPUnit 清单、展示运行入口；执行前再次检查开关。Composer 的字符串和字符串数组均交给 `composer run -- <name>` 执行，不在主机模拟脚本语义。
 - Windows PHP 运行复用 Run 的输出面板和 native 进程启动能力，通用宿主服务在首个 await 之前按插件 ID 和工作区登记会话。禁用或关闭工作区时等待在途启动，再停止其拥有的 execution ID；自然结束释放所有权。不得通过普通终端事件绕过这个流程。
 - 工具安装复用 `lithe-git-host::run` 已有的通用原生进程适配器：它不生成 Git 参数，已提供 Windows Job Object（将后代进程纳入同一个清理范围）、增量管道读取和有界回收。这里仅提供 Bun 命令、取消标记和安装期限，不复制一套 OS 清理实现。
@@ -70,11 +70,11 @@ PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、No
 - `./scripts/verify-macos-package.sh`：实际组装产物不得含 PHP 插件。
 - `./scripts/verify-official-plugins.sh`：独立包兼容性与签名验证。
 - `MacPluginPackageDownloaderTests`：验证 stable/preview 发行资产 URL 按 App 发布版本和架构确定性生成。
-- `MacRuntimeToolDiscoveryTests`：验证启用的 PHP 插件版本目录优先提供 Intelephense launcher。
+- `LanguageExtensionProcessLifecycleTests.packagedServersArePinnedToTheirOwnPackage`、`LanguageServerToolServiceTests.pinnedExecutableIsTheOnlyCandidate`：验证插件打包的 Intelephense 只从本插件已安装的版本目录启动，不按文件名在 PATH 或其他插件中查找。
 - `PluginPackageStoreTests/reinstallCanReplaceTheActiveVersionOnlyAfterValidation`：验证重装不会绕过签名校验，并在校验完成后替换当前版本。
 - `prepare-php-language-server.sh`：按 JSON 清单下载、校验并组装 Intelephense 运行包；插件版本目录删除时一并删除 launcher 和缓存文件。
 - `.github/workflows/release-macos.yml` 和 `.github/workflows/release-preview-macos.yml`：每个架构都发布 PHP 插件 zip；`LITHE_PLUGIN_PACKAGE_PRIVATE_KEY` 缺失或不匹配时工作流失败，避免发布无法被客户端识别的包。
-- `./scripts/test-macos.sh --filter LithePhpSupportModuleTests`：模块、路径与禁用清理测试。
+- `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`：PHP 运行、PHPUnit 整套/单文件/单方法命令展开与路径保护。
 - `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/test-macos.sh --filter RealPhpIntegrationTests`：真实工具测试；先在 `shared/fixtures/phpunit-project` 执行 `composer install`，并提供 Node.js 与插件组装出的 Intelephense launcher。
 - Windows 前端测试包含禁用时不扫描、Composer 数组、下载取消、在途启动后禁用及跨工作区进程隔离。Windows native 测试与实际应用启动必须在 Windows 环境执行；Linux 交叉编译不等于运行验收。
 
@@ -82,7 +82,7 @@ PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、No
 
 - `Plugins/mac/Official/PhpSupport/`
 - `Plugins/mac/Official/PhpSupport/language-server.json`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerPackageValidator.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`
 - `scripts/prepare-php-language-server.sh`
 - `Plugins/win/Official/PhpSupport/`

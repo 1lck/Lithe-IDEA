@@ -1,4 +1,5 @@
 mod agent;
+mod declarative_plugins;
 mod detectors;
 mod git;
 mod git_fetch;

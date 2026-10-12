@@ -1,58 +1,38 @@
 import Foundation
 @testable import Lithe
+import LitheCoreContracts
 import LitheModuleAPI
 import Testing
 
 struct PluginPackageStoreTests {
     @Test
     func bundledOfficialPluginIsVisibleWithoutAUserInstallation() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let source = try makePackage(
-            root: root,
-            name: "dev.example.plugin",
+        let bundledRoot = root.appendingPathComponent("bundled", isDirectory: true)
+        try makePackage(
+            at: bundledRoot.appendingPathComponent("dev.example.plugin", isDirectory: true),
             version: PluginVersion(major: 0, minor: 3, patch: 0)
         )
-        let bundledRoot = root.appendingPathComponent("bundled", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundledRoot, withIntermediateDirectories: true)
-        try FileManager.default.moveItem(
-            at: source,
-            to: bundledRoot.appendingPathComponent("dev.example.plugin", isDirectory: true)
-        )
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            bundledRootURL: bundledRoot,
-            verifier: TestPluginSignatureVerifier()
-        )
+        let store = makeStore(root: root, bundledRoot: bundledRoot)
 
         let plugin = try #require(try store.installedPlugins().first)
 
         #expect(plugin.installation.origin == .bundled)
         #expect(plugin.manifest.version == PluginVersion(major: 0, minor: 3, patch: 0))
+        #expect(plugin.manifest.entrypoint == .declarative)
     }
 
     @Test
     func validUserUpdateOverridesBundledVersion() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let bundledSource = try makePackage(
-            root: root,
-            name: "dev.example.plugin",
+        let bundledRoot = root.appendingPathComponent("bundled", isDirectory: true)
+        try makePackage(
+            at: bundledRoot.appendingPathComponent("dev.example.plugin", isDirectory: true),
             version: PluginVersion(major: 0, minor: 3, patch: 0)
         )
-        let bundledRoot = root.appendingPathComponent("bundled", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundledRoot, withIntermediateDirectories: true)
-        try FileManager.default.moveItem(
-            at: bundledSource,
-            to: bundledRoot.appendingPathComponent("dev.example.plugin", isDirectory: true)
-        )
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            bundledRootURL: bundledRoot,
-            verifier: TestPluginSignatureVerifier()
-        )
+        let store = makeStore(root: root, bundledRoot: bundledRoot)
         _ = try store.installPackage(from: makePackage(
             root: root,
             name: "update",
@@ -67,14 +47,10 @@ struct PluginPackageStoreTests {
 
     @Test
     func installUpdateRollbackAndUninstallUseStaticManifests() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let verifier = TestPluginSignatureVerifier()
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            verifier: verifier
-        )
+        let store = makeStore(root: root, verifier: verifier)
         let versionOne = PluginVersion(major: 0, minor: 3, patch: 0)
         let versionTwo = PluginVersion(major: 0, minor: 3, patch: 1)
         let firstSource = try makePackage(root: root, name: "first", version: versionOne)
@@ -102,22 +78,16 @@ struct PluginPackageStoreTests {
 
     @Test
     func damagedPackageDoesNotHideValidInstalledPlugins() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let installedRoot = root.appendingPathComponent("installed", isDirectory: true)
-        let store = MacPluginPackageStore(
-            rootURL: installedRoot,
-            verifier: TestPluginSignatureVerifier()
-        )
-        let source = try makePackage(
+        let store = makeStore(root: root)
+        _ = try store.installPackage(from: makePackage(
             root: root,
             name: "valid",
             version: PluginVersion(major: 0, minor: 3, patch: 0)
-        )
-        _ = try store.installPackage(from: source)
+        ))
         try FileManager.default.createDirectory(
-            at: installedRoot.appendingPathComponent("dev.example.broken", isDirectory: true),
+            at: installedRoot(root).appendingPathComponent("dev.example.broken", isDirectory: true),
             withIntermediateDirectories: true
         )
 
@@ -129,14 +99,9 @@ struct PluginPackageStoreTests {
 
     @Test
     func damagedPackageCanBeRemovedWithoutReadingItsManifest() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let installedRoot = root.appendingPathComponent("installed", isDirectory: true)
-        let store = MacPluginPackageStore(
-            rootURL: installedRoot,
-            verifier: TestPluginSignatureVerifier()
-        )
+        let store = makeStore(root: root)
         let installed = try store.installPackage(from: makePackage(
             root: root,
             name: "damaged",
@@ -156,8 +121,7 @@ struct PluginPackageStoreTests {
 
     @Test
     func retiredLinuxDoPackageCannotBeLoadedOrReinstalled() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let retiredID = PluginID("dev.lithe.plugin.linux-do-support")
         let version = PluginVersion(major: 0, minor: 3, patch: 0)
@@ -167,36 +131,14 @@ struct PluginPackageStoreTests {
             version: version,
             pluginID: retiredID
         )
-        let installedRoot = root.appendingPathComponent("installed", isDirectory: true)
-        let store = MacPluginPackageStore(
-            rootURL: installedRoot,
-            verifier: TestPluginSignatureVerifier()
-        )
+        let store = makeStore(root: root)
 
         #expect(throws: PluginPackageStoreError.retiredPlugin(retiredID)) {
             try store.installPackage(from: source)
         }
 
         // Simulate a package installed by an older Lithe release.
-        let installedDirectory = installedRoot.appendingPathComponent(
-            retiredID.rawValue, isDirectory: true
-        )
-        let activeVersionDirectory = installedDirectory
-            .appendingPathComponent("versions", isDirectory: true)
-            .appendingPathComponent(version.description, isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: activeVersionDirectory.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.copyItem(at: source, to: activeVersionDirectory)
-        let record = PluginInstallationRecord(
-            pluginID: retiredID,
-            activeVersion: version,
-            origin: .marketplace
-        )
-        try JSONEncoder().encode(record).write(
-            to: installedDirectory.appendingPathComponent("installation.json")
-        )
+        try placeInstalledPackage(source, root: root, pluginID: retiredID, version: version)
 
         let scan = try store.scanInstalledPlugins()
         #expect(scan.packages.isEmpty)
@@ -205,16 +147,11 @@ struct PluginPackageStoreTests {
 
     @Test
     func rejectedUpdateLeavesCurrentVersionActive() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let versionOne = PluginVersion(major: 0, minor: 3, patch: 0)
         let versionTwo = PluginVersion(major: 0, minor: 3, patch: 1)
-        let verifier = TestPluginSignatureVerifier(rejectedVersions: [versionTwo])
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            verifier: verifier
-        )
+        let store = makeStore(root: root, verifier: TestPluginSignatureVerifier(rejectedVersions: [versionTwo]))
         let firstSource = try makePackage(root: root, name: "first", version: versionOne)
         let secondSource = try makePackage(root: root, name: "second", version: versionTwo)
 
@@ -230,14 +167,10 @@ struct PluginPackageStoreTests {
 
     @Test
     func reinstallCanReplaceTheActiveVersionOnlyAfterValidation() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let version = PluginVersion(major: 0, minor: 3, patch: 0)
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            verifier: TestPluginSignatureVerifier()
-        )
+        let store = makeStore(root: root)
         _ = try store.installPackage(from: makePackage(root: root, name: "first", version: version))
         let replacement = try makePackage(root: root, name: "replacement", version: version)
 
@@ -258,42 +191,18 @@ struct PluginPackageStoreTests {
 
     @Test
     func officialPublisherPackageCannotDowngradeSignatureRequirement() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-php-plugin-policy-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let verifier = TestPluginSignatureVerifier()
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            verifier: verifier
-        )
-        let package = try makePHPPluginPackage(
-            root: root,
-            name: "downgraded-policy",
-            version: BuiltInPluginCatalog.hostVersion
-        )
-        let manifestURL = package.appendingPathComponent("plugin.json")
-        let decoder = JSONDecoder()
-        let manifest = try decoder.decode(
-            PluginManifest.self,
-            from: Data(contentsOf: manifestURL)
-        )
-        let downgradedManifest = PluginManifest(
-            id: manifest.id,
-            displayName: manifest.displayName,
-            version: manifest.version,
-            hostCompatibility: manifest.hostCompatibility,
-            vendor: PluginVendor(
-                id: manifest.vendor.id,
-                displayName: manifest.vendor.displayName,
-                signatureRequirement: .sameTeamAsHost
-            ),
-            entrypoint: manifest.entrypoint,
-            modules: manifest.modules,
-            languageSupports: manifest.languageSupports ?? []
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(downgradedManifest).write(to: manifestURL, options: .atomic)
+        let store = makeStore(root: root, verifier: verifier)
+        let package = try DeclarativePluginTestSupport.writeOfficialPackage(
+            "PhpSupport",
+            at: root.appendingPathComponent("sources/downgraded-policy", isDirectory: true)
+        ) { manifest in
+            var vendor = manifest["vendor"] as? [String: Any] ?? [:]
+            vendor["signatureRequirement"] = "sameTeamAsHost"
+            manifest["vendor"] = vendor
+        }
 
         #expect(throws: PluginPackageStoreError.officialSignatureRequirementMismatch(
             OfficialPluginCatalog.phpPluginID
@@ -304,39 +213,75 @@ struct PluginPackageStoreTests {
     }
 
     @Test
-    func requiredPluginCannotBeUninstalled() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+    func refusedDeclarationReportsItsStableCode() throws {
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let verifier = TestPluginSignatureVerifier()
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            verifier: verifier
+        let store = makeStore(root: root)
+        var manifest = DeclarativePluginTestSupport.manifestObject(version: PluginVersion(major: 0, minor: 3, patch: 0))
+        manifest["permissions"] = ["network.fetch"]
+        let package = try DeclarativePluginTestSupport.writePackage(
+            at: root.appendingPathComponent("sources/unknown-permission", isDirectory: true),
+            manifest: manifest
         )
-        let source = try makePackage(
-            root: root,
-            name: "required",
-            version: PluginVersion(major: 0, minor: 3, patch: 0),
-            required: true
-        )
-        let installed = try store.installPackage(from: source)
 
-        #expect(throws: PluginPackageStoreError.requiredPluginCannotBeUninstalled(
-            installed.manifest.id
+        do {
+            _ = try store.installPackage(from: package)
+            Issue.record("A manifest with an unknown permission must be refused")
+        } catch PluginPackageStoreError.declarationRejected(let pluginID, let rejection) {
+            #expect(pluginID == PluginID("dev.example.plugin"))
+            #expect(rejection.code == "plugin.permission.unknown")
+        }
+    }
+
+    @Test
+    func missingPackagedLanguageServerIsRefused() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = makeStore(root: root)
+        let package = try makePackage(
+            root: root,
+            name: "missing-launcher",
+            version: PluginVersion(major: 0, minor: 3, patch: 0),
+            packagedLauncher: "language-server/bin/fixture"
+        )
+        try FileManager.default.removeItem(at: package.appendingPathComponent("language-server/bin/fixture"))
+
+        #expect(throws: PluginPackageStoreError.invalidInstalledPlugin(
+            PluginID("dev.example.plugin"),
+            PluginPackageStoreError.languageServerLaunchMissing(
+                PluginID("dev.example.plugin"),
+                "language-server/bin/fixture"
+            ).localizedDescription
         )) {
-            try store.uninstall(installed.manifest.id)
+            _ = try store.installPackage(from: package)
+        }
+    }
+
+    @Test
+    func packagedLanguageServerMayNotBeASymbolicLink() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = makeStore(root: root)
+        let package = try makePackage(
+            root: root,
+            name: "linked-launcher",
+            version: PluginVersion(major: 0, minor: 3, patch: 0),
+            packagedLauncher: "language-server/bin/fixture"
+        )
+        let launcher = package.appendingPathComponent("language-server/bin/fixture")
+        try FileManager.default.removeItem(at: launcher)
+        try FileManager.default.createSymbolicLink(atPath: launcher.path, withDestinationPath: "/bin/sh")
+
+        #expect(throws: PluginPackageStoreError.self) {
+            _ = try store.installPackage(from: package)
         }
     }
 
     @Test
     func deferredUpdateAndUninstallCompleteAtNextLaunch() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            verifier: TestPluginSignatureVerifier()
-        )
+        let store = makeStore(root: root)
         let versionOne = PluginVersion(major: 0, minor: 3, patch: 0)
         let versionTwo = PluginVersion(major: 0, minor: 3, patch: 1)
         _ = try store.installPackage(from: makePackage(root: root, name: "one", version: versionOne))
@@ -360,23 +305,18 @@ struct PluginPackageStoreTests {
 
     @Test
     func uninstallRemovesThePHPPluginLanguageServerWithItsOwner() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-php-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            verifier: TestPluginSignatureVerifier()
-        )
-        let package = try makePHPPluginPackage(
-            root: root,
-            name: "php",
-            version: BuiltInPluginCatalog.hostVersion
+        let store = makeStore(root: root)
+        let package = try DeclarativePluginTestSupport.writeOfficialPackage(
+            "PhpSupport",
+            at: root.appendingPathComponent("sources/php", isDirectory: true)
         )
 
         let installed = try store.installPackage(from: package)
-        let launcher = installed.packageURL
-            .appendingPathComponent("PhpSupport.bundle/Contents/Resources/LanguageServers/php/bin/intelephense")
-        #expect(FileManager.default.fileExists(atPath: launcher.path))
+        let launcher = installed.packageURL.appendingPathComponent("language-server/bin/intelephense")
+        #expect(FileManager.default.isExecutableFile(atPath: launcher.path))
+        #expect(installed.descriptor.languageServers.first?.executableNames == ["intelephense"])
 
         try store.stageUninstall(installed.manifest.id)
         try store.prepareForLaunch()
@@ -385,175 +325,210 @@ struct PluginPackageStoreTests {
         #expect(try store.installedPlugins().isEmpty)
     }
 
+    /// An installed schema-1 native PHP package is reported as needing an
+    /// update, is never accepted, and cannot be restored by rollback once
+    /// the declarative package replaces it.
     @Test
-    func replacementRepairsALegacyPHPPackageWithoutItsLanguageServer() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-php-plugin-repair-\(UUID().uuidString)", isDirectory: true)
+    func legacyNativePHPPackageIsReplacedAndCannotBeRolledBackTo() throws {
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let installedRoot = root.appendingPathComponent("installed", isDirectory: true)
-        let store = MacPluginPackageStore(
-            rootURL: installedRoot,
-            verifier: TestPluginSignatureVerifier()
-        )
-        let version = BuiltInPluginCatalog.hostVersion
-        let legacy = try makePHPPluginPackage(root: root, name: "legacy", version: version)
-        try FileManager.default.removeItem(at: legacy.appendingPathComponent("language-server.json"))
-        try FileManager.default.removeItem(
-            at: legacy.appendingPathComponent(
-                "PhpSupport.bundle/Contents/Resources/LanguageServers/php"
-            )
-        )
-        let legacyDestination = installedRoot
-            .appendingPathComponent(OfficialPluginCatalog.phpPluginID.rawValue, isDirectory: true)
-            .appendingPathComponent("versions", isDirectory: true)
-            .appendingPathComponent(version.description, isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: legacyDestination.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.copyItem(at: legacy, to: legacyDestination)
-        let installationDirectory = legacyDestination
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let record = PluginInstallationRecord(
+        let store = makeStore(root: root)
+        let legacyVersion = PluginVersion(major: 0, minor: 3, patch: 0)
+        let legacy = root.appendingPathComponent("sources/legacy", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try Data(Self.legacyNativePHPManifest.utf8).write(to: legacy.appendingPathComponent("plugin.json"))
+        try placeInstalledPackage(
+            legacy,
+            root: root,
             pluginID: OfficialPluginCatalog.phpPluginID,
-            activeVersion: version,
-            origin: .marketplace
-        )
-        try JSONEncoder().encode(record).write(
-            to: installationDirectory.appendingPathComponent("installation.json")
+            version: legacyVersion
         )
 
-        let replacement = try makePHPPluginPackage(root: root, name: "replacement", version: version)
+        let scan = try store.scanInstalledPlugins()
+        #expect(scan.packages.isEmpty)
+        #expect(scan.issues == [PluginPackageScanIssue(
+            pluginID: OfficialPluginCatalog.phpPluginID,
+            message: PluginPackageStoreError.legacyNativePackage(
+                OfficialPluginCatalog.phpPluginID,
+                legacyVersion
+            ).localizedDescription
+        )])
+        #expect(throws: PluginPackageStoreError.legacyNativePackage(OfficialPluginCatalog.phpPluginID, legacyVersion)) {
+            _ = try store.installPackage(from: legacy)
+        }
+
+        let replacement = try DeclarativePluginTestSupport.writeOfficialPackage(
+            "PhpSupport",
+            at: root.appendingPathComponent("sources/replacement", isDirectory: true)
+        )
         let installed = try store.installPackage(
             from: replacement,
             deferActivationUntilRestart: true,
             replaceExisting: true
         )
-
-        #expect(installed.installation.status == .updateStaged)
-        #expect(FileManager.default.fileExists(
-            atPath: installed.packageURL.appendingPathComponent("language-server.json").path
-        ))
-        #expect(FileManager.default.fileExists(
-            atPath: installed.packageURL.appendingPathComponent(
-                "PhpSupport.bundle/Contents/Resources/LanguageServers/php/bin/intelephense"
-            ).path
-        ))
+        #expect(installed.installation.previousVersion == legacyVersion)
+        #expect(throws: PluginPackageStoreError.legacyNativePackage(OfficialPluginCatalog.phpPluginID, legacyVersion)) {
+            _ = try store.rollback(OfficialPluginCatalog.phpPluginID)
+        }
+        try store.prepareForLaunch()
+        #expect(try store.installedPlugins().map(\.manifest.entrypoint) == [.declarative])
     }
 
+    @Test
+    func sameTeamPackageIsTrustedOnlyInsideTheHostBundle() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hostBundle = root.appendingPathComponent("Lithe.app", isDirectory: true)
+        let verifier = MacOfficialPluginSignatureVerifier(
+            trustedPublisherKeys: [:],
+            allowsLocalDevelopmentPackages: true,
+            hostBundleURL: hostBundle
+        )
+        let inside = try makePackage(
+            at: hostBundle.appendingPathComponent("Contents/Resources/OfficialPlugins/dev.example.plugin", isDirectory: true),
+            version: PluginVersion(major: 0, minor: 3, patch: 0)
+        )
+        let outside = try makePackage(root: root, name: "outside", version: PluginVersion(major: 0, minor: 3, patch: 0))
+        let manifest = try DeclarativePluginTestSupport.descriptor(
+            DeclarativePluginTestSupport.manifestObject(version: PluginVersion(major: 0, minor: 3, patch: 0))
+        ).pluginManifest
+
+        try verifier.verify(packageAt: inside, manifest: manifest, origin: .bundled)
+        #expect(throws: PluginPackageStoreError.hostSealRequired(manifest.id)) {
+            try verifier.verify(packageAt: outside, manifest: manifest, origin: .marketplace)
+        }
+        // A bundled origin claimed for a package outside the bundle is refused.
+        #expect(throws: PluginPackageStoreError.hostSealRequired(manifest.id)) {
+            try verifier.verify(packageAt: outside, manifest: manifest, origin: .bundled)
+        }
+    }
+
+    /// Declarative plugins run no code in the process, so a native-load
+    /// marker left by an older release is cleared instead of quarantining the
+    /// modules that replaced the native package.
     @MainActor
     @Test
-    func interruptedPluginCodeLoadIsQuarantinedBeforeRetry() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+    func leftoverNativeLoadMarkerIsClearedWithoutQuarantine() throws {
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            verifier: TestPluginSignatureVerifier()
-        )
+        let store = makeStore(root: root)
         _ = try store.installPackage(from: makePackage(
             root: root,
             name: "recover",
             version: PluginVersion(major: 0, minor: 3, patch: 0)
         ))
-        let moduleID = ModuleID("dev.example.feature")
+        let moduleID = ModuleID.languageServerExtension("fixture")
         let recovery = PluginStartupRecoveryStore(pending: [moduleID])
-        let codeLoader = CountingPluginPrincipalClassLoader()
 
-        let result = MacPluginStartupLoader(
-            packageStore: store,
-            nativeLoader: MacNativePluginLoader(codeLoader: codeLoader)
-        ).load(policy: MacPluginLoadPolicy(
-            configurationStore: PluginStartupConfigurationStore(enabled: true),
-            recoveryStore: recovery,
-            launchMode: .normal
-        ))
+        let result = MacPluginStartupLoader(packageStore: store).load(recoveryStore: recovery)
 
-        #expect(result.activeNativeManifests.isEmpty)
-        #expect(codeLoader.loadCount == 0)
-        #expect(recovery.isQuarantined(moduleID))
+        #expect(result.registeredPlugins.map(\.manifest.id) == [PluginID("dev.example.plugin")])
+        #expect(!recovery.isQuarantined(moduleID))
         #expect(recovery.pendingPluginLoadModules().isEmpty)
     }
 
     @MainActor
     @Test
-    func disabledLanguagePluginRetainsStaticOwnershipWithoutLoadingCode() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+    func disabledLanguagePluginIsRegisteredWithoutLoadingCode() throws {
+        let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed", isDirectory: true),
-            verifier: TestPluginSignatureVerifier()
-        )
-        let languageID = "fixture"
-        let moduleID = ModuleID("dev.example.feature")
+        let store = makeStore(root: root)
         _ = try store.installPackage(from: makePackage(
             root: root,
             name: "disabled-language",
+            version: PluginVersion(major: 0, minor: 3, patch: 0)
+        ))
+
+        let result = MacPluginStartupLoader(packageStore: store).load(recoveryStore: nil)
+
+        // Registration only offers host-owned modules; enablement still
+        // decides whether they may activate.
+        #expect(result.registeredManifests.map(\.id) == [PluginID("dev.example.plugin")])
+        #expect(result.registeredManifests.flatMap(\.modules).allSatisfy {
+            $0.manifest.defaultState == .disabled
+        })
+        #expect(result.installedLanguageSupports.map(\.id) == ["fixture"])
+    }
+
+    @MainActor
+    @Test
+    func pluginClaimingABundledLanguageIsRejectedAtStartup() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = makeStore(root: root)
+        _ = try store.installPackage(from: makePackage(
+            root: root,
+            name: "python-clash",
             version: PluginVersion(major: 0, minor: 3, patch: 0),
-            languageSupport: LanguageSupportDeclaration(
-                id: languageID,
-                displayName: "Fixture",
-                fileExtensions: ["fixture"],
-                languageServerModuleID: moduleID,
-                executionModuleID: moduleID,
-                testingModuleID: moduleID
+            languageID: "python"
+        ))
+
+        let result = MacPluginStartupLoader(packageStore: store).load(recoveryStore: nil)
+
+        #expect(result.registeredPlugins.isEmpty)
+        #expect(result.issues.map(\.pluginID) == [PluginID("dev.example.plugin")])
+    }
+
+    // MARK: Fixtures
+
+    private static let legacyNativePHPManifest = """
+    {
+      "schemaVersion": 1,
+      "id": "dev.lithe.plugin.php-support",
+      "displayName": "PHP Support",
+      "version": "0.3.0",
+      "apiVersion": 1,
+      "hostCompatibility": { "minimum": "0.3.0", "maximumExclusive": "0.4.0" },
+      "vendor": { "id": "dev.lithe", "displayName": "Lithe", "signatureRequirement": "publisherPackage" },
+      "entrypoint": {
+        "kind": "nativeBundle",
+        "bundleIdentifier": "dev.lithe.plugin.php-support.bundle",
+        "principalClass": "LithePhpSupportPluginEntrypoint",
+        "bundlePath": "PhpSupport.bundle"
+      },
+      "modules": []
+    }
+    """
+
+    private func temporaryRoot() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    private func installedRoot(_ root: URL) -> URL {
+        root.appendingPathComponent("installed", isDirectory: true)
+    }
+
+    private func makeStore(
+        root: URL,
+        bundledRoot: URL? = nil,
+        verifier: any PluginPackageSignatureVerifying = TestPluginSignatureVerifier()
+    ) -> MacPluginPackageStore {
+        MacPluginPackageStore(
+            rootURL: installedRoot(root),
+            bundledRootURL: bundledRoot,
+            validator: DeclarativePluginTestSupport.operations,
+            verifier: verifier
+        )
+    }
+
+    @discardableResult
+    private func makePackage(
+        at packageURL: URL,
+        version: PluginVersion,
+        pluginID: PluginID = PluginID("dev.example.plugin"),
+        languageID: String = "fixture",
+        packagedLauncher: String? = nil
+    ) throws -> URL {
+        try DeclarativePluginTestSupport.writePackage(
+            at: packageURL,
+            manifest: DeclarativePluginTestSupport.manifestObject(
+                id: pluginID.rawValue,
+                version: version,
+                languageID: languageID,
+                packagedLauncher: packagedLauncher
             )
-        ))
-        let codeLoader = CountingPluginPrincipalClassLoader()
-
-        let result = MacPluginStartupLoader(
-            packageStore: store,
-            nativeLoader: MacNativePluginLoader(codeLoader: codeLoader)
-        ).load(policy: MacPluginLoadPolicy(
-            configurationStore: PluginStartupConfigurationStore(enabled: false),
-            recoveryStore: nil,
-            launchMode: .normal
-        ))
-
-        #expect(result.activeNativeManifests.isEmpty)
-        #expect(codeLoader.loadCount == 0)
-        #expect(result.installedLanguageSupports.map(\.id) == [languageID])
-    }
-
-    @MainActor
-    @Test
-    func loadedPluginRemainsMarkedUntilCleanProcessShutdown() {
-        let moduleID = ModuleID("dev.example.runtime-plugin")
-        let recovery = PluginStartupRecoveryStore()
-        let coordinator = MacPluginRuntimeRecoveryCoordinator()
-
-        coordinator.recoverPreviousSession(using: recovery)
-        coordinator.prepareToLoad([moduleID], using: recovery)
-        coordinator.recordSuccessfulLoad([moduleID], using: recovery)
-
-        #expect(recovery.pendingPluginLoadModules() == [moduleID])
-        #expect(!recovery.isQuarantined(moduleID))
-
-        coordinator.recordCleanShutdown(using: recovery)
-
-        #expect(recovery.pendingPluginLoadModules().isEmpty)
-    }
-
-    @MainActor
-    @Test
-    func interruptedRuntimeSessionIsRecoveredOnlyOncePerProcess() {
-        let previousModuleID = ModuleID("dev.example.previous-plugin")
-        let currentModuleID = ModuleID("dev.example.current-plugin")
-        let recovery = PluginStartupRecoveryStore(pending: [previousModuleID])
-        let coordinator = MacPluginRuntimeRecoveryCoordinator()
-
-        coordinator.recoverPreviousSession(using: recovery)
-        #expect(recovery.isQuarantined(previousModuleID))
-        #expect(recovery.pendingPluginLoadModules().isEmpty)
-
-        coordinator.prepareToLoad([currentModuleID], using: recovery)
-        coordinator.recordSuccessfulLoad([currentModuleID], using: recovery)
-        coordinator.recoverPreviousSession(using: recovery)
-
-        #expect(recovery.pendingPluginLoadModules() == [currentModuleID])
-        #expect(!recovery.isQuarantined(currentModuleID))
+        )
     }
 
     private func makePackage(
@@ -561,118 +536,41 @@ struct PluginPackageStoreTests {
         name: String,
         version: PluginVersion,
         pluginID: PluginID = PluginID("dev.example.plugin"),
-        required: Bool = false,
-        languageSupport: LanguageSupportDeclaration? = nil
+        languageID: String = "fixture",
+        packagedLauncher: String? = nil
     ) throws -> URL {
-        let packageURL = root.appendingPathComponent("sources/\(name)", isDirectory: true)
+        try makePackage(
+            at: root.appendingPathComponent("sources/\(name)", isDirectory: true),
+            version: version,
+            pluginID: pluginID,
+            languageID: languageID,
+            packagedLauncher: packagedLauncher
+        )
+    }
+
+    /// Writes a package directly into the installed layout, as an earlier
+    /// Lithe release would have left it.
+    private func placeInstalledPackage(
+        _ source: URL,
+        root: URL,
+        pluginID: PluginID,
+        version: PluginVersion
+    ) throws {
+        let pluginDirectory = installedRoot(root).appendingPathComponent(pluginID.rawValue, isDirectory: true)
+        let versionDirectory = pluginDirectory
+            .appendingPathComponent("versions", isDirectory: true)
+            .appendingPathComponent(version.description, isDirectory: true)
         try FileManager.default.createDirectory(
-            at: packageURL.appendingPathComponent("Feature.bundle", isDirectory: true),
+            at: versionDirectory.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let moduleID = ModuleID("dev.example.feature")
-        let manifest = PluginManifest(
-            id: pluginID,
-            displayName: "Example Plugin",
-            version: version,
-            hostCompatibility: PluginHostCompatibility(
-                minimum: PluginVersion(major: 0, minor: 3, patch: 0),
-                maximumExclusive: PluginVersion(major: 0, minor: 4, patch: 0)
-            ),
-            vendor: PluginVendor(
-                id: "dev.example",
-                displayName: "Example",
-                signatureRequirement: .sameTeamAsHost
-            ),
-            entrypoint: PluginEntrypoint(
-                kind: .nativeBundle,
-                bundleIdentifier: "dev.example.feature",
-                principalClass: "ExamplePlugin",
-                bundlePath: "Feature.bundle"
-            ),
-            modules: [PluginModuleDeclaration(manifest: ModuleManifest(
-                id: moduleID,
-                displayName: "Example Feature",
-                scope: .application,
-                defaultState: .disabled,
-                activationPolicy: .onDemand,
-                providedCapabilities: [ModuleCapabilityID("dev.example.feature.capability")],
-                isRequired: required
-            ))],
-            languageSupports: languageSupport.map { [$0] } ?? []
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(manifest).write(
-            to: packageURL.appendingPathComponent("plugin.json"),
-            options: .atomic
-        )
-        return packageURL
+        try FileManager.default.copyItem(at: source, to: versionDirectory)
+        try JSONEncoder().encode(PluginInstallationRecord(
+            pluginID: pluginID,
+            activeVersion: version,
+            origin: .marketplace
+        )).write(to: pluginDirectory.appendingPathComponent("installation.json"))
     }
-
-    private func makePHPPluginPackage(
-        root: URL,
-        name: String,
-        version: PluginVersion
-    ) throws -> URL {
-        let packageURL = root.appendingPathComponent("sources/\(name)", isDirectory: true)
-        let manifest = try #require(OfficialPluginCatalog.manifests.first {
-            $0.id == OfficialPluginCatalog.phpPluginID
-        })
-        let bundleRoot = packageURL.appendingPathComponent(
-            "PhpSupport.bundle/Contents/Resources/LanguageServers/php/bin",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
-        let launcher = bundleRoot.appendingPathComponent("intelephense")
-        #expect(FileManager.default.createFile(atPath: launcher.path, contents: Data()))
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: launcher.path
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        var versionedManifest = manifest
-        versionedManifest = PluginManifest(
-            id: manifest.id,
-            displayName: manifest.displayName,
-            version: version,
-            hostCompatibility: manifest.hostCompatibility,
-            vendor: manifest.vendor,
-            entrypoint: manifest.entrypoint,
-            modules: manifest.modules,
-            languageSupports: manifest.languageSupports ?? []
-        )
-        try encoder.encode(versionedManifest).write(
-            to: packageURL.appendingPathComponent("plugin.json"),
-            options: .atomic
-        )
-        let languageServerManifest = """
-        {
-          "schemaVersion": 1,
-          "pluginID": "dev.lithe.plugin.php-support",
-          "toolID": "intelephense",
-          "version": "1.15.1",
-          "archiveURL": "https://registry.npmjs.org/intelephense/-/intelephense-1.15.1.tgz",
-          "archiveSHA256": "24a33fe3cd7a2382f44285e2ae553a7e1c898cbc208ee20cee0693497ee9ebe2",
-          "archiveFormat": "tarGzip",
-          "archiveRoot": "package",
-          "entrypoint": "lib/intelephense.js",
-          "license": "LICENSE.txt"
-        }
-        """
-        try Data(languageServerManifest.utf8).write(
-            to: packageURL.appendingPathComponent("language-server.json"),
-            options: .atomic
-        )
-        return packageURL
-    }
-}
-
-private final class PluginStartupConfigurationStore: ModuleConfigurationStore, @unchecked Sendable {
-    private let enabled: Bool
-    init(enabled: Bool) { self.enabled = enabled }
-    func enabledState(for moduleID: ModuleID) -> Bool? { enabled }
-    func setEnabledState(_ enabled: Bool, for moduleID: ModuleID) {}
 }
 
 private final class PluginStartupRecoveryStore: ModuleRecoveryStore, @unchecked Sendable {
@@ -692,14 +590,6 @@ private final class PluginStartupRecoveryStore: ModuleRecoveryStore, @unchecked 
     }
     func pendingPluginLoadModules() -> [ModuleID] { pending }
     func setPendingPluginLoadModules(_ moduleIDs: [ModuleID]) { pending = moduleIDs }
-}
-
-private final class CountingPluginPrincipalClassLoader: PluginPrincipalClassLoading {
-    private(set) var loadCount = 0
-    func principalClass(at bundleURL: URL) throws -> AnyClass {
-        loadCount += 1
-        return NSObject.self
-    }
 }
 
 private enum TestPluginSignatureError: Error, Equatable {

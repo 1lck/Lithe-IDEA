@@ -6,14 +6,12 @@ import Foundation
 struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
     private let homeDirectoryURL: URL
     private let resourceDirectoryURL: URL?
-    private let pluginToolRoots: [URL]
     private let isExecutable: @Sendable (URL) -> Bool
     private let directoryNames: @Sendable (URL) -> [String]
 
     init(
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         resourceDirectoryURL: URL? = Bundle.main.resourceURL,
-        pluginToolRoots: [URL] = [],
         isExecutable: @escaping @Sendable (URL) -> Bool = {
             FileManager.default.isExecutableFile(atPath: $0.path)
         },
@@ -23,7 +21,6 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
     ) {
         self.homeDirectoryURL = homeDirectoryURL.standardizedFileURL
         self.resourceDirectoryURL = resourceDirectoryURL?.standardizedFileURL
-        self.pluginToolRoots = pluginToolRoots.map(\.standardizedFileURL)
         self.isExecutable = isExecutable
         self.directoryNames = directoryNames
     }
@@ -55,16 +52,6 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                 source: .bundled,
                 detail: "Bundled with Lithe"
             )
-        }
-
-        if command == "intelephense" {
-            for root in pluginToolRoots {
-                add(
-                    root.appendingPathComponent("bin/intelephense"),
-                    source: .bundled,
-                    detail: "PHP Support plugin"
-                )
-            }
         }
 
         // Project-local toolchains are preferred because they are reproducible

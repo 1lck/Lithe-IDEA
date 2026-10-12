@@ -67,8 +67,8 @@
         ".build/<triple>/<configuration>/OfficialPlugins",
         "<app-support>/Lithe/Plugins/dev.lithe.plugin.php-support/"
       ],
-      "identity": "Native plugin output is tied to the host API, Swift toolchain, platform architecture and signing; no reliable worktree identity stamp",
-      "reason": "Build each official plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees."
+      "identity": "Declarative plugin packages are architecture-neutral but carry a build-time Intelephense download and an optional publisher signature; no reliable worktree identity stamp",
+      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees."
     },
     {
       "id": "php-language-server-downloads",
@@ -84,9 +84,9 @@
       "reusable": false,
       "locations": [
         "<app-cache>/language-tools/<language>/<tool>",
-        "<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/PhpSupport.bundle/Contents/Resources/LanguageServers/php"
+        "<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server"
       ],
-      "identity": "Plugin-owned language tools are mutable runtime state bound to an installed plugin version and signing identity, not a worktree build stamp",
+      "identity": "Plugin-owned language tools are bound to an installed plugin version and its package signature, not a worktree build stamp; installed package contents are read-only at runtime",
       "reason": "Do not reuse plugin-owned language tools across worktrees; plugin lifecycle owns installation, replacement and cleanup."
     },
     {

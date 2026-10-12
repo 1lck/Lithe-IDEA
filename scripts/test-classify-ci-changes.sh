@@ -218,13 +218,13 @@ assert_classification swift-test \
     "$(classification true false false false false false false false false false)" \
     modify_swift_test
 assert_classification plugin-manifest \
-    "$(classification false true false false false false false false false false)" \
+    "$(classification false true false true false false false false false false)" \
     modify_plugin_manifest
 assert_classification plugin-source \
-    "$(classification false true false false false false false false false false)" \
+    "$(classification false true false true false false false false false false)" \
     modify_plugin_source
 assert_classification plugin-test \
-    "$(classification false true false false false false false false false false)" \
+    "$(classification false true false true false false false false false false)" \
     modify_plugin_test
 assert_classification windows-plugin-manifest \
     "$(classification false false false false false false true true false false)" \

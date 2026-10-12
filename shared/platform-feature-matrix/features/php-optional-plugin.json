@@ -5,7 +5,8 @@
   "capability": "PHP 按需安装与插件生命周期",
   "macos": {
     "evidence": [
-      "Plugins/mac/Official/PhpSupport",
+      "Plugins/mac/Official/PhpSupport/plugin.json",
+      "Plugins/mac/Official/PhpSupport/language-server.json",
       "scripts/official-plugin-distribution.mjs",
       "macos/Sources/Lithe/Platform/MacOS/Plugins",
       "macos/Sources/Lithe/Views/App/PluginManagementView.swift",
@@ -31,5 +32,5 @@
     "verificationStatus": "pending"
   },
   "owner": "PHP Support",
-  "verification": "macOS 在干净安装上打开插件管理，确认可从当前发行渠道下载并安装 PHP、失败时可从磁盘导入；安装后重启，在 LSP 界面只控制当前项目开关和状态，验证重装、卸载均在重启后生效且用户工具保留。对官方 PHP 包将 plugin.json 的 signatureRequirement 从 publisherPackage 篡改为 sameTeamAsHost，确认 MacPluginPackageStore 在调用包 verifier 前按宿主 OfficialPluginCatalog 拒绝策略降级；删除或篡改 lithe-plugin-signature.json、manifest、版本或任意签名覆盖文件时也必须拒绝。Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。密钥重置后的 macOS 官方包使用 `lithe-official-plugins-v2` 信任根；验证必须确认旧 v1 签名被拒绝、新 v2 签名可安装，且新构建不会把旧客户端的更新兼容性误报为已验证。 macOS 本地开发包：用 `scripts/build-official-plugins.sh --configuration debug --plugin-id dev.lithe.plugin.php-support --development-unsigned` 在无私钥时生成不含签名文档的包，确认 debug 构建可从磁盘安装并标记为未签名开发包、同版本可重复安装，release 构建拒绝加载该来源，且带签名文档的包无论安装来源都必须验签；从 Dock 启动（精简 PATH）打开 PHP 项目并点开 `.php` 文件，确认 Intelephense 通过 `LITHE_NODE_PATH` 找到 Homebrew 或 nvm/volta/fnm 安装的 Node 并启动。"
+  "verification": "macOS 在干净安装上打开插件管理，确认可从当前发行渠道下载并安装 PHP、失败时可从磁盘导入；安装后重启，在 LSP 界面只控制当前项目开关和状态，验证重装、卸载均在重启后生效且用户工具保留。对官方 PHP 包将 plugin.json 的 signatureRequirement 从 publisherPackage 篡改为 sameTeamAsHost，确认 MacPluginPackageStore 在调用包 verifier 前按宿主 OfficialPluginCatalog 拒绝策略降级；删除或篡改 lithe-plugin-signature.json、manifest、版本或任意签名覆盖文件时也必须拒绝。Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。密钥重置后的 macOS 官方包使用 `lithe-official-plugins-v2` 信任根；验证必须确认旧 v1 签名被拒绝、新 v2 签名可安装，且新构建不会把旧客户端的更新兼容性误报为已验证。 macOS 本地开发包：用 `scripts/build-official-plugins.sh --configuration debug --plugin-id dev.lithe.plugin.php-support --development-unsigned` 在无私钥时生成不含签名文档的包，确认 debug 构建可从磁盘安装并标记为未签名开发包、同版本可重复安装，release 构建拒绝加载该来源，且带签名文档的包无论安装来源都必须验签；从 Dock 启动（精简 PATH）打开 PHP 项目并点开 `.php` 文件，确认 Intelephense 通过 `LITHE_NODE_PATH` 找到 Homebrew 或 nvm/volta/fnm 安装的 Node 并启动。 声明式插件包：PHP 插件只含 plugin.json 与打包的 Intelephense，不含原生代码；安装后启用、禁用无需重启。已安装旧版原生 PHP 包（0.3.0）的环境启动后，插件管理显示“需要更新”且不加载旧包代码，点“下载并安装”替换为声明式包并保留启用状态，回滚不能回到旧原生包。"
 }
