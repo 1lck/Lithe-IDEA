@@ -250,6 +250,14 @@ struct PluginManagementView: View {
                     )
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(hasPendingChange ? LitheTheme.warning : (isEnabled ? LitheTheme.success : LitheTheme.secondaryText))
+                    if plugin.origin == .localDevelopment {
+                        Label(
+                            LocalizedStringKey("Unsigned development package. Release builds of Lithe will not load it."),
+                            systemImage: "hammer"
+                        )
+                            .font(LitheTheme.smallFont)
+                            .foregroundStyle(LitheTheme.warning)
+                    }
                 }
                 .padding(24)
                 Spacer()

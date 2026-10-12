@@ -12,6 +12,7 @@ final class MacPluginManager: PluginManaging {
     private let activeNativePluginIDs: Set<PluginID>
     private let packageDownloader: any MacPluginPackageDownloading
     private let hostVersion: PluginVersion
+    private let allowsLocalDevelopmentPackages: Bool
     private var installedPlugins: [PluginID: InstalledPluginPackage]
     private var restartRequiredPluginIDs: Set<PluginID> = []
     private(set) var issues: [PluginManagementIssue]
@@ -24,9 +25,12 @@ final class MacPluginManager: PluginManaging {
         startup: MacPluginStartupResult,
         managedBuiltInPlugins: [PluginManifest] = [],
         packageDownloader: any MacPluginPackageDownloading = MacPluginPackageDownloader(),
-        hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion
+        hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
+        allowsLocalDevelopmentPackages: Bool =
+            MacOfficialPluginSignatureVerifier.allowsLocalDevelopmentPackagesByDefault
     ) {
         self.packageStore = packageStore
+        self.allowsLocalDevelopmentPackages = allowsLocalDevelopmentPackages
         self.moduleRuntime = moduleRuntime
         self.configurationStore = configurationStore
         self.launchMode = launchMode
@@ -145,9 +149,23 @@ final class MacPluginManager: PluginManaging {
     }
 
     func installPackage(at packageURL: URL) throws {
+        // Only development builds record an unsigned package from disk as a
+        // development package, and only when its trust model requires a
+        // publisher signature; release builds keep the signed-package path.
+        let manifest = try JSONDecoder().decode(
+            PluginManifest.self,
+            from: Data(contentsOf: packageURL.appendingPathComponent("plugin.json"))
+        )
+        let isDevelopmentPackage = allowsLocalDevelopmentPackages
+            && MacOfficialPluginSignatureVerifier.isUnsignedDevelopmentPackage(
+                at: packageURL,
+                manifest: manifest
+            )
         let installed = try packageStore.installPackage(
             from: packageURL,
-            deferActivationUntilRestart: true
+            deferActivationUntilRestart: true,
+            replaceExisting: isDevelopmentPackage,
+            origin: isDevelopmentPackage ? .localDevelopment : .marketplace
         )
         restartRequiredPluginIDs.insert(installed.manifest.id)
         try refreshInstalledPlugins()

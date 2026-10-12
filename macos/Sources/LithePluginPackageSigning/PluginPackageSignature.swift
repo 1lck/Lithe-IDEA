@@ -9,9 +9,16 @@ import Foundation
 public enum PluginPackageSignature {
     public static let schemaVersion = 1
     public static let algorithm = "ed25519"
+    /// Key ID used for newly signed official packages.
     public static let keyID = "lithe-official-plugins-v2"
-    /// Base64-encoded public key trusted for official separately distributed plugins.
+    /// Base64-encoded public key for `keyID`.
     public static let publisherPublicKeyBase64 = "yTjUaLpCNXXEQDuan5Ymw5rCtR0JeTNmh6hyTfOFjTs="
+    /// Every publisher key the host trusts, keyed by key ID. Rotation adds a
+    /// new ID here before release workflows sign with it; a key ID must never
+    /// be reused for different public-key bytes.
+    public static let trustedPublisherKeysBase64: [String: String] = [
+        keyID: publisherPublicKeyBase64
+    ]
     public static let signatureFileName = "lithe-plugin-signature.json"
 
     public struct Document: Codable, Equatable, Sendable {
@@ -52,6 +59,7 @@ public enum PluginPackageSignature {
         case invalidDocument
         case invalidSignature
         case publicKeyUnavailable
+        case untrustedKey(String)
 
         public var errorDescription: String? {
             switch self {
@@ -73,6 +81,8 @@ public enum PluginPackageSignature {
                 return "The plugin package signature is invalid."
             case .publicKeyUnavailable:
                 return "The official plugin signing key is unavailable."
+            case .untrustedKey(let keyID):
+                return "The plugin package is signed by key \(keyID), which this version of Lithe does not trust."
             }
         }
     }
@@ -82,22 +92,60 @@ public enum PluginPackageSignature {
         pluginID: String,
         pluginVersion: String,
         privateKey: Curve25519.Signing.PrivateKey,
+        keyID: String = PluginPackageSignature.keyID,
         fileManager: FileManager = .default
     ) throws -> Document {
+        guard isValidKeyID(keyID) else { throw Error.invalidDocument }
         let files = try fileDigests(
             packageAt: packageURL,
             fileManager: fileManager
         )
         let payload = canonicalPayload(
+            keyID: keyID,
             pluginID: pluginID,
             pluginVersion: pluginVersion,
             files: files
         )
         return Document(
+            keyID: keyID,
             pluginID: pluginID,
             pluginVersion: pluginVersion,
             files: files,
             signature: try privateKey.signature(for: payload).base64EncodedString()
+        )
+    }
+
+    /// Decodes `trustedPublisherKeysBase64`; an invalid embedded key is a
+    /// build defect and is reported instead of being silently skipped.
+    public static func trustedPublisherKeys() throws -> [String: Curve25519.Signing.PublicKey] {
+        try trustedPublisherKeysBase64.mapValues { encoded in
+            guard let data = Data(base64Encoded: encoded),
+                  let key = try? Curve25519.Signing.PublicKey(rawRepresentation: data) else {
+                throw Error.publicKeyUnavailable
+            }
+            return key
+        }
+    }
+
+    /// Selects the trusted key named by the document, then verifies with it.
+    public static func verify(
+        packageAt packageURL: URL,
+        pluginID: String,
+        pluginVersion: String,
+        document: Document,
+        trustedKeys: [String: Curve25519.Signing.PublicKey],
+        fileManager: FileManager = .default
+    ) throws {
+        guard let publicKey = trustedKeys[document.keyID] else {
+            throw Error.untrustedKey(document.keyID)
+        }
+        try verify(
+            packageAt: packageURL,
+            pluginID: pluginID,
+            pluginVersion: pluginVersion,
+            document: document,
+            publicKey: publicKey,
+            fileManager: fileManager
         )
     }
 
@@ -111,7 +159,7 @@ public enum PluginPackageSignature {
     ) throws {
         guard document.schemaVersion == schemaVersion,
               document.algorithm == algorithm,
-              document.keyID == keyID,
+              isValidKeyID(document.keyID),
               document.pluginID == pluginID,
               document.pluginVersion == pluginVersion,
               let signature = Data(base64Encoded: document.signature),
@@ -133,6 +181,7 @@ public enum PluginPackageSignature {
         }
 
         let payload = canonicalPayload(
+            keyID: document.keyID,
             pluginID: document.pluginID,
             pluginVersion: document.pluginVersion,
             files: document.files
@@ -214,7 +263,15 @@ public enum PluginPackageSignature {
         return digests
     }
 
+    /// Key IDs are written raw into the signed payload to keep existing
+    /// signatures byte-compatible, so they are restricted to a safe alphabet.
+    public static func isValidKeyID(_ keyID: String) -> Bool {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789.-_")
+        return !keyID.isEmpty && keyID.unicodeScalars.allSatisfy(allowed.contains)
+    }
+
     private static func canonicalPayload(
+        keyID: String,
         pluginID: String,
         pluginVersion: String,
         files: [String: String]

@@ -1354,6 +1354,7 @@
 "Install PHP Support from a signed plugin package." = "请从已签名的插件包安装 PHP Support。";
 "Download PHP Support from the official plugin release." = "从官方插件版本下载 PHP 支持。";
 "Download and Install" = "下载并安装";
+"Unsigned development package. Release builds of Lithe will not load it." = "未签名的开发包，正式版 Lithe 不会加载。";
 "Install PHP Support Plugin" = "安装 PHP Support 插件";
 "Select a PHP Support plugin package." = "请选择 PHP Support 插件包。";
 "Plugin marketplace is not available" = "插件市场暂不可用";

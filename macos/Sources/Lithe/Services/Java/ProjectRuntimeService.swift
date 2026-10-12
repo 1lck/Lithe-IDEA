@@ -10,7 +10,19 @@ extension ProjectRuntimeService: RunRuntimePort {}
 
 extension ProjectRuntimeService: LanguageToolRuntimePort {
     package func languageToolProcessEnvironment() -> [String: String] {
-        processEnvironment()
+        var environment = processEnvironment()
+        // Node-based language servers (Intelephense, TypeScript, …) start
+        // through launchers that read LITHE_NODE_PATH. An app opened from the
+        // Dock inherits launchd's PATH, which omits Homebrew and Node version
+        // managers, so pass the discovered executable explicitly.
+        // Language servers start automatically when a file opens, so a
+        // project-provided `node` must never be chosen here: an untrusted
+        // repository could otherwise run its own program.
+        if environment["LITHE_NODE_PATH"]?.isEmpty ?? true,
+           let node = executableCandidates("node").first(where: { $0.source != .project }) {
+            environment["LITHE_NODE_PATH"] = node.executableURL.path
+        }
+        return environment
     }
 
     package func missingLanguageToolMessage(_ name: String) -> String {

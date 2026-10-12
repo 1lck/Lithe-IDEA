@@ -9,6 +9,10 @@ OUTPUT_DIR=""
 SIGNING_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}"
 PLUGIN_ID=""
 BUNDLED_ONLY=false
+# Development builds of Lithe accept unsigned packages installed from disk.
+# This flag builds publisher-signed plugins without the release key for that
+# local path only; release configuration rejects it.
+DEVELOPMENT_UNSIGNED=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -17,12 +21,17 @@ while [[ $# -gt 0 ]]; do
         --output) OUTPUT_DIR="$2"; shift 2 ;;
         --bundled-only) BUNDLED_ONLY=true; shift ;;
         --plugin-id) PLUGIN_ID="$2"; shift 2 ;;
-        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id]"; exit 2 ;;
+        --development-unsigned) DEVELOPMENT_UNSIGNED=true; shift ;;
+        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id] [--development-unsigned]"; exit 2 ;;
     esac
 done
 
 if [[ "$CONFIGURATION" != "debug" && "$CONFIGURATION" != "release" ]]; then
     print -u2 -- "Unsupported configuration: $CONFIGURATION"
+    exit 2
+fi
+if [[ "$DEVELOPMENT_UNSIGNED" == true && "$CONFIGURATION" != "debug" ]]; then
+    print -u2 -- "--development-unsigned is only available for debug plugin builds"
     exit 2
 fi
 case "$TRIPLE" in
@@ -77,12 +86,16 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
         continue
     fi
     signature_requirement=$(/usr/bin/plutil -extract vendor.signatureRequirement raw "$manifest")
-    if [[ "$signature_requirement" == "publisherPackage" && -z "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
+    publisher_signed=false
+    if [[ "$signature_requirement" == "publisherPackage" && "$DEVELOPMENT_UNSIGNED" == false ]]; then
+        publisher_signed=true
+    fi
+    if [[ "$publisher_signed" == true && -z "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
         if [[ "$CONFIGURATION" == "release" ]]; then
             print -u2 -- "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY for publisher-signed plugin packages"
             exit 1
         fi
-        print -u2 -- "Skipping publisher-signed debug plugin package $package_id; set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY to build it"
+        print -u2 -- "Skipping publisher-signed debug plugin package $package_id; set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY or pass --development-unsigned to build it"
         continue
     fi
     matched=$((matched + 1))
@@ -133,7 +146,10 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
 
     /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" "$bundle_dir"
 
-    if [[ "$signature_requirement" == "publisherPackage" ]]; then
+    if [[ "$signature_requirement" == "publisherPackage" && "$publisher_signed" == false ]]; then
+        print -u2 -- "Built unsigned development package $package_id; only development builds of Lithe can install it"
+    fi
+    if [[ "$publisher_signed" == true ]]; then
         if [[ -z "$signer_binary" ]]; then
             swift build \
                 "${SWIFT_LAYOUT_ARGS[@]}" \

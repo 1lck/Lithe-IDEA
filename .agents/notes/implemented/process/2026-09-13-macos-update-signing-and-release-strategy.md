@@ -40,6 +40,39 @@ PHP Support 作为独立 GitHub Release asset 发布，不再把“能否使用 
 出现自引用。初始版本内置 `lithe-official-plugins-v1` 公钥；密钥重置后的版本改用 `lithe-official-plugins-v2`，安装时先验证原生 bundle，
 再验证完整包清单、插件 ID 和版本，任一文件被替换都会拒绝安装。
 
+客户端信任的是一张“key ID → 公钥”的表（`trustedPublisherKeysBase64`），
+验签时按签名文档里的 `keyID` 选公钥，签名内容也绑定这个 `keyID`。这样以后轮换
+密钥可以先把新 key ID 加进表里、让新旧客户端并存一段时间，而不是像
+v1→v2 那次一样让旧包立刻失效。同一个 key ID 永远不能换成另一把公钥；签名工具
+只会用表里存在的 key ID 签名。
+
+### 本地开发包（只限 debug 构建）
+
+插件作者在本地调试时拿不到发布私钥。为此 debug 构建允许“从磁盘安装”一个
+**完全没有签名文档**的包，并在 `installation.json` 里把来源记为
+`localDevelopment`，插件管理页会标出“未签名的开发包”。规则只有三条：
+
+1. 只有 debug 构建（`#if DEBUG`）接受这种来源；release 构建读到它会明确报
+   “只有开发版能加载”，不会加载代码。
+2. 只有宿主信任策略要求发布签名（`publisherPackage`）的插件才可能是开发包。
+   按团队签名信任的插件（`sameTeamAsHost`，例如 Go Support）本来就不带签名文档，
+   从磁盘安装时保持普通来源，不会被误标成开发包、也不会因此被 release 拒绝。
+3. 包里只要存在 `lithe-plugin-signature.json`，无论安装来源和签名要求是什么都必须
+   验签通过；`sameTeamAsHost` 包验签后仍要做原有的团队检查。开发来源不能用来
+   绕过一个坏掉或伪造的签名。
+4. 原生 bundle 的代码签名仍然必须有效（ad-hoc 签名即可）。
+
+安装来源按**每个已安装版本**记录（`origin` 和 `previousOrigin`），回滚时用目标
+版本自己的来源验证。例如先装开发包 0.3.0、再装正式签名的 0.3.1，回滚到 0.3.0
+时按开发包规则验证，而不是误用 0.3.1 的“正式包”规则报缺少签名。
+
+当前信任表只包含 `lithe-official-plugins-v2`：v1 私钥已无法找回，用旧客户端安装的
+v1 包在新版本里仍会被拒绝，需要重新下载 v2 包。多 key 表是为以后的轮换准备的，
+并没有恢复 v1 兼容性。
+
+构建侧对应 `scripts/build-official-plugins.sh --development-unsigned`，只在 debug
+配置下可用，用来在没有私钥时产出这种开发包；release 配置传入该参数会直接失败。
+
 stable 和 preview 工作流都必须配置同一 repository secret
 `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`。它是与客户端内置公钥匹配的 base64 编码 32 字节
 Ed25519 私钥；可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 写入 GitHub，私钥只在构建 runner 的标准输入中使用，不能写入
@@ -138,6 +171,11 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   的代码签名身份，但会让没有证书的发布环境无法生成独立包，也无法表达“包由
   Lithe 发布者签发”的信任关系，因此改用包级 Ed25519 清单，同时保留 bundle
   的原生代码签名校验。
+- **像 DBX 那样在任何构建里都允许勾选“安装未签名包”**：DBX 的插件运行在独立
+  进程和 webview 里，放行未签名包的风险可控；Lithe 的插件是直接加载进主进程
+  的原生代码，所以只在 debug 构建开放，release 构建保持强制验签。
+- **给 debug 构建内置一把测试公钥、让开发包也走签名**：需要把测试私钥分发给
+  所有插件作者，等于没有私钥保护；“没有签名文档 + 开发构建”更容易审计。
 
 ## 后果
 
@@ -158,7 +196,9 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   的 release 构建会失败，普通 debug 构建会跳过需要 publisher 签名的 PHP 包，
   指定单个 PHP 包构建时也会失败。这样构建目录中不会留下缺少
   `lithe-plugin-signature.json` 的伪成功包；只有提供私钥的构建才会生成可交给
-  包级验签路径的产物。
+  包级验签路径的产物。需要在本地验证插件时，显式使用 `--development-unsigned`
+  生成开发包，并通过 debug 构建的“从磁盘安装”导入；这条路径永远不会进入
+  发布产物。
 - 需要重新评估的触发条件：如果差分更新的资产数量随架构或渠道增多
   逼近 900 的清理阈值，或者需要支持两个以上的更新渠道，当前基于
   "30 个 build + 3 个 zip 基线"的保留规则需要重新设计。
@@ -171,6 +211,7 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 ./scripts/test-macos.sh
 ./scripts/verify-macos-package.sh
 ./scripts/verify-official-plugins.sh
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginLocalDevelopmentTests|PluginPackageSignatureTests|PluginPackageStoreTests'
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
 ruby scripts/test-sparkle-update.rb "$sparkle_tools"
 node scripts/test-download-sparkle-baseline.mjs
@@ -202,4 +243,6 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 - `scripts/build-official-plugins.sh`
 - `macos/Sources/LithePluginPackageSigning/`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`
+- `macos/Tools/LithePluginPackageSigner/`
 - `docs/architecture/macos-updates.md`

@@ -8,6 +8,7 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
     private let resourceDirectoryURL: URL?
     private let pluginToolRoots: [URL]
     private let isExecutable: @Sendable (URL) -> Bool
+    private let directoryNames: @Sendable (URL) -> [String]
 
     init(
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -15,12 +16,16 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
         pluginToolRoots: [URL] = [],
         isExecutable: @escaping @Sendable (URL) -> Bool = {
             FileManager.default.isExecutableFile(atPath: $0.path)
+        },
+        directoryNames: @escaping @Sendable (URL) -> [String] = {
+            (try? FileManager.default.contentsOfDirectory(atPath: $0.path)) ?? []
         }
     ) {
         self.homeDirectoryURL = homeDirectoryURL.standardizedFileURL
         self.resourceDirectoryURL = resourceDirectoryURL?.standardizedFileURL
         self.pluginToolRoots = pluginToolRoots.map(\.standardizedFileURL)
         self.isExecutable = isExecutable
+        self.directoryNames = directoryNames
     }
 
     func candidates(
@@ -100,6 +105,16 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                     directory.appendingPathComponent(command),
                     source: .environment,
                     detail: "Go user bin: \(directory.path)"
+                )
+            }
+        }
+
+        if command == "node" {
+            for directory in nodeVersionManagerDirectories() {
+                add(
+                    directory.appendingPathComponent(command),
+                    source: .environment,
+                    detail: "Node version manager: \(directory.path)"
                 )
             }
         }
@@ -248,6 +263,31 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
         }
         directories.append(homeDirectoryURL.appendingPathComponent("go/bin"))
         directories.append(homeDirectoryURL.appendingPathComponent(".go/bin"))
+        return directories
+    }
+
+    /// GUI apps do not run shell init files, so Node installed through a
+    /// version manager is only found through these well-known locations.
+    /// nvm installs are ordered newest first to keep the choice deterministic.
+    private func nodeVersionManagerDirectories() -> [URL] {
+        var directories = [
+            homeDirectoryURL.appendingPathComponent(".volta/bin"),
+            homeDirectoryURL.appendingPathComponent("Library/Application Support/fnm/aliases/default/bin"),
+            homeDirectoryURL.appendingPathComponent(".local/share/fnm/aliases/default/bin")
+        ]
+        let nvmVersions = homeDirectoryURL.appendingPathComponent(".nvm/versions/node")
+        let versions = directoryNames(nvmVersions)
+            .compactMap { name -> (name: String, components: [Int])? in
+                guard name.hasPrefix("v") else { return nil }
+                let components = name.dropFirst().split(separator: ".").map { Int($0) }
+                guard !components.isEmpty, components.allSatisfy({ $0 != nil }) else { return nil }
+                return (name, components.compactMap { $0 })
+            }
+            .sorted { $0.components.lexicographicallyPrecedes($1.components) }
+            .reversed()
+        directories += versions.map {
+            nvmVersions.appendingPathComponent($0.name).appendingPathComponent("bin")
+        }
         return directories
     }
 

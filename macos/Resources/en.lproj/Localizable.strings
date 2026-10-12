@@ -14,6 +14,7 @@
 "Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
 "Download PHP Support from the official plugin release." = "Download PHP Support from the official plugin release.";
 "Download and Install" = "Download and Install";
+"Unsigned development package. Release builds of Lithe will not load it." = "Unsigned development package. Release builds of Lithe will not load it.";
 "Install PHP Support Plugin" = "Install PHP Support Plugin";
 "Select a PHP Support plugin package." = "Select a PHP Support plugin package.";
 "Plugin marketplace is not available" = "Plugin marketplace is not available";

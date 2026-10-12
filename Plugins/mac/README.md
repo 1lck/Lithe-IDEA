@@ -28,6 +28,23 @@ the key is absent, and a direct PHP package build fails instead of producing an
 unsigned package. Keep the key in a protected file or environment variable and
 never commit it.
 
+## Local development packages
+
+Plugin authors can test without the publisher key. Build an unsigned
+development package, then install it from disk in a debug build of Lithe:
+
+```sh
+scripts/build-official-plugins.sh --configuration debug \
+  --triple arm64-apple-macosx --plugin-id dev.lithe.plugin.php-support \
+  --development-unsigned --output /tmp/lithe-dev-plugins
+```
+
+The package has no `lithe-plugin-signature.json`. Plugin Management records it
+as an unsigned development package and replaces it when the same version is
+installed again. Release builds of Lithe refuse to load it, and the flag is
+rejected for release plugin builds. A package that does contain a signature
+document is always verified, whichever way it was installed.
+
 The PHP plugin archive carries a pinned Intelephense package described by
 `language-server.json`. Plugin Management downloads and verifies that tool as
 part of the plugin package, stores it under the user-level plugin directory,

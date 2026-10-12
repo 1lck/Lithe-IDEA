@@ -12,6 +12,7 @@ final class MacPluginRuntimeRecoveryCoordinator {
         guard !didRecoverPreviousSession else { return }
         let interruptedModuleIDs = store.pendingPluginLoadModules()
         for moduleID in interruptedModuleIDs {
+            NSLog("Lithe quarantined plugin module after an interrupted load: %@", moduleID.rawValue)
             store.setQuarantined(true, for: moduleID)
         }
         store.setPendingPluginLoadModules([])

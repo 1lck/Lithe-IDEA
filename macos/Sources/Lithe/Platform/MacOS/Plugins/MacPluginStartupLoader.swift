@@ -148,12 +148,25 @@ final class MacPluginStartupLoader {
             factoriesByPlugin.removeAll()
         }
 
+        Self.log(issues)
         return MacPluginStartupResult(
             installedPlugins: scan.packages,
             activeNativeManifests: activeNativeManifests.sorted { $0.id < $1.id },
             factoriesByPlugin: factoriesByPlugin,
             issues: issues
         )
+    }
+
+    /// Rejected or failed plugins are otherwise only visible in Plugin
+    /// Management, so record them in the unified log for diagnosis.
+    private static func log(_ issues: [PluginStartupIssue]) {
+        for issue in issues {
+            NSLog(
+                "Lithe plugin startup issue [%@]: %@",
+                issue.pluginID?.rawValue ?? "-",
+                issue.message
+            )
+        }
     }
 
     private func clearPendingLoad(using recoveryStore: (any ModuleRecoveryStore)?) {
@@ -169,6 +182,7 @@ final class MacPluginStartupLoader {
         guard let recoveryStore else { return }
         let pending = recoveryStore.pendingPluginLoadModules()
         for moduleID in pending {
+            NSLog("Lithe quarantined plugin module after an interrupted load: %@", moduleID.rawValue)
             recoveryStore.setQuarantined(true, for: moduleID)
         }
         if !pending.isEmpty {

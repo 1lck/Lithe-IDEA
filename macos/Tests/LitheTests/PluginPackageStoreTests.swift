@@ -714,7 +714,11 @@ private final class TestPluginSignatureVerifier: PluginPackageSignatureVerifying
         self.rejectedVersions = rejectedVersions
     }
 
-    func verify(packageAt packageURL: URL, manifest: PluginManifest) throws {
+    func verify(
+        packageAt packageURL: URL,
+        manifest: PluginManifest,
+        origin: PluginInstallationOrigin
+    ) throws {
         verifiedVersions.append(manifest.version)
         if rejectedVersions.contains(manifest.version) {
             throw TestPluginSignatureError.rejected
