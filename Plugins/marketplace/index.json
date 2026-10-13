@@ -2,6 +2,39 @@
   "schemaVersion": 1,
   "plugins": [
     {
+      "id": "dev.lithe.plugin.go-support",
+      "name": "Go Support",
+      "author": "Lithe",
+      "repository": "https://github.com/Lithe-IDEA/Lithe-IDEA",
+      "description": "Go language intelligence through gopls, plus running Go files and go test. Requires Go and gopls on this Mac.",
+      "localizedDescriptions": {
+        "zh-Hans": "通过 gopls 提供 Go 代码智能，并支持运行 Go 文件和 go test。需要本机已安装 Go 和 gopls。"
+      },
+      "tags": [
+        "language",
+        "go",
+        "gopls"
+      ],
+      "license": "Apache-2.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "pluginAPIVersion": 1,
+          "releaseDate": "2026-10-13",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/plugin-go-support-v1.0.0/Lithe-Go-Support-1.0.0-darwin.zip",
+              "sha256": "b0ab36c4fa77e275721ee7ca1b9e092ac51ec17ff1f83c6ad5396822ad01b196"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "dev.lithe.plugin.php-support",
       "name": "PHP Support",
       "author": "Lithe",
