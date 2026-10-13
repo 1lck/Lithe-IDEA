@@ -1048,7 +1048,7 @@ export const createRunStore = (
             }
           };
           const markPreLaunchFailure = (exitCode: number) => {
-            const message = `Compilation failed (exit code ${exitCode}).\n`;
+            const message = `Pre-launch step failed (exit code ${exitCode}).\n`;
             if (sessionId === PRIMARY_SESSION_ID) {
               set((current) => ({
                 primaryRunning: false,
@@ -1080,7 +1080,10 @@ export const createRunStore = (
             const stepResolved = await dependencies.resolveRunLaunch({
               root,
               executable: step.executable,
-              workingDirectory: plan.workingDirectory,
+              // A step may own its resolution root: the Maven resource step runs
+              // from the reactor so a project wrapper is found even when the
+              // application working directory is overridden.
+              workingDirectory: step.workingDirectory ?? plan.workingDirectory,
               javaHomePath: configuration.javaHomePath,
               ...mavenProcessPaths(mavenContext, configuration),
               runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
@@ -1094,6 +1097,8 @@ export const createRunStore = (
               `$ ${stepResolved.executable.split(/[\\/]/).pop()} ${stepArguments.join(" ")}\n`,
             );
             const outcome = await dependencies.executePreLaunchStep({
+              sessionId,
+              executionId,
               executable: stepResolved.executable,
               arguments: stepArguments,
               workingDirectory: stepResolved.workingDirectory,

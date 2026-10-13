@@ -4,7 +4,7 @@
 // See macos/Resources/GitGraph/NOTICE.txt and the owning Git graph Agent Note.
 export const GIT_GRAPH_ROW_HEIGHT = 26;
 const GRAPH_BASELINE_ROW_HEIGHT = 22;
-const GRAPH_TITLE_MINIMUM_LANES = 6;
+const GRAPH_MAX_RECOMMENDED_LANES = 6;
 
 export interface GraphPoint {
   x: number;
@@ -98,20 +98,17 @@ export function gitGraphPaintMetrics(rowHeight = GIT_GRAPH_ROW_HEIGHT, backingSc
       const dash = length / Math.max(1, Math.floor(length / rowHeight)) - space;
       return { dash, space, phase: dash / 2 };
     },
-    titleOffset: (lane: number, elements: GraphPaintElement[]) => {
+    titleOffset: (lane: number, elements: GraphPaintElement[], recommendedLaneCount = 1) => {
       const last = elements.reduce(
         (value, element) =>
           Math.max(value, element.position, (element.position + element.adjacentPosition) / 2),
         lane,
       );
-      // Lithe macOS deliberately reserves six title columns in ordinary graphs.
-      return (
-        Math.floor(
-          (Math.max(last + 1, GRAPH_TITLE_MINIMUM_LANES) * 16 * rowHeight) /
-            GRAPH_BASELINE_ROW_HEIGHT +
-            (2 * rowHeight) / GRAPH_BASELINE_ROW_HEIGHT,
-        ) + 2
-      );
+      // GraphCommitCellUtil caps only the recommended baseline at six columns;
+      // each row can extend it for its node and diagonal boundary midpoints.
+      const columns = Math.max(last + 1, Math.min(GRAPH_MAX_RECOMMENDED_LANES, recommendedLaneCount));
+      return Math.floor(columns * 16 * rowHeight / GRAPH_BASELINE_ROW_HEIGHT)
+        + Math.floor(2 * rowHeight / GRAPH_BASELINE_ROW_HEIGHT) + 2;
     },
   };
 }

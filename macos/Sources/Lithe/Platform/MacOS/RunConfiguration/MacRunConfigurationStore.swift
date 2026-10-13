@@ -213,7 +213,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                 executable: stepExecutable,
                 tool: step.executable.tool,
                 arguments: step.arguments,
-                classpath: step.classpath ?? []
+                classpath: step.classpath ?? [],
+                workingDirectory: step.workingDirectory
             )
         }
         return SharedLaunchPlan(

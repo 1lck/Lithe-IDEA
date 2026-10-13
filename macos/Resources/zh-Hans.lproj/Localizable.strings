@@ -2716,3 +2716,17 @@
 "No recent progress has been received. The task is still active." = "暂未收到新的进度，任务仍在进行。";
 "Connection recovery is taking longer. The Agent is still retrying." = "连接恢复等待较久，Agent 仍在重试。";
 "Continue waiting" = "继续等待";
+
+"Name:" = "名称：";
+
+"Include in commit" = "包含在提交中";
+
+"Stash Changes" = "储藏更改";
+
+"Shelve Changes" = "搁置更改";
+
+"Select saved changes" = "选择已保存的更改";
+
+"Could not load saved changes" = "无法加载已保存的更改";
+
+"Could not inspect saved file" = "无法读取已保存的文件";

@@ -336,6 +336,7 @@ jobs:
             "src/features/git/hooks/use-git-data-controller.integration.test.tsx",
             "src/features/git/stores/git-repository.store.test.ts",
             "src/features/git/stores/git.store.test.ts",
+            "src/features/git/runtime/git-status-refresh-host.test.tsx",
             "src/features/workspace/services/workspace-startup-priority.test.ts",
             "src/features/workspace/services/workspace-git-bootstrap.test.ts",
             "src/features/file-system/controllers/project-file-scan-coordinator.test.ts",
@@ -428,6 +429,11 @@ jobs:
       - name: Test quick-open file search, number input steppers and editor settings route
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-quick-open-number-input.json -- src/features/quick-open/hooks/use-file-loader.test.tsx src/features/quick-open/hooks/use-file-search.test.tsx src/ui/number-input.test.tsx src/features/settings/components/editor-settings-routing.test.tsx
+
+      - name: Test wheel scroll animation and container wheel ownership
+        shell: pwsh
+        timeout-minutes: 3
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-wheel-scroll.json -- src/ui/wheel-scroll-animation.test.ts src/ui/scroll-container-wheel.integration.test.ts
 
       - name: Test system font settings and search matching
         shell: pwsh

@@ -21,11 +21,15 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/file-explorer",
-      "windows/tauri/src/features/sidebar"
+      "windows/tauri/src/features/sidebar",
+      "windows/tauri/src/features/file-explorer/components/file-explorer-viewport.tsx",
+      "windows/tauri/src/ui/wheel-scroll-animation.ts",
+      "windows/tauri/src/ui/scroll-container-wheel.integration.test.ts",
+      ".agents/notes/implemented/bug-fix/2026-10-08-windows-git-log-wheel-animation.md"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Workspace",
-  "verification": "浏览目录、展开/折叠、打开资源并在文件变更后刷新树。 macOS 文件树、标签页与面包屑共用 TOML 文件图标：亮色使用 IDEA New UI 官方浅底蓝色 T，深色使用深底蓝色 T；检查明暗主题切换后选择对应 SVG，保留原始 16pt 几何与颜色。 点击目录名称后上下键按可见行移动选择，右键展开目录并再次右键进入首个子项，左键折叠或返回显示父项；双击目录名称展开/折叠，单击与修饰键多选保持独立。验证压缩 Java 包、列表首尾、Shift 上下范围选择与自动滚动；方向键不送到编辑器，点击编辑器或转移到搜索输入框后恢复其按键处理。"
+  "verification": "浏览目录、展开/折叠、打开资源并在文件变更后刷新树。 macOS 文件树、标签页与面包屑共用 TOML 文件图标：亮色使用 IDEA New UI 官方浅底蓝色 T，深色使用深底蓝色 T；检查明暗主题切换后选择对应 SVG，保留原始 16pt 几何与颜色。 点击目录名称后上下键按可见行移动选择，右键展开目录并再次右键进入首个子项，左键折叠或返回显示父项；双击目录名称展开/折叠，单击与修饰键多选保持独立。验证压缩 Java 包、列表首尾、Shift 上下范围选择与自动滚动；方向键不送到编辑器，点击编辑器或转移到搜索输入框后恢复其按键处理。 Windows Project 文件树滚轮与 Git Log 共用 Community Windows 默认 200ms 惯性过渡；核对连续同向、反向、Shift 横向滚动、顶底边界、键盘定位与滑块拖动取消惯性、卸载帧清理和减少动态效果偏好；虚拟树保持可见区呈现，真实 WebView2 实机验收 pending。"
 }

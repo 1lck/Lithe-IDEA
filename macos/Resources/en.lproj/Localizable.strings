@@ -1435,3 +1435,21 @@
 "No recent progress has been received. The task is still active." = "No recent progress has been received. The task is still active.";
 "Connection recovery is taking longer. The Agent is still retrying." = "Connection recovery is taking longer. The Agent is still retrying.";
 "Continue waiting" = "Continue waiting";
+
+"Name:" = "Name:";
+
+"Include in commit" = "Include in commit";
+
+"Stash Changes" = "Stash Changes";
+
+"Shelve Changes" = "Shelve Changes";
+
+"Select saved changes" = "Select saved changes";
+
+"Could not load saved changes" = "Could not load saved changes";
+
+"Could not inspect saved file" = "Could not inspect saved file";
+
+"Expand All" = "Expand All";
+
+"Collapse All" = "Collapse All";

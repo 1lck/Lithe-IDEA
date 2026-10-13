@@ -405,3 +405,45 @@ fn patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset()
         .unwrap()
         .contains("+small change"));
 }
+
+#[test]
+fn saved_patch_metadata_is_read_only_during_merge_and_never_authorizes_apply() {
+    let repository = PatchRepository::new("saved-patch-metadata");
+    repository.write("text.txt", b"first\nsaved\n");
+    repository.write("new file.txt", b"untracked\n");
+    repository.git(&["stash", "push", "--include-untracked", "-m", "saved"]);
+    let patch = repository.git(&[
+        "stash",
+        "show",
+        "--include-untracked",
+        "--patch",
+        "--binary",
+        "stash@{0}",
+    ]);
+    let head = repository.git(&["rev-parse", "HEAD"]);
+    fs::write(repository.0.join(".git/MERGE_HEAD"), head).unwrap();
+    let index = fs::read(repository.0.join(".git/index")).unwrap();
+    let before = fs::read(repository.0.join("text.txt")).unwrap();
+    let result = repository.data(
+        "git.patchPreview",
+        json!({
+            "patch": patch, "target": "worktree", "metadataOnly": true
+        }),
+    );
+    assert_eq!(result["files"].as_array().unwrap().len(), 2);
+    assert!(result["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["path"] == "new file.txt"));
+    assert_eq!(result["applicable"], false);
+    assert!(result["expectedState"].is_null());
+    assert_eq!(fs::read(repository.0.join(".git/index")).unwrap(), index);
+    assert_eq!(fs::read(repository.0.join("text.txt")).unwrap(), before);
+    assert!(!repository.0.join("new file.txt").exists());
+    let normal = repository.call(
+        "git.patchPreview",
+        json!({"patch": patch, "target": "worktree"}),
+    );
+    assert_eq!(normal["ok"], false);
+}

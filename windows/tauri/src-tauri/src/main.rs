@@ -106,6 +106,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                run::cancel_window_prelaunches(window.label());
                 core::close_ide_hosts(window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
                 window_title::remove_window(window.app_handle(), window.label());

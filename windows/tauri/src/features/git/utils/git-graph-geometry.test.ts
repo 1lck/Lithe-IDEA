@@ -10,9 +10,26 @@ test("uses the macOS 26px baseline with physical FLOOR/ODD metrics", () => {
   expect([two.rowCenter, two.laneSpacing, two.laneCenter, two.lineWidth, two.nodeDiameter]).toEqual(
     [12.5, 18.5, 9, 1.5, 8.5],
   );
-  expect(one.titleOffset(0, [])).toBe(117);
+  expect(one.titleOffset(0, [], 1)).toBe(22);
   expect(gitGraphRowHeight(13, 3)).toBe(26);
   expect(gitGraphRowHeight(24, 6, 1)).toBe(38);
+});
+
+test("title baseline follows the recommended graph width and caps only that baseline at six", () => {
+  const paint = gitGraphPaintMetrics();
+  expect(paint.titleOffset(0, [], 3)).toBe(60);
+  expect(paint.titleOffset(0, [], 6)).toBe(117);
+  expect(paint.titleOffset(0, [], 12)).toBe(117);
+  expect(paint.titleOffset(8, [], 2)).toBe(174);
+});
+
+test("row title expands for a diagonal boundary midpoint without reserving its full adjacent lane", () => {
+  const paint = gitGraphPaintMetrics();
+  const edge = { position: 2, adjacentPosition: 8, direction: "down", isTerminal: false } as const;
+  expect(paint.titleOffset(0, [edge], 2)).toBe(117);
+  const next = { ...edge, position: 8, adjacentPosition: 2, direction: "up" } as const;
+  expect(paint.titleOffset(8, [next], 2)).toBe(174);
+  expect(paint.line(edge).end.x).toBe(paint.line(next).end.x);
 });
 
 for (const scale of [1, 1.25, 1.5, 2, 3]) {

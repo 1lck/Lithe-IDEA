@@ -3019,65 +3019,102 @@ fn git_diff_and_apply_round_trip_a_patch() {
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }
 
-/// Windows single-file reviews ask for Git's largest context so the renderer
-/// can reveal folded unchanged lines (#557). The snapshot diff must accept that
-/// value and return the complete file as one hunk.
 #[test]
-fn git_snapshot_diff_returns_the_whole_file_for_maximum_context() {
+/// Full-file review must override a repository's hunk-merge setting without mutating it.
+fn git_full_context_diff_overrides_inter_hunk_configuration() {
+    struct RemoveOnDrop(std::path::PathBuf);
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     let root = temporary_root("git-full-context-diff");
+    let _cleanup = RemoveOnDrop(root.clone());
     fs::create_dir_all(&root).expect("temporary workspace should be creatable");
-    let run = |arguments: &[&str]| {
-        Command::new("git")
-            .args(arguments)
-            .current_dir(&root)
-            .output()
-            .expect("git should be available")
+    let run = |arguments: &[&str]| -> String {
+        let mut isolated_arguments = vec![
+            "-c",
+            "core.hooksPath=disabled-fixture-hooks",
+            "-c",
+            "commit.gpgSign=false",
+        ];
+        isolated_arguments.extend_from_slice(arguments);
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "full-context-setup",
+                "timeoutMilliseconds": 5_000,
+                "command": "git.command",
+                "payload": { "root": root, "arguments": isolated_arguments }
+            })
+            .to_string(),
+        ))
+        .expect("setup response should be JSON");
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"]["exitCode"], 0, "{response}");
+        response["data"]["stdout"].as_str().unwrap().to_string()
     };
-    assert!(run(&["init", "-q"]).status.success());
-    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
-    assert!(run(&["config", "user.email", "test@example.com"])
-        .status
-        .success());
-    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
-    let original = (1..=200)
+    run(&["init", "-q"]);
+    run(&["config", "core.autocrlf", "false"]);
+    run(&["config", "user.email", "diff@example.invalid"]);
+    run(&["config", "user.name", "Lithe Test"]);
+    run(&["config", "diff.interHunkContext", "3"]);
+    let original = (1..=48)
         .map(|line| format!("line {line}\n"))
         .collect::<String>();
     fs::write(root.join("long.txt"), &original).expect("file should be writable");
-    assert!(run(&["add", "long.txt"]).status.success());
-    assert!(run(&["commit", "-qm", "initial"]).status.success());
-    fs::write(
-        root.join("long.txt"),
-        original
-            .replace("line 10\n", "line ten\n")
-            .replace("line 190\n", "line one-ninety\n"),
-    )
-    .expect("file should be writable");
+    run(&["add", "long.txt"]);
+    run(&["commit", "-qm", "initial"]);
+    let modified = original
+        .replace("line 24\n", "first replacement\n")
+        .replace("line 26\n", "second replacement\n");
+    fs::write(root.join("long.txt"), &modified).expect("file should be writable");
 
-    let request = serde_json::json!({
-        "id": "full-context-diff",
-        "command": "git.diff",
-        "payload": {
-            "root": root,
-            "pathspecs": ["long.txt"],
-            "worktreeSnapshot": true,
-            "contextLines": i32::MAX
+    for mode in ["worktree", "snapshot", "staged"] {
+        if mode == "staged" {
+            run(&["add", "long.txt"]);
         }
-    });
-    let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::to_string(&request).expect("diff request should encode"),
-    ))
-    .expect("diff response should be JSON");
-    assert_eq!(response["ok"], true, "{response}");
-    let patch = response["data"]["patch"]
-        .as_str()
-        .expect("diff output should be text");
-    assert!(patch.contains("@@ -1,200 +1,200 @@"), "{patch}");
-    assert!(
-        patch.contains("\n line 100\n"),
-        "middle context missing: {patch}"
-    );
-    assert_eq!(response["data"]["hunks"].as_array().unwrap().len(), 1);
-    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+        let index_before = fs::read(root.join(".git/index")).unwrap();
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "full-context-diff",
+                "timeoutMilliseconds": 5_000,
+                "command": "git.diff",
+                "payload": {
+                    "root": root,
+                    "pathspecs": ["long.txt"],
+                    "worktreeSnapshot": mode == "snapshot",
+                    "staged": mode == "staged",
+                    "contextLines": 1_073_741_823
+                }
+            })
+            .to_string(),
+        ))
+        .expect("diff response should be JSON");
+        assert_eq!(response["ok"], true, "{mode}: {response}");
+        let patch = response["data"]["patch"].as_str().unwrap();
+        assert!(patch.contains("@@ -1,48 +1,48 @@"), "{mode}: {patch}");
+        assert_eq!(
+            response["data"]["hunks"].as_array().unwrap().len(),
+            1,
+            "{mode}: {patch}"
+        );
+        let rows = response["data"]["rows"].as_array().unwrap();
+        let source_rows = rows
+            .iter()
+            .filter(|row| row["oldLine"].is_number())
+            .collect::<Vec<_>>();
+        assert_eq!(source_rows.len(), 48, "{mode}: {patch}");
+        for (index, row) in source_rows.iter().enumerate() {
+            assert_eq!(row["oldLine"], index + 1, "{mode}: {row}");
+            assert_eq!(row["newLine"], index + 1, "{mode}: {row}");
+        }
+        assert_eq!(fs::read(root.join(".git/index")).unwrap(), index_before);
+        assert_eq!(
+            run(&["config", "--get", "diff.interHunkContext"]).trim(),
+            "3"
+        );
+    }
 }
 
 /// Windows diff reviews roll back one block by reverse-applying a patch the

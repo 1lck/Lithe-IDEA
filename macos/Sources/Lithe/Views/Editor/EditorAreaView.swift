@@ -126,7 +126,9 @@ struct EditorAreaView: View {
                     )
                 } else if let feature = model.gitFeatureIfActive,
                           let selectedChange = feature.selectedChange {
-                    DiffReviewView(feature: feature, change: selectedChange,
+                    RepositoryDiffView(feature: feature, change: selectedChange,
+                        onClose: { feature.closeWorkingTreeDiff() },
+                        onOpenFile: { model.openFile(selectedChange.url) },
                         fontFamily: settings.editorFontFamily)
                 } else {
                     VStack(spacing: 0) {
@@ -1021,10 +1023,17 @@ struct EditorAreaView: View {
 
             if model.isRepositoryDiffSelected {
                 if let feature = model.gitFeatureIfActive, let context = feature.selectedGitCommitDiffContext {
-                    GitCommitDiffReviewView(feature: feature, context: context,
+                    RepositoryDiffView(feature: feature, context: context,
                         onClose: { model.closeGitCommitDiff() },
                         onOpenFile: { model.openFile(context.url) },
-                        onOpenCommitDiff: { model.showGitCommitDiff(for: $0) },
+                        onOpenCommitDiff: { file in
+                            if context.commit.hash.hasPrefix("saved:"),
+                               let snapshot = feature.savedDiffSnapshot, let version = feature.savedDiffVersion {
+                                model.showSavedChangesDiff(snapshot, version: version, file: file)
+                            } else {
+                                model.showGitCommitDiff(for: file)
+                            }
+                        },
                         fontFamily: settings.editorFontFamily)
                 } else {
                     Text("Select a changed file in Git Log")

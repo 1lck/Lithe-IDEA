@@ -1026,7 +1026,19 @@ addition to the compatibility `exitCode`. The shared compatibility fixtures are
 `shared/fixtures/git/command-error-response-v1.json`. Invalid arguments found
 before any Git subprocess use the standard `invalid_request` error envelope.
 `checkout` uses `referenceKind` values
-`local`, `remote`, or `tag`; `clone` uses `remote` as its source and
+`local`, `remote`, or `tag`. A remote checkout creates its tracking local branch
+when missing, or fast-forwards an existing matching tracking branch to the selected
+fetched remote commit. This also updates an already-current local branch and
+succeeds when it is already aligned. It does not Fetch again or create merge
+commits. Local-only commits (ahead or diverged) block the operation before a switch
+or automatic stash; `force` discards working changes, never committed history.
+Blocking working changes and another worktree's branch ownership remain protected.
+The selected remote commit is pinned and branch identity is rechecked before
+integration. A composite checkout may switch successfully before a later integration
+or stash restore fails, so consumers refresh repository state after either outcome.
+Local checkout and `checkoutAndRebase` retain their existing policies. Scenarios are
+in `shared/fixtures/git/remote-checkout-v1.json`.
+`clone` uses `remote` as its source and
 `destination` as its target path. `publishBranch` validates `name`, creates
 and checks out that branch at a detached HEAD when needed, then pushes it with
 an upstream. If the push fails, the local branch is intentionally retained so
@@ -2221,9 +2233,10 @@ executable path. All project paths use `/`, reject absolute paths and `..`
 traversal, and remain relative to `root`.
 
 The plan may also carry three optional envelope fields. `preLaunchSteps` is an
-ordered array of `{ executable, arguments, classpath? }` steps the host runs to
-completion, in order, before the main process; a non-zero exit aborts the run
-and surfaces that step's diagnostics. Each step's `executable` reuses the plan's
+ordered array of `{ executable, arguments, classpath?, workingDirectory? }` steps
+the host runs to completion, in order, before the main process; a non-zero exit
+aborts the run and surfaces that step's diagnostics. Each step's `executable`
+reuses the plan's
 `{ toolchain }` shape plus an optional `tool` selector (`"javac"` resolves the
 sibling compiler in the toolchain's `bin` directory; absent means the default
 launcher). `classpath` is a structured array of project-relative or host-absolute
@@ -2234,8 +2247,32 @@ never joins classpath entries because the separator is platform-specific.
 host. A JDT main identity in `module/name.Type` form is projected as
 `-m module/name.Type` for the direct Java launcher. Empty fields are omitted,
 so existing single-process Maven, Gradle, and Node
-plans are unchanged. Pre-launch steps and the main process share the plan-level
-`workingDirectory` and `environment`.
+plans are unchanged. A step shares the plan-level `environment` and, unless it
+declares its own project-relative `workingDirectory`, the plan-level
+`workingDirectory`. A step that declares one resolves its toolchain from that
+directory and runs there, so a resource step still finds the project wrapper
+next to its reactor POM when the application working directory is a user
+override.
+
+Direct Maven-project Java launches also carry a `project-maven` resource step:
+`resources:resources`, plus `resources:testResources` for test-source entrypoints.
+The step inherits Maven profiles, settings, repository and module/dependency
+selection. Its absolute `-f` POM argument anchors the generated reactor even when
+the application working directory is overridden, and its own `workingDirectory`
+names that reactor as the step's run directory and toolchain resolution root. A
+child POM not declared in
+that reactor is processed as its own Maven project, without `-pl`. Resource
+filtering and custom resource directories remain Maven-owned; no Java compilation
+or application launch goal is added. Hosts must finish these steps successfully
+before starting the JVM. Both hosts scope pre-launch execution to the
+window/session/execution and stop the owned process tree on Stop, window close or
+replacement. They apply the same ten-minute deadline with bounded pipe draining
+and cleanup, and a step that reaches its deadline fails the run with
+`Pre-launch step timed out after 600 seconds.`. macOS runs the steps before both
+the application launch and a Run-panel service session, and cancels a session's
+running step when that session stops, restarts, or is dropped by reconciliation.
+Independent DAP launches that do
+not consume this plan are not covered by this resource-step contract.
 
 A Maven-project `java.main` launch must first ask JDT LS/Java Debug
 Server to resolve the exact source target, build its owning project, and return

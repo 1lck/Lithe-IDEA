@@ -2074,6 +2074,31 @@ package final class GitFeatureModel: ObservableObject {
         selectedGitCommitFilesLoadState = selectedGitCommit == nil ? .idle : .loading
     }
 
+    package private(set) var savedDiffSnapshot: GitSavedChangesSnapshot?
+    package private(set) var savedDiffVersion: String?
+
+    package func loadSavedChanges(stash: GitStash?, shelf: GitShelfEntry?) async -> Result<GitSavedChangesSnapshot, GitPatchFailure> {
+        guard let root = gitRepositoryRoot else { return .failure(GitPatchFailure("No repository")) }
+        return await service.savedChangesSnapshot(stash: stash, shelf: shelf, at: root)
+    }
+
+    package func showSavedChangesDiff(_ snapshot: GitSavedChangesSnapshot, version: String, file: GitCommitFile) {
+        guard snapshot.repositoryRoot == gitRepositoryRoot,
+              let saved = snapshot.files.first(where: { $0.version == version && $0.file == file }) else { return }
+        closeBranchComparison()
+        selectedChange = nil
+        savedDiffSnapshot = snapshot
+        savedDiffVersion = version
+        let commit = GitCommit(hash: "saved:\(snapshot.id):\(version)", shortHash: version,
+            parentHashes: [saved.base], authorName: "", authorEmail: "", date: "", subject: version, decorations: "")
+        selectedGitCommitFile = file
+        selectedGitCommitDiffContext = GitCommitDiffContext(repositoryRoot: snapshot.repositoryRoot, commit: commit, file: file)
+        selectedDiffPatch = ""
+        diffRows = saved.document.rows
+        diffHunks = saved.document.hunks
+        isLoadingDiff = false
+    }
+
     package func showGitCommitDiff(for file: GitCommitFile) async {
         guard let gitRepositoryRoot, let commit = selectedGitCommit else { return }
         let context = GitCommitDiffContext(
@@ -2102,6 +2127,8 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func closeGitCommitDiff() {
+        savedDiffSnapshot = nil
+        savedDiffVersion = nil
         selectedGitCommitDiffContext = nil
         selectedGitCommitFile = nil
         // Working-tree/directory previews reuse these buffers after replacing
@@ -3388,14 +3415,12 @@ package final class GitFeatureModel: ObservableObject {
             } else {
                 notify?(trimmedMessage(result))
             }
-            if autoStash {
-                // A smart checkout can switch branches and still fail to restore the stash,
-                // so re-read Git rather than assuming the working tree is unchanged.
-                selectedGitReference = nil
-                isShowingAllGitReferences = false
-                closeBranchComparison()
-                await refreshGit()
-            }
+            // Remote checkout can switch branches before its fast-forward fails;
+            // smart checkout can also fail while restoring the saved changes.
+            selectedGitReference = nil
+            isShowingAllGitReferences = false
+            closeBranchComparison()
+            await refreshGit()
         }
     }
 

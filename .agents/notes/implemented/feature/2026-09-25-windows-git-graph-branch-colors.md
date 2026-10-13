@@ -142,9 +142,30 @@ Java 32 位溢出及单精度浮点舍入，避免负数 ID 或明暗主题下 R
 `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `PaintParameters`、
 `SimpleGraphCellPainter` 及 `PaintUtil`。默认行高 26px，按用户字体的上升、
 下降和行间距加 7px 扩高；图形按上游 22px 基准成比例缩放。线宽、圆点直径
-和列距采用向下取整及奇数物理像素规则，包括 Windows 的分数缩放。标题至少
-预留 macOS 的六列图形空间，复杂边继续扩宽。去掉逐行分隔线及水平额外内边距，
+和列距采用向下取整及奇数物理像素规则，包括 Windows 的分数缩放。标题使用
+下述可见图建议宽度，复杂行单独扩宽。去掉逐行分隔线及水平额外内边距，
 避免行盒与图形坐标偏移。
+
+### 图形与提交文字按行混排
+
+Windows 不再把六列当作标题的最小固定留白。对照 Community
+`fb72b4df43aba102479eb0502d20b03586b9c5b8` 的 `PrintElementGeneratorImpl.calculateRecommendedWidth`
+和 `GraphCommitCellUtil.getGraphWidth`，先按可见图边数计算加权均值加标准差，
+最多采样前 20,000 行，头部权重大于尾部，末端权重比例为 0.1。
+这份建议宽度作为统一基线，基线最多六列；具体每行取节点、连线当前位置、
+相邻行连线中点三者的最右占用，超过基线时只扩宽该行。
+
+例如绝大部分提交是一条直线，但中间一次合并同时占用八列，简单行的文字
+仍从较小基线开始，合并附近的文字跟随当前行右移，之后恢复。
+不能把整个历史的最大列数传给所有行，也不能在行绘制时按截图猜一个更小
+固定值；这两种做法都无法随筛选和长边模式反映当前可见图。
+
+建议宽度在 `layoutGitGraph` 内使用边区间的差分计数（只记录区间开始和结束）
+计算，避免逐行扫描全部活跃连线；渲染接收计算结果，不查询 Git，也不注册
+逐行测量。标题偏移按 IDEA 分别取整图宽及图文间隙，再加入已有 2px 文字
+内边距，引用标签的可用宽度使用同一行偏移。
+macOS 原有六列标题留白保持，这次用户要求仅调整 Windows；双方的永久布局、
+颜色身份和打印元素不因此分叉。
 
 只有表格视口的 `use-git-graph-paint.ts` 监听字体加载与 DPI；行组件接收不可变
 绘制参数，不注册逐行监听。字体变化重新测量虚拟列表行高，DPI 变化只更新
@@ -212,6 +233,7 @@ ResizeObserver（浏览器按帧合并的尺寸观察器）服务已挂载行，
 - 外观对照读取真实上游 `idea-theme-colors.txt`，覆盖明暗主题、负数及溢出颜色；几何回归覆盖 1x/1.25x/1.5x/2x/3x 的上下半边端点、奇数物理像素、终止留白和方向箭头。`use-git-graph-paint.test.tsx` 验证 DPI/字号变化后的实际 SVG、普通调整不重复监听、卸载清理及历史布局不重建。
 - 外观回归计时使用同一 Windows Frontend harness，加入 `src/features/git/utils/git-graph-colors.test.ts`、`src/features/git/utils/git-graph-geometry.test.ts` 和 `src/features/git/hooks/use-git-graph-paint.test.tsx`。浏览器验证使用真实行组件和测量 hook，检查明暗主题、五种 DPI 和用户字号；平台调用在独立页面中替代，不视为原生产品验收。
 - 仓库上下文读取现有 `issue410-context-idea.txt` 和 `issue410-date-idea.txt`，比较真实 IDEA 的 200 条拓扑页与 300 条日期页，不用 Windows 输出生成预期。API 测试复用 `shared/fixtures/git/history-page-date-request-v1.json`，确认首批与后续页都传相同顺序。
+- 上述两份 IDEA 输出的 `Width` 也参与建议宽度回归；几何与真实行组件检查单线、建议基线六列上限、斜边中点、超过六列的密集行与后续简单行、筛选重算和标签呈现。浏览器用真实表格与虚拟滚动核对文字按行避让图形；目标 WebView2 设备验收仍单独记录。
 - `use-git-log-controller.integration.test.tsx` 通过可控异步事件验证首批不等待上下文、切仓库和刷新取消、分页独立、卸载与迟到游标清理以及失败回退；`git-commit-table.navigation.test.tsx` 验证真实行与工具栏、屏幕外双向导航、延迟挂载、选择/焦点及普通 Diff。浏览器再用真实虚拟列表和原生 Enter／空格检查同一序列，不把 viewport mock 当作原生内核证明。
 - 原生验收：在包含交错分支和合并的 Windows Git Log 中，分别使用文本、作者、分支名称筛选，确认跨过隐藏提交的连接为虚线，直接父子为实线，无关分支不误连，清空筛选恢复原图和选择行为。
 - 分页回归：`git-commit-table.navigation.test.tsx` 验证手动滚动后追加页面不定位旧选择，分支头请求仍能定位已选提交一次；`git-commit-inspector.test.tsx` 验证加载中和已加载选择的重绘、单提交/连续范围/离散多选、文件节点与选择保留、显式预览及切仓库的迟到结果。浏览器使用实际表格、IntersectionObserver、虚拟列表和 Inspector，连续由 50 条加载到 150 条，检查滚动偏移与文件读取次数；平台返回值在隔离页面替代，WebView2 实机验收仍 pending。

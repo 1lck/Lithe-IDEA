@@ -31,10 +31,37 @@ import {
 import { RunServicesMenu } from "./run-services-menu";
 import { RunConfigurationBrowser } from "./run-configuration-browser";
 import { selectRunOutput } from "../utils/run-output-selection";
+import {
+  runOutputSnapshotName,
+  runOutputSnapshotPath,
+} from "../utils/run-output-snapshot";
 import { RunOutputText } from "./run-output-text";
 import { JavaLaunchDecisionBanner } from "./java-launch-decision";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useRunPreferencesStore } from "../stores/run-preferences.store";
+
+/** Freezes the current run output into a read-only editor tab so the ring
+ *  buffer can keep evicting old lines without losing the lines shown now. */
+function snapshotRunOutput(output: string, tabLabel: string): void {
+  const at = new Date();
+  const bufferStore = useBufferStore.getState();
+  const bufferId = bufferStore.actions.openContent({
+    type: "editor",
+    path: runOutputSnapshotPath(at),
+    name: runOutputSnapshotName(tabLabel, at),
+    content: output,
+    isVirtual: true,
+    readOnly: true,
+    language: "log",
+  });
+  // The snapshot exists only in memory and its source lines may already be
+  // gone from the live ring buffer, so it must survive tab auto-eviction
+  // until the user closes it; pinning is the editor lifecycle's guard.
+  const opened = bufferStore.buffers.find((buffer) => buffer.id === bufferId);
+  if (opened?.type === "editor") {
+    bufferStore.actions.updateBuffer({ ...opened, isPinned: true });
+  }
+}
 
 /** Explains when the Java entries shown are not JDT's current answer. */
 function JavaDiscoveryNotice() {
@@ -385,6 +412,8 @@ export default function RunPane() {
                   wrapLines={wrapOutputLines}
                   wrapLabel={t("run.wrapOutputLines")}
                   onToggleWrapLines={() => setWrapOutputLines(!wrapOutputLines)}
+                  snapshotLabel={t("run.snapshotOutput")}
+                  onSnapshotOutput={() => snapshotRunOutput(output, t("run.snapshotTabName"))}
                 />
               </div>
               {isSelectedRunning ? (

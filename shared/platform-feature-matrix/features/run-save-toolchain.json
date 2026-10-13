@@ -6,7 +6,9 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Run",
-      "macos/Sources/Lithe/Services/Java"
+      "macos/Sources/Lithe/Services/Java",
+      "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
+      "rust/lithe-core/src/execution/configuration.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -14,11 +16,14 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/run",
-      "windows/tauri/src/features/maven"
+      "windows/tauri/src/features/maven",
+      "rust/lithe-core/src/execution/configuration.rs",
+      "windows/tauri/src/features/run/stores/run-prelaunch.test.ts",
+      "windows/tauri/src-tauri/src/run.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Run",
-  "verification": "修改未保存文件后运行，验证同步、JDK/Maven 选择和版本不匹配诊断。"
+  "verification": "修改未保存文件后运行，验证同步、JDK/Maven 选择和版本不匹配诊断；Maven Java Main 与 Spring Boot 直启在 JDT 构建后、JVM 启动前执行 Maven 原生资源处理，覆盖模块依赖、Profile、settings、测试资源和自定义 cwd；资源处理失败或超过十分钟期限不得启动 JVM，超时提示“Pre-launch step timed out after 600 seconds.”。"
 }

@@ -12,6 +12,7 @@ type ScrollAreaOrientation = "vertical" | "horizontal" | "both";
 type ScrollAreaProps = React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
   orientation?: ScrollAreaOrientation;
   reserveScrollbarGutter?: boolean;
+  smoothWheelScroll?: boolean;
   viewportClassName?: string;
   viewportProps?: Omit<
     React.ComponentProps<typeof ScrollAreaPrimitive.Viewport>,
@@ -27,6 +28,7 @@ function ScrollArea({
   children,
   orientation = "vertical",
   reserveScrollbarGutter = false,
+  smoothWheelScroll = false,
   viewportClassName,
   viewportProps,
   contentClassName,
@@ -37,14 +39,22 @@ function ScrollArea({
   const [viewportNode, setViewportNode] = useState<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
-    if (!viewportNode) return;
-    return bindScrollContainerWheel(viewportNode);
-  }, [viewportNode]);
+    if (!viewportNode || (smoothWheelScroll && !rootNode)) return;
+    // One animator owns the viewport and its sibling scrollbars. Capturing at
+    // the root also lets pointer input on a thumb cancel unfinished wheel motion.
+    return bindScrollContainerWheel(viewportNode, {
+      smooth: smoothWheelScroll,
+      eventTarget: smoothWheelScroll ? rootNode! : viewportNode,
+      // Base UI's scrollbar wheel handler writes the viewport directly even
+      // after preventDefault. Once consumed here, it must not run a second time.
+      stopPropagation: smoothWheelScroll,
+    });
+  }, [viewportNode, rootNode, smoothWheelScroll]);
 
   useLayoutEffect(() => {
-    if (!rootNode) return;
+    if (!rootNode || smoothWheelScroll) return;
     return bindOverlayWheelToScrollContainer(rootNode, () => viewportNode);
-  }, [rootNode, viewportNode]);
+  }, [rootNode, viewportNode, smoothWheelScroll]);
 
   const setViewportRef = useCallback(
     (node: HTMLDivElement | null) => {

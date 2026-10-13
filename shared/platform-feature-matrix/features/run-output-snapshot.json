@@ -1,0 +1,26 @@
+{
+  "id": "run-output-snapshot",
+  "area": "运行与调试",
+  "group": "运行输出",
+  "capability": "运行输出快照：右键菜单把当前缓冲的进程输出冻结为只读编辑器标签，环形缓冲继续淘汰旧行时快照内容保持不变，创建即固定防止标签自动淘汰",
+  "macos": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workbench/OutputTextView.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/run/components/run-pane.tsx",
+      "windows/tauri/src/features/run/components/run-output-text.tsx",
+      "windows/tauri/src/features/run/utils/run-output-snapshot.ts",
+      "windows/tauri/src/features/run/utils/run-output-snapshot.test.ts",
+      "windows/tauri/src/features/run/components/run-output-text.test.tsx"
+    ]
+  },
+  "owner": "Run",
+  "verification": "Windows：运行持续输出的服务，在输出区右键选择「快照当前输出」，确认编辑器区出现以捕获时间命名的只读标签，内容与当时的缓冲一致；继续产生输出并使其超过环形上限后，快照内容不变且可搜索、复制；连续创建多个快照各自独立成标签；把 maxOpenTabs 调小并打开大量其他文件，快照标签不被自动淘汰，仅用户手动关闭后消失；无输出时右键菜单不显示快照项。macOS：待实现后按同等场景验证。"
+}

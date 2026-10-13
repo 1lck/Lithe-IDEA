@@ -1,4 +1,3 @@
-import { getGitStatus } from "@/features/git/api/git-status-api";
 import GitBranchManager from "@/features/git/components/git-branch-manager";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { useRepositoryStore } from "@/features/git/stores/git-repository.store";
@@ -12,16 +11,12 @@ export function useFooterGitBranchItem(): ChromeItem<FooterLeadingItemId> | null
   const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
-  const gitStatus = useGitStore((state) => state.gitStatus);
-  const workspaceGitStatus = useGitStore((state) => state.workspaceGitStatus);
-  const currentRepoPath = useGitStore((state) => state.currentRepoPath);
+  const repositoryStatuses = useGitStore((state) => state.repositoryStatuses);
+  const availableRepoPaths = useRepositoryStore((state) => state.availableRepoPaths);
   const currentWorkspaceRepoPath = useGitStore((state) => state.currentWorkspaceRepoPath);
   const actions = useGitStore((state) => state.actions);
   const footerRepoPath = activeRepoPath ?? currentWorkspaceRepoPath ?? rootFolderPath;
-  const footerGitStatus =
-    activeRepoPath && currentRepoPath === activeRepoPath && gitStatus
-      ? gitStatus
-      : workspaceGitStatus;
+  const footerGitStatus = footerRepoPath ? repositoryStatuses[footerRepoPath] : null;
   const footerBranch = footerGitStatus?.branch;
 
   if (!footerRepoPath || !footerBranch) return null;
@@ -38,30 +33,22 @@ export function useFooterGitBranchItem(): ChromeItem<FooterLeadingItemId> | null
         paletteTarget
         triggerSurface="toolbar"
         onBranchChange={async () => {
-          const status = await getGitStatus(footerRepoPath);
-          actions.setWorkspaceGitStatus(status, footerRepoPath);
-          if (currentRepoPath === footerRepoPath) {
-            actions.setGitStatus(status);
-          }
+          await actions.refreshRepositoryStatuses(
+            [...availableRepoPaths, footerRepoPath],
+            availableRepoPaths,
+          );
         }}
         onWorktreeChange={async (worktreePath) => {
           const opened = await openGitWorktreeWorkspace(worktreePath);
           if (!opened) return;
-
-          const status = await getGitStatus(worktreePath);
-          actions.setWorkspaceGitStatus(status, worktreePath);
-          if (currentRepoPath === footerRepoPath) {
-            actions.setGitStatus(status);
-          }
         }}
         onRepositoryChange={async (repoPath) => {
           if (!repoPath) return;
 
-          const status = await getGitStatus(repoPath);
-          actions.setWorkspaceGitStatus(status, repoPath);
-          if (currentRepoPath === repoPath) {
-            actions.setGitStatus(status);
-          }
+          await actions.refreshRepositoryStatuses(
+            [...availableRepoPaths, repoPath],
+            availableRepoPaths,
+          );
         }}
       />
     ),

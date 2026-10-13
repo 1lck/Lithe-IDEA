@@ -31,6 +31,112 @@ Monaco 的原生菜单选中经过异步 WebKit 消息回调，已经失去浏�
 只处理 Monaco 已启用的对应菜单项，其余动作仍走原 action runner。测试必须
 同时覆盖真实 WKWebView 的剪贴板内容与前端不重复执行，不能只检查命令 ID。
 
+Commit/Shelf 页签的留白以同一 Community revision 的 `IslandsUICustomization.getTabLayoutStart`
+和 `IslandsTabPainter.getHOffsetUnscaled` 为依据：布局起点 4，加绘制内缩 4，得到首项左侧 8；
+相邻页签各内缩 4，得到可见外框间距 8。`ContentLabel` 的文字 inset 为 12，减去绘制内缩后
+距可见选中框为 8。Lithe 在实际外框上布局，不能直接把 12 当作选中框内部留白。
+
+共享 `LitheSettingsSelect` 的闭合框采用 Islands `ComboBox.nonEditableBackground`：
+深色 `control-bg-raised` 为 `#26282C`，浅色为白色。原来的 `#393B40` 是 expUI 父主题值，
+不能绕过 Islands 覆盖。`DarculaComboBoxBorder` 经 `DarculaNewUIUtil` 绘制普通 1pt、
+焦点 2pt 边框；SwiftUI 选择器在展开或键盘聚焦时使用焦点描边。继承的 `Component.arc=8`
+对应半径 4，控件高 28；其余设置输入框维持原有描边宽度。弹出列表布局不变。
+
+### Stash / Shelf 浏览
+
+沿用 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`platform/vcs-impl/src/com/intellij/openapi/vcs/changes/savedPatches/SavedPatchesUi.kt`
+和 `plugins/git4idea/backend/src/stash/ui/GitStashContentProvider.kt`：上下分栏默认比例
+0.5，下半区承载文件树和底部恢复动作。Lithe 使用现有 `LitheSplitPaneView`、
+Git Log 原生文件树与 `RepositoryDiffView`，避免为保存记录建立第二套 Diff。
+Stash 分隔条关闭已有 `highlightsOnHover` 开关，悬停和拖动均保持原色，保留拖动热区。
+创建 Stash / Shelf 入口按用户要求放在中间工具栏，通过 Commit 共享弹窗输入；
+原有名称、Untracked（仅 Stash）、保存/恢复/删除服务不变，Shelf 记录仍可访问。
+分支标签遵循 `GitStashBranchComponent` → `GitRefManager` 的
+`VersionControl.GitLog.localBranchIconColor`（深色 #5FAD65、浅色 #369650）与
+`headIconColor`（深色 #F5D273、浅色 #FFAF0F）；不能直接展示灰色 SVG 原色。
+记录行复用 `BranchPopupRowControl` 的非激活原位展开窗口，hover 展示完整名称、日期、
+分支，屏幕边界约束与滚动/关闭清理沿用原实现；展开区域也转交共享右键菜单，不能
+为了 hover 丢失 Apply/Pop/Restore/Drop。
+
+预览先固定 Stash 的对象 SHA，再用 Git 导出包含未跟踪文件的只读补丁，不能读取当前
+工作区冒充保存版本。Shelf 的 index 与 worktree 补丁是两个连续版本，必须分开选择，
+不能拼成同一文件的净 Diff。Core `git.patchPreview` 的 `metadataOnly` 路径仅解析安全
+文件名、不检查工作区适用性，不生成应用授权 token，冲突期间仍可浏览保存内容。
+当前按文件顺序解析，复杂路径交给 Git；大量文件的后续优化应批量返回 Core 文件段元数据。
+异步加载由页面 task 的选择标识取消，迟到结果不覆盖新选择；Diff 使用不可变快照。
+Git Log 文件点击始终走历史 Diff；保存记录内的前后文件导航由编辑器显式传入快照，
+不能通过当前 Diff 类型改变 Git Log 入口的语义。补丁导出固定无颜色与 a/b 路径前缀，
+避免用户 Git 配置影响下游文件段识别及路径剥离。
+组件与 Core 用例不能代替真实工作区深浅主题、窄宽度、弹窗和点击操作验收。
+
+### Commit 文件树
+
+Commit 文件树参考同一 Community revision 的 `ChangesTreeCellRenderer`、
+`ChangesBrowserChangeNode` 和 `ChangesBrowserNodeRenderer`：复选框在文件图标左侧，
+图标表示文件类型，文件名使用 Git 状态颜色；路径和计数保持正常字号的次要文字。
+复用 `LitheTheme.Tree` 的 24pt 行高、19pt 层级缩进、16pt 图标及选中/悬停表面，
+文件名与路径使用 13pt Regular；分组标题加粗，但不永久绘制选中背景。
+文件名颜色来自 `IslandSchemeDark.xml` 与 Light 继承的 Default：深色修改/重命名
+`#70AEFF`、新增 `#73BD79`、删除 `#6F737A`、冲突 `#DE6A66`、未跟踪 `#E88F89`。
+使用既有文件类型图标映射，不再用铅笔/加号色块代替类型图标。
+
+`GitChangeInclusionCheckbox` 复用上游 expUI 三态 SVG，24pt 画布中包含 16pt 方框，
+分别保留开/关/部分选中、禁用、焦点状态。深色原图不改，浅色按同 revision 的
+`Checkbox ColorPalette` 生成颜色变体，图形路径不改；出处记录在图标目录 NOTICE。
+这是构建期固定资源，只通过既有 bundle 图标解析器读取，不增加运行时下载或写入。
+保持已有分组、暂存回调、多选目标与子模块禁用规则；样式迁移不重写提交语义。
+`GitCommitTreeStyleTests` 校验真实 SVG 的明暗状态、尺寸/底色及文件类型解析；
+`GitChangeSelectionTests` 与 `GitChangeSectionsCacheTests` 覆盖已有选择和分组行为。
+完整工作区的深浅视觉与交互仍须单独验收。
+
+### 居中的输入与补丁表单
+
+新建文件、目录、变更列表及补丁表单复用 `LitheCenteredPopup`，即从原有
+`ProjectItemNameDialogPresenter` 提取的原生面板生命周期。它在所属窗口中央显示，
+随窗口移动或调整尺寸重新居中；轻量表单使用无边框窗口与 `litheContextMenuSurface`，Commit 对话框使用标题栏与独立共享样式。不再把共享
+背景与阴影叠在系统 sheet 上，否则外层仍保留系统圆角与外框。
+
+表单保持原动作和内容，新建文件/目录使用 plain 名称输入框、13pt 字体、
+32pt 高度和左右 13pt 留白；输入区域融入浮层底色，聚焦时不画独立蓝框。
+依据同一 Community revision 的 `NewItemSimplePopupPanel.createTextField`：
+New UI 行高 32、左侧 empty border 为 13，`ErrorBorder` 仅在错误/警告时绘制，
+不能套用设置页的常规输入框 chrome。`focusedNewItemFieldBlendsIntoPopup` 在
+深浅模式下渲染真实新建文件/目录内容，聚焦后检查输入区域与弹窗背景一致。
+新建文件/目录继续使用 `lithePopupNameField`；Commit 变更列表不消费轻量名称框。
+Commit 新建、编辑变更列表依据 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`
+的 `NewChangelistDialog.java`、`NewEditChangelistPanel.kt`、
+`DarculaEditorTextFieldBorder.java` 和 Islands 明暗主题，使用原生带标题栏对话框。
+`LitheCommitDialogStyle` 统一对话框底色、直角编辑框及 72×28 按钮，由 Commit 变更列表及创建/应用补丁表单消费；
+现有名称字段使用标签与输入框对齐布局。名称框获得焦点时绘制蓝色直角边框，不能套用新建文件的无框输入。
+布局参数来自 `IntelliJSpacingConfiguration`：标签间距 6，表单留白上下 10、左右 12；`DialogWrapper.BASE_BUTTON_GAP` 为 12。
+编辑框遵循 `DarculaEditorTextFieldBorder` 的上下 6、左右 8 内边距；
+Islands `TextField.minimumSize` 高 28，浅色编辑区继承白色 `editor-bg`。
+对话框失焦保留，Cancel、Esc、窗口关闭或成功保存才关闭；旧轻量浮层保持既有失焦关闭行为。
+本次仅迁移外观：保留名称、取消与保存，以及原有校验和存储逻辑；不增加 Comment、
+Set active、自动命名或帮助入口。`LitheCenteredPopupTests` 检查真实标题栏、焦点、
+失焦保留与窗口关闭，并确认新建文件/目录轻量输入框不受影响。
+
+创建/应用补丁也使用带标题的共享对话框、表单留白及主次按钮，保留既有文件列表、
+预览、来源与目标选择及业务动作。原生打开/保存面板不是表单的 child window，因此
+不能用 childWindows 判断文件选择器是否正在使用；带标题表单统一失焦保留。
+共享桥接传递完整 SwiftUI environment，使字段、按钮和标题使用同一应用语言。
+带标题窗口打开期间，由共享 presenter 拦截发给所属主窗口的鼠标、滚轮和键盘事件，
+防止后台按钮覆盖当前编辑状态；其他窗口、原生文件选择器和内部下拉菜单照常交互。
+这是所属窗口的输入隔离，不运行会阻塞异步业务的 AppKit 模态循环；关闭/卸载移除监听。
+回归覆盖真实事件路由、选择器失焦保留、关闭后恢复主窗口，以及独立宿主的语言继承。
+
+内部选择器打开子窗口时不能把轻量父表单当作失焦取消；忙碌表单禁止普通失焦关闭，
+但所属主窗口关闭仍必须释放面板和观察器。`LitheCenteredPopupTests` 验证无边框、
+无动画、居中跟随、子窗口保留以及主窗口关闭清理。标题栏只保留已显示的创建补丁
+入口，不因为修正按钮尺寸而增加应用补丁入口。
+
+共享桥接必须在 `updateNSView` 同步读取展示状态并构造内容，才能让 SwiftUI
+跟踪状态依赖；只把原生窗口挂载延后到主队列。异步请求带更新序号，后续更新、
+关闭及卸载使旧请求失效，避免等待另一次点击才显示或集中打开过期弹窗。
+`stateChangesOpenCloseAndReopenWithoutAnotherInteraction` 通过真实 SwiftUI `@State`
+宿主验证单次打开、重复打开、关闭、重新打开及取消后卸载；旧实现单次打开失败。
+
 ### 工作台共享悬停提示
 
 四周工具栏、Git/Maven/Agent 等已有 `workbenchHoverHelp` 消费者统一读取
@@ -423,3 +529,15 @@ Agent 输入区底栏的切换菜单向上展开，菜单底边锚定触发控�
 
 - `macos/EditorFrontend/context-menu.ts`
 - `macos/Sources/Lithe/Views/Editor/MonacoEditorContextMenu.swift`
+
+### 统一 Repository Diff 面板
+
+Commit 工作区、项目树文件/目录差异、编辑器行变更和冲突文件入口，与 Git Log、
+Stash/Shelf 共用 `RepositoryDiffView`。它以原 Git Log 新版工具栏和原生单栏/双栏为
+唯一面板，删除 `DiffReviewView`、旧单栏行、旧连接带与 `DiffMapView`，不保留备用旧路径。
+仍在使用的字体/布局度量和语法高亮分别归 `DiffLayoutMetrics`、`DiffSyntaxHighlighter`。
+工作区模式保留搜索、空白比较、整文件暂存/取消暂存/丢弃与差异块动作，继续调用原有
+GitFeatureModel 写入及确认流程；只读历史/保存记录模式不提供这些写入动作。
+差异块入口锚定该 hunk 的首个差异行；纯删除使用左栏，新版单栏也保留动作。
+分支比较、本地历史与 Agent 的嵌入式预览继续复用 `DiffPaneView` → `DiffSplitPaneView`，
+它们不承载仓库暂存操作，也不是被删除的旧工作区面板。

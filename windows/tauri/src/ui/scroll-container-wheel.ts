@@ -1,3 +1,5 @@
+import { createWheelScrollAnimation } from "@/ui/wheel-scroll-animation";
+
 const DOM_DELTA_LINE = 1;
 const DOM_DELTA_PAGE = 2;
 
@@ -91,7 +93,11 @@ function getLineHeight(element: HTMLElement) {
   return Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : 16;
 }
 
-function applyVerticalWheelEvent(element: HTMLElement, event: WheelEvent) {
+function applyVerticalWheelEvent(
+  element: HTMLElement,
+  event: WheelEvent,
+  animate?: (axis: "x" | "y", delta: number) => boolean,
+) {
   if (event.ctrlKey || event.metaKey || event.defaultPrevented) return false;
 
   const delta = getWheelDeltaPixels(event, {
@@ -102,21 +108,71 @@ function applyVerticalWheelEvent(element: HTMLElement, event: WheelEvent) {
 
   // Sideways swipes latch onto the same clipped descendants as vertical ones, so a
   // horizontally scrollable container applies them itself too.
-  if (!isMostlyVerticalWheel(event.deltaX, event.deltaY)) {
-    return applyHorizontalWheelToScrollContainer(element, delta.x);
+  if ((animate && event.shiftKey) || !isMostlyVerticalWheel(event.deltaX, event.deltaY)) {
+    const horizontalDelta = animate && event.shiftKey && delta.x === 0 ? delta.y : delta.x;
+    return animate
+      ? animate("x", horizontalDelta)
+      : applyHorizontalWheelToScrollContainer(element, horizontalDelta);
   }
-  return applyVerticalWheelToScrollContainer(element, delta.y);
+  return animate ? animate("y", delta.y) : applyVerticalWheelToScrollContainer(element, delta.y);
 }
 
-export function bindScrollContainerWheel(element: HTMLElement) {
+export function bindScrollContainerWheel(
+  element: HTMLElement,
+  options: { smooth?: boolean; eventTarget?: HTMLElement; stopPropagation?: boolean } = {},
+) {
+  const eventTarget = options.eventTarget ?? element;
+  const view = element.ownerDocument.defaultView;
+  const scheduler = view ? {
+    now: () => view.performance.now(),
+    request: (callback: () => void) => view.requestAnimationFrame(callback),
+    cancel: (id: number) => view.cancelAnimationFrame(id),
+  } : null;
+  const horizontal = options.smooth && scheduler ? createWheelScrollAnimation({
+    read: () => element.scrollLeft,
+    write: (position) => { element.scrollLeft = position; },
+    maximum: () => Math.max(0, element.scrollWidth - element.clientWidth),
+    scheduler,
+  }) : null;
+  const vertical = options.smooth && scheduler ? createWheelScrollAnimation({
+    read: () => element.scrollTop,
+    write: (position) => { element.scrollTop = position; },
+    maximum: () => Math.max(0, element.scrollHeight - element.clientHeight),
+    scheduler,
+  }) : null;
+  const stop = () => { horizontal?.stop(); vertical?.stop(); };
+  const reducedMotion = view?.matchMedia?.("(prefers-reduced-motion: reduce)");
+  const animate = (axis: "x" | "y", delta: number) => {
+    if (reducedMotion?.matches) {
+      stop();
+      return axis === "x"
+        ? applyHorizontalWheelToScrollContainer(element, delta)
+        : applyVerticalWheelToScrollContainer(element, delta);
+    }
+    return (axis === "x" ? horizontal : vertical)?.scroll(delta) ?? false;
+  };
   const onWheel = (event: WheelEvent) => {
-    if (!applyVerticalWheelEvent(element, event)) return;
+    if (!event.cancelable) return;
+    if (!applyVerticalWheelEvent(element, event, vertical ? animate : undefined)) return;
     event.preventDefault();
+    if (options.stopPropagation) event.stopPropagation();
+  };
+  const onVisibilityChange = () => {
+    if (element.ownerDocument.hidden) stop();
   };
 
-  element.addEventListener("wheel", onWheel, { capture: true, passive: false });
+  eventTarget.addEventListener("wheel", onWheel, { capture: true, passive: false });
+  if (vertical) {
+    eventTarget.addEventListener("keydown", stop, true);
+    eventTarget.addEventListener("pointerdown", stop, true);
+    element.ownerDocument.addEventListener("visibilitychange", onVisibilityChange);
+  }
   return () => {
-    element.removeEventListener("wheel", onWheel, { capture: true });
+    eventTarget.removeEventListener("wheel", onWheel, { capture: true });
+    eventTarget.removeEventListener("keydown", stop, true);
+    eventTarget.removeEventListener("pointerdown", stop, true);
+    element.ownerDocument.removeEventListener("visibilitychange", onVisibilityChange);
+    stop();
   };
 }
 

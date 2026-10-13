@@ -23,6 +23,7 @@ mod launch_arguments;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const TOOLCHAIN_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const PRE_LAUNCH_TIMEOUT: Duration = Duration::from_secs(600);
 const RUN_OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 const RUN_OUTPUT_HIGH_WATER_BYTES: usize = 1_048_576;
 const RUN_OUTPUT_QUEUE_CAPACITY_CHUNKS: usize = 64;
@@ -129,6 +130,12 @@ fn run_session_key(window_label: &str, session_id: &str) -> RunSessionKey {
     RunSessionKey {
         window_label: window_label.to_string(),
         session_id: session_id.to_string(),
+    }
+}
+
+pub fn cancel_window_prelaunches(window_label: &str) {
+    if let Ok(mut pending) = pending_launches().lock() {
+        pending.retain(|key, _| key.window_label != window_label);
     }
 }
 
@@ -243,6 +250,9 @@ pub struct StartProcessArgs {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutePreLaunchArgs {
+    pub window_label: String,
+    pub session_id: String,
+    pub execution_id: String,
     pub executable: String,
     pub arguments: Vec<String>,
     pub working_directory: String,
@@ -617,36 +627,79 @@ fn maven_resolution(root: &Path, override_path: &str) -> ToolchainResolution {
     }
 }
 
-/// Runs one pre-launch step (e.g. `javac`) to completion and reports its exit
-/// code plus combined stdout/stderr. Standalone Java compiles here before the
-/// main `java` process starts; the store aborts the run when `exit_code != 0`
-/// and surfaces `output` as the compiler's real diagnostic.
+/// Runs one owned compiler or resource-processing step with bounded cleanup.
 #[tauri::command]
 pub async fn run_execute_prelaunch(args: ExecutePreLaunchArgs) -> Result<PreLaunchOutcome, String> {
-    // `.output()` blocks until the compiler exits. Sync Tauri commands run on the
-    // main thread, so a long `javac` compile would freeze the workbench; run the
-    // blocking wait on a worker thread instead.
+    if args.window_label.trim().is_empty() || args.execution_id.trim().is_empty() {
+        return Err("A pre-launch step requires an active window and execution.".into());
+    }
+    let reservation = {
+        let mut pending = pending_launches()
+            .lock()
+            .map_err(|_| "Run launch state is unavailable".to_string())?;
+        let key = run_session_key(&args.window_label, &args.session_id);
+        let identity = Arc::new(());
+        pending.insert(
+            key.clone(),
+            PendingLaunch {
+                identity: identity.clone(),
+                execution_id: Some(args.execution_id.clone()),
+            },
+        );
+        LaunchReservation { key, identity }
+    };
     tauri::async_runtime::spawn_blocking(move || {
-        let mut command = command_for_executable(&args.executable, &args.arguments);
-        command
-            .current_dir(&args.working_directory)
-            .envs(&args.environment)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        apply_creation_flags(&mut command);
-        let output = command
-            .output()
-            .map_err(|error| format!("Unable to start process: {error}"))?;
-        let mut text = decode_process_bytes(&output.stdout);
-        text.push_str(&decode_process_bytes(&output.stderr));
-        Ok(PreLaunchOutcome {
-            exit_code: output.status.code().unwrap_or(-1),
-            output: text,
-        })
+        execute_prelaunch(args, reservation, PRE_LAUNCH_TIMEOUT)
     })
     .await
-    .map_err(|error| format!("Pre-launch task failed: {error}"))?
+    .map_err(|error| format!("Pre-launch task failed: {error}"))
+}
+
+fn execute_prelaunch(
+    args: ExecutePreLaunchArgs,
+    reservation: LaunchReservation,
+    timeout: Duration,
+) -> PreLaunchOutcome {
+    let mut command = command_for_executable(&args.executable, &args.arguments);
+    command
+        .current_dir(&args.working_directory)
+        .envs(&args.environment);
+    apply_creation_flags(&mut command);
+    let started = Instant::now();
+    let output = lithe_git_host::run(
+        &mut command,
+        None,
+        || {
+            started.elapsed() >= timeout
+                || pending_launches()
+                    .lock()
+                    .map(|pending| !reservation.is_current(&pending))
+                    .unwrap_or(true)
+        },
+        || {},
+        |_, _| {},
+    );
+    let mut text = decode_process_bytes(&output.stdout);
+    text.push_str(&decode_process_bytes(&output.stderr));
+    if let Some(failure) = output.failure {
+        let reason = if started.elapsed() >= timeout {
+            format!(
+                "Pre-launch step timed out after {} seconds.",
+                timeout.as_secs()
+            )
+        } else {
+            format!("Pre-launch step failed: {failure:?}")
+        };
+        text.push_str(&format!("\n{reason}\n"));
+        return PreLaunchOutcome {
+            exit_code: -1,
+            output: text,
+        };
+    }
+    PreLaunchOutcome {
+        exit_code: output.status.and_then(|status| status.code()).unwrap_or(-1),
+        output: text,
+    }
 }
 
 #[tauri::command]
@@ -2294,6 +2347,55 @@ mod tests {
         assert!(!pending_launches().lock().unwrap().contains_key(&key));
     }
 
+    fn prelaunch_fixture(window: &str) -> (ExecutePreLaunchArgs, LaunchReservation) {
+        let reservation = reserve_test_launch(
+            &mut pending_launches().lock().unwrap(),
+            window,
+            "prelaunch-test",
+        );
+        let args = ExecutePreLaunchArgs {
+            window_label: window.into(),
+            session_id: reservation.key.session_id.clone(),
+            execution_id: "prelaunch-test".into(),
+            executable: std::env::var("COMSPEC").unwrap(),
+            arguments: vec![
+                "/d".into(),
+                "/c".into(),
+                "echo resource-failure & exit /b 7".into(),
+            ],
+            working_directory: std::env::temp_dir().to_string_lossy().into_owned(),
+            environment: HashMap::new(),
+        };
+        (args, reservation)
+    }
+
+    #[test]
+    fn prelaunch_preserves_nonzero_exit_and_output() {
+        let (args, reservation) = prelaunch_fixture("prelaunch-failure-window");
+        let outcome = execute_prelaunch(args, reservation, Duration::from_secs(2));
+        assert_eq!(outcome.exit_code, 7);
+        assert!(outcome.output.contains("resource-failure"));
+    }
+
+    #[test]
+    fn prelaunch_deadline_terminates_the_owned_process() {
+        let (args, reservation) = prelaunch_fixture("prelaunch-timeout-window");
+        let outcome = execute_prelaunch(args, reservation, Duration::ZERO);
+        assert_eq!(outcome.exit_code, -1);
+        assert!(outcome.output.contains("timed out"));
+    }
+
+    #[test]
+    fn prelaunch_window_close_cancels_without_affecting_other_windows() {
+        let (args, reservation) = prelaunch_fixture("prelaunch-close-window");
+        let (_, other) = prelaunch_fixture("prelaunch-other-window");
+        cancel_window_prelaunches("prelaunch-close-window");
+        assert!(other.is_current(&pending_launches().lock().unwrap()));
+        let outcome = execute_prelaunch(args, reservation, Duration::from_secs(2));
+        assert_eq!(outcome.exit_code, -1);
+        assert!(outcome.output.contains("Cancelled"));
+    }
+
     #[test]
     fn pending_launch_stop_prevents_late_publication() {
         let mut pending = HashMap::new();
@@ -3106,6 +3208,35 @@ mod tests {
         assert!(
             resolved_main.ends_with("java.exe"),
             "resolved_main = {resolved_main}"
+        );
+        fs::remove_dir_all(home).ok();
+    }
+
+    /// The plan's resource step declares the reactor as its own working
+    /// directory. A workspace whose root has no wrapper must still resolve the
+    /// wrapper next to the reactor POM: the absolute `-f` argument anchors the
+    /// POM but cannot help find `mvnw.cmd`.
+    #[test]
+    fn resolve_maven_executable_finds_the_wrapper_beside_the_reactor_pom() {
+        let home = temp_project();
+        let reactor = home.join("projects").join("demo");
+        fs::create_dir_all(reactor.join(".mvn").join("wrapper")).expect("wrapper directory");
+        fs::write(reactor.join("pom.xml"), b"<project/>").expect("pom");
+        fs::write(reactor.join("mvnw.cmd"), b"").expect("mvnw.cmd");
+        fs::write(
+            reactor
+                .join(".mvn")
+                .join("wrapper")
+                .join("maven-wrapper.properties"),
+            b"distributionUrl=https://example.invalid/maven-bin.zip",
+        )
+        .expect("wrapper properties");
+
+        let resolved = resolve_maven_executable(&home, &reactor, "").expect("resolve wrapper");
+        assert!(resolved.ends_with("mvnw.cmd"), "resolved = {resolved}");
+        assert!(
+            resolved.contains("demo"),
+            "the wrapper must come from the reactor directory: {resolved}"
         );
         fs::remove_dir_all(home).ok();
     }

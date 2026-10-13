@@ -93,3 +93,34 @@ test("the soft-wrap context menu appears only for toggleable consumers", () => {
   // must at least attach the trigger around the output.
   expect(host.querySelector("[data-slot='context-menu-trigger']")).not.toBeNull();
 });
+
+test("snapshot props render for both empty and live output without firing the callback", () => {
+  let snapshotted = 0;
+  const renderWith = (source: string) => {
+    act(() => {
+      root.render(
+        <RunOutputText
+          title="Process output"
+          source={source}
+          emptyLabel="empty"
+          wrapLines
+          wrapLabel="Use soft wraps"
+          onToggleWrapLines={() => undefined}
+          snapshotLabel="Snapshot current output"
+          onSnapshotOutput={() => {
+            snapshotted += 1;
+          }}
+        />,
+      );
+    });
+  };
+
+  // The entry only shows for non-empty output and Base UI menus need real
+  // pointer events, so the click flow itself is covered by the app-level
+  // verification; here rendering with the new props must be stable for both
+  // states and must never fire the callback on its own.
+  renderWith("");
+  renderWith("first line\n");
+  expect(outputPre().textContent).toContain("first line");
+  expect(snapshotted).toBe(0);
+});

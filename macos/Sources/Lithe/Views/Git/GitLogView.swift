@@ -1833,33 +1833,7 @@ struct GitLogView: View {
     }
 
     private var visibleCommitFileTreeItems: [GitCommitFileTreeItem] {
-        var items: [GitCommitFileTreeItem] = []
-        appendVisibleCommitFileTreeItems(
-            for: commitFileTree,
-            depth: 0,
-            into: &items
-        )
-        return items
-    }
-
-    private func appendVisibleCommitFileTreeItems(
-        for node: GitCommitFileTreeNode,
-        depth: Int,
-        into items: inout [GitCommitFileTreeItem]
-    ) {
-        items.append(.folder(node, depth: depth))
-        guard !collapsedFileGroups.contains(node.id) else { return }
-
-        for directory in node.directories {
-            appendVisibleCommitFileTreeItems(
-                for: directory,
-                depth: depth + 1,
-                into: &items
-            )
-        }
-        for file in node.files {
-            items.append(.file(file, depth: depth + 1))
-        }
+        GitCommitFileTreeItem.visibleItems(commitFileTree, collapsed: collapsedFileGroups)
     }
 
     private var commitFileRootSubtitle: String? {

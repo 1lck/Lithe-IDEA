@@ -70,6 +70,9 @@ describe("Git graph layout", () => {
         })
         .sort();
       expect(actual).toEqual(expected);
+      const expectedWidth = fixture(prefix === "issue410" ? "issue410-context-idea.txt" : "issue410-date-idea.txt")
+        .find((line) => line.startsWith("Width|"))!;
+      expect(layout.recommendedLaneCount).toBe(Number(expectedWidth.split("|")[1]));
     });
   }
 
@@ -448,6 +451,7 @@ describe("Git graph layout", () => {
     expect(layoutGitGraph([commit("a", ["missing"])], new Set())).toEqual({
       rows: [],
       laneCount: 0,
+      recommendedLaneCount: 0,
       hasMissingParents: false,
     });
   });
@@ -597,4 +601,24 @@ describe("Git graph layout", () => {
     ).toMatchObject({ title: "feature/orders" });
     expect(bestGraphReferenceLabel([])).toBeNull();
   });
+});
+
+test("linear and single-commit graphs reserve one recommended lane, empty results reserve none", () => {
+  expect(layoutGitGraph([]).recommendedLaneCount).toBe(0);
+  expect(layoutGitGraph([commit("root")]).recommendedLaneCount).toBe(1);
+  expect(layoutGitGraph([commit("tip", ["middle"]), commit("middle", ["root"]), commit("root")])
+    .recommendedLaneCount).toBe(1);
+});
+
+test("a rare dense merge widens its own rows without making every subject reserve that width", () => {
+  const commits = Array.from({ length: 100 }, (_, row) => commit(String(row),
+    row === 60 ? Array.from({ length: 8 }, (_, index) => String(61 + index))
+      : row > 60 && row <= 68 ? ["69"] : row < 99 ? [String(row + 1)] : []));
+  const layout = layoutGitGraph(commits);
+  expect(layout.laneCount).toBeGreaterThan(6);
+  expect(layout.recommendedLaneCount).toBeLessThan(layout.laneCount);
+  expect(layout.recommendedLaneCount).toBeLessThan(6);
+  // Changing the visible graph recalculates its baseline, using projected edges.
+  const filtered = layoutGitGraph(commits, new Set(["0", "99"]));
+  expect(filtered.recommendedLaneCount).toBe(1);
 });

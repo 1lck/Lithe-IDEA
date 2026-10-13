@@ -121,6 +121,12 @@ export interface PreLaunchStep {
   arguments: string[];
   /** Entries joined with `;` (Windows) and prepended as `-cp` before args. */
   classpath?: string[];
+  /**
+   * Project-relative directory for this step, and the root the host resolves
+   * its toolchain from. Absent inherits the plan's `workingDirectory`, which
+   * may be a user override the step must not run from.
+   */
+  workingDirectory?: string;
 }
 
 export interface LaunchPlan {

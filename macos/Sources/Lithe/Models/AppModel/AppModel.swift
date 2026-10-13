@@ -1465,6 +1465,14 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         }
     }
 
+    func showSavedChangesDiff(_ snapshot: GitSavedChangesSnapshot, version: String, file: GitCommitFile) {
+        guard let feature = gitFeatureIfActive, feature.gitRepositoryRoot == snapshot.repositoryRoot else { return }
+        editorTabOrderFeature.repositoryDiffRequestID = UUID()
+        if !editorTabOrderFeature.contains(.repositoryDiff) { editorTabOrderFeature.moveToEnd(.repositoryDiff) }
+        feature.showSavedChangesDiff(snapshot, version: version, file: file)
+        selectRepositoryDiffTab()
+    }
+
     func closeGitCommitDiff() {
         let wasSelected = isRepositoryDiffSelected
         let previous = editorTabOrderFeature.repositoryDiffReturnTab

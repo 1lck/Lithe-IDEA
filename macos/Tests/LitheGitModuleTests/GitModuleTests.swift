@@ -8,6 +8,34 @@ import Testing
 @MainActor
 struct GitModuleTests {
     @Test
+    func gitLogFileSelectionReplacesSavedDiffEvenForTheSamePath() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+        )))
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        let commit = GitCommit(hash: "history", shortHash: "history", parentHashes: [],
+            authorName: "", authorEmail: "", date: "", subject: "History", decorations: "")
+        feature.previewGitCommitSelection(commit)
+        let file = GitCommitFile(status: "M", path: "file.txt")
+        let saved = GitSavedChangesSnapshot(id: "stash", repositoryRoot: root, files: [
+            GitSavedPatchFile(file: file, version: "Stash", base: "base",
+                patch: "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+saved\n")
+        ])
+        feature.showSavedChangesDiff(saved, version: "Stash", file: file)
+        #expect(feature.selectedGitCommitDiffContext?.commit.hash == "saved:stash:Stash")
+        await feature.showGitCommitDiff(for: file)
+        #expect(feature.selectedGitCommitDiffContext?.commit.hash == commit.hash)
+        #expect(feature.diffRows.isEmpty)
+        #expect(!feature.isLoadingDiff)
+        feature.showSavedChangesDiff(saved, version: "Stash", file: file)
+        #expect(feature.diffRows.contains { $0.rightText == "saved" })
+    }
+
+    @Test
     func sharedConsoleCancelsExternalOperationsEvenAfterClearingButResetPreservesTheirOwner() async {
         let root = URL(fileURLWithPath: "/workspace")
         let journal = GitExecutionJournal()

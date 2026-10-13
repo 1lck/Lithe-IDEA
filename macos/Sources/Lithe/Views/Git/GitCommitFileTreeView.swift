@@ -6,6 +6,16 @@ enum GitCommitFileTreeItem: Equatable, Identifiable {
     case folder(GitCommitFileTreeNode, depth: Int)
     case file(GitCommitFile, depth: Int)
 
+    static func visibleItems(_ node: GitCommitFileTreeNode, collapsed: Set<String>, depth: Int = 0) -> [Self] {
+        var result: [Self] = [.folder(node, depth: depth)]
+        guard !collapsed.contains(node.id) else { return result }
+        for directory in node.directories {
+            result += visibleItems(directory, collapsed: collapsed, depth: depth + 1)
+        }
+        result += node.files.map { .file($0, depth: depth + 1) }
+        return result
+    }
+
     var id: String {
         switch self {
         case let .folder(node, _): "folder:\(node.id)"

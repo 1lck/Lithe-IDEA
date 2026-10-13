@@ -7,6 +7,9 @@ import type { GitDiff, GitHunk } from "../types/git.types";
 import { parseRawDiffContent } from "./git-diff-parser";
 import { planCommitDiffBlocks } from "./commit-diff-blocks";
 import { commitDiffPresentation } from "../services/commit-diff-review";
+import { FULL_FILE_CONTEXT_LINES } from "./git-diff-helpers";
+import { monacoDiffRows } from "./monaco-diff-rows";
+import { planIndependentCommitDiff } from "./independent-commit-diff";
 
 // Integration lane: actual local Git, with a deadline on every subprocess and
 // exclusive temporary ownership. No worktree or index from the user's repo is used.
@@ -19,7 +22,7 @@ test("real Git commits only a checked block, unchecks it independently, and roll
     + hunk.lines.map(line => (line.line_type === "header" ? "" : line.line_type === "added" ? "+"
       : line.line_type === "removed" ? "-" : " ") + line.content + "\n").join("");
   const read = (staged: boolean): GitDiff => {
-    const patch = git(["diff", ...(staged ? ["--cached"] : ["HEAD"]), "--no-ext-diff", "--unified=2147483647", "--", "file.txt"]);
+    const patch = git(["diff", ...(staged ? ["--cached"] : ["HEAD"]), "--no-ext-diff", `--unified=${FULL_FILE_CONTEXT_LINES}`, "--", "file.txt"]);
     return { ...parseRawDiffContent(patch, "file.txt") as GitDiff, is_full_context: true };
   };
   try {
@@ -55,7 +58,7 @@ test.each(["a", "B", "a\r\n", "B\r\n"])("real Git preserves exact %j bytes throu
     "-c", "core.attributesFile=", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=", ...args],
     { cwd: root, timeout: 5000, windowsHide: true });
   const read = (staged: boolean): GitDiff => ({ ...parseRawDiffContent(git(["diff",
-    ...(staged ? ["--cached"] : ["HEAD"]), "--unified=2147483647", "--", "file.txt"]).toString("utf8"),
+    ...(staged ? ["--cached"] : ["HEAD"]), `--unified=${FULL_FILE_CONTEXT_LINES}`, "--", "file.txt"]).toString("utf8"),
     "file.txt") as GitDiff, is_full_context: true });
   try {
     git(["init", "--quiet"]);
@@ -82,7 +85,7 @@ test.each([false, true])("real Git index-only/binary inclusion uses actual statu
     "-c", "commit.gpgsign=false", "-c", "core.hooksPath=", ...args],
     { cwd: root, timeout: 5000, windowsHide: true });
   const read = (staged: boolean): GitDiff => ({ ...parseRawDiffContent(git(["diff",
-    ...(staged ? ["--cached"] : ["HEAD"]), "--unified=2147483647", "--", "file.txt"]).toString("utf8"),
+    ...(staged ? ["--cached"] : ["HEAD"]), `--unified=${FULL_FILE_CONTEXT_LINES}`, "--", "file.txt"]).toString("utf8"),
     "file.txt") as GitDiff, is_full_context: true });
   const base = binary ? "a\0\n" : "a\n", indexed = binary ? "B\0\n" : "B\n";
   const work = binary ? "C\0\n" : base;
@@ -109,5 +112,40 @@ test.each([false, true])("real Git index-only/binary inclusion uses actual statu
     expect(git(["show", ":file.txt"])).toEqual(Buffer.from(indexed));
     git(["add", "file.txt"]);
     expect(git(["show", ":file.txt"])).toEqual(Buffer.from(work));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 15000);
+
+test.each(["worktree", "snapshot", "staged"])("real Git full-context %s review projects multiple edits without repeating source lines", mode => {
+  const root = mkdtempSync(join(tmpdir(), "lithe-diff-context-"));
+  const git = (args: string[]) => execFileSync("git", ["-c", "core.autocrlf=false",
+    "-c", "commit.gpgsign=false", "-c", "core.hooksPath=", ...args],
+    { cwd: root, encoding: "utf8", timeout: 5000, windowsHide: true });
+  const before = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`);
+  const after = [...before];
+  after[5] = "first replacement";
+  after[19] = "second replacement";
+  after[33] = "third replacement";
+  try {
+    git(["init", "--quiet"]);
+    git(["config", "user.name", "Diff integration"]);
+    git(["config", "user.email", "diff@example.invalid"]);
+    writeFileSync(join(root, "file.txt"), before.join("\n") + "\n");
+    git(["add", "file.txt"]);
+    git(["commit", "--quiet", "-m", "base"]);
+    writeFileSync(join(root, "file.txt"), after.join("\n") + "\n");
+    if (mode === "staged") git(["add", "file.txt"]);
+    const patch = git([mode === "snapshot" ? "diff-files" : "diff",
+      ...(mode === "staged" ? ["--cached"] : []), "--no-ext-diff",
+      `--unified=${FULL_FILE_CONTEXT_LINES}`, "--", "file.txt"]);
+    const diff = { ...parseRawDiffContent(patch, "file.txt") as GitDiff, is_full_context: true };
+    expect(diff.lines.filter(line => line.line_type === "header")).toHaveLength(1);
+    const rows = monacoDiffRows(diff, { hideHunkHeaders: true });
+    const plan = planIndependentCommitDiff(rows, false, new Set());
+    expect(plan.left.map(row => row.left)).toEqual(before);
+    expect(plan.right.map(row => row.right)).toEqual(after);
+    expect(plan.left.map(row => row.oldLine)).toEqual(Array.from({ length: 40 }, (_, index) => index + 1));
+    expect(plan.right.map(row => row.newLine)).toEqual(Array.from({ length: 40 }, (_, index) => index + 1));
+    expect(plan.changes).toHaveLength(3);
+    expect(planCommitDiffBlocks(diff, { ...diff, lines: [] })).toHaveLength(3);
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 15000);

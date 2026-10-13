@@ -12,7 +12,7 @@ const fileLines = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, index) => ` line ${from + index}`);
 
 // Both patches are real `git diff` output for one edit of a 40-line file:
-// `--unified=2147483647` for the review, and Git's default `--unified=3`.
+// `--unified=1073741823` for the review, and Git's default `--unified=3`.
 const fullContext: GitDiff = {
   ...parse([
     "@@ -1,40 +1,40 @@",

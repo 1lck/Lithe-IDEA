@@ -53,6 +53,9 @@ final class DiffScrollSynchronization: ObservableObject {
         leftHeight = layout.leftHeight
         rightHeight = layout.rightHeight
         transitions = layout.transitions
+        // Reused native stripes may not receive a SwiftUI update when only the layout changes.
+        leftStripe?.transitions = transitions
+        rightStripe?.transitions = transitions
         refresh()
     }
 

@@ -10,6 +10,11 @@ JDT LS / Java Debug Server 找到精确源码目标、构建它所属的项目�
 classpath/module-path；随后 Run 模块只启动一次项目 JDK。Maven 仍负责
 描述项目，但不再充当 Java Main 的启动器。
 
+直启之前还会执行一次 Maven 原生资源处理（主源码 `resources:resources`，
+测试源码再加 `resources:testResources`），把改过的 `src/main/resources`
+同步到输出目录。JDT 的增量构建只编译 `.java`，不负责 Maven 资源，所以
+“构建成功”不等于配置已生效；这是 Issue #1133 的根因。
+
 其中“构建”这一步由 Rust Core 统一排队：同一个 Java 会话里一次只跑一个
 构建；JDT 还在按 Maven Profile 更新项目时先等它结束；构建使用独立的长期限；
 构建结果的“有编译错误 / 内部失败 / 被取消”分别报告，不再一律提示“修复源码”。
@@ -34,7 +39,36 @@ classpath/module-path；随后 Run 模块只启动一次项目 JDK。Maven 仍�
 3. `vscode.java.resolveClasspath` 返回 runtime classpath 和 module-path；即使构建终态是
    `WITH_ERROR` 或 `FAILED`，只要路径可解析，也把目标和构建证据一起交给启动工作流；
 4. Rust Core 接收结构化 `javaLaunch`，生成 `project-jdk` 直启计划；
-5. macOS/Windows 宿主按各自路径分隔符拼接参数并启动一个 JVM。
+5. Maven 项目的计划包含原生 `resources:resources` 前置步骤，测试源码入口另加
+   `resources:testResources`；宿主等待资源处理成功后，按各自路径分隔符拼接参数并启动一个 JVM。
+
+Issue #1133 中，Java watcher 只转发源码和构建配置，资源变更归为 `other`，
+而 JDT 的成功构建结果不能证明 Maven 资源已更新。资源处理复用 Maven 的
+Profile、settings、local repository、模块 `-pl/-am` 参数，让自定义资源目录、
+过滤变量和依赖模块继续由 POM 决定。即使运行配置改了 cwd，前置步骤也通过
+绝对 `-f` 指向选定 reactor 的 POM，并在自己的 `workingDirectory` 里执行：
+这一步的目录同时是工具链解析根，所以应用 cwd 被覆盖成用户自定义目录时，仍然
+能在 reactor POM 旁边找到项目自带的 Maven wrapper（`mvnw`/`mvnw.cmd`）。每个
+前置步骤可以声明自己的 `workingDirectory`；不声明就继承计划的
+`workingDirectory`。失败必须展示 Maven 输出并阻止 JVM 启动，Run 面板的服务
+会话与普通应用启动消费同一份前置步骤：会话在资源处理成功前不启动 JVM，
+停止、重启或配置被回收时会取消该会话正在运行的前置进程。
+开发者新增前置步骤时，如果它必须在某个子目录里运行或从那里解析工具链，
+就填 `workingDirectory`，不要靠宿主临时改 cwd，也不要把 wrapper 路径写死。
+不要自己递归复制 `src/main/resources`，也不要用固定延迟等待 watcher：前者
+绕过 Maven 过滤与自定义目录，后者没有构建完成保证。代价是每次直启多一个
+Maven 资源处理进程；不运行 `compile`、`exec:java` 或 `spring-boot:run`，Java
+编译与运行时路径仍由 JDT 所有。资源只写 POM 定义的工作区输出，不写安装包
+或共享 worktree 缓存，不新增可复用构建资源。
+
+未在 reactor 声明的独立子 POM 按自身项目处理，不用 `-pl` 选择不存在的
+聚合模块；生成配置记录的 reactor 优先于当前工具窗口选择。两个平台的前置
+进程都复用各自原生进程 runner 的进程树所有权、输出上限和有界清理；Stop、
+替换执行或关闭窗口使其 reservation 失效，十分钟未完成则终止并展示失败。
+macOS 与 Windows 用同一个 600 秒期限，超时都追加
+`Pre-launch step timed out after 600 seconds.`，避免卡死的前置步骤在某个
+平台永久停留在运行状态。独立 DAP 启动若没有消费这个运行计划，不在本次
+资源同步修复范围内，不宣称已修复。
 
 Run 和 Debug 共用同一套 Java 项目准备逻辑。配置中的 Maven 信息仍用于 JDT LS
 导入、Profile、settings.xml 和项目模型；Maven 工具窗口、框架 goal、测试与显式
@@ -172,6 +206,9 @@ Run 控件，也不在 `java-run-launch` 或平台 adapter 再做一次 `blocksR
 
 - 多模块 Maven 的 Java Main 和已解析入口的 Spring Boot 服务只会启动一次，不再
   在父模块或依赖模块找主类。
+- Run 面板的每个 Maven 直启服务同样要在启动前跑一遍资源处理，所以停止和重启
+  服务时也会一并取消尚未完成的资源处理进程；代价是每次启动多一个 Maven 进程，
+  换来的是“改完 `application-*.yml` 立刻生效”。
 - Maven 生成源码、测试源码 Main 和 JPMS module-path 使用同一项目模型。
 - 点击运行可能需要等待 Java 语言服务 ready；构建失败会保留真实诊断，并在目标路径
   仍可解析时暂停等待用户决定，而不是永久阻止启动。
@@ -189,6 +226,16 @@ Run 控件，也不在 `java-run-launch` 或平台 adapter 再做一次 `blocksR
   基于时间的等待。
 
 ## 验证
+
+- 资源处理参数与独立子项目兼容：`cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib tests::run_configuration::`。
+- macOS 服务会话消费前置步骤的顺序、失败阻止 JVM、Stop 取消和超时期限：
+  `macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift` 中的
+  `serviceSessionRunsItsPreLaunchStepFromTheReactorBeforeLaunching`、
+  `serviceSessionPreLaunchFailureLeavesTheServiceFailed`、
+  `stoppingAServiceCancelsItsRunningPreLaunchStep` 与
+  `servicePreLaunchDeadlineFailsTheSessionAndNamesTheDeadline`；运行 `./scripts/test-macos.sh`。
+- Windows 前置进程的失败、期限和窗口关闭：`cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml run::tests::prelaunch`。
+- Windows Run 的顺序与取消：`run-prelaunch.test.ts`、`run-host-api.test.ts`；用 Windows Frontend 稳定性计时入口运行。
 
 - Rust 构建协调：`cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib jdt_build`
   覆盖门禁、串行、合并、取消和超时阶段；engine 测试

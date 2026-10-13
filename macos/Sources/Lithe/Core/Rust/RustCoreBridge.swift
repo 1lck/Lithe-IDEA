@@ -684,6 +684,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let executable: Executable
             let arguments: [String]
             let classpath: [String]?
+            let workingDirectory: String?
         }
         let executable: Executable
         let arguments: [String]

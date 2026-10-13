@@ -77,8 +77,17 @@ package final class RunService: ObservableObject {
     private var moduleLaunchArgumentLeases: [String: any JavaLaunchArgumentLease] = [:]
     private var activeOperationID: String?
     private var activePreLaunchProcess: (any StreamingProcess)?
+    /// Pre-launch steps of a running module session, keyed like
+    /// `moduleProcesses`, so Stop and reconciliation cancel them before the JVM
+    /// exists and a stopped session cannot still start one.
+    private var modulePreLaunchProcesses: [String: any StreamingProcess] = [:]
     private var moduleOperationIDs: [String: String] = [:]
     private let maximumOutputCharacters = 500_000
+    /// The same bound the Windows pre-launch runner applies (`PRE_LAUNCH_TIMEOUT`
+    /// in `windows/tauri/src-tauri/src/run.rs`). A resource step is a Maven
+    /// build, so a step that never finishes must fail the run on both platforms
+    /// instead of leaving it "running" until a manual Stop.
+    private static let preLaunchStepTimeoutMilliseconds = 600_000
     private let runtime: any RunRuntimePort
     private let executableResolver: any RunExecutableResolving
     private let javaLaunchArgumentPreparer: (any JavaLaunchArgumentPreparing)?
@@ -930,7 +939,11 @@ package final class RunService: ObservableObject {
                     executablePath: stepResolved.executableURL.path,
                     arguments: Self.launchArguments(step.arguments, classpath: step.classpath),
                     environment: stepResolved.environment,
-                    displayName: stepResolved.executableURL.lastPathComponent
+                    displayName: stepResolved.executableURL.lastPathComponent,
+                    workingDirectory: resolvedWorkingDirectory(
+                        step.workingDirectory ?? plan.workingDirectory,
+                        fallback: projectURL
+                    ).path
                 )
             }
         } catch {
@@ -997,8 +1010,7 @@ package final class RunService: ObservableObject {
             runPreLaunchStep(
                 at: 0,
                 steps: preparedSteps,
-                workingDirectory: workingDirectory.path,
-                operationID: operationID,
+                owner: applicationPreLaunchOwner(operationID: operationID),
                 onSuccess: startMain
             )
         }
@@ -1040,7 +1052,9 @@ package final class RunService: ObservableObject {
     }
 
     package func stopAllServices() {
-        let sessionIDs = Set(moduleProcesses.keys).union(moduleLanguageExecutionSessions.keys)
+        let sessionIDs = Set(moduleProcesses.keys)
+            .union(moduleLanguageExecutionSessions.keys)
+            .union(modulePreLaunchProcesses.keys)
         for sessionID in sessionIDs {
             stopModule(sessionID: sessionID)
         }
@@ -1505,13 +1519,29 @@ package final class RunService: ObservableObject {
         }
     }
 
-    /// A pre-launch compile step whose executable and arguments are already
-    /// resolved to an absolute path and a joined classpath.
+    /// A pre-launch compile step whose executable, arguments, and working
+    /// directory are already resolved to absolute values.
     private struct PreparedLaunchStep {
         let executablePath: String
         let arguments: [String]
         let environment: [String: String]
         let displayName: String
+        /// The step's own run directory: a Maven resource step has to run from
+        /// the reactor that holds its wrapper, not from an overridden app cwd.
+        let workingDirectory: String
+    }
+
+    /// The per-run bookkeeping a pre-launch chain reads and writes. The
+    /// application run and each module session supply their own, so a step is
+    /// cancelled with its owner and a superseded run cannot resume the chain.
+    private struct PreLaunchOwner: Sendable {
+        let operationID: String
+        let isActive: @MainActor @Sendable () -> Bool
+        let setStepProcess: @MainActor @Sendable ((any StreamingProcess)?) -> Void
+        let append: @MainActor @Sendable (String) -> Void
+        /// Marks the owning run failed and releases its operation so a later
+        /// step, or the process the chain guards, cannot start.
+        let fail: @MainActor @Sendable (Int32) -> Void
     }
 
     /// Merges the plan's structured classpath into the launch arguments. The
@@ -1554,66 +1584,115 @@ package final class RunService: ObservableObject {
     }
 
     /// Runs one pre-launch step, then chains to the next on a zero exit or aborts
-    /// the run and surfaces the compiler's diagnostics on a non-zero exit. Uses a
-    /// fresh process per step so the main run process wiring stays untouched.
+    /// the run and surfaces the step's output on a non-zero exit. Uses a fresh
+    /// process per step so the owning run's process wiring stays untouched.
     private func runPreLaunchStep(
         at index: Int,
         steps: [PreparedLaunchStep],
-        workingDirectory: String,
-        operationID: String,
+        owner: PreLaunchOwner,
         onSuccess: @escaping @MainActor () -> Void
     ) {
-        guard activeOperationID == operationID else { return }
+        guard owner.isActive() else { return }
         guard index < steps.count else {
             onSuccess()
             return
         }
         let step = steps[index]
-        append("$ " + step.displayName + " " + step.arguments.joined(separator: " ") + "\n")
+        owner.append("$ " + step.displayName + " " + step.arguments.joined(separator: " ") + "\n")
         let stepProcess = processFactory()
-        activePreLaunchProcess = stepProcess
-        stepProcess.onOutput = { [weak self] chunk in
-            Task { @MainActor [weak self] in self?.append(chunk) }
+        owner.setStepProcess(stepProcess)
+        stepProcess.onOutput = { chunk in
+            Task { @MainActor in owner.append(chunk) }
         }
-        stepProcess.onTermination = { [weak self] exitCode in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.activePreLaunchProcess = nil
-                guard self.activeOperationID == operationID else { return }
+        // The platform stops a step that passes its deadline with this message.
+        // Name the deadline in the Run's own wording, as the test service and
+        // the Windows runner do; a user Stop uses another message and stays
+        // silent, because the Stop itself is already visible.
+        let timedOutNotice =
+            "\nPre-launch step timed out after \(Self.preLaunchStepTimeoutMilliseconds / 1_000) seconds.\n"
+        stepProcess.onStateChange = { event in
+            guard event.state == .stopping, event.message == "Process timed out" else { return }
+            Task { @MainActor in owner.append(timedOutNotice) }
+        }
+        stepProcess.onTermination = { exitCode in
+            Task { @MainActor in
+                owner.setStepProcess(nil)
+                guard owner.isActive() else { return }
                 if exitCode == 0 {
                     self.runPreLaunchStep(
                         at: index + 1,
                         steps: steps,
-                        workingDirectory: workingDirectory,
-                        operationID: operationID,
+                        owner: owner,
                         onSuccess: onSuccess
                     )
                 } else {
-                    self.append("\nCompilation failed (exit code \(exitCode)).\n")
-                    self.isRunning = false
-                    self.runningTitle = nil
-                    self.activeOperationID = nil
-                    self.lastExitCode = exitCode
+                    owner.append("\nPre-launch step failed (exit code \(exitCode)).\n")
+                    owner.fail(exitCode)
                 }
             }
         }
         do {
             try stepProcess.start(ProcessRequest(
-                operationID: operationID,
+                operationID: owner.operationID,
                 executablePath: step.executablePath,
                 arguments: step.arguments,
-                workingDirectory: workingDirectory,
-                environment: step.environment
+                workingDirectory: step.workingDirectory,
+                environment: step.environment,
+                timeoutMilliseconds: Self.preLaunchStepTimeoutMilliseconds
             ))
         } catch {
-            activePreLaunchProcess = nil
-            guard activeOperationID == operationID else { return }
-            append("\nUnable to start " + step.displayName + ": " + error.localizedDescription + "\n")
-            isRunning = false
-            runningTitle = nil
-            activeOperationID = nil
-            lastExitCode = 1
+            owner.setStepProcess(nil)
+            guard owner.isActive() else { return }
+            owner.append(
+                "\nUnable to start " + step.displayName + ": " + error.localizedDescription + "\n"
+            )
+            owner.fail(1)
         }
+    }
+
+    /// Pre-launch bookkeeping for the application run: the chain stops as soon
+    /// as the run is stopped or replaced, and a failed step leaves the same
+    /// state a failed main process would.
+    private func applicationPreLaunchOwner(operationID: String) -> PreLaunchOwner {
+        PreLaunchOwner(
+            operationID: operationID,
+            isActive: { [weak self] in self?.activeOperationID == operationID },
+            setStepProcess: { [weak self] process in self?.activePreLaunchProcess = process },
+            append: { [weak self] value in self?.append(value) },
+            fail: { [weak self] exitCode in
+                guard let self else { return }
+                self.isRunning = false
+                self.runningTitle = nil
+                self.activeOperationID = nil
+                self.lastExitCode = exitCode
+            }
+        )
+    }
+
+    /// Pre-launch bookkeeping for a module session: the chain owns the session's
+    /// pre-launch process so Stop, restart, and reconciliation cancel it before
+    /// the JVM exists, and a failed step makes the session fail instead of
+    /// launching against stale resources.
+    private func modulePreLaunchOwner(sessionID: String, operationID: String) -> PreLaunchOwner {
+        PreLaunchOwner(
+            operationID: operationID,
+            isActive: { [weak self] in self?.moduleOperationIDs[sessionID] == operationID },
+            setStepProcess: { [weak self] process in
+                self?.modulePreLaunchProcesses[sessionID] = process
+            },
+            append: { [weak self] value in
+                self?.appendModuleOutput(value, sessionID: sessionID)
+            },
+            fail: { [weak self] exitCode in
+                guard let self else { return }
+                self.modulePreLaunchProcesses[sessionID] = nil
+                self.moduleOperationIDs[sessionID] = nil
+                if let index = self.moduleSessions.firstIndex(where: { $0.id == sessionID }) {
+                    self.moduleSessions[index].isRunning = false
+                    self.moduleSessions[index].exitCode = exitCode
+                }
+            }
+        )
     }
 
     private func classPath(for fileURL: URL) -> String? {
@@ -1714,8 +1793,24 @@ package final class RunService: ObservableObject {
         }
 
         let resolved: ResolvedRunExecutable
+        let preparedSteps: [PreparedLaunchStep]
         do {
             resolved = try executableResolver.resolve(plan, projectURL: projectURL, options: options)
+            preparedSteps = try plan.preLaunchSteps.map { step in
+                let stepResolved = try executableResolver.resolve(
+                    step: step, plan: plan, projectURL: projectURL, options: options
+                )
+                return PreparedLaunchStep(
+                    executablePath: stepResolved.executableURL.path,
+                    arguments: Self.launchArguments(step.arguments, classpath: step.classpath),
+                    environment: stepResolved.environment,
+                    displayName: stepResolved.executableURL.lastPathComponent,
+                    workingDirectory: resolvedWorkingDirectory(
+                        step.workingDirectory ?? plan.workingDirectory,
+                        fallback: projectURL
+                    ).path
+                )
+            }
         } catch {
             // A service that cannot start still becomes a session so the panel
             // shows which one failed and why, rather than silently omitting it.
@@ -1755,55 +1850,80 @@ package final class RunService: ObservableObject {
 
         let operationID = UUID().uuidString
         moduleOperationIDs[configuration.id] = operationID
-        do {
-            let preparation = try prepareJavaLaunch(
-                executablePath: resolved.executableURL.path,
-                arguments: requestedArguments
+        // The JVM waits for every pre-launch step, so an entry source with a
+        // Maven resource step starts against the resources the step just wrote.
+        let startMainProcess: @MainActor () -> Void = { [weak self] in
+            guard let self, self.moduleOperationIDs[configuration.id] == operationID else {
+                return
+            }
+            do {
+                let preparation = try self.prepareJavaLaunch(
+                    executablePath: resolved.executableURL.path,
+                    arguments: requestedArguments
+                )
+                self.moduleLaunchArgumentLeases[configuration.id] = preparation.lease
+                if let provider = self.languageRunExtension(
+                    providerID: configuration.kind.providerID
+                ) {
+                    let extensionSession = provider.makeExecutionSession()
+                    self.configureModuleLanguageExecutionSession(
+                        extensionSession,
+                        sessionID: configuration.id
+                    )
+                    self.moduleLanguageExecutionSessions[configuration.id] = extensionSession
+                    try extensionSession.start(LanguageExecutionProcessRequest(
+                        operationID: operationID,
+                        executablePath: resolved.executableURL.path,
+                        arguments: preparation.arguments,
+                        workingDirectory: workingDirectory.path,
+                        environment: resolved.environment
+                    ))
+                } else {
+                    let process = self.processFactory()
+                    self.configureModuleProcess(process, sessionID: configuration.id)
+                    self.moduleProcesses[configuration.id] = process
+                    try process.start(ProcessRequest(
+                        operationID: operationID,
+                        executablePath: resolved.executableURL.path,
+                        arguments: preparation.arguments,
+                        workingDirectory: workingDirectory.path,
+                        environment: resolved.environment
+                    ))
+                }
+            } catch {
+                self.moduleLaunchArgumentLeases[configuration.id] = nil
+                self.moduleProcesses[configuration.id] = nil
+                self.moduleLanguageExecutionSessions[configuration.id] = nil
+                self.moduleOperationIDs[configuration.id] = nil
+                if let index = self.moduleSessions.firstIndex(where: { $0.id == configuration.id }) {
+                    self.moduleSessions[index].isRunning = false
+                    self.moduleSessions[index].exitCode = 1
+                    self.appendModuleOutput(
+                        "Unable to start " + configuration.name + ": "
+                            + error.localizedDescription + "\n",
+                        sessionID: configuration.id
+                    )
+                }
+            }
+        }
+        if preparedSteps.isEmpty {
+            startMainProcess()
+        } else {
+            runPreLaunchStep(
+                at: 0,
+                steps: preparedSteps,
+                owner: modulePreLaunchOwner(
+                    sessionID: configuration.id,
+                    operationID: operationID
+                ),
+                onSuccess: startMainProcess
             )
-            moduleLaunchArgumentLeases[configuration.id] = preparation.lease
-            if let provider = languageRunExtension(providerID: configuration.kind.providerID) {
-                let extensionSession = provider.makeExecutionSession()
-                configureModuleLanguageExecutionSession(
-                    extensionSession,
-                    sessionID: configuration.id
-                )
-                moduleLanguageExecutionSessions[configuration.id] = extensionSession
-                try extensionSession.start(LanguageExecutionProcessRequest(
-                    operationID: operationID,
-                    executablePath: resolved.executableURL.path,
-                    arguments: preparation.arguments,
-                    workingDirectory: workingDirectory.path,
-                    environment: resolved.environment
-                ))
-            } else {
-                let process = processFactory()
-                configureModuleProcess(process, sessionID: configuration.id)
-                moduleProcesses[configuration.id] = process
-                try process.start(ProcessRequest(
-                    operationID: operationID,
-                    executablePath: resolved.executableURL.path,
-                    arguments: preparation.arguments,
-                    workingDirectory: workingDirectory.path,
-                    environment: resolved.environment
-                ))
-            }
-        } catch {
-            moduleLaunchArgumentLeases[configuration.id] = nil
-            moduleProcesses[configuration.id] = nil
-            moduleLanguageExecutionSessions[configuration.id] = nil
-            moduleOperationIDs[configuration.id] = nil
-            if let index = moduleSessions.firstIndex(where: { $0.id == configuration.id }) {
-                moduleSessions[index].isRunning = false
-                moduleSessions[index].exitCode = 1
-                appendModuleOutput(
-                    "Unable to start " + configuration.name + ": " + error.localizedDescription + "\n",
-                    sessionID: configuration.id
-                )
-            }
         }
     }
 
     private func stopModule(sessionID: String) {
+        modulePreLaunchProcesses[sessionID]?.stop()
+        modulePreLaunchProcesses[sessionID] = nil
         moduleProcesses[sessionID]?.stop()
         moduleProcesses[sessionID] = nil
         moduleLanguageExecutionSessions[sessionID]?.stop()
@@ -1851,7 +1971,9 @@ package final class RunService: ObservableObject {
     }
 
     private func reconcileModuleSessions(validConfigurationIDs: Set<String>) {
-        let activeSessionIDs = Set(moduleProcesses.keys).union(moduleLanguageExecutionSessions.keys)
+        let activeSessionIDs = Set(moduleProcesses.keys)
+            .union(moduleLanguageExecutionSessions.keys)
+            .union(modulePreLaunchProcesses.keys)
         let staleSessionIDs = activeSessionIDs.filter { !validConfigurationIDs.contains($0) }
         for sessionID in staleSessionIDs {
             stopModule(sessionID: sessionID)

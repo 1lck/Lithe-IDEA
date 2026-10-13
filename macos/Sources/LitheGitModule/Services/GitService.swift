@@ -120,6 +120,7 @@ package protocol GitOperations: Sendable {
     func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) -> GitRebaseProcessResult
     func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult?
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure>
+    func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure>
     func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure>
     func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult?
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult?
@@ -178,6 +179,10 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure> {
+        .failure(GitPatchFailure("Saved patch inspection is unavailable"))
+    }
+
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
         .failure(GitWorkspaceCommitFailure("Workspace commit planning is unavailable"))
     }
@@ -1202,6 +1207,46 @@ package struct GitService: Sendable {
         await read { $0.consolePresentation(request) }
     }
 
+    func savedChangesSnapshot(stash: GitStash?, shelf: GitShelfEntry?, at root: URL) async -> Result<GitSavedChangesSnapshot, GitPatchFailure> {
+        await read { operations in
+            do {
+                var patches: [(String, String, String)] = []
+                let identity: String
+                if let stash {
+                    guard let commit = operations.commit(at: root, hash: stash.reference) else {
+                        throw GitPatchFailure("Could not load saved changes")
+                    }
+                    identity = commit.hash
+                    let result = operations.run(arguments: ["-c", "core.quotepath=false", "stash", "show", "--include-untracked", "--patch", "--binary", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "--no-ext-diff", "--no-textconv", commit.hash], workingDirectory: root.path, input: nil)
+                    guard result.exitCode == 0 else { throw GitPatchFailure(result.output) }
+                    patches = [("Stash", commit.parentHashes.first.map { String($0.prefix(8)) } ?? "HEAD", result.standardOutput ?? result.output)]
+                } else if let shelf {
+                    identity = shelf.id.uuidString
+                    patches = [("Staged", "HEAD", shelf.stagedPatch), ("Working tree", "Index", shelf.workingPatch)]
+                } else { throw GitPatchFailure("Select saved changes") }
+                var files: [GitSavedPatchFile] = []
+                for (version, base, patch) in patches {
+                    guard patch.utf8.count <= GitPatchContent.maximumByteCount else {
+                        throw GitPatchFailure("Patch files must be at most 32 MiB.")
+                    }
+                    // ponytail: one bounded Core/Git inspection per file; batch section metadata in Core if large shelves make this costly.
+                    for section in GitSavedChangesSnapshot.sections(in: patch) {
+                        try Task.checkCancellation()
+                        let metadata = try operations.inspectSavedPatch(at: root, patch: section).get()
+                        guard let file = metadata.files.first, metadata.files.count == 1 else {
+                            throw GitPatchFailure("Could not inspect saved file")
+                        }
+                        let status = section.contains("\nnew file mode ") ? "A" : section.contains("\ndeleted file mode ") ? "D" : file.originalPath != nil ? "R" : "M"
+                        files.append(GitSavedPatchFile(file: GitCommitFile(status: status, path: file.path), version: version, base: base, patch: section))
+                    }
+                }
+                return .success(GitSavedChangesSnapshot(id: identity, repositoryRoot: root, files: files))
+            } catch {
+                return .failure(GitPatchFailure(error.localizedDescription))
+            }
+        } ?? .failure(GitPatchFailure("Could not load saved changes"))
+    }
+
     private func read<T: Sendable>(
         priority: TaskPriority = .userInitiated,
         operationName: String = #function,
@@ -1210,9 +1255,10 @@ package struct GitService: Sendable {
         let operations = self.operations
         let startedAt = ContinuousClock.now
         let source = GitExecutionSource.current
-        let result = await Task.detached(priority: priority) {
+        let task = Task.detached(priority: priority) {
             GitExecutionSource.$current.withValue(source) { operation(operations) }
-        }.value
+        }
+        let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         performanceLogger.record(
             GitPerformanceLogFormatter.read(
                 operation: operationName,

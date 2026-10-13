@@ -8,6 +8,29 @@ import { graphColor } from "../../utils/git-graph-colors";
 import { gitGraphPaintMetrics } from "../../utils/git-graph-geometry";
 
 describe("git graph decoration labels", () => {
+  test("subject and references use each row's graph extent within a shared recommended baseline", () => {
+    const commits: GitCommit[] = Array.from({ length: 100 }, (_, row) => ({
+      hash: String(row), shortHash: String(row),
+      parentHashes: row === 60 ? Array.from({ length: 8 }, (_, index) => String(61 + index))
+        : row > 60 && row <= 68 ? ["69"] : row < 99 ? [String(row + 1)] : [],
+      message: `subject ${row}`, author: "fixture", date: "unknown",
+      decorations: row === 0 ? "HEAD -> main" : "",
+    }));
+    const layout = layoutGitGraph(commits);
+    const render = (index: number) => renderToStaticMarkup(createElement(GitGraphRow, {
+      row: layout.rows[index], showDecorations: true, recommendedLaneCount: layout.recommendedLaneCount,
+    }));
+    const svgWidth = (markup: string) => Number(markup.match(/<svg[^>]*width="(\d+)"/)![1]);
+    const simple = render(0);
+    const dense = render(64);
+    const after = render(90);
+    expect(svgWidth(simple)).toBeLessThan(117);
+    expect(svgWidth(dense)).toBeGreaterThan(svgWidth(simple));
+    expect(svgWidth(after)).toBe(svgWidth(simple));
+    expect(simple).toContain("subject 0");
+    expect(simple).toContain('data-reference-kind="branch"');
+    expect(dense).toContain("subject 64");
+  });
   test("compact long edges render solid arrow arms and filled nodes at 2x", () => {
     const commits: GitCommit[] = Array.from({ length: 40 }, (_, row) => ({
       hash: String(row),

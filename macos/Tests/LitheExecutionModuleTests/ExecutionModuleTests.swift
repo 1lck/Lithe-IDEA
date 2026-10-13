@@ -1349,6 +1349,8 @@ struct ExecutionModuleTests {
         let stepRequest = try #require(step.startRequests.first)
         #expect(stepRequest.executablePath == "/test/bin/javac")
         #expect(stepRequest.arguments == ["-d", outputDirectory, "Standalone.java"])
+        // The application entry bounds its compile step exactly like Windows.
+        #expect(stepRequest.timeoutMilliseconds == 600_000)
         #expect(mainProcess.startRequests.isEmpty)
 
         // A zero exit chains to the main process, which launches by class name
@@ -1512,7 +1514,253 @@ struct ExecutionModuleTests {
         try await awaitTestValue(service.$lastExitCode, matching: { $0 == 1 })
         #expect(mainProcess.startRequests.isEmpty)
         #expect(!service.isRunning)
-        #expect(service.output.contains("Compilation failed (exit code 1)"))
+        #expect(service.output.contains("Pre-launch step failed (exit code 1)"))
+    }
+
+    /// Issue #1133: the service entries of the Run panel go through
+    /// `startModuleSession`, so they must consume the same pre-launch steps the
+    /// application entry does. A Maven resource step also resolves and runs from
+    /// its reactor directory when the application cwd is overridden; only then
+    /// can it find the project wrapper next to the reactor POM.
+    @Test
+    func serviceSessionRunsItsPreLaunchStepFromTheReactorBeforeLaunching() async throws {
+        let recorder = SessionProcessRecorder()
+        let resourceArguments = [
+            "-B", "-ntp", "-f", "/workspace/app/pom.xml", "resources:resources",
+        ]
+        let configuration = RunConfiguration(
+            id: "service:demo", name: "demo", kind: .javaMain,
+            execution: .service, modulePath: "app", mainClass: "example.Main"
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["example.Main"],
+            workingDirectory: "custom-run",
+            preLaunchSteps: [
+                SharedLaunchPlan.PreLaunchStep(
+                    executable: .toolchain("project-maven"),
+                    arguments: resourceArguments,
+                    workingDirectory: "app"
+                )
+            ],
+            classpath: ["/workspace/app/target/classes"]
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let service = RunService(
+            runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { recorder.make() },
+            // Built the same way `resolvedWorkingDirectory` builds its result,
+            // so the directory check compares equal directory URLs.
+            fileAccess: TestRunFileAccess(directories: [
+                URL(fileURLWithPath: "app", relativeTo: root).standardizedFileURL,
+                URL(fileURLWithPath: "custom-run", relativeTo: root).standardizedFileURL,
+            ]),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration, plan: plan
+            ),
+            executableResolver: ToolNamedExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+
+        service.startConfiguration(configuration)
+
+        // The resource step starts first, from the reactor directory, and the
+        // service process must wait for it.
+        let step = try #require(recorder.processes.first)
+        let stepRequest = try #require(step.startRequests.first)
+        #expect(stepRequest.executablePath == "/test/bin/project-maven")
+        #expect(stepRequest.arguments == resourceArguments)
+        let stepWorkingDirectory = try #require(stepRequest.workingDirectory)
+        #expect(stepWorkingDirectory.hasSuffix("/workspace/app"))
+        // A resource step that never finishes must fail within the same bound
+        // Windows applies instead of leaving the session running forever.
+        #expect(stepRequest.timeoutMilliseconds == 600_000)
+        #expect(recorder.processes.count == 1)
+        #expect(service.moduleSessions.first?.isRunning == true)
+
+        step.onTermination?(0)
+        try await awaitSignal(recorder.started.stream)
+        let launcher = try #require(recorder.processes.dropFirst().first)
+        let launcherRequest = try #require(launcher.startRequests.first)
+        #expect(launcherRequest.executablePath == "/test/bin/project-jdk")
+        #expect(
+            launcherRequest.arguments == ["-cp", "/workspace/app/target/classes", "example.Main"]
+        )
+        let launcherWorkingDirectory = try #require(launcherRequest.workingDirectory)
+        #expect(launcherWorkingDirectory.hasSuffix("/workspace/custom-run"))
+    }
+
+    /// Issue #1133: a failed resource step must fail the service session rather
+    /// than start the JVM against the resources it failed to update.
+    @Test
+    func serviceSessionPreLaunchFailureLeavesTheServiceFailed() async throws {
+        let recorder = SessionProcessRecorder()
+        let configuration = RunConfiguration(
+            id: "service:demo", name: "demo", kind: .javaMain,
+            execution: .service, modulePath: "app", mainClass: "example.Main"
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["example.Main"],
+            workingDirectory: "app",
+            preLaunchSteps: [
+                SharedLaunchPlan.PreLaunchStep(
+                    executable: .toolchain("project-maven"),
+                    arguments: ["-B", "-ntp", "-f", "/workspace/app/pom.xml", "resources:resources"]
+                )
+            ]
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let service = RunService(
+            runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { recorder.make() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration, plan: plan
+            ),
+            executableResolver: ToolNamedExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+
+        service.startConfiguration(configuration)
+        let step = try #require(recorder.processes.first)
+        step.onTermination?(1)
+
+        try await awaitTestValue(service.$moduleSessions, matching: { $0.first?.exitCode == 1 })
+        #expect(service.moduleSessions.first?.isRunning == false)
+        #expect(
+            service.moduleSessions.first?.output.contains("Pre-launch step failed (exit code 1)")
+                == true
+        )
+        #expect(recorder.processes.count == 1)
+    }
+
+    /// Issue #1133: stopping a service while its resource step is still running
+    /// cancels the step, and a termination report that arrives afterwards must
+    /// not start the JVM for the stopped session.
+    @Test
+    func stoppingAServiceCancelsItsRunningPreLaunchStep() async throws {
+        let recorder = SessionProcessRecorder()
+        let configuration = RunConfiguration(
+            id: "service:demo", name: "demo", kind: .javaMain,
+            execution: .service, modulePath: "app", mainClass: "example.Main"
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["example.Main"],
+            workingDirectory: "app",
+            preLaunchSteps: [
+                SharedLaunchPlan.PreLaunchStep(
+                    executable: .toolchain("project-maven"),
+                    arguments: ["-B", "-ntp", "-f", "/workspace/app/pom.xml", "resources:resources"]
+                )
+            ]
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let service = RunService(
+            runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { recorder.make() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration, plan: plan
+            ),
+            executableResolver: ToolNamedExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+
+        service.startConfiguration(configuration)
+        // Drain the step's own start signal so the later check observes only a
+        // service launch.
+        try await awaitSignal(recorder.started.stream)
+        let step = try #require(recorder.processes.first)
+        let session = try #require(service.moduleSessions.first)
+
+        service.stopModule(session)
+
+        #expect(!step.isRunning)
+        #expect(service.moduleSessions.first?.isRunning == false)
+        // The cancelled session released its operation, so a late termination
+        // report cannot start the service. The deadline makes a missing launch
+        // a bounded observation rather than a hang.
+        step.onTermination?(0)
+        await #expect(throws: TestObservationError.self) {
+            try await awaitSignal(recorder.started.stream, timeout: .milliseconds(500))
+        }
+        #expect(recorder.processes.count == 1)
+    }
+
+    /// Issue #1133 / PR review: the platform deadline must fail the session and
+    /// name that deadline. Windows reports the same wording, so a stuck Maven
+    /// resource step ends the same way on both platforms.
+    @Test
+    func servicePreLaunchDeadlineFailsTheSessionAndNamesTheDeadline() async throws {
+        let recorder = SessionProcessRecorder()
+        let configuration = RunConfiguration(
+            id: "service:demo", name: "demo", kind: .javaMain,
+            execution: .service, modulePath: "app", mainClass: "example.Main"
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["example.Main"],
+            workingDirectory: "app",
+            preLaunchSteps: [
+                SharedLaunchPlan.PreLaunchStep(
+                    executable: .toolchain("project-maven"),
+                    arguments: ["-B", "-ntp", "-f", "/workspace/app/pom.xml", "resources:resources"]
+                )
+            ]
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let service = RunService(
+            runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { recorder.make() },
+            // Built the same way `resolvedWorkingDirectory` builds its result,
+            // so the reactor directory resolves instead of falling back.
+            fileAccess: TestRunFileAccess(directories: [
+                URL(fileURLWithPath: "app", relativeTo: root).standardizedFileURL,
+            ]),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration, plan: plan
+            ),
+            executableResolver: ToolNamedExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+
+        service.startConfiguration(configuration)
+        let step = try #require(recorder.processes.first)
+        let stepRequest = try #require(step.startRequests.first)
+        #expect(stepRequest.timeoutMilliseconds == 600_000)
+
+        // The platform reports its deadline and then terminates the owned
+        // process, exactly as `MacStreamingProcess` does on timeout.
+        step.onStateChange?(ProcessLifecycleEvent(
+            operationID: stepRequest.operationID,
+            state: .stopping,
+            exitCode: nil,
+            message: "Process timed out"
+        ))
+        try await awaitTestValue(service.$moduleSessions, matching: {
+            $0.first?.output.contains("Pre-launch step timed out after 600 seconds.") == true
+        })
+
+        step.onTermination?(15)
+        try await awaitTestValue(service.$moduleSessions, matching: { $0.first?.exitCode == 15 })
+        #expect(service.moduleSessions.first?.isRunning == false)
+        #expect(recorder.processes.count == 1)
     }
 
     @Test
@@ -2354,6 +2602,51 @@ private final class StepProcessRecorder: @unchecked Sendable {
         lock.lock(); storage.append(process); lock.unlock()
         return process
     }
+}
+
+/// Hands out the processes one module session creates — the pre-launch step and
+/// then the service — and yields on every start, so a test can await the exact
+/// moment the JVM launches instead of sleeping.
+private final class SessionProcessRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [TestStreamingProcess] = []
+    let started = AsyncStream<Void>.makeStream(bufferingPolicy: .unbounded)
+
+    var processes: [TestStreamingProcess] {
+        lock.lock(); defer { lock.unlock() }
+        return storage
+    }
+
+    func make() -> TestStreamingProcess {
+        let process = TestStreamingProcess()
+        let continuation = started.continuation
+        process.onStart = { continuation.yield(()) }
+        lock.lock(); storage.append(process); lock.unlock()
+        return process
+    }
+}
+
+/// Resolves a toolchain to `/test/bin/<identifier>`, so a test can tell a
+/// session's resource step apart from the service launcher it gates.
+@MainActor
+private final class ToolNamedExecutableResolver: RunExecutableResolving {
+    func resolve(
+        _ plan: SharedLaunchPlan,
+        projectURL: URL,
+        options: RunOptions
+    ) throws -> ResolvedRunExecutable {
+        let name: String
+        switch plan.executable {
+        case .toolchain(let identifier): name = identifier
+        case .command(let command): name = command
+        }
+        return ResolvedRunExecutable(
+            executableURL: URL(fileURLWithPath: "/test/bin/" + name),
+            environment: [:]
+        )
+    }
+    func refreshCandidates(projectURL: URL) async {}
+    func candidates(projectURL: URL) -> [ProjectToolchainCandidate] { [] }
 }
 
 @MainActor
