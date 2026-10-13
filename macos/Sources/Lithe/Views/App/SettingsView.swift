@@ -52,6 +52,7 @@ struct SettingsView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var viewState: SettingsViewState
     @AppStorage("lithe.settings.categorySidebarWidth") private var categorySidebarWidth = 234.0
+    @State private var categoryListActive = false
     @State private var missingTerminalShellPath: String?
     @State private var expandedSidebarGroups: Set<String> = []
     let initialCategory: SettingsCategory
@@ -88,7 +89,7 @@ struct SettingsView: View {
                     flexibleMinimum: Self.contentMinimumWidth,
                     highlightsOnHover: false,
                     onCommit: { categorySidebarWidth = Double($0) },
-                    sized: { categories },
+                    sized: { categories.background(LitheToolWindowActivityTracker(isActive: $categoryListActive)) },
                     flexible: {
                         content.simultaneousGesture(TapGesture().onEnded { isSearchFocused = false })
                     }
@@ -245,7 +246,7 @@ struct SettingsView: View {
                 .padding(.trailing, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: 24)
-                .background(isSelected ? LitheTheme.settingsSelection : .clear)
+                .litheSelectionRow(isSelected: isSelected, isFocused: categoryListActive, cornerRadius: 0)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)

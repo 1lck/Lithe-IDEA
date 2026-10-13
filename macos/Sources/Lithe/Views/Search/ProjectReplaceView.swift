@@ -15,6 +15,7 @@ struct ProjectReplaceView: View {
     @State private var selectedResult: String?
     @State private var previewNeedsRefresh = false
     @State private var retainedPreview: (file: ProjectReplacementFile, match: ProjectReplacementMatch)?
+    @State private var resultListActive = false
     @State private var query = ""
     @State private var replacement = ""
     @State private var options = ProjectSearchOptions.default
@@ -224,6 +225,7 @@ struct ProjectReplaceView: View {
                         }
                         .padding(.horizontal, 8)
                     }
+                    .background(LitheToolWindowActivityTracker(isActive: $resultListActive))
                     .overlay {
                         if previewNeedsRefresh && feature.projectReplacementFiles.isEmpty {
                             Text("File changed. Run Preview again to refresh results.")
@@ -285,7 +287,7 @@ struct ProjectReplaceView: View {
             }
             .padding(.horizontal, 8)
             .frame(height: 46)
-            .background(selected ? LitheTheme.selection : .clear)
+            .litheSelectionRow(isSelected: selected, isFocused: resultListActive)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
         }

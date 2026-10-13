@@ -10,6 +10,7 @@ struct PluginMarketplaceView: View {
     @Environment(\.locale) private var locale
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: PluginMarketplaceFeatureModel
+    @State private var pluginListActive = false
     @State private var searchText = ""
     @State private var sourceFilter = PluginMarketplaceView.allSources
     @State private var sortOrder = PluginMarketplaceFeatureModel.SortOrder.name
@@ -44,7 +45,7 @@ struct PluginMarketplaceView: View {
                 flexibleMinimum: PluginManagementView.detailMinimumWidth,
                 highlightsOnHover: false,
                 onCommit: { listWidth = Double($0) },
-                sized: { sidebar },
+                sized: { sidebar.background(LitheToolWindowActivityTracker(isActive: $pluginListActive)) },
                 flexible: { detail }
             )
         }
@@ -139,7 +140,7 @@ struct PluginMarketplaceView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isSelected ? LitheTheme.settingsSelection : Color.clear)
+        .litheSelectionRow(isSelected: isSelected, isFocused: pluginListActive)
         .contentShape(Rectangle())
         .onTapGesture { selectedPluginID = listing.pluginID }
         // Keep the row's Install button a separate element: combining the

@@ -61,6 +61,7 @@ private enum GitHubMergeChoice: String, Identifiable {
 
 struct GitHubPullRequestsSidebarView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var requestListActive = false
     @State private var searchQuery = ""
 
     var body: some View {
@@ -219,6 +220,7 @@ struct GitHubPullRequestsSidebarView: View {
             filters
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             pullRequestList
+                .background(LitheToolWindowActivityTracker(isActive: $requestListActive))
         }
     }
 
@@ -337,7 +339,8 @@ struct GitHubPullRequestsSidebarView: View {
                     ForEach(filteredPullRequests) { request in
                         GitHubPullRequestRow(
                             request: request,
-                            isSelected: model.githubFeature.selectedPullRequest?.number == request.number
+                            isSelected: model.githubFeature.selectedPullRequest?.number == request.number,
+                            isFocused: requestListActive
                         ) {
                             model.githubFeature.clearOperationStatus()
                             Task { await model.githubFeature.selectPullRequest(number: request.number) }
@@ -823,6 +826,7 @@ struct GitHubFeatureUnavailableView: View {
 private struct GitHubPullRequestRow: View {
     let request: GitHubPullRequest
     let isSelected: Bool
+    let isFocused: Bool
     let action: () -> Void
 
     var body: some View {
@@ -866,10 +870,7 @@ private struct GitHubPullRequestRow: View {
         }
         .buttonStyle(.litheNoPress)
         .lithePointer()
-        .litheRowHover(
-            isActive: isSelected,
-            activeBackground: LitheTheme.subtleSelection
-        )
+        .litheSelectionRow(isSelected: isSelected, isFocused: isFocused)
     }
 }
 

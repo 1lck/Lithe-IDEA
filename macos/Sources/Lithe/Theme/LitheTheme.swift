@@ -950,9 +950,12 @@ extension View {
             .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight,
                    maxHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
             .contentShape(Rectangle())
-            .litheRowHover(isActive: isSelected, cornerRadius: 4,
-                           activeBackground: isFocused ? LitheTheme.Tree.focusedSelection : LitheTheme.Tree.inactiveSelection,
-                           hoverBackground: LitheTheme.Tree.hover)
+            .litheSelectionRow(isSelected: isSelected, isFocused: isFocused)
+    }
+
+    /// Tree/list selection shares colors and window focus, without changing row geometry.
+    func litheSelectionRow(isSelected: Bool, isFocused: Bool, cornerRadius: CGFloat = 4) -> some View {
+        modifier(LitheSelectionRowStyle(isSelected: isSelected, isFocused: isFocused, cornerRadius: cornerRadius))
     }
 
     /// 给行/单元格加统一的悬停高亮，替代各处手写的 onHover + background。
@@ -971,6 +974,23 @@ extension View {
                 hoverBackground: hoverBackground,
                 animation: animation
             )
+        )
+    }
+}
+
+private struct LitheSelectionRowStyle: ViewModifier {
+    @Environment(\.controlActiveState) private var controlActiveState
+    let isSelected: Bool
+    let isFocused: Bool
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content.litheRowHover(
+            isActive: isSelected,
+            cornerRadius: cornerRadius,
+            activeBackground: isFocused && controlActiveState == .key
+                ? LitheTheme.Tree.focusedSelection : LitheTheme.Tree.inactiveSelection,
+            hoverBackground: LitheTheme.Tree.hover
         )
     }
 }

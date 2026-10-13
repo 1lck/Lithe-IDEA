@@ -296,6 +296,32 @@ the existing stack can reasonably avoid.
   existing renderer and consume the same tokens; do not replace them with
   SwiftUI rows. Multiline project-menu entries, tables and commit graph rows
   keep their own existing shared renderer/metrics rather than using tree rows.
+- Persistent tree/list selection uses `litheSelectionRow(isSelected:isFocused:)`
+  in `LitheTheme.swift`; `litheTreeRow` delegates to it. The shared renderer
+  paints `LitheTheme.Tree.focusedSelection` only when the owning region is
+  focused **and** `controlActiveState == .key`; otherwise it paints
+  `Tree.inactiveSelection`. Multiline lists keep their geometry and use this
+  renderer directly. Never paint persistent selection with fixed `selection`,
+  `subtleSelection`, `settingsSelection`, accent opacity, or local RGB values.
+- Observe focus at the selected list/tree region with the existing
+  `LitheToolWindowActivityTracker`, not at the entire workbench; neighboring
+  lists and detail editors must not activate each other's selections. Project
+  uses `ProjectTreeKeyboardCommands`' ownership callback because its file-open
+  flow can asynchronously focus WebKit. Include focus in custom `Equatable`
+  comparisons. Native renderers keep the same theme tokens, check key-window
+  and responder/region ownership, and invalidate drawing when window focus
+  changes even if selection/data did not change.
+- Keep selection distinct from checkbox inclusion, chosen settings values,
+  status badges, activity-rail buttons, menu highlight, tool-window tabs and
+  editor text selection. Those retain their owning styles; tool-window tabs
+  use `LitheToolWindowTabStyle`, tables use `DatabaseGrid` tokens. Do not add
+  persistent selection to a view that does not already have it. Verify dark/light
+  focused/inactive rows, focus moving to a neighboring list or editor, whole
+  window deactivation and reactivation, keyboard navigation, and shared field
+  editor transitions. Run `LitheTreeRowStyleTests` and the relevant native focus
+  regressions; a component check does not establish whole-product acceptance.
+  The rationale and consumer inventory live in
+  `.agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md`.
 - Typography uses `uiFont` / `uiNSFont` for ordinary UI and `editorFont` /
   `codeFont` / monospaced `uiFont` for code and existing monospaced presentations,
   all owned by `macos/Sources/Lithe/Theme/LitheTheme.swift`. Select the existing

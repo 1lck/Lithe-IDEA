@@ -3,6 +3,7 @@ import LitheDatabaseModule
 
 struct RedisWorkspaceView: View {
     @EnvironmentObject private var feature: DatabaseFeatureModel
+    @State private var keyListActive = false
     @State private var pattern = "*"
     @FocusState private var patternFocused: Bool
     @FocusState private var detailField: String?
@@ -21,6 +22,7 @@ struct RedisWorkspaceView: View {
             LitheToolWindowHeaderDivider()
             HStack(spacing: 0) {
                 keyBrowser
+                    .background(LitheToolWindowActivityTracker(isActive: $keyListActive))
                     .frame(minWidth: 250, idealWidth: 300, maxWidth: 350)
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 keyDetail
@@ -150,7 +152,7 @@ struct RedisWorkspaceView: View {
                                 .padding(.horizontal, 8).frame(height: 40).frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .buttonStyle(.litheNoPress).lithePointer()
-                            .litheRowHover(isActive: feature.redisSelectedKey?.key == key.key, activeBackground: LitheTheme.subtleSelection)
+                            .litheSelectionRow(isSelected: feature.redisSelectedKey?.key == key.key, isFocused: keyListActive)
                         }
                     }
                     .padding(.vertical, 6)
@@ -345,6 +347,7 @@ struct NacosWorkspaceView: View {
     private enum SearchField: Hashable { case dataID, configGroup, service, serviceGroup }
     @FocusState private var focusedSearch: SearchField?
     @FocusState private var detailField: String?
+    @State private var configListActive = false
     @State private var section: NacosSection = .configs
     @State private var dataIDSearch = ""
     @State private var groupSearch = ""
@@ -463,12 +466,13 @@ struct NacosWorkspaceView: View {
                                 .padding(.horizontal, 9).frame(height: 42).frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .buttonStyle(.litheNoPress).lithePointer()
-                            .litheRowHover(isActive: feature.nacosSelectedConfig?.dataId == config.dataId && feature.nacosSelectedConfig?.group == config.group, activeBackground: LitheTheme.subtleSelection)
+                            .litheSelectionRow(isSelected: feature.nacosSelectedConfig?.dataId == config.dataId && feature.nacosSelectedConfig?.group == config.group, isFocused: configListActive)
                         }
                     }.padding(.vertical, 6)
                 }
             }
             .frame(minWidth: 285, idealWidth: 340, maxWidth: 390).litheWorkbenchSurface(LitheTheme.sidebar)
+            .background(LitheToolWindowActivityTracker(isActive: $configListActive))
             Rectangle().fill(LitheTheme.divider).frame(width: 1)
             configEditor
         }

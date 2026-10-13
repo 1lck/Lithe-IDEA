@@ -186,6 +186,7 @@ struct DatabaseQueryHistoryDialog: View {
     let profileID: UUID?
     let onClose: () -> Void
     let onPaste: (DatabaseSQLHistoryEntry) -> Void
+    @State private var historyListActive = false
     @State private var selectedID: UUID?
 
     private var entries: [DatabaseSQLHistoryEntry] { feature.sqlHistory.filter { $0.profileID == profileID } }
@@ -205,11 +206,12 @@ struct DatabaseQueryHistoryDialog: View {
                                     Text(verbatim: entry.sql.replacingOccurrences(of: "\n", with: "↵   "))
                                         .font(LitheTheme.codeFont).lineLimit(1)
                                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8).frame(height: 24)
-                                }.buttonStyle(.litheNoPress).litheRowHover(isActive: selected?.id == entry.id,
-                                    activeBackground: LitheTheme.DatabaseGrid.selected)
+                                }.buttonStyle(.litheNoPress).litheSelectionRow(isSelected: selected?.id == entry.id,
+                                    isFocused: historyListActive)
                             }
                         }
                     }.litheScrollViewChrome().background(LitheTheme.editor)
+                        .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
                 } flexible: {
                     SQLSyntaxEditor(text: .constant(selected?.sql ?? ""), completions: [], onRun: {}, onSelectionChange: { _ in },
                                     isEditable: false)

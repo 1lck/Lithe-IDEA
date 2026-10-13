@@ -20,6 +20,7 @@ struct ChangesSidebarView: View {
     let revealInFinder: (URL) -> Void
     let copyPath: (URL, Bool) -> Void
     let showSettings: (SettingsCategory) -> Void
+    @Environment(\.controlActiveState) private var controlActiveState
     @State private var selectedTab = CommitTab.commit
     @State private var commitToolActive = false
     @State private var changelistExpanded: [String: Bool] = [:]
@@ -588,7 +589,7 @@ struct ChangesSidebarView: View {
         .padding(.trailing, 6)
         .frame(maxWidth: .infinity)
         .frame(height: changeRowHeight)
-        .litheTreeRow(isSelected: selection.ids.contains(change.id), isFocused: commitToolActive)
+        .litheTreeRow(isSelected: selection.ids.contains(change.id), isFocused: commitToolActive && controlActiveState == .key)
         .contentShape(Rectangle())
         .onTapGesture { selectRow(change) }
         .accessibilityAddTraits(selection.ids.contains(change.id) ? .isSelected : [])

@@ -54,6 +54,7 @@ struct AgentHistoryView: View {
     let onCopySessionID: (String) -> Void
     let onSelect: (String) -> Void
     let onReconnect: () -> Void
+    @State private var historyListActive = false
     @State private var query = ""
     @State private var filter = AgentHistoryFilter.all
     @State private var isSelecting = false
@@ -110,6 +111,7 @@ struct AgentHistoryView: View {
                         ForEach(sessions) { session in row(session) }
                     }
                 }
+                .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
             }
         }
         .background(AgentPanelStyle.canvas)
@@ -249,7 +251,7 @@ struct AgentHistoryView: View {
             isCurrent: session.id == feature.selectedSessionID,
             isFavorite: history.metadata[session.id]?.isFavorite == true,
             isRemoved: filter == .removed, isSelecting: isSelecting,
-            isSelected: selectedIDs.contains(session.id), isEditing: editingID == session.id,
+            isSelected: selectedIDs.contains(session.id), isFocused: historyListActive, isEditing: editingID == session.id,
             editingTitle: $editingTitle, isCopied: copiedID == session.id,
             canExport: history.canExport([session.id]),
             canOpen: feature.canLoadSessions && feature.connectionState == .ready
@@ -288,6 +290,7 @@ private struct AgentHistoryRow: View {
     let isRemoved: Bool
     let isSelecting: Bool
     let isSelected: Bool
+    let isFocused: Bool
     let isEditing: Bool
     @Binding var editingTitle: String
     let isCopied: Bool
@@ -366,7 +369,8 @@ private struct AgentHistoryRow: View {
         }
         .foregroundStyle(AgentPanelStyle.text)
         .padding(.horizontal, 20).padding(.vertical, 14)
-        .background(isSelected ? AgentPanelStyle.selected : (isHovering || isCurrent ? AgentPanelStyle.header : .clear))
+        .litheSelectionRow(isSelected: isSelected, isFocused: isFocused, cornerRadius: 0)
+        .background(isCurrent && !isSelected ? AgentPanelStyle.header : .clear)
         .overlay(alignment: .bottom) { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
         .onHover { isHovering = $0 }
         .accessibilityIdentifier("agent-history-row-\(session.id)")

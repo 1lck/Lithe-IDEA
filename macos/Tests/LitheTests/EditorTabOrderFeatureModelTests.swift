@@ -36,11 +36,18 @@ struct EditorTabOrderFeatureModelTests {
     @Test
     func tabActivityFollowsNativeKeyboardFocusAcrossRegions() throws {
         var active = false
-        let coordinator = LitheToolWindowActivityTracker.Coordinator(isActive: Binding(get: { active }, set: { active = $0 }))
+        var pending: [() -> Void] = []
+        func drain() {
+            let callbacks = pending
+            pending.removeAll()
+            callbacks.forEach { $0() }
+        }
+        let coordinator = LitheToolWindowActivityTracker.Coordinator(
+            isActive: Binding(get: { active }, set: { active = $0 }), schedule: { pending.append($0) })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { coordinator.stopObservingFocus(); window.close() }
+        defer { coordinator.stopObservingFocus(); window.close(); drain() }
         let host = try #require(window.contentView)
         let region = NSView(frame: NSRect(x: 0, y: 100, width: 400, height: 100))
         let editor = NSTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
@@ -51,20 +58,125 @@ struct EditorTabOrderFeatureModelTests {
         host.addSubview(other)
         var otherActive = false
         let otherCoordinator = LitheToolWindowActivityTracker.Coordinator(
-            isActive: Binding(get: { otherActive }, set: { otherActive = $0 }))
+            isActive: Binding(get: { otherActive }, set: { otherActive = $0 }), schedule: { pending.append($0) })
         otherCoordinator.view = other; otherCoordinator.observeFocus()
-        defer { otherCoordinator.stopObservingFocus() }
+        defer { otherCoordinator.stopObservingFocus(); drain() }
         coordinator.view = region; coordinator.observeFocus()
         for (responder, expected) in [(editor, true), (other, false), (editor, true)] {
             #expect(window.makeFirstResponder(responder))
             NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+            drain()
             #expect(active == expected, "Focus rect: \(region.convert(responder.visibleRect, from: responder)); region: \(region.bounds); responder frame: \(responder.frame)")
             #expect(otherActive != expected, "Offscreen document bounds must not activate a neighboring region")
+        }
+        let insideField = NSTextField(frame: NSRect(x: 10, y: 10, width: 120, height: 24))
+        let outsideField = NSTextField(frame: NSRect(x: 10, y: 10, width: 120, height: 24))
+        region.addSubview(insideField)
+        other.addSubview(outsideField)
+        for (field, expected) in [(insideField, true), (outsideField, false), (insideField, true)] {
+            #expect(window.makeFirstResponder(field))
+            #expect((window.firstResponder as? NSTextView)?.isFieldEditor == true)
+            NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+            drain()
+            #expect(active == expected, "A shared field editor must follow the control being edited")
+            #expect(otherActive != expected)
         }
         coordinator.stopObservingFocus()
         #expect(window.makeFirstResponder(other))
         NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
-        #expect(active, "Unmounted trackers must stop changing tab activity")
+        drain()
+        #expect(!active, "Unmounted trackers must invalidate retained activity")
+        region.removeFromSuperview()
+        host.addSubview(region)
+        coordinator.observeFocus()
+        drain()
+        #expect(!active, "Remounting while details own focus must stay inactive")
+        coordinator.stopObservingFocus()
+        #expect(window.makeFirstResponder(insideField))
+        coordinator.observeFocus()
+        drain()
+        #expect(active, "Remounting must recover the current focus owner on the next main-queue turn")
+    }
+
+    @Test
+    func delayedPointerActivityCannotOverrideNewerFocusOrRemount() throws {
+        var active = false
+        var pending: [() -> Void] = []
+        func drain() {
+            let callbacks = pending
+            pending.removeAll()
+            callbacks.forEach { $0() }
+        }
+        let coordinator = LitheToolWindowActivityTracker.Coordinator(
+            isActive: Binding(get: { active }, set: { active = $0 }), schedule: { pending.append($0) })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { coordinator.stopObservingFocus(); window.makeFirstResponder(nil); window.close(); drain() }
+        let host = try #require(window.contentView)
+        let region = NSTextView(frame: NSRect(x: 0, y: 100, width: 400, height: 100))
+        let details = NSTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 80))
+        host.addSubview(region); host.addSubview(details)
+        coordinator.view = region
+        #expect(window.makeFirstResponder(region))
+        coordinator.observeFocus()
+        drain()
+        #expect(active)
+        for notify in [true, false] {
+            #expect(window.makeFirstResponder(region))
+            NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+            coordinator.queuePointerActivity(true)
+            #expect(window.makeFirstResponder(details))
+            if notify { NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window) }
+            drain()
+            #expect(!active, "A deferred click must yield to newer focus even before its notification")
+        }
+        coordinator.queuePointerActivity(true)
+        coordinator.stopObservingFocus()
+        coordinator.observeFocus()
+        drain()
+        #expect(!active, "Callbacks from an earlier mount must not restore stale activity")
+        coordinator.queuePointerActivity(true)
+        coordinator.queuePointerActivity(false)
+        drain()
+        #expect(!active, "Only the latest pointer event may publish activity")
+    }
+
+    @Test
+    func trackerUnmountDefersBindingWritesUntilTheLifecycleCallbackReturns() {
+        var active = true
+        var pending: [() -> Void] = []
+        let coordinator = LitheToolWindowActivityTracker.Coordinator(
+            isActive: Binding(get: { active }, set: { active = $0 }), schedule: { pending.append($0) })
+        coordinator.stopObservingFocus()
+        #expect(active, "Cleanup invalidates callbacks immediately but publishes state next turn")
+        let callbacks = pending
+        pending.removeAll()
+        callbacks.forEach { $0() }
+        #expect(!active)
+    }
+
+    @Test
+    func activityTrackerCanDestroyItsSwiftUIStateOwner() async {
+        weak var released: NSView?
+        autoreleasepool {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.contentView = nil; window.close() }
+            var hosting: NSHostingView<ActivityTrackerLifecycleTestView>? = NSHostingView(
+                rootView: ActivityTrackerLifecycleTestView())
+            released = hosting
+            window.contentView = hosting
+            hosting?.layoutSubtreeIfNeeded()
+            window.contentView = nil
+            hosting = nil
+        }
+        // Flush the explicitly queued lifecycle publication, without a time-based sleep.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(released == nil, "The real SwiftUI state owner must be released without an access conflict")
     }
 
     @Test
@@ -484,4 +596,12 @@ private final class EditorTabOrderTestStore: KeyValueStore, @unchecked Sendable 
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+private struct ActivityTrackerLifecycleTestView: View {
+    @State private var active = true
+
+    var body: some View {
+        Text("Activity").background(LitheToolWindowActivityTracker(isActive: $active))
+    }
 }
