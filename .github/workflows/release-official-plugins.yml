@@ -118,7 +118,11 @@ jobs:
           PLUGIN_ID: ${{ matrix.release.id }}
           VERSION: ${{ matrix.release.version }}
         run: |
+          # Plugin releases must never take the repository's "Latest" slot:
+          # app updates resolve releases/latest/download/appcast-*.xml, which
+          # only the Lithe app releases publish.
           gh release create "$TAG" "dist/$ASSET_NAME" \
+            --latest=false \
             --target "$GITHUB_SHA" \
             --title "$PLUGIN_ID $VERSION" \
             --notes "Official Lithe plugin $PLUGIN_ID $VERSION. SHA-256: $(cat "dist/$ASSET_NAME.sha256")"

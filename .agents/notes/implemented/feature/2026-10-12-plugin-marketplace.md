@@ -69,7 +69,7 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 - 新插件只需要进入某个索引，宿主不用改代码。
 - 首个 PHP 声明式包发布前，官方索引是空的；合入后工作流会立即发布 `plugin-php-support-v1.0.0` 并开 PR 填充索引，客户端刷新时从仓库 HEAD 读取。
-- Lithe 版本 Release 里的 `Lithe-PHP-Support-<版本>-<架构>.zip` 只为旧客户端保留，之后可以移除。
+- Lithe 版本 Release 不再附带 `Lithe-PHP-Support-<版本>-<架构>.zip`。发版时只需要兼容 0.6.1 及之后的客户端，它们从官方索引下载插件；0.6.0 及更早的客户端不再从 Lithe Release 获得 PHP 包。
 - 社区插件不签名，安全性依赖用户确认；确认框必须完整列出程序，不能省略。
 - Windows 目前只共享契约和 Rust 校验，还没有界面。
 

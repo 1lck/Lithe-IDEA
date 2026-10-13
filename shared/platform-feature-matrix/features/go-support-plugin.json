@@ -2,11 +2,12 @@
   "id": "go-support-plugin",
   "area": "语言支持",
   "group": "Go",
-  "capability": "Go 内置声明式插件：gopls、运行与 go test",
+  "capability": "Go 可下载声明式插件：gopls、运行与 go test",
   "macos": {
     "evidence": [
       "Plugins/mac/Official/GoSupport/plugin.json",
-      "scripts/official-plugin-distribution.mjs",
+      "Plugins/marketplace/official-plugins.json",
+      "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
       "macos/Sources/Lithe/Views/App/PluginManagementView.swift",
       "macos/Tests/LitheTests/LanguageExtensionProcessLifecycleTests.swift",
       "shared/contracts/plugins/v1/fixtures/command-plans.json"
@@ -22,5 +23,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Go Support",
-  "verification": "macOS 打开插件管理，确认内置的 Go Support 出现在列表中、默认禁用、没有重装和卸载按钮；启用后无需重启，打开含 go.mod 的项目并点开 .go 文件，确认使用用户安装的 gopls 启动语言服务器；运行 main.go、运行整套与单文件、单个测试函数的 go test；禁用后 gopls 和运行进程退出。未安装 gopls 时给出缺失提示而不是崩溃。Windows 暂无 Go 插件。"
+  "verification": "macOS 打开插件管理，在插件市场里找到官方的 Go Support 并下载安装（Lithe.app 本身不再内置它），确认安装后默认禁用、有重装和卸载按钮；启用后无需重启，打开含 go.mod 的项目并点开 .go 文件，确认使用用户安装的 gopls 启动语言服务器；运行 main.go、运行整套与单文件、单个测试函数的 go test；禁用后 gopls 和运行进程退出。未安装 gopls 时给出缺失提示而不是崩溃。Windows 暂无 Go 插件。"
 }

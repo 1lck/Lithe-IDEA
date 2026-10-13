@@ -7,7 +7,7 @@
   "vendor": {
     "id": "dev.lithe",
     "displayName": "Lithe",
-    "signatureRequirement": "sameTeamAsHost"
+    "signatureRequirement": "publisherPackage"
   },
   "permissions": [
     "languageServer.launch",

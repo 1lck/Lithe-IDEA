@@ -237,8 +237,8 @@ public enum OfficialPluginCatalog {
         Entry(
             id: goPluginID,
             displayName: "Go Support",
-            signatureRequirement: .sameTeamAsHost,
-            distribution: .bundled,
+            signatureRequirement: .publisherPackage,
+            distribution: .download,
             languageID: "go",
             languageDisplayName: "Go",
             fileExtensions: ["go"],

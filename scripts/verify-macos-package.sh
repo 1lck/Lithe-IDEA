@@ -230,16 +230,15 @@ done
     "$app_path/Contents/Resources/LanguageServers/jdk-x86_64/bin/java" \
     -verify_arch x86_64
 
-if [[ -e "$app_path/Contents/Resources/OfficialPlugins/dev.lithe.plugin.php-support" ]]; then
-    print -u2 -- "Optional PHP support must not be bundled with Lithe"
-    exit 1
-fi
-
-plugin_manifests=("$app_path/Contents/Resources/OfficialPlugins"/*/plugin.json(N))
-if (( ${#plugin_manifests[@]} == 0 )); then
-    print -u2 -- "Packaged app does not contain any official plugin manifests"
-    exit 1
-fi
+# Go and PHP support are downloaded from the plugin marketplace, so the app
+# ships no official plugin package; the marketplace index below is the offline
+# catalog for them.
+for optional_plugin in dev.lithe.plugin.php-support dev.lithe.plugin.go-support; do
+    if [[ -e "$app_path/Contents/Resources/OfficialPlugins/$optional_plugin" ]]; then
+        print -u2 -- "Optional plugin $optional_plugin must not be bundled with Lithe"
+        exit 1
+    fi
+done
 
 if ! cmp -s "$app_path/Contents/Resources/PluginMarketplace/index.json" "$ROOT_DIR/Plugins/marketplace/index.json"; then
     print -u2 -- "Packaged app must contain the official plugin marketplace index"

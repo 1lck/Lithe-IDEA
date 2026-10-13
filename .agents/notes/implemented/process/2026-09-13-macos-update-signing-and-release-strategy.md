@@ -55,7 +55,7 @@ v1→v2 那次一样让旧包立刻失效。同一个 key ID 永远不能换成�
 1. 只有 debug 构建（`#if DEBUG`）接受这种来源；release 构建读到它会明确报
    “只有开发版能加载”，不会加载代码。
 2. 只有宿主信任策略要求发布签名（`publisherPackage`）的插件才可能是开发包。
-   按团队签名信任的插件（`sameTeamAsHost`，例如 Go Support）本来就不带签名文档，
+   按团队签名信任的插件（`sameTeamAsHost`，随宿主 app 内置的插件）本来就不带签名文档，
    从磁盘安装时保持普通来源，不会被误标成开发包、也不会因此被 release 拒绝。
 3. 包里只要存在 `lithe-plugin-signature.json`，无论安装来源和签名要求是什么都必须
    验签通过；`sameTeamAsHost` 包验签后仍要做原有的团队检查。开发来源不能用来

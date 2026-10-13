@@ -115,7 +115,6 @@ jobs:
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build }}
-          LITHE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.LITHE_PLUGIN_PACKAGE_PRIVATE_KEY }}
           LITHE_BUILD_TIMESTAMP: ${{ needs.prepare.outputs.timestamp }}
           LITHE_BUILD_GIT_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
           LITHE_UPDATE_CHANNEL: preview
@@ -123,17 +122,7 @@ jobs:
           LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: |
           test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before publishing preview updates"; exit 1; }
-          test -n "$LITHE_PLUGIN_PACKAGE_PRIVATE_KEY" || { echo "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY before publishing preview updates"; exit 1; }
           ./scripts/package-app.sh
-          plugin_root=$(LITHE_CODESIGN_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}" \
-            scripts/build-official-plugins.sh \
-            --configuration release \
-            --triple "${LITHE_ARCH}-apple-macosx" \
-            --plugin-id dev.lithe.plugin.php-support \
-            --output "dist/official-plugins/${LITHE_ARCH}")
-          ditto -c -k --sequesterRsrc --keepParent \
-            "$plugin_root/dev.lithe.plugin.php-support" \
-            "dist/Lithe-PHP-Support-${LITHE_VERSION}-${LITHE_ARCH}.zip"
           ./scripts/create-dmg.sh
           dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
           (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
@@ -176,14 +165,6 @@ jobs:
             dist/sparkle-${{ matrix.architecture }}/*
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
-
-      - name: Upload PHP plugin archive
-        uses: actions/upload-artifact@v7
-        with:
-          name: macos-php-plugin-${{ matrix.architecture }}
-          path: dist/Lithe-PHP-Support-${{ env.PREVIEW_VERSION }}-${{ matrix.architecture }}.zip
-          if-no-files-found: error
           retention-days: 14
 
       - name: Add preview download link
@@ -277,13 +258,6 @@ jobs:
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
-
-          for architecture in arm64 x86_64; do
-            plugin_archive="dist/Lithe-PHP-Support-${LITHE_VERSION}-${architecture}.zip"
-            test -s "$plugin_archive"
-            gh release upload "$RELEASE_TAG" "$plugin_archive" \
-              --repo "$GITHUB_REPOSITORY" --clobber
-          done
 
           # Publish every archive before replacing either feed. Retention protects
           # the current feed and the most recent 30 builds for cached clients.

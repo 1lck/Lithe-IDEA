@@ -11,15 +11,23 @@ does not need to be rebuilt for each Lithe release; compatibility is decided by
 
 | Package | Distribution | Language server |
 | --- | --- | --- |
-| `GoSupport` | Bundled in Lithe.app, disabled until enabled in Plugin Management | `gopls` from the user's tools |
+| `GoSupport` | Downloaded from Plugin Management, publisher-signed | `gopls` from the user's tools; needs Go |
 | `PhpSupport` | Downloaded from Plugin Management, publisher-signed | Intelephense packaged in the plugin; needs Node.js |
+
+No official plugin is bundled in Lithe.app. Both packages are released through
+their own tag series (`plugin-go-support-v<version>`,
+`plugin-php-support-v<version>`) and listed in the official marketplace index;
+see `Plugins/marketplace/official-plugins.json`.
 
 Packages are architecture-neutral. `--triple` only selects the SwiftPM layout
 for the default output directory and the package signer.
 
-## Optional PHP Support
+## Building a downloadable plugin
 
-PHP Support is built separately and is not included in Lithe.app:
+Official plugins are built separately and are not included in Lithe.app. PHP
+Support is the example below; pass `dev.lithe.plugin.go-support` to build Go
+Support the same way (it packages only `plugin.json`, so no language-server
+download happens):
 
 ```sh
 LITHE_PLUGIN_PACKAGE_PRIVATE_KEY="$(cat /secure/path/lithe-plugin-package-private-key.base64)" \
@@ -31,11 +39,11 @@ The build downloads the Intelephense archive pinned by `language-server.json`,
 verifies its SHA-256, and assembles it under `language-server/` in the package
 before signing. Keep the resulting `dev.lithe.plugin.php-support` directory
 intact for offline recovery; normal users download, install, reinstall, and
-uninstall PHP Support from Plugin Management. A PHP package requires
+uninstall them from Plugin Management. A publisher-signed package requires
 `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`, a base64-encoded 32-byte Ed25519 private key
-whose public key matches the embedded publisher key; debug builds skip PHP when
-the key is absent, and a direct PHP package build fails instead of producing an
-unsigned package. Keep the key in a protected file or environment variable and
+whose public key matches the embedded publisher key; debug builds skip these
+packages when the key is absent, and a direct package build fails instead of
+producing an unsigned package. Keep the key in a protected file or environment variable and
 never commit it.
 
 Users who installed the retired native PHP package (0.3.0) see "Update required"
