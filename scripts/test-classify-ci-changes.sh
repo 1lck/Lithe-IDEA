@@ -144,7 +144,27 @@ modify_database_swift() { printf '%s\n' 'struct UpdatedDatabaseModule {}' > maco
 modify_database_swift_test() { printf '%s\n' 'struct UpdatedDatabaseTests {}' > macos/Tests/LitheDatabaseModuleTests/DatabaseTests.swift; }
 modify_database_app_source() { printf '%s\n' 'struct UpdatedDatabaseView {}' > macos/Sources/Lithe/Views/Database/DatabaseView.swift; }
 modify_mixed_core_logic_test() { printf '%s\n' 'struct UpdatedLitheCoreLogicTests {}' > macos/Tests/LitheTests/LitheCoreLogicTests.swift; }
+modify_feature_matrix() {
+    mkdir -p shared/platform-feature-matrix/features
+    printf '%s\n' '{"id":"updated"}' > shared/platform-feature-matrix/features/example.json
+}
+modify_feature_matrix_and_swift() {
+    modify_feature_matrix
+    modify_swift_source
+}
 modify_shared_fixture() { printf '%s\n' '{"operation":"updated"}' > shared/fixtures/core/test.json; }
+modify_shared_editor() {
+    mkdir -p frontend/editor/src
+    printf '%s\n' 'export const layout = 2;' > frontend/editor/src/workbench.ts
+}
+modify_workbench_view() {
+    mkdir -p macos/Sources/Lithe/Views/Workbench
+    printf '%s\n' 'struct UpdatedWorkbenchView {}' > macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift
+}
+modify_localization_strings() {
+    mkdir -p macos/Resources/zh-Hans.lproj
+    printf '%s\n' '"Open" = "打开";' > macos/Resources/zh-Hans.lproj/Localizable.strings
+}
 modify_windows_frontend() { printf '%s\n' 'export const value = 2;' > windows/tauri/src/value.ts; }
 modify_windows_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > windows/tauri/src-tauri/src/main.rs; }
 modify_download_cache_validator() { printf '%s\n' 'console.log("updated");' > scripts/verify-download-cache.mjs; }
@@ -256,6 +276,21 @@ assert_classification swift-and-database \
 assert_classification shared-fixture \
     "$(classification true false false true false false true true false false)" \
     modify_shared_fixture
+assert_classification feature-matrix \
+    "$(classification false false false false false false false false false false)" \
+    modify_feature_matrix
+assert_classification feature-matrix-with-swift \
+    "$(classification true false false false false false false false false false)" \
+    modify_feature_matrix_and_swift
+assert_classification shared-editor \
+    "$(classification false false false false false true true false false false)" \
+    modify_shared_editor
+assert_classification workbench-view \
+    "$(classification true false true false false true false false false false)" \
+    modify_workbench_view
+assert_classification localization-strings \
+    "$(classification true false true false false true false false false false)" \
+    modify_localization_strings
 assert_classification windows-frontend \
     "$(classification false false false false false false true false false false)" \
     modify_windows_frontend
@@ -294,6 +329,12 @@ assert_classification metadata \
 assert_classification classifier \
     "$(classification true true true true true true true true false false true true)" \
     modify_classifier
+LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes \
+    "$(classification false false false false true false false false false false false false)" \
+    modify_unknown_script
+LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-keeps-linux-lanes \
+    "$(classification false false false false false false false false true false)" \
+    modify_rust_comment
 assert_classification rename-rust-to-markdown \
     "$(classification true true true true true true true true false false true true)" \
     rename_rust_to_markdown

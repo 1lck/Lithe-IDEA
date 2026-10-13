@@ -3,6 +3,8 @@ name: Windows CI
 
 on:
   pull_request:
+    # ready_for_review reruns the deferred runner lanes after a draft is ready.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - preview
@@ -65,6 +67,7 @@ jobs:
         env:
           MANUAL: ${{ steps.base.outputs.manual }}
           BASE_SHA: ${{ steps.base.outputs.base_sha }}
+          LITHE_CI_DRAFT_PULL_REQUEST: ${{ github.event.pull_request.draft == true }}
         shell: bash
         run: |
           if [[ "$MANUAL" == "true" ]]; then
@@ -93,6 +96,7 @@ jobs:
           RUST_CORE: ${{ steps.classify.outputs.rust_core }}
           WINDOWS_RUST: ${{ steps.classify.outputs.windows_rust }}
           JAVA_JDT: ${{ steps.classify.outputs.java_jdt }}
+          DRAFT: ${{ github.event.pull_request.draft == true }}
         run: |
           {
             echo "### Windows CI lanes"
@@ -102,6 +106,10 @@ jobs:
             echo "| Shared Rust Core tests | $RUST_CORE |"
             echo "| Windows Rust tests | $WINDOWS_RUST |"
             echo "| Real JDT on Windows | $JAVA_JDT |"
+            if [[ "$DRAFT" == "true" ]]; then
+              echo ""
+              echo "Draft pull request: Windows runner lanes are deferred until it is marked ready for review."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   frontend:

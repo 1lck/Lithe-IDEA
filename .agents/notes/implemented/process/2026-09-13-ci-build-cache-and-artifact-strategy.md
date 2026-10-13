@@ -7,7 +7,10 @@
 CI 缓存的是经过版本和依赖约束的中间构建结果，不缓存最终安装包。普通
 PR 先通过编译和测试获得快速反馈；macOS 仅在包敏感改动时生成测试包，
 Windows PR 不再生成安装包。Windows 安装包由 preview 和稳定版发布工作流
-负责，避免发布产物阻塞日常代码验证。
+负责，避免发布产物阻塞日常代码验证。组织使用 GitHub Free 计划，全组织同时
+最多运行 5 个 macOS job，所以每次推送占用的 macOS runner 数量本身就是
+需要控制的成本：同一份 Swift 测试编译只做一次，PR 只打 arm64 包，Draft PR
+不占 macOS/Windows runner。
 
 ## 问题
 
@@ -40,9 +43,45 @@ scratch path；Xcode 26.6/Swift 6.3.3 继续使用原来的默认路径。插件
 
 路径分类器先决定 PR 需要哪些验证。普通 `macos/Sources/` 改动由 Swift 测试
 负责完整编译，不再重复生成两个 DMG。资源、SwiftPM 图、Rust bridge、平台
-组合、打包脚本和工具链等改动仍分别产出 Apple Silicon（`arm64`）和 Intel
-（`x86_64`）包，两个架构任务在资源允许时并行运行。需要任意分支的完整包时，
-开发者可以手动运行工作流。
+组合、打包脚本和工具链等改动只产出 Apple Silicon（`arm64`）包；Intel
+（`x86_64`）的编译、链接和打包改由合并到 `preview` 后的 universal 包验证，
+它会用 `lipo` 检查两个架构切片。需要在合并前拿到 Intel 包时，开发者手动
+运行 macOS CI 工作流。
+
+macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同时只能跑
+5 个 macOS job，超出的 job 只能排队。排队不是配额耗尽，也不是滥用信号，
+但会拖慢所有 PR 的反馈。因此：
+
+- 主 Swift 测试和数据库 Swift 测试共用 macOS CI 的 **Swift tests** job，只执行
+  一次 `./scripts/test-macos.sh list` 编译，再按分类结果运行各自的过滤测试。
+  过去数据库 job 单独编译约 10 分钟，只为运行十几秒测试。Database CI 只保留
+  Linux 上的 Rust 数据库测试和 gate。
+- 插件测试保留在独立的 macOS Plugin CI，只有分类器选中插件 lane 时才申请
+  macOS runner。多数 PR 不改插件，独立 job 时整条 lane 直接跳过；合进共用
+  job 则需要为少数插件 PR 额外拉长主 Swift job，收益更小。
+- `shared/platform-feature-matrix/` 是规划数据，产品代码不读取，由 Verify
+  Platform Feature Matrix 工作流单独校验。几乎每个功能 PR 都要更新它；过去它
+  落入 `shared/*` 规则，只改 macOS 界面的 PR 也会触发 Windows CI 和 macOS 上
+  17 分钟的 Rust Core 测试。现在矩阵文件和 Markdown 一样走文本流程：只做
+  `git diff --check` 和矩阵自身校验，不选择任何 runner lane。`shared/contracts/`
+  下的 JSON schema 与 `shared/fixtures/` 会被各平台代码和测试读取，仍按共享
+  契约选择 Swift、Rust Core 和 Windows lane。
+- 高频改动路径按真实消费方选择 lane，不落入“未知路径全量验证”的兜底分支：
+  `frontend/editor/` 与根目录 `package.json`、`bun.lock` 只被 macOS 打包 lane
+  （Bun 测试和 WebKit 工作台探针）与 Windows 前端 lane 使用；本地化
+  `*.lproj` 与 `WorkbenchView.swift` 不再选择独立插件 lane。插件相关的本地化
+  断言放在 Swift lane 会运行的 `AppLocalizationTests` 中，测试名不能包含
+  `Plugin`，否则会被 Swift lane 的插件过滤跳过。按上周 18 个 PR 提交回放，
+  Rust Core 从 18 次降到 3 次，Windows Rust 与真实 JDT 降到 3 次。
+- 分类脚本读取 `LITHE_CI_DRAFT_PULL_REQUEST`。Draft PR 关闭所有 macOS 和
+  Windows lane，只保留 Linux 上的分类、diff、Rust 数据库、注释和元数据检查；
+  PR 标记为 ready for review 时，macOS CI、Windows CI 和 macOS Plugin CI 重新
+  触发完整分类。
+
+正确做法：新增 Swift 专项测试时，在共用 **Swift tests** job 里加一个按分类
+结果执行的过滤步骤。不要这样做：新建一个 macOS job 再跑一遍
+`./scripts/test-macos.sh list`，这会让每次推送多占一个 macOS runner 约
+10 分钟。
 
 Git 性能基线和 Git 状态观察属于专项验证。只有 Git 生产代码、对应专项测试或
 测试工具链发生变化时才运行；普通搜索、编辑器或设置界面改动不会为无关的
@@ -121,10 +160,24 @@ Job Object（Windows 用于管理整棵子进程树的对象），设置最后�
 其他任务。Windows Job Object 提供系统级所有权和取消清理，代价是每次安装
 多启动一个 PowerShell worker，安装路径的回归测试需要在 Windows 上运行。
 
-### 只构建一个 macOS 架构
+### 所有分支都只构建一个 macOS 架构
 
-可以降低 CI 成本，但无法发现另一架构上的编译、链接和打包问题。macOS 产品
-仍保持双架构验证，只有通用包组装复用已经验证过的编译结果。
+可以降低 CI 成本，但无法发现另一架构上的编译、链接和打包问题，因此不采用。
+现在的折中是 PR 只打 arm64 包，`preview` 推送和手动运行仍构建 universal 包，
+覆盖 x86_64。代价是 Intel 专属的问题要在合并后才暴露，需要由 `preview` 上的
+macOS CI 失败来修复。
+
+### 把插件测试也并入共用 Swift job
+
+可以再省一次插件 PR 的编译，但插件 lane 只在少数 PR 中被选中。并入后会把
+插件过滤测试和官方插件打包验证串进主 Swift job，延长包含插件改动的 PR 的
+主反馈路径，因此插件 CI 保持独立并依赖分类器跳过。
+
+### 用 workflow 的 `paths` 过滤跳过插件或数据库 CI
+
+`Plugin CI gate` 和 `Database CI gate` 是 `preview` ruleset 的必需检查。
+workflow 被 `paths` 过滤掉后不会上报状态，PR 会一直等待这个检查，因此继续
+使用“Linux 分类 job + gate”的方式：未选中时 gate 在 Linux 上几秒内通过。
 
 ### 为所有 CI 任务强制上传完整安装包
 
@@ -151,8 +204,10 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 后果
 
-- 普通 macOS Swift PR 更快得到必需检查结果；被选中的打包改动仍获得两个架构
-  的真实安装物。
+- 普通 macOS Swift PR 更快得到必需检查结果；被选中的打包改动在 PR 中获得
+  arm64 安装物，x86_64 在合并后的 universal 构建中验证。
+- 一次涉及数据库的推送少占一个 macOS runner，PR 打包少占一个 macOS runner；
+  Draft PR 迭代期间不占 macOS/Windows runner。
 - Git 专项验证不会再延长无关 Swift 改动的反馈时间。
 - 帧采样只绘制可见区域，减少与屏幕无关的测试工作；它不衡量完整历史的一次
   批量导出，也不等同于需要显式开启的真实窗口帧率采样。
@@ -165,7 +220,8 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 验证
 
-- `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml`
+- `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-database.yml .github/workflows/ci-plugins.yml`
+- `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane 的用例。
 - `./scripts/test-macos.sh`
 - `./scripts/test-git-performance-baseline.sh`
 - `./scripts/build-macos.sh --configuration debug --triple arm64-apple-macosx`
@@ -186,6 +242,8 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `docs/ci-builds.md`
 - `.github/workflows/ci-macos.yml`
 - `.github/workflows/ci-windows.yml`
+- `.github/workflows/ci-database.yml`
+- `.github/workflows/ci-plugins.yml`
 - `scripts/classify-ci-changes.sh`
 - `scripts/install-windows-frontend-dependencies.ps1`
 - `scripts/invoke-windows-bun-install.ps1`

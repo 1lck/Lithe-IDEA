@@ -20,7 +20,6 @@ jobs:
     name: Classify changes
     runs-on: ubuntu-latest
     outputs:
-      swift_database: ${{ steps.classify.outputs.swift_database }}
       rust_database: ${{ steps.classify.outputs.rust_database }}
 
     steps:
@@ -59,10 +58,7 @@ jobs:
         shell: bash
         run: |
           if [[ "$MANUAL" == "true" ]]; then
-            {
-              echo "swift_database=true"
-              echo "rust_database=true"
-            } >> "$GITHUB_OUTPUT"
+            echo "rust_database=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -71,58 +67,16 @@ jobs:
       - name: Summarize selected lanes
         shell: bash
         env:
-          SWIFT_DATABASE: ${{ steps.classify.outputs.swift_database }}
           RUST_DATABASE: ${{ steps.classify.outputs.rust_database }}
         run: |
           {
             echo "### Database CI lanes"
             echo "| Lane | Run |"
             echo "| --- | --- |"
-            echo "| Swift database tests | $SWIFT_DATABASE |"
             echo "| Rust database tests | $RUST_DATABASE |"
+            echo ""
+            echo "Swift database tests run in **macOS CI → Swift tests**; check **macOS CI gate** for their result."
           } >> "$GITHUB_STEP_SUMMARY"
-
-  swift-database-tests:
-    name: Swift database tests
-    needs: changes
-    if: needs.changes.outputs.swift_database == 'true'
-    runs-on: macos-26
-    timeout-minutes: 45
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v7
-
-      - name: Set up Swift 6.3.3 and Xcode
-        uses: ./.github/actions/setup-macos-toolchain
-
-      - name: Prepare verified SwiftPM cache
-        uses: ./.github/actions/prepare-macos-dependency-cache
-        with:
-          swiftpm: "true"
-          cargo: "true"
-
-      # Compile and discover tests before starting the test execution deadline.
-      - name: Build Swift tests
-        timeout-minutes: 20
-        run: ./scripts/test-macos.sh list > /dev/null
-
-      - name: Run database-focused Swift tests
-        timeout-minutes: 17
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-database.json --suite-timeout-seconds 960 -- --skip-build --filter '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)'
-
-      - name: Generate combined database test report
-        if: always()
-        run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
-
-      - name: Upload database test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-stability-database
-          path: .artifacts/test-stability/
-          if-no-files-found: ignore
-          retention-days: 14
 
   rust-database-tests:
     name: Rust database tests
@@ -161,7 +115,6 @@ jobs:
     name: Database CI gate
     needs:
       - changes
-      - swift-database-tests
       - rust-database-tests
     if: always()
     runs-on: ubuntu-latest
@@ -170,9 +123,7 @@ jobs:
       - name: Verify required jobs
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
-          SWIFT_DATABASE_SELECTED: ${{ needs.changes.outputs.swift_database }}
           RUST_DATABASE_SELECTED: ${{ needs.changes.outputs.rust_database }}
-          SWIFT_DATABASE_RESULT: ${{ needs.swift-database-tests.result }}
           RUST_DATABASE_RESULT: ${{ needs.rust-database-tests.result }}
         shell: bash
         run: |
@@ -186,5 +137,4 @@ jobs:
               [[ "$result" == "skipped" ]]
             fi
           }
-          require_selected_job "$SWIFT_DATABASE_SELECTED" "$SWIFT_DATABASE_RESULT"
           require_selected_job "$RUST_DATABASE_SELECTED" "$RUST_DATABASE_RESULT"

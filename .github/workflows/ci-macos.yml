@@ -3,6 +3,8 @@ name: macOS CI
 
 on:
   pull_request:
+    # ready_for_review reruns the deferred runner lanes after a draft is ready.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - preview
@@ -21,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       swift: ${{ steps.classify.outputs.swift }}
+      swift_database: ${{ steps.classify.outputs.swift_database }}
       rust_core: ${{ steps.classify.outputs.rust_core }}
       macos_release: ${{ steps.classify.outputs.macos_release }}
       rust_comments: ${{ steps.classify.outputs.rust_comments }}
@@ -95,11 +98,13 @@ jobs:
         env:
           MANUAL: ${{ steps.base.outputs.manual }}
           BASE_SHA: ${{ steps.base.outputs.base_sha }}
+          LITHE_CI_DRAFT_PULL_REQUEST: ${{ github.event.pull_request.draft == true }}
         shell: bash
         run: |
           if [[ "$MANUAL" == "true" ]]; then
             {
               echo "swift=true"
+              echo "swift_database=true"
               echo "rust_core=true"
               echo "macos_release=true"
               echo "rust_comments=false"
@@ -145,7 +150,9 @@ jobs:
         shell: bash
         env:
           SWIFT: ${{ steps.classify.outputs.swift }}
+          SWIFT_DATABASE: ${{ steps.classify.outputs.swift_database }}
           RUST_CORE: ${{ steps.classify.outputs.rust_core }}
+          DRAFT: ${{ github.event.pull_request.draft == true }}
           MACOS_RELEASE: ${{ steps.classify.outputs.macos_release }}
           RUST_COMMENTS: ${{ steps.classify.outputs.rust_comments }}
           METADATA: ${{ steps.classify.outputs.metadata }}
@@ -156,19 +163,28 @@ jobs:
             echo "| Lane | Run |"
             echo "| --- | --- |"
             echo "| Swift tests | $SWIFT |"
+            echo "| Swift database tests | $SWIFT_DATABASE |"
             echo "| Rust Core tests | $RUST_CORE |"
             echo "| Release package verification | $MACOS_RELEASE |"
             echo "| Rust comment verification | $RUST_COMMENTS |"
             echo "| Metadata validation | $METADATA |"
             echo "| Git performance and observation | $GIT_VALIDATION |"
+            if [[ "$DRAFT" == "true" ]]; then
+              echo ""
+              echo "Draft pull request: macOS runner lanes are deferred until it is marked ready for review."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The main and database Swift suites share one test build. A separate database
+  # job spent about ten minutes compiling the same products for seconds of
+  # filtered tests and held another of the five organization macOS runners.
+  # Plugin tests stay in macOS Plugin CI so that unrelated changes skip them.
   swift-tests:
     name: Swift tests
     needs: changes
-    if: needs.changes.outputs.swift == 'true'
+    if: needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true'
     runs-on: macos-26
-    timeout-minutes: 65
+    timeout-minutes: 80
 
     steps:
       - name: Check out source
@@ -189,6 +205,7 @@ jobs:
         run: ./scripts/test-macos.sh list > /dev/null
 
       - name: Run Swift unit tests
+        if: needs.changes.outputs.swift == 'true'
         timeout-minutes: 17
         run: |
           ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
@@ -202,6 +219,7 @@ jobs:
             --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
 
       - name: Run stable rollback disk image integration test
+        if: needs.changes.outputs.swift == 'true'
         timeout-minutes: 3
         run: |
           # Creating and mounting a real disk image has variable runner latency.
@@ -227,6 +245,7 @@ jobs:
             --filter GitStatusObservationTests
 
       - name: Run stable rollback disk image integration tests
+        if: needs.changes.outputs.swift == 'true'
         timeout-minutes: 3
         run: |
           # Builds, signs, and mounts a real disk image; CI runners measured
@@ -236,6 +255,11 @@ jobs:
             --max-seconds 60 --suite-timeout-seconds 150 -- \
             --skip-build \
             --filter StableRollbackDiskImageIntegrationTests
+
+      - name: Run database-focused Swift tests
+        if: needs.changes.outputs.swift_database == 'true'
+        timeout-minutes: 17
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-database.json --suite-timeout-seconds 960 -- --skip-build --filter '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)'
 
       - name: Generate combined Swift test report
         if: always()
@@ -304,9 +328,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # PRs compile each architecture concurrently. Main and manual runs also
-        # exercise the default universal assembly path and its negative checks.
-        architecture: ${{ fromJSON(github.event_name == 'pull_request' && '["arm64","x86_64"]' || '["universal"]') }}
+        # PRs compile only arm64 so a push does not hold a second macOS runner.
+        # Preview pushes and manual runs build the universal package, which
+        # compiles and links x86_64 and checks both slices with lipo.
+        architecture: ${{ fromJSON(github.event_name == 'pull_request' && '["arm64"]' || '["universal"]') }}
 
     steps:
       - name: Check out source
@@ -458,7 +483,7 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           SWIFT_RESULT: ${{ needs.swift-tests.result }}
           RUST_CORE_RESULT: ${{ needs.rust-core-tests.result }}
-          SWIFT_SELECTED: ${{ needs.changes.outputs.swift }}
+          SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true' }}
           RUST_CORE_SELECTED: ${{ needs.changes.outputs.rust_core }}
           RELEASE_SELECTED: ${{ needs.changes.outputs.macos_release }}
           RELEASE_RESULT: ${{ needs.release-build.result }}

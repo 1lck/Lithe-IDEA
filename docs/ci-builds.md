@@ -11,10 +11,11 @@ packaging, and other bundle-sensitive changes still select the package lane.
 Windows PR CI runs frontend and Rust validation concurrently and does not build
 an installer; Windows installers come from preview and stable release workflows.
 
-- macOS PRs selected for package verification produce separate Apple Silicon
-  (`arm64`) and Intel (`x86_64`) DMGs. The two jobs run concurrently when
-  runners are available.
-- macOS pushes to `main` and manual runs verify the default universal package,
+- macOS PRs selected for package verification produce an Apple Silicon
+  (`arm64`) DMG only. Intel (`x86_64`) compilation, linking, and packaging are
+  verified after merge by the universal package on `preview`; run **macOS CI**
+  manually on a branch when an Intel build is needed before merge.
+- macOS pushes to `preview` and manual runs verify the default universal package,
   then assemble a universal DMG with the real Java tools using the same compiled
   outputs. The packaging smoke test's temporary Java fixtures are never uploaded.
 - Windows preview and stable releases produce an NSIS `.exe` installer.
@@ -29,10 +30,31 @@ an installer; Windows installers come from preview and stable release workflows.
 
 The summary records the exact checked-out revision. For a pull request this is
 normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
-gate** for the combined test result. A failed architecture still fails the
-macOS gate; `fail-fast: false` lets the other architecture finish and upload its
-package. To request a Windows installer for a branch, manually run **Release
+gate** for the combined test result. The macOS **Swift tests** job builds the
+Swift tests once and runs the main and database suites selected by the
+classifier, so **macOS CI gate** also owns the Swift database result;
+**Database CI gate** checks the Linux Rust database lane. **macOS Plugin CI**
+stays separate: it only reserves a macOS runner when the classifier selects the
+plugin lane, and otherwise **Plugin CI gate** passes on Linux in seconds. To
+request a Windows installer for a branch, manually run **Release
 Windows Preview** and provide that branch as `source_branch`.
+
+### macOS runner budget
+
+The `Lithe-IDEA` organization uses the GitHub Free plan, which runs at most
+five macOS jobs at a time across every workflow and pull request. Queued macOS
+jobs mean this pool is full; it is a concurrency limit, not a quota or abuse
+signal. Keep macOS jobs per push low:
+
+- Do not add a macOS job that repeats `./scripts/test-macos.sh list` for every
+  Swift change; add a filtered step to the shared **Swift tests** job instead.
+  The plugin lane is the deliberate exception because most pull requests do
+  not select it.
+- Open pull requests that are still being iterated on as drafts. Draft pull
+  requests run only the Linux lanes; marking one ready for review reruns the
+  classifier and the selected macOS and Windows lanes.
+- Each new push cancels the previous run for the same branch, so batch review
+  fixes into fewer pushes when possible.
 
 The GitHub CLI can also download a particular run's packages:
 

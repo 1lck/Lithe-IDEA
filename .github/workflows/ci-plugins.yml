@@ -3,6 +3,8 @@ name: macOS Plugin CI
 
 on:
   pull_request:
+    # ready_for_review reruns the deferred runner lane after a draft is ready.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - main
@@ -55,6 +57,7 @@ jobs:
         env:
           MANUAL: ${{ steps.base.outputs.manual }}
           BASE_SHA: ${{ steps.base.outputs.base_sha }}
+          LITHE_CI_DRAFT_PULL_REQUEST: ${{ github.event.pull_request.draft == true }}
         shell: bash
         run: |
           if [[ "$MANUAL" == "true" ]]; then
@@ -68,12 +71,17 @@ jobs:
         shell: bash
         env:
           PLUGINS: ${{ steps.classify.outputs.plugins }}
+          DRAFT: ${{ github.event.pull_request.draft == true }}
         run: |
           {
             echo "### Plugin CI lanes"
             echo "| Lane | Run |"
             echo "| --- | --- |"
             echo "| Plugin tests and package verification | $PLUGINS |"
+            if [[ "$DRAFT" == "true" ]]; then
+              echo ""
+              echo "Draft pull request: the macOS plugin lane is deferred until it is marked ready for review."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   plugin-tests:
