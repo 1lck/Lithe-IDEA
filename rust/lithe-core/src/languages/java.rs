@@ -116,10 +116,11 @@ pub(crate) fn run_configurations_from_entrypoints(
             )
             .with_details(fact.source_path.clone())
         })?;
-        let source = fs::read_to_string(root.join(&relative)).map_err(|error| {
-            CoreError::new(ErrorCode::ParseFailed, "Could not read Java source")
-                .with_details(format!("{relative}: {error}"))
-        })?;
+        // Source is read only to classify a confirmed entry as a Spring Boot
+        // service. An entry whose source cannot be decoded (missing file or an
+        // unknown legacy charset) becomes a plain Java entry instead of failing
+        // the whole run list; JDT already confirmed the class is launchable.
+        let source = crate::text::read_text(&root.join(&relative)).unwrap_or_default();
         // A modular project reports `module/pkg.Type`; configuration ids and
         // names use the class itself so they stay stable across that change.
         let qualified_name = fact
@@ -191,7 +192,7 @@ pub fn code_vision(request: JavaCodeVisionRequest) -> Result<JavaCodeVisionRespo
             "Java target path must be relative",
         )
     })?;
-    let target_source = fs::read_to_string(root.join(&target_path)).map_err(|error| {
+    let target_source = crate::text::read_text(&root.join(&target_path)).map_err(|error| {
         CoreError::new(ErrorCode::ParseFailed, "Could not read Java target source")
             .with_details(error.to_string())
     })?;
@@ -203,7 +204,7 @@ pub fn code_vision(request: JavaCodeVisionRequest) -> Result<JavaCodeVisionRespo
         if !relative.to_lowercase().ends_with(".java") {
             continue;
         }
-        if let Ok(source) = fs::read_to_string(root.join(relative)) {
+        if let Ok(source) = crate::text::read_text(&root.join(relative)) {
             sources.push(source);
         }
     }

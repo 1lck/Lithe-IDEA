@@ -2642,6 +2642,59 @@ fn inspection_compares_generated_java_entries_with_jdt() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn run_configuration_generation_reads_non_utf8_entry_sources() {
+    // GBK-encoded Java source (no BOM) is not valid UTF-8, which is the norm on
+    // Chinese Windows. One such entry must not fail the whole run list: it is
+    // decoded instead, and a genuinely unreadable source only loses its Spring
+    // Boot classification.
+    let root = temporary_root("run-config-gbk-source");
+    let utf8_entry = "src/Utf8Main.java";
+    let gbk_entry = "src/GbkMain.java";
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join(utf8_entry),
+        "public class Utf8Main { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    // GBK bytes for a Chinese greeting. Any GBK source with non-ASCII bytes is
+    // not valid UTF-8, so a UTF-8-only read rejects it with InvalidData.
+    let gbk_source: &[u8] = b"public class GbkMain { public static void main(String[] args) { System.out.println(\"\xC4\xE3\xBA\xC3\xA3\xAC\xD6\xD0\xCE\xC4\xB2\xE2\xCA\xD4\"); } }";
+    fs::write(root.join(gbk_entry), gbk_source).unwrap();
+
+    let request = serde_json::json!({
+        "id": "generate-gbk",
+        "command": "runConfig.generate",
+        "payload": {
+            "root": root,
+            "paths": [utf8_entry, gbk_entry],
+            "modulePaths": [],
+            "javaEntrypoints": jdt_entrypoints(&[
+                (utf8_entry, "Utf8Main"),
+                (gbk_entry, "GbkMain")
+            ])
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    let generated = &response["data"]["generated"];
+    let configurations = generated["configurations"].as_array().unwrap();
+    assert!(
+        configurations
+            .iter()
+            .any(|value| value["id"] == "java-main:Utf8Main"),
+        "{generated}"
+    );
+    assert!(
+        configurations
+            .iter()
+            .any(|value| value["id"] == "java-main:GbkMain"),
+        "{generated}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn generate_run_configuration(
     root: &std::path::Path,
     paths: &[&str],

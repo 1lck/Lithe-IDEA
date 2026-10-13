@@ -17,6 +17,7 @@ pub mod plugins;
 mod project;
 mod protocol;
 mod runtime;
+mod text;
 
 pub use protocol::{
     CoreCommand, CoreError, CoreEvent, CoreRequest, CoreResponse, ErrorCode, ResponseData,

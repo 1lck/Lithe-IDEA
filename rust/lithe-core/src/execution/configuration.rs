@@ -1828,7 +1828,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         // JDK 8 project fails to load `File.java` as a class. Reading the source
         // yields the qualified class the JVM will resolve after compilation.
         let source_text =
-            fs::read_to_string(workspace_root.join(&current_file)).map_err(|error| {
+            crate::text::read_text(&workspace_root.join(&current_file)).map_err(|error| {
                 CoreError::new(
                     ErrorCode::InvalidRequest,
                     "Current Java source could not be read",
@@ -1998,7 +1998,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             Some(main_class) => main_class.to_string(),
             None => {
                 let source_text =
-                    fs::read_to_string(workspace_root.join(source)).map_err(|error| {
+                    crate::text::read_text(&workspace_root.join(source)).map_err(|error| {
                         CoreError::new(ErrorCode::InvalidRequest, "Java source could not be read")
                             .with_details(error.to_string())
                     })?;
