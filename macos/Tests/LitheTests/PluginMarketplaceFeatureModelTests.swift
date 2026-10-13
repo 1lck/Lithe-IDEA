@@ -147,6 +147,35 @@ struct PluginMarketplaceFeatureModelTests {
         #expect(!feature.listings.contains { $0.pluginID.rawValue == "io.example.zig-support" })
     }
 
+    /// Install from Lithe Store → remove the source → add the same repository
+    /// again (in another case): the plugin still updates and reinstalls from it.
+    @Test
+    func litheStoreAddedAgainKeepsItsInstalledPlugins() async throws {
+        let store = MacPluginMarketplaceService.communitySource
+        let (feature, service, manager) = try makeModel(communitySource: store)
+        manager.snapshots = [try installedSnapshot(version: "0.9.0", approved: service.programs, sourceID: store.id)]
+        let index = try #require(service.indexes[store.id])
+
+        try feature.removeSource(store.id)
+        #expect(feature.availableUpdate(for: PluginID("io.example.zig-support")) == nil)
+
+        service.indexes[store.id] = index
+        service.resolution = PluginMarketplaceSourceResolution(
+            indexURL: "https://raw.githubusercontent.com/lithe-idea/lithe-store/HEAD/lithe-plugin-index.json",
+            repository: "https://github.com/lithe-idea/lithe-store",
+            displayName: "lithe-idea/lithe-store"
+        )
+        try await feature.addSource("https://github.com/lithe-idea/lithe-store")
+
+        #expect(feature.sources.map(\.id) == [PluginMarketplaceSource.officialID, PluginMarketplaceSource.communityID])
+        let update = try #require(feature.availableUpdate(for: PluginID("io.example.zig-support")))
+        #expect(update.source.id == store.id)
+        #expect(feature.installState(for: update) == .updateAvailable(installed: "0.9.0", available: "1.0.0"))
+        await #expect(throws: PluginMarketplaceFeatureError.sourceAlreadyAdded("lithe-idea/lithe-store")) {
+            try await feature.addSource(store.input)
+        }
+    }
+
     @Test
     func listingsFilterBySourceAndSortByLastUpdate() throws {
         let (feature, _, _) = try makeModel()
@@ -165,7 +194,8 @@ struct PluginMarketplaceFeatureModelTests {
     // MARK: Doubles
 
     private func makeModel(
-        alsoListCommunityInOfficial: Bool = false
+        alsoListCommunityInOfficial: Bool = false,
+        communitySource community: PluginMarketplaceSource = Self.community
     ) throws -> (PluginMarketplaceFeatureModel, FakeMarketplaceService, FakePluginManager) {
         let official = MacPluginMarketplaceService.officialSource
         var officialEntries = [
@@ -175,10 +205,10 @@ struct PluginMarketplaceFeatureModelTests {
             officialEntries.append(Self.entry(id: "io.example.zig-support", date: "2026-10-01", platforms: ["darwin-arm64"]))
         }
         let service = FakeMarketplaceService(
-            sources: [official, Self.community],
+            sources: [official, community],
             indexes: [
                 official.id: PluginMarketplaceIndex(plugins: officialEntries, rejected: []),
-                Self.community.id: PluginMarketplaceIndex(plugins: [
+                community.id: PluginMarketplaceIndex(plugins: [
                     Self.entry(id: "io.example.windows-only", date: "2026-08-01", platforms: ["windows-x64"]),
                     Self.entry(id: "io.example.zig-support", date: "2026-10-10", platforms: ["darwin-arm64"]),
                 ], rejected: []),
@@ -195,7 +225,11 @@ struct PluginMarketplaceFeatureModelTests {
         return try #require(listing.offers.first { $0.source.id == Self.community.id })
     }
 
-    private func installedSnapshot(version: String, approved: [PluginProgram]) throws -> PluginManagementSnapshot {
+    private func installedSnapshot(
+        version: String,
+        approved: [PluginProgram],
+        sourceID: String = Self.community.id
+    ) throws -> PluginManagementSnapshot {
         let manifest = try DeclarativePluginTestSupport.descriptor(
             DeclarativePluginTestSupport.manifestObject(
                 id: "io.example.zig-support",
@@ -216,7 +250,7 @@ struct PluginMarketplaceFeatureModelTests {
             canRollback: false,
             statusMessage: "Enabled",
             marketplace: PluginMarketplaceProvenance(
-                sourceID: Self.community.id,
+                sourceID: sourceID,
                 sourceName: Self.community.name,
                 repository: "https://github.com/example/lithe-zig",
                 archiveSHA256: String(repeating: "1", count: 64),

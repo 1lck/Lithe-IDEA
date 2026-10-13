@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安装”两个标签。插件从“插件仓库源”（一个 JSON 索引文件）里列出：默认源是主仓库的 `Plugins/marketplace/index.json`，用户还能添加第三方源（HTTPS 索引地址，或 GitHub 仓库地址，自动指向仓库根目录的 `lithe-plugin-index.json`）。
+Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安装”两个标签。插件从“插件仓库源”（一个 JSON 索引文件）里列出：默认源是主仓库的 `Plugins/marketplace/index.json`；另外预置一个社区源 Lithe Store（`Lithe-IDEA/Lithe-store` 仓库，默认开启、可删除）；用户还能添加第三方源（HTTPS 索引地址，或 GitHub 仓库地址，自动指向仓库根目录的 `lithe-plugin-index.json`）。
 
 “官方”必须同时满足两点：来自默认源，并且带 Lithe 发布者签名。第三方源里的插件一律是“社区插件”：不签名，靠索引里固定的 SHA-256 和安装前的确认框保证用户知道自己装了什么。
 
@@ -56,6 +56,14 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 2. **社区插件也由 Lithe 签名（DBX 商店的做法）。** 需要审核流程和签名基础设施，现阶段负担过重。改为固定 SHA-256 + 安装确认 + 内容摘要复查。
 3. **索引校验在 Swift 里实现。** Windows 以后也要用同一套规则，放在 Rust Core 可以只写一次。
 4. **允许任意 HTTPS 下载地址。** 这样“来源仓库”无法与下载物对应，用户看到的仓库可能不是包的真正来源，所以限制为该仓库自己的 Release 资产。
+
+**预置社区源。** Lithe Store 是官方维护的社区插件索引，随 Lithe 预置，免得用户第一次打开插件市场时要先找源地址。它在信任上与用户手动添加的第三方源完全相同：插件显示为“社区”、不能用 `dev.lithe.*`、安装前必须确认。用户删除后，`sources.json` 的 `removedPresetSourceIDs` 记住这次删除，下次启动不会再加回来；用户停用只改变启用状态。
+
+**预置源的 ID。** 已安装插件只记录来源 ID（`PluginMarketplaceProvenance.sourceID`），更新、重装和“来自其他源”判断都按 ID 匹配。因此 Lithe Store 的 ID 不用固定字符串，而用与手动添加相同的规则从索引 URL 派生（`PluginMarketplaceSource.id(forIndexURL:)`）：无论是预置的、在没有预置的旧版本里手动添加的，还是删除后重新添加的，ID 都一样，插件不会因此找不到来源。GitHub 的 owner/仓库名不区分大小写：重新添加时，大小写不同的同一索引地址会取回预置 ID；旧版本按其他大小写手动添加的记录则保留原 ID 和启用状态，并代替预置源，不再额外插入一份。
+
+正确做法：Store 的收录、校验、版本追踪规则写在 Lithe-store 仓库的 `docs/`，主仓库只保存源地址常量。
+
+不要这样做：把 Lithe Store 当成官方源，或者为了“推荐”而给它的插件更高的信任。
 
 ## 后果
 

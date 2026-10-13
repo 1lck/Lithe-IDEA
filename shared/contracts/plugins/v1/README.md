@@ -164,6 +164,12 @@ every product shows the same catalog and the same install review.
   read-only with the application so the catalog works offline; refreshing
   fetches the same file from
   `https://raw.githubusercontent.com/Lithe-IDEA/Lithe-IDEA/HEAD/Plugins/marketplace/index.json`.
+- Hosts also preset one **community** source, Lithe Store
+  (`https://github.com/Lithe-IDEA/Lithe-store`, index
+  `https://raw.githubusercontent.com/Lithe-IDEA/Lithe-store/HEAD/lithe-plugin-index.json`).
+  It is a third-party source in every respect (community trust, `dev.lithe`
+  IDs refused), enabled by default, and removable; a host remembers the
+  removal instead of adding it back.
 - Users may add **third-party** sources. `plugins.marketplace.resolveSource`
   turns what the user pasted into the index URL to fetch: an https index URL
   is used as is (fragment removed); `https://github.com/<owner>/<repo>`

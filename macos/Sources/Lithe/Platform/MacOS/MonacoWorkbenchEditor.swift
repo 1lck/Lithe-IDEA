@@ -276,7 +276,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var latestUpdate: (() -> Void)?
     private var pending: [UUID: (Result<Any?, Error>) -> Void] = [:]
     private var failed = false
-    private var navigationID: UUID?
+    private let navigation = MonacoNavigationCoordinator()
     private var lastSemanticState = ""
     private var lastConfiguration: MonacoWorkbenchDisplayConfiguration?
     private var lastLiveIDs: Set<String> = []
@@ -365,6 +365,11 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         guard mounts[ownerID] != nil else { return }
         self.model = model
         observeFind(model: model)
+        navigation.observe(
+            model.$editorNavigationTarget.receive(on: DispatchQueue.main).eraseToAnyPublisher(),
+            isReady: { [weak self] in self?.ready == true },
+            present: { [weak self] in self?.latestUpdate?() }
+        )
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
             self.present(document: document, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers)
@@ -784,9 +789,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
             call("window.lithe.markers(id, markers)", arguments: ["id": id, "markers": values])
         }
-        if let target = model.editorNavigationTarget, target.url.standardizedFileURL == document.url.standardizedFileURL,
-           navigationID != target.id {
-            navigationID = target.id
+        if let target = navigation.jump(for: model.editorNavigationTarget, in: document.url) {
             call("window.lithe.navigate(payload)", arguments: ["payload": ["id": id, "line": target.line, "column": target.utf16Column]])
         }
     }

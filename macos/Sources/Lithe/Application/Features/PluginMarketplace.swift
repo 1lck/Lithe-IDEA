@@ -8,6 +8,14 @@ import LitheModuleAPI
 /// can be disabled but not removed; every other source is third-party.
 struct PluginMarketplaceSource: Equatable, Codable, Sendable, Identifiable {
     static let officialID = "lithe-official"
+    /// Lithe Store, the preset community source. Unlike the official source
+    /// it is third-party and the user may remove it.
+    static let communityIndexURL =
+        "https://raw.githubusercontent.com/Lithe-IDEA/Lithe-store/HEAD/lithe-plugin-index.json"
+    /// The same ID Lithe Store gets when added by hand, so a plugin installed
+    /// from it keeps its source whether Lithe Store is the preset, was added
+    /// in a release without the preset, or was removed and added again.
+    static let communityID = id(forIndexURL: communityIndexURL)
 
     let id: String
     let name: String
@@ -20,6 +28,24 @@ struct PluginMarketplaceSource: Equatable, Codable, Sendable, Identifiable {
 
     var kind: PluginMarketplaceSourceKind { id == Self.officialID ? .official : .thirdParty }
     var isOfficial: Bool { kind == .official }
+
+    /// Stable, filesystem-safe ID for a third-party source, derived from its
+    /// index URL so the same source cannot be added twice.
+    static func id(forIndexURL indexURL: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in indexURL.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return "source-" + String(hash, radix: 16)
+    }
+
+    /// Whether two index URLs name the same index. GitHub owner and
+    /// repository names are case-insensitive, so a user may have typed
+    /// Lithe Store's address in a different case.
+    static func sameIndex(_ left: String, _ right: String) -> Bool {
+        left.caseInsensitiveCompare(right) == .orderedSame
+    }
 }
 
 /// A validated index together with when it was fetched; `fetchedAt` is nil
@@ -205,15 +231,20 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     func addSource(_ input: String) async throws {
         loadIfNeeded()
         let resolution = try service.resolveSource(input)
+        // Lithe Store added again, in any case, takes its preset ID back so
+        // plugins installed from it still find their source.
+        let isCommunity = PluginMarketplaceSource.sameIndex(resolution.indexURL, PluginMarketplaceSource.communityIndexURL)
         let source = PluginMarketplaceSource(
-            id: Self.sourceID(forIndexURL: resolution.indexURL),
+            id: isCommunity ? PluginMarketplaceSource.communityID : PluginMarketplaceSource.id(forIndexURL: resolution.indexURL),
             name: resolution.displayName,
             input: input.trimmingCharacters(in: .whitespacesAndNewlines),
             indexURL: resolution.indexURL,
             repository: resolution.repository,
             isEnabled: true
         )
-        guard !sources.contains(where: { $0.id == source.id || $0.indexURL == source.indexURL }) else {
+        guard !sources.contains(where: {
+            $0.id == source.id || PluginMarketplaceSource.sameIndex($0.indexURL, source.indexURL)
+        }) else {
             throw PluginMarketplaceFeatureError.sourceAlreadyAdded(source.name)
         }
         try service.saveSources(sources + [source])
@@ -435,16 +466,6 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
             .contains { $0.lowercased().contains(query) }
     }
 
-    /// Stable, filesystem-safe ID for a third-party source, derived from its
-    /// index URL so the same source cannot be added twice.
-    static func sourceID(forIndexURL indexURL: String) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in indexURL.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3
-        }
-        return "source-" + String(hash, radix: 16)
-    }
 }
 
 enum PluginMarketplaceFeatureError: Error, Equatable, LocalizedError {

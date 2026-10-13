@@ -13,6 +13,10 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
     static let officialIndexURL =
         "https://raw.githubusercontent.com/Lithe-IDEA/Lithe-IDEA/HEAD/Plugins/marketplace/index.json"
     static let officialRepository = "https://github.com/Lithe-IDEA/Lithe-IDEA"
+    /// Lithe Store, the community index preset for every user. It is an
+    /// ordinary third-party source: community trust, removable.
+    static let communityRepository = "https://github.com/Lithe-IDEA/Lithe-store"
+    static let communityIndexURL = PluginMarketplaceSource.communityIndexURL
     private static let maximumIndexBytes: Int64 = 5 * 1_048_576
     private static let sourcesSchemaVersion = 1
 
@@ -70,26 +74,57 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
         )
     }
 
+    static var communitySource: PluginMarketplaceSource {
+        PluginMarketplaceSource(
+            id: PluginMarketplaceSource.communityID,
+            name: "Lithe Store",
+            input: communityRepository,
+            indexURL: communityIndexURL,
+            repository: communityRepository,
+            isEnabled: true
+        )
+    }
+
     // MARK: Sources
 
     func loadSources() -> [PluginMarketplaceSource] {
         var official = Self.officialSource
+        var community = Self.communitySource
         guard let data = try? Data(contentsOf: sourcesURL),
               let file = try? JSONDecoder().decode(SourcesFile.self, from: data),
               file.schemaVersion == Self.sourcesSchemaVersion else {
-            return [official]
+            return [official, community]
         }
-        // The official entry is rebuilt from host constants; only its
-        // enabled state is the user's.
+        // Preset entries are rebuilt from host constants so a moved index
+        // follows the host; only their enabled state is the user's.
         official.isEnabled = file.sources.first { $0.id == official.id }?.isEnabled ?? true
-        let thirdParty = file.sources.filter { $0.id != official.id && $0.kind == .thirdParty }
-        return [official] + thirdParty
+        let presetIDs: Set<String> = [official.id, community.id]
+        let thirdParty = file.sources.filter { !presetIDs.contains($0.id) && $0.kind == .thirdParty }
+        // Lithe Store added by hand before it became a preset already has the
+        // preset ID, so only its enabled state carries over.
+        if let saved = file.sources.first(where: { $0.id == community.id }) {
+            community.isEnabled = saved.isEnabled
+        } else if file.removedPresetSourceIDs?.contains(community.id) == true {
+            return [official] + thirdParty
+        } else if thirdParty.contains(where: { PluginMarketplaceSource.sameIndex($0.indexURL, community.indexURL) }) {
+            // Added by hand under a differently cased address: that entry
+            // stands in for the preset, keeping the ID its plugins recorded.
+            return [official] + thirdParty
+        }
+        return [official, community] + thirdParty
     }
 
     func saveSources(_ sources: [PluginMarketplaceSource]) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(SourcesFile(schemaVersion: Self.sourcesSchemaVersion, sources: sources))
+        // A preset missing from the list was removed by the user; remember it
+        // so the next launch does not add it back.
+        let removed = [PluginMarketplaceSource.communityID].filter { id in !sources.contains { $0.id == id } }
+        let data = try encoder.encode(SourcesFile(
+            schemaVersion: Self.sourcesSchemaVersion,
+            sources: sources,
+            removedPresetSourceIDs: removed
+        ))
         try fileManager.createDirectory(
             at: sourcesURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -239,6 +274,9 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
     private struct SourcesFile: Codable {
         let schemaVersion: Int
         let sources: [PluginMarketplaceSource]
+        /// Preset sources the user removed; absent in files written before
+        /// Lithe Store was preset, which therefore gain it once.
+        var removedPresetSourceIDs: [String]?
     }
 }
 
