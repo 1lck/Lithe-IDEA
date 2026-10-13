@@ -202,6 +202,17 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 以下目录不应直接复制或跨工作树共享：
 
+- 插件市场运行时状态：拉取的索引缓存 `<app-cache>/Lithe/PluginMarketplace/<source-id>/index.json`、
+  用户的插件仓库列表 `<app-support>/Lithe/PluginMarketplace/sources.json`，以及下载与解压
+  插件归档的临时目录 `<system-temp>/lithe-plugin-transfer-*`、`<system-temp>/lithe-plugin-download-*`。
+  索引由 Rust Core 校验，归档按索引 SHA-256 校验，但这些都是每个用户、每次运行的状态，
+  不是工作树构建产物，没有版本、平台、架构或工具链 identity stamp；
+  `excludedResources.plugin-marketplace-state` 由复用脚本直接拒绝。官方索引只从 Git 跟踪的
+  `Plugins/marketplace/index.json` 在打包阶段复制为只读的 `Contents/Resources/PluginMarketplace/index.json`，
+  运行时刷新只写 Caches，不改写 app bundle，也不影响签名和 Sparkle delta。
+  官方插件归档由 `.github/workflows/release-official-plugins.yml` 按插件独立 tag 发布，
+  不进入 app 构建或工作树缓存。
+
 - Sparkle 差分基线的单次发布临时目录：
   `<system-temp>/<sparkle-run>/archives/.baseline-<attempt>/` 保存每次 `gh`
   下载尝试，只有命令成功且文件非空才移入同次发布的 `archives/<selected-baseline>.zip`。

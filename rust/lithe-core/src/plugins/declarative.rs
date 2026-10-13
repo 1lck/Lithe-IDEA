@@ -23,6 +23,9 @@ pub const DECLARATIVE_MANIFEST_SCHEMA_VERSION: u32 = 2;
 /// independent of the Lithe application version.
 pub const SUPPORTED_PLUGIN_API_VERSIONS: &[u32] = &[1];
 
+/// ID prefix reserved to plugins published and signed by Lithe.
+pub const OFFICIAL_PLUGIN_NAMESPACE: &str = "dev.lithe";
+
 const PERMISSION_LANGUAGE_SERVER: &str = "languageServer.launch";
 const PERMISSION_RUN: &str = "process.run";
 const PERMISSION_TEST: &str = "process.test";
@@ -45,7 +48,7 @@ pub struct PluginRejection {
 }
 
 impl PluginRejection {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -53,7 +56,11 @@ impl PluginRejection {
         }
     }
 
-    fn at(code: &'static str, field: impl Into<String>, message: impl Into<String>) -> Self {
+    pub(crate) fn at(
+        code: &'static str,
+        field: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             code,
             message: message.into(),
@@ -62,7 +69,7 @@ impl PluginRejection {
     }
 }
 
-type Validation<T> = Result<T, PluginRejection>;
+pub(crate) type Validation<T> = Result<T, PluginRejection>;
 
 /// Root of a declarative `plugin.json`. Unknown fields are refused so a newer
 /// manifest feature cannot be silently ignored by an older host.
@@ -97,11 +104,15 @@ struct PluginVendor {
 
 /// How a package proves its origin. `sameTeamAsHost` is only honored by a
 /// host for packages shipped inside its own signed installation.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 enum SignatureRequirement {
     SameTeamAsHost,
     PublisherPackage,
+    /// Community package without a Lithe signature. Its integrity comes from
+    /// the marketplace index checksum and its trust from the user's explicit
+    /// confirmation, so the official namespace can never use it.
+    None,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -357,6 +368,14 @@ impl DeclarativePluginManifest {
         if self.vendor.id.trim().is_empty() || self.vendor.display_name.trim().is_empty() {
             return Err(invalid("vendor", "The plugin vendor is incomplete."));
         }
+        if self.vendor.signature_requirement == SignatureRequirement::None
+            && is_official_namespace(&self.id)
+        {
+            return Err(invalid(
+                "vendor.signatureRequirement",
+                "Official plugin IDs must carry a Lithe signature.",
+            ));
+        }
         if self.languages.is_empty() {
             return Err(invalid("languages", "The plugin declares no languages."));
         }
@@ -501,6 +520,88 @@ impl DeclarativePluginManifest {
         self.execution_providers
             .iter()
             .find(|provider| provider.language_id == language_id)
+    }
+}
+
+impl DeclarativePluginManifest {
+    /// Stable plugin ID.
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Plugin version, `major.minor.patch`.
+    pub(crate) fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// Normalized, sorted permission list.
+    pub(crate) fn permissions(&self) -> &[String] {
+        &self.permissions
+    }
+
+    /// Every program the host may start on this plugin's behalf, in a stable
+    /// order. Each entry carries everything that decides what actually runs:
+    /// the executable plus its arguments, the language server's validation
+    /// probe, and the run/test argument templates. An update that changes any
+    /// of these, even with the same executable, is a new program and must be
+    /// approved again.
+    pub(crate) fn programs(&self) -> Vec<Value> {
+        let mut programs = Vec::new();
+        for server in &self.language_servers {
+            programs.push(match &server.launch {
+                LanguageServerLaunch::Packaged { path } => json!({
+                    "kind": "packagedLanguageServer",
+                    "languageID": server.language_id,
+                    "path": path,
+                    "arguments": server.arguments,
+                    "validationArguments": server.validation_arguments,
+                }),
+                LanguageServerLaunch::SystemCommand { commands } => json!({
+                    "kind": "systemLanguageServer",
+                    "languageID": server.language_id,
+                    "commands": commands,
+                    "arguments": server.arguments,
+                    "validationArguments": server.validation_arguments,
+                }),
+            });
+            for dependency in &server.runtime_dependencies {
+                programs.push(json!({ "kind": "runtime", "tool": dependency.tool }));
+            }
+        }
+        for provider in &self.execution_providers {
+            if let Some(run) = &provider.run {
+                programs.push(json!({
+                    "kind": "run",
+                    "languageID": provider.language_id,
+                    "executable": run.executable,
+                    "arguments": run.arguments,
+                }));
+            }
+            if let Some(test) = &provider.test {
+                programs.push(json!({
+                    "kind": "test",
+                    "languageID": provider.language_id,
+                    "executable": test.executable,
+                    "workspaceArguments": test.workspace_arguments,
+                    "fileArguments": test.file_arguments,
+                    "testCaseArguments": test.test_case_arguments,
+                }));
+            }
+        }
+        // Order by kind, then language or tool, then the full serialized
+        // value as a total tie-breaker; duplicates (two servers needing the
+        // same runtime) collapse to one entry.
+        programs.sort_by_key(|program| {
+            let text = |key: &str| program[key].as_str().unwrap_or_default().to_string();
+            (
+                text("kind"),
+                text("languageID"),
+                text("tool"),
+                program.to_string(),
+            )
+        });
+        programs.dedup();
+        programs
     }
 }
 
@@ -1147,7 +1248,13 @@ fn is_identifier(value: &str) -> bool {
         })
 }
 
-fn is_plugin_id(value: &str) -> bool {
+/// True for IDs reserved to Lithe's official plugins (`dev.lithe` and
+/// `dev.lithe.*`). Third-party sources and unsigned packages may not use it.
+pub(crate) fn is_official_namespace(id: &str) -> bool {
+    id == OFFICIAL_PLUGIN_NAMESPACE || id.starts_with(&format!("{OFFICIAL_PLUGIN_NAMESPACE}."))
+}
+
+pub(crate) fn is_plugin_id(value: &str) -> bool {
     !value.is_empty()
         && value != "."
         && value != ".."
@@ -1156,7 +1263,7 @@ fn is_plugin_id(value: &str) -> bool {
         })
 }
 
-fn is_semantic_version(value: &str) -> bool {
+pub(crate) fn is_semantic_version(value: &str) -> bool {
     let parts: Vec<&str> = value.split('.').collect();
     parts.len() == 3
         && parts.iter().all(|part| {

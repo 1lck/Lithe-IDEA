@@ -5,7 +5,7 @@ import LitheModuleAPI
 @Suite("Plugin management presentation")
 struct PluginManagementPresentationTests {
     @Test
-    func onlyOfficialPluginsAppearInSettings() throws {
+    func builtInLanguageSupportIsNotListedAsAPlugin() throws {
         let php = try DeclarativePluginTestSupport.officialDescriptor("PhpSupport").pluginManifest
         let go = try DeclarativePluginTestSupport.officialDescriptor("GoSupport").pluginManifest
         let pythonManifest = try #require(
@@ -18,25 +18,22 @@ struct PluginManagementPresentationTests {
         ])
 
         #expect(content.plugins.map(\.id) == [php.id, go.id])
-        #expect(content.availablePHPManifest == nil)
     }
 
+    /// Community plugins are installed packages, so they are listed even
+    /// though the host has no catalog entry for them.
     @Test
-    func cleanInstallShowsPHPInstallEntry() {
-        let content = PluginManagementListContent(plugins: [])
+    func installedCommunityPluginsAreListed() throws {
+        let community = try DeclarativePluginTestSupport.descriptor(
+            DeclarativePluginTestSupport.manifestObject(
+                id: "io.example.zig-support",
+                version: PluginVersion(major: 1, minor: 0, patch: 0),
+                signatureRequirement: .unsigned
+            )
+        ).pluginManifest
+        let content = PluginManagementListContent(plugins: [snapshot(community, origin: .community)])
 
-        #expect(content.plugins.isEmpty)
-        #expect(content.availablePHPManifest?.id == OfficialPluginCatalog.phpPluginID)
-    }
-
-    /// Go ships inside Lithe, so PHP stays downloadable next to it.
-    @Test
-    func bundledGoDoesNotHideThePHPInstallEntry() throws {
-        let go = try DeclarativePluginTestSupport.officialDescriptor("GoSupport").pluginManifest
-        let content = PluginManagementListContent(plugins: [snapshot(go)])
-
-        #expect(content.plugins.map(\.id) == [OfficialPluginCatalog.goPluginID])
-        #expect(content.availablePHPManifest?.id == OfficialPluginCatalog.phpPluginID)
+        #expect(content.plugins.map(\.id) == [community.id])
     }
 
     @MainActor
@@ -59,10 +56,13 @@ struct PluginManagementPresentationTests {
         #expect(state.pendingPluginEnabledStates.isEmpty)
     }
 
-    private func snapshot(_ manifest: PluginManifest) -> PluginManagementSnapshot {
+    private func snapshot(
+        _ manifest: PluginManifest,
+        origin: PluginInstallationOrigin = .bundled
+    ) -> PluginManagementSnapshot {
         PluginManagementSnapshot(
             manifest: manifest,
-            origin: .bundled,
+            origin: origin,
             installationStatus: .installed,
             isEnabled: false,
             isRequired: false,
@@ -71,7 +71,8 @@ struct PluginManagementPresentationTests {
             isSuppressedBySafeMode: false,
             requiresRestart: false,
             canRollback: false,
-            statusMessage: "Disabled"
+            statusMessage: "Disabled",
+            marketplace: nil
         )
     }
 }

@@ -208,33 +208,6 @@ struct PluginManagerTests {
         #expect(enabled.requiresRestart)
     }
 
-    @Test
-    func bundledPluginCannotBeDownloadedOrReinstalled() async throws {
-        let root = temporaryRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let configuration = MacModuleConfigurationStore(store: PluginManagerKeyValueStore())
-        let go = try DeclarativePluginTestSupport.officialDescriptor("GoSupport")
-        let installed = InstalledPluginPackage(
-            descriptor: go,
-            installation: PluginInstallationRecord(pluginID: go.id, activeVersion: go.pluginManifest.version, origin: .bundled),
-            packageURL: root
-        )
-        let manager = MacPluginManager(
-            packageStore: makeStore(root: root),
-            moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
-            configurationStore: configuration,
-            launchMode: .normal,
-            startup: MacPluginStartupResult(installedPlugins: [installed], registeredPlugins: [installed], issues: [])
-        )
-
-        await #expect(throws: PluginManagerError.onlineDownloadUnavailable(go.id)) {
-            try await manager.reinstall(pluginID: go.id)
-        }
-        await #expect(throws: PluginManagerError.onlineDownloadUnavailable(go.id)) {
-            try await manager.download(pluginID: go.id)
-        }
-    }
-
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-manager-\(UUID().uuidString)", isDirectory: true)

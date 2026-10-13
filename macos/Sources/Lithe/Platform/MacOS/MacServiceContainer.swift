@@ -589,8 +589,29 @@ final class MacServiceContainer {
             configurationStore: moduleStore,
             launchMode: moduleLaunchMode,
             startup: pluginStartup,
-            managedBuiltInPlugins: bundledLanguageManifests,
-            packageDownloader: MacPluginPackageDownloader()
+            managedBuiltInPlugins: bundledLanguageManifests
+        )
+        let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
+        #if DEBUG
+        pluginMarketplaceTransport = MacPluginMarketplaceFixtureTransport.fromEnvironment()
+            ?? MacURLSessionPluginMarketplaceTransport()
+        #else
+        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport()
+        #endif
+        let pluginMarketplace = MacPluginMarketplaceService(
+            evaluator: RustPluginMarketplaceOperations(core: rustCore),
+            packageStore: pluginPackageStore,
+            downloader: MacPluginPackageDownloader(
+                transport: pluginMarketplaceTransport,
+                temporaryDirectory: fileStorage.temporaryDirectory()
+            ),
+            transport: pluginMarketplaceTransport,
+            applicationSupportDirectory: fileStorage.applicationSupportDirectory(),
+            cacheDirectory: fileStorage.cacheDirectory(),
+            // Read-only input shipped with the app; fetched indexes go to
+            // the cache directory above, never into the bundle.
+            bundledOfficialIndexURL: Bundle.main.resourceURL?
+                .appendingPathComponent("PluginMarketplace/index.json", isDirectory: false)
         )
         let pluginCatalog: ValidatedPluginCatalog
         do {
@@ -604,6 +625,7 @@ final class MacServiceContainer {
         services = AppServices(
             moduleRuntime: moduleRuntime,
             pluginManager: pluginManager,
+            pluginMarketplace: pluginMarketplace,
             pluginCatalog: pluginCatalog,
             languageProviderCatalogSource: languageProviderCatalogSource,
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,

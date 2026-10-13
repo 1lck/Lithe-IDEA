@@ -183,6 +183,33 @@ done
       abort "plan case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("code"))
     end
   end
+  index_schema = JSON.parse(File.read(File.join(root, "plugin-index.schema.json")))
+  abort "plugin index schema ID mismatch" unless index_schema.fetch("$id").end_with?("/plugins/v1/plugin-index.schema.json")
+  abort "plugin indexes must use schemaVersion 1" unless index_schema.fetch("properties").fetch("schemaVersion").fetch("const") == 1
+  marketplace = File.join(root, "fixtures", "marketplace")
+  index = JSON.parse(File.read(File.join(marketplace, "index.json")))
+  abort "marketplace fixture index must use schemaVersion 1" unless index.fetch("schemaVersion") == 1
+  JSON.parse(File.read(File.join(marketplace, "index-cases.json"))).fetch("cases").each do |item|
+    abort "index case #{item.fetch("name")} uses an unknown source kind" unless %w[official thirdParty].include?(item.fetch("sourceKind"))
+    expected = item.fetch("expected")
+    codes = expected.fetch("rejected").map { |entry| entry.fetch("code") } +
+      expected.fetch("plugins").map { |entry| entry.fetch("availability")["code"] }.compact
+    codes.each do |code|
+      abort "index case #{item.fetch("name")} uses an undocumented code #{code}" unless documented.include?(code)
+    end
+  end
+  JSON.parse(File.read(File.join(marketplace, "invalid-index-entries.json"))).fetch("cases").each do |item|
+    abort "invalid index case #{item.fetch("name")} uses an undocumented code" unless documented.include?(item.fetch("expectedCode"))
+  end
+  JSON.parse(File.read(File.join(marketplace, "source-urls.json"))).fetch("cases").each do |item|
+    code = item["expectedCode"]
+    abort "source case #{item.fetch("input")} uses an undocumented code" if code && !documented.include?(code)
+  end
+  JSON.parse(File.read(File.join(marketplace, "install-reviews.json"))).fetch("cases").each do |item|
+    abort "install review case #{item.fetch("name")} uses an unknown base" unless fixture_names.include?(item.fetch("base"))
+    code = item["expectedCode"]
+    abort "install review case #{item.fetch("name")} uses an undocumented code" if code && !documented.include?(code)
+  end
 ' "$declarative_plugin_contract"
 
 /usr/bin/ruby -rjson -e '

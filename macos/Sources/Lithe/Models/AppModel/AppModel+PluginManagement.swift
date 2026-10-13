@@ -10,21 +10,15 @@ extension AppModel {
         services.pluginManager.issues
     }
 
-    func installPHPPluginPackage() {
+    /// Installs a plugin package directory chosen by the user. The package
+    /// store validates the declaration and trust; release builds only accept
+    /// signed packages from disk.
+    func installPluginPackageFromDisk() {
         guard let packageURL = platformUI.chooseDirectory(
-            title: NSLocalizedString("Install PHP Support Plugin", comment: "PHP plugin package picker title"),
+            title: NSLocalizedString("Install Plugin from Disk", comment: "Plugin package picker title"),
             prompt: "Install"
         ) else { return }
         do {
-            // Only the plugin ID is needed to reject a wrong selection; the
-            // package store validates the full declaration while installing.
-            struct PackageIdentity: Decodable { let id: String }
-            let manifestURL = packageURL.appendingPathComponent("plugin.json")
-            let identity = try JSONDecoder().decode(PackageIdentity.self, from: Data(contentsOf: manifestURL))
-            guard identity.id == OfficialPluginCatalog.phpPluginID.rawValue else {
-                showNotification(NSLocalizedString("Select a PHP Support plugin package.", comment: "Wrong plugin package selected"))
-                return
-            }
             try services.pluginManager.installPackage(at: packageURL)
             objectWillChange.send()
         } catch {
@@ -32,27 +26,9 @@ extension AppModel {
         }
     }
 
-    func downloadPHPPlugin() async {
+    func uninstallPlugin(_ pluginID: PluginID) async {
         do {
-            try await services.pluginManager.download(pluginID: OfficialPluginCatalog.phpPluginID)
-            objectWillChange.send()
-        } catch {
-            showNotification(error.localizedDescription)
-        }
-    }
-
-    func reinstallPHPPlugin() async {
-        do {
-            try await services.pluginManager.reinstall(pluginID: OfficialPluginCatalog.phpPluginID)
-            objectWillChange.send()
-        } catch {
-            showNotification(error.localizedDescription)
-        }
-    }
-
-    func uninstallPHPPlugin() async {
-        do {
-            try await services.pluginManager.uninstall(OfficialPluginCatalog.phpPluginID)
+            try await services.pluginManager.uninstall(pluginID)
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)

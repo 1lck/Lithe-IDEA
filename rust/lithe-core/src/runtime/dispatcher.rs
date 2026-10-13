@@ -163,6 +163,21 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::test_plan_command,
         ),
+        CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::marketplace::validate_index_command,
+        ),
+        CoreCommand::PluginsMarketplaceResolveSource => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::marketplace::resolve_source_command,
+        ),
+        CoreCommand::PluginsMarketplaceInstallReview => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::marketplace::install_review_command,
+        ),
         CoreCommand::AgentInstall => agent_response(id, parsed.payload, crate::agent::install),
         CoreCommand::AgentUninstall => agent_response(id, parsed.payload, crate::agent::uninstall),
         CoreCommand::AgentInstallCli => {

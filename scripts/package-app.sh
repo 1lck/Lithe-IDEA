@@ -145,6 +145,11 @@ for plugin_package in "$plugin_root"/*(/N); do
     cp -R "$plugin_package" "$OFFICIAL_PLUGIN_DESTINATION/${plugin_package:t}"
 done
 
+# The official marketplace index ships read-only so the catalog works
+# offline; refreshed copies are written to the user's Caches at runtime.
+mkdir -p "$APP_DIR/Contents/Resources/PluginMarketplace"
+cp "$ROOT_DIR/Plugins/marketplace/index.json" "$APP_DIR/Contents/Resources/PluginMarketplace/index.json"
+
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
 zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"
 zsh "$ROOT_DIR/scripts/configure-sparkle-app.sh" "$APP_DIR/Contents/Info.plist" "$ARCH"

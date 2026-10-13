@@ -11,6 +11,7 @@ mod git_repository_setup;
 mod git_workspace_commit;
 mod github;
 mod languages;
+mod marketplace_plugins;
 mod mybatis;
 mod plugins;
 mod project;

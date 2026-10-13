@@ -13,7 +13,6 @@ final class MacPluginManager: PluginManaging {
     /// enablement changes apply immediately; anything installed later needs
     /// a restart to join the module graph.
     private let registeredPluginIDs: Set<PluginID>
-    private let packageDownloader: any MacPluginPackageDownloading
     private let hostVersion: PluginVersion
     private let allowsLocalDevelopmentPackages: Bool
     private var installedPlugins: [PluginID: InstalledPluginPackage]
@@ -27,7 +26,6 @@ final class MacPluginManager: PluginManaging {
         launchMode: ModuleLaunchMode,
         startup: MacPluginStartupResult,
         managedBuiltInPlugins: [PluginManifest] = [],
-        packageDownloader: any MacPluginPackageDownloading = MacPluginPackageDownloader(),
         hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
         allowsLocalDevelopmentPackages: Bool =
             MacOfficialPluginSignatureVerifier.allowsLocalDevelopmentPackagesByDefault
@@ -38,7 +36,6 @@ final class MacPluginManager: PluginManaging {
         self.configurationStore = configurationStore
         self.launchMode = launchMode
         self.managedBuiltInPlugins = managedBuiltInPlugins.sorted { $0.id < $1.id }
-        self.packageDownloader = packageDownloader
         self.hostVersion = hostVersion
         registeredPluginIDs = Set(startup.registeredPlugins.map(\.manifest.id))
         installedPlugins = Dictionary(
@@ -60,6 +57,7 @@ final class MacPluginManager: PluginManaging {
                     origin: $0.installation.origin,
                     installationStatus: $0.installation.status,
                     previousVersion: $0.installation.previousVersion,
+                    marketplace: $0.installation.marketplace,
                     runtimeSnapshots: runtimeSnapshots
                 )
             }
@@ -69,6 +67,7 @@ final class MacPluginManager: PluginManaging {
                 origin: .bundled,
                 installationStatus: .installed,
                 previousVersion: nil,
+                marketplace: nil,
                 runtimeSnapshots: runtimeSnapshots
             )
         }
@@ -107,46 +106,22 @@ final class MacPluginManager: PluginManaging {
         }
     }
 
-    func download(pluginID: PluginID) async throws {
-        guard OfficialPluginCatalog.entry(for: pluginID)?.distribution == .download else {
-            throw PluginManagerError.onlineDownloadUnavailable(pluginID)
+    func installMarketplacePackage(
+        at packageURL: URL,
+        origin: PluginInstallationOrigin,
+        provenance: PluginMarketplaceProvenance
+    ) throws {
+        guard origin == .marketplace || origin == .community else {
+            throw PluginManagerError.unsupportedInstallationOrigin(origin)
         }
-        guard installedPlugins[pluginID] == nil else {
-            throw PluginManagerError.pluginAlreadyInstalled(pluginID)
-        }
-        let downloaded = try await packageDownloader.download(
-            pluginID: pluginID,
-            hostVersion: hostVersion
-        )
-        defer { try? FileManager.default.removeItem(at: downloaded.temporaryDirectory) }
         let installed = try packageStore.installPackage(
-            from: downloaded.packageURL,
+            from: packageURL,
             deferActivationUntilRestart: true,
-            // The action is only exposed when no valid installation exists.
-            // Allow replacement so a retired native package or an unreadable
-            // directory is repaired with the current declarative package.
-            replaceExisting: true
-        )
-        restartRequiredPluginIDs.insert(installed.manifest.id)
-        try refreshInstalledPlugins()
-    }
-
-    func reinstall(pluginID: PluginID) async throws {
-        guard installedPlugins[pluginID] != nil else {
-            throw PluginManagerError.unknownPlugin(pluginID)
-        }
-        guard OfficialPluginCatalog.entry(for: pluginID)?.distribution == .download else {
-            throw PluginManagerError.onlineDownloadUnavailable(pluginID)
-        }
-        let downloaded = try await packageDownloader.download(
-            pluginID: pluginID,
-            hostVersion: hostVersion
-        )
-        defer { try? FileManager.default.removeItem(at: downloaded.temporaryDirectory) }
-        let installed = try packageStore.installPackage(
-            from: downloaded.packageURL,
-            deferActivationUntilRestart: true,
-            replaceExisting: true
+            // Reinstalling the active version repairs a damaged or retired
+            // package; a new version is installed beside the current one.
+            replaceExisting: true,
+            origin: origin,
+            marketplace: provenance
         )
         restartRequiredPluginIDs.insert(installed.manifest.id)
         try refreshInstalledPlugins()
@@ -226,6 +201,7 @@ final class MacPluginManager: PluginManaging {
         origin: PluginInstallationOrigin,
         installationStatus: PluginInstallationStatus,
         previousVersion: PluginVersion?,
+        marketplace: PluginMarketplaceProvenance?,
         runtimeSnapshots: [ModuleID: ModuleSnapshot]
     ) -> PluginManagementSnapshot {
         let moduleSnapshots = manifest.modules.compactMap { runtimeSnapshots[$0.manifest.id] }
@@ -276,23 +252,22 @@ final class MacPluginManager: PluginManaging {
             isSuppressedBySafeMode: isSuppressedBySafeMode,
             requiresRestart: requiresRestart,
             canRollback: previousVersion != nil,
-            statusMessage: statusMessage
+            statusMessage: statusMessage,
+            marketplace: marketplace
         )
     }
 }
 
 enum PluginManagerError: Error, Equatable, LocalizedError {
     case unknownPlugin(PluginID)
-    case onlineDownloadUnavailable(PluginID)
-    case pluginAlreadyInstalled(PluginID)
+    case unsupportedInstallationOrigin(PluginInstallationOrigin)
     case requiredPluginCannotBeDisabled(PluginID)
     case requiredPluginCannotBeUninstalled(PluginID)
 
     var errorDescription: String? {
         switch self {
         case .unknownPlugin(let id): "Plugin \(id) is not installed."
-        case .onlineDownloadUnavailable(let id): "Online download is not available for plugin \(id)."
-        case .pluginAlreadyInstalled(let id): "Plugin \(id) is already installed."
+        case .unsupportedInstallationOrigin(let origin): "Marketplace packages cannot be installed as \(origin.rawValue)."
         case .requiredPluginCannotBeDisabled(let id): "Required plugin \(id) cannot be disabled."
         case .requiredPluginCannotBeUninstalled(let id): "Required plugin \(id) cannot be uninstalled."
         }

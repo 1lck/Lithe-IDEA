@@ -587,6 +587,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
+| `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
+| `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
+| `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
 
 ### Maven test results
 
@@ -2403,6 +2406,18 @@ Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 `label` and `frameworkID` for tests) or `items`; refusals use the same
 `rejected` shape. Only a malformed payload is an `invalid_request` failure.
 `shared/contracts/plugins/v1/fixtures/` holds the golden cases.
+
+The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
+archives and pass the parsed JSON. `validateIndex` accepts
+`{ index, sourceKind: "official" | "thirdParty", platform }` and returns
+`{ status: "ok", index: { plugins, rejected } }` with per-entry
+`availability`; `resolveSource` accepts `{ url }` and returns
+`{ status: "ok", source: { indexURL, repository, displayName } }`;
+`installReview` accepts `{ manifest, expectedID?, expectedVersion?,
+approvedPrograms? }` and returns `{ status: "ok", review: { id, version,
+permissions, programs, newPrograms } }`. Content problems use the same
+`rejected` shape; see the Marketplace section of
+[`plugins/v1`](plugins/v1/README.md) and `fixtures/marketplace/`.
 
 ### Git patch discovery and rebase amendment preconditions
 

@@ -20,6 +20,8 @@ struct PluginManagementSnapshot: Equatable, Sendable, Identifiable {
     let requiresRestart: Bool
     let canRollback: Bool
     let statusMessage: String
+    /// Marketplace source and approvals of the active version, if any.
+    let marketplace: PluginMarketplaceProvenance?
 
     var id: PluginID { manifest.id }
 }
@@ -30,8 +32,13 @@ protocol PluginManaging: AnyObject {
     var issues: [PluginManagementIssue] { get }
 
     func setEnabled(_ enabled: Bool, for pluginID: PluginID) async throws
-    func download(pluginID: PluginID) async throws
-    func reinstall(pluginID: PluginID) async throws
+    /// Installs a package that the marketplace already downloaded, verified,
+    /// and (for community packages) had the user confirm.
+    func installMarketplacePackage(
+        at packageURL: URL,
+        origin: PluginInstallationOrigin,
+        provenance: PluginMarketplaceProvenance
+    ) throws
     func installPackage(at packageURL: URL) throws
     func rollback(_ pluginID: PluginID) throws
     func uninstall(_ pluginID: PluginID) async throws

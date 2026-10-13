@@ -100,6 +100,10 @@ public struct PluginHostCompatibility: Equatable, Codable, Sendable {
 public enum PluginSignatureRequirement: String, Codable, Sendable {
     case sameTeamAsHost
     case publisherPackage
+    /// Community package without a Lithe signature (`"none"`). Hosts accept it
+    /// only from a third-party marketplace source after the archive matched
+    /// the index checksum and the user confirmed the install review.
+    case unsigned = "none"
 }
 
 public struct PluginVendor: Equatable, Codable, Sendable {
@@ -470,6 +474,40 @@ public enum PluginInstallationOrigin: String, Codable, Sendable {
     /// An unsigned package installed from disk by a development build. Release
     /// builds reject this origin instead of loading its code.
     case localDevelopment
+    /// A community package installed from a third-party marketplace source
+    /// after the user confirmed its permissions and programs.
+    case community
+}
+
+/// Where a marketplace installation came from and what the user approved.
+/// Updates are only offered from the same source, and an update that starts
+/// programs outside `approvedPrograms` needs a new confirmation.
+public struct PluginMarketplaceProvenance: Equatable, Codable, Sendable {
+    public let sourceID: String
+    public let sourceName: String
+    /// Plugin repository listed by the index entry, for issue reports.
+    public let repository: String
+    public let archiveSHA256: String
+    /// Digest of the installed files, rechecked whenever the package is loaded.
+    public let contentDigest: String
+    /// Canonical JSON of each approved program from `plugins.marketplace.installReview`.
+    public let approvedPrograms: [String]
+
+    public init(
+        sourceID: String,
+        sourceName: String,
+        repository: String,
+        archiveSHA256: String,
+        contentDigest: String,
+        approvedPrograms: [String]
+    ) {
+        self.sourceID = sourceID
+        self.sourceName = sourceName
+        self.repository = repository
+        self.archiveSHA256 = archiveSHA256
+        self.contentDigest = contentDigest
+        self.approvedPrograms = approvedPrograms
+    }
 }
 
 public enum PluginInstallationStatus: String, Codable, Sendable {
@@ -489,6 +527,10 @@ public struct PluginInstallationRecord: Equatable, Codable, Sendable {
     /// and fall back to `origin`.
     public let previousOrigin: PluginInstallationOrigin?
     public let status: PluginInstallationStatus
+    /// Marketplace provenance of the active and previous versions. Records
+    /// written before the marketplace existed decode as `nil`.
+    public let marketplace: PluginMarketplaceProvenance?
+    public let previousMarketplace: PluginMarketplaceProvenance?
 
     public init(
         pluginID: PluginID,
@@ -496,7 +538,9 @@ public struct PluginInstallationRecord: Equatable, Codable, Sendable {
         previousVersion: PluginVersion? = nil,
         origin: PluginInstallationOrigin,
         previousOrigin: PluginInstallationOrigin? = nil,
-        status: PluginInstallationStatus = .installed
+        status: PluginInstallationStatus = .installed,
+        marketplace: PluginMarketplaceProvenance? = nil,
+        previousMarketplace: PluginMarketplaceProvenance? = nil
     ) {
         self.pluginID = pluginID
         self.activeVersion = activeVersion
@@ -504,5 +548,21 @@ public struct PluginInstallationRecord: Equatable, Codable, Sendable {
         self.origin = origin
         self.previousOrigin = previousOrigin
         self.status = status
+        self.marketplace = marketplace
+        self.previousMarketplace = previousMarketplace
+    }
+
+    /// The same record with another status; every other field is preserved.
+    public func with(status: PluginInstallationStatus) -> PluginInstallationRecord {
+        PluginInstallationRecord(
+            pluginID: pluginID,
+            activeVersion: activeVersion,
+            previousVersion: previousVersion,
+            origin: origin,
+            previousOrigin: previousOrigin,
+            status: status,
+            marketplace: marketplace,
+            previousMarketplace: previousMarketplace
+        )
     }
 }

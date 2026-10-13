@@ -1,6 +1,7 @@
 //! Plugin manifest parsing, compatibility checks, and deterministic catalog merging.
 
 pub mod declarative;
+pub mod marketplace;
 
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};

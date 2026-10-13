@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "description": "Official plugins released through their own tag series and listed in index.json. A plugin is released when its packageDirectory changes and its plugin.json version has no tag yet; changing the directory without a new version fails CI.",
+  "plugins": [
+    {
+      "id": "dev.lithe.plugin.php-support",
+      "tagPrefix": "plugin-php-support-v",
+      "packageDirectory": "Plugins/mac/Official/PhpSupport",
+      "assetName": "Lithe-PHP-Support-{version}-darwin.zip",
+      "platforms": ["darwin-arm64", "darwin-x64"],
+      "index": {
+        "name": "PHP Support",
+        "author": "Lithe",
+        "repository": "https://github.com/Lithe-IDEA/Lithe-IDEA",
+        "description": "PHP language intelligence through the bundled Intelephense language server, plus running PHP files and PHPUnit tests. Requires Node.js and PHP on this Mac.",
+        "localizedDescriptions": {
+          "zh-Hans": "通过内置的 Intelephense 语言服务器提供 PHP 代码智能，并支持运行 PHP 文件和 PHPUnit 测试。需要本机已安装 Node.js 和 PHP。"
+        },
+        "tags": ["language", "php", "phpunit"],
+        "license": "Apache-2.0"
+      }
+    }
+  ]
+}

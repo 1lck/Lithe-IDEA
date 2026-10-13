@@ -54,6 +54,12 @@ pub enum CoreCommand {
     PluginsDeclarativeDiscoverTests,
     /// Expands a declarative plugin's test template (`plugins.declarative.testPlan`).
     PluginsDeclarativeTestPlan,
+    /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
+    PluginsMarketplaceValidateIndex,
+    /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
+    PluginsMarketplaceResolveSource,
+    /// Lists a package's permissions and programs before installation (`plugins.marketplace.installReview`).
+    PluginsMarketplaceInstallReview,
     /// Starts a Discourse user API key authorization (`community.discourse.auth.begin`).
     CommunityDiscourseAuthBegin,
     /// Decrypts and verifies a Discourse authorization callback (`community.discourse.auth.complete`).
@@ -357,6 +363,9 @@ impl CoreCommand {
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
             "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),
             "plugins.declarative.testPlan" => Some(Self::PluginsDeclarativeTestPlan),
+            "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
+            "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
+            "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),
             "community.discourse.auth.begin" => Some(Self::CommunityDiscourseAuthBegin),
             "community.discourse.auth.complete" => Some(Self::CommunityDiscourseAuthComplete),
             "community.discourse.topics" => Some(Self::CommunityDiscourseTopics),

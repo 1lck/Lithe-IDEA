@@ -90,6 +90,18 @@
       "reason": "Do not reuse plugin-owned language tools across worktrees; plugin lifecycle owns installation, replacement and cleanup."
     },
     {
+      "id": "plugin-marketplace-state",
+      "reusable": false,
+      "locations": [
+        "<app-cache>/Lithe/PluginMarketplace/<source-id>/index.json",
+        "<app-support>/Lithe/PluginMarketplace/sources.json",
+        "<system-temp>/lithe-plugin-transfer-<uuid>",
+        "<system-temp>/lithe-plugin-download-<uuid>"
+      ],
+      "identity": "Fetched marketplace indexes, the user's plugin repository list, and downloaded or extracted plugin archives are per-user runtime state verified by Rust Core index validation and the index SHA-256; the official index ships read-only from Git-tracked Plugins/marketplace/index.json and has no worktree build stamp",
+      "reason": "Marketplace caches, repository lists and plugin downloads belong to the running app and its user, never to a worktree build. Do not copy, symlink or bundle them; each run fetches and verifies its own copy. The bundled index is copied from Git at packaging time only."
+    },
+    {
       "id": "phpunit-fixture",
       "path": "shared/fixtures/phpunit-project/vendor",
       "reusable": false,

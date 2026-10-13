@@ -241,6 +241,11 @@ if (( ${#plugin_manifests[@]} == 0 )); then
     exit 1
 fi
 
+if ! cmp -s "$app_path/Contents/Resources/PluginMarketplace/index.json" "$ROOT_DIR/Plugins/marketplace/index.json"; then
+    print -u2 -- "Packaged app must contain the official plugin marketplace index"
+    exit 1
+fi
+
 /usr/bin/codesign --verify --deep --strict "$app_path"
 
 env -u LITHE_ARCH \

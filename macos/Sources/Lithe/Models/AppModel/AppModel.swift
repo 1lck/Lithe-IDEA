@@ -87,6 +87,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         service: services.agentManagement,
         dataDirectory: agentDataDirectory
     )
+    /// Settings › Plugins marketplace and plugin repositories, created when
+    /// the page is first shown.
+    lazy var pluginMarketplaceFeature = PluginMarketplaceFeatureModel(
+        service: services.pluginMarketplace,
+        pluginManager: services.pluginManager
+    )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
     var commitMessage: String {

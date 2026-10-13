@@ -34,6 +34,11 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
     case languageServerLaunchMissing(PluginID, String)
     /// A `sameTeamAsHost` package outside the host's sealed installation.
     case hostSealRequired(PluginID)
+    /// An unsigned package outside a confirmed community installation, or
+    /// an official-namespace package without a Lithe signature.
+    case unsignedPackageNotAllowed(PluginID)
+    /// A community package whose files differ from what the user approved.
+    case communityContentChanged(PluginID)
 
     var errorDescription: String? {
         switch self {
@@ -59,6 +64,10 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
             "Plugin \(id) is missing its language server or it is not executable: \(path)."
         case .hostSealRequired(let id):
             "Plugin \(id) can only be trusted when it ships inside Lithe."
+        case .unsignedPackageNotAllowed(let id):
+            "Plugin \(id) has no Lithe signature. Unsigned plugins can only be installed from a community plugin repository."
+        case .communityContentChanged(let id):
+            "Community plugin \(id) was changed after it was installed. Reinstall it from its plugin repository."
         case .invalidInstalledPlugin(let id, let message):
             if let id {
                 "Installed plugin \(id) is invalid: \(message)"
@@ -149,14 +158,10 @@ final class MacPluginPackageStore {
             case .installed:
                 continue
             case .updateStaged:
-                try write(PluginInstallationRecord(
-                    pluginID: record.pluginID,
-                    activeVersion: record.activeVersion,
-                    previousVersion: record.previousVersion,
-                    origin: record.origin,
-                    previousOrigin: record.previousOrigin,
-                    status: .installed
-                ), to: pluginDirectory.appendingPathComponent("installation.json"))
+                try write(
+                    record.with(status: .installed),
+                    to: pluginDirectory.appendingPathComponent("installation.json")
+                )
             case .uninstallPending:
                 try fileManager.removeItem(at: pluginDirectory)
             }
@@ -210,7 +215,12 @@ final class MacPluginPackageStore {
                       descriptor.pluginManifest.version == record.activeVersion else {
                     throw PluginPackageStoreError.manifestDoesNotMatchInstallation
                 }
-                try validatePackage(descriptor, at: packageURL, origin: record.origin)
+                try validatePackage(
+                    descriptor,
+                    at: packageURL,
+                    origin: record.origin,
+                    marketplace: record.marketplace
+                )
                 let candidate = InstalledPluginPackage(
                     descriptor: descriptor,
                     installation: record,
@@ -300,12 +310,29 @@ final class MacPluginPackageStore {
         try loadPackage(at: packageURL)
     }
 
+    /// Runs every check an installation would run, without installing, so
+    /// the marketplace can refuse a package before asking the user about it.
+    func verifyCandidatePackage(
+        at packageURL: URL,
+        origin: PluginInstallationOrigin,
+        marketplace: PluginMarketplaceProvenance?
+    ) throws -> DeclarativePluginDescriptor {
+        let descriptor = try loadPackage(at: packageURL)
+        guard !Self.retiredPluginIDs.contains(descriptor.id) else {
+            throw PluginPackageStoreError.retiredPlugin(descriptor.id)
+        }
+        try validatePathComponent(descriptor.id.rawValue)
+        try validatePackage(descriptor, at: packageURL, origin: origin, marketplace: marketplace)
+        return descriptor
+    }
+
     @discardableResult
     func installPackage(
         from sourceURL: URL,
         deferActivationUntilRestart: Bool = false,
         replaceExisting: Bool = false,
-        origin: PluginInstallationOrigin = .marketplace
+        origin: PluginInstallationOrigin = .marketplace,
+        marketplace: PluginMarketplaceProvenance? = nil
     ) throws -> InstalledPluginPackage {
         let sourceDescriptor = try loadPackage(at: sourceURL)
         guard !Self.retiredPluginIDs.contains(sourceDescriptor.id) else {
@@ -329,7 +356,7 @@ final class MacPluginPackageStore {
             throw PluginPackageStoreError.manifestDoesNotMatchInstallation
         }
         do {
-            try validatePackage(descriptor, at: stagedURL, origin: origin)
+            try validatePackage(descriptor, at: stagedURL, origin: origin, marketplace: marketplace)
         } catch let error as PluginPackageStoreError {
             switch error {
             case .languageServerLaunchMissing:
@@ -380,7 +407,11 @@ final class MacPluginPackageStore {
                 previousOrigin: replacesActiveVersion
                     ? existingRecord?.previousOrigin
                     : existingRecord?.origin,
-                status: deferActivationUntilRestart ? .updateStaged : .installed
+                status: deferActivationUntilRestart ? .updateStaged : .installed,
+                marketplace: marketplace,
+                previousMarketplace: replacesActiveVersion
+                    ? existingRecord?.previousMarketplace
+                    : existingRecord?.marketplace
             )
             try write(record, to: pluginDirectory.appendingPathComponent("installation.json"))
             if let backupURL {
@@ -423,14 +454,21 @@ final class MacPluginPackageStore {
             throw PluginPackageStoreError.manifestDoesNotMatchInstallation
         }
         let previousOrigin = record.previousOrigin ?? record.origin
-        try validatePackage(descriptor, at: previousPackageURL, origin: previousOrigin)
+        try validatePackage(
+            descriptor,
+            at: previousPackageURL,
+            origin: previousOrigin,
+            marketplace: record.previousMarketplace
+        )
         let restored = PluginInstallationRecord(
             pluginID: pluginID,
             activeVersion: previousVersion,
             previousVersion: record.activeVersion,
             origin: previousOrigin,
             previousOrigin: record.origin,
-            status: deferActivationUntilRestart ? .updateStaged : .installed
+            status: deferActivationUntilRestart ? .updateStaged : .installed,
+            marketplace: record.previousMarketplace,
+            previousMarketplace: record.marketplace
         )
         try write(restored, to: pluginDirectory.appendingPathComponent("installation.json"))
         return InstalledPluginPackage(
@@ -468,14 +506,10 @@ final class MacPluginPackageStore {
         guard !descriptor.pluginManifest.modules.contains(where: { $0.manifest.isRequired }) else {
             throw PluginPackageStoreError.requiredPluginCannotBeUninstalled(pluginID)
         }
-        try write(PluginInstallationRecord(
-            pluginID: record.pluginID,
-            activeVersion: record.activeVersion,
-            previousVersion: record.previousVersion,
-            origin: record.origin,
-            previousOrigin: record.previousOrigin,
-            status: .uninstallPending
-        ), to: pluginDirectory.appendingPathComponent("installation.json"))
+        try write(
+            record.with(status: .uninstallPending),
+            to: pluginDirectory.appendingPathComponent("installation.json")
+        )
     }
 
     /// Recovery path for an unreadable or retired active package. The
@@ -485,25 +519,47 @@ final class MacPluginPackageStore {
         try validatePathComponent(pluginID.rawValue)
         let pluginDirectory = rootURL.appendingPathComponent(pluginID.rawValue, isDirectory: true)
         let record = try installationRecord(at: pluginDirectory)
-        try write(PluginInstallationRecord(
-            pluginID: record.pluginID,
-            activeVersion: record.activeVersion,
-            previousVersion: record.previousVersion,
-            origin: record.origin,
-            previousOrigin: record.previousOrigin,
-            status: .uninstallPending
-        ), to: pluginDirectory.appendingPathComponent("installation.json"))
+        try write(
+            record.with(status: .uninstallPending),
+            to: pluginDirectory.appendingPathComponent("installation.json")
+        )
     }
 
     private func validatePackage(
         _ descriptor: DeclarativePluginDescriptor,
         at packageURL: URL,
-        origin: PluginInstallationOrigin
+        origin: PluginInstallationOrigin,
+        marketplace: PluginMarketplaceProvenance? = nil
     ) throws {
         try validateOfficialTrustPolicy(descriptor.pluginManifest)
         _ = try ValidatedPluginCatalog(manifests: [descriptor.pluginManifest], hostVersion: hostVersion)
         try verifier.verify(packageAt: packageURL, manifest: descriptor.pluginManifest, origin: origin)
+        if origin == .community {
+            try validateCommunityContent(descriptor.id, at: packageURL, marketplace: marketplace)
+        }
         try validateLaunchResources(descriptor, at: packageURL)
+    }
+
+    /// A community package has no publisher signature, so its integrity is
+    /// the file digest recorded when the user approved it. Any changed,
+    /// added, or removed file makes the package unloadable.
+    private func validateCommunityContent(
+        _ pluginID: PluginID,
+        at packageURL: URL,
+        marketplace: PluginMarketplaceProvenance?
+    ) throws {
+        guard let marketplace else {
+            throw PluginPackageStoreError.communityContentChanged(pluginID)
+        }
+        let digest: String
+        do {
+            digest = try PluginPackageSignature.contentDigest(packageAt: packageURL, fileManager: fileManager)
+        } catch {
+            throw PluginPackageStoreError.communityContentChanged(pluginID)
+        }
+        guard digest == marketplace.contentDigest else {
+            throw PluginPackageStoreError.communityContentChanged(pluginID)
+        }
     }
 
     /// Every packaged executable must be a regular, executable file inside
@@ -647,6 +703,20 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
         manifest: PluginManifest,
         origin: PluginInstallationOrigin
     ) throws {
+        // Unsigned packages are community packages and nothing else: any
+        // other origin or a host-pinned official ID needs a real signature.
+        // Rust Core already refuses `none` for the official namespace.
+        if manifest.vendor.signatureRequirement == .unsigned || origin == .community {
+            guard manifest.vendor.signatureRequirement == .unsigned,
+                  origin == .community,
+                  OfficialPluginCatalog.entry(for: manifest.id) == nil else {
+                throw PluginPackageStoreError.unsignedPackageNotAllowed(manifest.id)
+            }
+            if Self.hasPackageSignature(at: packageURL) {
+                try verifyPublisherPackageSignature(packageAt: packageURL, manifest: manifest)
+            }
+            return
+        }
         if origin == .localDevelopment,
            Self.isUnsignedDevelopmentPackage(at: packageURL, manifest: manifest) {
             guard allowsLocalDevelopmentPackages else {

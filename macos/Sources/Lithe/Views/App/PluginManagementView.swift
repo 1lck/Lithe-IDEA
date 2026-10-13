@@ -1,17 +1,129 @@
 import SwiftUI
 import LitheModuleAPI
 
+/// Settings › Plugins, laid out like IntelliJ IDEA's plugin manager:
+/// Marketplace and Installed tabs, a gear menu for plugin repositories and
+/// disk installs, and a list beside the selected plugin's details.
 struct PluginManagementView: View {
+    enum Tab: String {
+        case marketplace
+        case installed
+    }
+
     static let minimumWidth: CGFloat = listMinimumWidth + SplitHandleView.thickness + detailMinimumWidth
     static let listMinimumWidth: CGFloat = 200
-    private static let detailMinimumWidth: CGFloat = 160
+    static let detailMinimumWidth: CGFloat = 160
     @EnvironmentObject private var model: AppModel
     @ObservedObject var settingsState: SettingsViewState
+
+    var body: some View {
+        PluginManagementPage(settingsState: settingsState, feature: model.pluginMarketplaceFeature)
+    }
+}
+
+/// Observes the marketplace feature itself: `AppModel` does not republish its
+/// changes, so a page that only read it through the model would keep showing
+/// a confirmation sheet the feature had already cancelled.
+private struct PluginManagementPage: View {
+    typealias Tab = PluginManagementView.Tab
+
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var settingsState: SettingsViewState
+    @ObservedObject var feature: PluginMarketplaceFeatureModel
+    @AppStorage("lithe.settings.pluginTab") private var tab = Tab.installed
+    @State private var showsRepositories = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            switch tab {
+            case .marketplace:
+                PluginMarketplaceView(feature: feature)
+            case .installed:
+                InstalledPluginsView(settingsState: settingsState, feature: feature)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(LitheTheme.settingsSurface)
+        .onAppear { feature.loadIfNeeded() }
+        // Sheets do not inherit the app's interface language on macOS.
+        .sheet(isPresented: $showsRepositories) {
+            PluginRepositoriesSheet(feature: feature) { showsRepositories = false }
+                .environment(\.locale, model.settings.language.locale)
+        }
+        .sheet(item: Binding(
+            get: { feature.pendingConfirmation },
+            set: { if $0 == nil { feature.cancelPendingInstallation() } }
+        )) { confirmation in
+            PluginInstallConfirmationSheet(
+                confirmation: confirmation,
+                confirm: {
+                    feature.confirmPendingInstallation()
+                    model.objectWillChange.send()
+                },
+                cancel: { feature.cancelPendingInstallation() }
+            )
+            .environment(\.locale, model.settings.language.locale)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Text(LocalizedStringKey("Plugins")).font(LitheTheme.settingsStrongFont)
+            Spacer()
+            tabButton(.marketplace, title: "Marketplace")
+            tabButton(.installed, title: "Installed")
+            Spacer()
+            LitheMenu {
+                LitheContextMenuItem.action("Manage Plugin Repositories…") { showsRepositories = true }
+                LitheContextMenuItem.action("Refresh Plugin Repositories") {
+                    Task { await feature.refreshAll() }
+                }
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.action("Install Plugin from Disk…") { model.installPluginPackageFromDisk() }
+            } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: 16, fallbackSystemImage: "gearshape")
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.litheNoPress)
+            .help("Plugin settings")
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 42)
+        .background(LitheTheme.settingsSurface)
+    }
+
+    private func tabButton(_ value: Tab, title: String) -> some View {
+        Button {
+            tab = value
+        } label: {
+            Text(LocalizedStringKey(title))
+                .font(LitheTheme.settingsFont)
+                .foregroundStyle(tab == value ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(tab == value ? LitheTheme.settingsSelection : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.litheNoPress)
+        .accessibilityAddTraits(tab == value ? .isSelected : [])
+    }
+}
+
+/// Installed tab: enable, disable, update, reinstall, and uninstall.
+private struct InstalledPluginsView: View {
+    @Environment(\.locale) private var locale
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var settingsState: SettingsViewState
+    @ObservedObject var feature: PluginMarketplaceFeatureModel
     @State private var searchText = ""
     @State private var selectedPluginID: PluginID?
     @State private var hoveredPluginID: PluginID?
     @State private var isManagingPackage = false
-    @State private var confirmingPHPUninstall = false
+    @State private var confirmingUninstall: PluginManagementSnapshot?
     @AppStorage("lithe.settings.pluginListWidth") private var pluginListWidth = 320.0
 
     private var pendingEnabledStates: [PluginID: Bool] { settingsState.pendingPluginEnabledStates }
@@ -31,40 +143,35 @@ struct PluginManagementView: View {
     }
 
     private var selectedPlugin: PluginManagementSnapshot? {
-        if let selectedPluginID, selectedPluginID == availablePHPManifest?.id {
-            return nil
-        }
-        return filteredPlugins.first { $0.id == selectedPluginID } ?? filteredPlugins.first
-    }
-
-    private var availablePHPManifest: OfficialPluginCatalog.Entry? {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard let manifest = PluginManagementListContent(plugins: model.pluginSnapshots).availablePHPManifest,
-              query.isEmpty || manifest.displayName.lowercased().contains(query) else { return nil }
-        return manifest
-    }
-
-    /// Why the installed PHP package could not be accepted, for example a
-    /// retired native package that must be replaced.
-    private var phpInstallationIssue: String? {
-        model.pluginManagementIssues.first { $0.pluginID == OfficialPluginCatalog.phpPluginID }?.message
+        filteredPlugins.first { $0.id == selectedPluginID } ?? filteredPlugins.first
     }
 
     private var enabledPluginCount: Int {
         installedPlugins.filter { effectiveEnabledState(for: $0) }.count
     }
 
+    /// Plugins whose installed package could not be accepted, for example a
+    /// retired native package or a changed community package.
+    private var brokenPluginIssues: [PluginManagementIssue] {
+        model.pluginManagementIssues.filter { issue in
+            guard let pluginID = issue.pluginID else { return false }
+            return !installedPlugins.contains { $0.id == pluginID }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            header
             GeometryReader { geometry in
                 LitheSplitPaneView(
                     axis: .horizontal,
                     placement: .leading,
                     defaultSize: CGFloat(pluginListWidth),
-                    minimum: Self.listMinimumWidth,
-                    maximum: max(Self.listMinimumWidth, geometry.size.width - SplitHandleView.thickness - Self.detailMinimumWidth),
-                    flexibleMinimum: Self.detailMinimumWidth,
+                    minimum: PluginManagementView.listMinimumWidth,
+                    maximum: max(
+                        PluginManagementView.listMinimumWidth,
+                        geometry.size.width - SplitHandleView.thickness - PluginManagementView.detailMinimumWidth
+                    ),
+                    flexibleMinimum: PluginManagementView.detailMinimumWidth,
                     highlightsOnHover: false,
                     onCommit: { pluginListWidth = Double($0) },
                     sized: { sidebar },
@@ -75,41 +182,26 @@ struct PluginManagementView: View {
                 footer
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(LitheTheme.settingsSurface)
-        .onAppear {
-            selectedPluginID = installedPlugins.first?.id
-        }
         .confirmationDialog(
-            LocalizedStringKey("Uninstall PHP Support?"),
-            isPresented: $confirmingPHPUninstall,
+            Text(String(
+                format: PluginMarketplacePresentation.localized("Uninstall %@?", locale: locale),
+                confirmingUninstall?.manifest.displayName ?? ""
+            )),
+            isPresented: Binding(
+                get: { confirmingUninstall != nil },
+                set: { if !$0 { confirmingUninstall = nil } }
+            ),
             titleVisibility: .visible
         ) {
             Button(LocalizedStringKey("Uninstall"), role: .destructive) {
-                performPackageAction { await model.uninstallPHPPlugin() }
+                if let plugin = confirmingUninstall {
+                    performPackageAction { await model.uninstallPlugin(plugin.id) }
+                }
             }
             Button(LocalizedStringKey("Cancel"), role: .cancel) {}
         } message: {
-            Text(LocalizedStringKey("PHP language support will be removed after restarting Lithe."))
+            Text(LocalizedStringKey("The plugin will be removed after restarting Lithe."))
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 24) {
-            Text(LocalizedStringKey("Plugins")).font(LitheTheme.settingsStrongFont)
-            Spacer()
-            Text(LocalizedStringKey("Marketplace"))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .help("Plugin marketplace is not available")
-            Text(LocalizedStringKey("Installed"))
-                .font(LitheTheme.settingsFont)
-                .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(LitheTheme.settingsSelection)
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 42)
-        .background(LitheTheme.settingsSurface)
     }
 
     private var sidebar: some View {
@@ -130,8 +222,8 @@ struct PluginManagementView: View {
                     ForEach(filteredPlugins) { plugin in
                         pluginRow(plugin)
                     }
-                    if let manifest = availablePHPManifest {
-                        availablePluginRow(manifest)
+                    ForEach(brokenPluginIssues) { issue in
+                        brokenPluginRow(issue)
                     }
                 }
             }
@@ -141,13 +233,10 @@ struct PluginManagementView: View {
     }
 
     private func pluginRow(_ plugin: PluginManagementSnapshot) -> some View {
-        let presentation = presentation(for: plugin.id)
         let isSelected = selectedPlugin?.id == plugin.id
         let isHovered = hoveredPluginID == plugin.id
         return HStack(spacing: 10) {
-            Image(systemName: presentation.systemImage)
-                .font(LitheTheme.uiFont(size: 22)).foregroundStyle(presentation.tint)
-                .frame(width: 42, height: 42)
+            pluginIcon(plugin, size: 32)
                 .scaleEffect(isHovered && !isSelected ? 1.06 : 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text(LocalizedStringKey(plugin.manifest.displayName)).lineLimit(1)
@@ -156,11 +245,15 @@ struct PluginManagementView: View {
                     .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer()
+            if feature.availableUpdate(for: plugin.id) != nil {
+                Image(systemName: "arrow.up.circle.fill")
+                    .foregroundStyle(LitheTheme.accent)
+                    .help("Update available")
+            }
             Image(systemName: effectiveEnabledState(for: plugin) ? "checkmark.square.fill" : "square")
                 .foregroundStyle(effectiveEnabledState(for: plugin) ? LitheTheme.accent : LitheTheme.secondaryText)
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 14)
+        .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
@@ -181,140 +274,45 @@ struct PluginManagementView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { selectedPluginID = plugin.id }
     }
 
-    private func availablePluginRow(_ manifest: OfficialPluginCatalog.Entry) -> some View {
-        let isSelected = selectedPlugin == nil
-        return HStack(spacing: 10) {
-            Image(systemName: phpPresentation.systemImage)
-                .font(LitheTheme.uiFont(size: 22))
-                .foregroundStyle(phpPresentation.tint)
-                .frame(width: 42, height: 42)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(LocalizedStringKey(manifest.displayName))
+    /// A plugin whose package was refused. It can only be uninstalled or
+    /// replaced from the Marketplace tab.
+    private func brokenPluginRow(_ issue: PluginManagementIssue) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(LitheTheme.warning)
+                .frame(width: 32, height: 32)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: issue.pluginID?.rawValue ?? "")
                     .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                Text(LocalizedStringKey(phpInstallationIssue == nil ? "Not installed" : "Update required"))
+                    .lineLimit(1)
+                Text(verbatim: issue.message)
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let pluginID = issue.pluginID {
+                    Button(LocalizedStringKey("Uninstall")) {
+                        performPackageAction { await model.uninstallPlugin(pluginID) }
+                    }
+                    .controlSize(.small)
+                    .disabled(isManagingPackage)
+                }
             }
             Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isSelected ? LitheTheme.settingsSelection : Color.clear)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 1) {
-            selectedPluginID = manifest.id
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
     }
 
     @ViewBuilder private var detail: some View {
         if let plugin = selectedPlugin {
-            let presentation = presentation(for: plugin.id)
-            let isEnabled = effectiveEnabledState(for: plugin)
-            let hasPendingChange = pendingEnabledStates[plugin.id] != nil
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: presentation.systemImage)
-                        .font(LitheTheme.uiFont(size: 38)).foregroundStyle(presentation.tint)
-                        .frame(width: 50, height: 50)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(LocalizedStringKey(plugin.manifest.displayName)).font(LitheTheme.uiFont(size: 22, weight: .bold))
-                        Text("Lithe · \(plugin.manifest.vendor.displayName)").foregroundStyle(LitheTheme.secondaryText)
-                    }
-                    Spacer()
-                }
-                .padding(24)
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                HStack(spacing: 10) {
-                    Button(LocalizedStringKey(isEnabled ? "Disable" : "Enable")) {
-                        stageEnabledState(!isEnabled, for: plugin)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(LitheTheme.accent)
-                    .disabled(isApplyingChanges || isManagingPackage || plugin.isRequired)
-                    if OfficialPluginCatalog.entry(for: plugin.id)?.distribution == .download,
-                       plugin.origin != .bundled {
-                        Button {
-                            performPackageAction { await model.reinstallPHPPlugin() }
-                        } label: {
-                            if isManagingPackage {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Text(LocalizedStringKey("Reinstall"))
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isApplyingChanges || isManagingPackage)
-                        Button(LocalizedStringKey("Uninstall")) {
-                            confirmingPHPUninstall = true
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isApplyingChanges || isManagingPackage || plugin.isRequired)
-                    }
-                }.padding(24)
-                Text(LocalizedStringKey("Overview")).font(LitheTheme.uiFont(size: 15, weight: .semibold)).padding(.horizontal, 24)
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(LocalizedStringKey(presentation.summary))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Label(
-                        LocalizedStringKey(hasPendingChange ? "Pending confirmation" : plugin.statusMessage),
-                        systemImage: hasPendingChange ? "clock.badge.exclamationmark" : (isEnabled ? "checkmark.circle.fill" : "pause.circle")
-                    )
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(hasPendingChange ? LitheTheme.warning : (isEnabled ? LitheTheme.success : LitheTheme.secondaryText))
-                    if plugin.origin == .localDevelopment {
-                        Label(
-                            LocalizedStringKey("Unsigned development package. Release builds of Lithe will not load it."),
-                            systemImage: "hammer"
-                        )
-                            .font(LitheTheme.smallFont)
-                            .foregroundStyle(LitheTheme.warning)
-                    }
-                }
-                .padding(24)
-                Spacer()
+            ScrollView {
+                pluginDetail(plugin)
             }
+            .litheScrollViewChrome()
             .background(LitheTheme.settingsSurface)
-        } else if let manifest = availablePHPManifest {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(LocalizedStringKey(manifest.displayName))
-                    .font(LitheTheme.uiFont(size: 22, weight: .bold))
-                Text(LocalizedStringKey("Download PHP Support from the official signed plugin package."))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                if let phpInstallationIssue {
-                    Label(phpInstallationIssue, systemImage: "exclamationmark.triangle.fill")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.warning)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                HStack(spacing: 10) {
-                    Button {
-                        performPackageAction { await model.downloadPHPPlugin() }
-                    } label: {
-                        if isManagingPackage {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Text(LocalizedStringKey("Download and Install"))
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(LitheTheme.accent)
-                    .disabled(isApplyingChanges || isManagingPackage)
-                    Button(LocalizedStringKey("Install Plugin from Disk…")) {
-                        model.installPHPPluginPackage()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isApplyingChanges || isManagingPackage)
-                }
-                Spacer()
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 10) {
                 Image(systemName: "puzzlepiece.extension")
@@ -325,6 +323,123 @@ struct PluginManagementView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func pluginDetail(_ plugin: PluginManagementSnapshot) -> some View {
+        let isEnabled = effectiveEnabledState(for: plugin)
+        let hasPendingChange = pendingEnabledStates[plugin.id] != nil
+        let sourceID = feature.installedSourceID(for: plugin.id)
+        let source = feature.sources.first { $0.id == sourceID }
+        let update = feature.availableUpdate(for: plugin.id)
+        let isBusy = isManagingPackage || feature.busyPluginIDs.contains(plugin.id)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 14) {
+                pluginIcon(plugin, size: 48)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 8) {
+                        Text(LocalizedStringKey(plugin.manifest.displayName))
+                            .font(LitheTheme.uiFont(size: 22, weight: .bold))
+                        if plugin.origin == .community {
+                            PluginTrustBadge(isOfficial: false)
+                        }
+                    }
+                    Text(verbatim: "\(plugin.manifest.vendor.displayName) · \(plugin.manifest.version)")
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer()
+            }
+            .padding(24)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            HStack(spacing: 10) {
+                Button(LocalizedStringKey(isEnabled ? "Disable" : "Enable")) {
+                    stageEnabledState(!isEnabled, for: plugin)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(LitheTheme.accent)
+                .disabled(isApplyingChanges || isBusy || plugin.isRequired)
+                if let update {
+                    Button(String(
+                        format: PluginMarketplacePresentation.localized("Update to %@", locale: locale),
+                        update.entry.availability.download?.version ?? update.entry.latestVersion
+                    )) {
+                        performPackageAction { await feature.install(update) }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isApplyingChanges || isBusy)
+                }
+                if sourceID != nil {
+                    Button(LocalizedStringKey("Reinstall")) {
+                        performPackageAction { await feature.reinstall(plugin.id) }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isApplyingChanges || isBusy)
+                }
+                if plugin.origin != .bundled {
+                    Button(LocalizedStringKey("Uninstall")) {
+                        confirmingUninstall = plugin
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isApplyingChanges || isBusy || plugin.isRequired)
+                }
+                if isBusy {
+                    ProgressView().controlSize(.small)
+                }
+            }.padding(24)
+            Text(LocalizedStringKey("Overview")).font(LitheTheme.uiFont(size: 15, weight: .semibold)).padding(.horizontal, 24)
+            VStack(alignment: .leading, spacing: 12) {
+                Text(verbatim: summary(for: plugin))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let error = feature.errors[plugin.id] {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Label(
+                    LocalizedStringKey(hasPendingChange ? "Pending confirmation" : plugin.statusMessage),
+                    systemImage: hasPendingChange ? "clock.badge.exclamationmark" : (isEnabled ? "checkmark.circle.fill" : "pause.circle")
+                )
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(hasPendingChange ? LitheTheme.warning : (isEnabled ? LitheTheme.success : LitheTheme.secondaryText))
+                if let source {
+                    Label(
+                        String(
+                            format: PluginMarketplacePresentation.localized("Installed from %@", locale: locale),
+                            PluginMarketplacePresentation.sourceName(source, locale: locale)
+                        ),
+                        systemImage: "shippingbox"
+                    )
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                }
+                if let repository = plugin.marketplace?.repository, let url = URL(string: repository) {
+                    Link(destination: url) {
+                        Label(LocalizedStringKey("Source Repository"), systemImage: "arrow.up.right.square")
+                    }
+                    .font(LitheTheme.smallFont)
+                }
+                if plugin.origin == .community {
+                    Label(
+                        LocalizedStringKey("Community plugin maintained by a third party. Report plugin problems in its own repository."),
+                        systemImage: "person.2"
+                    )
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                if plugin.origin == .localDevelopment {
+                    Label(
+                        LocalizedStringKey("Unsigned development package. Release builds of Lithe will not load it."),
+                        systemImage: "hammer"
+                    )
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.warning)
+                }
+            }
+            .padding(24)
+            Spacer()
         }
     }
 
@@ -378,43 +493,70 @@ struct PluginManagementView: View {
         Task { @MainActor in
             await action()
             isManagingPackage = false
+            model.objectWillChange.send()
         }
     }
 
-    private var phpPresentation: PluginPresentation {
-        PluginPresentation(
-            systemImage: "globe",
-            tint: LitheTheme.success,
-            summary: "Adds PHP language-server integration, formatting, running, and test support."
-        )
+    @ViewBuilder
+    private func pluginIcon(_ plugin: PluginManagementSnapshot, size: CGFloat) -> some View {
+        if let presentation = PluginManagementListContent.officialPresentation(for: plugin.id) {
+            Image(systemName: presentation.systemImage)
+                .font(LitheTheme.uiFont(size: size * 0.55))
+                .foregroundStyle(presentation.tint)
+                .frame(width: size, height: size)
+        } else {
+            PluginMarketplaceIcon(entry: marketplaceEntry(for: plugin.id), size: size)
+        }
     }
 
-    private func presentation(for pluginID: PluginID) -> PluginPresentation {
-        guard pluginID == OfficialPluginCatalog.goPluginID else { return phpPresentation }
-        return PluginPresentation(
-            systemImage: "chevron.left.forwardslash.chevron.right",
-            tint: LitheTheme.accent,
-            summary: "Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately."
-        )
+    private func marketplaceEntry(for pluginID: PluginID) -> PluginMarketplaceEntry? {
+        guard let listing = feature.listings.first(where: { $0.pluginID == pluginID }) else { return nil }
+        return feature.offer(for: listing)?.entry
+    }
+
+    private func summary(for plugin: PluginManagementSnapshot) -> String {
+        if let presentation = PluginManagementListContent.officialPresentation(for: plugin.id) {
+            return PluginMarketplacePresentation.localized(presentation.summary, locale: locale)
+        }
+        return marketplaceEntry(for: plugin.id)?.description(for: locale) ?? plugin.manifest.displayName
     }
 }
 
 struct PluginManagementListContent {
     let plugins: [PluginManagementSnapshot]
 
-    /// PHP is offered for download until a valid package is installed.
-    var availablePHPManifest: OfficialPluginCatalog.Entry? {
-        guard !plugins.contains(where: { $0.id == OfficialPluginCatalog.phpPluginID }) else { return nil }
-        return OfficialPluginCatalog.entry(for: OfficialPluginCatalog.phpPluginID)
-    }
-
+    /// Built-in language support (Python, Rust, …) is part of Lithe, not a
+    /// plugin, so only official plugins and installed packages are listed.
     init(plugins: [PluginManagementSnapshot]) {
-        self.plugins = plugins.filter { OfficialPluginCatalog.entry(for: $0.id) != nil }
+        self.plugins = plugins.filter {
+            OfficialPluginCatalog.entry(for: $0.id) != nil || $0.origin != .bundled
+        }
     }
-}
 
-private struct PluginPresentation {
-    let systemImage: String
-    let tint: Color
-    let summary: String
+    struct Presentation {
+        let systemImage: String
+        let tint: Color
+        let summary: String
+    }
+
+    /// Host-owned presentation of the official language plugins; other
+    /// plugins use their marketplace icon and description.
+    static func officialPresentation(for pluginID: PluginID) -> Presentation? {
+        switch pluginID {
+        case OfficialPluginCatalog.goPluginID:
+            Presentation(
+                systemImage: "chevron.left.forwardslash.chevron.right",
+                tint: LitheTheme.accent,
+                summary: "Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately."
+            )
+        case OfficialPluginCatalog.phpPluginID:
+            Presentation(
+                systemImage: "globe",
+                tint: LitheTheme.success,
+                summary: "Adds PHP language-server integration, formatting, running, and test support."
+            )
+        default:
+            nil
+        }
+    }
 }

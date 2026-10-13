@@ -220,6 +220,21 @@ public enum PluginPackageSignature {
         }
     }
 
+    /// SHA-256 over the sorted path and digest of every package file. Hosts
+    /// record it when installing a package that carries no publisher
+    /// signature and recheck it on every load, so a changed or added file is
+    /// detected. Symbolic links and unsafe paths are refused as for signing.
+    public static func contentDigest(
+        packageAt packageURL: URL,
+        fileManager: FileManager = .default
+    ) throws -> String {
+        let digests = try fileDigests(packageAt: packageURL, fileManager: fileManager)
+        let lines = digests.keys.sorted().map { path in "\(token(path))=\(digests[path]!)\n" }
+        return SHA256.hash(data: Data(lines.joined().utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
     private static func fileDigests(
         packageAt packageURL: URL,
         fileManager: FileManager

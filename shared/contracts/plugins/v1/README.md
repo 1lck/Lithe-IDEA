@@ -14,6 +14,8 @@ This directory is the cross-platform source of truth:
 | `fixtures/*.plugin.json` | Valid example manifests (PHP and Go shapes) |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
 | `fixtures/command-plans.json` | Golden run/test command expansions |
+| `plugin-index.schema.json` | JSON shape of a marketplace source index |
+| `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
 
 Validation and template expansion are implemented once in Rust Core
 (`rust/lithe-core/src/plugins/declarative.rs`) and exposed through the
@@ -138,13 +140,117 @@ plugin only permits activation; nothing starts until its event occurs.
   local development package; release builds refuse it.
 - `sameTeamAsHost`: only honored for a package shipped inside the host's own
   signed installation, whose code signature already seals it.
+- `none`: a community package without a Lithe signature. A host installs it
+  only from a third-party marketplace source, after the archive matched the
+  index checksum and the user confirmed the install review (see Marketplace).
+  IDs in the official namespace (`dev.lithe`, `dev.lithe.*`) may not use it
+  (`plugin.manifest.invalid`). Hosts that predate this value refuse such
+  packages as invalid manifests, which is the intended behavior.
 
 A host pins the signature requirement of its official plugin IDs so a package
 cannot downgrade itself.
 
+## Marketplace
+
+A marketplace source is a JSON index (`plugin-index.schema.json`) that lists
+plugins and their release archives. Hosts fetch, cache, and download; Rust
+Core decides validity and availability through `plugins.marketplace.*` so
+every product shows the same catalog and the same install review.
+
+### Sources
+
+- The host ships one **official** source: the index at
+  `Plugins/marketplace/index.json` in the Lithe repository. A copy is bundled
+  read-only with the application so the catalog works offline; refreshing
+  fetches the same file from
+  `https://raw.githubusercontent.com/Lithe-IDEA/Lithe-IDEA/HEAD/Plugins/marketplace/index.json`.
+- Users may add **third-party** sources. `plugins.marketplace.resolveSource`
+  turns what the user pasted into the index URL to fetch: an https index URL
+  is used as is (fragment removed); `https://github.com/<owner>/<repo>`
+  resolves to `lithe-plugin-index.json` at the repository root on its default
+  branch (`HEAD`); a `…/blob/<ref>/<path>` page resolves to its raw file.
+  Plain http, embedded credentials, and other GitHub pages are refused with
+  `plugin.source.invalid`.
+- Hosts cache fetched indexes in platform cache or application-support
+  storage, never inside the installation.
+
+### Index entries
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Plugin ID; must equal the package's `plugin.json` `id`. |
+| `name`, `author`, `description`, `license` | Display metadata; must not be empty. |
+| `localizedDescriptions` | Optional translations of `description`, keyed by language tag such as `zh-Hans`. Hosts show the entry matching the interface language and fall back to `description`. |
+| `repository` | `https://github.com/<owner>/<repo>` that owns the plugin's releases and issue tracker. |
+| `homepage` | Optional https URL. |
+| `tags` | Optional single words, lowercased and sorted by Core. |
+| `icon` | Optional `raw.githubusercontent.com` file of the same repository. |
+| `versions[]` | `version`, required `pluginAPIVersion`, `releaseDate` (`YYYY-MM-DD`), and `downloads[]`. |
+| `downloads[]` | `platforms` (for example `darwin-arm64`, `darwin-x64`, `windows-x64`, `windows-arm64`), `downloadURL`, and the archive's lowercase hex `sha256`. A platform may appear in at most one download of a version. |
+
+A `downloadURL` must be a `.zip` GitHub Release asset of the entry's own
+repository (`https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>.zip`,
+owner and repository compared case-insensitively), so an index cannot point a
+plugin at another project's release.
+
+### Validation and availability
+
+`plugins.marketplace.validateIndex` accepts
+`{ "index": object, "sourceKind": "official" | "thirdParty", "platform": string }`.
+A malformed index root or an unsupported `schemaVersion` rejects the whole
+index. Otherwise it returns `{ "status": "ok", "index": { "plugins", "rejected" } }`:
+
+- `rejected` lists refused entries in index order with their `error`.
+  A third-party source listing an official-namespace ID is refused with
+  `plugin.index.officialNamespace`; a repeated ID keeps the first listing and
+  refuses later ones with `plugin.index.duplicate`.
+- `plugins` is sorted by ID. Each accepted entry is normalized, lists
+  `versions` newest first, reports `platforms`, `latestVersion`, and
+  `latestReleaseDate` of the newest version, and an `availability`:
+  - `{status: "available", version, pluginAPIVersion, releaseDate, downloadURL, sha256}`
+    for the newest version with this platform's archive and a supported
+    `pluginAPIVersion`;
+  - `{status: "unsupported", code: "plugin.index.apiUnsupported", platform, message}`
+    when the platform is listed only by versions needing a newer plugin API;
+  - `{status: "unsupported", code: "plugin.index.platformUnsupported", platform, message}`
+    when no version lists the platform. Hosts show "not supported on
+    <platform>" instead of an install action.
+
+### Trust and install review
+
+- **Official**: an entry is official only when it comes from the official
+  source and its package passes the Lithe publisher signature.
+- **Community**: entries from third-party sources. Hosts install in this
+  order: verify the archive SHA-256 against the index
+  (`plugin.archive.checksumMismatch`), validate the declaration, run
+  `plugins.marketplace.installReview`, show the review, and install only after
+  the user confirms.
+
+`plugins.marketplace.installReview` accepts
+`{ "manifest": object, "expectedID"?, "expectedVersion"?, "approvedPrograms"?: [object] }`
+and returns `{ "status": "ok", "review": { id, version, permissions, programs, newPrograms } }`.
+A package whose ID or version differs from the index entry is refused with
+`plugin.package.mismatch`. `programs` lists everything the host may start for
+the plugin, sorted by `kind`, language, and tool:
+
+| `kind` | Fields | Meaning |
+| --- | --- | --- |
+| `packagedLanguageServer` | `languageID`, `path`, `arguments`, `validationArguments` | Executable inside the package, with its launch arguments and validation probe |
+| `systemLanguageServer` | `languageID`, `commands`, `arguments`, `validationArguments` | Command resolved by host tool discovery |
+| `runtime` | `tool` | Runtime the host discovers and passes to a language server |
+| `run` | `languageID`, `executable`, `arguments` | Run command and its argument template |
+| `test` | `languageID`, `executable`, `workspaceArguments`, `fileArguments`, `testCaseArguments` | Test command and its argument templates |
+
+Each entry carries everything that decides what actually runs, so an update
+that keeps the same executable but changes its arguments, argument templates,
+or validation probe is a new program. Hosts record the approved `programs`
+with the installation. An update passes them as `approvedPrograms`; a
+non-empty `newPrograms` requires the user to confirm again. When several sources list the same ID, the user chooses the
+source at install time and later updates come only from that source.
+
 ## Outcomes and error codes
 
-`plugins.declarative.*` commands return `{"status": "ok", …}` or
+`plugins.declarative.*` and `plugins.marketplace.*` commands return `{"status": "ok", …}` or
 `{"status": "rejected", "error": {"code", "message", "field"?}}`. A malformed
 command payload is a Core `invalid_request` failure instead.
 
@@ -162,6 +268,16 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.test.invalidIdentifier` | Core | Empty or multi-line test identifier |
 | `plugin.test.unsupportedProject` | Core | No project marker in the workspace |
 | `plugin.execution.unavailable` | Core | The plugin has no run/test provider for the language |
+| `plugin.index.invalid` | Core | Malformed index root or entry, or an invalid URL, checksum, platform, version, or date |
+| `plugin.index.schemaUnsupported` | Core | The index `schemaVersion` is not `1` |
+| `plugin.index.officialNamespace` | Core | A third-party source lists a `dev.lithe` ID |
+| `plugin.index.duplicate` | Core | An index lists the same plugin ID more than once |
+| `plugin.index.platformUnsupported` | Core | No version has an archive for this platform (availability, not a rejection) |
+| `plugin.index.apiUnsupported` | Core | Only versions needing a newer plugin API list this platform (availability, not a rejection) |
+| `plugin.source.invalid` | Core | A marketplace source URL cannot be used |
+| `plugin.package.mismatch` | Core | A downloaded package's ID or version differs from its index entry |
+| `plugin.archive.checksumMismatch` | Host | A downloaded archive does not match the index SHA-256 |
+| `plugin.download.failed` | Host | An index or archive could not be downloaded |
 | `plugin.signature.missing`, `plugin.signature.invalid`, `plugin.signature.untrusted` | Host | Package signature problems |
 | `plugin.launch.missing` | Host | The packaged language server is missing or not executable |
 | `plugin.runtime.missing` | Host | A declared runtime (for example Node.js) cannot be found when the server starts |

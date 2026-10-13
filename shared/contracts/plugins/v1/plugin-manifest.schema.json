@@ -19,7 +19,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "displayName": { "type": "string", "minLength": 1 },
-        "signatureRequirement": { "enum": ["sameTeamAsHost", "publisherPackage"] }
+        "signatureRequirement": { "enum": ["sameTeamAsHost", "publisherPackage", "none"] }
       }
     },
     "permissions": {
