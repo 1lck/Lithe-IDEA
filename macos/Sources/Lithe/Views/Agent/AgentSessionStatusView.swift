@@ -254,8 +254,8 @@ struct AgentContextUsageCard: View {
     }
 
     var body: some View {
-        AgentStatusCard(verbatimTitle: title, trailing: capacity) {
-            bar
+        AgentStatusCard(verbatimTitle: title, trailing: capacity, compact: usage == nil && composition == nil) {
+            if usage != nil || composition != nil { bar }
             if let composition {
                 ForEach(Segment.allCases, id: \.self) { segment in
                     if segment != .mcpTools || composition.mcpToolCount > 0 {
@@ -325,9 +325,11 @@ struct AgentStatusCard<Rows: View, Footnote: View>: View {
     private let trailing: String?
     private let rows: Rows
     private let footnote: Footnote
+    private let compact: Bool
 
     init(title: LocalizedStringKey, systemImage: String? = nil, trailing: String? = nil,
          @ViewBuilder rows: () -> Rows, @ViewBuilder footnote: () -> Footnote) {
+        compact = false
         self.title = Text(title)
         self.systemImage = systemImage
         self.trailing = trailing
@@ -335,7 +337,8 @@ struct AgentStatusCard<Rows: View, Footnote: View>: View {
         self.footnote = footnote()
     }
 
-    init(verbatimTitle: String, trailing: String?, @ViewBuilder rows: () -> Rows, @ViewBuilder footnote: () -> Footnote) {
+    init(verbatimTitle: String, trailing: String?, compact: Bool = false, @ViewBuilder rows: () -> Rows, @ViewBuilder footnote: () -> Footnote) {
+        self.compact = compact
         title = Text(verbatim: verbatimTitle)
         systemImage = nil
         self.trailing = trailing
@@ -344,26 +347,26 @@ struct AgentStatusCard<Rows: View, Footnote: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: compact ? 6 : 8) {
             HStack(spacing: 6) {
                 if let systemImage { Image(systemName: systemImage) }
-                title.font(LitheTheme.uiFont(size: 12, weight: .semibold))
+                title.font(LitheTheme.uiFont(size: compact ? 11 : 12, weight: .semibold))
                 Spacer(minLength: 12)
                 if let trailing {
-                    Text(verbatim: trailing).font(LitheTheme.uiFont(size: 12, weight: .semibold)).monospacedDigit()
+                    Text(verbatim: trailing).font(LitheTheme.uiFont(size: compact ? 11 : 12, weight: .semibold)).monospacedDigit()
                 }
             }
             .foregroundStyle(LitheTheme.HoverTooltip.foreground)
             Divider().overlay(LitheTheme.divider)
             VStack(alignment: .leading, spacing: 6) { rows }
             footnote
-                .font(LitheTheme.uiFont(size: 10.5))
-                .foregroundStyle(AgentPanelStyle.muted)
+                .font(LitheTheme.uiFont(size: compact ? 10 : 10.5))
+                .foregroundStyle(LitheTheme.HoverTooltip.infoForeground)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(LitheTheme.uiFont(size: 12))
-        .padding(12)
-        .frame(width: AgentStatusCardMetrics.width, alignment: .leading)
+        .padding(compact ? 8 : 12)
+        .frame(width: compact ? 240 : AgentStatusCardMetrics.width, alignment: .leading)
         .litheHoverTooltipSurface()
     }
 }

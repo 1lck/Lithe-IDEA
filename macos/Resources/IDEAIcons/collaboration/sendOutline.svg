@@ -1,0 +1,6 @@
+<!-- Derived from JetBrains intellij-community platform/collaboration-tools/shared/resources/icons/send.svg,
+revision 915c3c26029bd2f8d35907d6faf43c4a3264c5f7. Apache License 2.0.
+The original 16x16 path is retained; fill is replaced with the shared toolbar's 1px outline. -->
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M2 14L14 8L2 2V6.5L11 8L2 9.5V14Z" stroke="#6C707E" stroke-width="1" stroke-linejoin="round"/>
+</svg>

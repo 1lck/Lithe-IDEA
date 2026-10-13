@@ -627,6 +627,11 @@ enum LitheTheme {
         })
     }
 
+    /// Accent for the decorative Agent welcome card.
+    enum Welcome {
+        static var bannerAccent: Color { controlColor(light: 0xEDE8FD, dark: 0x39344B) }
+    }
+
     /// HelpTooltip / JBUI.Tooltip / ManyIslands themes, Community c7f91397.
     /// Keep tooltip colors separate from popup menus and editor documentation.
     enum HoverTooltip {
@@ -634,6 +639,44 @@ enum LitheTheme {
         static var background: Color { controlColor(light: 0xFFFFFF, dark: 0x33353B) }
         static var border: Color { controlColor(light: 0xD1D3D9, dark: 0x33353B) }
         static var foreground: Color { controlColor(light: 0x000000, dark: 0xD1D3D9) }
+        static var infoForeground: Color { controlColor(light: 0x5F6269, dark: 0x9FA2A8) }
+    }
+
+    /// Community 915c3c26: Banner status tokens and InlineBannerBase/EditorNotificationPanel metrics.
+    enum Banner {
+        static let cornerRadius: CGFloat = 8 // fillRoundRect's 16pt arc is a diameter.
+        static let inset: CGFloat = 12
+        static let gap: CGFloat = 8
+        static let actionGap: CGFloat = 16
+        static let editorVerticalInset: CGFloat = 10
+        static let minimumWidth: CGFloat = 256
+        static let dismissSize: CGFloat = 26
+        static let dismissInset: CGFloat = 7
+        static var foreground: Color { controlColor(light: 0x000000, dark: 0xD1D3D9) }
+        static var link: Color { controlColor(light: 0x2F5EB9, dark: 0x71A1FE) }
+        static var disabledText: Color { controlColor(light: 0x9FA2A8, dark: 0x4C4F56) }
+
+        static func background(_ status: LitheBannerStatus) -> Color {
+            switch status {
+            case .info: controlColor(light: 0xF7F8FF, dark: 0x233558)
+            case .infoMuted: controlColor(light: 0xF7F8FF, dark: 0x1B283F)
+            case .neutralMuted: controlColor(light: 0xF7F8F9, dark: 0x26282C)
+            case .success: controlColor(light: 0xF5FAF3, dark: 0x203B2A)
+            case .warning: controlColor(light: 0xFFF6E9, dark: 0x44321D)
+            case .error: controlColor(light: 0xFFF6F5, dark: 0x56272B)
+            }
+        }
+
+        static func border(_ status: LitheBannerStatus) -> Color {
+            switch status {
+            case .info: controlColor(light: 0xBDD3FF, dark: 0x2E4D89)
+            case .infoMuted: controlColor(light: 0xD0DFFE, dark: 0x233558)
+            case .neutralMuted: controlColor(light: 0xE9EAEE, dark: 0x33353B)
+            case .success: controlColor(light: 0xBBDBC2, dark: 0x29583C)
+            case .warning: controlColor(light: 0xF4CD9A, dark: 0x694820)
+            case .error: controlColor(light: 0xFFC4C5, dark: 0x80383E)
+            }
+        }
     }
 
     /// Notification / BalloonLayoutConfiguration / round border, Community c7f91397.
@@ -686,6 +729,15 @@ enum LitheTheme {
         static let runInsets = EdgeInsets(top: 6, leading: 2, bottom: 4, trailing: 2)
         static let actionInsets = EdgeInsets(top: 6, leading: 5, bottom: 4, trailing: 5)
         static let font = LitheTheme.uiFont(size: 13, weight: .regular)
+        // ToolbarComboWidgetUI / JBUI.MainToolbar.Dropdown, Community 915c3c26.
+        static let comboInsets = EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 6)
+        static let comboIconTextGap: CGFloat = 6
+        static let comboExpandGap: CGFloat = 3
+        static var comboHeight: CGFloat {
+            let font = LitheTheme.uiNSFont(size: 13)
+            return max(iconSize, ceil(font.ascender - font.descender + font.leading))
+                + comboInsets.top + comboInsets.bottom
+        }
         static let foreground = color(dark: 0xDFE1E5, light: 0x000000)
         static let icon = color(dark: 0xC3C5CB, light: 0x73767C)
         // Light inherits RunWidget.runIconColor = Green5 from ExperimentalLightWithLightHeader.
@@ -1218,31 +1270,48 @@ private final class LithePointerCursor {
 
 // MARK: - 输入框样式
 
+private struct LitheTextEditingCursor: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func body(content: Content) -> some View {
+        content.onContinuousHover { phase in
+            if case .active = phase, isEnabled { NSCursor.iBeam.set() }
+            else { NSCursor.arrow.set() }
+        }
+    }
+}
+
+extension View {
+    func litheTextEditingCursor() -> some View { modifier(LitheTextEditingCursor()) }
+}
+
+
 /// Keep native editing, but draw the prompt ourselves: macOS TextField ignores
 /// prompt text attributes and substitutes its own brighter, heavier placeholder.
 struct LitheSearchTextField: View {
-    @Environment(\.isEnabled) private var isEnabled
     let title: LocalizedStringKey
     @Binding var text: String
+    let axis: Axis?
     @State private var hasEditingText = false
 
-    init(_ title: LocalizedStringKey, text: Binding<String>) {
+    init(_ title: LocalizedStringKey, text: Binding<String>, axis: Axis? = nil) {
         self.title = title
         _text = text
+        self.axis = axis
     }
 
     var body: some View {
-        TextField(title, text: $text, prompt: Text(""))
+        field
+            .accessibilityLabel(title)
             .textFieldStyle(.plain)
-            .onContinuousHover { phase in
-                if case .active = phase, isEnabled { NSCursor.iBeam.set() }
-                else { NSCursor.arrow.set() }
-            }
+            .font(axis == .vertical ? LitheTheme.uiFont : LitheTheme.settingsFont)
+            .foregroundColor(LitheTheme.searchFieldText)
+            .litheTextEditingCursor()
             .background(LitheTextFieldEditingObserver { hasEditingText = $0 })
-            .overlay(alignment: .leading) {
+            .overlay(alignment: axis == .vertical ? .topLeading : .leading) {
                 if text.isEmpty && !hasEditingText {
                     Text(title)
-                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                        .font(axis == .vertical ? LitheTheme.uiFont : LitheTheme.settingsFont)
                         .foregroundColor(LitheTheme.searchFieldPlaceholder)
                         .lineLimit(1)
                         .allowsHitTesting(false)
@@ -1250,6 +1319,15 @@ struct LitheSearchTextField: View {
                 }
             }
     }
+
+    @ViewBuilder private var field: some View {
+        if let axis {
+            TextField(title, text: $text, prompt: Text(""), axis: axis)
+        } else {
+            TextField(title, text: $text, prompt: Text(""))
+        }
+    }
+
 }
 
 /// Read the native field editor's visible text, including uncommitted IME text.
@@ -1361,7 +1439,6 @@ struct LitheSearchFieldStyle: ViewModifier {
     ]).width) * 15 + 10 + 10 + 16 + 2 + 16 + 3
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 4, style: .circular)
         let borderColor = isFocused ? LitheTheme.searchFieldFocusBorder : LitheTheme.searchFieldBorder
         content
             .font(LitheTheme.uiFont(size: 13, weight: .regular))
@@ -1370,13 +1447,13 @@ struct LitheSearchFieldStyle: ViewModifier {
             // 6pt, plus 1pt content padding and the outer 3pt border insets.
             .padding(.horizontal, 10)
             .frame(height: 36)
-            .background(
-                shape.fill(background ?? LitheTheme.searchFieldBackground)
-                    .padding(3.5)
-            )
-            .overlay {
-                shape.strokeBorder(borderColor, lineWidth: isFocused ? 2 : 1)
-                    .padding(isFocused ? 2 : 3)
+            .background {
+                Color.clear
+                    .litheSettingsControlChrome(background: background ?? LitheTheme.searchFieldBackground,
+                                                border: borderColor, cornerRadius: 4,
+                                                lineWidth: isFocused ? 2 : 1,
+                                                borderOutset: isFocused ? 1 : 0)
+                    .padding(3)
             }
     }
 }

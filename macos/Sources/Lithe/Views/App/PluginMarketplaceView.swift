@@ -423,18 +423,12 @@ private struct PluginMarketplaceDetail: View {
     }
 
     private var maintainerNotice: some View {
-        Label(
-            offer.source.isOfficial
-                ? PluginMarketplacePresentation.localized("This plugin is maintained and signed by Lithe. Report problems in the source repository.", locale: locale)
-                : PluginMarketplacePresentation.localized("This plugin is maintained by a community developer, not by Lithe. Lithe verified that the download matches the plugin repository, and will show what the plugin can run before installing it. Report problems with the plugin in its own repository.", locale: locale),
-            systemImage: offer.source.isOfficial ? "checkmark.seal" : "person.2"
-        )
-        .font(LitheTheme.smallFont)
-        .foregroundStyle(LitheTheme.secondaryText)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(LitheTheme.settingsListSurface))
+        LitheBanner(status: .infoMuted) {
+            Text(offer.source.isOfficial
+                 ? PluginMarketplacePresentation.localized("This plugin is maintained and signed by Lithe. Report problems in the source repository.", locale: locale)
+                 : PluginMarketplacePresentation.localized("This plugin is maintained by a community developer, not by Lithe. Lithe verified that the download matches the plugin repository, and will show what the plugin can run before installing it. Report problems with the plugin in its own repository.", locale: locale))
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func metadataRow<Content: View>(_ title: String, @ViewBuilder value: () -> Content) -> some View {

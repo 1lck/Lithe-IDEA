@@ -34,15 +34,14 @@ struct AgentToolGroupView: View {
                             .lineLimit(1)
                         Spacer(minLength: 4)
                         summary
-                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                            .font(LitheTheme.uiFont(size: 10))
-                            .foregroundStyle(LitheTheme.tertiaryText)
+                        LitheIDEAIcon(resourcePath: expanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
+                                      size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
                     }
                     .padding(.horizontal, 10)
                     .frame(height: 34)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.litheNoPress)
+                .buttonStyle(LitheIconButtonStyle(size: 34, isIconOnly: false))
                 .help(expanded ? "Hide tool details" : "Show tool details")
             }
 
@@ -122,6 +121,7 @@ struct AgentToolGroupView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
+            .litheRowHover()
             .help(message.text)
             .accessibilityValue(statusLabel(for: message.toolStatus))
 

@@ -173,8 +173,10 @@ final class WorkbenchFeatureModel: ObservableObject {
             guard let index = states.firstIndex(where: { $0.id == saved.id }),
                   seen.insert(saved.id).inserted else { continue }
             states[index] = saved
+            // Opening a project must not launch its Agent panel or process.
+            if saved.id == ToolWindow.agent.rawValue { states[index].isVisible = false }
             states[index].order = max(0, saved.order)
-            if saved.isVisible && !visible.insert(saved.position).inserted { states[index].isVisible = false }
+            if states[index].isVisible && !visible.insert(saved.position).inserted { states[index].isVisible = false }
         }
         // Missing records retain defaults, but cannot displace restored active windows.
         for index in states.indices where !seen.contains(states[index].id) && states[index].isVisible {

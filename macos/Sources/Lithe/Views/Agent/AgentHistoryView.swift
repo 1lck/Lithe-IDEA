@@ -29,6 +29,17 @@ enum AgentHistoryPresentation {
         }.map(\.session)
     }
 
+    static func popupSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
+                              metadata: [String: AgentHistoryMetadata], selectedSessionID: String? = nil) -> [AgentSessionSummary] {
+        let listed = Self.sessions(sessions, metadata: metadata, query: "", filter: .all)
+        let knownIDs = Set(sessions.map(\.id))
+        let pending = openSessionIDs.reversed().filter {
+            !knownIDs.contains($0) && metadata[$0]?.isHidden != true
+        }.map { AgentSessionSummary(id: $0, title: String(localized: "New Chat")) }
+        let rows = pending + listed
+        return rows.filter { $0.id == selectedSessionID } + rows.filter { $0.id != selectedSessionID }
+    }
+
     static func date(_ value: String?) -> Date? {
         guard let value else { return nil }
         let formatter = ISO8601DateFormatter()
@@ -72,27 +83,25 @@ struct AgentHistoryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Button(action: onBack) { Label("Back", systemImage: "arrow.left") }
-                    .buttonStyle(.litheNoPress).lithePointer()
-                    .accessibilityIdentifier("agent-history-back")
-                Spacer()
-                Text("Conversation history").fontWeight(.medium)
+            LitheToolWindowHeader(title: "Conversation history", usesWorkbenchSurface: true) {
+                Button(action: onBack) {
+                    HStack(spacing: LitheTheme.Banner.gap) {
+                        LitheSystemIcon(systemImage: "arrow.left", size: LitheTheme.Metrics.toolbarIconSize)
+                        Text("Back")
+                    }
+                }
+                .litheToolbarIconButton(isIconOnly: false)
+                .accessibilityIdentifier("agent-history-back")
             }
-            .foregroundStyle(AgentPanelStyle.secondary)
-            .font(LitheTheme.uiFont(size: 12))
-            .padding(.horizontal, 20)
-            .frame(height: 44)
-            .background(AgentPanelStyle.header)
             divider
             toolbar
             divider
             if let error = history.errorMessage ?? feature.historyError {
-                AgentInlineNotice(text: error)
+                AgentInlineNotice(text: error, status: .error)
                     .padding(.top, 8)
             }
             if case .failed(let message) = feature.connectionState {
-                AgentInlineNotice(text: message, actionTitle: "Reconnect", action: onReconnect)
+                AgentInlineNotice(text: message, status: .error, actionTitle: "Reconnect", action: onReconnect)
                     .padding(.top, 8)
             }
             if history.isExporting {
@@ -114,7 +123,7 @@ struct AgentHistoryView: View {
                 .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
             }
         }
-        .background(AgentPanelStyle.canvas)
+        .litheWorkbenchSurface(AgentPanelStyle.canvas)
         .onChange(of: visibleIDs) { selectedIDs.formIntersection($0) }
         .alert("Confirm deletion", isPresented: Binding(
             get: { pendingRemovalIDs != nil },
@@ -192,12 +201,12 @@ struct AgentHistoryView: View {
             } label: {
                 Label(isSelecting ? "Done" : "Select", systemImage: "checklist")
                     .font(LitheTheme.uiFont(size: 11))
-            }.buttonStyle(.bordered).controlSize(.small)
+            }.buttonStyle(LitheSecondaryButtonStyle())
                 .accessibilityIdentifier("agent-history-select")
             Button { feature.refreshSessions() } label: {
                 if feature.isRefreshingSessions { ProgressView().controlSize(.mini) }
-                else { Image(systemName: "arrow.clockwise") }
-            }.buttonStyle(.bordered).controlSize(.small)
+                else { LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true) }
+            }.litheToolbarIconButton()
                 .disabled(!feature.canRefreshSessions || feature.isRefreshingSessions)
                 .help("Refresh history")
                 .accessibilityIdentifier("agent-history-refresh")
@@ -206,28 +215,17 @@ struct AgentHistoryView: View {
 
     private var searchControls: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                TextField("Search conversation titles or IDs…", text: $query)
-                    .textFieldStyle(.plain)
-                    .accessibilityIdentifier("agent-history-search")
-                if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.litheNoPress).help("Clear search")
-                } else { Image(systemName: "magnifyingglass") }
-            }
-            .font(LitheTheme.uiFont(size: 12))
-            .padding(.horizontal, 10).frame(height: 28)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(AgentPanelStyle.border))
+            LitheSettingsSearchField("Search conversation titles or IDs…", text: $query)
+                .accessibilityIdentifier("agent-history-search")
             LitheMenu {
                 for mode in AgentHistoryFilter.allCases {
                     LitheContextMenuItem.action(mode.menuTitle, checked: mode == filter) { filter = mode }
                 }
             } label: {
-                Image(systemName: filter == .favorites ? "star.fill" : "line.3.horizontal.decrease")
+                LitheSystemIcon(systemImage: filter == .favorites ? "star.fill" : "line.3.horizontal.decrease", size: LitheTheme.Metrics.toolbarIconSize)
             }
-            .buttonStyle(.litheNoPress)
-                .fixedSize()
-                .frame(width: 24).help(filter.title)
+            .litheToolbarIconButton()
+                .help(filter.title)
                 .accessibilityIdentifier("agent-history-filter")
         }.foregroundStyle(AgentPanelStyle.secondary)
     }
@@ -377,7 +375,7 @@ private struct AgentHistoryRow: View {
     }
 
     private func icon(_ name: String, _ title: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: name).font(LitheTheme.uiFont(size: 11)).frame(width: 22, height: 22) }
-            .buttonStyle(.litheNoPress).lithePointer().help(title).accessibilityLabel(title)
+        Button(action: action) { LitheSystemIcon(systemImage: name, size: LitheTheme.Metrics.toolbarIconSize) }
+            .litheToolbarIconButton().help(title).accessibilityLabel(title)
     }
 }

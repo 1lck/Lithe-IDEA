@@ -8,6 +8,36 @@ import LitheCoreContracts
 @MainActor
 @Suite(.serialized)
 struct AgentConversationSelectionTests {
+    @Test
+    func settingsAndConversationShareSelectionEvenBeforeAgentSetup() async throws {
+        let domain = "Lithe.AgentSelectionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services
+        let model = AppModel(settings: settings, services: services)
+
+        // Selecting from the conversation must update the shared ID without
+        // opening Settings or requiring a configured/active backend module.
+        model.selectAgentConversationAgent("claude-acp")
+        #expect(model.selectedAgentConversationID == "claude-acp")
+        #expect(!model.workbenchFeature.isSettingsPresented)
+        #expect(model.agentConversationFeatureIfActive == nil)
+        model.showAgentSettings()
+        #expect(model.selectedAgentConversationID == "claude-acp")
+        let settingsRequest = model.workbenchFeature.settingsCategoryRequest
+        model.selectAgentConversationAgent("codex-acp")
+        #expect(model.selectedAgentConversationID == "codex-acp")
+        #expect(model.workbenchFeature.settingsCategoryRequest == settingsRequest)
+        model.showAgentSettings(agentID: AgentConfiguration.customAgentID)
+        #expect(model.selectedAgentConversationID == AgentConfiguration.customAgentID)
+        #expect(settings.agentConfigurations.isEmpty, "Selection must not manufacture configuration")
+        #expect(AppSettings(store: store).preferredConversationAgentID == AgentConfiguration.customAgentID,
+                "Both selectors must retain the same preference after reopening")
+        await model.shutdownProjectSession()
+    }
+
     @Test(arguments: ["claude-acp", "codex-acp"])
     func closingTheLastTabPreparesSettingsAndAllowsSendingAfterConfirmation(agentID: String) async throws {
         let transport = SelectionTransport()
@@ -216,7 +246,7 @@ struct AgentConversationSelectionTests {
             let claude = try prepare(panel, transport: transport, agentID: "claude-acp", model: "Claude model")
             let host = NSHostingView(rootView: AgentConfiguredConversationView(
                 feature: panel, setupError: nil, onSelectAgent: panel.selectAgent,
-                onConnect: {}, onOpenSettings: {}, onCopySessionID: { _ in }, onOpenFile: { _ in }
+                onConnect: {}, onOpenSettings: {}, onHide: {}, onCopySessionID: { _ in }, onOpenFile: { _ in }
             ))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 640),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
@@ -267,6 +297,125 @@ struct AgentConversationSelectionTests {
         #expect(transport.connections.allSatisfy { $0.closeCount == 1 })
     }
 
+    @Test
+    func newChatButtonCreatesARealSessionAndPreventsDuplicateRequests() async throws {
+        let transport = SelectionTransport()
+        let panel = AgentConversationFeatureModel(transport: transport)
+        panel.setAgents([.init(id: "codex-acp", name: "Codex")])
+        do {
+            let feature = try prepare(panel, transport: transport, agentID: "codex-acp", model: "Model")
+            let native = try #require(transport.connections.last)
+            let host = hostingView(panel)
+            let window = hiddenWindow(host)
+            defer { window.close() }
+            host.layoutSubtreeIfNeeded()
+            let count = native.commands.count
+            let textWidth = ("New Chat" as NSString).size(withAttributes: [.font: LitheTheme.uiNSFont(size: 13)]).width
+            let buttonWidth = 16 + 2 + textWidth + 8
+            // Header trailing inset, two shared icon buttons and two four-point gaps.
+            let point = NSPoint(x: host.bounds.width - 7 - 22 * 2 - 4 * 2 - buttonWidth / 2,
+                                y: LitheTheme.Metrics.toolWindowHeaderHeight / 2)
+            try clickNativeView(host, at: point)
+            #expect(await awaitChange(on: feature) { feature.isCreatingSession })
+            #expect(native.commands.count == count + 1)
+            #expect(native.commands.last?["kind"] as? String == "newSession")
+            #expect(feature.isCreatingSession)
+            #expect(feature.selectedSessionID == nil)
+            host.layoutSubtreeIfNeeded()
+            try clickNativeView(host, at: point)
+            #expect(native.commands.count == count + 1)
+            feature.receive(try json(["kind": "sessionCreated", "sessionId": "new-chat",
+                                       "token": native.commands.last?["token"] as Any]))
+            host.layoutSubtreeIfNeeded()
+            #expect(feature.selectedSessionID == "new-chat")
+            #expect(feature.openSessionIDs == ["codex-acp", "new-chat"])
+            try clickNativeView(host, at: point)
+            #expect(await awaitChange(on: feature) { feature.isCreatingSession })
+            #expect(native.commands.count == count + 2, "New Chat becomes usable again after confirmation")
+        } catch {
+            await panel.stop()
+            throw error
+        }
+        await panel.stop()
+        #expect(transport.connections.allSatisfy { $0.closeCount == 1 })
+    }
+
+    @Test(arguments: [false, true])
+    func historyPopupLoadsTheChosenSessionThroughTheExistingConnection(useKeyboard: Bool) async throws {
+        let transport = SelectionTransport()
+        let panel = AgentConversationFeatureModel(transport: transport)
+        panel.setAgents([.init(id: "codex-acp", name: "Codex")])
+        do {
+            let feature = try prepare(panel, transport: transport, agentID: "codex-acp", model: "Model")
+            feature.receive(try json(["kind": "ready", "agentName": "Codex", "canLoadSessions": true, "canListSessions": true]))
+            let native = try #require(transport.connections.last)
+            let listToken = try #require(native.commands.last?["token"] as? String)
+            feature.receive(try json(["kind": "sessions", "token": listToken, "sessions": [
+                ["sessionId": "earlier", "title": "Earlier conversation", "updatedAt": "2026-09-26T10:00:00Z"]]]))
+            let presenter = LitheContextMenuPresenter()
+            var dismissals = 0
+            let controller = LitheDropdownHostingController(rootView: AnyView(AgentHistoryPopover(feature: feature,
+                history: panel.history(for: "codex-acp"), agentName: "Codex",
+                onSelect: { id in presenter.dismiss(); feature.selectSession(id) }, onManage: {}, onSearch: {}, onDismiss: {})
+                .litheContextMenuSurface()))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 640),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { presenter.dismiss(); window.close() }
+            window.makeKeyAndOrderFront(nil)
+            presenter.show(contentController: controller, at: NSPoint(x: 80, y: 600), appearance: nil,
+                           parentWindow: window, onDismiss: { dismissals += 1 })
+            let host = controller.view
+            let popup = try #require(host.window)
+            host.layoutSubtreeIfNeeded()
+            #expect(AgentHistoryPresentation.popupSessions(feature.sessions, openSessionIDs: feature.openSessionIDs,
+                metadata: [:], selectedSessionID: feature.selectedSessionID).map(\.id) == ["codex-acp", "earlier"])
+            if useKeyboard {
+                popup.makeKeyAndOrderFront(nil)
+                host.layoutSubtreeIfNeeded()
+                for (code, characters) in [(UInt16(125), "\u{F701}"), (UInt16(36), "\r")] {
+                    let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                        timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: characters,
+                        charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+                    NSApplication.shared.sendEvent(event)
+                    host.layoutSubtreeIfNeeded()
+                }
+            } else {
+                try clickNativeView(host, at: NSPoint(x: 100,
+                    y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * 1.5))
+            }
+            #expect(await awaitChange(on: feature) { feature.selectedSessionID == "earlier" })
+            #expect(native.commands.last?["kind"] as? String == "loadSession")
+            #expect(native.commands.last?["sessionId"] as? String == "earlier")
+            #expect(feature.selectedConversation?.isLoading == true)
+            #expect(dismissals == 1 && !popup.isVisible, "Selecting a row closes the popup")
+            presenter.show(contentController: controller, at: NSPoint(x: 80, y: 600), appearance: nil,
+                           parentWindow: window, onDismiss: { dismissals += 1 })
+            let reopened = try #require(host.window)
+            let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: reopened.windowNumber, context: nil, characters: "\u{1B}",
+                charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53))
+            NSApplication.shared.sendEvent(escape)
+            #expect(dismissals == 2 && !reopened.isVisible)
+            presenter.show(contentController: controller, at: NSPoint(x: 80, y: 600), appearance: nil,
+                           parentWindow: window, onDismiss: { dismissals += 1 })
+            let outsidePopup = try #require(host.window)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: 470, y: 620),
+                    modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 1, pressure: 1))
+                NSApplication.shared.sendEvent(event)
+            }
+            #expect(dismissals == 3 && !outsidePopup.isVisible)
+
+        } catch {
+            await panel.stop()
+            throw error
+        }
+        await panel.stop()
+        #expect(transport.connections.allSatisfy { $0.closeCount == 1 })
+    }
+
     private func prepare(_ panel: AgentConversationFeatureModel, transport: SelectionTransport,
                          agentID: String, model: String) throws -> AgentConnectionModel {
         let connection = panel.connection(for: agentID)
@@ -292,7 +441,7 @@ struct AgentConversationSelectionTests {
     private func hostingView(_ panel: AgentConversationFeatureModel) -> NSHostingView<AgentConfiguredConversationView> {
         NSHostingView(rootView: AgentConfiguredConversationView(
             feature: panel, setupError: nil, onSelectAgent: panel.selectAgent,
-            onConnect: {}, onOpenSettings: {}, onCopySessionID: { _ in }, onOpenFile: { _ in }
+            onConnect: {}, onOpenSettings: {}, onHide: {}, onCopySessionID: { _ in }, onOpenFile: { _ in }
         ))
     }
 

@@ -248,6 +248,7 @@ struct WorkbenchView: View {
 
             statusBar
         }
+        .environment(\.workbenchHasBackgroundImage, model.workbenchBackgroundFeature.hasImage)
         .coordinateSpace(name: WorkbenchFrameGradient.coordinateSpace)
         .background {
             if let feature = model.gitFeatureIfActive { GitAuthenticationHost(feature: feature) }
@@ -1198,7 +1199,8 @@ struct WorkbenchView: View {
     }
 
     private func contribution(for tool: WorkbenchFeatureModel.ToolWindow) -> ModuleContribution? {
-        model.activeModuleContributions.first { $0.rendererID == tool.rendererID && tool.rendererID != nil }
+        guard let rendererID = tool.rendererID else { return nil }
+        return AgentConversationEntryPolicy.contribution(for: rendererID, from: model.activeModuleContributions)
     }
 
     private func isToolAvailable(_ tool: WorkbenchFeatureModel.ToolWindow) -> Bool {

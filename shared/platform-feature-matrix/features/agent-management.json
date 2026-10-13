@@ -2,7 +2,7 @@
   "id": "agent-management",
   "area": "AI",
   "group": "Agent 对话",
-  "capability": "Agent 管理：面板内设置、Node.js/npm 检测、预检清单、ACP 适配器与 Agent CLI 一键安装或升级、兼容 CLI 的常驻手动更新入口与更新后重连提示、一键获取本机 CLI 配置、实时下载数据量/速度/耗时与等待提示、按 CLI 安装来源更新、验证实际升级结果并区分成功警告与失败",
+  "capability": "Agent 管理：主设置窗口 Tools > Agents 单页设置、Node.js/npm 检测、预检清单、ACP 适配器与 Agent CLI 一键安装或升级、兼容 CLI 的常驻手动更新入口与更新后重连提示、一键获取本机 CLI 配置、实时下载数据量/速度/耗时与等待提示、按 CLI 安装来源更新、验证实际升级结果并区分成功警告与失败",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Agent/AgentPanelSettingsView.swift",
@@ -13,7 +13,8 @@
       "rust/lithe-agent-host/src/cli_update.rs",
       "macos/Tests/LitheTests/AgentManagementFeatureModelTests.swift",
       "macos/Sources/Lithe/Application/Features/AgentSetupDiagnostics.swift",
-      "macos/Tests/LitheTests/AgentSetupDiagnosticsTests.swift"
+      "macos/Tests/LitheTests/AgentSetupDiagnosticsTests.swift",
+      "macos/Sources/Lithe/Views/App/SettingsView.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -26,5 +27,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "在 macOS 打开 Agent 面板右上角的设置：确认显示 Node.js 与 npm 版本，Node 缺失或版本过低时只提示；一键安装、取消安装、更新与卸载 Codex 适配器；CLI 过旧时确认显示 npm/Homebrew/原生来源并通过原安装器升级，CLI 已兼容时仍在折叠的预检行显示可点击的更新按钮且保持 PASS，npm 环境不匹配或未知来源时只显示手动指引；升级后确认实际 PATH 中的版本达到要求，成功提示重连以刷新模型目录且现有会话不会被自动中断；模拟安装器先下载失败再重试成功但返回非零，确认版本确实提升时显示成功与折叠警告日志，版本未变/仍旧/丢失、取消和超时继续按原语义处理；确认下载数据量、速度、耗时实时更新且未知总量不显示百分比，取消/失败/完成后进度清除；一键获取本机 Codex 配置后在 Agent 面板对话，且提交信息所用服务商不变；Windows 待接入设置界面。"
+  "verification": "在 macOS 打开 Agent 面板右上角的设置：确认弹出主设置窗口并选中 Tools > Agents，沿用共享侧栏、搜索、面包屑与表单样式，显示 Node.js 与 npm 版本，Node 缺失或版本过低时只提示；一键安装、取消安装、更新与卸载 Codex 适配器；CLI 过旧时确认显示 npm/Homebrew/原生来源并通过原安装器升级，CLI 已兼容时仍在折叠的预检行显示可点击的更新按钮且保持 PASS，npm 环境不匹配或未知来源时只显示手动指引；升级后确认实际 PATH 中的版本达到要求，成功提示重连以刷新模型目录且现有会话不会被自动中断；模拟安装器先下载失败再重试成功但返回非零，确认版本确实提升时显示成功与折叠警告日志，版本未变/仍旧/丢失、取消和超时继续按原语义处理；确认下载数据量、速度、耗时实时更新且未知总量不显示百分比，取消/失败/完成后进度清除；一键获取本机 Codex 配置后返回 Agent 面板对话，且提交信息所用服务商不变；Windows 待接入设置界面。 设置页 Agent 选择使用共享下拉框，预检和 ACP adapter 标注没有背景卡片；从设置选择 Codex/Claude/自定义 Agent 后，聊天标题与底栏同步，再从聊天底栏切回，设置下拉与详情同步；未配置或功能关闭时也保持选择一致且不自动打开设置。 设置供应商按钮使用共享尺寸，错误提示使用共享通知，WARN/FAIL 检查项能收起再展开；AI Providers 无供应商时仍可新增。"
 }

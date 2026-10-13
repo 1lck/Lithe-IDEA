@@ -26,14 +26,14 @@ struct AgentProviderConfigurationView: View {
     }
 
     var body: some View {
-        AgentSettingsCard(title: "Providers", systemImage: "key") {
+        LitheSettingsSection("Providers") {
             HStack {
                 Text("Use local configuration or add your own provider.")
                     .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 8)
                 if let source {
                     Button { openEditor(source: source) } label: { Label("Add", systemImage: "plus") }
-                        .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                        .buttonStyle(LitheSecondaryButtonStyle())
                 } else {
                     LitheMenu {
                         for kind in sources {
@@ -42,7 +42,7 @@ struct AgentProviderConfigurationView: View {
                     } label: {
                         Label("Add", systemImage: "plus")
                     }
-                    .buttonStyle(.litheNoPress)
+                    .buttonStyle(LitheSecondaryButtonStyle())
                 }
             }
             if agentID == "codex-acp" { subscriptionRow }
@@ -63,11 +63,10 @@ struct AgentProviderConfigurationView: View {
                 Button("Unlink") {
                     perform { try await model.useAgentProvider(nil, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                .buttonStyle(LitheSecondaryButtonStyle())
             }
             if let errorMessage {
-                Text(errorMessage).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error)
-                    .textSelection(.enabled)
+                AgentSettingsIssue(errorMessage)
             }
             AgentSettingsHint("Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation.")
         }
@@ -101,12 +100,10 @@ struct AgentProviderConfigurationView: View {
             Button(usesSubscription ? "Enabled" : "Enable") {
                 perform { try await model.useCodexSubscription() }
             }
-            .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+            .buttonStyle(LitheSecondaryButtonStyle())
             .disabled(usesSubscription)
         }
-        .padding(10)
-        .background(LitheTheme.inputBackground, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(usesSubscription ? LitheTheme.accent : LitheTheme.panelBorder, lineWidth: 1))
+        .padding(.vertical, 6)
     }
 
     private func localRow(_ kind: AIConfigurationSourceKind) -> some View {
@@ -121,13 +118,11 @@ struct AgentProviderConfigurationView: View {
                 Button(active ? "Refresh" : "Use") {
                     perform { try await model.useLocalAgentProvider(source: kind, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                .buttonStyle(LitheSecondaryButtonStyle())
             }
             if active, let selected { metadata(selected) }
         }
-        .padding(10)
-        .background(LitheTheme.inputBackground, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? LitheTheme.accent : LitheTheme.panelBorder, lineWidth: 1))
+        .padding(.vertical, 6)
     }
 
     private func providerRow(_ provider: AIProviderProfile) -> some View {
@@ -141,7 +136,7 @@ struct AgentProviderConfigurationView: View {
                 Button(active ? "Enabled" : "Enable") {
                     perform { try await model.useAgentProvider(provider, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                .buttonStyle(LitheSecondaryButtonStyle())
                 .disabled(active)
                 Button { openEditor(source: provider.apiProtocol == .responses ? .codex : .claude, provider: provider) } label: {
                     Image(systemName: "pencil")
@@ -151,9 +146,7 @@ struct AgentProviderConfigurationView: View {
             }
             metadata(provider)
         }
-        .padding(10)
-        .background(LitheTheme.inputBackground, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? LitheTheme.accent : LitheTheme.panelBorder, lineWidth: 1))
+        .padding(.vertical, 6)
     }
 
     private func metadata(_ provider: AIProviderProfile) -> some View {
@@ -198,17 +191,13 @@ private struct AgentProviderEditorView: View {
                     if draft.source == .codex {
                         configurationEditor("auth.json", text: $draft.authentication, canFormat: true)
                     }
-                    Toggle("Allow insecure HTTP", isOn: $draft.allowsInsecureHTTP)
-                        .font(LitheTheme.uiFont(size: 12))
+                    LitheSettingsCheckbox(isOn: $draft.allowsInsecureHTTP, title: "Allow insecure HTTP")
                     AgentSettingsHint("Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.")
                 }
             }
             // Errors stay visible even when the configuration editors fill the scroll viewport.
             if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                AgentSettingsIssue(errorMessage)
             }
             HStack {
                 Spacer()
@@ -216,11 +205,11 @@ private struct AgentProviderEditorView: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                     .buttonStyle(LitheSecondaryButtonStyle())
                 Button("Save") { save() }.keyboardShortcut(.defaultAction)
-                    .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.accent, restingOpacity: 1))
+                    .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
             }
         }
         .padding(20).frame(width: 540, height: 620)
-        .background(LitheTheme.raised)
+        .background(LitheTheme.settingsSurface)
         .disabled(model.isChangingAgentProvider || saveTask != nil)
         .interactiveDismissDisabled(saveTask != nil)
         .onDisappear { saveTask?.cancel() }
@@ -239,13 +228,12 @@ private struct AgentProviderEditorView: View {
                             text.wrappedValue = String(decoding: data, as: UTF8.self)
                             errorMessage = nil
                         } catch { errorMessage = String(localized: "Invalid JSON. Check the configuration format.") }
-                    }.buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                    }.buttonStyle(LitheSecondaryButtonStyle())
                 }
             }
             MacConfigurationTextEditor(text: text, label: title)
                 .frame(height: title == "auth.json" ? 110 : 210)
-                .background(LitheTheme.inputBackground, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder, lineWidth: 1))
+                .litheSettingsControlChrome()
                 .accessibilityLabel(title)
         }
     }

@@ -13,6 +13,7 @@ struct AgentComposerView: View {
     let onSelectAgent: (String) -> Void
     let onOpenSettings: () -> Void
     let onError: (String?) -> Void
+    var fallbackAgentName: String? = nil
     var configOptions: [AgentSessionConfigOption] = []
     var sessionID: String?
     var isPreparingSession = false
@@ -30,10 +31,10 @@ struct AgentComposerView: View {
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
     @State private var showsFilePicker = false
-    @State private var isHovering = false
     @FocusState private var isFocused: Bool
 
     private var hasContent: Bool { !completion.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty }
+    private var displayAgentName: String? { selectedAgent?.name ?? fallbackAgentName }
     private var commandSuggestions: [AgentCommand]? {
         completion.suggestions(in: commands)
     }
@@ -42,28 +43,19 @@ struct AgentComposerView: View {
         AgentComposerContent(files: files, commands: commandSuggestions,
                              highlightedIndex: completion.highlightedIndex,
                              onSelect: complete, onRemoveFile: { id in files.removeAll { $0.id == id } },
-                             onFocus: { isFocused = true }) {
+                             onFocus: { isFocused = true }, isFocused: isFocused || isDropTargeted) {
             contextBar
         } editor: {
-            TextField("Message the Agent", text: $completion.draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(LitheTheme.uiFont(size: 13))
-                .foregroundStyle(AgentPanelStyle.text)
+            LitheSearchTextField("Type your task or / for commands", text: $completion.draft, axis: .vertical)
                 .lineLimit(1...)
                 .focused($isFocused)
                 .onSubmit { _ = handleCommandKey(.submit) }
                 .modifier(AgentCommandKeyNavigation(onKey: handleCommandKey))
                 .padding(.horizontal, 8)
-                .padding(.vertical, 10)
+                .padding(.vertical, 7)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         } toolbar: {
             toolbar
-        }
-        .background(AgentPanelStyle.canvas, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isFocused || isHovering || isDropTargeted ? AgentPanelStyle.focus : AgentPanelStyle.secondary.opacity(0.45), lineWidth: 1)
-                .allowsHitTesting(false)
         }
         .dropDestination(for: URL.self) { urls, _ in
             addFiles(urls)
@@ -77,15 +69,14 @@ struct AgentComposerView: View {
         .onChange(of: sessionID) { newSessionID in
             if newSessionID != nil { files.removeAll() }
         }
-        .onHover { isHovering = $0 }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, AgentComposerMetrics.horizontalInset)
         .padding(.bottom, AgentComposerMetrics.bottomInset)
-        .onAppear { isFocused = true }
         .onExitCommand { _ = handleCommandKey(.escape) }
     }
 
     private var contextBar: some View {
         HStack(spacing: 8) {
+            agentMenu
             if let sessionStatistics {
                 // Session facts take width before the attach label, which
                 // collapses to its icon in a normal-width panel.
@@ -94,16 +85,6 @@ struct AgentComposerView: View {
             } else {
                 AgentContextUsageView(usage: contextUsage)
             }
-            Rectangle().fill(AgentPanelStyle.border).frame(width: 1, height: 12)
-            Button { showsFilePicker = true } label: {
-                ViewThatFits(in: .horizontal) {
-                    Label(isDropTargeted ? "Drop files here" : "Attach files", systemImage: "paperclip").fixedSize()
-                    Image(systemName: "paperclip")
-                }
-            }
-            .buttonStyle(.litheNoPress)
-            .accessibilityLabel(isDropTargeted ? "Drop files here" : "Attach files")
-            .help("Drag files here or click to choose files")
             Spacer(minLength: 0)
             if showsSubscriptionQuota {
                 AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
@@ -111,21 +92,22 @@ struct AgentComposerView: View {
         }
         .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(AgentPanelStyle.secondary)
-        .padding(.horizontal, 10)
         .frame(height: AgentComposerMetrics.contextHeight - 2)
-        .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 7))
-        .padding(1)
+        .padding(.bottom, 1)
     }
 
     private var toolbar: some View {
         HStack(spacing: 4) {
-            Button(action: onOpenSettings) { Image(systemName: "slider.horizontal.3") }
-                .buttonStyle(AgentToolbarButtonStyle())
-                .help("Agent Settings")
-            agentMenu
+            Button { showsFilePicker = true } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                              fallbackSystemImage: "plus", preservesOriginalColors: true)
+            }
+            .litheToolbarIconButton()
+            .accessibilityLabel(isDropTargeted ? "Drop files here" : "Attach files")
+            .help("Drag files here or click to choose files")
             if isPreparingSession {
                 Label("Loading session settings…", systemImage: "hourglass")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(AgentPanelStyle.secondary)
                     .lineLimit(1)
                     .padding(.horizontal, 4)
@@ -152,31 +134,31 @@ struct AgentComposerView: View {
             }
             Spacer(minLength: 0)
             Button(action: isResponding ? onCancel : send) {
-                Image(systemName: isResponding ? "stop.fill" : "paperplane")
-                    .font(LitheTheme.uiFont(size: 13))
-                    .foregroundStyle(isResponding ? LitheTheme.error : (hasContent ? AgentPanelStyle.text : AgentPanelStyle.muted))
-                    .frame(width: 26, height: 26)
-                    .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 4))
+                if isResponding {
+                    LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                  fallbackSystemImage: "stop.fill", preservesOriginalColors: true)
+                } else {
+                    LitheIDEAIcon(resourcePath: "collaboration/sendOutline.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                  fallbackSystemImage: "paperplane", preservesOriginalColors: true)
+                }
             }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
+            .litheToolbarIconButton()
             .disabled(isCancelling || (!isResponding && (!hasContent || isBlocked || isPreparingSession || isConfiguring)))
             .help(isCancelling ? "Stopping…" : (isResponding ? "Stop" : "Send"))
         }
         .padding(.horizontal, 5)
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)
-        .background(AgentPanelStyle.toolbar, in: RoundedRectangle(cornerRadius: 7))
-        .padding(1)
     }
 
     private var agentMenu: some View {
         LitheMenu(opensUpward: true) {
+            LitheContextMenuItem.heading("Agents")
             if agents.isEmpty { LitheContextMenuItem.heading("No Agent is set up yet") }
             for agent in agents {
                 LitheContextMenuItem.action(
                     agent.name,
                     icon: AnyView(AgentBrandIcon(name: agent.name, size: 16, style: .brand)),
-                    checked: agent.id == selectedAgent?.id
+                    checked: agent.id == selectedAgent?.id || (selectedAgent == nil && agent.name == fallbackAgentName)
                 ) {
                     onSelectAgent(agent.id)
                 }
@@ -184,13 +166,20 @@ struct AgentComposerView: View {
             LitheContextMenuItem.separator
             LitheContextMenuItem.action("Agent Settings…", action: onOpenSettings)
         } label: {
-            AgentBrandIcon(name: selectedAgent?.name, size: 18, style: .brand)
-                .foregroundStyle(AgentPanelStyle.secondary)
-                .frame(width: 28, height: 28)
+            HStack(spacing: 4) {
+                AgentBrandIcon(name: displayAgentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
+                Text(displayAgentName ?? String(localized: "Agent"))
+                    .lineLimit(1)
+                LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                              fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
+            }
+            .foregroundStyle(AgentPanelStyle.secondary)
+            .font(LitheTheme.uiFont(size: 11))
+            .padding(.horizontal, 4)
         }
-        .buttonStyle(.litheNoPress)
+        .litheToolbarIconButton(isIconOnly: false)
         .fixedSize()
-        .help(selectedAgent?.name ?? String(localized: "Choose an Agent"))
+        .help(displayAgentName ?? String(localized: "Choose an Agent"))
         .accessibilityLabel("Switch Agent")
         .accessibilityIdentifier("agent-composer-agent-selector")
     }
@@ -276,19 +265,13 @@ struct AgentConversationLayout<Transcript: View, Composer: View>: View {
             LitheSplitPaneView(
                 axis: .vertical,
                 placement: .trailing,
-                defaultSize: min(210, geometry.size.height * 0.3),
+                defaultSize: min(132, geometry.size.height * 0.22),
                 minimum: minimum,
                 maximum: max(minimum, geometry.size.height * 0.6),
                 showsIdleDivider: false
             ) {
                 composer
                     .padding(.top, AgentComposerMetrics.splitTopInset)
-                    .overlay(alignment: .top) {
-                        Capsule().fill(AgentPanelStyle.muted.opacity(0.55))
-                            .frame(width: 54, height: 3)
-                            .offset(y: -4)
-                            .allowsHitTesting(false)
-                    }
             } flexible: {
                 transcript
             }

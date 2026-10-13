@@ -154,11 +154,12 @@ struct LitheSearchFieldStyleTests {
         #expect(try placeholderPixels(second) == 0)
     }
 
-    @Test(arguments: [ColorScheme.dark, .light], ["", "typed"])
-    func nativeSearchFieldRendersPlaceholderAndEnteredTextColors(scheme: ColorScheme, value: String) throws {
+    @Test(arguments: [ColorScheme.dark, .light], [("", false), ("", true), ("typed", false), ("typed", true)])
+    func nativeSearchFieldRendersPlaceholderAndEnteredTextColors(scheme: ColorScheme, variant: (String, Bool)) throws {
+        let (value, multiline) = variant
         // ImageRenderer cannot cover AppKit-backed text. Capture the native host
         // so a correct theme token with an ignored prompt style still fails.
-        let host = NSHostingView(rootView: LitheSearchTextField("Branch or tag", text: .constant(value))
+        let host = NSHostingView(rootView: LitheSearchTextField("Branch or tag", text: .constant(value), axis: multiline ? .vertical : nil)
             .litheSearchField()
             .frame(width: 220)
             .environment(\.colorScheme, scheme))
@@ -172,7 +173,9 @@ struct LitheSearchFieldStyleTests {
         #expect(field.stringValue == value)
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
-        let expected: UInt32 = value.isEmpty ? 0x73767C : (scheme == .dark ? 0xD1D3D9 : 0x000000)
+        let promptColor: UInt32 = 0x73767C
+        let expected: UInt32 = value.isEmpty ? promptColor : (scheme == .dark ? 0xD1D3D9 : 0x000000)
+        #expect(abs(try #require(field.font).pointSize - (multiline ? 14 : 13)) < 0.01)
         let scale = bitmap.pixelsWide / 220
         var matchingGlyphPixels = 0
         // Ignore the border and anti-aliased edges; fully covered glyph interiors

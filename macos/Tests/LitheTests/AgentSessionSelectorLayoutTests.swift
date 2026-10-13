@@ -76,10 +76,13 @@ struct AgentSessionSelectorLayoutTests {
 
     @Test
     func modelSettingsWithWrappedDescriptionsScrollToTheLastChoice() async throws {
+        let screen = try #require(NSScreen.main).visibleFrame
+        // Force overflow on every display size so this test exercises scrolling.
+        let choiceCount = max(30, Int(ceil(screen.height / LitheDropdownMetrics.rowHeight)) + 1)
         let model = AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "model",
             choices: [.init(id: "model", name: "Model")])
         let setting = AgentSessionConfigOption(id: "custom", name: "Custom", category: "custom", currentValue: "choice-0",
-            choices: (0..<30).map { .init(id: "choice-\($0)", name: "Choice \($0)",
+            choices: (0..<choiceCount).map { .init(id: "choice-\($0)", name: "Choice \($0)",
                 description: "An upstream explanation that wraps across the bounded menu width.\nA second line must stay inside this choice's row.") })
         for scheme in [ColorScheme.dark, .light] {
             var selected: String?
@@ -88,7 +91,6 @@ struct AgentSessionSelectorLayoutTests {
                 selected = value
             }.environment(\.colorScheme, scheme).litheContextMenuSurface())
             let window = makeWindow(host, size: NSSize(width: 330, height: 110))
-            let screen = try #require(NSScreen.main).visibleFrame
             window.setFrameOrigin(NSPoint(x: screen.minX + 80, y: screen.midY))
             defer { window.contentView = nil; window.close() }
             try #require(await waitUntil { dropdownAnchors(in: host).count == 1 }, "The custom setting must be laid out")
@@ -107,7 +109,7 @@ struct AgentSessionSelectorLayoutTests {
             #expect(await waitUntil { scroll.contentView.bounds.minY > 0 }, "Keyboard navigation must reveal the final choice")
             try capture(content, name: "described-settings-scrolled-\(scheme)")
             try sendKey(36, to: child)
-            #expect(await waitUntil { selected == "choice-29" }, "The final upstream ID must remain selectable")
+            #expect(await waitUntil { selected == "choice-\(choiceCount - 1)" }, "The final upstream ID must remain selectable")
             #expect(!child.isVisible)
         }
     }

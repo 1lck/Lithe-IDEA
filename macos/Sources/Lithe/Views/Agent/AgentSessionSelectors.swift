@@ -113,7 +113,7 @@ struct AgentSessionSelectors: View {
                         Text(AgentSessionSelectorPresentation.currentTitle(mode))
                     }
                 }
-                .buttonStyle(.litheNoPress)
+                .litheToolbarIconButton(isIconOnly: false)
                 .help(appliesToNextTurn ? String(localized: "Changes apply to the next turn.") : AgentSessionSelectorPresentation.localized(mode.name))
                 .accessibilityLabel(Text("Approval mode"))
                 .accessibilityValue(AgentSessionSelectorPresentation.currentTitle(mode))
@@ -130,7 +130,7 @@ struct AgentSessionSelectors: View {
                         Text(modelSummary(model))
                     }
                 }
-                .buttonStyle(.litheNoPress)
+                .litheToolbarIconButton(isIconOnly: false)
                 .help(appliesToNextTurn ? String(localized: "Changes apply to the next turn.") : model.currentLabel)
                 .accessibilityLabel(Text("Model"))
                 .accessibilityValue(model.currentLabel)
@@ -155,9 +155,10 @@ struct AgentSessionSelectors: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
+                    LitheIDEAIcon(resourcePath: "expui/general/moreHorizontal.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                  fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
                 }
-                .buttonStyle(.litheNoPress)
+                .litheToolbarIconButton()
                 .fixedSize()
                 .help("More session settings")
             }
@@ -176,17 +177,14 @@ struct AgentSessionSelectors: View {
     private func selectorLabel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 5) {
             content()
-            Image(systemName: "chevron.up").font(LitheTheme.uiFont(size: 8, weight: .semibold))
+            LitheIDEAIcon(resourcePath: "expui/general/chevronUp.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                          fallbackSystemImage: "chevron.up", preservesOriginalColors: true)
         }
         .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(LitheTheme.secondaryText)
         .lineLimit(1)
         .truncationMode(.middle)
         .padding(.horizontal, 4)
-        .frame(height: 28)
-        .contentShape(Rectangle())
-        .litheRowHover()
-        .lithePointer()
     }
 
     private func select(_ id: String, _ value: String) {
@@ -358,7 +356,7 @@ private struct AgentSelectorRow<Content: View>: View {
                     .foregroundStyle(LitheTheme.accent)
                     .opacity(isSelected ? 1 : 0)
             }
-            .font(.system(size: 12))
+            .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
             .foregroundStyle(AgentPanelStyle.text)
             .padding(.horizontal, 12)
             .padding(.vertical, 4)

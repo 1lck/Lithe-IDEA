@@ -225,42 +225,32 @@ struct AgentTranscriptView: View {
     }
 }
 
-/// Centered agent mark with its version; tapping it switches agents.
+/// Compact empty-conversation hint; the composer and this icon both switch agents.
 struct AgentHeroView: View {
     let agentName: String?
     let agentVersion: String?
     let onTap: () -> Void
-    @State private var isHovering = false
 
     var body: some View {
-        VStack(spacing: 16) {
+        HStack(spacing: 8) {
             Button(action: onTap) {
-                AgentBrandIcon(name: agentName, size: 60)
-                    .foregroundStyle(isHovering ? AgentPanelStyle.secondary : AgentPanelStyle.logo)
+                AgentBrandIcon(name: agentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
             }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
+            .litheToolbarIconButton()
             .accessibilityLabel("Switch Agent")
-            .onHover { isHovering = $0 }
-            .overlay(alignment: .topLeading) {
-                if let agentVersion, !agentVersion.isEmpty {
-                    Text("v\(agentVersion)")
-                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .foregroundStyle(AgentPanelStyle.versionText)
-                        .background(AgentPanelStyle.versionAccent.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(AgentPanelStyle.versionAccent.opacity(0.4)))
-                        .fixedSize()
-                        .offset(x: 70, y: -2)
-                }
-            }
-            Text(agentName.map { String(format: String(localized: "Send a message to %@"), $0) }
-                 ?? String(localized: "Choose an Agent to start"))
-                .font(LitheTheme.uiFont(size: 14))
+            Text("Start the session by sending a message")
+                .font(LitheTheme.uiFont(size: 13))
                 .foregroundStyle(AgentPanelStyle.logo)
+            Spacer(minLength: 0)
+            if let agentVersion, !agentVersion.isEmpty {
+                Text("v\(agentVersion)")
+                    .font(LitheTheme.uiFont(size: 10, weight: .medium))
+                    .foregroundStyle(AgentPanelStyle.secondary)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .help("Switch Agent")
     }
 }

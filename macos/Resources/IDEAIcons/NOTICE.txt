@@ -182,3 +182,16 @@ platform/icons/src/expui/toolwindows/services@20x20{,_dark}.svg,
 platform/icons/src/expui/general/greenCheckmark{,_dark}.svg and
 platform/icons/src/expui/status/error{,_dark}.svg.
 Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Agent sendOutline{,_dark}.svg derives from the 16x16 path in Community
+915c3c26029bd2f8d35907d6faf43c4a3264c5f7,
+platform/collaboration-tools/shared/resources/icons/send.svg (Apache License 2.0).
+Modification: replace the original filled silhouette with a 1px toolbar outline;
+use the existing IDEA toolbar icon light/dark stroke colors. This is a Lithe
+adaptation, not an unmodified AI Assistant plugin asset.
+
+Inline banners use expui/status/success.svg and success_dark.svg from Community
+915c3c26029bd2f8d35907d6faf43c4a3264c5f7. PlatformIconMappings maps Status.Success
+to these unmodified 16pt SVG assets. Warning, error and information follow the
+same mapping to existing expui/status assets. InlineBanner/InlineBannerBase and
+EditorNotificationPanel plus the Islands themes supply shared banner styling.

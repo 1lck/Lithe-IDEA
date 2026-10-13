@@ -79,7 +79,7 @@ struct AgentActivitySummaryBar: View {
                 if item != .tasks { Divider().frame(height: 14).overlay(AgentPanelStyle.border) }
                 Button { panel = panel == item ? nil : item } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: item.icon).font(LitheTheme.uiFont(size: 11))
+                        LitheSystemIcon(systemImage: item.icon, size: LitheTheme.Metrics.toolbarIconSize)
                         Text(item.title)
                         badge(item)
                     }
@@ -147,8 +147,7 @@ struct AgentActivityDetailsView: View {
             case .edits: edits
             }
             if let reviewError {
-                Text(reviewError).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
-                    .padding(8)
+                LitheBanner(status: .error) { Text(reviewError).textSelection(.enabled) }
             }
         }
         .frame(width: width)
@@ -209,13 +208,13 @@ struct AgentActivityDetailsView: View {
             if let deletions = change.deletions, deletions > 0 {
                 Text("-\(deletions)").foregroundStyle(LitheTheme.error)
             }
-            Button { onDiff(change) } label: { Image(systemName: "rectangle.split.2x1") }
-                .buttonStyle(.litheNoPress)
+            Button { onDiff(change) } label: { LitheSystemIcon(systemImage: "rectangle.split.2x1", size: LitheTheme.Metrics.toolbarIconSize) }
+                .litheToolbarIconButton()
                 .disabled(change.diffs.isEmpty)
                 .help("Show Agent diff")
                 .accessibilityIdentifier("agent-edits-diff-\(change.path)")
-            Button { onRequestRestore([change]) } label: { Image(systemName: "arrow.uturn.backward") }
-                .buttonStyle(.litheNoPress)
+            Button { onRequestRestore([change]) } label: { LitheSystemIcon(systemImage: "arrow.uturn.backward", size: LitheTheme.Metrics.toolbarIconSize) }
+                .litheToolbarIconButton()
                 .disabled(isResponding || isReviewing || !change.canRevert)
                 .help(change.canRevert ? "Roll back Agent changes" : "Original content is missing or incomplete.")
                 .accessibilityIdentifier("agent-edits-revert-\(change.path)")

@@ -122,12 +122,9 @@ struct LSPControlCenterView: View {
     }
 
     private var degradedCatalogNotice: some View {
-        Label(
-            usesChinese ? "语言服务器配置加载异常，当前正在使用兼容配置。" : "Language server configuration is degraded; compatibility settings are in use.",
-            systemImage: "exclamationmark.triangle.fill"
-        )
-        .font(LitheTheme.uiFont(size: 11))
-        .foregroundStyle(LitheTheme.warning)
+        LitheBanner(status: .warning) {
+            Text(usesChinese ? "语言服务器配置加载异常，当前正在使用兼容配置。" : "Language server configuration is degraded; compatibility settings are in use.")
+        }
     }
 
     private var projectLanguageServers: [LanguageProviderDescriptor] {
@@ -195,26 +192,11 @@ struct LSPControlCenterView: View {
     }
 
     private func phpPluginNotice(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(message, systemImage: "puzzlepiece.extension")
-                .font(.system(size: 12))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
+        LitheBanner(status: .info) {
+            Text(message).fixedSize(horizontal: false, vertical: true)
             Button(usesChinese ? "打开插件管理" : "Open Plugin Management") {
                 model.showSettings(category: .plugins)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
-                .fill(LitheTheme.settingsSurface)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
-                .stroke(LitheTheme.divider, lineWidth: 1)
         }
     }
 

@@ -620,24 +620,17 @@ private func specializedEmptyState(symbol: String, title: LocalizedStringKey, de
 }
 
 private func specializedErrorBanner(message: String, retry: @escaping () -> Void) -> some View {
-    HStack(spacing: 8) {
-        LitheIDEAIcon(resourcePath: "expui/status/warning.svg", size: 16, preservesOriginalColors: true)
-        Text(message)
-            .font(LitheTheme.uiFont(size: 10.5))
-            .foregroundStyle(LitheTheme.primaryText)
-            .lineLimit(3)
-            .textSelection(.enabled)
-        Spacer(minLength: 4)
-        Button(action: retry) {
-            LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: 16, preservesOriginalColors: true)
+    LitheBanner(status: .error, layout: .editor) {
+        HStack(spacing: LitheTheme.Banner.actionGap) {
+            Text(message).lineLimit(3).textSelection(.enabled)
+            Spacer(minLength: 4)
+            Button(action: retry) {
+                LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: 16, preservesOriginalColors: true)
+            }
+            .litheToolbarIconButton()
+            .help("Retry")
         }
-        .litheToolbarIconButton()
-        .help("Retry")
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 8)
-    .background(LitheTheme.error.opacity(0.1))
-    .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.error.opacity(0.35)).frame(height: 1) }
 }
 
 private func redisTypeSymbol(_ type: String) -> String {

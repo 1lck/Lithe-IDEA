@@ -8,18 +8,23 @@ enum AgentPanelStyle {
     static var context: Color { LitheTheme.raised }
     static var toolbar: Color { LitheTheme.editor }
     static var border: Color { LitheTheme.panelBorder }
-    static let text = adaptive(dark: 0xcccccc, light: 0x333333)
-    static let secondary = adaptive(dark: 0x888888, light: 0x666666)
-    static let muted = adaptive(dark: 0x666666, light: 0x777777)
-    static let logo = adaptive(dark: 0x555555, light: 0x777777)
-    static let focus = adaptive(dark: 0x007fd4, light: 0x0078d4)
+    static var text: Color { LitheTheme.primaryText }
+    static var secondary: Color { LitheTheme.secondaryText }
+    static var muted: Color { LitheTheme.tertiaryText }
+    static var logo: Color { LitheTheme.tertiaryText }
+    static var focus: Color { LitheTheme.inputFocusBorder }
     static let selected = adaptive(dark: 0x094771, light: 0xcce7ff)
     static let versionText = adaptive(dark: 0xddd6fe, light: 0x6d28d9)
     static let versionAccent = Color(red: 139 / 255, green: 92 / 255, blue: 246 / 255)
 
+    static var welcomeGradient: LinearGradient {
+        LinearGradient(colors: [context, LitheTheme.Welcome.bannerAccent],
+                       startPoint: .leading, endPoint: .trailing)
+    }
+
     static func brandTint(for name: String?, isDark: Bool) -> UInt32? {
         switch name?.lowercased() {
-        case "claude", "claude code": 0xd97757
+        case "claude", "claude code", "claude agent": 0xd97757
         case "codex": isDark ? 0xcccccc : 0x333333
         default: nil
         }
@@ -87,7 +92,7 @@ enum AgentBrandIconLoader {
         let filename: String
         switch name?.lowercased() {
         case "codex": filename = "openai"
-        case "claude", "claude code": filename = "claude"
+        case "claude", "claude code", "claude agent": filename = "claude"
         default: return nil
         }
         guard let resourceBundle else { return nil }
@@ -137,22 +142,5 @@ enum AgentBrandIconLoader {
         let adjacentURL = mainBundle.bundleURL
             .appendingPathComponent("Lithe_Lithe.bundle", isDirectory: true)
         return Bundle(url: adjacentURL) ?? developmentBundle()
-    }
-}
-
-struct AgentToolbarButtonStyle: ButtonStyle {
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(LitheTheme.uiFont(size: 14, weight: .regular))
-            .foregroundStyle(AgentPanelStyle.secondary)
-            .frame(width: 28, height: 28)
-            .background(
-                configuration.isPressed || isHovering ? AgentPanelStyle.context : .clear,
-                in: RoundedRectangle(cornerRadius: 4)
-            )
-            .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
     }
 }

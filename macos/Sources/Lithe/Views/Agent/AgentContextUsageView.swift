@@ -28,16 +28,16 @@ struct AgentContextUsageView: View {
     @Environment(\.locale) private var locale
 
     private var color: Color {
-        guard let usage else { return AgentPanelStyle.muted }
+        guard let usage else { return LitheTheme.HoverTooltip.infoForeground }
         if usage.fraction >= 1 { return LitheTheme.error }
         if usage.fraction >= 0.9 { return LitheTheme.warning }
-        return AgentPanelStyle.secondary
+        return LitheTheme.HoverTooltip.infoForeground
     }
 
     var body: some View {
         HStack(spacing: 4) {
             ZStack {
-                Circle().stroke(AgentPanelStyle.secondary.opacity(0.3), lineWidth: 1.5)
+                Circle().stroke(LitheTheme.settingsControlBorder, lineWidth: 1.5)
                 if let usage {
                     Circle().trim(from: 0, to: min(usage.fraction, 1))
                         .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
@@ -48,7 +48,9 @@ struct AgentContextUsageView: View {
                 .monospacedDigit().lineLimit(1)
         }
         .foregroundStyle(color)
-        .padding(.vertical, 4)
+        .font(LitheTheme.smallFont)
+        .padding(.horizontal, 4)
+        .frame(height: LitheTheme.Metrics.toolbarIconButtonSize)
         .fixedSize()
         .workbenchHoverCard(placement: .above, maximumWidth: AgentStatusCardMetrics.width) {
             AgentContextUsageCard(usage: usage, composition: composition)

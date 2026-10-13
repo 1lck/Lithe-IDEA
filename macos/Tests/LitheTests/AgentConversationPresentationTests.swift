@@ -443,13 +443,17 @@ struct AgentConversationPresentationTests {
         for scheme in [ColorScheme.dark, .light] {
             for card in [AnyView(AgentSessionSummaryCard(statistics: statistics)),
                          AnyView(AgentTokenUsageCard(tokens: try #require(statistics.tokens))),
-                         AnyView(AgentContextUsageCard(usage: usage, composition: statistics.modelCalls?.latestContext)),
-                         AnyView(AgentContextUsageCard(usage: nil, composition: nil))] {
+                         AnyView(AgentContextUsageCard(usage: usage, composition: statistics.modelCalls?.latestContext))] {
                 let host = NSHostingView(rootView: card.environment(\.colorScheme, scheme).environment(\.locale, locale))
                 let size = host.fittingSize
                 #expect(size.width == AgentStatusCardMetrics.width, "Cards keep the shared width")
                 #expect(size.height > 40 && size.height < 400, "Cards wrap footnotes without clipping")
             }
+            let emptyContext = NSHostingView(rootView: AgentContextUsageCard(usage: nil, composition: nil)
+                .environment(\.colorScheme, scheme).environment(\.locale, locale))
+            #expect(emptyContext.fittingSize.width == 240)
+            #expect(emptyContext.fittingSize.height > 30 && emptyContext.fittingSize.height < 80,
+                    "Unknown context stays compact without reserving an empty progress bar")
         }
         if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATUS_SCREENSHOTS"] {
             try captureStatusScreenshots(folder: URL(fileURLWithPath: folder))

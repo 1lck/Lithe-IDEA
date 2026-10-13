@@ -14,6 +14,8 @@ enum LitheDropdownMetrics {
     static let rowCornerRadius: CGFloat = 4
     static let shortcutFont = LitheTheme.uiNSFont(size: 11)
     static let rowHeight: CGFloat = 24
+    // A tall history viewport keeps empty space; the shared host clamps it to the screen.
+    static let historyViewportHeight: CGFloat = rowHeight * 20
     static let separatorHeight: CGFloat = 11
     static let verticalPadding: CGFloat = 2 * popupPadding
     static let submenuSpacing: CGFloat = 1
@@ -441,6 +443,7 @@ private struct LitheContextMenuRow: View {
 @MainActor
 private final class LitheContextMenuPanel: NSPanel {
     var handleKey: ((NSEvent) -> Bool)?
+    var handleContentKey: ((NSEvent) -> Bool)?
     var handleMouseMoved: ((NSEvent) -> Void)?
     var handleResizeCursor: ((NSEvent) -> Void)?
     override var canBecomeKey: Bool { true }
@@ -449,6 +452,34 @@ private final class LitheContextMenuPanel: NSPanel {
         if event.type == .mouseMoved { handleMouseMoved?(event) }
         super.sendEvent(event)
         if event.type == .mouseMoved { handleResizeCursor?(event) }
+    }
+}
+
+/// Custom lists use the popup's existing event route, scoped to its window and lifecycle.
+private struct LitheDropdownKeyHandler: NSViewRepresentable {
+    let action: (NSEvent) -> Bool
+
+    func makeNSView(context: Context) -> KeyView { KeyView() }
+    func updateNSView(_ view: KeyView, context: Context) { view.action = action }
+
+    final class KeyView: NSView {
+        var action: ((NSEvent) -> Bool)?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            (window as? LitheContextMenuPanel)?.handleContentKey = { [weak self] event in
+                guard let self, let window = self.window,
+                      (event.window ?? NSApp.keyWindow) === window,
+                      !self.isHiddenOrHasHiddenAncestor else { return false }
+                return self.action?(event) ?? false
+            }
+        }
+    }
+}
+
+extension View {
+    func litheDropdownKeyHandler(_ action: @escaping (NSEvent) -> Bool) -> some View {
+        background(LitheDropdownKeyHandler(action: action).frame(width: 0, height: 0))
     }
 }
 
@@ -647,6 +678,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
                 self?.dismiss()
                 return true
             }
+            if panel?.handleContentKey?(event) == true { return true }
             guard searchOnTyping, let panel else { return false }
             let find = event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "f"
             let typing = event.modifierFlags.intersection([.command, .control, .function]).isEmpty

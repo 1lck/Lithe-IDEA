@@ -217,28 +217,14 @@ struct EditorAreaView: View {
         if paneTerminal == nil,
            let document = paneDocument,
            document.hasExternalConflict {
-            HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(LitheTheme.warning)
+            LitheBanner(status: .warning, layout: .editor) {
                 Text(LocalizedStringKey(document.externalFileMissing ? "This file was deleted outside Lithe. Your editor content is preserved." : "This file changed outside Lithe while you had unsaved edits."))
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                Spacer()
-                Button(LocalizedStringKey(document.externalFileMissing ? "Allow Recreating File" : "Keep Editor")) { model.keepEditorVersion(of: document) }
-                    .buttonStyle(.bordered)
-                    .lithePointer()
-                    .controlSize(.small)
-                Button("Load Disk Version") { model.loadExternalVersion(of: document) }
-                    .disabled(document.externalFileMissing)
-                    .buttonStyle(.borderedProminent)
-                    .lithePointer()
-                    .tint(LitheTheme.warning)
-                    .controlSize(.small)
+                HStack(spacing: LitheTheme.Banner.actionGap) {
+                    Button(LocalizedStringKey(document.externalFileMissing ? "Allow Recreating File" : "Keep Editor")) { model.keepEditorVersion(of: document) }
+                    Button("Load Disk Version") { model.loadExternalVersion(of: document) }
+                        .disabled(document.externalFileMissing)
+                }
             }
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 12)
-            .frame(height: 42)
-            .background(Color.orange.opacity(0.10))
-            Rectangle().fill(LitheTheme.warning.opacity(0.35)).frame(height: 1)
         }
     }
 

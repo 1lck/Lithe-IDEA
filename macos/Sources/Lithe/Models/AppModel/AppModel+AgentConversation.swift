@@ -143,6 +143,12 @@ extension AppModel {
             self?.agentConversationNeedsAttention = needsAttention
         }
         feature.setAgents(configuredAgentOptions)
+        if let selectedAgentConversationID {
+            guard feature.agents.contains(where: { $0.id == selectedAgentConversationID }) else { return }
+            feature.selectAgent(selectedAgentConversationID)
+        } else {
+            selectedAgentConversationID = feature.selectedAgentID
+        }
         guard let agentID = feature.selectedAgentID else { return }
         let connection = feature.connection(for: agentID)
         guard !connection.hasActiveConnection else { return }
@@ -158,6 +164,7 @@ extension AppModel {
     }
 
     func selectAgentConversationAgent(_ agentID: String) {
+        selectedAgentConversationID = agentID
         agentConversationFeatureIfActive?.selectAgent(agentID)
         connectAgentConversation()
     }
