@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 @testable import LitheGitModule
 import Testing
+import LitheTestDesktopIsolation
 @testable import Lithe
 
 @Suite("Editor tab order")
@@ -217,7 +218,7 @@ struct EditorTabOrderFeatureModelTests {
                             $0.identifier?.rawValue == "lithe.editor-tab-drag-preview"
                         })
                         #expect(preview.isVisible && preview.ignoresMouseEvents)
-                        #expect(preview.alphaValue == 0.9)
+                        #expect(LitheTestRequestedWindowAlpha(preview) == 0.9)
                         #expect(preview.animationBehavior == .none)
                         #expect(model.editorTabItems == originalItems, "Only commit order on drop")
                         if point.y == 110 {

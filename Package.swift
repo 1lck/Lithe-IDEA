@@ -137,9 +137,21 @@ let package = Package(
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
             ]
         ),
+        .target(
+            name: "LitheTestDesktopIsolation",
+            path: "macos/Tests/LitheTestDesktopIsolation",
+            publicHeadersPath: "include",
+            linkerSettings: [.linkedFramework("AppKit")]
+        ),
+        .testTarget(
+            name: "LitheTestDesktopIsolationTests",
+            dependencies: ["LitheTestDesktopIsolation", .product(name: "Testing", package: "swift-testing")],
+            path: "macos/Tests/LitheTestDesktopIsolationTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .testTarget(
             name: "LitheTests",
-            dependencies: ["Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheAgentConversationModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule", "LithePhpSupportModule", "LithePluginPackageSigning", .product(name: "Testing", package: "swift-testing")],
+            dependencies: ["LitheTestDesktopIsolation", "Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheAgentConversationModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule", "LithePhpSupportModule", "LithePluginPackageSigning", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheTests",
             resources: [
                 .copy("Fixtures")
@@ -196,6 +208,7 @@ let package = Package(
         .testTarget(
             name: "LitheGitPerformanceTests",
             dependencies: [
+                "LitheTestDesktopIsolation",
                 "Lithe",
                 "LitheGitModule",
                 "LitheGitPerformanceSupport",
