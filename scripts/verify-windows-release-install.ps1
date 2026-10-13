@@ -46,13 +46,32 @@ try {
     }
     $uninstallPath = Join-Path $installRoot 'uninstall.exe'
     if (Test-Path -LiteralPath $uninstallPath) {
-        $uninstaller = Start-Process -FilePath $uninstallPath -ArgumentList '/S' -WindowStyle Hidden -PassThru
-        if (-not $uninstaller.WaitForExit(30000)) {
+        # Without `_?=` an NSIS uninstaller copies itself to the temporary directory, starts that copy,
+        # and exits at once, so waiting on this process would not wait for the file removal. `_?=` runs
+        # it in place and synchronously; it must be the last argument and must not be quoted. Run this
+        # way the uninstaller cannot delete itself, so the bounded removal below takes uninstall.exe.
+        $uninstaller = Start-Process -FilePath $uninstallPath -ArgumentList "/S _?=$installRoot" `
+            -WindowStyle Hidden -PassThru
+        if (-not $uninstaller.WaitForExit(60000)) {
             & taskkill /PID $uninstaller.Id /T /F | Out-Null
             $uninstaller.WaitForExit(5000) | Out-Null
-            throw 'Uninstaller exceeded 30 seconds'
+            throw 'Uninstaller exceeded 60 seconds'
         }
     }
     # The target is the literal directory created above, under the OS temporary directory.
-    Remove-Item -LiteralPath $testRoot -Recurse -Force
+    $cleanupClock = [System.Diagnostics.Stopwatch]::StartNew()
+    while (Test-Path -LiteralPath $testRoot) {
+        $cleanupFailure = $null
+        try {
+            Remove-Item -LiteralPath $testRoot -Recurse -Force
+        } catch {
+            $cleanupFailure = $_.Exception.Message
+        }
+        if (-not (Test-Path -LiteralPath $testRoot)) { break }
+        if ($cleanupClock.Elapsed.TotalSeconds -ge 20) {
+            throw "Temporary installation directory survived cleanup for 20 seconds: $testRoot ($cleanupFailure)"
+        }
+        # Handles held by just-terminated processes have no release event; retry with a local deadline.
+        Start-Sleep -Milliseconds 200
+    }
 }
