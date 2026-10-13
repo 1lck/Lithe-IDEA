@@ -309,6 +309,34 @@ session delta or billing amount, because the adapters' accounting scopes differ.
 They must not derive these counters from context occupancy or subscription quota.
 `acp-events-v1.json` covers completion both with and without usage.
 
+The launch JSON's optional `observeModelCalls` (default `false`) asks the host to
+start a loopback proxy for API-key gateway connections and hand the Agent
+`http://127.0.0.1:<port>/lithe-<token>` instead of the configured endpoint.
+Requests and responses are forwarded unchanged; requests other than generation
+endpoints stream through without buffering, and generation bodies over 32 MiB
+are forwarded without composition. Same-origin `Location` headers are mapped
+back onto the proxy path; cross-origin targets are left unchanged. Subscription
+connections and a proxy that fails to start keep the configured endpoint. Each generation request
+(`.../messages`, `.../responses`, `.../chat/completions`) then produces one
+`modelCall` event with `call.api`, optional `model`, HTTP `status`, `streaming`,
+optional `firstTokenMs`, `durationMs`, optional provider `usage`
+(`inputTokens` excluding cache reads and writes for every protocol, `cacheReadTokens`, `cacheWriteTokens`,
+`outputTokens`, optional `reasoningTokens`) and optional estimated prompt
+`context` (`systemPromptTokens`, `toolTokens`, `mcpToolTokens`, `messageTokens`,
+`toolCount`, `mcpToolCount`, `scaledToUsage`). `sessionId` is present only when
+exactly one non-cancelling prompt was running when the request started; consumers
+drop unattributed calls instead of guessing. The host waits up to two seconds for
+a turn's attributed calls to report before emitting its `turnFinished`, so they
+arrive first. A call still open after that bound carries `afterTurnFinished: true`
+and counts for the session only, never for a later turn. Redirect (3xx) hops are
+forwarded but are not model calls; only the followed request is reported.
+Calls without `usage` make session token sums a lower bound, which consumers
+must label as such. Unparsable provider data omits the
+optional fields and never affects forwarding. Without these events, consumers do
+not estimate model-call counts, first-token latency, output speed or prompt
+composition. Decision:
+`.agents/notes/implemented/architecture/2026-10-13-agent-model-call-observation.md`.
+
 macOS keeps local turn statistics in memory. Elapsed time uses a monotonic clock
 from user submission (including queued session creation/loading, tools and
 permission waits) until completion, request failure or disconnect. Cancellation

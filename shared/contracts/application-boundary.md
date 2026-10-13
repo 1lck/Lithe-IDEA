@@ -92,7 +92,8 @@ those bytes.
 The macOS host resolves tool-window actions and content from module contributions.
 Project (`workspace.project`), Changes (`git.changes`) and Search (`search.workspace`)
 use the same registry as right/bottom tools and declarative plugin windows. Left,
-right and bottom each select at most one window. Moving or hiding a tool window
+right and bottom each have primary and secondary dock groups, with at most one
+visible window per group. Menu moves and pointer drops update the same dock state. Moving or hiding a tool window
 changes presentation only; module ownership and resource lifetime stay in ModuleRuntime.
 A title-bar minimize action closes its own contribution ID in its current region.
 
@@ -100,7 +101,8 @@ Workspace layout stores entry order, visibility and placement by contribution ID
 Left content selection and expansion have optional fields for compatibility with
 older geometry-only layouts. Legacy workspace session names (`project`, `changes`,
 `search`, `pullRequests`) map to stable IDs; other registered IDs survive as strings.
-Geometry writes merge existing UI preferences. Module release and shutdown do not
+Legacy docking enum names also map to contribution IDs without losing group or
+order. Geometry writes merge existing UI preferences. Module release and shutdown do not
 replace saved user visibility with teardown state. Restoring a declarative window
 activates its owner even if its left slot is already selected, without toggling it closed.
 These are macOS host behaviors; Windows adoption remains independent.

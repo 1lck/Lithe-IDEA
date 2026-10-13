@@ -7,7 +7,10 @@
     "evidence": [
       "macos/Sources/Lithe/Views/Editor",
       "macos/Sources/Lithe/Models/Editor",
-      "macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift"
+      "macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift",
+      "macos/Sources/Lithe/Application/Features/EditorGroupLayout.swift",
+      "macos/Sources/Lithe/Views/Editor/EditorGroupContainer.swift",
+      "macos/Tests/LitheTests/MonacoWorkbenchSessionLifetimeTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -28,6 +31,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Editor",
-  "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。 macOS 验证 Git Log Repository Diff 与文件/媒体/终端标签共用排序，切换保留 Diff、关闭命令关闭选中内容，标题按当前文件变化；共享 Islands 圆角标签在编辑区/工具窗口鼠标、键盘和窗口失活间呈现蓝色活动或灰色失焦状态，卸载移除焦点观察器。完整工作区视觉验收 pending。 从 Diff 设置菜单关闭时也清理混合标签槽并恢复原文档；通过原生窗口鼠标拖动检查普通文件跨 Repository Diff 重排。 右键标签页确认关闭分组排在其他操作之前；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。 在 Windows 确认编辑器标签栏左上角不再有前进/后退箭头，后退/前进改由 Navigate 菜单与 Ctrl+Alt+←/→ 提供；选中标签为 IntelliJ Islands 圆角块（浅蓝底加蓝边），焦点移到终端、项目树或另一分栏时变为灰底灰边；长文件名标签完整显示不截断。 macOS 从历史 Repository Diff 切入工作区 Diff，分别在加载中和完成后按 ⌘W，确认关闭当前工作区预览；关闭后台历史标签不得清空当前补丁或加载状态，也不激活返回文档。 Windows 用同一鼠标滚轮事件对照普通编辑器、笔记本代码区和 Diff，确认共用两倍灵敏度，平滑滚动开关仍生效，滚动边界及标签位置恢复正确；真实整机 IDEA 滚动帧性能对照仍待验收。",
+  "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。 macOS 验证 Git Log Repository Diff 与文件/媒体/终端标签共用排序，切换保留 Diff、关闭命令关闭选中内容，标题按当前文件变化；共享 Islands 圆角标签在编辑区/工具窗口鼠标、键盘和窗口失活间呈现蓝色活动或灰色失焦状态，卸载移除焦点观察器。完整工作区视觉验收 pending。 从 Diff 设置菜单关闭时也清理混合标签槽并恢复原文档；通过原生窗口鼠标拖动检查普通文件跨 Repository Diff 重排。 右键标签页确认关闭分组排在其他操作之前；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。 在 Windows 确认编辑器标签栏左上角不再有前进/后退箭头，后退/前进改由 Navigate 菜单与 Ctrl+Alt+←/→ 提供；选中标签为 IntelliJ Islands 圆角块（浅蓝底加蓝边），焦点移到终端、项目树或另一分栏时变为灰底灰边；长文件名标签完整显示不截断。 macOS 从历史 Repository Diff 切入工作区 Diff，分别在加载中和完成后按 ⌘W，确认关闭当前工作区预览；关闭后台历史标签不得清空当前补丁或加载状态，也不激活返回文档。 Windows 用同一鼠标滚轮事件对照普通编辑器、笔记本代码区和 Diff，确认共用两倍灵敏度，平滑滚动开关仍生效，滚动边界及标签位置恢复正确；真实整机 IDEA 滚动帧性能对照仍待验收。 macOS 标签拖到编辑区右侧或底部显示对应半区预览，释放后移动到独立标签组；继续拆分、组间移动、关闭空组合并、各组选择和聚焦命令正确，原文档和终端会话不复制，Esc 与无效释放保持原布局。浮动标签使用灰色卡片，无激活蓝底和关闭按钮。空编辑区仅显示 Search Everywhere 与 Find in Files，按当前 Keymap 和自定义配置生成快捷键，16pt 普通字重及 IDEA 明暗提示色；窄窗口裁剪文字而不缩字。 macOS 点击编辑器正文下方空白后，仅移动鼠标到文件、Diff、终端标签及标签栏空白处即恢复箭头，不要求再次点击；返回正文仍使用文本光标，单行、多行及分组标签栏均检查。 与数据库标签集成：文件切换和分组保留数据库概览/查询标签；数据库标签组内重排有效，跨组移动不改变布局，新增数据库标签进入既有数据库分组，避免共享上下文同时渲染为两个不同查询。 普通文本标签连续移到右侧、底部及原组后，撤销/重做移动前后输入；保持同一 WebView 和 Monaco 模型，不重建历史。松开拖动后只有目标文档取得原生焦点，后台正文没有闪烁光标；输入、撤销、查找和保存均作用于目标文件。视口尺寸变化允许滚动范围正常限制。 macOS 横向溢出的隐藏标签不截获相邻分组按下/拖动，部分可见标签仅在视口内可点击；第二、第三行释放执行重排而非分屏，正文边缘仍可分屏。文档→另一组终端或数据库→点击文档正文后，查找及关闭作用于原文档，其他标签保留。 A 与终端 T 分组，分别在挂载前及挂载排队后选 T，验证 A 异步 attach 不夺取 T 的 first responder；切回 A 后挂载可正常聚焦。单标签组右键向右分屏禁用，多文档或文档加终端组启用并实际分屏。",
   "notes": "Windows 编辑器标签按 IntelliJ Islands IslandsTabPainter 绘制：28px 圆角块、6px 圆角、选中填充加 1px 边框、标签间距 8px、无宽度上限；是否置灰按焦点是否位于该标签组判断（对应 EditorTabbedContainer 的 isFocusAncestor）。标签栏不提供前进/后退按钮（IntelliJ 新 UI 同样没有）。Islands 精确色值只写在 Lithe 主题中，其他主题由自身主色、前景和边框色推导。"
 }

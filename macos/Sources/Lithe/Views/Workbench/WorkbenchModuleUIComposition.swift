@@ -155,7 +155,8 @@ enum WorkbenchModuleUIComposition {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
                     }
                     return AnyView(TerminalView(feature: feature))
-                }
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.terminalFeature) }
             )
         ]
     )
@@ -231,7 +232,8 @@ enum WorkbenchModuleUIComposition {
                             temporaryDirectory: { [storage = model.services.fileStorage] in storage.temporaryDirectory() }
                         )
                     ))
-                }
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.gitFeatureIfActive) }
             )
         ]
     )
@@ -313,7 +315,8 @@ enum WorkbenchModuleUIComposition {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
                     }
                     return AnyView(RunView(feature: feature))
-                }
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.runFeatureIfActive) }
             ),
             .init(
                 id: "execution.tests",
@@ -325,7 +328,8 @@ enum WorkbenchModuleUIComposition {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
                     }
                     return AnyView(LanguageTestsView(service: service))
-                }
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.languageTestServiceIfActive) }
             )
         ]
     )

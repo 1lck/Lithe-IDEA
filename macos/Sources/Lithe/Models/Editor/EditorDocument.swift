@@ -30,6 +30,8 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     /// A remote editor establishes a revision barrier and drains its edit queue
     /// around a native action. Input arriving after that snapshot remains a newer
     /// dirty revision. The adapter must complete or fail locally.
+    /// Native editor owner prevents a detached group from clearing a newer attachment.
+    var editorSynchronizationOwnerID: UUID?
     var synchronizeEditor: ((@escaping (Result<Void, Error>) -> Void) -> Void)?
     typealias EditorRelease = @MainActor () -> Void
     /// Keeps remote input read-only across an asynchronous close/confirmation flow.

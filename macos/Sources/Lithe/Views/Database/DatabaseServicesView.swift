@@ -186,6 +186,7 @@ struct DatabaseQueryHistoryDialog: View {
     let profileID: UUID?
     let onClose: () -> Void
     let onPaste: (DatabaseSQLHistoryEntry) -> Void
+    @State private var historyListActive = false
     @State private var selectedID: UUID?
 
     private var entries: [DatabaseSQLHistoryEntry] { feature.sqlHistory.filter { $0.profileID == profileID } }
@@ -196,8 +197,7 @@ struct DatabaseQueryHistoryDialog: View {
             GeometryReader { geometry in
                 LitheSplitPaneView(axis: .horizontal, placement: .leading,
                     defaultSize: geometry.size.width * 0.3, minimum: 120,
-                    maximum: max(120, geometry.size.width - 180), flexibleMinimum: 180,
-                    highlightsOnHover: false) {
+                    maximum: max(120, geometry.size.width - 180), flexibleMinimum: 180) {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(entries) { entry in
@@ -205,11 +205,12 @@ struct DatabaseQueryHistoryDialog: View {
                                     Text(verbatim: entry.sql.replacingOccurrences(of: "\n", with: "↵   "))
                                         .font(LitheTheme.codeFont).lineLimit(1)
                                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8).frame(height: 24)
-                                }.buttonStyle(.litheNoPress).litheRowHover(isActive: selected?.id == entry.id,
-                                    activeBackground: LitheTheme.DatabaseGrid.selected)
+                                }.buttonStyle(.litheNoPress).litheSelectionRow(isSelected: selected?.id == entry.id,
+                                    isFocused: historyListActive)
                             }
                         }
                     }.litheScrollViewChrome().background(LitheTheme.editor)
+                        .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
                 } flexible: {
                     SQLSyntaxEditor(text: .constant(selected?.sql ?? ""), completions: [], onRun: {}, onSelectionChange: { _ in },
                                     isEditable: false)

@@ -1,0 +1,27 @@
+{
+  "id": "workbench-tool-window-docking",
+  "area": "工作台",
+  "group": "命令与布局",
+  "capability": "工具窗口拖动、分组、排序与布局恢复",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/WorkbenchFeatureModel.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowDock.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+      "macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift",
+      "macos/Tests/LitheTests/ToolWindowDockingTests.swift",
+      "macos/Tests/LitheTests/LitheSplitPaneCollapseTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/layout"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "verification": "macOS 将 Project、Database、Terminal、Git Log、Maven 和 Agent 入口拖到左/右主组、第二组及底部左右组，组内拖动排序；核对同组互斥、跨组同时打开、原动作和模块会话保留、标题收起只关闭对应窗口、右键移动和键盘可用性。取消与窗口外释放保持原位置，切换工作区和重启恢复位置/顺序/显隐/尺寸及组内比例，旧布局迁移、损坏与重复标识安全恢复。深浅主题核对 IDEA 资源和落点 token，窄窗口连续调整尺寸不产生负值且仅结束写入设置。Windows 尚未同步工具窗口停靠拖放，现有编辑器分屏不算此能力。 激活入口的浮动拖动预览显示普通图标和 IDEA 灰色圆角背景/同色 1pt 边框，边角透明，不带源按钮激活或 hover 背景；活动栏自身仍保留正常 hover 提示。 左、右及底部双分组各有独立背景和圆角，组间是工作台间距；核对 Project 与 Terminal 相邻时不连成一个面板，调整比例后仍保留终端输入和其他面板。 分隔器松开到父布局回传期间保持最终尺寸，不回跳；低于10%及高于90%的合法窄面板比例保存后和重启后不被二次夹紧。 将 9 个工具入口放入 280pt 滚动视口，滚动后点击或拖动邻组按钮，验证隐藏入口不截获事件、不进入落点快照；部分可见入口只在可见区域接受按下与释放，隐藏祖先也不能响应。"
+}

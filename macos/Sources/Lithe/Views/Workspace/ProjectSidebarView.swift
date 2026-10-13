@@ -44,6 +44,8 @@ struct ProjectSidebarView: View {
     @State private var expandedTreeRootPath: String?
     @State private var contextMenuPath: String?
     @State private var selection = ProjectTreeSelection()
+    @State private var treeActive = false
+    @Environment(\.controlActiveState) private var controlActiveState
     @State private var selectedContent: ProjectSidebarContent = .project
     @State private var dependencyRefreshRevision = 0
     @State private var isHeaderHovered = false
@@ -87,6 +89,7 @@ struct ProjectSidebarView: View {
                                 directoryMarks: model.projectDirectoryMarks,
                                 actions: ProjectTreeActions(model: model),
                                 selectionSnapshot: selection,
+                                isFocused: treeActive && controlActiveState == .key,
                                 selection: $selection,
                                 visibleRows: ProjectTreeSelection.visibleRows(in: root, expandedPaths: expandedDirectoryPaths),
                                 expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
@@ -116,7 +119,8 @@ struct ProjectSidebarView: View {
                                 contextMenuPath = nil
                                 selection.navigate(key, in: root, expandedPaths: &expandedDirectoryPaths, extending: extending)
                                 if let path = selection.focusedPath { proxy.scrollTo(path) }
-                            }
+                            },
+                            focusChanged: { treeActive = $0 }
                         ).frame(maxWidth: .infinity, maxHeight: .infinity))
                         .onChange(of: ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths).map { $0.url.path }) { paths in
                             selection.retain(visiblePaths: paths)
@@ -483,6 +487,7 @@ private struct ProjectFileTreeContent: View, Equatable {
     let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     let selectionSnapshot: ProjectTreeSelection
+    let isFocused: Bool
     @Binding var selection: ProjectTreeSelection
     let visibleRows: [ProjectTreeSelection.VisibleRow]
     let expandedDirectoryPathsSnapshot: Set<String>
@@ -491,6 +496,7 @@ private struct ProjectFileTreeContent: View, Equatable {
 
     static func == (lhs: ProjectFileTreeContent, rhs: ProjectFileTreeContent) -> Bool {
         lhs.selectionSnapshot == rhs.selectionSnapshot
+            && lhs.isFocused == rhs.isFocused
             && lhs.root == rhs.root
             && lhs.availableWidth == rhs.availableWidth
             && lhs.rowHeight == rhs.rowHeight
@@ -517,6 +523,7 @@ private struct ProjectFileTreeContent: View, Equatable {
                     directoryMarks: directoryMarks,
                     actions: actions,
                     selection: $selection,
+                    isFocused: isFocused,
                     visibleRows: visibleRows,
                     expandedDirectoryPaths: $expandedDirectoryPaths,
                     contextMenuPath: $contextMenuPath
@@ -538,6 +545,7 @@ private struct FileNodeRow: View {
     let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     @Binding var selection: ProjectTreeSelection
+    let isFocused: Bool
     let visibleRows: [ProjectTreeSelection.VisibleRow]
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
@@ -639,11 +647,10 @@ private struct FileNodeRow: View {
             .frame(width: rowWidth, alignment: .leading)
             .frame(height: rowHeight)
             .contentShape(Rectangle())
-            .litheRowHover(
-                isActive: selection.covers(node.url.path) || contextMenuPath == node.url.standardizedFileURL.path,
-                cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
-                activeBackground: LitheTheme.subtleSelection,
-                animation: nil
+            .litheSelectionRow(
+                isSelected: selection.covers(node.url.path) || contextMenuPath == node.url.standardizedFileURL.path,
+                isFocused: isFocused,
+                cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius
             )
         }
         .buttonStyle(.litheNoPress)
@@ -686,13 +693,12 @@ private struct FileNodeRow: View {
             .frame(width: rowWidth, alignment: .leading)
             .frame(height: rowHeight)
             .contentShape(Rectangle())
-            .litheRowHover(
-                isActive: selection.covers(node.url.path)
+            .litheSelectionRow(
+                isSelected: selection.covers(node.url.path)
                     || (selection.paths.isEmpty && activeDocumentURL?.standardizedFileURL.path == node.url.standardizedFileURL.path)
                     || contextMenuPath == node.url.standardizedFileURL.path,
-                cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
-                activeBackground: LitheTheme.subtleSelection,
-                animation: nil
+                isFocused: isFocused,
+                cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius
             )
         }
         .buttonStyle(.litheNoPress)

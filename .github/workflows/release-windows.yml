@@ -26,7 +26,7 @@ concurrency:
 jobs:
   release:
     name: Build and verify Lithe for Windows
-    if: github.actor == github.repository_owner || github.actor == vars.LITHE_RELEASE_ACTOR
+    if: github.actor == github.repository_owner || contains(format(',{0},', vars.LITHE_RELEASE_ACTOR), format(',{0},', github.actor))
     runs-on: windows-latest
     timeout-minutes: 90
     outputs:

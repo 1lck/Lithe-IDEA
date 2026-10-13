@@ -89,11 +89,13 @@ struct MonacoWorkbenchEditor: View {
     @EnvironmentObject private var model: AppModel
     let document: EditorDocument
     var secondaryDocument: EditorDocument? = nil
+    var sessionGroupID: UUID? = nil
     var preview: MonacoPreviewConfiguration? = nil
     var markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
 
     var body: some View {
-        MonacoWorkbenchContent(document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model)
+        MonacoWorkbenchContent(document: document, secondaryDocument: secondaryDocument, sessionGroupID: sessionGroupID, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model)
+            .id(sessionGroupID == nil ? nil : document.id)
     }
 }
 
@@ -109,14 +111,14 @@ private struct MonacoWorkbenchContent: View {
     let preview: MonacoPreviewConfiguration?
     let markdownScrollPosition: Binding<MarkdownScrollPosition>?
 
-    init(document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel) {
+    init(document: EditorDocument, secondaryDocument: EditorDocument?, sessionGroupID: UUID?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel) {
         self.document = document
         self.secondaryDocument = secondaryDocument
         self.preview = preview
         self.markdownScrollPosition = markdownScrollPosition
         self.model = model
         _background = ObservedObject(wrappedValue: model.workbenchBackgroundFeature)
-        _session = StateObject(wrappedValue: MonacoWorkbenchSession.forModel(model.id))
+        _session = StateObject(wrappedValue: MonacoWorkbenchSession.forModel(model.id, documentID: sessionGroupID == nil ? nil : document.id))
     }
 
     var body: some View {
@@ -221,14 +223,19 @@ private final class MonacoWorkbenchMessages: NSObject, WKScriptMessageHandlerWit
 }
 
 @MainActor
-private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDelegate {
+final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDelegate {
     private struct SessionReference { weak var value: MonacoWorkbenchSession? }
-    private static var sessions: [UUID: SessionReference] = [:]
-    static func forModel(_ id: UUID) -> MonacoWorkbenchSession {
+    private struct SessionKey: Hashable { let modelID: UUID; let documentID: UUID? }
+    private static var sessions: [SessionKey: SessionReference] = [:]
+    static func forModel(_ id: UUID, documentID: UUID? = nil) -> MonacoWorkbenchSession {
+        // A document carries its existing Monaco model, undo stack and view state between groups.
+        // ponytail: one WebView per visited document; use a shared Monaco grid if tab counts exceed the memory budget.
+        let key = SessionKey(modelID: id, documentID: documentID)
         sessions = sessions.filter { $0.value.value != nil }
-        if let existing = sessions[id]?.value { return existing }
+        if let existing = sessions[key]?.value { return existing }
         let session = MonacoWorkbenchSession()
-        sessions[id] = SessionReference(value: session)
+        session.scopedDocumentID = documentID
+        sessions[key] = SessionReference(value: session)
         return session
     }
     private struct Mount {
@@ -236,6 +243,8 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         let isPreview: Bool
         var update: (() -> Void)?
     }
+    private var scopedDocumentID: UUID?
+    private let synchronizationOwnerID = UUID()
     private var mounts: [UUID: Mount] = [:]
     private var mountOrder: [UUID] = []
     private var lastPreview: MonacoPreviewConfiguration?
@@ -270,6 +279,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var applyingEdit = false
     private var ready = false
     private var activeIDs: [String: String] = [:]
+    private var lastEditorFocused: Bool?
     private var documentLocations: [String: UInt64] = [:]
     private var documentReadOnlyStates: [String: Bool] = [:]
     private var hasSecondaryView = false
@@ -317,12 +327,39 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         return view
     }
 
+    private func isActiveDocument(_ id: UUID, model: AppModel) -> Bool {
+        model.activeDocumentID == id && model.activeEditorTerminalSession == nil
+            && model.activeMediaDocument == nil && !model.isDatabaseWorkspaceSelected && !model.isRepositoryDiffSelected
+            && model.editorTabOrderFeature.groupLayout.groups.contains {
+                model.editorTabOrderFeature.selectedItem(in: $0) == .document(id)
+            }
+    }
+
     func makeContainer(ownerID: UUID, isPreview: Bool) -> NSView {
-        let container = NSView()
+        let container = MountContainer()
+        container.didAttach = { [weak self, weak container] in
+            // SwiftUI can attach the target before removing the old responder.
+            // Focus after that mount transaction, and reject an obsolete target.
+            DispatchQueue.main.async { [weak self, weak container] in
+                guard let self, self.viewOwnerID == ownerID, !isPreview,
+                      let id = self.scopedDocumentID, let model = self.model, self.isActiveDocument(id, model: model),
+                      let window = container?.window, let webView = self.webView else { return }
+                window.makeFirstResponder(webView)
+                if self.ready { self.call("window.lithe.setFocused(true)") }
+            }
+        }
         mounts[ownerID] = Mount(container: container, isPreview: isPreview)
         mountOrder.append(ownerID)
         selectMount()
         return container
+    }
+
+    private final class MountContainer: NSView {
+        var didAttach: (() -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil { didAttach?() }
+        }
     }
 
     private func selectMount() {
@@ -350,6 +387,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             lastPreview = nil; previewDocumentID = nil
             // Force activation so the returning main surface restores its view state.
             activeIDs.removeAll()
+            lastEditorFocused = nil
         }
         latestUpdate = mounts[selected]?.update
         if ready { latestUpdate?() }
@@ -443,19 +481,19 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         if signature != lastFindPayload {
             lastFindPayload = signature
             findToken = UUID().uuidString
-            model.updateFindState(currentIndex: 0, count: 0)
+            if !currentMountIsPreview && activeIDs.values.contains(id) { model.updateFindState(currentIndex: 0, count: 0) }
         }
         payload["token"] = findToken
         if let command { payload["command"] = command; payload["replacement"] = model.findReplaceText }
         call("window.lithe.nativeFind(payload)", arguments: ["payload": payload])
     }
 
-    private func register(_ document: EditorDocument) {
+    private func bindSynchronization(_ document: EditorDocument) {
+        // Cross-file edits observe a mirror; only the document's own session
+        // may own the barriers that drain its visible editor before save/close.
+        guard scopedDocumentID == nil || scopedDocumentID == document.id else { return }
         let id = document.id.uuidString
-        guard documents[id] == nil else { return }
-        documentReferences[id] = DocumentReference(value: document)
-        revisions[id] = 0
-        unconfirmedModels.insert(id)
+        document.editorSynchronizationOwnerID = synchronizationOwnerID
         // The document retains its editor while it remains open, even if SwiftUI
         // temporarily removes this surface. The reverse document reference is weak.
         document.synchronizeEditor = { [self] completion in
@@ -488,6 +526,15 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 completion(.success(release))
             }
         }
+    }
+
+    func register(_ document: EditorDocument) {
+        let id = document.id.uuidString
+        guard documents[id] == nil else { return }
+        documentReferences[id] = DocumentReference(value: document)
+        revisions[id] = 0
+        unconfirmedModels.insert(id)
+        bindSynchronization(document)
         subscriptions[id] = document.textDidChange.sink { [weak self, weak document] in
             guard let self, let document, self.currentDocument(id) === document, !self.applyingEdit else { return }
             let previous = self.revisions[id] ?? 0
@@ -523,6 +570,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             guard workspace.matches(documents: model.documentFeature.editorDocuments, workspaceURL: model.workspaceURL),
                   let document = model.openDocuments.first(where: { $0.url.standardizedFileURL == url.standardizedFileURL }),
                   !document.isReadOnly else { throw EditorDocument.DocumentError.editorNotSynchronized }
+            if scopedDocumentID != nil && scopedDocumentID != document.id {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    document.withSynchronizedEditor { continuation.resume(with: $0) }
+                }
+                try Task.checkCancellation()
+            }
             register(document)
             let context = MonacoDocumentContext(document: document, revision: revisions[document.id.uuidString] ?? 0,
                 workspaceURL: model.workspaceURL)
@@ -699,12 +752,18 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
         guard viewOwnerID != nil else { return }
         let id = document.id.uuidString
-        let liveIDs = Set(model.documentFeature.editorDocuments.map { $0.id.uuidString })
+        let groupDocuments: [EditorDocument]
+        if let scopedDocumentID {
+            groupDocuments = model.documentFeature.editorDocuments.filter { $0.id == scopedDocumentID }
+        } else { groupDocuments = model.documentFeature.editorDocuments }
+        let liveIDs = Set(groupDocuments.map { $0.id.uuidString })
         for oldID in Array(documentReferences.keys) where !liveIDs.contains(oldID) {
+            activeIDs = activeIDs.filter { $0.value != oldID }
             documentLocations[oldID] = nil
             documentReadOnlyStates[oldID] = nil
-            documents[oldID]?.synchronizeEditor = nil
-            documents[oldID]?.holdEditorForClose = nil
+            if let old = documents[oldID], old.editorSynchronizationOwnerID == synchronizationOwnerID {
+                old.synchronizeEditor = nil; old.holdEditorForClose = nil; old.editorSynchronizationOwnerID = nil
+            }
             completionLists[oldID] = nil
             codeActionLists[oldID] = nil
             codeActionCommands[oldID] = nil
@@ -720,8 +779,10 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             documentReferences[oldID] = nil; subscriptions[oldID] = nil; readOnlySubscriptions[oldID] = nil
             revisions[oldID] = nil; lastMarkers[oldID] = nil
         }
+        guard scopedDocumentID == nil || liveIDs.contains(id) else { return }
         let needsModel = documents[id] == nil || unconfirmedModels.contains(id)
         if needsModel { register(document) }
+        else if document.editorSynchronizationOwnerID != synchronizationOwnerID { bindSynchronization(document) }
         let locationChanged = documentLocations[id] != document.locationRevision
         let readOnlyChanged = documentReadOnlyStates[id] != document.isReadOnly
         documentLocations[id] = document.locationRevision
@@ -736,11 +797,14 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             let interval = LitheSignpost.begin("monaco.document.activate")
             var payload: [String: Any] = ["id": id,
                 "revision": revisions[id] ?? 0, "filename": document.url.lastPathComponent,
-                "locationRevision": document.locationRevision, "readonly": document.isReadOnly, "focus": surface == "primary",
+                "locationRevision": document.locationRevision, "readonly": document.isReadOnly, "focus": surface == "primary" && (scopedDocumentID == nil || isActiveDocument(document.id, model: model)),
                 "measure": LithePerformanceBaseline.isEnabled]
             // A retained Monaco model already owns its current text and undo
             // history. Tab activation only needs its identity and view state.
             if needsModel { payload["text"] = document.text }
+            if payload["focus"] as? Bool == true, let webView {
+                webView.window?.makeFirstResponder(webView)
+            }
             call(surface == "primary" ? "window.lithe.activate(payload)" : "window.lithe.showSecondary(payload)", arguments: ["payload": payload]) { [weak self] result in
                 LitheSignpost.end("monaco.document.activate", interval)
                 if case .failure(let error) = result { self?.fail(error.localizedDescription) }
@@ -753,6 +817,14 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         if lastLiveIDs != liveIDs {
             lastLiveIDs = liveIDs
             call("window.lithe.retain(ids)", arguments: ["ids": Array(liveIDs).sorted()])
+        }
+        if scopedDocumentID != nil, surface == "primary" {
+            let focused = isActiveDocument(document.id, model: model)
+            if lastEditorFocused != focused {
+                lastEditorFocused = focused
+                if focused, let webView { webView.window?.makeFirstResponder(webView) }
+                call("window.lithe.setFocused(focused)", arguments: ["focused": focused])
+            }
         }
         observeDebugState(model: model)
         observeCodeVision(model: model)
@@ -1181,7 +1253,16 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
             reply(["ok": true], nil)
         case "focus", "cursor":
-            model?.editorDidFocus(document)
+            // Setting a background group's model also emits cursor events.
+            // Only an actual focus event may change the selected editor group.
+            if type == "focus", scopedDocumentID != nil {
+                guard let webView, let responder = webView.window?.firstResponder as? NSView,
+                      responder === webView || responder.isDescendant(of: webView) else {
+                    reply(["ok": true], nil); return
+                }
+            }
+            if type == "focus" || scopedDocumentID == nil { model?.editorDidFocus(document) }
+            guard scopedDocumentID == nil || model?.activeDocumentID == document.id else { reply(["ok": true], nil); return }
             synchronizeFind()
             if let line = body["line"] as? Int, let column = body["column"] as? Int {
                 model?.editorCaret = EditorCaret(url: document.url, line: line, utf16Column: column)

@@ -83,6 +83,7 @@ extension AppModel {
             }
             let previousDocumentID = documentFeature.activeDocumentID
             documentFeature.activeDocumentID = newValue
+            if let newValue { editorTabOrderFeature.focus(.document(newValue)) }
             guard previousDocumentID != newValue else { return }
             activateCurrentDocumentLanguageServerIfAvailable()
         }
@@ -139,6 +140,7 @@ extension AppModel {
         closeBranchComparison()
         editorTabOrderFeature.repositoryDiffSelected = false
         editorTabOrderFeature.databaseSelected = true
+        editorTabOrderFeature.focus(item)
     }
 
     func selectDatabaseWorkspace(profileID: UUID?, refresh: Bool = false, table: String? = nil, queryID: UUID? = nil) {
@@ -240,6 +242,7 @@ extension AppModel {
     func selectRepositoryDiffTab() {
         editorTabOrderFeature.databaseSelected = false
         guard editorTabOrderFeature.contains(.repositoryDiff) else { return }
+        editorTabOrderFeature.focus(.repositoryDiff)
         if !editorTabOrderFeature.repositoryDiffSelected {
             editorTabOrderFeature.repositoryDiffReturnTab = activeEditorTerminalSession.map { .terminal($0.id) }
                 ?? activeMediaDocument.map { .media($0.id) } ?? activeDocument.map { .document($0.id) }
@@ -277,6 +280,11 @@ extension AppModel {
             : editorTabOrderFeature.move(item, before: target)
         guard moved else { return }
 
+        selectEditorTab(item)
+    }
+
+    func selectEditorTab(_ item: EditorTabItem) {
+        editorTabOrderFeature.focus(item)
         switch item {
         case .databaseOverview:
             openDatabaseWorkspace(overview: true)

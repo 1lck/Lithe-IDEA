@@ -17,6 +17,53 @@ struct WorkbenchContributionHostTests {
         return try DeclarativePluginTestSupport.operations.validate(manifest: data)
     }
 
+    @Test func registeredPluginPreservesSecondaryDockAndLayoutThroughSessionCleanup() throws {
+        let suite = "lithe-contribution-dock-test-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = WorkbenchLayoutStore(store: MacUserDefaultsStore(defaults: defaults))
+        let workspace = URL(fileURLWithPath: "/fixture/registered-dock")
+        let declaration = try #require(descriptor().pluginManifest.modules.first)
+        let contribution = try #require(declaration.contributions.first { $0.kind == .toolWindow })
+        let window = WorkbenchFeatureModel.ToolWindow(rawValue: contribution.id)
+        let owners: [ModuleID: [ModuleContribution]] = [
+            .workspace: BuiltInModuleCatalog.contributions(for: .workspace),
+            declaration.manifest.id: declaration.contributions
+        ]
+        let workbench = WorkbenchFeatureModel(layoutStore: store)
+        workbench.reconcileContributions(owners)
+        _ = workbench.loadLayout(for: workspace)
+        workbench.setVisibility(.agent, isVisible: true)
+        let position = DockPosition(anchor: .right, group: .secondary)
+        workbench.move(window, to: position)
+        workbench.setVisibility(window, isVisible: true)
+        #expect(workbench.isVisible(.agent))
+        #expect(workbench.activeTool(in: position) == window)
+        #expect(workbench.contributions(declaration.contributions, at: .rightSidebar).contains(contribution))
+        workbench.customizeContribution(contribution.id, isHidden: true)
+        #expect(!workbench.isVisible(window))
+        #expect(workbench.isVisible(.agent))
+        workbench.customizeContribution(contribution.id, isHidden: false)
+        workbench.setVisibility(window, isVisible: true)
+        workbench.setGroupFraction(0.7, for: .right)
+        workbench.saveLayout(.init(sidebarWidth: 310, topPaneHeight: 280), for: workspace)
+        let saved = store.load(for: workspace)
+        workbench.endLayoutSession()
+        // A delayed SwiftUI geometry commit must not save cleanup as the user's layout.
+        workbench.saveLayout(.init(sidebarWidth: 310, topPaneHeight: 280), for: workspace)
+        #expect(store.load(for: workspace).toolWindows == saved.toolWindows)
+        let restored = WorkbenchFeatureModel(layoutStore: store)
+        restored.reconcileContributions(owners)
+        _ = restored.loadLayout(for: workspace)
+        #expect(restored.activeTool(in: position) == window)
+        #expect(restored.isVisible(.agent))
+        #expect(restored.groupFractions["right"] == 0.7)
+        #expect(restored.state(for: window).position == position)
+        restored.resetContributionPreferences()
+        #expect(restored.isVisible(.project))
+        #expect(restored.state(for: window).position == .init(anchor: .right, group: .primary))
+    }
+
     @Test func dataOnlyPluginRegistersAllUIWithoutAWorkbenchBranch() async throws {
         let descriptor = try descriptor()
         let declaration = try #require(descriptor.pluginManifest.modules.first)
@@ -783,7 +830,9 @@ struct WorkbenchContributionHostTests {
             #expect(model.databaseFeatureIfActive == nil)
             let services = try #require(model.workbenchContributions.first { $0.id == "database.services" })
             let opened = TestGate()
-            let observation = model.workbenchFeature.$activeToolWindow.sink { if $0 == .databaseServices { opened.open() } }
+            let observation = model.workbenchFeature.$toolWindowStates.sink { states in
+                if states.contains(where: { $0.id == WorkbenchFeatureModel.ToolWindow.databaseServices.rawValue && $0.isVisible }) { opened.open() }
+            }
             defer { observation.cancel(); opened.open() }
             model.workbenchUIRegistry.perform(services, model: model)
             #expect(await opened.waitUntilOpen(), "Services never completed database activation")

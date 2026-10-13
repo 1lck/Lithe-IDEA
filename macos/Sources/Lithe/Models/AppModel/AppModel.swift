@@ -1227,6 +1227,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func editorDidFocus(_ document: EditorDocument) {
+        if editorTabOrderFeature.groupLayout.groups.count > 1 {
+            selectEditorDocument(document)
+        }
         documentFeature.editorDidFocus(document)
     }
 
