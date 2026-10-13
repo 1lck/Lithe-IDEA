@@ -97,7 +97,8 @@ enum WorkbenchModuleUIComposition {
 
     private static let searchRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: SearchModule.moduleContributions,
-        actions: [.init(id: "search.workspace.show", perform: { $0.workbenchFeature.setVisibility(.search, isVisible: true) })],
+        actions: [.init(id: "search.workspace.show", perform: { $0.workbenchFeature.setVisibility(.search, isVisible: true) },
+            activateOwner: { await $0.activateSearchModule() != nil })],
         renderers: [
             .init(id: "search.workspace", ideaAssetPath: "expui/toolwindows/find@20x20.svg",
                 isVisible: { _ in true }, isSelected: { $0.workbenchFeature.isVisible(.search) },
@@ -142,7 +143,7 @@ enum WorkbenchModuleUIComposition {
     private static let terminalRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: TerminalModule.moduleContributions,
         actions: [
-            .init(id: "terminal.toggle", perform: { $0.toggleTerminal() })
+            .init(id: "terminal.toggle", perform: { $0.toggleTerminal() }, activateOwner: { await $0.activateTerminalModule() })
         ],
         renderers: [
             .init(
@@ -164,10 +165,11 @@ enum WorkbenchModuleUIComposition {
     private static let gitRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: GitModule.moduleContributions,
         actions: [
-            .init(id: "git.changes.show", perform: { $0.workbenchFeature.setVisibility(.changes, isVisible: true) }),
+            .init(id: "git.changes.show", perform: { $0.workbenchFeature.setVisibility(.changes, isVisible: true) },
+                activateOwner: { await $0.activateGitModule() != nil }),
             .init(id: "git.log.toggle", perform: { model in
                 Task { await model.toggleGitLog() }
-            })
+            }, activateOwner: { await $0.activateGitModule() != nil })
         ],
         renderers: [
             .init(id: "git.changes", ideaAssetPath: "expui/toolwindows/commit@20x20.svg",
@@ -267,10 +269,10 @@ enum WorkbenchModuleUIComposition {
     private static let executionRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: ExecutionModule.moduleContributions,
         actions: [
-            .init(id: "execution.maven.toggle", perform: { $0.toggleMaven() }),
-            .init(id: "execution.maven.output.toggle", perform: { $0.workbenchFeature.toggleVisibility(.mavenOutput) }),
-            .init(id: "execution.run.toggle", perform: { $0.toggleRun() }),
-            .init(id: "execution.tests.toggle", perform: { $0.toggleTests() })
+            .init(id: "execution.maven.toggle", perform: { $0.toggleMaven() }, activateOwner: { await $0.activateExecutionModule() != nil }),
+            .init(id: "execution.maven.output.toggle", perform: { $0.workbenchFeature.toggleVisibility(.mavenOutput) }, activateOwner: { await $0.activateExecutionModule() != nil }),
+            .init(id: "execution.run.toggle", perform: { $0.toggleRun() }, activateOwner: { await $0.activateExecutionModule() != nil }),
+            .init(id: "execution.tests.toggle", perform: { $0.toggleTests() }, activateOwner: { await $0.activateExecutionModule() != nil })
         ],
         renderers: [
             .init(
@@ -343,14 +345,14 @@ enum WorkbenchModuleUIComposition {
                 } else {
                     Task { await model.activateDatabaseModule(toolWindow: .databaseServices) }
                 }
-            }),
+            }, activateOwner: { await $0.databaseModuleCoordinator.activate() != nil }),
             .init(id: "database.toggle", perform: { model in
                 if model.workbenchFeature.isVisible(.database) {
                     model.workbenchFeature.setVisibility(.database, isVisible: false)
                 } else {
                     Task { await model.activateDatabaseModule() }
                 }
-            })
+            }, activateOwner: { await $0.databaseModuleCoordinator.activate() != nil })
         ],
         renderers: [
             .init(id: "database.services", ideaAssetPath: "expui/toolwindows/services@20x20.svg",
@@ -381,7 +383,7 @@ enum WorkbenchModuleUIComposition {
     private static let debugRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: DebugModule.moduleContributions,
         actions: [
-            .init(id: "debug.toggle", perform: { $0.toggleDebug() })
+            .init(id: "debug.toggle", perform: { $0.toggleDebug() }, activateOwner: { await $0.activateDebugModule() != nil })
         ],
         renderers: [
             .init(

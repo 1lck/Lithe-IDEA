@@ -17,6 +17,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
 
     private var entries: [ModuleID: Entry] = [:]
     private var activationTasks: [ModuleID: (token: UUID, task: Task<Void, Error>)] = [:]
+    private var sleepTasks: [ModuleID: Task<Void, Error>] = [:]
     private var shutdownTasks: [ModuleID: Task<Void, Error>] = [:]
     private var capabilities: [ModuleCapabilityID: (provider: ModuleID, value: AnyObject)] = [:]
     private var eventObservers: [UUID: @MainActor (ModuleEvent) -> Void] = [:]
@@ -131,7 +132,10 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     public func activate(_ id: ModuleID) async throws -> any LitheModule {
         // The runtime owns construction; simultaneous window/capability requests
         // join it without transferring cancellation ownership to a UI caller.
-        if let shutdown = shutdownTasks[id] { try await shutdown.value }
+        while let transition = sleepTasks[id] ?? shutdownTasks[id] {
+            publish(ModuleEvent(source: id, name: "module.activation-waiting-for-transition"))
+            try await transition.value
+        }
         if let activation = activationTasks[id] {
             publish(ModuleEvent(source: id, name: "module.activation-joined"))
             try await activation.task.value
@@ -253,7 +257,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     }
 
     public func setEnabled(_ enabled: Bool, for id: ModuleID) async throws {
-        if let shutdown = shutdownTasks[id] { try await shutdown.value }
+        while let transition = sleepTasks[id] ?? shutdownTasks[id] { try await transition.value }
         guard var entry = entries[id] else { throw ModuleRuntimeError.unknownModule(id) }
         if enabled, entry.isSuppressedBySafeMode {
             throw ModuleRuntimeError.optionalModuleUnavailableInSafeMode(id)
@@ -337,7 +341,19 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     }
 
     public func sleep(_ id: ModuleID) async throws {
-        await cancelActivation(id)
+        while let shutdown = shutdownTasks[id] { try await shutdown.value }
+        if let sleep = sleepTasks[id] { return try await sleep.value }
+        // Install the barrier before cancelling activation or preparing resources.
+        let sleep = Task { @MainActor in
+            defer { self.sleepTasks.removeValue(forKey: id) }
+            await self.cancelActivation(id)
+            try await self.sleepModule(id)
+        }
+        sleepTasks[id] = sleep
+        try await sleep.value
+    }
+
+    private func sleepModule(_ id: ModuleID) async throws {
         guard var entry = entries[id] else { throw ModuleRuntimeError.unknownModule(id) }
         let dependents = instantiatedDependents(of: id)
         guard dependents.isEmpty else {
@@ -393,13 +409,14 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     }
 
     public func shutdown(_ id: ModuleID) async throws {
+        while let sleep = sleepTasks[id] { _ = try? await sleep.value }
         if let shutdown = shutdownTasks[id] { return try await shutdown.value }
         let shutdown = Task { @MainActor in
+            defer { self.shutdownTasks.removeValue(forKey: id) }
             await self.cancelActivation(id)
             try await self.shutdownModule(id)
         }
         shutdownTasks[id] = shutdown
-        defer { shutdownTasks.removeValue(forKey: id) }
         try await shutdown.value
     }
 

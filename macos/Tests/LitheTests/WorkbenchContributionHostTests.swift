@@ -361,7 +361,8 @@ struct WorkbenchContributionHostTests {
         let declaration = PluginModuleDeclaration(
             manifest: ModuleManifest(id: ModuleID("org.example.restore"), displayName: "Restore", scope: .workspace),
             contributions: [ModuleContribution(id: "org.example.restore.info", kind: .toolWindow,
-                title: "Info", placement: .leftSidebar, text: "Fixture")])
+                title: "Info", placement: .leftSidebar, actionID: "org.example.restore.toggle",
+                rendererID: "org.example.restore.info", text: "Fixture")])
         let started = TestGate()
         let release = TestGate()
         defer { release.open() }
@@ -371,6 +372,8 @@ struct WorkbenchContributionHostTests {
         let model = AppModel(settings: settings, services: container.services)
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
             defer { release.open() }
+            model.workbenchUIRegistry = try WorkbenchModuleUIRegistry(registrations: WorkbenchModuleUIComposition.registrations + [
+                WorkbenchModuleUIRegistry.declarativeRegistration(declaration)])
             model.workspaceSessionCoordinator.beginWorkspace(at: URL(fileURLWithPath: "/fixture/restore-race"))
             let window = WorkbenchFeatureModel.ToolWindow(rawValue: declaration.contributions[0].id)
             model.workbenchFeature.setVisibility(window, isVisible: true)
@@ -816,6 +819,117 @@ struct WorkbenchContributionHostTests {
         }
     }
 
+    @Test(arguments: [false, true])
+    func savedServicesWindowActivatesItsOwnerWithoutAnotherEntry(useShow: Bool) async throws {
+        let suite = "lithe-services-restore-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
+        let workspace = URL(fileURLWithPath: "/fixture/services-restore")
+        let firstContainer = MacServiceContainer(store: store, settings: settings)
+        defer { firstContainer.moduleLifecycleCoordinator.stop() }
+        let first = AppModel(settings: settings, services: firstContainer.services)
+        try await WorkbenchTestScope.withCleanup({ await first.shutdownProjectSession() }) { scope in
+            first.workspaceSessionCoordinator.beginWorkspace(at: workspace)
+            _ = first.loadWorkbenchLayout(for: workspace)
+            try await scope.run("initial Services activation") {
+                await first.activateDatabaseModule(toolWindow: .databaseServices)
+            }
+            #expect(first.databaseFeatureIfActive != nil)
+            #expect(first.workbenchFeature.isVisible(.databaseServices))
+        }
+        let container = MacServiceContainer(store: store, settings: settings)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let restored = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await restored.shutdownProjectSession() }) { scope in
+            restored.workspaceSessionCoordinator.beginWorkspace(at: workspace)
+            let layout = restored.loadWorkbenchLayout(for: workspace)
+            let services = try #require(restored.workbenchContributions.first { $0.id == "database.services" })
+            #expect(restored.workbenchFeature.isVisible(.databaseServices))
+            #expect(restored.databaseFeatureIfActive == nil)
+            if useShow { restored.showContributionEntry(services) }
+            else { restored.restoreRegisteredToolWindows(layout.toolWindows?.filter(\.isVisible).map(\.id) ?? []) }
+            let activation = try #require(restored.contributionActivationTasks[services.id])
+            try await scope.run("restored Services activation") { await activation.value }
+            #expect(restored.databaseFeatureIfActive != nil)
+            #expect(restored.workbenchFeature.isVisible(.databaseServices))
+            #expect(!restored.workbenchFeature.isVisible(.database))
+            #expect(restored.workbenchUIRegistry.isContentVisible(for: services, model: restored))
+            #expect(try container.services.moduleRuntime.snapshot(for: .database).isInstantiated)
+        }
+    }
+
+    @Test func savedMavenWindowDoesNotRenderInNonMavenWorkspace() async throws {
+        let suite = "lithe-maven-dock-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
+        let workspace = URL(fileURLWithPath: "/fixture/no-maven")
+        let saved = WorkbenchFeatureModel(layoutStore: WorkbenchLayoutStore(store: store))
+        _ = saved.loadLayout(for: workspace)
+        saved.setVisibility(.maven, isVisible: true)
+        let container = MacServiceContainer(store: store, settings: settings)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
+            model.workspaceSessionCoordinator.beginWorkspace(at: workspace)
+            _ = model.loadWorkbenchLayout(for: workspace)
+            let maven = try #require(model.workbenchContributions.first { $0.id == "execution.maven" })
+            #expect(model.workbenchFeature.isVisible(.maven))
+            #expect(!model.hasMavenProject)
+            #expect(model.workbenchUIRegistry.state(for: maven, model: model).isEnabled)
+            #expect(!model.workbenchUIRegistry.isContentVisible(for: maven, model: model))
+        }
+    }
+
+    @Test func activationWaitsForGatedSleepWithoutReactivatingTheSleepingInstance() async throws {
+        let runtime = ModuleRuntime()
+        let owner = ModuleID("org.example.sleep-race")
+        let contribution = ModuleContribution(id: owner.rawValue + ".window", kind: .toolWindow, title: "Sleep")
+        let declaration = PluginModuleDeclaration(manifest: .init(id: owner, displayName: "Sleep", scope: .workspace),
+            contributions: [contribution])
+        let started = TestGate(), release = TestGate(), waiting = TestGate()
+        let prepareStarted = TestGate(), prepareRelease = TestGate()
+        release.open()
+        var instances: [GatedWorkbenchTestModule] = []
+        try runtime.register(ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
+            let instance = GatedWorkbenchTestModule(declaration: declaration, started: started, release: release,
+                prepareStarted: prepareStarted, prepareRelease: prepareRelease)
+            instances.append(instance)
+            return instance
+        })
+        var publications = 0
+        let observer = runtime.observeEvents {
+            if $0.name == "module.activation-waiting-for-transition" { waiting.open() }
+            if $0.name == "module.activated" { publications += 1 }
+        }
+        defer { runtime.removeEventObserver(observer); prepareRelease.open() }
+        try await WorkbenchTestScope.withCleanup({ await runtime.shutdownAll() }) { scope in
+            defer { prepareRelease.open() }
+            try await scope.run("initial activation") { _ = try await runtime.activate(owner) }
+            let sleeping = Task { try await runtime.sleep(owner) }
+            defer { sleeping.cancel() }
+            #expect(await prepareStarted.waitUntilOpen(), "Sleep did not reach preparation")
+            let activation = Task { _ = try await runtime.activate(owner) }
+            defer { activation.cancel() }
+            #expect(await waiting.waitUntilOpen(), "Activation did not wait for sleep")
+            #expect(instances.count == 1 && instances[0].activationCount == 1)
+            #expect(publications == 1)
+            #expect(try runtime.snapshot(for: owner).state == .preparingToSleep)
+            prepareRelease.open()
+            try await scope.run("sleep completion") { try await sleeping.value }
+            try await scope.run("wake completion") { try await activation.value }
+            #expect(instances.count == 2)
+            #expect(instances.allSatisfy { $0.activationCount == 1 })
+            #expect(!instances[0].isModuleResourceActive && instances[1].isModuleResourceActive)
+            #expect(publications == 2)
+            #expect(runtime.contributions()[owner] == [contribution])
+            #expect(try runtime.snapshot(for: owner).activity.activeResourceCount == 1)
+        }
+        #expect(instances.allSatisfy { !$0.isModuleResourceActive })
+        #expect(runtime.contributions().isEmpty)
+    }
+
     @Test func servicesCommandActivatesDatabaseWithoutOpeningItsSidebar() async throws {
         let suite = "lithe-ui-services-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -871,12 +985,19 @@ private final class GatedWorkbenchTestModule: LitheModule, ModuleResource {
     var manifest: ModuleManifest { declaration.manifest }
     let moduleResourceKind = "test-ui-activation"
     private(set) var isModuleResourceActive = false
-    init(declaration: PluginModuleDeclaration, started: TestGate, release: TestGate) {
+    private(set) var activationCount = 0
+    private let prepareStarted: TestGate?
+    private let prepareRelease: TestGate?
+    init(declaration: PluginModuleDeclaration, started: TestGate, release: TestGate,
+         prepareStarted: TestGate? = nil, prepareRelease: TestGate? = nil) {
         self.declaration = declaration
         self.started = started
         self.release = release
+        self.prepareStarted = prepareStarted
+        self.prepareRelease = prepareRelease
     }
     func activate(context: ModuleContext) async throws {
+        activationCount += 1
         isModuleResourceActive = true
         context.resources.register(self)
         started.open()
@@ -884,8 +1005,11 @@ private final class GatedWorkbenchTestModule: LitheModule, ModuleResource {
         #expect(opened || Task.isCancelled, "Test did not release UI module activation")
     }
     func contributions() -> [ModuleContribution] { declaration.contributions }
-    func prepareForSleep() async throws {}
-    func sleep() async {}
+    func prepareForSleep() async throws {
+        prepareStarted?.open()
+        if let prepareRelease { #expect(await prepareRelease.waitUntilOpen(), "Sleep gate was not released") }
+    }
+    func sleep() async { isModuleResourceActive = false }
     func shutdown() async { isModuleResourceActive = false }
     func stopModuleResource() async { isModuleResourceActive = false }
     func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }

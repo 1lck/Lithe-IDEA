@@ -8,16 +8,14 @@ extension AppModel {
             let state = workbenchUIRegistry.state(for: contribution, model: self)
             guard state.isVisible && state.isEnabled && !state.isPending else { return }
             workbenchFeature.customizeContribution(contribution.id, isHidden: false)
-            if !workbenchFeature.isVisible(.init(rawValue: contribution.id)) {
-                workbenchUIRegistry.perform(contribution, model: self)
-            }
+            restoreRegisteredToolWindows([contribution.id])
         } else {
             // Restoring a button or menu entry must never execute its command.
             workbenchFeature.customizeContribution(contribution.id, isHidden: false)
         }
     }
 
-    func performDeclarativeContribution(_ contribution: ModuleContribution, owner: ModuleID, openOnly: Bool = false) {
+    func performToolWindowContribution(_ contribution: ModuleContribution, owner: ModuleID, openOnly: Bool = false) {
         let target = contribution.kind == .toolWindow ? contribution.id : contribution.visibility["toolWindowID"]
         guard let target, workspaceURL != nil,
               services.moduleRuntime.availableContributions()[owner]?.contains(contribution) == true else { return }
@@ -56,7 +54,11 @@ extension AppModel {
                 await self.awaitModuleRuntimeShutdown()
                 guard !Task.isCancelled, self.contributionActivationTokens[target] == token,
                       self.workspaceURL == workspace else { return }
-                _ = try await self.services.moduleRuntime.activate(owner)
+                if let activate = self.workbenchUIRegistry.ownerActivation(for: contribution) {
+                    guard await activate(self) else { return }
+                } else {
+                    _ = try await self.services.moduleRuntime.activate(owner)
+                }
                 guard !Task.isCancelled, self.contributionActivationTokens[target] == token, self.workspaceURL == workspace,
                       self.workbenchFeature.contributionPreferences[target]?.isHidden != true,
                       !restoresVisibleWindow || self.workbenchFeature.isVisible(window),
@@ -81,11 +83,14 @@ extension AppModel {
         for id in ids {
             guard let contribution = workbenchContributions.first(where: { $0.id == id && $0.kind == .toolWindow }),
                   workbenchFeature.contributionPreferences[id]?.isHidden != true else { continue }
-            // A restored left slot already selects its content. Data-only UI
-            // still has to activate its owning module without toggling it shut.
-            if contribution.text != nil, let owner = owners.first(where: { $0.value.contains(contribution) })?.key {
-                performDeclarativeContribution(contribution, owner: owner, openOnly: true)
+            // Saved visibility is a display intent, not proof that its owner is active.
+            // Native and declarative windows share cancellation and open-only restoration.
+            if let owner = owners.first(where: { $0.value.contains(contribution) })?.key {
+                let state = workbenchUIRegistry.state(for: contribution, model: self)
+                guard state.isVisible && state.isEnabled else { continue }
+                performToolWindowContribution(contribution, owner: owner, openOnly: true)
             } else if !workbenchFeature.isVisible(.init(rawValue: id)) {
+                // Host-owned setup entries can exist before an optional module is enabled.
                 workbenchUIRegistry.perform(contribution, model: self)
             }
         }

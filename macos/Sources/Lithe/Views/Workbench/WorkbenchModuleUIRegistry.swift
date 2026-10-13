@@ -36,11 +36,15 @@ struct WorkbenchModuleUIRegistry {
     struct Action {
         let id: String
         let perform: @MainActor (AppModel) -> Void
+        /// Native activation also binds feature observations; restoration must not toggle content.
+        let activateOwner: (@MainActor (AppModel) async -> Bool)?
         let state: @MainActor (AppModel) -> ActionState
         init(id: String, perform: @escaping @MainActor (AppModel) -> Void,
+             activateOwner: (@MainActor (AppModel) async -> Bool)? = nil,
              state: @escaping @MainActor (AppModel) -> ActionState = { _ in .init() }) {
             self.id = id
             self.perform = perform
+            self.activateOwner = activateOwner
             self.state = state
         }
     }
@@ -158,7 +162,7 @@ struct WorkbenchModuleUIRegistry {
         for contribution in declaration.contributions {
             if let actionID = contribution.actionID, actionIDs.insert(actionID).inserted {
                 actions.append(Action(id: actionID, perform: { model in
-                    model.performDeclarativeContribution(contribution, owner: declaration.manifest.id)
+                    model.performToolWindowContribution(contribution, owner: declaration.manifest.id)
                 }, state: { model in
                     let target = contribution.kind == .toolWindow ? contribution.id : contribution.visibility["toolWindowID"]
                     let pending = target.map { model.contributionActivationTasks[$0] != nil } ?? false
@@ -214,6 +218,16 @@ struct WorkbenchModuleUIRegistry {
     func renderer(for contribution: ModuleContribution) -> Renderer? {
         guard let rendererID = contribution.rendererID else { return nil }
         return renderers[rendererID]
+    }
+
+    func ownerActivation(for contribution: ModuleContribution) -> (@MainActor (AppModel) async -> Bool)? {
+        contribution.actionID.flatMap { actions[$0]?.activateOwner }
+    }
+
+    func isContentVisible(for contribution: ModuleContribution, model: AppModel) -> Bool {
+        let state = state(for: contribution, model: model)
+        guard state.isVisible && state.isEnabled, let renderer = renderer(for: contribution) else { return false }
+        return renderer.isVisible(model) && renderer.isSelected(model)
     }
 
     func state(for contribution: ModuleContribution, model: AppModel) -> ActionState {

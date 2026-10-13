@@ -1389,6 +1389,7 @@ struct WorkbenchView: View {
 
     private func hasVisibleTool(on anchor: DockAnchor, group: DockGroup) -> Bool {
         guard let tool = model.workbenchFeature.activeTool(in: .init(anchor: anchor, group: group)) else { return false }
+        if let entry = contribution(for: tool) { return moduleUIRegistry.isContentVisible(for: entry, model: model) }
         return isToolAvailable(tool)
     }
 
