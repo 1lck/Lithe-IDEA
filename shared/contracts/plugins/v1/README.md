@@ -1,6 +1,6 @@
 # Plugin contract v1: declarative plugins
 
-A declarative plugin describes language support as data. The host reads
+A declarative plugin currently describes language support or first-stage UI contributions as data. The host reads
 `plugin.json`, validates it, verifies the package signature, and launches the
 declared external processes itself. The host never loads plugin code into its
 own process, so a package does not depend on the host's binary layout and does
@@ -301,7 +301,7 @@ this contract. Its adapter maps `languages[].extensions` to
 `runActions.manifestFiles` to `test.projectMarkers`. Composer script discovery
 is Windows-only behavior outside v1.
 
-## API level 2: host-owned workbench UI
+## API level 2: first-stage host-owned workbench UI
 
 `pluginAPIVersion: 2` adds optional `ui` contributions and the `ui.contribute`
 permission. API level 1 language packages continue to work. UI-only packages may
@@ -332,9 +332,50 @@ nonempty UI catalog. See `fixtures/hello-lithe.plugin.json` and the UI cases in
   Unknown and temporarily absent contributions never execute an action;
   placement/order preferences remain available if the plugin returns.
 
-The first macOS adapter renders static text windows and open-window commands.
-Interactive forms, arbitrary host commands, external plugin code and docking
-by mouse are separate capabilities; this API does not implicitly grant them.
+API level 2 is the first UI Contribution infrastructure stage. Its static text
+windows and open-own-window commands are a supported subset, not the final public
+extension API. The required window/text/command-target fields and rejection of
+packages without language or UI contributions remain unchanged for v2 compatibility.
+The macOS host supports mouse docking through the existing shared dock state;
+that presentation behavior does not grant additional plugin execution capabilities.
+
+### Future public extension direction (not implemented in API level 2)
+
+- Third-party UI uses a separately versioned JSON component tree (Tree/List/Form/
+  Input/Button, data sources and events) rendered by native platform adapters.
+  Plugin UI does not use HTML, Webviews or third-party frontend frameworks.
+  Built-in or trusted native modules may register Native View/Renderer Factories
+  under the same host window management. This does not restore arbitrary dynamic
+  third-party Swift Bundle loading; ABI, signing and isolation need separate design.
+- Actions declare handlers and availability/context conditions independently of
+  Tool Windows. Commands, menus/context menus, toolbars, status bars and settings
+  contributions must not require dummy windows. Opening a window is one action kind.
+- A new, explicitly versioned Extension Contract will cover Language/LSP,
+  BuildSystem/Task, RunConfiguration/Test, DebugAdapter and ServiceProvider,
+  including pure Build/Debug/Services packages with no UI or language declaration.
+  Exact version numbers, handler transport and fields are not published here.
+- Built-in and plugin providers should use the same typed domain registries.
+  Providers supply behavior/processes/data; hosts own scheduling, permission,
+  presentation and lifecycle. Reuse existing language, build, run/test and DAP
+  backends instead of duplicating them or branching by plugin name in composition.
+- Services will accept general resources with provider/descriptor/instance/status/
+  actions/logs semantics. Disabling unregisters contributions and releases
+  plugin-owned resources; it must not implicitly stop independently running
+  external services. An explicit stop action requires its own authorization.
+- API level 2 remains supported unchanged. UI Schema evolves independently;
+  domain extension points need a new contract version and compatibility fixtures.
+  Windows implements its own host adapter over shared data, not SwiftUI types.
+
+Planned end-to-end samples are a native Tree with an independent refresh command,
+Build Task in existing Build, ServiceProvider in Services, and third-party DAP in
+existing Debug UI. Each must verify disable/re-enable, resource ownership and
+restoration; view-bearing samples also verify layout persistence. These samples
+are future acceptance criteria, not claims about current runtime support.
+
+The design source is the [proposed public Extension Contract and Provider API](../../../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md).
+Current runtime behavior is recorded in the [first-stage workbench UI Note](../../../../.agents/notes/implemented/architecture/2026-10-12-workbench-ui-contributions.md).
+
+### Current Windows availability
 Windows can validate API level 2 through Rust Core but its UI adapter has not
 implemented this contract yet. Its marketplace must filter unsupported API
 levels until that adapter is available.
