@@ -1,4 +1,38 @@
 {
   "schemaVersion": 1,
-  "plugins": []
+  "plugins": [
+    {
+      "id": "dev.lithe.plugin.php-support",
+      "name": "PHP Support",
+      "author": "Lithe",
+      "repository": "https://github.com/Lithe-IDEA/Lithe-IDEA",
+      "description": "PHP language intelligence through the bundled Intelephense language server, plus running PHP files and PHPUnit tests. Requires Node.js and PHP on this Mac.",
+      "localizedDescriptions": {
+        "zh-Hans": "通过内置的 Intelephense 语言服务器提供 PHP 代码智能，并支持运行 PHP 文件和 PHPUnit 测试。需要本机已安装 Node.js 和 PHP。"
+      },
+      "tags": [
+        "language",
+        "php",
+        "phpunit"
+      ],
+      "license": "Apache-2.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "pluginAPIVersion": 1,
+          "releaseDate": "2026-10-13",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/plugin-php-support-v1.0.0/Lithe-PHP-Support-1.0.0-darwin.zip",
+              "sha256": "62b181ff7755bc4ef704d028debfd299bb111afd49d5035a7e03da6d13d7cc74"
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }
