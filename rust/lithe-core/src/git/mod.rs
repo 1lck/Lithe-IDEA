@@ -5883,6 +5883,20 @@ fn checkout(root: &str, request: GitWriteRequest) -> Result<GitCommandResponse, 
         }
     }
     if request.auto_stash {
+        // Reject local-only commits before creating a stash. Ordinary remote
+        // checkout aligns the branch; checkoutAndRebase retains its own policy.
+        let is_remote = request.git_reference.as_ref().map_or(
+            request.reference_kind.as_deref() == Some("remote"),
+            |reference| reference.kind == "remote",
+        );
+        if is_remote {
+            let reference = checkout_request_reference(root, &request)?;
+            let (_, local_name) = mutations::remote_branch_components(root, &reference.full_name)?;
+            let local_ref = format!("refs/heads/{local_name}");
+            if resolve_ref_object(root, &local_ref)?.is_some() {
+                remote_checkout_revisions(root, &local_ref, &reference.full_name)?;
+            }
+        }
         return checkout_with_auto_stash(root, request);
     }
     switch_reference(root, &request)
@@ -5947,13 +5961,19 @@ pub(super) fn switch_reference(
     request: &GitWriteRequest,
 ) -> Result<GitCommandResponse, CoreError> {
     let reference = checkout_request_reference(root, request)?;
-    switch_validated_reference(root, &reference, request.force)
+    switch_validated_reference(
+        root,
+        &reference,
+        request.force,
+        request.operation == "checkout",
+    )
 }
 
 fn switch_validated_reference(
     root: &str,
     reference: &ValidatedGitReference,
     force: bool,
+    update_remote: bool,
 ) -> Result<GitCommandResponse, CoreError> {
     let mut base: Vec<String> = vec!["switch".into()];
     if force {
@@ -5997,7 +6017,7 @@ fn switch_validated_reference(
                         "for-each-ref".into(),
                         "--format=%(upstream)".into(),
                         "--count=1".into(),
-                        local_ref,
+                        local_ref.clone(),
                     ],
                     None,
                 )?;
@@ -6013,6 +6033,15 @@ fn switch_validated_reference(
                         ErrorCode::InvalidRequest,
                         "A same-named local branch tracks a different Git reference",
                     ));
+                }
+                if update_remote {
+                    return checkout_updated_remote_branch(
+                        root,
+                        &local_name,
+                        &local_ref,
+                        &reference.full_name,
+                        force,
+                    );
                 }
                 if current_branch(root)? == local_name {
                     return Err(CoreError::new(
@@ -6034,6 +6063,92 @@ fn switch_validated_reference(
             "Invalid Git reference kind",
         )),
     }
+}
+
+/// Pins the local and fetched remote commits and rejects any local-only history.
+fn remote_checkout_revisions(
+    root: &str,
+    local_ref: &str,
+    remote_ref: &str,
+) -> Result<(String, String), CoreError> {
+    let local_revision = resolve_commit_revision(root, local_ref)?;
+    let remote_revision = resolve_commit_revision(root, remote_ref)?;
+    let ancestor = execute_git_readonly(
+        root,
+        &[
+            "merge-base".into(),
+            "--is-ancestor".into(),
+            local_revision.clone(),
+            remote_revision.clone(),
+        ],
+        None,
+    )?;
+    match ancestor.exit_code {
+        0 => Ok((local_revision, remote_revision)),
+        1 => Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The local branch has commits not included in the selected remote branch. Reconcile those commits before checking out the remote branch.",
+        )),
+        _ => Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not compare the local and remote branch commits",
+        )
+        .with_details(ancestor.output)),
+    }
+}
+
+/// Switches to an existing tracking branch and fast-forwards to a pinned remote
+/// commit, including when that local branch is already current.
+fn checkout_updated_remote_branch(
+    root: &str,
+    local_name: &str,
+    local_ref: &str,
+    remote_ref: &str,
+    force: bool,
+) -> Result<GitCommandResponse, CoreError> {
+    let (local_revision, remote_revision) = remote_checkout_revisions(root, local_ref, remote_ref)?;
+    if !force {
+        // Check against the final remote tree before switching to the old local
+        // tree, so a blocked update cannot leave the user on another branch.
+        let preflight = checkout_preflight(GitCheckoutPreflightRequest {
+            root: root.to_string(),
+            reference: Some(remote_revision.clone()),
+            git_reference: None,
+        })?;
+        if !preflight.blocking_paths.is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Local changes would be overwritten by checking out the remote branch",
+            )
+            .with_details(preflight.blocking_paths.join("\n")));
+        }
+    }
+    if force || current_branch(root)? != local_name {
+        let mut arguments = vec!["switch".into()];
+        if force {
+            arguments.push("--discard-changes".into());
+        }
+        arguments.push(local_name.to_string());
+        let switched = execute_git(root, &arguments, None)?;
+        if switched.exit_code != 0 {
+            return Ok(switched);
+        }
+    }
+    // Post-checkout hooks and external clients may change HEAD. Verify the
+    // branch and its tip again; --ff-only also prevents losing local commits.
+    if current_branch(root)? != local_name
+        || resolve_commit_revision(root, "HEAD")? != local_revision
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The selected branch changed; review and retry",
+        ));
+    }
+    execute_git(
+        root,
+        &["merge".into(), "--ff-only".into(), remote_revision],
+        None,
+    )
 }
 
 fn parse_reference(line: &str) -> Option<GitReferenceResponse> {

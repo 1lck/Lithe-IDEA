@@ -15,7 +15,11 @@
       "macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift",
       "macos/Sources/LitheGitModule/Models/GitModels.swift",
       "rust/lithe-core/src/git/history.rs",
-      "rust/lithe-core/src/tests/git.rs"
+      "rust/lithe-core/src/tests/git.rs",
+      "rust/lithe-core/src/git/mod.rs",
+      "rust/lithe-core/src/tests/git_remote_checkout.rs",
+      "shared/fixtures/git/remote-checkout-v1.json",
+      ".agents/notes/implemented/bug-fix/2026-10-08-remote-checkout-fetched-tip.md"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -39,12 +43,16 @@
       "windows/tauri/src/features/git/stores/git.store.ts",
       "windows/tauri/src/features/git/runtime/git-status-refresh-host.tsx",
       "windows/tauri/src/features/git/runtime/git-status-refresh-host.test.tsx",
-      ".agents/notes/implemented/architecture/2026-10-08-windows-git-status-ownership.md"
+      ".agents/notes/implemented/architecture/2026-10-08-windows-git-status-ownership.md",
+      "rust/lithe-core/src/tests/git_remote_checkout.rs",
+      "shared/fixtures/git/remote-checkout-v1.json",
+      ".agents/notes/implemented/bug-fix/2026-10-08-remote-checkout-fetched-tip.md",
+      "windows/tauri/src/features/git/components/log/git-log-tool-window.tsx"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Git",
-  "verification": "创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。 macOS 悬停分支弹窗内被截断的行，确认沿原行位置展开完整分支名与 upstream，延续选中底色和行高；完整可见的行不展开，离开或打开动作菜单后展开层消失。滚动列表且鼠标位置不动时，高亮跟随当前鼠标下的行，离开的行清除 hover，不出现多行残留选中底色；已打开动作菜单的行仍保持高亮。顶部项目及分支按钮保持箭头光标，顶部当前分支不显示帮助浮层。 macOS 检查右侧真实上游列靠右显示、末尾省略且选中后沿用行文字颜色及普通字重；悬停直接显示沿原行展开的非激活子窗口，保留原行位置、选择底色、普通字重与高度，转交点击及滚轮，父弹窗关闭时清理，显示完整名称，不额外插入分组前缀，领先／落后提交数与 Git 一致（大于 99 显示 99+），无上游时不猜测远端。确认搜索框固定，其下操作项和全部分支分组共用一个滚动区，缩小弹窗时操作项也能滚出视口；拖动分支弹窗右边缘调整宽度、右上角／右下角无需先点击即分别使用东北—西南／西北—东南的斜向调整光标并调整宽高，固定另一侧边界，连续事件合并且不逐事件同步重绘，检查鼠标光标、内容刷新保留尺寸、关闭重开及重启后按项目恢复，切换项目互不覆盖，并检查屏幕边界及最小尺寸，普通菜单不出现拖动入口。 两端在仅抓取 preview、其他分支已有 remote/merge 配置和远端引用的仓库中确认上游名称与领先／落后计数仍可见，Recent 与 Local 一致，查询不修改 fetch 配置；同名远端但未设置跟踪时仍不显示上游。 Windows Git Log 普通 Fetch 和 Fetch 选项执行后保持当前页签，底部状态栏显示等待或真实阶段进度；连接等待、认证、多个远程切换不沿用旧百分比，成功、失败、取消和预检查失败均收起；Console 仍保留命令与输出。核对中英文、明暗主题与窄窗口。 Windows Git Log 普通 Checkout 不再二次确认，仍阻止覆盖本地修改；Update Selected 按跟踪分支配置启用，不依赖缓存 behind。当前分支后台 Merge，未检出分支原地快进，其他 worktree 内仅快进；不打开 Pull 弹窗，分叉/脏工作区保留本地内容并报告失败，仓库或工作区切换后迟到结果不得刷新或解锁新请求。 Windows Update Selected 在 Fetch 等待期间及预检后切换目标 worktree 的分支，或分离 HEAD，应返回 state-changed，不执行新分支的 Pull；Core 在执行前校验完整 expectedBranch，省略时保留兼容行为。 带 expectedBranch 的后台更新整合已 Fetch 的固定 upstream 提交，不再次执行 pull/fetch；验证 Merge、仅快进和 Rebase 策略，普通 Pull 省略字段时保持原行为。 Windows 顶部、Commit 和 Project 文件树由同一个仓库状态表生成展示；关闭 Commit 后外部 pull、checkout 和暂存仍刷新分支名、领先／落后及文件状态，已同步分支的 incoming 箭头消失。覆盖多仓库选择、根目录文件路径、快速切仓库／工作区与旧请求迟到，查询失败保留成功快照，草稿不丢失；元数据监听覆盖已发现仓库并在卸载时全部释放。真实 Windows 交互验收 pending。",
-  "notes": "2026-10-06：用户确认 PR #1083 涉及的 Windows 功能改动均已完成实机测试，未发现问题；实机验收依据为用户反馈。"
+  "verification": "创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。 macOS 悬停分支弹窗内被截断的行，确认沿原行位置展开完整分支名与 upstream，延续选中底色和行高；完整可见的行不展开，离开或打开动作菜单后展开层消失。滚动列表且鼠标位置不动时，高亮跟随当前鼠标下的行，离开的行清除 hover，不出现多行残留选中底色；已打开动作菜单的行仍保持高亮。顶部项目及分支按钮保持箭头光标，顶部当前分支不显示帮助浮层。 macOS 检查右侧真实上游列靠右显示、末尾省略且选中后沿用行文字颜色及普通字重；悬停直接显示沿原行展开的非激活子窗口，保留原行位置、选择底色、普通字重与高度，转交点击及滚轮，父弹窗关闭时清理，显示完整名称，不额外插入分组前缀，领先／落后提交数与 Git 一致（大于 99 显示 99+），无上游时不猜测远端。确认搜索框固定，其下操作项和全部分支分组共用一个滚动区，缩小弹窗时操作项也能滚出视口；拖动分支弹窗右边缘调整宽度、右上角／右下角无需先点击即分别使用东北—西南／西北—东南的斜向调整光标并调整宽高，固定另一侧边界，连续事件合并且不逐事件同步重绘，检查鼠标光标、内容刷新保留尺寸、关闭重开及重启后按项目恢复，切换项目互不覆盖，并检查屏幕边界及最小尺寸，普通菜单不出现拖动入口。 两端在仅抓取 preview、其他分支已有 remote/merge 配置和远端引用的仓库中确认上游名称与领先／落后计数仍可见，Recent 与 Local 一致，查询不修改 fetch 配置；同名远端但未设置跟踪时仍不显示上游。 Windows Git Log 普通 Fetch 和 Fetch 选项执行后保持当前页签，底部状态栏显示等待或真实阶段进度；连接等待、认证、多个远程切换不沿用旧百分比，成功、失败、取消和预检查失败均收起；Console 仍保留命令与输出。核对中英文、明暗主题与窄窗口。 Windows Git Log 普通 Checkout 不再二次确认，仍阻止覆盖本地修改；Update Selected 按跟踪分支配置启用，不依赖缓存 behind。当前分支后台 Merge，未检出分支原地快进，其他 worktree 内仅快进；不打开 Pull 弹窗，分叉/脏工作区保留本地内容并报告失败，仓库或工作区切换后迟到结果不得刷新或解锁新请求。 Windows Update Selected 在 Fetch 等待期间及预检后切换目标 worktree 的分支，或分离 HEAD，应返回 state-changed，不执行新分支的 Pull；Core 在执行前校验完整 expectedBranch，省略时保留兼容行为。 带 expectedBranch 的后台更新整合已 Fetch 的固定 upstream 提交，不再次执行 pull/fetch；验证 Merge、仅快进和 Rebase 策略，普通 Pull 省略字段时保持原行为。 Windows 顶部、Commit 和 Project 文件树由同一个仓库状态表生成展示；关闭 Commit 后外部 pull、checkout 和暂存仍刷新分支名、领先／落后及文件状态，已同步分支的 incoming 箭头消失。覆盖多仓库选择、根目录文件路径、快速切仓库／工作区与旧请求迟到，查询失败保留成功快照，草稿不丢失；元数据监听覆盖已发现仓库并在卸载时全部释放。真实 Windows 交互验收 pending。 两端 Fetch 后从其他分支及已处于目标本地分支时 Checkout Remote，确认 HEAD、本地分支和文件内容更新到所选已 Fetch 节点，重复操作成功且不生成合并提交。缺少本地分支时创建并配置跟踪；本地独有提交在切换或自动 stash 前被拒绝，Force 不丢弃提交；阻塞的工作区、暂存区、未跟踪文件和其他工作树占用保持原状态。Smart Checkout 更新后恢复本地修改，失败后界面刷新真实仓库状态；普通本地 Checkout 与 Checkout and Rebase 保持原行为。 Windows Git Log 的本地及远程 Checkout 成功后显示包含所选引用名称的完整成功提示；中英文均正常，Checkout API 的成功 message 为空时也不能只显示成功图标。",
+  "notes": "2026-10-06：用户确认 PR #1083 涉及的 Windows 功能改动均已完成实机测试，未发现问题；实机验收依据为用户反馈。 2026-10-08：用户确认本次远程 Checkout 更新和 Windows 成功提示修复的本地测试没有问题；作为本次 Windows 改动的用户验收依据，未宣称完成其他矩阵场景或 macOS 验收。"
 }

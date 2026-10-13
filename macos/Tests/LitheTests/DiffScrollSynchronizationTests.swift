@@ -177,20 +177,23 @@ struct DiffScrollSynchronizationTests {
         right.mouseDown(with: event)
         #expect(abs(newClip.bounds.minY - (change.rightRange.lowerBound - newClip.bounds.height / 3)) < 0.1)
         #expect(editors.map(\.appliedRevision) == revisions, "Scrolling and stripe clicks never replace prepared text")
-        let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
-        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        let bitmap = try nativeSRGBCapture(hosting)
         let scale = CGFloat(bitmap.pixelsWide) / hosting.bounds.width
-        for (kind, expected) in [(DiffRowKind.addition, NSColor(LitheTheme.Diff.insertedStripe)),
-                                 (.changed, NSColor(LitheTheme.Diff.modifiedStripe))] {
+        for (kind, expected) in [(DiffRowKind.addition, LitheTheme.Diff.insertedStripe),
+                                 (.changed, LitheTheme.Diff.modifiedStripe)] {
             let transition = try #require(right.transitions.first { $0.kind == kind })
             let rect = right.markerRect(transition)
             let point = hosting.convert(NSPoint(x: rect.minX + 0.5, y: rect.midY), from: right)
-            let pixel = try #require(bitmap.colorAt(x: Int(point.x * scale), y: Int(point.y * scale)))
-            let color = try #require(expected.usingColorSpace(.deviceRGB))
+            let pixel = try nativeSRGBPixel(bitmap, x: Int(point.x * scale), y: Int(point.y * scale))
+            var resolved: NSColor?
+            right.effectiveAppearance.performAsCurrentDrawingAppearance {
+                resolved = NSColor(expected).usingColorSpace(.sRGB)
+            }
+            let color = try #require(resolved)
             #expect(abs(pixel.redComponent - color.redComponent) < 0.04
                 && abs(pixel.greenComponent - color.greenComponent) < 0.04
                 && abs(pixel.blueComponent - color.blueComponent) < 0.04,
-                "Each native stripe must actually paint its addition/modified color")
+                "Native stripe \(kind) must paint its color: pixel=\(pixel), expected=\(color), appearance=\(right.effectiveAppearance)")
         }
         if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
             try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)

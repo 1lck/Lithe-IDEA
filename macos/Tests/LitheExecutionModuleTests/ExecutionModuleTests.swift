@@ -1574,7 +1574,8 @@ struct ExecutionModuleTests {
         let stepRequest = try #require(step.startRequests.first)
         #expect(stepRequest.executablePath == "/test/bin/project-maven")
         #expect(stepRequest.arguments == resourceArguments)
-        #expect(stepRequest.workingDirectory.hasSuffix("/workspace/app"))
+        let stepWorkingDirectory = try #require(stepRequest.workingDirectory)
+        #expect(stepWorkingDirectory.hasSuffix("/workspace/app"))
         // A resource step that never finishes must fail within the same bound
         // Windows applies instead of leaving the session running forever.
         #expect(stepRequest.timeoutMilliseconds == 600_000)
@@ -1589,7 +1590,8 @@ struct ExecutionModuleTests {
         #expect(
             launcherRequest.arguments == ["-cp", "/workspace/app/target/classes", "example.Main"]
         )
-        #expect(launcherRequest.workingDirectory.hasSuffix("/workspace/custom-run"))
+        let launcherWorkingDirectory = try #require(launcherRequest.workingDirectory)
+        #expect(launcherWorkingDirectory.hasSuffix("/workspace/custom-run"))
     }
 
     /// Issue #1133: a failed resource step must fail the service session rather

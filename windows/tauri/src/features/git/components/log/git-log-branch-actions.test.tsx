@@ -30,12 +30,20 @@ const reference: GitReference = {
   upstreamShortName: "origin/topic",
   behind: 0,
 };
+const remoteReference: GitReference = {
+  ...reference,
+  fullName: "refs/remotes/upstream/preview",
+  shortName: "upstream/preview",
+  kind: "remote",
+  upstreamShortName: undefined,
+};
 const refresh = mock(async () => {});
 const confirm = mock(async () => true);
 const checkout = mock(async (..._args: Parameters<typeof branchApi.checkoutGitReference>) => ({
   success: true,
   hasChanges: false,
-  message: "Checked out",
+  // Match the real Checkout API: successful results have no display message.
+  message: "",
 }));
 const pull = mock(async () => ({ status: "pulled" as const }));
 const success = mock(() => "toast");
@@ -124,6 +132,13 @@ beforeEach(() => {
           Checkout
         </button>
         <button
+          data-action="checkout-remote"
+          disabled={isMutating}
+          onClick={() => onReferenceAction("checkout", remoteReference)}
+        >
+          Checkout Remote
+        </button>
+        <button
           data-action="update"
           disabled={isMutating}
           onClick={() => onReferenceAction("update", reference)}
@@ -176,10 +191,10 @@ afterEach(async () => {
     restoreDom();
   }
 });
-const render = async () =>
+const render = async (language: "en-US" | "zh-CN" = "en-US") =>
   act(async () =>
     root.render(
-      <LocaleProvider language="en-US">
+      <LocaleProvider language={language}>
         <GitLogToolWindow />
       </LocaleProvider>,
     ),
@@ -192,6 +207,22 @@ test("Git Log Checkout starts directly without a second confirmation and refresh
   await act(async () => button("checkout").click());
   expect(confirm).not.toHaveBeenCalled();
   expect(checkout.mock.calls).toEqual([["C:/repo-a", reference]]);
+  expect(refresh).toHaveBeenCalledTimes(1);
+  expect(success).toHaveBeenCalledWith("Checkout completed for topic");
+});
+
+test.each([
+  ["en-US", "checkout", "Checkout completed for topic"],
+  ["zh-CN", "checkout", "已对 topic 完成“检出”"],
+  ["en-US", "checkout-remote", "Checkout completed for upstream/preview"],
+  ["zh-CN", "checkout-remote", "已对 upstream/preview 完成“检出”"],
+] as const)("Checkout shows a translated success message for %s / %s when the API message is empty", async (language, action, message) => {
+  await render(language);
+  await act(async () => button(action).click());
+  expect(success).toHaveBeenCalledTimes(1);
+  expect(success).toHaveBeenCalledWith(message);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(checkout.mock.calls).toEqual([["C:/repo-a", action === "checkout" ? reference : remoteReference]]);
   expect(refresh).toHaveBeenCalledTimes(1);
 });
 
