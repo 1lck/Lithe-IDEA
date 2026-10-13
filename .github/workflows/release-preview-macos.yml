@@ -28,7 +28,7 @@ env:
 jobs:
   prepare:
     name: Pin preview source and build identity
-    if: github.actor == github.repository_owner || github.actor == vars.LITHE_RELEASE_ACTOR || github.event_name == 'schedule'
+    if: github.actor == github.repository_owner || contains(format(',{0},', vars.LITHE_RELEASE_ACTOR), format(',{0},', github.actor)) || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.source.outputs.sha }}
@@ -50,7 +50,7 @@ jobs:
   build:
     name: Build ${{ matrix.architecture }} preview
     needs: prepare
-    if: github.actor == github.repository_owner || github.actor == vars.LITHE_RELEASE_ACTOR || github.event_name == 'schedule'
+    if: github.actor == github.repository_owner || contains(format(',{0},', vars.LITHE_RELEASE_ACTOR), format(',{0},', github.actor)) || github.event_name == 'schedule'
     runs-on: macos-26
     timeout-minutes: 30
     strategy:
