@@ -14,8 +14,8 @@ enum LitheMenuItemsBuilder {
 }
 
 extension LitheContextMenuItem {
-    static func submenu(_ title: String, @LitheMenuItemsBuilder items: () -> [Self]) -> Self {
-        submenu(title, items: items())
+    static func submenu(_ title: String, icon: AnyView? = nil, @LitheMenuItemsBuilder items: () -> [Self]) -> Self {
+        submenu(title, icon: icon, items: items())
     }
 
     static func toggle(_ title: String, isOn: Binding<Bool>) -> Self {

@@ -159,7 +159,7 @@ struct ChangesSidebarView: View {
             }
             Spacer()
             GitPatchToolbar(feature: feature)
-            LitheSidebarHideButton(title: "Commit") { workbench.hideSidebar() }
+            LitheSidebarHideButton(title: "Commit") { workbench.setVisibility(.changes, isVisible: false) }
         }
         // Islands: 4pt layout start + 4pt inset of the painted tab.
         .padding(.leading, 8)

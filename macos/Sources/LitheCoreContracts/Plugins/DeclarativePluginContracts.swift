@@ -73,6 +73,47 @@ public struct DeclarativeExecutionProvider: Equatable, Sendable {
     public let providesTest: Bool
 }
 
+/// API level 2 UI declarations. Host controls own rendering and activation.
+public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
+    public struct ToolWindow: Equatable, Codable, Sendable {
+        public let id: String
+        public let title: String
+        public let placement: String
+        public let order: Int
+        public let text: String
+        public let icon: PluginUIIcon?
+    }
+    public struct Command: Equatable, Codable, Sendable {
+        public let id: String
+        public let title: String
+        public let toolWindowID: String
+        public let order: Int
+        public let placements: [ModuleContributionPlacement]
+        public let icon: PluginUIIcon?
+    }
+    public let toolWindows: [ToolWindow]
+    public let commands: [Command]
+
+    public var contributions: [ModuleContribution] {
+        toolWindows.map { window in
+            ModuleContribution(
+                id: window.id, kind: .toolWindow, title: window.title,
+                placement: window.placement == "left" ? .leftSidebar : (window.placement == "right" ? .rightSidebar : .activityBar),
+                order: window.order, actionID: window.id + ".toggle", rendererID: window.id,
+                text: window.text, uiIcon: window.icon
+            )
+        } + commands.flatMap { command in
+            command.placements.map { placement in
+                ModuleContribution(
+                    id: command.id + "." + placement.rawValue, kind: .command,
+                    title: command.title, placement: placement, order: command.order,
+                    actionID: command.id, visibility: ["toolWindowID": command.toolWindowID], uiIcon: command.icon
+                )
+            }
+        }
+    }
+}
+
 /// A manifest accepted by `plugins.declarative.validate`, in the normalized
 /// form Rust Core returned. Hosts never interpret command templates
 /// themselves; they pass `normalizedManifest` back to Core to expand them.
@@ -82,6 +123,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let executionProviders: [DeclarativeExecutionProvider]
     public let permissions: [String]
     public let activationEvents: [String]
+    public let ui: DeclarativeUIContributions?
     public let normalizedManifest: Data
 
     public var id: PluginID { pluginManifest.id }
@@ -115,6 +157,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 providesTest: provider.test != nil
             )
         }
+        ui = decoded.ui
         permissions = decoded.permissions
         activationEvents = decoded.activationEvents
         self.normalizedManifest = normalizedManifest
@@ -131,6 +174,15 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             PluginModuleDeclaration(manifest: LanguageExtensionModuleManifests.execution(
                 languageID: provider.languageID,
                 displayName: displayNames[provider.languageID] ?? provider.languageID
+            ))
+        }
+        if let ui = decoded.ui {
+            modules.append(PluginModuleDeclaration(
+                manifest: ModuleManifest(
+                    id: ModuleID(decoded.id + ".ui"), displayName: decoded.displayName,
+                    scope: .workspace, activationPolicy: .onDemand
+                ),
+                contributions: ui.contributions
             ))
         }
         let languageSupports = decoded.languages.map { language in
@@ -277,6 +329,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let languages: [Language]
         let languageServers: [LanguageServer]
         let executionProviders: [ExecutionProvider]
+        let ui: DeclarativeUIContributions?
 
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -287,14 +340,15 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             vendor = try values.decode(Vendor.self, forKey: .vendor)
             permissions = try values.decodeIfPresent([String].self, forKey: .permissions) ?? []
             activationEvents = try values.decodeIfPresent([String].self, forKey: .activationEvents) ?? []
-            languages = try values.decode([Language].self, forKey: .languages)
+            languages = try values.decodeIfPresent([Language].self, forKey: .languages) ?? []
+            ui = try values.decodeIfPresent(DeclarativeUIContributions.self, forKey: .ui)
             languageServers = try values.decodeIfPresent([LanguageServer].self, forKey: .languageServers) ?? []
             executionProviders = try values.decodeIfPresent([ExecutionProvider].self, forKey: .executionProviders) ?? []
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
-            case languages, languageServers, executionProviders
+            case languages, languageServers, executionProviders, ui
         }
     }
 }

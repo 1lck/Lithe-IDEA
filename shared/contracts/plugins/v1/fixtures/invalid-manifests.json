@@ -103,6 +103,145 @@
       "base": "php-support.plugin.json",
       "edits": [{ "op": "set", "path": "/executionProviders/0/run/executable", "value": { "command": "/usr/bin/php" } }],
       "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI requires API level 2",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/pluginAPIVersion",
+          "value": 1
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI permission is required",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/permissions",
+          "value": []
+        }
+      ],
+      "expectedCode": "plugin.permission.undeclared"
+    },
+    {
+      "name": "UI activation is required",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/activationEvents",
+          "value": []
+        }
+      ],
+      "expectedCode": "plugin.activation.invalid"
+    },
+    {
+      "name": "UI rejects foreign tool identity",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/toolWindows/0/id",
+          "value": "database.workspace"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects foreign command identity",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/commands/0/id",
+          "value": "database.toggle"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects foreign command target",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/commands/0/toolWindowID",
+          "value": "database.workspace"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects executable content",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/toolWindows/0/html",
+          "value": "<script/>"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects unknown command placement",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/commands/0/placements",
+          "value": [
+            "settings"
+          ]
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects empty windows",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/toolWindows",
+          "value": []
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects toggle action collision",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/commands/0/id",
+          "value": "dev.lithe.fixture.hello.window.toggle"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects placement identity collision",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/toolWindows/0/id",
+          "value": "dev.lithe.fixture.hello.open.toolbar"
+        },
+        {
+          "op": "set",
+          "path": "/ui/commands/0/toolWindowID",
+          "value": "dev.lithe.fixture.hello.open.toolbar"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
     }
   ]
 }

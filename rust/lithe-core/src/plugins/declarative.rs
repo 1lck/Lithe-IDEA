@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 pub const DECLARATIVE_MANIFEST_SCHEMA_VERSION: u32 = 2;
 /// Declarative plugin API levels this Core build can host. The level is
 /// independent of the Lithe application version.
-pub const SUPPORTED_PLUGIN_API_VERSIONS: &[u32] = &[1];
+pub const SUPPORTED_PLUGIN_API_VERSIONS: &[u32] = &[1, 2];
 
 /// ID prefix reserved to plugins published and signed by Lithe.
 pub const OFFICIAL_PLUGIN_NAMESPACE: &str = "dev.lithe";
@@ -29,7 +29,13 @@ pub const OFFICIAL_PLUGIN_NAMESPACE: &str = "dev.lithe";
 const PERMISSION_LANGUAGE_SERVER: &str = "languageServer.launch";
 const PERMISSION_RUN: &str = "process.run";
 const PERMISSION_TEST: &str = "process.test";
-const KNOWN_PERMISSIONS: &[&str] = &[PERMISSION_LANGUAGE_SERVER, PERMISSION_RUN, PERMISSION_TEST];
+const PERMISSION_UI: &str = "ui.contribute";
+const KNOWN_PERMISSIONS: &[&str] = &[
+    PERMISSION_LANGUAGE_SERVER,
+    PERMISSION_RUN,
+    PERMISSION_TEST,
+    PERMISSION_UI,
+];
 /// Runtime tools the host knows how to discover and pass to a language
 /// server. The host exports each as `LITHE_<TOOL>_PATH` and puts its
 /// directory on the server's `PATH`; gopls, for example, runs `go` itself.
@@ -87,11 +93,142 @@ pub struct DeclarativePluginManifest {
     permissions: Vec<String>,
     #[serde(default)]
     activation_events: Vec<String>,
+    #[serde(default)]
     languages: Vec<LanguageDeclaration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ui: Option<UIContributions>,
     #[serde(default)]
     language_servers: Vec<LanguageServerDeclaration>,
     #[serde(default)]
     execution_providers: Vec<ExecutionProviderDeclaration>,
+}
+
+/// Data-only UI supplied by API level 2 plugins. The host owns controls,
+/// layout and activation; no HTML, scripts or native code are accepted.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UIContributions {
+    #[serde(default)]
+    tool_windows: Vec<UIToolWindow>,
+    #[serde(default)]
+    commands: Vec<UICommand>,
+}
+
+/// A stable tool-window identity and plain-text content rendered by the host.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UIToolWindow {
+    id: String,
+    title: String,
+    /// Initial dock only; saved user layout takes precedence.
+    placement: UIDock,
+    #[serde(default)]
+    order: i32,
+    text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    icon: Option<UIIcon>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum UIDock {
+    Left,
+    Bottom,
+    Right,
+}
+
+/// The initial controlled action opens one of this plugin's own windows.
+/// Commands cannot invoke arbitrary host actions or execute a process.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UICommand {
+    id: String,
+    title: String,
+    #[serde(rename = "toolWindowID")]
+    tool_window_id: String,
+    #[serde(default)]
+    order: i32,
+    placements: Vec<UICommandPlacement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    icon: Option<UIIcon>,
+}
+
+/// Icon identity is portable data; hosts own asset resolution, sizing and states.
+/// Custom assets are package-relative and are decoded only by the platform adapter.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UIIcon {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dark_path: Option<String>,
+    #[serde(default)]
+    mode: UIIconMode,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum UIIconMode {
+    #[default]
+    Template,
+    Original,
+}
+
+impl UIIcon {
+    fn validate(&self) -> Validation<()> {
+        const HOST_IDS: &[&str] = &[
+            "tool-window",
+            "plugin",
+            "database",
+            "services",
+            "terminal",
+            "search",
+            "refresh",
+            "run",
+            "debug",
+            "settings",
+            "add",
+            "remove",
+            "git",
+            "problems",
+        ];
+        let valid_path = |path: &str| {
+            is_safe_relative_path(path)
+                && path.len() <= 256
+                && !path.contains(':')
+                && !path.chars().any(char::is_control)
+                && path.split('/').all(|part| !part.is_empty() && part != ".")
+                && (path.ends_with(".svg") || path.ends_with(".png"))
+        };
+        let valid = match (&self.host, &self.path) {
+            (Some(host), None) => {
+                HOST_IDS.contains(&host.as_str())
+                    && self.dark_path.is_none()
+                    && self.mode == UIIconMode::Template
+            }
+            (None, Some(path)) => {
+                valid_path(path) && self.dark_path.as_deref().is_none_or(valid_path)
+            }
+            _ => false,
+        };
+        if !valid {
+            return Err(invalid(
+                "ui.icon",
+                "An icon must name a supported host icon or safe package SVG/PNG resources.",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum UICommandPlacement {
+    CommandPalette,
+    Toolbar,
+    Menu,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -376,7 +513,7 @@ impl DeclarativePluginManifest {
                 "Official plugin IDs must carry a Lithe signature.",
             ));
         }
-        if self.languages.is_empty() {
+        if self.languages.is_empty() && self.ui.is_none() {
             return Err(invalid("languages", "The plugin declares no languages."));
         }
 
@@ -432,15 +569,103 @@ impl DeclarativePluginManifest {
         self.execution_providers
             .sort_by(|left, right| left.language_id.cmp(&right.language_id));
 
-        if self.language_servers.is_empty() && self.execution_providers.is_empty() {
+        if self.language_servers.is_empty()
+            && self.execution_providers.is_empty()
+            && self.ui.is_none()
+        {
             return Err(invalid(
                 "languages",
                 "The plugin declares no language server or execution provider.",
             ));
         }
+        self.validate_ui()?;
         self.validate_permissions()?;
         self.validate_activation_events()?;
         Ok(self)
+    }
+
+    fn validate_ui(&mut self) -> Validation<()> {
+        let Some(ui) = &mut self.ui else {
+            return Ok(());
+        };
+        if self.plugin_api_version < 2 {
+            return Err(invalid(
+                "ui",
+                "UI contributions require plugin API level 2.",
+            ));
+        }
+        if ui.tool_windows.is_empty() || ui.tool_windows.len() > 64 || ui.commands.len() > 128 {
+            return Err(invalid(
+                "ui",
+                "UI requires 1-64 tool windows and at most 128 commands.",
+            ));
+        }
+        let prefix = format!("{}.", self.id);
+        let mut ids = BTreeSet::new();
+        let mut windows = BTreeSet::new();
+        let mut action_ids = BTreeSet::new();
+        for window in &ui.tool_windows {
+            if let Some(icon) = &window.icon {
+                icon.validate()?;
+            }
+            if !is_plugin_id(&window.id)
+                || !window.id.starts_with(&prefix)
+                || window.title.trim().is_empty()
+                || window.title.len() > 256
+                || window.text.len() > 65536
+                || !ids.insert(window.id.clone())
+            {
+                return Err(invalid(
+                    "ui.toolWindows",
+                    "Invalid, duplicate or unowned tool-window ID, title or text.",
+                ));
+            }
+            windows.insert(window.id.clone());
+            action_ids.insert(format!("{}.toggle", window.id));
+        }
+        for command in &mut ui.commands {
+            if let Some(icon) = &command.icon {
+                icon.validate()?;
+            }
+            if !is_plugin_id(&command.id)
+                || !command.id.starts_with(&prefix)
+                || command.title.trim().is_empty()
+                || command.title.len() > 256
+                || !ids.insert(command.id.clone())
+                || !action_ids.insert(command.id.clone())
+                || !windows.contains(&command.tool_window_id)
+                || command.placements.is_empty()
+            {
+                return Err(invalid(
+                    "ui.commands",
+                    "Invalid or duplicate command, placement or tool-window reference.",
+                ));
+            }
+            command.placements.sort();
+            command.placements.dedup();
+        }
+        // Placement entries share one command action, but their contribution
+        // IDs must not shadow an explicitly declared window or another action.
+        for command in &ui.commands {
+            for placement in &command.placements {
+                let suffix = match placement {
+                    UICommandPlacement::CommandPalette => "commandPalette",
+                    UICommandPlacement::Toolbar => "toolbar",
+                    UICommandPlacement::Menu => "menu",
+                };
+                if !ids.insert(format!("{}.{suffix}", command.id)) {
+                    return Err(invalid(
+                        "ui.commands",
+                        "A command placement shadows another UI identity.",
+                    ));
+                }
+            }
+        }
+        ui.tool_windows
+            .sort_by(|a, b| (a.order, &a.id).cmp(&(b.order, &b.id)));
+        ui.commands
+            .sort_by(|a, b| (a.order, &a.id).cmp(&(b.order, &b.id)));
+        Ok(())
     }
 
     fn validate_permissions(&mut self) -> Validation<()> {
@@ -455,6 +680,9 @@ impl DeclarativePluginManifest {
         }
         self.permissions = sorted_unique(std::mem::take(&mut self.permissions));
         let mut required = BTreeSet::new();
+        if self.ui.is_some() {
+            required.insert(PERMISSION_UI);
+        }
         if !self.language_servers.is_empty() {
             required.insert(PERMISSION_LANGUAGE_SERVER);
         }
@@ -493,6 +721,14 @@ impl DeclarativePluginManifest {
             }
             if provider.test.is_some() {
                 expected.insert(format!("onTest:{}", provider.language_id));
+            }
+        }
+        if let Some(ui) = &self.ui {
+            for window in &ui.tool_windows {
+                expected.insert(format!("onView:{}", window.id));
+            }
+            for command in &ui.commands {
+                expected.insert(format!("onCommand:{}", command.id));
             }
         }
         self.activation_events = sorted_unique(std::mem::take(&mut self.activation_events));

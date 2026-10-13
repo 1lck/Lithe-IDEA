@@ -2,7 +2,7 @@
   "id": "declarative-plugin-contract",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "声明式插件契约 v1（插件不在宿主进程内运行代码）",
+  "capability": "声明式插件契约与 API level 2 宿主 UI、图标注册",
   "macos": {
     "evidence": [
       "shared/contracts/plugins/v1",
@@ -10,7 +10,15 @@
       "macos/Sources/Lithe/Core/Rust/RustDeclarativePluginOperations.swift",
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginStartupLoader.swift",
-      "macos/Tests/LitheTests/PluginPackageStoreTests.swift"
+      "macos/Tests/LitheTests/PluginPackageStoreTests.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchModuleUIRegistry.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+UIContributions.swift",
+      "macos/Tests/LitheTests/WorkbenchContributionHostTests.swift",
+      "macos/Sources/Lithe/Application/Composition/ModuleSessionCoordinator.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginUIIconLoader.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchContributionIcon.swift",
+      "macos/Tests/LitheTests/PluginUIIconTests.swift",
+      "macos/Sources/LitheApplicationKernel/Lifecycle/ModuleRuntime.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -24,5 +32,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Extensions",
-  "verification": "macOS：安装 shared/contracts/plugins/v1/fixtures/invalid-manifests.json 中每类错误的包，确认插件管理显示对应错误且不注册模块；合法包启用、禁用无需重启；包内声明的语言服务器可执行文件缺失或为符号链接时拒绝安装；启动后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。Windows：现有扩展清单尚未改为读取该契约，接入时必须通过同一组共享 fixture。"
+  "verification": "macOS：安装 shared/contracts/plugins/v1/fixtures/invalid-manifests.json 中每类错误的包，确认插件管理显示对应错误且不注册模块；合法包启用、禁用无需重启；包内声明的语言服务器可执行文件缺失或为符号链接时拒绝安装；启动后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。Windows：现有扩展清单尚未改为读取该契约，接入时必须通过同一组共享 fixture。 macOS API level 2：安装 Hello Lithe 数据包，确认工具窗口、命令面板、工具栏和菜单通过相同注册表显示；移动数据库与插件窗口、隐藏入口及重排后重启恢复；禁用插件后窗口和命令消失，重新启用保留位置与排序；无第三方原生代码载入。Windows UI adapter 未实现，不能用共享校验通过代替界面验收。 回归：声明与内置/应用动作冲突的合法包在启动时隔离并显示错误；正常退出保留已保存的窗口展开状态，用户主动隐藏才更新该状态；Agent 未启用时可移至底部并恢复入口；首次通过菜单打开 Services 会按需激活数据库。 macOS 图标：宿主语义 ID 与包内 SVG/PNG 在窗口入口、标题栏、工具栏、菜单和命令面板显示；模板着色与品牌原色、亮暗变体、选中/悬停/禁用沿用宿主规范；拒绝未知图标 ID、样式覆盖、包外路径、符号链接、脚本和外部引用；验证资源字节与 bundle 文件清单不变。 原生回归覆盖真实注册窗口标题栏、主工具栏活动/禁用状态、命令面板键盘选择及同一窗口亮→暗→亮切换；品牌图标不随选中着色，模板图标使用宿主选中文字颜色。 macOS 动作状态：确认窗口入口、工具栏、菜单与命令面板共用可用和勾选状态，激活中命令禁用且 Enter/鼠标均不能触发，窗口入口允许取消；同时打开同一插件的两个窗口只构造一次模块，取消其中一个不影响另一个；激活中禁用再启用，确认无资源残留或晚到贡献，旧动作引用不绕过状态校验。 API level 2 工具窗口初始位置接受 left/bottom/right，Rust 校验、macOS 解码及首次显示位置一致，用户保存布局仍覆盖默认声明。"
 }

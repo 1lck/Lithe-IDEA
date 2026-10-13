@@ -429,7 +429,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     /// Declarative plugin API levels this host supports. Rust Core enforces
     /// the same list (`SUPPORTED_PLUGIN_API_VERSIONS`) when it validates a
     /// manifest; the Lithe application version plays no part.
-    public static let supportedDeclarativeAPIVersions: Set<Int> = [1]
+    public static let supportedDeclarativeAPIVersions: Set<Int> = [1, 2]
 
     public let schemaVersion: Int
     public let id: PluginID

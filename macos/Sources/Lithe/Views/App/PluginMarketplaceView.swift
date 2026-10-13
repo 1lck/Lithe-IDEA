@@ -553,6 +553,8 @@ enum PluginMarketplacePresentation {
             PluginMarketplacePresentation.localized("Start a language server when you open files of its language", locale: locale)
         case "process.run":
             PluginMarketplacePresentation.localized("Run your files", locale: locale)
+        case "ui.contribute":
+            PluginMarketplacePresentation.localized("Add tool windows and commands to the workbench", locale: locale)
         case "process.test":
             PluginMarketplacePresentation.localized("Run your tests", locale: locale)
         default:

@@ -14,6 +14,10 @@ struct LitheAction: Identifiable, @unchecked Sendable {
     let subtitle: String
     let group: LitheActionGroup
     let keyEquivalent: String?
+    let contributionID: String?
+    let isEnabled: Bool
+    let isChecked: Bool
+    let localizesTitle: Bool
     let perform: @MainActor @Sendable () -> Void
 
     init(
@@ -22,6 +26,10 @@ struct LitheAction: Identifiable, @unchecked Sendable {
         subtitle: String,
         group: LitheActionGroup,
         keyEquivalent: String? = nil,
+        contributionID: String? = nil,
+        isEnabled: Bool = true,
+        isChecked: Bool = false,
+        localizesTitle: Bool = true,
         perform: @escaping @MainActor @Sendable () -> Void
     ) {
         self.id = id
@@ -29,6 +37,10 @@ struct LitheAction: Identifiable, @unchecked Sendable {
         self.subtitle = subtitle
         self.group = group
         self.keyEquivalent = keyEquivalent
+        self.contributionID = contributionID
+        self.isEnabled = isEnabled
+        self.isChecked = isChecked
+        self.localizesTitle = localizesTitle
         self.perform = perform
     }
 
@@ -53,7 +65,7 @@ struct LitheAction: Identifiable, @unchecked Sendable {
 
 @MainActor
 enum LitheActionRegistry {
-    static func actions(for model: AppModel) -> [LitheAction] {
+    static func builtInActions(for model: AppModel) -> [LitheAction] {
         [
             action("run", model: model) { model.runSelectedConfiguration() },
             action("debug", model: model) { model.startDebugging() },
@@ -76,13 +88,13 @@ enum LitheActionRegistry {
             action("find-next", model: model) { model.navigateFind(offset: 1) },
             action("find-previous", model: model) { model.navigateFind(offset: -1) },
             action("go-to-implementation", model: model) { model.goToImplementation() },
-            action("toggle-terminal", model: model) { model.toggleTerminal() },
-            action("toggle-problems", model: model) { model.toggleProblems() },
-            action("toggle-maven", model: model) { model.toggleMaven() },
-            action("toggle-git-log", model: model) { Task { await model.toggleGitLog() } },
-            action("toggle-run", model: model) { model.isRunVisible.toggle() },
-            action("toggle-tests", model: model) { model.toggleTests() },
-            action("toggle-debug", model: model) { model.toggleDebug() },
+            toolWindowAction("toggle-terminal", model: model),
+            toolWindowAction("toggle-problems", model: model),
+            toolWindowAction("toggle-maven", model: model),
+            toolWindowAction("toggle-git-log", model: model),
+            toolWindowAction("toggle-run", model: model),
+            toolWindowAction("toggle-tests", model: model),
+            toolWindowAction("toggle-debug", model: model),
             action("search-in-project", model: model) { model.openProjectSearch() },
             action("replace-in-project", model: model) { model.openProjectReplace() },
             action("find-in-file", model: model) { model.showFindBar() },
@@ -90,7 +102,7 @@ enum LitheActionRegistry {
             action("go-to-line", model: model) { model.showGoToLine() },
             action("go-to-definition", model: model) { model.goToDefinition() },
             action("find-usages", model: model) { model.findReferences() },
-            action("spring-endpoints", model: model) { model.toggleSpringEndpoints() },
+            toolWindowAction("spring-endpoints", model: model),
             action("local-history", model: model) {
                 if let url = model.activeDocument?.url { model.showLocalHistory(for: url) }
             },
@@ -99,6 +111,29 @@ enum LitheActionRegistry {
                 if let url = model.activeDocument?.url { model.revealProjectItemInFinder(url) }
             }
         ]
+    }
+
+    static func actions(for model: AppModel) -> [LitheAction] {
+        model.registeredContributions(at: .commandPalette).map { contribution in
+            let state = model.workbenchUIRegistry.state(for: contribution, model: model)
+            let definition = LitheCommandCatalog.command(id: contribution.actionID ?? "")
+            return LitheAction(id: contribution.actionID ?? contribution.id, title: contribution.title,
+                        subtitle: definition?.subtitle ?? "", group: definition?.group ?? .window,
+                        keyEquivalent: definition.flatMap { model.keyboardShortcutFeature.displayText(for: $0.id) },
+                        contributionID: contribution.id, isEnabled: state.isEnabled, isChecked: state.isChecked,
+                        localizesTitle: definition != nil, perform: { [weak model] in
+                guard let model else { return }
+                model.workbenchUIRegistry.perform(contribution, model: model)
+            })
+        }
+    }
+
+    private static func toolWindowAction(_ id: String, model: AppModel) -> LitheAction {
+        action(id, model: model) {
+            guard let window = LitheCommandCatalog.toolWindow(for: id),
+                  let contribution = model.workbenchContributions.first(where: { $0.kind == .toolWindow && $0.id == window.rawValue }) else { return }
+            model.workbenchUIRegistry.perform(contribution, model: model)
+        }
     }
 
     private static func action(

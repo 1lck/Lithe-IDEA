@@ -41,21 +41,32 @@
     {
       "id": "frontend-install-state",
       "reusable": false,
-      "locations": ["node_modules", "windows/tauri/node_modules", "frontend/editor/node_modules", ".artifacts/bun-tmp"],
+      "locations": [
+        "node_modules",
+        "windows/tauri/node_modules",
+        "frontend/editor/node_modules",
+        ".artifacts/bun-tmp"
+      ],
       "identity": "Mutable installation state tied to one worktree, OS, architecture, Bun version and lifecycle attempt; no sealed reusable identity stamp",
       "reason": "Each Windows install attempt owns its lifecycle processes in a worker Job Object. Release that tree before clearing partial dependencies or retrying. Never copy install temp data or node_modules across worktrees; only the sealed Bun download cache may be reused."
     },
     {
       "id": "jdt-maven-settings",
       "reusable": false,
-      "locations": ["<platform-cache>/jdtls/<workspace-state>/.lithe/maven/"],
+      "locations": [
+        "<platform-cache>/jdtls/<workspace-state>/.lithe/maven/"
+      ],
       "identity": "Workspace-owned Maven settings snapshots; content hashes identify documents, not a reusable version/platform/architecture/toolchain build stamp",
       "reason": "Mutable JDT session state may contain credentials and must remain readable until workspace cache eviction or index rebuilding. Never copy or share it across worktrees at any stage."
     },
     {
       "id": "agent-cli-runtime",
       "reusable": false,
-      "locations": ["npm global prefix and cache", "Homebrew Cellar, Caskroom and download cache", "user home .local/share/claude/versions"],
+      "locations": [
+        "npm global prefix and cache",
+        "Homebrew Cellar, Caskroom and download cache",
+        "user home .local/share/claude/versions"
+      ],
       "identity": "Runtime PATH executable, package-manager ownership and package/version/platform/architecture validated by the owning installer; no worktree build identity stamp",
       "reason": "User-managed runtime installations and mutable package-manager caches are outside worktrees. Never copy, symlink, publish or share them through build resource reuse. No copy stage is permitted."
     },
@@ -74,7 +85,9 @@
       "id": "php-language-server-downloads",
       "path": ".artifacts/php-language-server-downloads",
       "reusable": false,
-      "locations": [".artifacts/php-language-server-downloads"],
+      "locations": [
+        ".artifacts/php-language-server-downloads"
+      ],
       "identity": "The npm archive is pinned by language-server.json, but the extracted tool and build cache are mutable packaging state without a worktree publication stamp",
       "reason": "Download and verify the PHP language server independently in each worktree; never copy a partially extracted archive or plugin-owned tool cache across worktrees."
     },
@@ -105,7 +118,9 @@
       "id": "phpunit-fixture",
       "path": "shared/fixtures/phpunit-project/vendor",
       "reusable": false,
-      "locations": ["shared/fixtures/phpunit-project/vendor"],
+      "locations": [
+        "shared/fixtures/phpunit-project/vendor"
+      ],
       "identity": "Composer dependencies depend on the test worktree PHP version and dependency resolution without a reliable identity stamp",
       "reason": "Install PHPUnit dependencies independently in each worktree; do not copy vendor directories."
     },
@@ -113,7 +128,9 @@
       "id": "windows-worker-plugins",
       "path": ".artifacts/windows-plugins",
       "reusable": false,
-      "locations": [".artifacts/windows-plugins"],
+      "locations": [
+        ".artifacts/windows-plugins"
+      ],
       "identity": "Worker plugins are tied to package format, host SDK and Bun build versions without a reliable identity stamp",
       "reason": "Build worker plugins independently in each worktree and run verify-windows-plugin-isolation.mjs; do not copy them across worktrees."
     },
@@ -121,7 +138,9 @@
       "id": "installed-worker-plugins",
       "path": "<webview-profile>/Local Storage/lithe.worker-package:*",
       "reusable": false,
-      "locations": ["<webview-profile>/Local Storage/lithe.worker-package:*"],
+      "locations": [
+        "<webview-profile>/Local Storage/lithe.worker-package:*"
+      ],
       "identity": "Imported plugin source and install state belong to application configuration and have no worktree identity",
       "reason": "Do not copy installed worker plugin state across worktrees; uninstall by plugin ID through the application lifecycle."
     },
@@ -180,9 +199,21 @@
     {
       "id": "codex-retry-relay",
       "reusable": false,
-      "locations": ["<system-temp>/lithe-codex-retry-<UUID>/"],
+      "locations": [
+        "<system-temp>/lithe-codex-retry-<UUID>/"
+      ],
       "identity": "First-party embedded source from the current host revision and one Agent launch's native executable/retry budget. Platform chooses the system temporary directory; no reusable version, architecture, toolchain or publication identity stamp.",
       "reason": "The Agent process owner creates the helper before spawn and removes it on preparation failure, cancellation, launch failure or after stopping the process tree. It contains no credentials. Never copy or share it at any worktree stage; installed adapters, user CLI/configuration and signed bundles stay read-only."
+    },
+    {
+      "id": "plugin-ui-icons",
+      "reusable": false,
+      "locations": [
+        "<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/<declared-icon-path>",
+        "<app-bundle>/Contents/Resources/OfficialPlugins/<plugin-id>/<declared-icon-path>"
+      ],
+      "identity": "Icon bytes belong to one verified plugin package version and its signature or community content digest; no worktree resource identity stamp",
+      "reason": "Package installation owns copying and atomic version replacement. macOS validates package-relative static SVG/PNG and holds immutable bytes/images only in process memory. Never copy installed icons or runtime image state across worktrees; no runtime disk cache or bundle writes are allowed."
     }
   ]
 }

@@ -10,6 +10,10 @@ struct WorkbenchLayout: Codable, Sendable {
     let mavenPaneWidth: Double?
     let branchPopupWidth: Double?
     let branchPopupHeight: Double?
+    var sidebarToolWindowID: String?
+    var isSidebarVisible: Bool?
+    var visibleToolWindowIDs: [String]?
+    var contributionPreferences: [String: WorkbenchFeatureModel.ContributionPreference]?
 
     init(sidebarWidth: Double, topPaneHeight: Double?, mavenPaneWidth: Double? = nil, branchPopupWidth: Double? = nil, branchPopupHeight: Double? = nil) {
         self.sidebarWidth = sidebarWidth
@@ -43,8 +47,27 @@ struct WorkbenchLayoutStore {
     }
 
     func save(_ layout: WorkbenchLayout, for workspaceURL: URL) {
+        var layout = layout
+        // Geometry commits must not overwrite customization saved by a command.
+        if layout.contributionPreferences == nil {
+            layout.contributionPreferences = load(for: workspaceURL).contributionPreferences
+        }
+        if layout.isSidebarVisible == nil {
+            layout.isSidebarVisible = load(for: workspaceURL).isSidebarVisible
+            layout.sidebarToolWindowID = load(for: workspaceURL).sidebarToolWindowID
+        }
+        if layout.visibleToolWindowIDs == nil { layout.visibleToolWindowIDs = load(for: workspaceURL).visibleToolWindowIDs }
         guard let data = try? JSONEncoder().encode(layout) else { return }
         store.set(data, forKey: key(for: workspaceURL))
+    }
+
+    func saveUIState(_ preferences: [String: WorkbenchFeatureModel.ContributionPreference], visibleIDs: [String], sidebarID: String, isSidebarVisible: Bool, for workspaceURL: URL) {
+        var layout = load(for: workspaceURL)
+        layout.contributionPreferences = preferences
+        layout.visibleToolWindowIDs = visibleIDs
+        layout.sidebarToolWindowID = sidebarID
+        layout.isSidebarVisible = isSidebarVisible
+        save(layout, for: workspaceURL)
     }
 
     private func key(for workspaceURL: URL) -> String {
