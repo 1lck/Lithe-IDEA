@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import SwiftUI
 import Testing
 @testable import Lithe
@@ -112,6 +113,13 @@ struct LitheSearchFieldStyleTests {
 
     @Test(arguments: [ColorScheme.dark, .light], ["", "typed"])
     func nativeSearchFieldRendersPlaceholderAndEnteredTextColors(scheme: ColorScheme, value: String) throws {
+        let fontURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/Fonts/Inter-Regular.otf")
+        let ownsFont = NSFont(name: "Inter-Regular", size: 13) == nil
+        if ownsFont { #expect(CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, nil)) }
+        defer { if ownsFont { CTFontManagerUnregisterFontsForURL(fontURL as CFURL, .process, nil) } }
+        #expect(LitheTheme.uiNSFont(size: 13).fontName == "Inter-Regular")
         // ImageRenderer cannot cover AppKit-backed text. Capture the native host
         // so a correct theme token with an ignored prompt style still fails.
         let host = NSHostingView(rootView: LitheSearchTextField("Branch or tag", text: .constant(value))
@@ -126,8 +134,9 @@ struct LitheSearchFieldStyleTests {
         }
         let field = try #require(textField(in: host))
         #expect(field.stringValue == value)
-        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
+        // Thin 13pt glyphs need a fixed higher sampling density to expose fully
+        // covered interiors; keep the palette tolerance and pixel count intact.
+        let bitmap = try nativeSRGBCapture(host, scale: 4)
         let expected: UInt32 = value.isEmpty ? 0x73767C : (scheme == .dark ? 0xD1D3D9 : 0x000000)
         let scale = bitmap.pixelsWide / 220
         var matchingGlyphPixels = 0
@@ -135,7 +144,7 @@ struct LitheSearchFieldStyleTests {
         // must carry the source color in both themes, with no native substitution.
         for y in (8 * scale)..<(28 * scale) {
             for x in (10 * scale)..<(200 * scale) {
-                let color = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                let color = try nativeSRGBPixel(bitmap, x: x, y: y)
                 if abs(color.redComponent - CGFloat((expected >> 16) & 255) / 255) < 0.01,
                    abs(color.greenComponent - CGFloat((expected >> 8) & 255) / 255) < 0.01,
                    abs(color.blueComponent - CGFloat(expected & 255) / 255) < 0.01 {
