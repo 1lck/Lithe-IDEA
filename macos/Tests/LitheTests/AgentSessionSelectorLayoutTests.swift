@@ -63,10 +63,17 @@ struct AgentSessionSelectorLayoutTests {
                     try sendKey(53, to: child)
                     #expect(!child.isVisible && parent.isVisible, "Escape closes just the child menu")
                 } else {
-                    // Use the real child keyboard route; selection must preserve the upstream ID.
+                    // A visible choice may already be hovered when keyboard navigation starts.
+                    try movePointer(NSPoint(x: scroll.contentView.bounds.midX, y: scroll.contentView.bounds.midY),
+                                    in: scroll.contentView, window: child)
+                    // Establish the first row through the native pointer route, then
+                    // wrap in both directions before confirming its upstream ID.
+                    try movePointerToFirstRow(in: document, window: child)
+                    try sendKey(126, to: child)
                     try sendKey(125, to: child)
                     try sendKey(36, to: child)
-                    #expect(await waitUntil { selected?.0 == "effort" && selected?.1 == "low" })
+                    #expect(await waitUntil { selected?.0 == "effort" && selected?.1 == "low" },
+                            "Keyboard selection must preserve the first upstream choice: rightEdge=\(atRightEdge), scheme=\(scheme), selected=\(String(describing: selected))")
                     #expect(await waitUntil { popup(in: window) == nil }, "Selecting a child choice closes both menus")
                     #expect(!child.isVisible, "The child must not survive as an orphaned popup")
                 }
@@ -108,10 +115,7 @@ struct AgentSessionSelectorLayoutTests {
                             in: scroll.contentView, window: child)
             // Establish the first row through the real pointer route. An
             // incidental hover must not decide the keyboard's starting item.
-            let firstRowInset = LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight / 2
-            let firstRowY = document.isFlipped
-                ? document.bounds.minY + firstRowInset : document.bounds.maxY - firstRowInset
-            try movePointer(NSPoint(x: document.bounds.midX, y: firstRowY), in: document, window: child)
+            try movePointerToFirstRow(in: document, window: child)
             // Up from the first choice wraps to the final item and reveals it.
             try sendKey(126, to: child)
             #expect(await waitUntil { scroll.contentView.bounds.minY > 0 },
@@ -291,6 +295,12 @@ struct AgentSessionSelectorLayoutTests {
             timestamp: 0, windowNumber: window.windowNumber, context: nil,
             eventNumber: 1, clickCount: 0, pressure: 0
         )))
+    }
+
+    private func movePointerToFirstRow(in document: NSView, window: NSWindow) throws {
+        let inset = LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight / 2
+        let y = document.isFlipped ? document.bounds.minY + inset : document.bounds.maxY - inset
+        try movePointer(NSPoint(x: document.bounds.midX, y: y), in: document, window: window)
     }
 
     private func waitUntil(_ condition: () -> Bool) async -> Bool {
