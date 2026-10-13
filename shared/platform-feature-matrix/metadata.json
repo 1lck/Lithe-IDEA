@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 4,
+  "lastReviewed": "2026-09-29",
+  "review": {
+    "status": "initial-static-inventory",
+    "method": "根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。",
+    "nextStep": "按能力点补充 macOS/Windows 实机验证记录，并将确认结果写入对应 PR。"
+  },
+  "statusDefinitions": {
+    "implementation": {
+      "implemented": {
+        "label": "已实现",
+        "icon": "✅",
+        "description": "代码入口和产品接入均已存在。"
+      },
+      "partial": {
+        "label": "部分实现",
+        "icon": "🟡",
+        "description": "已有实现，但范围、入口、平台能力或用户体验仍不完全一致。"
+      },
+      "missing": {
+        "label": "未实现",
+        "icon": "❌",
+        "description": "当前没有足够的实现入口或产品接入证据。"
+      },
+      "platform-specific": {
+        "label": "平台专属",
+        "icon": "🧩",
+        "description": "刻意只属于某个平台，不以跨平台对齐为目标。"
+      }
+    },
+    "verification": {
+      "verified": {
+        "label": "已验证",
+        "icon": "✔️",
+        "description": "已按该能力点的验证方式完成运行时验证。"
+      },
+      "pending": {
+        "label": "待验证",
+        "icon": "🔍",
+        "description": "静态代码无法替代运行时验证，仍需按验证方式确认。"
+      },
+      "not-applicable": {
+        "label": "不适用",
+        "icon": "—",
+        "description": "当前没有可运行的实现入口，暂不适用运行时验证。"
+      }
+    }
+  }
+}

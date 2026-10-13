@@ -19,6 +19,7 @@
       "authorName": "Lithe Developer",
       "authorEmail": "developer@lithe.local",
       "date": "2026/08/31 10:30",
+      "dateUtcOffsetMinutes": -300,
       "subject": "Add push preview",
       "decorations": "HEAD -> feature/core"
     }

@@ -140,3 +140,113 @@ fn setup_rejects_invalid_identity_and_malformed_repository_configuration() {
     );
     assert_eq!(directory.call("git.initialize", json!({}))["ok"], false);
 }
+
+#[test]
+fn pull_expected_branch_rejects_a_changed_or_detached_checkout_before_execution() {
+    let directory = SetupDirectory::new("pull-expected-branch");
+    directory.data("git.initialize", json!({}));
+    directory.git(&[
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "--allow-empty",
+        "--no-gpg-sign",
+        "-m",
+        "initial",
+    ]);
+    directory.git(&["branch", "-M", "topic"]);
+    directory.git(&["switch", "-c", "other"]);
+    let before = directory.git(&["rev-parse", "HEAD"]);
+    for detached in [false, true] {
+        if detached {
+            directory.git(&["switch", "--detach"]);
+        }
+        let result = directory.data(
+            "git.write",
+            json!({
+                "operation": "pull", "mode": "ffOnly", "expectedBranch": "refs/heads/topic"
+            }),
+        );
+        assert!(
+            result["operationError"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("selected branch changed"),
+            "{result}"
+        );
+        assert!(result["invocations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|invocation| invocation["arguments"][0] != "pull"));
+        assert_eq!(directory.git(&["rev-parse", "HEAD"]), before);
+        assert_eq!(directory.git(&["rev-parse", "refs/heads/other"]), before);
+    }
+}
+
+#[test]
+fn pull_expected_branch_accepts_a_matching_full_ref_and_rejects_other_operations() {
+    let directory = SetupDirectory::new("pull-matching-branch");
+    directory.data("git.initialize", json!({}));
+    directory.git(&[
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "--allow-empty",
+        "--no-gpg-sign",
+        "-m",
+        "initial",
+    ]);
+    directory.git(&["branch", "-M", "topic"]);
+    directory.git(&["clone", "--bare", ".", "origin.git"]);
+    directory.git(&[
+        "remote",
+        "add",
+        "origin",
+        directory.0.join("origin.git").to_str().unwrap(),
+    ]);
+    directory.git(&["fetch", "origin"]);
+    directory.git(&["branch", "--set-upstream-to=origin/topic", "topic"]);
+    let fetched_head = directory.git(&["rev-parse", "refs/remotes/origin/topic"]);
+    for mode in ["ffOnly", "merge", "rebase"] {
+        let result = directory.data(
+            "git.write",
+            json!({
+                "operation": "pull", "mode": mode, "expectedBranch": "refs/heads/topic"
+            }),
+        );
+        assert_eq!(result["exitCode"], 0, "{result}");
+        assert_eq!(
+            result["arguments"][0],
+            if mode == "rebase" { "rebase" } else { "merge" }
+        );
+        assert_eq!(
+            result["arguments"].as_array().unwrap().last().unwrap(),
+            &json!(fetched_head.trim())
+        );
+        assert!(result["invocations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|invocation| invocation["arguments"][0] != "pull"
+                && invocation["arguments"][0] != "fetch"));
+    }
+    let invalid = directory.call(
+        "git.write",
+        json!({
+            "operation": "fetch", "expectedBranch": "refs/heads/topic"
+        }),
+    );
+    assert_eq!(invalid["ok"], false, "{invalid}");
+    let short_ref = directory.call(
+        "git.write",
+        json!({
+            "operation": "pull", "expectedBranch": "topic"
+        }),
+    );
+    assert_eq!(short_ref["ok"], false, "{short_ref}");
+}

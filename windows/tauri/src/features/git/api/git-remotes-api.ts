@@ -11,7 +11,7 @@ import { GitPullWorkflow } from "../hooks/git-pull-workflow";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import { getBranches } from "./git-branches-api";
 import { getGitHistory } from "./git-commits-api";
-import { getOperationState } from "./git-integration-api";
+import { getOperationState, pullRemoteReference } from "./git-integration-api";
 import { executeGitPush } from "./git-push-api";
 import { toCoreGitReference } from "./git-reference-payload";
 import { getGitStatus } from "./git-status-api";
@@ -130,10 +130,14 @@ export const getPullPreflight = async (repoPath: string): Promise<GitPullPreflig
 export const executePullChanges = async (
   repoPath: string,
   strategy: PullStrategy,
+  expectedBranch?: string,
 ): Promise<GitRemoteActionResult> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_pull", { repoPath: resolvedRepoPath, mode: strategy });
+    await tauriInvoke("git_pull", {
+      repoPath: resolvedRepoPath, mode: strategy,
+      ...(expectedBranch ? { expectedBranch } : {}),
+    });
     return { success: true };
   } catch (error) {
     console.error("Failed to pull changes:", error);
@@ -163,6 +167,30 @@ export const fetchChanges = async (repoPath: string, fetchOptions?: GitFetchOpti
   }
 };
 
+/**
+ * Pulls an explicit remote branch into the current branch. The Core integration
+ * preflight inside `pullRemoteReference` owns dirty-worktree blocking here, so a
+ * blocked outcome is surfaced as a failed pull for the shared workflow to report.
+ */
+const pullReferenceIntoCurrent = async (
+  repoPath: string,
+  strategy: PullStrategy,
+  reference: GitReference,
+): Promise<GitRemoteActionResult> => {
+  const outcome = await pullRemoteReference(
+    repoPath,
+    reference,
+    strategy === "rebase" ? "rebase" : "merge",
+  );
+  if (outcome.status === "clean") return { success: true };
+  if (outcome.status === "blocked") {
+    return { success: false, error: outcome.blockingPaths.join(", ") };
+  }
+  if (outcome.status === "conflicts") return { success: false, error: "conflict" };
+  if (outcome.status === "stopped") return { success: false, error: "stopped" };
+  return { success: false, error: outcome.message };
+};
+
 const pullWorkflows = new Map<string, GitPullWorkflow>();
 
 /** Returns the shared Pull coordinator for one repository. */
@@ -173,7 +201,10 @@ export const getGitPullWorkflow = (repoPath: string): GitPullWorkflow => {
   const workflow = new GitPullWorkflow({
     fetch: fetchChanges,
     preflight: getPullPreflight,
-    pull: executePullChanges,
+    pull: (repoPath, strategy, reference, expectedBranch) =>
+      reference
+        ? pullReferenceIntoCurrent(repoPath, strategy, reference)
+        : executePullChanges(repoPath, strategy, expectedBranch),
     operationState: getOperationState,
   });
   pullWorkflows.set(repoPath, workflow);

@@ -40,8 +40,8 @@ describe("run process event listeners", () => {
     releaseRunSessionWorkspace.mockClear();
   });
 
-  test("registers run-output and run-exit on the current webview window", async () => {
-    await ensureRunProcessListeners();
+  test("concurrent owners register run-output and run-exit only once on the current webview", async () => {
+    await Promise.all([ensureRunProcessListeners(), ensureRunProcessListeners()]);
 
     expect(windowListen).toHaveBeenCalledTimes(2);
     expect(windowListen).toHaveBeenCalledWith("run-output", expect.any(Function));

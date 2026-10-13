@@ -144,6 +144,8 @@ export function RunConfigurationEditor({
     selection.javaHomePath,
     selection.mavenExecutablePath,
     selection.mavenJavaHomePath,
+    undefined,
+    discoveredJava,
   );
   const overrideMode = (value: string): EffectiveToolchainMode =>
     value ? "configured" : "inherit";

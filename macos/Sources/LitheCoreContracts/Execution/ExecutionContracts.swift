@@ -172,17 +172,25 @@ package struct SharedLaunchPlan: Sendable {
         /// Classpath entries the host joins with the platform separator and
         /// prepends as `-cp` before this step's arguments.
         package let classpath: [String]
+        /// Project-relative run directory for this step, and the root the host
+        /// resolves its toolchain from. Nil inherits the plan's
+        /// `workingDirectory`, which may be a user override this step must not
+        /// resolve or run from (for example a Maven resource step that has to
+        /// find the project wrapper next to its reactor POM).
+        package let workingDirectory: String?
 
         package init(
             executable: Executable,
             tool: String? = nil,
             arguments: [String],
-            classpath: [String] = []
+            classpath: [String] = [],
+            workingDirectory: String? = nil
         ) {
             self.executable = executable
             self.tool = tool
             self.arguments = arguments
             self.classpath = classpath
+            self.workingDirectory = workingDirectory
         }
     }
 
@@ -264,8 +272,9 @@ package extension RunExecutableResolving {
 
     /// Resolves a pre-launch step by reusing the main executable resolution and,
     /// when the step names a sibling `tool` (e.g. `javac`), swapping the launcher
-    /// for that tool in the same `bin` directory. The step shares the plan's
-    /// working directory and environment.
+    /// for that tool in the same `bin` directory. The step inherits the plan's
+    /// environment and, unless it declares its own `workingDirectory`, the
+    /// plan's working directory.
     func resolve(
         step: SharedLaunchPlan.PreLaunchStep,
         plan: SharedLaunchPlan,
@@ -275,7 +284,7 @@ package extension RunExecutableResolving {
         let syntheticPlan = SharedLaunchPlan(
             executable: step.executable,
             arguments: step.arguments,
-            workingDirectory: plan.workingDirectory,
+            workingDirectory: step.workingDirectory ?? plan.workingDirectory,
             environment: plan.environment
         )
         let resolved = try resolve(syntheticPlan, projectURL: projectURL, options: options)
@@ -301,6 +310,13 @@ package protocol RunRuntimePort: AnyObject {
         javaHomeOverride: String?,
         mavenExecutableOverride: String?
     ) -> [ProjectToolchainCandidate]
+    /// Project restoration awaits version probes instead of running them on the UI executor.
+    func loadRunConfigurationToolchainCandidates(
+        for project: MavenProject?,
+        projectRoot: URL?,
+        javaHomeOverride: String?,
+        mavenExecutableOverride: String?
+    ) async throws -> [ProjectToolchainCandidate]
     /// Applies workspace and subproject JDK/Maven defaults when a run
     /// configuration does not set its own explicit toolchain paths.
     func overlayProjectRuntime(

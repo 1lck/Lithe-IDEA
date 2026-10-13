@@ -267,7 +267,9 @@ class ExtensionLoader {
     await extensionRegistry.ensureInitialized();
 
     // Load all extensions from registry
-    const extensions = extensionRegistry.getAllExtensions();
+    const extensions = extensionRegistry.getAllExtensions().filter(
+      (extension) => extension.isEnabled && extension.state === "installed",
+    );
 
     const results = await runExtensionLoadBatch(extensions, (extension) =>
       this.loadExtension(extension),
@@ -290,6 +292,9 @@ class ExtensionLoader {
    * Load a single extension
    */
   private async loadExtension(extension: BundledExtension): Promise<void> {
+    if (!extensionRegistry.getExtension(extension.manifest.id)?.isEnabled) {
+      return;
+    }
     if (this.loadedExtensions.has(extension.manifest.id)) {
       logger.warn("ExtensionLoader", `Extension ${extension.manifest.id} already loaded`);
       return;

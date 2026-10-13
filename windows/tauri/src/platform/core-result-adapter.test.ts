@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { adaptCoreResult } from "./core-result-adapter";
+import type { GitDiff } from "@/features/git/types/git.types";
+
+test.each(["EOF", "CRLF", "LF"])("Core patch adaptation preserves writable safety metadata for %s", kind => {
+  const separator = kind === "CRLF" ? "\r\n" : "\n";
+  const patch = ["diff --git a/file.txt b/file.txt", "--- a/file.txt", "+++ b/file.txt",
+    "@@ -1 +1 @@", "-a", "+B", ...(kind === "EOF" ? ["\\ No newline at end of file"] : []), ""].join(separator);
+  const diff = adaptCoreResult<GitDiff>("git_diff_file", { filePath: "file.txt" }, { patch });
+  expect(diff.has_lossy_line_endings === true).toBe(kind !== "LF");
+  expect(diff.lines.map(line => line.content)).toEqual(["@@ -1 +1 @@", "a", "B"]);
+});
 
 describe("git status result adaptation", () => {
   test("preserves both paths of a renamed file", () => {
@@ -59,6 +69,39 @@ describe("git status result adaptation", () => {
   });
 });
 
+test("workspace status keeps index-only additions and Core submodule checkbox eligibility", () => {
+  const submodule = { commitChanged: false, trackedChanges: true, untrackedChanges: false };
+  const result = adaptCoreResult<{ files: Array<Record<string, unknown>> }>(
+    "git_status",
+    { includeIndexOnlyChanges: true },
+    {
+      changes: [
+        {
+          path: "staged-only.ts",
+          status: "AD",
+          staged: true,
+          worktree: true,
+          canToggleStaging: true,
+        },
+        {
+          path: "libs/B",
+          status: " M",
+          staged: false,
+          worktree: true,
+          canToggleStaging: false,
+          submodule,
+        },
+      ],
+    },
+  );
+  expect(result.files[0]).toMatchObject({
+    path: "staged-only.ts",
+    staged: true,
+    canToggleStaging: true,
+  });
+  expect(result.files[1]).toMatchObject({ path: "libs/B", canToggleStaging: false, submodule });
+});
+
 describe("git checkout result adaptation", () => {
   test("maps a successful core checkout to the UI checkout result", () => {
     const result = adaptCoreResult(
@@ -92,6 +135,24 @@ describe("git checkout result adaptation", () => {
     const result = adaptCoreResult("git_checkout", undefined, { output: "", exitCode: 0 });
 
     expect(result).toEqual({ success: true, hasChanges: false, message: "" });
+  });
+});
+
+describe("git repository discovery result adaptation", () => {
+  test("accepts the read-only repository root string", () => {
+    expect(adaptCoreResult<string>("git_discover_repo", { path: "C:/work/src" }, "C:/work\n")).toBe(
+      "C:/work",
+    );
+  });
+
+  test("keeps compatibility with the legacy command output envelope", () => {
+    expect(
+      adaptCoreResult<string>(
+        "git_discover_repo",
+        { path: "C:/work/src" },
+        { output: "C:/work\n", exitCode: 0 },
+      ),
+    ).toBe("C:/work");
   });
 });
 

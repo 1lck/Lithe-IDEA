@@ -1,0 +1,34 @@
+{
+  "id": "git-commit-sidebar-toolbar-icons",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "macOS Commit/Shelf 标签采用共享选中与悬停样式、12pt 水平内边距、41pt 顶栏和共享主题分隔线，Commit 工具栏四个现有操作使用 IDEA 明暗 SVG 和共享按钮样式，工具栏下不绘制横线，Changes 列表紧贴工具栏；提交区可拖动分隔条使用共享边框且悬停/拖动不高亮，提交按钮及多行编辑框遵循 IDEA Community 尺寸、边框和字体，占位色与共享输入框一致；提交信息编辑框复用编辑器共享底色",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
+      "macos/Sources/Lithe/Theme/LitheTheme.swift",
+      "macos/Sources/Lithe/Views/Components/LitheToolWindowTabStyle.swift",
+      "macos/Resources/IDEAIcons/expui/general/refresh.svg",
+      "macos/Resources/IDEAIcons/expui/vcs/revert.svg",
+      "macos/Resources/IDEAIcons/expui/general/download.svg",
+      "macos/Resources/IDEAIcons/expui/general/show.svg",
+      "macos/Sources/Lithe/Views/Git/CommitAreaView.swift",
+      "macos/Sources/Lithe/Views/Git/CommitMessageEditor.swift",
+      "macos/Tests/LitheTests/CommitMessageEditorTests.swift",
+      "macos/Tests/LitheTests/CommitActionButtonStyleTests.swift",
+      "macos/Resources/IDEAIcons/expui/general/history.svg",
+      "macos/Resources/IDEAIcons/expui/diff/magicResolveToolbar.svg"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/git"
+    ]
+  },
+  "owner": "Git",
+  "verification": "在 macOS 深浅主题下核对 Commit/Shelf 标签文字距左侧 12pt、选中和悬停使用共享背景与边框、点击外部后选中标签变为非活动色、按下时文字不变暗；标题栏 41pt 且下沿使用带左右 1pt 留白的共享分隔线、操作按钮行使用共享 40pt 高度且 Changes 列表无额外顶部留白、四个操作按钮下方无横线；核对工具栏图标、尺寸、悬停块与默认箭头光标；没有所选改动或没有变更时，确认对应按钮弱化、无悬停高亮且不能触发动作；有可操作内容时确认动作正常。 在深浅主题中核对提交信息框 4pt 圆角、普通 1pt 边框、焦点 2pt 边框及 13pt regular 编辑器字体；空值聚焦仍显示 #73767C 占位文字，输入及中文组合文字不受影响；提交按钮可见高度 28pt、最小宽度 72pt、14pt 文字边距和 3pt 外侧留白，禁用状态不可提交，提交及推送流程不变；分隔条悬停和连续拖动均保持共享边框颜色；历史/设置/AI 魔杖图标使用 IDEA 16pt 明暗资源，设置按钮保留原动作。 确认提交信息编辑框使用 LitheTheme.editor，与 Commit 列表及编辑器的同主题底色一致，搜索框仍使用共享控件底色。 提交信息框在输入法组词、取消及确认时重绘完整占位区域；有组词时不画占位文字，短拼音不能留下旧占位尾部。CommitMessageEditorTests 用原生 setMarkedText/unmarkText/insertText 检查完整失效区域、占位隐藏及恢复。"
+}

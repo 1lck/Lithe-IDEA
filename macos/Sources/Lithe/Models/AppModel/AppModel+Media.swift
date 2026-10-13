@@ -43,6 +43,7 @@ extension AppModel {
     ) {
         let normalizedURL = url.standardizedFileURL
         if activateWhenReady {
+            editorTabOrderFeature.repositoryDiffSelected = false
             selectedChange = nil
             closeBranchComparison()
             editorNavigationTarget = nil
@@ -61,6 +62,7 @@ extension AppModel {
         guard openMediaDocuments.contains(where: { $0.id == media.id }) else { return }
         terminalPlacementFeature.activateDocument()
         activeDocumentID = nil
+        editorTabOrderFeature.repositoryDiffSelected = false
         mediaFeature.select(media)
     }
 
@@ -86,6 +88,8 @@ extension AppModel {
         guard wasActive else { return }
 
         switch fallbackItem {
+        case .repositoryDiff:
+            selectRepositoryDiffTab()
         case .document(let documentID):
             if let document = openDocuments.first(where: { $0.id == documentID }) {
                 selectEditorDocument(document)

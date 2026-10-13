@@ -2,9 +2,11 @@ import type React from "react";
 import { forwardRef } from "react";
 import { NotificationIcon } from "@/features/notifications/components/notification-icon";
 import type { NotificationItemAction } from "@/features/notifications/types/notifications.types";
+import { formatNotificationMessage } from "@/features/notifications/utils/notification-formatters";
 import { Button } from "@/ui/button";
 import { Item, ItemActions, ItemContent, ItemMedia, ItemTitle } from "@/ui/item";
 import type { NotificationEntry } from "@/features/notifications/types/notifications.types";
+import { useTranslation } from "@/i18n/locale-provider";
 import Tooltip from "@/ui/tooltip";
 
 interface NotificationListItemProps {
@@ -32,6 +34,8 @@ export const NotificationListItem = forwardRef<HTMLDivElement, NotificationListI
     },
     ref,
   ) {
+    const { t } = useTranslation();
+
     return (
       <Item
         ref={ref}
@@ -50,7 +54,7 @@ export const NotificationListItem = forwardRef<HTMLDivElement, NotificationListI
         </ItemMedia>
         <ItemContent className="min-w-0 overflow-hidden group-hover/item:pr-7 group-focus-within/item:pr-7">
           <ItemTitle className="font-sans ui-text-sm block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-normal text-foreground">
-            {notification.message}
+            {formatNotificationMessage(notification, t)}
           </ItemTitle>
         </ItemContent>
         <ItemActions className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 gap-1 opacity-0 transition-opacity group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100">

@@ -39,7 +39,7 @@ struct GitConsoleEntryView: View {
                                 if fragment.matches > 0 { Text(" · \(fragment.matches) matches") }
                             }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .foregroundStyle(LitheTheme.secondaryText)
                         .accessibilityValue(isExpanded(fragment) ? Text("Expanded") : Text("Collapsed"))
                     }
@@ -78,7 +78,7 @@ struct GitConsoleEntryView: View {
             }
             if showsDetails { details }
         }
-        .font(.system(size: 13, weight: .regular, design: .monospaced))
+        .font(LitheTheme.uiFont(size: 13, weight: .regular, design: .monospaced))
         .textSelection(.enabled)
         .padding(.bottom, 4)
         .litheContextMenu {

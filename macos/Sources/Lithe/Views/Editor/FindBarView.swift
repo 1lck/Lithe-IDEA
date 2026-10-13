@@ -64,7 +64,7 @@ struct FindBarView: View {
         HStack(spacing: 8) {
             Button { model.isReplaceVisible.toggle() } label: {
                 Image(systemName: chrome.isReplaceVisible ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9))
+                    .font(LitheTheme.uiFont(size: 9))
             }
             .buttonStyle(FindBarButtonStyle(width: 20, height: 20))
             .accessibilityLabel(chrome.isReplaceVisible ? "Hide replace" : "Show replace")
@@ -91,7 +91,7 @@ struct FindBarView: View {
             .modifier(FindInputChrome(isFocused: findFocused))
 
             Text(matchLabel)
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .monospacedDigit()
                 .frame(minWidth: 60)
@@ -116,7 +116,7 @@ struct FindBarView: View {
             Spacer(minLength: 0)
             Button { model.hideFindBar() } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9))
+                    .font(LitheTheme.uiFont(size: 9))
             }
             .buttonStyle(FindBarButtonStyle(width: 20, height: 20))
             .accessibilityLabel("Close find")
@@ -166,7 +166,7 @@ struct FindBarView: View {
         let binding = optionBinding(keyPath)
         return Button { binding.wrappedValue.toggle() } label: {
             Text(title)
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(binding.wrappedValue ? LitheTheme.accent : LitheTheme.secondaryText)
                 .frame(width: 22, height: 22)
                 .background(binding.wrappedValue ? LitheTheme.accent.opacity(0.16) : Color.clear,
@@ -207,7 +207,7 @@ private struct FindInputChrome: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .font(.system(size: 12.5))
+            .font(LitheTheme.uiFont(size: 12.5))
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 7)
             .frame(height: 28)
@@ -231,7 +231,7 @@ private struct FindBarButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 11.5))
+            .font(LitheTheme.uiFont(size: 11.5))
             .foregroundStyle(isEnabled ? LitheTheme.secondaryText : LitheTheme.secondaryText.opacity(0.4))
             .padding(.horizontal, isBordered ? 12 : 0)
             .frame(minWidth: width, minHeight: height)

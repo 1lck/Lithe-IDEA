@@ -10,6 +10,8 @@ final class MacPluginManager: PluginManaging {
     private let launchMode: ModuleLaunchMode
     private let managedBuiltInPlugins: [PluginManifest]
     private let activeNativePluginIDs: Set<PluginID>
+    private let packageDownloader: any MacPluginPackageDownloading
+    private let hostVersion: PluginVersion
     private var installedPlugins: [PluginID: InstalledPluginPackage]
     private var restartRequiredPluginIDs: Set<PluginID> = []
     private(set) var issues: [PluginManagementIssue]
@@ -20,13 +22,17 @@ final class MacPluginManager: PluginManaging {
         configurationStore: MacModuleConfigurationStore,
         launchMode: ModuleLaunchMode,
         startup: MacPluginStartupResult,
-        managedBuiltInPlugins: [PluginManifest] = []
+        managedBuiltInPlugins: [PluginManifest] = [],
+        packageDownloader: any MacPluginPackageDownloading = MacPluginPackageDownloader(),
+        hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion
     ) {
         self.packageStore = packageStore
         self.moduleRuntime = moduleRuntime
         self.configurationStore = configurationStore
         self.launchMode = launchMode
         self.managedBuiltInPlugins = managedBuiltInPlugins.sorted { $0.id < $1.id }
+        self.packageDownloader = packageDownloader
+        self.hostVersion = hostVersion
         activeNativePluginIDs = Set(startup.activeNativeManifests.map(\.id))
         installedPlugins = Dictionary(
             uniqueKeysWithValues: startup.installedPlugins.map { ($0.manifest.id, $0) }
@@ -94,6 +100,48 @@ final class MacPluginManager: PluginManaging {
             // remains mapped until this process exits.
             restartRequiredPluginIDs.insert(pluginID)
         }
+    }
+
+    func download(pluginID: PluginID) async throws {
+        guard pluginID == OfficialPluginCatalog.phpPluginID else {
+            throw PluginManagerError.onlineDownloadUnavailable(pluginID)
+        }
+        guard installedPlugins[pluginID] == nil else {
+            throw PluginManagerError.pluginAlreadyInstalled(pluginID)
+        }
+        let downloaded = try await packageDownloader.download(
+            pluginID: pluginID,
+            hostVersion: hostVersion
+        )
+        defer { try? FileManager.default.removeItem(at: downloaded.temporaryDirectory) }
+        let installed = try packageStore.installPackage(
+            from: downloaded.packageURL,
+            deferActivationUntilRestart: true,
+            // The action is only exposed when no valid installation exists.
+            // Allow replacement so an older or unreadable package directory
+            // can be repaired with the package that carries Intelephense.
+            replaceExisting: true
+        )
+        restartRequiredPluginIDs.insert(installed.manifest.id)
+        try refreshInstalledPlugins()
+    }
+
+    func reinstall(pluginID: PluginID) async throws {
+        guard installedPlugins[pluginID] != nil else {
+            throw PluginManagerError.unknownPlugin(pluginID)
+        }
+        let downloaded = try await packageDownloader.download(
+            pluginID: pluginID,
+            hostVersion: hostVersion
+        )
+        defer { try? FileManager.default.removeItem(at: downloaded.temporaryDirectory) }
+        let installed = try packageStore.installPackage(
+            from: downloaded.packageURL,
+            deferActivationUntilRestart: true,
+            replaceExisting: true
+        )
+        restartRequiredPluginIDs.insert(installed.manifest.id)
+        try refreshInstalledPlugins()
     }
 
     func installPackage(at packageURL: URL) throws {
@@ -216,12 +264,16 @@ final class MacPluginManager: PluginManaging {
 
 enum PluginManagerError: Error, Equatable, LocalizedError {
     case unknownPlugin(PluginID)
+    case onlineDownloadUnavailable(PluginID)
+    case pluginAlreadyInstalled(PluginID)
     case requiredPluginCannotBeDisabled(PluginID)
     case requiredPluginCannotBeUninstalled(PluginID)
 
     var errorDescription: String? {
         switch self {
         case .unknownPlugin(let id): "Plugin \(id) is not installed."
+        case .onlineDownloadUnavailable(let id): "Online download is not available for plugin \(id)."
+        case .pluginAlreadyInstalled(let id): "Plugin \(id) is already installed."
         case .requiredPluginCannotBeDisabled(let id): "Required plugin \(id) cannot be disabled."
         case .requiredPluginCannotBeUninstalled(let id): "Required plugin \(id) cannot be uninstalled."
         }

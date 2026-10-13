@@ -1,0 +1,75 @@
+/*
+ * IntelliJ Islands project-color gradient (IslandsGradientPainter): the main-window color
+ * ramps to the project color at the project widget, back to the main-window color over
+ * RecentProject.MainToolbarGradient.width (600px), and fades out over its height (300px).
+ * Only surfaces painted with the main-window color receive it; panel islands stay solid.
+ *
+ * data-project-color (1-9) is set by useProjectGradientColor; --lithe-project-gradient-x by
+ * useProjectGradientAnchor (IntelliJ falls back to 150px when there is no project widget).
+ */
+:root {
+  --lithe-project-gradient-x: 150px;
+  --lithe-project-gradient-width: 600px;
+  --lithe-project-gradient-height: 300px;
+  /* IntelliJ blends the project color into the main-window color at 0.85. */
+  --lithe-project-gradient-strength: 85%;
+}
+
+/* An inactive frame paints the gradient at Island.inactiveAlpha (0.56) over the main-window
+   color: 0.85 * 0.56. */
+:root[data-window-inactive] {
+  --lithe-project-gradient-strength: 48%;
+}
+
+/* ManyIslandsLight RecentProject.ColorN.MainToolbarGradientStart */
+:root[data-project-color="1"] { --lithe-project-gradient-color: #f7d7cb; }
+:root[data-project-color="2"] { --lithe-project-gradient-color: #f5e6b8; }
+:root[data-project-color="3"] { --lithe-project-gradient-color: #e2f2c9; }
+:root[data-project-color="4"] { --lithe-project-gradient-color: #cbe4f7; }
+:root[data-project-color="5"] { --lithe-project-gradient-color: #d4d2fc; }
+:root[data-project-color="6"] { --lithe-project-gradient-color: #ecd3f5; }
+:root[data-project-color="7"] { --lithe-project-gradient-color: #e4d3f5; }
+:root[data-project-color="8"] { --lithe-project-gradient-color: #cef0e9; }
+:root[data-project-color="9"] { --lithe-project-gradient-color: #ceedd4; }
+
+/* ManyIslandsDark RecentProject.ColorN.MainToolbarGradientStart */
+:root[data-theme-type="dark"][data-project-color="1"] { --lithe-project-gradient-color: #664832; }
+:root[data-theme-type="dark"][data-project-color="2"] { --lithe-project-gradient-color: #5e4724; }
+:root[data-theme-type="dark"][data-project-color="3"] { --lithe-project-gradient-color: #45522f; }
+:root[data-theme-type="dark"][data-project-color="4"] { --lithe-project-gradient-color: #335661; }
+:root[data-theme-type="dark"][data-project-color="5"] { --lithe-project-gradient-color: #394773; }
+:root[data-theme-type="dark"][data-project-color="6"] { --lithe-project-gradient-color: #613861; }
+:root[data-theme-type="dark"][data-project-color="7"] { --lithe-project-gradient-color: #503d70; }
+:root[data-theme-type="dark"][data-project-color="8"] { --lithe-project-gradient-color: #325959; }
+:root[data-theme-type="dark"][data-project-color="9"] { --lithe-project-gradient-color: #365439; }
+
+/* IntelliJ paints the gradient only for the Islands themes, which the Lithe themes mirror.
+   Window transparency replaces the main-window color, as a background image does there. */
+html[data-theme^="lithe-"][data-project-gradient="enabled"][data-window-transparency="disabled"][data-project-color]
+  :is(
+    .lithe-layout-shell,
+    .lithe-resizable-pane,
+    .lithe-title-bar,
+    .lithe-project-tab-bar,
+    .lithe-sidebar-rail,
+    .lithe-plugin-activity-rail,
+    .lithe-footer-bar
+  ) {
+  --lithe-project-gradient-peak: color-mix(
+    in srgb,
+    var(--lithe-project-gradient-color) var(--lithe-project-gradient-strength),
+    var(--surface)
+  );
+  /* A fixed attachment anchors every surface to one window-wide gradient. */
+  background-attachment: fixed;
+  background-image:
+    linear-gradient(to bottom, transparent 0, var(--surface) var(--lithe-project-gradient-height)),
+    linear-gradient(
+      to right,
+      var(--surface) 0,
+      var(--lithe-project-gradient-peak) var(--lithe-project-gradient-x),
+      var(--surface)
+        calc(var(--lithe-project-gradient-x) + var(--lithe-project-gradient-width))
+    );
+  background-repeat: no-repeat;
+}

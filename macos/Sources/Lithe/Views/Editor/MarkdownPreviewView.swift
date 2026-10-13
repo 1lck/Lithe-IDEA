@@ -46,17 +46,17 @@ struct MarkdownPreviewView: View {
             } else if let errorMessage {
                 VStack(spacing: 9) {
                     Text("Preview unavailable")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                     Text(errorMessage)
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
                     Button("Retry") {
                         scheduleRender(immediate: true)
                     }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: 12))
+                    .buttonStyle(.litheNoPress)
+                    .font(LitheTheme.uiFont(size: 12))
                 }
                 .padding(16)
                 .frame(maxWidth: 360)

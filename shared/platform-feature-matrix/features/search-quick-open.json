@@ -1,0 +1,25 @@
+{
+  "id": "search-quick-open",
+  "area": "搜索",
+  "group": "搜索与导航",
+  "capability": "快速打开文件与符号",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Search",
+      "macos/Sources/Lithe/Views/Workbench"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/quick-open",
+      "windows/tauri/src/features/quick-open/hooks/use-file-search.test.tsx",
+      "windows/tauri/src/features/quick-open/hooks/use-file-loader.test.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Search",
+  "verification": "使用文件名、路径和符号查询，确认排序、键盘导航和打开位置。 Windows 搜索当前已打开的 independent-commit-diff.ts，使用完整名称、去掉连字符的名称和路径，确认结果可打开当前文件；空查询不重复显示当前文件。输入期间不重新扫描目录，重开后新建或删除文件更新；切换工作区后迟到结果不覆盖新列表。"
+}

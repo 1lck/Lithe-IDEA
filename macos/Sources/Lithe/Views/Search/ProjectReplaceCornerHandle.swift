@@ -28,6 +28,8 @@ final class ProjectReplaceCornerHandleView: NSView {
     var corner = ProjectReplacePanelGeometry.Corner.topLeading {
         didSet { if corner != oldValue { window?.invalidateCursorRects(for: self) } }
     }
+    var cursorOverride: NSCursor?
+    var tracksInactiveWindows = false
     var onStart: (() -> Void)?
     var onChange: ((CGSize) -> Void)?
     var onEnd: ((CGSize) -> Void)?
@@ -38,7 +40,7 @@ final class ProjectReplaceCornerHandleView: NSView {
 
     var resizeCursor: NSCursor {
         // Use cached diagonal cursors supported by the CI AppKit SDK as well as local builds.
-        return corner.isLeading == corner.isTop ? Self.northwestSoutheast : Self.northeastSouthwest
+        return cursorOverride ?? (corner.isLeading == corner.isTop ? Self.northwestSoutheast : Self.northeastSouthwest)
     }
 
     private static let northwestSoutheast = diagonalCursor("arrow.up.left.and.arrow.down.right")
@@ -57,8 +59,10 @@ final class ProjectReplaceCornerHandleView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
+        var options: NSTrackingArea.Options = [.cursorUpdate, .mouseEnteredAndExited, .inVisibleRect]
+        options.insert(tracksInactiveWindows ? .activeAlways : .activeInKeyWindow)
         let area = NSTrackingArea(rect: .zero,
-            options: [.cursorUpdate, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            options: options,
             owner: self, userInfo: nil)
         addTrackingArea(area)
         tracking = area

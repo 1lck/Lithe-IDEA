@@ -40,6 +40,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
     @Published package private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     @Published package private(set) var languageServerLogs: [LanguageServerLogEntry] = []
     @Published package private(set) var projectPreparation: ProjectPreparationSnapshot?
+    package var onJavaDependencySnapshotChange: (@MainActor () -> Void)?
+    private var javaDependencyWorkspaceURL: URL?
+    private var javaDependencySnapshot: LanguageDependencySnapshot?
+    private var javaDependencyRefreshTask: Task<Void, Never>?
+    private var javaDependencyChangeTask: Task<Void, Never>?
     @Published package private(set) var mavenProfileProjectResults: [URL: MavenProfileProjectResult] = [:]
     @Published package private(set) var languageServerStates: [String: LanguageServerSessionState] = [:]
     @Published package private(set) var languageServerInfos: [String: LanguageServerInfo] = [:]
@@ -99,6 +104,93 @@ package final class LanguageToolingSessionManager: ObservableObject,
             guard session.isRunning,
                   languageServerStates[providerID] == .ready else { return nil }
             return providerID
+        })
+    }
+
+    package func dependencySnapshot(workspaceURL: URL) -> LanguageDependencySnapshot? {
+        guard javaDependencyWorkspaceURL == workspaceURL.standardizedFileURL else { return nil }
+        return javaDependencySnapshot
+    }
+
+    private func refreshJavaDependenciesWhenReady() {
+        guard projectPreparation?.status == "ready",
+              languageServerStates["java"] == .ready,
+              let workspace = languageServerRoots["java"],
+              let session = languageServers["java"], session.isRunning,
+              let identity = languageServerSessionIdentities["java"] else { return }
+        javaDependencyRefreshTask?.cancel()
+        javaDependencyRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await self.resolvedJavaDependencies(workspace: workspace)
+                guard !Task.isCancelled,
+                      self.languageServerSessionIdentities["java"] == identity,
+                      self.languageServerRoots["java"] == workspace else { return }
+                guard self.javaDependencyWorkspaceURL != workspace
+                    || self.javaDependencySnapshot != snapshot else { return }
+                self.javaDependencyWorkspaceURL = workspace
+                self.javaDependencySnapshot = snapshot
+                self.onJavaDependencySnapshotChange?()
+            } catch is CancellationError {
+                return
+            } catch {
+                self.recordLanguageServerLog(
+                    providerID: "java", level: .warning,
+                    message: "Java dependency projection unavailable",
+                    detail: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private func scheduleJavaDependencyRefresh(after changes: [LanguageServerWorkspaceFileChange]) {
+        let managementFiles: Set<String> = [
+            "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle",
+            "settings.gradle.kts", "gradle.properties", "libs.versions.toml", "extensions.xml"
+        ]
+        guard changes.contains(where: { managementFiles.contains($0.fileURL.lastPathComponent.lowercased()) }) else {
+            return
+        }
+        javaDependencyChangeTask?.cancel()
+        javaDependencyChangeTask = Task { [weak self] in
+            // Watched-file notifications have no acknowledgement. Give JDT LS time to
+            // start a configuration job; its ready transition takes precedence.
+            try? await Task.sleep(for: .milliseconds(750))
+            guard !Task.isCancelled, let self else { return }
+            self.refreshJavaDependenciesWhenReady()
+        }
+    }
+
+    private func resolvedJavaDependencies(workspace: URL) async throws -> LanguageDependencySnapshot {
+        let projects = try await executeJavaCommand("java.project.getAll", arguments: [], rootURL: workspace)
+        guard case .array(let values) = projects else {
+            throw LanguageToolingSessionError.toolingUnavailable("The Java service returned an invalid project list.")
+        }
+        let rootPath = workspace.path
+        var dependencyPaths: Set<String> = []
+        for case .string(let projectURI) in values {
+            try Task.checkCancellation()
+            guard let projectURL = URL(string: projectURI), projectURL.isFileURL else { continue }
+            let projectPath = projectURL.standardizedFileURL.path
+            guard projectPath == rootPath || projectPath.hasPrefix(rootPath + "/") else { continue }
+            let response = try await executeJavaCommand(
+                "java.project.getClasspaths",
+                arguments: [.string(projectURI), .object(["scope": .string("runtime")])],
+                rootURL: workspace
+            )
+            guard case .object(let paths) = response else {
+                throw LanguageToolingSessionError.toolingUnavailable("The Java service returned an invalid classpath.")
+            }
+            for path in Self.stringValues(paths["classpaths"] ?? .array([]))
+                + Self.stringValues(paths["modulepaths"] ?? .array([])) {
+                guard (path as NSString).isAbsolutePath else { continue }
+                let url = URL(fileURLWithPath: path).standardizedFileURL
+                guard url.path != rootPath, !url.path.hasPrefix(rootPath + "/") else { continue }
+                dependencyPaths.insert(url.path)
+            }
+        }
+        return LanguageDependencySnapshot(dependencyRoots: dependencyPaths.sorted().map {
+            URL(fileURLWithPath: $0)
         })
     }
 
@@ -304,9 +396,54 @@ package final class LanguageToolingSessionManager: ObservableObject,
         return languageServerOperationIDs[providerID] ?? operationID
     }
 
-    /// Reloads only Java and waits for project import, preserving other providers.
-    /// Cancellation terminates only the session created by this reload.
+    /// Outcome of handing the workspace's Maven context to its Java session.
+    package enum JavaMavenConfigurationOutcome: Equatable {
+        /// The running session took the change and re-resolves in place.
+        case updated(LanguageServerMavenConfigurationUpdate)
+        /// No Java session runs for this root; the next start reads the context.
+        case noSession
+        /// A session runs but could not take the change and needs a restart.
+        case failed(LanguageServerRuntimeFailure)
+    }
+
+    /// Sends the workspace's current Maven context to the running Java session.
+    ///
+    /// JDT LS re-resolves on its own: changed settings make it force-update every
+    /// Maven project, and `reloadProjects` re-resolves even when nothing changed.
+    /// A restart would reuse the workspace state and skip every project whose
+    /// `pom.xml` did not change, keeping unresolved artifacts missing (#970).
+    @discardableResult
+    package func updateJavaMavenConfiguration(
+        rootURL: URL,
+        reloadProjects: Bool
+    ) -> JavaMavenConfigurationOutcome {
+        let root = rootURL.standardizedFileURL
+        // The workspace preference is rechecked like every other entry point;
+        // a disabled provider reports no session, so a reload fails where a
+        // start would.
+        guard isLanguageServerEnabled("java", root),
+              let session = languageServers["java"],
+              session.isRunning,
+              languageServerRoots["java"] == root,
+              let descriptor = catalog.descriptors.first(where: { $0.id == "java" }),
+              let context = mavenContextProvider(descriptor, root) else {
+            return .noSession
+        }
+        switch session.updateMavenConfiguration(context, reloadProjects: reloadProjects) {
+        case .success(let update): return .updated(update)
+        case .failure(let failure): return .failed(failure)
+        }
+    }
+
+    /// Reloads Java Maven projects and waits for readiness, preserving other
+    /// providers. A running session re-resolves in place; a restart is only the
+    /// recovery for a session that cannot take the update, or the way to start
+    /// one. Cancellation terminates only a session created by this reload.
     package func reloadJavaWorkspace(rootURL: URL) async throws {
+        if case .updated = updateJavaMavenConfiguration(rootURL: rootURL, reloadProjects: true) {
+            try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
+            return
+        }
         stopLanguageServer(providerID: "java")
         let operationID = try startLanguageServer(providerID: "java", rootURL: rootURL)
         do {
@@ -364,6 +501,35 @@ package final class LanguageToolingSessionManager: ObservableObject,
         rootURL: URL
     ) async throws -> JavaLaunchPreparation {
         try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+    }
+
+    /// Rebuilds the original running target without allowing a failed build to proceed.
+    package func buildJavaServiceUpdate(
+        target: JavaDebugLaunchTarget, fileURL: URL, rootURL: URL
+    ) async throws {
+        let paths = try await executeJavaCommand(
+            "vscode.java.resolveClasspath",
+            arguments: [.string(target.mainClass), .string(target.projectName ?? ""), .string("runtime")],
+            rootURL: rootURL
+        )
+        guard case .array(let groups) = paths, groups.count == 2,
+              Self.stringValues(groups[0]) == target.modulePaths,
+              Self.stringValues(groups[1]) == target.classPaths else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "Runtime paths changed. Restart the service to use the new dependencies."
+            )
+        }
+        let payload = JavaWorkspaceBuildRequest(
+            mainClass: target.mainClass, projectName: target.projectName,
+            filePath: fileURL.path, isFullBuild: false
+        )
+        let json = String(decoding: try JSONEncoder().encode(payload), as: UTF8.self)
+        let result = try await executeJavaCommand(
+            "vscode.java.buildWorkspace", arguments: [.string(json)], rootURL: rootURL
+        )
+        guard result == .integer(1) || result == .string("1") else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java compilation did not complete successfully.")
+        }
     }
 
     /// JDT's launchable classes for the workspace, starting the Java service
@@ -799,6 +965,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
               let session = languageServers[providerID],
               session.isRunning else { return }
         try session.notifyWorkspaceFilesChanged(changes)
+        if providerID == "java" { scheduleJavaDependencyRefresh(after: changes) }
     }
 
     package func closeDocument(_ fileURL: URL) {
@@ -862,6 +1029,14 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
     package func stopLanguageServer(providerID: String) {
         if providerID == "java" { projectPreparation = nil }
+        if providerID == "java" {
+            javaDependencyChangeTask?.cancel()
+            javaDependencyChangeTask = nil
+            javaDependencyRefreshTask?.cancel()
+            javaDependencyRefreshTask = nil
+            javaDependencyWorkspaceURL = nil
+            javaDependencySnapshot = nil
+        }
         let operationID = languageServerOperationIDs[providerID]
         if languageServers[providerID] != nil {
             let wasPreparing = switch languageServerStates[providerID] {
@@ -1707,7 +1882,16 @@ package final class LanguageToolingSessionManager: ObservableObject,
         }
         session.onProjectPreparation = { [weak self] snapshot in
             guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
-            if providerID == "java" { self.projectPreparation = snapshot }
+            if providerID == "java" {
+                let previous = self.projectPreparation
+                self.projectPreparation = snapshot
+                if snapshot.status != "ready" {
+                    self.javaDependencyChangeTask?.cancel()
+                    self.javaDependencyRefreshTask?.cancel()
+                } else if previous != snapshot {
+                    self.refreshJavaDependenciesWhenReady()
+                }
+            }
         }
         session.onMavenProfileTask = { [weak self] status in
             guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
@@ -1766,6 +1950,14 @@ package final class LanguageToolingSessionManager: ObservableObject,
         )
         switch state {
         case .stopped, .failed:
+            if providerID == "java" {
+                javaDependencyChangeTask?.cancel()
+                javaDependencyChangeTask = nil
+                javaDependencyRefreshTask?.cancel()
+                javaDependencyRefreshTask = nil
+                javaDependencyWorkspaceURL = nil
+                javaDependencySnapshot = nil
+            }
             clearLanguageServerSession(
                 providerID: providerID,
                 sessionIdentity: sessionIdentity,
@@ -1793,6 +1985,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 message: "Language server ready",
                 detail: session.serverInfo?.version
             )
+            if providerID == "java" { refreshJavaDependenciesWhenReady() }
         }
         onLanguageServerStateChange?(
             providerID,

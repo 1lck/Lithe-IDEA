@@ -8,6 +8,7 @@ import GitDiffEditorStack from "./git-diff-editor-stack";
 import GitDiffEditorSurface from "./git-diff-editor-surface";
 import { BinaryDiffViewer } from "./git-diff-binary";
 import ImageDiffViewer from "./git-diff-image";
+import CommitFileDiffPreview, { WorkingTreeCommitDiff } from "./commit-file-diff-preview";
 
 function isMultiFileDiff(data: unknown): data is MultiFileDiff {
   return typeof data === "object" && data !== null && "files" in data && Array.isArray(data.files);
@@ -25,6 +26,10 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
   }, [rawDiffData]);
 
   if (multiFileDiff) {
+    if (multiFileDiff.commitFilePreview) return <CommitFileDiffPreview multiDiff={multiFileDiff} />;
+    if (multiFileDiff.commitPreview && multiFileDiff.commitHash === "working-tree") {
+      return <WorkingTreeCommitDiff multiDiff={multiFileDiff} />;
+    }
     return <GitDiffEditorStack multiDiff={multiFileDiff} />;
   }
 

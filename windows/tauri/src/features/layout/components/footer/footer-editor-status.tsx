@@ -20,6 +20,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { CheckCircleIcon, HardDrivesIcon, LockIcon, LockOpenIcon } from "@/ui/icons";
 import { FooterStatusChip, FooterStatusLabel } from "./footer-status-chip";
+import { openEncodingPicker } from "@/features/command-palette/services/encoding-picker-state";
 
 const MEMORY_POLL_INTERVAL_MS = 10_000;
 
@@ -35,6 +36,7 @@ export function useFooterEditorStatusItems(): Array<ChromeItem<FooterTrailingIte
       ? {
           type: buffer.type,
           readOnly: buffer.type === "editor" && buffer.readOnly === true,
+          encoding: buffer.type === "editor" ? buffer.readEncoding ?? buffer.encoding ?? "UTF-8" : null,
         }
       : null;
   });
@@ -78,7 +80,14 @@ export function useFooterEditorStatusItems(): Array<ChromeItem<FooterTrailingIte
       ? {
           id: "encoding",
           label: t("footer.encoding"),
-          content: <FooterStatusLabel>{TEXT_FILE_ENCODING}</FooterStatusLabel>,
+          content: (
+            <FooterStatusChip
+              onClick={() => openEncodingPicker("choose")}
+              aria-label={t("footer.encoding")}
+            >
+              {activeBuffer.encoding ?? TEXT_FILE_ENCODING}
+            </FooterStatusChip>
+          ),
         }
       : null,
     isEditorBuffer

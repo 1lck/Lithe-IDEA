@@ -14,6 +14,8 @@ import LitheCoreContracts
 @MainActor
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
+    lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
+    @Published var isChangingAgentProvider = false
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }
     var searchSessionFeature: SearchSessionFeatureModel { featureGraph.searchSession }
@@ -78,6 +80,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         workspaceFeature.isPerformingProjectItemOperation
     }
     @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
+    /// An Agent conversation in this project waits for a permission decision.
+    @Published var agentConversationNeedsAttention = false
+    /// Agent panel settings state, created when the settings are first shown.
+    lazy var agentManagementFeature = AgentManagementFeatureModel(
+        service: services.agentManagement,
+        dataDirectory: agentDataDirectory
+    )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
     var commitMessage: String {
@@ -90,12 +99,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
     var isGeneratingCommitMessage: Bool { commitDraftFeature.isGenerating }
     var pendingGeneratedCommitMessage: String? { commitDraftFeature.pendingGeneratedMessage }
-    @Published var pendingTerminalCloseSessionID: UUID?
     var pendingRunAction: PendingRunAction? { runWorkflowCoordinator.pendingAction }
     @Published var pendingJavaLaunchDecision: PendingJavaLaunchDecision?
     var pendingJavaLaunchDecisionContinuation: CheckedContinuation<JavaLaunchDecisionResolution, Never>?
     @Published var debugBreakpointPresentation = DebugBreakpointPresentationState()
-    @Published var isDiscourseCommunityVisible = false
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
     var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot { languageToolingFeature.catalogSnapshot }
@@ -163,9 +170,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
     var githubFeature: GitHubFeatureModel { featureGraph.github }
-    var discourseCommunityFeature: DiscourseCommunityFeatureModel {
-        featureGraph.discourseCommunity
-    }
     var diagnosticsFeature: DiagnosticsFeatureModel { featureGraph.diagnostics }
     var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }
     var mediaFeature: MediaDocumentFeatureModel { featureGraph.media }
@@ -271,17 +275,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var javaFeature: JavaFeatureModel { featureGraph.java }
     var springFeature: SpringFeatureModel { featureGraph.spring }
     var mybatisFeature: MybatisFeatureModel { featureGraph.mybatis }
-    private var activeDatabaseFeature: DatabaseFeatureModel? {
+    // Views retain this instance in their environment so a final SwiftUI update
+    // remains safe after module shutdown clears the capability cache.
+    var databaseFeatureIfActive: DatabaseFeatureModel? {
         let capability: LitheDatabaseModule.DatabaseModuleCapability? = cachedModuleCapability(.databaseWorkspace)
         return capability?.feature
     }
-    var databaseFeature: DatabaseFeatureModel {
-        guard let activeDatabaseFeature else {
-            preconditionFailure("Database UI accessed before the Database module was activated.")
-        }
-        return activeDatabaseFeature
-    }
-    var isDatabaseModuleActive: Bool { activeDatabaseFeature != nil }
     var moduleSnapshots: [ModuleSnapshot] { services.moduleRuntime.snapshots() }
     var availableSidebarDestinations: [SidebarDestination] {
         SidebarDestination.allCases.filter { destination in
@@ -307,7 +306,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         activeModuleContributions.filter { $0.placement == .activityBar }
     }
     var rightSidebarContributions: [ModuleContribution] {
-        activeModuleContributions.filter { $0.placement == .rightSidebar }
+        AgentConversationEntryPolicy.rightSidebarContributions(from: activeModuleContributions)
     }
     var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
     func fileExists(at url: URL) -> Bool { services.fileStorage.fileExists(at: url) }
@@ -331,6 +330,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         editorDiagnosticsStore.diagnosticsByURL
     }
     var languageSessionChromeSignature: LanguageSessionChromeSignature?
+    /// Last Maven problem set announced for the workspace, so one failure is
+    /// reported once rather than on every diagnostics refresh.
+    var announcedMavenResolutionProblems = ""
 
     var detectedCodexConfiguration: CodexConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .codex }
@@ -351,6 +353,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// Regenerates the Run list once JDT has prepared the project, after a
     /// generation that could only show the previous Java entries.
     var javaEntrypointRefreshObservation: AnyCancellable?
+    /// Compares the generated Java entries with JDT once it has prepared the
+    /// project, after a load that found it still importing.
+    var javaEntrypointFreshnessObservation: AnyCancellable?
 
     func cachedModuleCapability<Capability: AnyObject>(
         _ id: ModuleCapabilityID,
@@ -388,6 +393,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         for ownership in services.pluginCatalog.languageSupports.values {
             let support = ownership.declaration
             if support.languageServerModuleID == moduleID {
+                (services.moduleRuntime.capability(.languageServerExtension(support.id))
+                    as? any LanguageDependencyProviding)?
+                    .setDependencySnapshotChangeHandler(nil)
+                runFeatureIfActive?.unregisterDependencySource(languageID: support.id)
                 languageToolingSessionsIfActive?.unregisterLanguageServerExtension(
                     languageID: support.id
                 )
@@ -609,6 +618,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func shutdownProjectSession() async {
+        await ideCapabilities.shutdown()
         shortcutSessionCoordinator?.shutdown()
         documentLanguageCoordinator?.stop()
         cancelJavaTestWorkflows()
@@ -863,57 +873,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         navigationHistoryFeature.reset()
         virtualDocumentProviderIDs.removeAll()
         blameVisibleURL = nil
+        closeGitCommitDiff()
         gitModuleCoordinator.resetFeature(gitFeatureIfActive)
         featureGraph.editorSession.resetContent()
         historyModuleCoordinator.resetFeature(projectHistoryFeatureIfActive)
         selectedSidebar = .project
         projectItemEditRequest = nil
         pendingProjectItemDeletion = nil
-    }
-
-    /// One-shot add/remove of recommended LSP artifact rules in Git local exclude.
-    /// Requests are serialized so click order matches write order. The Core write
-    /// itself runs off the MainActor through GitService.
-    private let lspGeneratedArtifactGitExcludeQueue = SerialMainActorActionQueue()
-    var isApplyingLSPGeneratedArtifactRules: Bool {
-        lspGeneratedArtifactGitExcludeQueue.isBusy
-    }
-
-    func applyLSPGeneratedArtifactGitExcludeRules(adding: Bool) {
-        guard workspaceURL != nil else { return }
-        objectWillChange.send()
-        lspGeneratedArtifactGitExcludeQueue.enqueue { [weak self] in
-            guard let self else { return }
-            let result = await self.performLSPGeneratedArtifactGitExclude(adding: adding)
-            switch result {
-            case .updated:
-                await self.gitFeatureIfActive?.refreshGitFromMetadataChange()
-            case .noRepository:
-                self.showNotification(
-                    "Hidden paths updated. No Git repository detected, so the Git local exclude list was not changed."
-                )
-            case .failed:
-                self.showNotification(
-                    "Hidden paths updated. The Git local exclude list could not be changed. You can retry the recommended-rules action."
-                )
-            }
-            self.objectWillChange.send()
-        }
-    }
-
-    private func performLSPGeneratedArtifactGitExclude(adding: Bool) async -> LSPGeneratedArtifactGitExcludeResult {
-        guard let workspaceURL else { return .failed }
-        guard let gitFeature = await activateGitModule() else { return .failed }
-        let command = await gitFeature.mutateLiteralLocalExcludePatterns(
-            LSPGeneratedArtifactVisibility.filePatterns,
-            adding: adding,
-            at: workspaceURL
-        )
-        return LSPGeneratedArtifactGitExcludeOutcome.classify(
-            succeeded: command.succeeded,
-            output: command.output,
-            operationErrorMessage: command.operationErrorMessage
-        )
     }
 
     func resumeGitObservationAfterActivation() async {
@@ -929,6 +895,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     private func finishWorkspaceClose(for workspaceURL: URL) {
+        ideCapabilities.disable()
         documentLanguageCoordinator?.stop()
         cancelJavaLanguageServerPreparation()
         beginModuleRuntimeShutdown()
@@ -942,6 +909,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         editorDiagnosticsStore.reset()
         historyModuleCoordinator.resetFeature(projectHistoryFeatureIfActive)
         workspaceSessionCoordinator.resetWorkspaceFeature()
+        closeGitCommitDiff()
         gitModuleCoordinator.resetFeature(gitFeatureIfActive)
         workbenchFeature.hideAllToolWindows()
         stopTerminalSessions()
@@ -1016,6 +984,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         isReadOnly: Bool = false,
         displayPath: String? = nil
     ) {
+        editorTabOrderFeature.repositoryDiffSelected = false
         selectedChange = nil
         closeBranchComparison()
         editorNavigationTarget = nil
@@ -1074,6 +1043,18 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await workspaceFeature.duplicateProjectItem(at: sourceURL)
     }
 
+    func moveProjectItems(_ urls: [URL], to directory: URL) async {
+        await workspaceFeature.moveProjectItems(urls, to: directory)
+    }
+
+    func duplicateProjectItems(_ urls: [URL]) async {
+        await workspaceFeature.duplicateProjectItems(urls)
+    }
+
+    func requestDeleteProjectItems(_ urls: [URL]) {
+        workspaceFeature.requestDeleteProjectItems(urls)
+    }
+
     func requestDeleteProjectItem(at url: URL, isDirectory: Bool) {
         workspaceFeature.requestDeleteProjectItem(at: url, isDirectory: isDirectory)
     }
@@ -1088,6 +1069,14 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func revealProjectItemInFinder(_ url: URL) {
         platformUI.revealInFileBrowser(url)
+    }
+
+    func copyProjectItems(_ urls: [URL]) {
+        if platformUI.copyFilesToClipboard(urls) { showNotification("Copied files") }
+    }
+
+    func pasteProjectItems(in directory: URL) async {
+        await workspaceFeature.pasteProjectItems(platformUI.fileURLsFromClipboard(), in: directory)
     }
 
     func copyProjectItemPath(_ url: URL, relative: Bool) {
@@ -1130,7 +1119,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             return
         }
         if let documentID = restoration.documentID {
-            try? openDocuments.first(where: { $0.id == documentID })?.reloadFromDisk()
+            if let document = openDocuments.first(where: { $0.id == documentID }) {
+                documentFeature.loadExternalVersion(of: document)
+            }
             activeDocumentID = documentID
         } else {
             openFile(restoration.url)
@@ -1147,7 +1138,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             return
         }
         if let documentID = restoration.documentID {
-            try? openDocuments.first(where: { $0.id == documentID })?.reloadFromDisk()
+            if let document = openDocuments.first(where: { $0.id == documentID }) {
+                documentFeature.loadExternalVersion(of: document)
+            }
             activeDocumentID = documentID
         }
         showNotification("Restored \(restoration.url.lastPathComponent)")
@@ -1211,6 +1204,33 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func saveDocument(_ document: EditorDocument) async throws {
         try await documentFeature.save(document)
+    }
+
+    func saveDocument(_ document: EditorDocument, encoding: DocumentEncoding) {
+        Task {
+            do {
+                try await documentFeature.save(document, encoding: encoding)
+                showNotification("Saved \(document.displayName) as \(encoding.displayName)")
+            } catch {
+                showNotification("Could not save \(document.displayName) as \(encoding.displayName)")
+            }
+        }
+    }
+
+    func reopenDocument(_ document: EditorDocument, with encoding: DocumentEncoding) {
+        documentFeature.requestReopen(document, with: encoding)
+    }
+
+    func resolvePendingEncodingReopen(saveChanges: Bool) {
+        documentFeature.resolvePendingEncodingReopen(saveChanges: saveChanges)
+    }
+
+    func dismissPendingEncodingReopen(_ id: UUID?) {
+        documentFeature.dismissPendingEncodingReopen(id)
+    }
+
+    func cancelEncodingChange() {
+        documentFeature.cancelEncodingChange()
     }
 
     func workspaceRelativePath(for url: URL, root: URL) -> String? {
@@ -1288,6 +1308,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 )
                 return false
             }
+            registerLanguageDependencySourceIfAvailable(support: support)
         }
         if let snapshot = try? services.moduleRuntime.snapshot(for: .languageIntelligence),
            snapshot.state != .active,
@@ -1381,9 +1402,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         Task { await gitFeature.finishToggleStaging(change, staged: staged) }
     }
 
-    func setStaging(_ changes: [GitChange], staged: Bool) {
+    func setStaging(_ changes: [GitChange], staged: Bool, includeWorkingTreeChanges: Bool = false) {
         guard let gitFeature = gitFeatureIfActive else { return }
-        let pendingChanges = gitFeature.beginSetStaging(changes, staged: staged)
+        let pendingChanges = gitFeature.beginSetStaging(changes, staged: staged, includeWorkingTreeChanges: includeWorkingTreeChanges)
         Task { await gitFeature.finishSetStaging(pendingChanges, staged: staged) }
     }
 
@@ -1430,15 +1451,47 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func showGitCommitDiff(for file: GitCommitFile) {
-        activeDocumentID = nil
+        if selectedGitCommitDiffContext == nil || !editorTabOrderFeature.contains(.repositoryDiff) {
+            editorTabOrderFeature.moveToEnd(.repositoryDiff)
+        }
+        selectRepositoryDiffTab()
+        let requestID = UUID()
+        editorTabOrderFeature.repositoryDiffRequestID = requestID
         Task { [weak self] in
-            guard let gitFeature = await self?.activateGitModule() else { return }
-            await gitFeature.showGitCommitDiff(for: file)
+            let feature = await self?.activateGitModule()
+            guard let self, self.editorTabOrderFeature.repositoryDiffRequestID == requestID else { return }
+            guard let feature else { self.closeGitCommitDiff(); return }
+            await feature.showGitCommitDiff(for: file)
         }
     }
 
+    func showSavedChangesDiff(_ snapshot: GitSavedChangesSnapshot, version: String, file: GitCommitFile) {
+        guard let feature = gitFeatureIfActive, feature.gitRepositoryRoot == snapshot.repositoryRoot else { return }
+        editorTabOrderFeature.repositoryDiffRequestID = UUID()
+        if !editorTabOrderFeature.contains(.repositoryDiff) { editorTabOrderFeature.moveToEnd(.repositoryDiff) }
+        feature.showSavedChangesDiff(snapshot, version: version, file: file)
+        selectRepositoryDiffTab()
+    }
+
     func closeGitCommitDiff() {
+        let wasSelected = isRepositoryDiffSelected
+        let previous = editorTabOrderFeature.repositoryDiffReturnTab
+        editorTabOrderFeature.repositoryDiffSelected = false
+        editorTabOrderFeature.repositoryDiffReturnTab = nil
+        editorTabOrderFeature.repositoryDiffRequestID = nil
+        editorTabOrderFeature.remove(.repositoryDiff)
         gitFeatureIfActive?.closeGitCommitDiff()
+        guard wasSelected else { return }
+        let target = previous.flatMap { editorTabItems.contains($0) ? $0 : nil } ?? editorTabItems.last
+        switch target {
+        case .document(let id):
+            if let document = openDocuments.first(where: { $0.id == id }) { selectEditorDocument(document) }
+        case .terminal(let id):
+            if let session = terminalSessions.first(where: { $0.id == id }) { selectEditorTerminalSession(session) }
+        case .media(let id):
+            if let media = openMediaDocuments.first(where: { $0.id == id }) { selectMediaDocument(media) }
+        case .repositoryDiff, nil: break
+        }
     }
 
     func showGitCommit(_ hash: String) async {

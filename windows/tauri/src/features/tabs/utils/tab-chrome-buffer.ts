@@ -1,3 +1,4 @@
+import { getCommitPreviewFileName, isCommitPreview } from "@/features/git/utils/diff-buffer-label";
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
 
 const EMPTY_TOKENS: never[] = [];
@@ -37,6 +38,15 @@ function tabChromeBufferEqual(left: PaneContent, right: PaneContent): boolean {
 
   if (left.type === "editor" && right.type === "editor") {
     return left.isDirty === right.isDirty && left.isVirtual === right.isVirtual;
+  }
+
+  // The working-tree diff tab is reused across files and entry points; its title follows
+  // whether it is a commit preview and which change it shows.
+  if (left.type === "diff" && right.type === "diff") {
+    return (
+      isCommitPreview(left.diffData) === isCommitPreview(right.diffData) &&
+      getCommitPreviewFileName(left.diffData) === getCommitPreviewFileName(right.diffData)
+    );
   }
 
   return true;

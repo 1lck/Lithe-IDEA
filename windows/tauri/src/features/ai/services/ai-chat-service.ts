@@ -152,6 +152,7 @@ export const getChatCompletionStream = async (
   onResourceChunk?: (uri: string, name: string | null) => void,
   chatId?: string,
   systemPromptOverride?: string,
+  onAcpActivityQuiet?: (quiet: boolean) => void,
 ): Promise<void> => {
   try {
     if (agentId === CODEX_INTEGRATION_ID) {
@@ -191,6 +192,7 @@ export const getChatCompletionStream = async (
           onEvent: onAcpEvent,
           onImageChunk,
           onResourceChunk,
+          onActivityQuiet: onAcpActivityQuiet,
         },
         chatId,
       );

@@ -4,6 +4,65 @@ import LitheExecutionModule
 
 @MainActor
 extension AppModel {
+    func toggleMaven() {
+        guard hasMavenProject else {
+            showNotification("No Maven project was detected in this workspace")
+            workbenchFeature.setVisibility(.maven, isVisible: false)
+            return
+        }
+        guard toggleToolWindow(.maven) else { return }
+        Task { [weak self] in
+            guard let self, await activateExecutionModule() != nil,
+                  let workspaceURL else { return }
+            await loadProjectServicesForAppliedSnapshot(at: workspaceURL)
+        }
+        guard let workspaceURL else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let capability = await self.activateExecutionModule()
+            if capability?.mavenFeature.project == nil {
+                await self.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
+            }
+        }
+    }
+
+    func runMaven(
+        phase: MavenLifecyclePhase,
+        module: MavenModule?
+    ) {
+        showToolWindow(.mavenOutput)
+        Task { [weak self] in
+            guard let feature = await self?.activateExecutionModule()?.mavenFeature else { return }
+            feature.run(phase: phase, module: module)
+        }
+    }
+
+    func runMavenGoal(_ goal: String, module: MavenModule?) {
+        showToolWindow(.mavenOutput)
+        Task { [weak self] in
+            guard let feature = await self?.activateExecutionModule()?.mavenFeature else { return }
+            feature.runCustomGoal(goal, module: module)
+        }
+    }
+
+    func stopMaven() {
+        runWorkflowCoordinator.cancelModuleOperation()
+        executionModuleCoordinator.stopFeatures(
+            maven: mavenFeatureIfActive,
+            run: nil
+        )
+    }
+
+    func openMavenIssue(_ issue: MavenBuildIssue) {
+        guard let fileURL = issue.fileURL,
+              workspaceFeature.fileExists(at: fileURL) else { return }
+        navigateToEditorLocation(
+            url: fileURL.standardizedFileURL,
+            line: max(0, (issue.line ?? 1) - 1),
+            utf16Column: max(0, (issue.column ?? 1) - 1)
+        )
+    }
+
     var isMavenOperationBusy: Bool {
         runWorkflowCoordinator.isModuleOperationStarting
             || mavenFeatureIfActive?.isRunning == true

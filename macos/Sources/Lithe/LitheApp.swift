@@ -58,7 +58,6 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     var recordCleanPluginShutdown: (() -> Void)?
     var prepareStableRollbackTermination: (() -> Bool)?
     var cancelStableRollbackTermination: (() -> Bool)?
-    var authorizationCallbackRouter: MacExternalAuthorizationCallbackRouter?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
@@ -249,9 +248,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleOpenedURLs(_ urls: [URL]) {
         for url in urls {
-            if url.scheme == "lithe" {
-                authorizationCallbackRouter?.route(url)
-            } else if url.isFileURL {
+            if url.isFileURL {
                 if let projectSessions {
                     projectSessions.openStandaloneFile(url)
                 } else if !pendingFileURLs.contains(where: {
@@ -346,7 +343,6 @@ struct LitheApp: App {
         let processRegistry = ManagedProcessRegistry()
         let moduleStore = MacModuleConfigurationStore(store: store)
         let pluginRuntimeRecovery = MacPluginRuntimeRecoveryCoordinator()
-        let authorizationCallbackRouter = MacExternalAuthorizationCallbackRouter()
         pluginRuntimeRecovery.recoverPreviousSession(using: moduleStore)
         _settings = StateObject(wrappedValue: settings)
         let projectWindowLauncher = ProjectWindowLauncher()
@@ -365,7 +361,6 @@ struct LitheApp: App {
                             : .normal,
                         moduleStore: moduleStore,
                         pluginRuntimeRecovery: pluginRuntimeRecovery,
-                        authorizationCallbackRouter: authorizationCallbackRouter,
                         gitPerformanceLogger: gitPerformanceLogger
                     ).services
                 )
@@ -397,7 +392,6 @@ struct LitheApp: App {
         })
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
-        appDelegate.authorizationCallbackRouter = authorizationCallbackRouter
         appDelegate.recordCleanPluginShutdown = {
             pluginRuntimeRecovery.recordCleanShutdown(using: moduleStore)
         }
@@ -470,6 +464,7 @@ struct LitheApp: App {
                 .environmentObject(frameRateMonitor)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
+                .font(LitheTheme.uiFont(.body))
                 // SwiftUI does not consistently re-resolve every existing
                 // LocalizedStringKey when only the locale environment value
                 // changes. Re-identify the root so a language selection takes
@@ -529,7 +524,7 @@ struct LitheApp: App {
 
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
-                    Task { await updateChecker.checkForUpdates(manual: true) }
+                    Task { await updateChecker.checkForUpdates(manual: true, presentingDetails: true) }
                 }
                 .disabled(updateChecker.isBusy)
 
@@ -665,6 +660,7 @@ struct LitheApp: App {
                         .environmentObject(frameRateMonitor)
                         .environmentObject(updateChecker)
                         .environment(\.locale, settings.language.locale)
+                        .font(LitheTheme.uiFont(.body))
                         .id("\(windowID.uuidString)-\(settings.language)")
                         .preferredColorScheme(settings.themePreference.preferredColorScheme)
                 }
@@ -677,16 +673,27 @@ struct LitheApp: App {
         .windowStyle(.hiddenTitleBar)
 
         Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {
-            SettingsWindow(
-                model: model,
-                settings: settings
-            )
+            SettingsWindowHost(projectSessions: projectSessions, settings: settings)
+            .tint(LitheTheme.accent)
             .environmentObject(settings)
             .environmentObject(updateChecker)
             .environment(\.locale, settings.language.locale)
+            .font(LitheTheme.uiFont(.body))
         }
-        .defaultSize(width: 1040, height: 720)
+        .defaultSize(width: 900, height: 668)
         .windowResizability(.contentMinSize)
+        .windowStyle(.hiddenTitleBar)
+
+        Window(softwareUpdateWindowTitle(for: settings.language), id: LitheWindowID.softwareUpdate) {
+            UpdateDetailsView()
+                .environmentObject(model)
+                .environmentObject(updateChecker)
+                .environment(\.locale, settings.language.locale)
+                .font(LitheTheme.uiFont(.body))
+                .id(settings.language)
+                .preferredColorScheme(settings.themePreference.preferredColorScheme)
+        }
+        .windowResizability(.contentSize)
     }
 
     private static var startupProjectURL: URL? {
@@ -707,9 +714,9 @@ private struct ProjectWindowMissingSessionView: View {
     var body: some View {
         VStack(spacing: 12) {
             Text("This project window is no longer available.")
-                .font(.system(size: 15, weight: .medium))
+                .font(LitheTheme.uiFont(size: 15, weight: .medium))
             Text("Its session was closed or could not be restored.")
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(.secondary)
             Button("Close Window") {
                 ProjectWindowAppKitDismisser.dismiss(windowID: windowID)
@@ -727,15 +734,46 @@ private struct ProjectWindowMissingSessionView: View {
     }
 }
 
+private struct SettingsWindowHost: View {
+    @ObservedObject var projectSessions: ProjectSessionManager
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        if let model = projectSessions.settingsModel {
+            SettingsWindow(
+                model: model,
+                settings: settings,
+                projectSessions: projectSessions,
+                bindingID: projectSessions.settingsBindingID
+            ) {
+                projectSessions.releaseSettings(for: model.id)
+            }
+            .id(model.id)
+        }
+    }
+}
+
 private struct SettingsWindow: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
+    let projectSessions: ProjectSessionManager
+    let bindingID: UUID
     @StateObject private var windowReference = SettingsWindowReference()
     @StateObject private var viewState: SettingsViewState
+    let onDisappear: () -> Void
 
-    init(model: AppModel, settings: AppSettings) {
+    init(
+        model: AppModel,
+        settings: AppSettings,
+        projectSessions: ProjectSessionManager,
+        bindingID: UUID,
+        onDisappear: @escaping () -> Void
+    ) {
         self.model = model
         self.settings = settings
+        self.projectSessions = projectSessions
+        self.bindingID = bindingID
+        self.onDisappear = onDisappear
         _viewState = StateObject(wrappedValue: SettingsViewState(
             initialCategory: model.requestedSettingsCategory
         ))
@@ -752,21 +790,29 @@ private struct SettingsWindow: View {
             )
             .environmentObject(model)
         }
+        .environment(\.lithePointingHandCursorEnabled, false)
         .background(
             SettingsWindowAccessor(
                 reference: windowReference,
                 title: settingsWindowTitle(for: settings.language),
-                themePreference: settings.themePreference
+                themePreference: settings.themePreference,
+                closeEnabled: !viewState.isApplyingPluginChanges
             )
         )
         .onDisappear {
+            viewState.pendingPluginEnabledStates.removeAll()
             model.isSettingsPresented = false
+            onDisappear()
         }
     }
 
     private func close() {
-        model.isSettingsPresented = false
-        windowReference.window?.performClose(nil)
+        guard !viewState.isApplyingPluginChanges else { return }
+        projectSessions.closeSettingsIfCurrent(for: model.id, bindingID: bindingID) {
+            model.isSettingsPresented = false
+            windowReference.window?.standardWindowButton(.closeButton)?.isEnabled = true
+            windowReference.window?.performClose(nil)
+        }
     }
 }
 
@@ -784,6 +830,7 @@ struct SettingsAppearanceContainer<Content: View>: View {
 
     var body: some View {
         content.preferredColorScheme(themePreference.preferredColorScheme)
+            .background { LitheTheme.settingsSurface.ignoresSafeArea() }
     }
 }
 
@@ -792,7 +839,7 @@ private final class SettingsWindowReference: ObservableObject {
     weak var window: NSWindow?
 }
 
-private final class SettingsTitlebarBackgroundView: NSView {
+final class SettingsTitlebarBackgroundView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
@@ -809,6 +856,7 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
     let reference: SettingsWindowReference
     let title: String
     let themePreference: AppThemePreference
+    let closeEnabled: Bool
 
     func makeNSView(context: Context) -> SettingsWindowProbe {
         let view = SettingsWindowProbe(frame: .zero)
@@ -833,31 +881,57 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let window = view.window else { return }
             reference.window = window
-            window.title = title
-            window.level = .floating
-            let windowAppearance = themePreference.windowAppearance
-            if window.appearance?.name != windowAppearance?.name {
-                window.appearance = windowAppearance
-            }
-            if window.contentView?.appearance?.name != windowAppearance?.name {
-                window.contentView?.appearance = windowAppearance
-            }
-            window.styleMask.insert(.fullSizeContentView)
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .visible
-            window.titlebarSeparatorStyle = .none
-            window.isOpaque = true
-            let settingsSurface = LitheTheme.settingsSurfaceNSColor(
-                for: window.effectiveAppearance
+            SettingsWindowChrome.configure(
+                window,
+                title: title,
+                themePreference: themePreference,
+                closeEnabled: closeEnabled
             )
-            window.backgroundColor = settingsSurface
-            applySettingsSurface(toTitlebarOf: window, color: settingsSurface)
-            window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
-            window.standardWindowButton(.zoomButton)?.isEnabled = true
+        }
+    }
+}
+
+@MainActor
+enum SettingsWindowChrome {
+    static weak var ownerWindow: NSWindow?
+    static weak var settingsWindow: NSWindow?
+
+    static func configure(
+        _ window: NSWindow,
+        title: String,
+        themePreference: AppThemePreference,
+        closeEnabled: Bool? = nil
+    ) {
+        settingsWindow = window
+        window.title = title
+        window.level = .normal
+        if let ownerWindow, ownerWindow !== window, window.parent !== ownerWindow {
+            window.parent?.removeChildWindow(window)
+            ownerWindow.addChildWindow(window, ordered: .above)
+        }
+        let windowAppearance = themePreference.windowAppearance
+        if window.appearance?.name != windowAppearance?.name {
+            window.appearance = windowAppearance
+        }
+        if window.contentView?.appearance?.name != windowAppearance?.name {
+            window.contentView?.appearance = windowAppearance
+        }
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .visible
+        window.titlebarSeparatorStyle = .none
+        window.isOpaque = true
+        let settingsSurface = LitheTheme.settingsSurfaceNSColor(for: window.effectiveAppearance)
+        window.backgroundColor = settingsSurface
+        applySettingsSurface(toTitlebarOf: window, color: settingsSurface)
+        window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
+        window.standardWindowButton(.zoomButton)?.isEnabled = true
+        if let closeEnabled {
+            window.standardWindowButton(.closeButton)?.isEnabled = closeEnabled
         }
     }
 
-    private func applySettingsSurface(toTitlebarOf window: NSWindow, color: NSColor) {
+    private static func applySettingsSurface(toTitlebarOf window: NSWindow, color: NSColor) {
         // AppKit places the titlebar in multiple nested views. Styling only
         // the close-button's immediate superview leaves the opaque theme
         // frame above it untouched, which is the extra strip seen in the
@@ -894,6 +968,14 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
 private func settingsWindowTitle(for language: AppLanguage) -> String {
     String(
         localized: "Settings",
+        bundle: .main,
+        locale: language.locale
+    )
+}
+
+private func softwareUpdateWindowTitle(for language: AppLanguage) -> String {
+    String(
+        localized: "Software Update",
         bundle: .main,
         locale: language.locale
     )

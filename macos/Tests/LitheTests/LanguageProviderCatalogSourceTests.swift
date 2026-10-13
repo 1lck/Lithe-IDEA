@@ -150,6 +150,57 @@ struct LanguageProviderCatalogSourceTests {
     }
 
     @Test
+    func installedPackageKeepsSharedLaunchMetadataForItsControlCenter() throws {
+        let source = PluginLanguageProviderCatalogSource(
+            base: RustLanguageProviderCatalogSource(loader: CatalogPayloadLoader(
+                isAvailable: true,
+                data: Data("""
+                {
+                  "version": 2,
+                  "origin": "builtin",
+                  "providers": [{
+                    "id": "php",
+                    "displayName": "PHP",
+                    "fileExtensions": ["php"],
+                    "fileNames": [],
+                    "fileNamePrefixes": [],
+                    "capabilities": ["languageServer"],
+                    "activationPolicy": "onDemand",
+                    "languageId": "php",
+                    "languageIdsByExtension": {},
+                    "languageIdsByFileName": {},
+                    "languageServerLaunch": {
+                      "executableNames": ["intelephense"],
+                      "arguments": ["--stdio"],
+                      "environment": {}
+                    },
+                    "languageServerInstallation": {
+                      "homebrewFormula": "intelephense",
+                      "officialDownloadURL": "https://intelephense.com/"
+                    }
+                  }],
+                  "diagnostics": []
+                }
+                """.utf8)
+            )),
+            languageSupports: [LanguageSupportDeclaration(
+                id: "php",
+                displayName: "PHP",
+                fileExtensions: ["php"],
+                languageServerModuleID: .languageServerExtension("php")
+            )]
+        )
+
+        let provider = try #require(source.load().catalog.provider(
+            for: URL(fileURLWithPath: "/tmp/index.php")
+        ))
+
+        #expect(provider.languageServerLaunch?.executableNames == ["intelephense"])
+        #expect(provider.languageServerLaunch?.arguments == ["--stdio"])
+        #expect(provider.languageServerInstallation == nil)
+    }
+
+    @Test
     func syntaxOnlyBundledLanguagesDoNotAdvertiseAnUnimplementedServer() throws {
         let source = PluginLanguageProviderCatalogSource(
             base: RustLanguageProviderCatalogSource(loader: CatalogPayloadLoader(

@@ -13,6 +13,8 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useGitLogController } from "../../hooks/use-git-log-controller";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { useGitWorkspaceReferences } from "../../hooks/use-git-workspace-references";
 import { useGitDiffActions } from "../../hooks/use-git-diff-actions";
 import {
   checkoutGitReference,
@@ -22,7 +24,6 @@ import {
   renameBranch,
   setBranchUpstream,
   unsetBranchUpstream,
-  updateBranch,
 } from "../../api/git-branches-api";
 import {
   checkoutAndRebase,
@@ -31,13 +32,16 @@ import {
   rebaseOntoBranch,
   type IntegrationOutcome,
 } from "../../api/git-integration-api";
+import { withCommitDescription } from "../../api/git-commits-api";
 import { deleteRemoteBranch, fetchChanges } from "../../api/git-remotes-api";
+import { normalizeRepositoryPath } from "../../api/git-repo-api";
 import { showGitRebaseDialog } from "../../services/git-rebase-dialog-service";
 import { showGitWorktreeDialog } from "../../services/git-worktree-dialog-service";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import { useRepositoryStore } from "../../stores/git-repository.store";
 import type { GitCommit, GitFile, GitReference } from "../../types/git.types";
 import { useGitHistoryMutations } from "../../hooks/use-git-history-mutations";
+import { useGitLogTagDeletion } from "../../hooks/use-git-log-tag-deletion";
 import { useGitPullWorkflow } from "../../hooks/use-git-pull-workflow";
 import {
   resolveGitHistoryContextSelection,
@@ -50,6 +54,8 @@ import {
 } from "../../utils/git-reference-actions";
 import { selectedReferenceAfterRename } from "../../utils/git-log-refresh";
 import { showGitPushDialog } from "../../services/git-push-dialog-service";
+import { updateGitLogBranch } from "../../services/git-log-branch-update";
+import { getGitPullResultPresentation } from "../../utils/git-pull-result-presentation";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 import type {
   WorkingTreeDiffEntry,
@@ -58,6 +64,7 @@ import type {
 import { GitCommitInspector } from "./git-commit-inspector";
 import { GitCommitTable } from "./git-commit-table";
 import { GitLogTitleBar } from "./git-log-title-bar";
+import { GitCreateTagDialog } from "./git-create-tag-dialog";
 import { GitReferenceTree } from "./git-reference-tree";
 import GitRemoteManager from "../git-remote-manager";
 import { GitRepositoryEmptyState } from "../git-repository-empty-state";
@@ -77,14 +84,28 @@ type DirectReferenceAction = Extract<
 
 export function GitLogToolWindow() {
   const { t } = useTranslation();
+  const workspaceId = useActiveWorkspaceId();
   const [panel, setPanel] = useState<"log" | "console">("log");
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
+  const availableRepoPaths = useRepositoryStore.use.availableRepoPaths();
+  const { selectRepository, syncWorkspaceRepositories } = useRepositoryStore.use.actions();
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
-  const repoPath = activeRepoPath ?? rootFolderPath ?? null;
+  const repoPath = activeRepoPath ?? availableRepoPaths[0] ?? rootFolderPath ?? null;
+  // The Log can be opened before the Source Control view has run repository
+  // discovery; in that case a folder that contains repositories would show
+  // "not a Git repository" until something else discovers them. Trigger it here
+  // so the pane resolves to an active repository on its own.
+  useEffect(() => {
+    if (!rootFolderPath || availableRepoPaths.length > 0) return;
+    void syncWorkspaceRepositories(rootFolderPath);
+  }, [availableRepoPaths.length, rootFolderPath, syncWorkspaceRepositories]);
+  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
+  const pendingReferenceSelectionRef = useRef<GitReference | null>(null);
   const {
     history,
+    repositoryCommits,
     loadState,
     error,
     selectedReference,
@@ -93,13 +114,33 @@ export function GitLogToolWindow() {
     forgetReference,
     refresh,
     loadMore,
-  } = useGitLogController(repoPath);
+  } = useGitLogController(repoPath, pendingReferenceSelectionRef.current);
+  const { referencesByRepository, errorsByRepository, ensureRepository, retryRepository } =
+    useGitWorkspaceReferences(availableRepoPaths, repoPath);
   const pullWorkflow = useGitPullWorkflow({ repoPath: repoPath ?? "", refresh });
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
+  const [previewRequest, setPreviewRequest] = useState(0);
+  const [graphNavigationRequest, setGraphNavigationRequest] = useState(0);
   const [isReferenceOperating, setIsReferenceOperating] = useState(false);
+  const branchUpdateScope = `${workspaceId}\0${repoPath ?? ""}`;
+  const latestBranchUpdateScopeRef = useRef(branchUpdateScope);
+  latestBranchUpdateScopeRef.current = branchUpdateScope;
+  const branchUpdateRequestRef = useRef<symbol | null>(null);
+  const [pendingBranchUpdateScope, setPendingBranchUpdateScope] = useState<string | null>(null);
+  useEffect(() => {
+    setPendingBranchUpdateScope(null);
+    return () => {
+      branchUpdateRequestRef.current = null;
+    };
+  }, [branchUpdateScope]);
   const [showFetchOptions, setShowFetchOptions] = useState(false);
   const [showRemoteManager, setShowRemoteManager] = useState(false);
+  const [tagRequest, setTagRequest] = useState<{
+    workspaceId: string;
+    repoPath: string;
+    commit: GitCommit;
+  } | null>(null);
   const emptyContextMenu = useDropdownMenu();
   const selectionAnchorRef = useRef<string | null>(null);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
@@ -126,6 +167,27 @@ export function GitLogToolWindow() {
     setSelectedCommitHashes(new Set());
     selectionAnchorRef.current = null;
     setShowFetchOptions(false);
+    setTagRequest(null);
+  }, [repoPath]);
+
+  useEffect(() => {
+    setTagRequest(null);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    const pendingReference = pendingReferenceSelectionRef.current;
+    if (!pendingReference) return;
+    if (
+      !repoPath ||
+      !pendingReference.repositoryPath ||
+      normalizeRepositoryPath(repoPath) !==
+        normalizeRepositoryPath(pendingReference.repositoryPath)
+    ) {
+      return;
+    }
+    // The controller consumed this reference as the initial selection for the
+    // repository switch; clear it so a later switch cannot reuse it.
+    pendingReferenceSelectionRef.current = null;
   }, [repoPath]);
 
   const clearHistorySelection = useCallback(async () => {
@@ -143,9 +205,24 @@ export function GitLogToolWindow() {
     squashSelectedCommits,
     resetBranchToCommit,
     cherryPickSelectedCommit,
+    revertSelectedCommit,
   } = useGitHistoryMutations({ repoPath, onCompleted: clearHistorySelection });
-  const isReferenceMutationPending =
-    isReferenceOperating || pullWorkflow.isPulling || isMutatingHistory;
+  const isOtherGitMutationPending =
+    isReferenceOperating ||
+    pendingBranchUpdateScope === branchUpdateScope ||
+    pullWorkflow.isPulling ||
+    isMutatingHistory ||
+    tagRequest !== null;
+  const { deleteTagReference, isDeletingTag } = useGitLogTagDeletion({
+    repoPath,
+    scope: `${workspaceId}\0${repoPath ?? ""}`,
+    isBlocked: isOtherGitMutationPending,
+    onDeleted: async (reference) => {
+      forgetReference(reference);
+      await refresh();
+    },
+  });
+  const isReferenceMutationPending = isOtherGitMutationPending || isDeletingTag;
   const navigateToSelectedBranchHead = useCallback(() => {
     if (!selectedReference || selectedReference.kind === "tag") return;
     const head = history.commits[0];
@@ -154,6 +231,7 @@ export function GitLogToolWindow() {
     setSelectedCommitHashes(new Set([head.hash]));
     selectionAnchorRef.current = head.hash;
     setSelectedCommit(head);
+    setGraphNavigationRequest((request) => request + 1);
   }, [history.commits, selectedReference, setFilterQuery]);
   const emptyWorkingTreeEntries = useMemo<Record<WorkingTreeDiffScope, WorkingTreeDiffEntry[]>>(
     () => ({
@@ -167,12 +245,17 @@ export function GitLogToolWindow() {
   const {
     isLoadingCommitDiff,
     viewCommitDiff,
+    previewCommitFileDiff,
     viewCommitRangeDiff,
     viewCommitSelectionDiff,
     viewBranchDiff,
     viewReferenceWorkingTreeDiff,
   } = useGitDiffActions({
     activeRepoPath: repoPath,
+    commitPreviewScope:
+      isBottomPaneVisible && panel === "log" && selectedCommits.length > 0
+        ? JSON.stringify(selectedCommits.map((commit) => commit.hash))
+        : null,
     gitFileByPath: emptyGitFileByPath,
     workingTreeDiffEntriesByScope: emptyWorkingTreeEntries,
     commitByHash,
@@ -198,6 +281,7 @@ export function GitLogToolWindow() {
       ? commit.hash
       : visibleCommitHashes.find((hash) => result.selected.has(hash));
     setSelectedCommit(activeHash ? (commitByHash.get(activeHash) ?? null) : null);
+    setPreviewRequest((request) => request + 1);
   };
 
   const selectCommitForContextMenu = (commit: GitCommit) => {
@@ -262,20 +346,28 @@ export function GitLogToolWindow() {
       return;
     }
 
-    const confirmed = await showConfirmDialog(
-      t("git.log.confirmAction", {
-        action: t(`git.log.action.${action}`),
-        reference: reference.shortName,
-      }),
-      { title: t(`git.log.action.${action}`) },
-    );
+    const confirmed =
+      (action === "checkout" && reference.kind !== "tag") ||
+      (await showConfirmDialog(
+        t("git.log.confirmAction", {
+          action: t(`git.log.action.${action}`),
+          reference: reference.shortName,
+        }),
+        { title: t(`git.log.action.${action}`) },
+      ));
     if (!confirmed) return;
     setIsReferenceOperating(true);
     try {
       if (action === "checkout") {
         const result = await checkoutGitReference(repoPath, reference);
-        if (result.success) toast.success(result.message);
-        else toast.error(result.message);
+        if (result.success) {
+          toast.success(t("git.log.actionSucceeded", {
+            action: t("git.log.action.checkout"),
+            reference: reference.shortName,
+          }));
+        } else {
+          toast.error(result.message);
+        }
       } else {
         const outcome =
           action === "checkoutAndRebase"
@@ -431,25 +523,49 @@ export function GitLogToolWindow() {
   };
 
   const updateSelectedBranch = async (reference: GitReference) => {
-    if (!repoPath || isReferenceMutationPending) return;
+    if (
+      !repoPath ||
+      isReferenceMutationPending ||
+      branchUpdateRequestRef.current ||
+      latestBranchUpdateScopeRef.current !== branchUpdateScope ||
+      reference.kind !== "local" ||
+      !reference.upstreamShortName
+    ) return;
     const action = t("git.log.updateBranch");
-    if (!reference.isCurrent) {
-      await runReferenceMutation(action, () => updateBranch(repoPath, reference));
-      return;
-    }
-    setIsReferenceOperating(true);
+    const request = Symbol("update-branch");
+    branchUpdateRequestRef.current = request;
+    setPendingBranchUpdateScope(branchUpdateScope);
+    const isCurrent = () =>
+      branchUpdateRequestRef.current === request &&
+      latestBranchUpdateScopeRef.current === branchUpdateScope;
     try {
-      await pullWorkflow.pull();
+      const result = await updateGitLogBranch(
+        repoPath,
+        reference,
+        async () => {
+          if (isCurrent()) await refresh();
+        },
+        isCurrent,
+      );
+      if (!isCurrent()) return;
+      if (result.status === "branch-updated") {
+        toast.success(t("git.actionCompleted", { action }));
+      } else {
+        const presentation = getGitPullResultPresentation(result, t);
+        if (presentation) toast[presentation.tone](presentation.message);
+      }
     } catch (error) {
-      toast.error(referenceActionErrorMessage(action, error));
+      if (isCurrent()) toast.error(referenceActionErrorMessage(action, error));
     } finally {
-      setIsReferenceOperating(false);
+      if (isCurrent()) {
+        branchUpdateRequestRef.current = null;
+        setPendingBranchUpdateScope(null);
+      }
     }
   };
 
   const fetchReferences = async (options?: GitFetchOptions) => {
     if (!repoPath || isReferenceMutationPending) return;
-    setPanel("console");
     setIsReferenceOperating(true);
     try {
       const result = await fetchChanges(repoPath, options);
@@ -519,6 +635,9 @@ export function GitLogToolWindow() {
         break;
       case "deleteRemote":
         void deleteRemoteReference(reference);
+        break;
+      case "deleteTag":
+        void deleteTagReference(reference);
         break;
       case "tracking":
         break;
@@ -623,9 +742,24 @@ export function GitLogToolWindow() {
             <GitReferenceTree
               repoPath={repoPath}
               references={history.references}
+              referencesByRepository={referencesByRepository}
+              referenceErrorsByRepository={errorsByRepository}
+              onEnsureRepository={ensureRepository}
+              onRetryRepository={retryRepository}
+              repositoryPaths={availableRepoPaths}
+              activeRepoPath={repoPath}
               selectedReference={selectedReference}
               onSelect={(reference) => {
                 setSelectedCommit(null);
+                if (
+                  reference?.repositoryPath &&
+                  normalizeRepositoryPath(reference.repositoryPath) !==
+                    normalizeRepositoryPath(repoPath)
+                ) {
+                  pendingReferenceSelectionRef.current = reference;
+                  selectRepository(reference.repositoryPath);
+                  return;
+                }
                 selectReference(reference);
               }}
               isMutating={isReferenceMutationPending}
@@ -649,9 +783,13 @@ export function GitLogToolWindow() {
             <GitCommitTable
               emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} onShowConsole={() => setPanel("console")} />}
               commits={history.commits}
+              repositoryCommits={repositoryCommits}
+              references={history.references}
+              selectedReference={selectedReference}
               selectedCommit={activeSelectedCommit}
               selectedCommitHashes={selectedCommitHashes}
-              isMutatingHistory={isMutatingHistory}
+              navigationRequest={graphNavigationRequest}
+              isMutatingHistory={isReferenceMutationPending}
               hasMore={history.hasMore}
               isLoadingMore={isLoadingMore}
               onSelect={selectCommit}
@@ -659,11 +797,17 @@ export function GitLogToolWindow() {
               onOpenDiff={(commit) => openDiff(commit)}
               onCompareWithHead={(commit) => void viewBranchDiff(commit.hash)}
               onCopyHash={(commit) => void copyCommitText(commit.hash, t("git.log.commitHash"))}
+              onCopyShortHash={(commit) => void copyCommitText(commit.shortHash, commit.shortHash)}
               onCopyMessage={(commit) =>
-                void copyCommitText(
-                  [commit.message, commit.description].filter(Boolean).join("\n\n"),
-                  t("git.log.commitMessage"),
-                )
+                void (async () => {
+                  const detailed = repoPath
+                    ? await withCommitDescription(repoPath, commit)
+                    : commit;
+                  await copyCommitText(
+                    [detailed.message, detailed.description].filter(Boolean).join("\n\n"),
+                    t("git.log.commitMessage"),
+                  );
+                })()
               }
               onEditMessage={(commit) => void editMessage(commit)}
               onUndo={(commit) => void undoCommit(commit)}
@@ -677,6 +821,12 @@ export function GitLogToolWindow() {
               onSquash={(commits) => void squashSelectedCommits(commits)}
               onReset={(commit) => void resetBranchToCommit(commit)}
               onCherryPick={(commit) => void cherryPickSelectedCommit(commit)}
+              onRevert={(commit) => void revertSelectedCommit(commit)}
+              onCreateTag={(commit) => {
+                if (repoPath && !isReferenceMutationPending) {
+                  setTagRequest({ workspaceId, repoPath, commit });
+                }
+              }}
               onLoadMore={() => void loadMore()}
             />
           </ResizablePanel>
@@ -686,6 +836,8 @@ export function GitLogToolWindow() {
               repoPath={repoPath}
               commit={activeSelectedCommit}
               commits={selectedCommits}
+              previewRequest={previewRequest}
+              onPreviewFile={previewCommitFileDiff}
               onOpenDiff={openDiff}
               onOpenRangeDiff={(range, filePath) => {
                 if (isLoadingCommitDiff) return;
@@ -706,6 +858,15 @@ export function GitLogToolWindow() {
         </ResizablePanelGroup>
       )}
       </>}
+      {tagRequest?.repoPath === repoPath && tagRequest.workspaceId === workspaceId ? (
+        <GitCreateTagDialog
+          key={`${tagRequest.repoPath}\0${tagRequest.commit.hash}`}
+          repoPath={tagRequest.repoPath}
+          commit={tagRequest.commit}
+          onCreated={refresh}
+          onClose={() => setTagRequest(null)}
+        />
+      ) : null}
       <GitRemoteManager
         isOpen={showRemoteManager}
         onClose={() => setShowRemoteManager(false)}

@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { useGitLogPreferencesStore } from "./git-log-preferences.store";
 
 describe("Git Log preferences", () => {
+  test("shows worktree repositories and collapses tags by default", () => {
+    expect(useGitLogPreferencesStore.getState().showWorktreeRepositories).toBe(true);
+    expect(useGitLogPreferencesStore.getState().collapsedReferenceSections).toEqual(["tag"]);
+    expect(useGitLogPreferencesStore.getState().showLongGraphEdges).toBe(false);
+  });
+
   test("persists read-only view preferences through focused actions", () => {
     const actions = useGitLogPreferencesStore.getState().actions;
     const repoPath = "C:/work/project";
@@ -9,7 +15,9 @@ describe("Git Log preferences", () => {
     actions.setFilterQuery("graph");
     actions.setFilterScope("author");
     actions.setShowDecorations(false);
+    actions.setShowLongGraphEdges(true);
     actions.setShowMyBranchesOnly(true);
+    actions.setShowWorktreeRepositories(false);
     actions.setMainPanelLayout({ references: 20, commits: 55, inspector: 25 });
     actions.setInspectorPanelLayout({ files: 70, details: 30 });
     actions.toggleReferenceSection("remote");
@@ -20,10 +28,12 @@ describe("Git Log preferences", () => {
       filterQuery: "graph",
       filterScope: "author",
       showDecorations: false,
+      showLongGraphEdges: true,
       showMyBranchesOnly: true,
+      showWorktreeRepositories: false,
       mainPanelLayout: { references: 20, commits: 55, inspector: 25 },
       inspectorPanelLayout: { files: 70, details: 30 },
-      collapsedReferenceSections: ["remote"],
+      collapsedReferenceSections: ["tag", "remote"],
       collapsedReferenceGroups: ["remote:origin"],
       markedReferenceFullNamesByRepository: {
         [repoPath]: ["refs/heads/main"],
@@ -39,10 +49,12 @@ describe("Git Log preferences", () => {
     actions.setFilterQuery("");
     actions.setFilterScope("text");
     actions.setShowDecorations(true);
+    actions.setShowLongGraphEdges(false);
     actions.setShowMyBranchesOnly(false);
+    actions.setShowWorktreeRepositories(true);
     actions.setMainPanelLayout({ references: 19, commits: 57, inspector: 24 });
     actions.setInspectorPanelLayout({ files: 62, details: 38 });
-    actions.setReferenceExpansion([], []);
+    actions.setReferenceExpansion(["tag"], []);
     actions.toggleMarkedReference(repoPath, "refs/heads/main");
   });
 

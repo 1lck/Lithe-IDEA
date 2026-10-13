@@ -25,6 +25,15 @@ __attribute__((weak)) void lithe_core_free_string(char *value) {
     (void)value;
 }
 
+__attribute__((weak)) int32_t lithe_core_is_plain_text(const uint8_t *bytes, size_t length) {
+    (void)bytes; (void)length;
+    return -1;
+}
+
+int32_t lithe_bridge_is_plain_text(const uint8_t *bytes, size_t length) {
+    return lithe_core_is_plain_text(bytes, length);
+}
+
 const char *lithe_bridge_version(void) {
     return lithe_core_version();
 }
@@ -62,3 +71,19 @@ __attribute__((weak)) int32_t lithe_core_git_askpass(const char *prompt) {
 int32_t lithe_bridge_git_askpass(const char *prompt) {
     return lithe_core_git_askpass(prompt);
 }
+
+__attribute__((weak)) void *lithe_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context) {
+    (void)configuration; (void)callback; (void)context;
+    return NULL;
+}
+__attribute__((weak)) int32_t lithe_agent_send_json(void *handle, const char *command) {
+    (void)handle; (void)command;
+    return 0;
+}
+__attribute__((weak)) void lithe_agent_close(void *handle) { (void)handle; }
+
+void *lithe_bridge_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context) {
+    return lithe_agent_open_json(configuration, callback, context);
+}
+int32_t lithe_bridge_agent_send_json(void *handle, const char *command) { return lithe_agent_send_json(handle, command); }
+void lithe_bridge_agent_close(void *handle) { lithe_agent_close(handle); }

@@ -12,7 +12,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
+/// Default workspace exclusions, also used by Git discovery for generated directories.
+pub(crate) const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
     ".git",
     ".worktree",
     ".worktrees",

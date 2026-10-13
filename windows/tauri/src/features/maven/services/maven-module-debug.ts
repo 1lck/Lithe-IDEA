@@ -7,7 +7,10 @@ import {
   startConnectedDebugLaunchSession,
   stopDebugAdapterSession,
 } from "@/features/debugger/services/debug-adapter-service";
-import { registerDebugSessionCleanup } from "@/features/debugger/services/debug-session-resources";
+import {
+  releaseDebugSessionResources,
+  registerDebugSessionCleanup,
+} from "@/features/debugger/services/debug-session-resources";
 import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
 import type {
   DebugAdapterSessionInfo,
@@ -24,6 +27,7 @@ import { invokeLsp } from "@/platform/lsp-core-adapter";
 import { frontendTrace } from "@/utils/frontend-trace";
 
 const JVM_DEBUG_START_TIMEOUT_MILLISECONDS = 30_000;
+let productionLaunchInFlight = false;
 
 type JavaWorkspaceOutcome = { kind: string };
 
@@ -120,8 +124,9 @@ class StaleMavenDebugLaunch extends Error {}
 function assertCurrentWorkspace(
   scope: WorkspaceLaunchScope,
   dependencies: MavenModuleDebugDependencies,
+  signal?: AbortSignal,
 ): void {
-  if (!dependencies.isCurrentWorkspace(scope)) throw new StaleMavenDebugLaunch();
+  if (signal?.aborted || !dependencies.isCurrentWorkspace(scope)) throw new StaleMavenDebugLaunch();
 }
 
 function assertNoActiveDebugSession(dependencies: MavenModuleDebugDependencies): void {
@@ -139,8 +144,13 @@ export async function startMavenModuleDebug(
   configuration: RunConfiguration,
   representativeJavaFile: string,
   dependencies: MavenModuleDebugDependencies = defaultDependencies,
+  signal?: AbortSignal,
 ): Promise<MavenModuleDebugOutcome> {
   assertNoActiveDebugSession(dependencies);
+  if (dependencies === defaultDependencies && productionLaunchInFlight) {
+    throw new Error("A Java debug launch is already in progress.");
+  }
+  if (dependencies === defaultDependencies) productionLaunchInFlight = true;
   frontendTrace("info", "maven.debug", "Starting Maven module debug", {
     workspaceId: scope.workspaceId,
     configurationId: configuration.id,
@@ -149,32 +159,33 @@ export async function startMavenModuleDebug(
   let runInstance: RunProcessInstance | null = null;
   let adapterSessionId: string | null = null;
   try {
-    assertCurrentWorkspace(scope, dependencies);
+    assertCurrentWorkspace(scope, dependencies, signal);
     const preparation = await dependencies.prewarmJavaWorkspace(scope, representativeJavaFile);
     if (preparation.kind !== "ready") {
       throw new Error(`The Java language service is not ready (${preparation.kind}).`);
     }
-    assertCurrentWorkspace(scope, dependencies);
+    assertCurrentWorkspace(scope, dependencies, signal);
 
     const targetPort = await dependencies.allocateDebugPort();
     await dependencies.initializeRunEvents();
-    assertCurrentWorkspace(scope, dependencies);
+    assertCurrentWorkspace(scope, dependencies, signal);
     assertNoActiveDebugSession(dependencies);
     runInstance = await dependencies.startRunConfiguration(
       scope.workspaceId,
       configuration.id,
       targetPort,
     );
+    assertCurrentWorkspace(scope, dependencies, signal);
     if (!runInstance) {
       throw new Error(`Could not start the Run configuration ${configuration.name}.`);
     }
-    assertCurrentWorkspace(scope, dependencies);
+    assertCurrentWorkspace(scope, dependencies, signal);
     await dependencies.waitForDebugPort(targetPort, JVM_DEBUG_START_TIMEOUT_MILLISECONDS);
-    assertCurrentWorkspace(scope, dependencies);
+    assertCurrentWorkspace(scope, dependencies, signal);
     assertNoActiveDebugSession(dependencies);
 
     const adapterPort = await dependencies.startJavaDebugServer(scope.root);
-    assertCurrentWorkspace(scope, dependencies);
+    assertCurrentWorkspace(scope, dependencies, signal);
     await dependencies.initializeDebuggerEvents();
     const ownedRunInstance = runInstance;
     const session = await dependencies.startAdapterSession(
@@ -185,7 +196,7 @@ export async function startMavenModuleDebug(
       scope.root,
       (started) => {
         adapterSessionId = started.id;
-        assertCurrentWorkspace(scope, dependencies);
+        assertCurrentWorkspace(scope, dependencies, signal);
         assertNoActiveDebugSession(dependencies);
         dependencies.registerSessionCleanup(started.id, () =>
           dependencies.stopRunSession(scope.workspaceId, ownedRunInstance),
@@ -199,9 +210,11 @@ export async function startMavenModuleDebug(
           startedAt: Date.now(),
           status: "running",
           adapterSession: true,
+          javaRun: { workspaceId: scope.workspaceId, ...ownedRunInstance },
         });
       },
     );
+    assertCurrentWorkspace(scope, dependencies, signal);
     frontendTrace("info", "maven.debug", "Maven module debug started", {
       workspaceId: scope.workspaceId,
       configurationId: configuration.id,
@@ -217,6 +230,12 @@ export async function startMavenModuleDebug(
           `adapter: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
         );
       });
+    }
+    if (adapterSessionId) {
+      await releaseDebugSessionResources(adapterSessionId);
+      if (useDebuggerStore.getState().activeSession?.id === adapterSessionId) {
+        useDebuggerStore.getState().actions.stopSession();
+      }
     }
     if (runInstance) {
       await dependencies.stopRunSession(scope.workspaceId, runInstance).catch((cleanupError) => {
@@ -241,5 +260,38 @@ export async function startMavenModuleDebug(
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;
+  } finally {
+    if (dependencies === defaultDependencies) productionLaunchInFlight = false;
   }
+}
+
+/** Restarts only the selected local Java execution, using the normal save/build/debug workflow. */
+export async function restartJavaServiceDebug(session: DebugSession): Promise<void> {
+  const reference = session.javaRun;
+  if (!reference || useDebuggerStore.getState().activeSession?.id !== session.id) return;
+  const store = useRunStore.getStore(reference.workspaceId);
+  if (store.getState().serviceUpdates[reference.sessionId]?.executionId !== reference.executionId)
+    return;
+  const root = store.getState().root;
+  const configuration = store
+    .getState()
+    .configurations.find((item) => item.id === session.configId);
+  if (
+    !root ||
+    !configuration?.sourcePath ||
+    workspaceRuntimeRegistry.getActiveWorkspaceId() !== reference.workspaceId
+  ) {
+    throw new Error(
+      "Open the service workspace and restore its Run configuration before restarting.",
+    );
+  }
+  if (session.status !== "idle") await stopDebugAdapterSession(session.id);
+  await releaseDebugSessionResources(session.id);
+  if (useDebuggerStore.getState().activeSession?.id !== session.id) return;
+  useDebuggerStore.getState().actions.setSessionStatus("idle");
+  await startMavenModuleDebug(
+    { workspaceId: reference.workspaceId, root },
+    configuration,
+    `${root}/${configuration.sourcePath}`,
+  );
 }

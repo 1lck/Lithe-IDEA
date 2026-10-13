@@ -14,7 +14,7 @@ struct RunConfigurationIcon: View {
                 LitheIcon(kind: iconKind, size: size)
             } else {
                 Image(systemName: kind.systemImage)
-                    .font(.system(size: size * 0.82, weight: .medium))
+                    .font(LitheTheme.uiFont(size: size * 0.82, weight: .medium))
                     .frame(width: size, height: size)
             }
         }
@@ -26,7 +26,7 @@ struct RunConfigurationIcon: View {
         switch kind {
         case .currentFile:
             return .plainText
-        case .mavenFramework, .javaMain:
+        case .mavenFramework, .javaMain, .tomcat:
             return .javaGeneric
         case .mavenModule:
             return .maven

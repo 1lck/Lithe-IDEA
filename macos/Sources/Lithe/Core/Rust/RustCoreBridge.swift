@@ -427,6 +427,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let scope: String
             let resolution: String
             let selectedVersion: String?
+            let premanagedVersion: String?
+            let premanagedScope: String?
+            let originalScope: String?
+            let ignoredScope: String?
             let children: [Dependency]
 
             enum CodingKeys: String, CodingKey {
@@ -439,6 +443,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 case scope
                 case resolution
                 case selectedVersion
+                case premanagedVersion
+                case premanagedScope
+                case originalScope
+                case ignoredScope
                 case children
             }
 
@@ -460,6 +468,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                     scope: scope,
                     resolution: resolution,
                     selectedVersion: selectedVersion,
+                    premanagedVersion: premanagedVersion,
+                    premanagedScope: premanagedScope,
+                    originalScope: originalScope,
+                    ignoredScope: ignoredScope,
                     children: try children.map { try $0.makeModel() }
                 )
             }
@@ -673,6 +685,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let executable: Executable
             let arguments: [String]
             let classpath: [String]?
+            let workingDirectory: String?
         }
         let executable: Executable
         let arguments: [String]
@@ -1108,6 +1121,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let peelsToCommit: Bool
             let isCurrent: Bool
             let upstreamShortName: String?
+            let ahead: Int?
+            let behind: Int?
         }
 
         struct Commit: Decodable, Sendable {
@@ -1138,7 +1153,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         kind: kind,
                         peelsToCommit: reference.peelsToCommit,
                         isCurrent: reference.isCurrent,
-                        upstreamShortName: reference.upstreamShortName
+                        upstreamShortName: reference.upstreamShortName,
+                        ahead: reference.ahead ?? 0, behind: reference.behind ?? 0
                     )
                 },
                 recentReferences: (recentReferences ?? []).compactMap { reference in
@@ -1149,7 +1165,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         kind: kind,
                         peelsToCommit: reference.peelsToCommit,
                         isCurrent: reference.isCurrent,
-                        upstreamShortName: reference.upstreamShortName
+                        upstreamShortName: reference.upstreamShortName,
+                        ahead: reference.ahead ?? 0, behind: reference.behind ?? 0
                     )
                 },
                 commits: commits.map { commit in
@@ -1195,7 +1212,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 shortName: reference.shortName,
                 kind: kind,
                 isCurrent: reference.isCurrent,
-                upstreamShortName: reference.upstreamShortName
+                upstreamShortName: reference.upstreamShortName,
+                ahead: reference.ahead ?? 0, behind: reference.behind ?? 0
             )
         }
     }
@@ -1328,6 +1346,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let staged: Bool
         let worktree: Bool
         let untracked: Bool
+        let submodule: GitSubmoduleStatus?
+        let canToggleStaging: Bool?
     }
 
     struct GitStatusPayload: Decodable, Sendable {
@@ -1350,7 +1370,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         path: change.path,
                         originalPath: change.originalPath,
                         indexStatus: status.first ?? " ",
-                        workTreeStatus: status.dropFirst().first ?? " "
+                        workTreeStatus: status.dropFirst().first ?? " ",
+                        submodule: change.submodule,
+                        canToggleStaging: change.canToggleStaging ?? true
                     )
                 }
             )
@@ -1519,6 +1541,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let root: String
         let context: MavenLaunchContext
         let module: String?
+        let outputFile: String
     }
 
     private struct MarkdownRenderRequest: Encodable {
@@ -1809,6 +1832,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let sessionId: String
     }
 
+    private struct LspUpdateMavenConfigurationRequest: Encodable {
+        let sessionId: String
+        let mavenContext: MavenLaunchContext
+        let reloadProjects: Bool
+    }
+
     private struct LspSyncDocumentRequest: Encodable {
         struct Change: Encodable {
             let range: Range
@@ -1988,10 +2017,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct MavenDependenciesRequest: Encodable {
         let modulePath: String
-        let output: String
+        let outputFile: String
     }
 
-    private struct RunConfigurationInspectRequest: Encodable { let root: String }
+    private struct RunConfigurationInspectRequest: Encodable {
+        let root: String
+        /// Omitted means full inspection, including the input fingerprint.
+        let checkFingerprint: Bool?
+        /// JDT's current answer; omitted while the Java service is not ready.
+        let javaEntrypoints: JavaEntrypoints?
+    }
     private struct RunConfigurationGenerateRequest: Encodable {
         let root: String
         let paths: [String]
@@ -2084,7 +2119,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct GitStatusRequest: Encodable {
+        let repositoryRoots: [String]
         let root: String
+        let includeIndexOnlyChanges = true
     }
 
     private struct WorkspaceRepositoriesRequest: Encodable {
@@ -2234,119 +2271,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let path: String
     }
 
-    struct DiscourseAuthorizationStart: Decodable, Sendable {
-        let flowId: String
-        let authorizationUrl: String
-        let expiresAt: UInt64
-    }
-
-    struct DiscourseAuthorizationCredential: Decodable, Sendable {
-        let userApiKey: String
-        let apiVersion: UInt64
-    }
-
-    struct DiscourseTopicSummary: Decodable, Identifiable, Sendable {
-        let id: UInt64
-        let slug: String
-        let title: String
-        let postsCount: UInt64
-        let replyCount: UInt64
-        let views: UInt64
-        let likeCount: UInt64
-        let categoryId: UInt64?
-        let createdAt: String?
-        let lastPostedAt: String?
-        let lastPosterUsername: String?
-        let pinned: Bool
-        let closed: Bool
-        let archived: Bool
-    }
-
-    struct DiscoursePost: Decodable, Identifiable, Sendable {
-        let id: UInt64
-        let postNumber: UInt64
-        let username: String
-        let name: String?
-        let cooked: String
-        let createdAt: String?
-        let updatedAt: String?
-        let replyCount: UInt64
-        let reads: UInt64
-    }
-
-    struct DiscourseTopicsResponse: Decodable, Sendable {
-        let topics: [DiscourseTopicSummary]
-        let moreTopicsUrl: String?
-    }
-
-    struct DiscourseTopicResponse: Decodable, Sendable {
-        let id: UInt64
-        let title: String
-        let slug: String
-        let posts: [DiscoursePost]
-    }
-
-    struct DiscourseCategory: Decodable, Identifiable, Sendable {
-        let id: UInt64
-        let name: String
-        let slug: String
-        let color: String?
-        let topicCount: UInt64
-        let descriptionText: String?
-    }
-
-    struct DiscourseCategoriesResponse: Decodable, Sendable {
-        let categories: [DiscourseCategory]
-    }
-
-    struct DiscourseSearchResponse: Decodable, Sendable {
-        let topics: [DiscourseTopicSummary]
-        let posts: [DiscoursePost]
-    }
-
-    private struct DiscourseAuthorizationBeginRequest: Encodable {
-        let origin: String
-        let clientId: String
-        let applicationName: String
-        let authRedirect: String
-        let scopes: [String]
-    }
-
-    private struct DiscourseAuthorizationCompleteRequest: Encodable {
-        let flowId: String
-        let callbackUrl: String
-    }
-
-    private struct DiscourseAPIRequest: Encodable {
-        let origin: String
-        let userApiKey: String
-        let clientId: String
-    }
-
-    private struct DiscourseTopicsRequest: Encodable {
-        let origin: String
-        let userApiKey: String
-        let clientId: String
-        let feed: String
-        let period: String?
-        let page: UInt32?
-    }
-
-    private struct DiscourseTopicRequest: Encodable {
-        let origin: String
-        let userApiKey: String
-        let clientId: String
-        let topicId: UInt64
-    }
-
-    private struct DiscourseSearchRequest: Encodable {
-        let origin: String
-        let userApiKey: String
-        let clientId: String
-        let query: String
-        let page: UInt32?
-    }
-
     var isAvailable: Bool {
         String(cString: lithe_bridge_version()) != "unlinked"
     }
@@ -2354,125 +2278,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func version() -> String? {
         guard isAvailable else { return nil }
         return String(cString: lithe_bridge_version())
-    }
-
-    func beginDiscourseAuthorization(
-        origin: String,
-        clientID: String,
-        applicationName: String,
-        authRedirect: String,
-        scopes: [String]
-    ) -> Result<DiscourseAuthorizationStart, CoreCallError> {
-        executeResult(
-            command: "community.discourse.auth.begin",
-            payload: DiscourseAuthorizationBeginRequest(
-                origin: origin,
-                clientId: clientID,
-                applicationName: applicationName,
-                authRedirect: authRedirect,
-                scopes: scopes
-            )
-        )
-    }
-
-    func completeDiscourseAuthorization(
-        flowID: String,
-        callbackURL: String
-    ) -> Result<DiscourseAuthorizationCredential, CoreCallError> {
-        executeResult(
-            command: "community.discourse.auth.complete",
-            payload: DiscourseAuthorizationCompleteRequest(
-                flowId: flowID,
-                callbackUrl: callbackURL
-            )
-        )
-    }
-
-    func discourseTopics(
-        origin: String,
-        userAPIKey: String,
-        clientID: String,
-        feed: String,
-        period: String? = nil,
-        page: UInt32? = nil
-    ) -> Result<DiscourseTopicsResponse, CoreCallError> {
-        executeResult(
-            command: "community.discourse.topics",
-            payload: DiscourseTopicsRequest(
-                origin: origin,
-                userApiKey: userAPIKey,
-                clientId: clientID,
-                feed: feed,
-                period: period,
-                page: page
-            )
-        )
-    }
-
-    func discourseTopic(
-        origin: String,
-        userAPIKey: String,
-        clientID: String,
-        topicID: UInt64
-    ) -> Result<DiscourseTopicResponse, CoreCallError> {
-        executeResult(
-            command: "community.discourse.topic",
-            payload: DiscourseTopicRequest(
-                origin: origin,
-                userApiKey: userAPIKey,
-                clientId: clientID,
-                topicId: topicID
-            )
-        )
-    }
-
-    func discourseCategories(
-        origin: String,
-        userAPIKey: String,
-        clientID: String
-    ) -> Result<DiscourseCategoriesResponse, CoreCallError> {
-        executeResult(
-            command: "community.discourse.categories",
-            payload: DiscourseAPIRequest(
-                origin: origin,
-                userApiKey: userAPIKey,
-                clientId: clientID
-            )
-        )
-    }
-
-    func searchDiscourse(
-        origin: String,
-        userAPIKey: String,
-        clientID: String,
-        query: String,
-        page: UInt32? = nil
-    ) -> Result<DiscourseSearchResponse, CoreCallError> {
-        executeResult(
-            command: "community.discourse.search",
-            payload: DiscourseSearchRequest(
-                origin: origin,
-                userApiKey: userAPIKey,
-                clientId: clientID,
-                query: query,
-                page: page
-            )
-        )
-    }
-
-    func revokeDiscourseAuthorization(
-        origin: String,
-        userAPIKey: String,
-        clientID: String
-    ) -> Result<Void, CoreCallError> {
-        executeVoid(
-            command: "community.discourse.auth.revoke",
-            payload: DiscourseAPIRequest(
-                origin: origin,
-                userApiKey: userAPIKey,
-                clientId: clientID
-            )
-        )
     }
 
     func snapshot(
@@ -2758,25 +2563,30 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func mavenDependencyPlan(
         at rootURL: URL,
         context: MavenLaunchContext,
-        module: String?
+        module: String?,
+        outputFile: URL
     ) -> Result<MavenLaunchPlanPayload, CoreCallError> {
         executeResult(
             command: "maven.dependencyPlan",
             payload: MavenDependencyPlanRequest(
                 root: rootURL.standardizedFileURL.path,
                 context: context,
-                module: module
+                module: module,
+                outputFile: outputFile.standardizedFileURL.path
             )
         )
     }
 
     func mavenDependencies(
         modulePath: String,
-        output: String
+        outputFile: URL
     ) -> Result<MavenDependenciesPayload, CoreCallError> {
         executeResult(
             command: "maven.dependencies",
-            payload: MavenDependenciesRequest(modulePath: modulePath, output: output)
+            payload: MavenDependenciesRequest(
+                modulePath: modulePath,
+                outputFile: outputFile.standardizedFileURL.path
+            )
         )
     }
 
@@ -2821,10 +2631,31 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
-    func inspectRunConfiguration(at rootURL: URL) -> Result<RunConfigurationInspectPayload, CoreCallError> {
+    func selectJavaRuntime(
+        at root: URL?, candidates: [AutomaticJavaCandidate], fallbackID: String?
+    ) -> Result<AutomaticJavaSelection, CoreCallError> {
+        struct Payload: Encodable {
+            let root: String?
+            let candidates: [AutomaticJavaCandidate]
+            let fallbackId: String?
+        }
+        return executeResult(command: "runConfig.selectJava", payload: Payload(
+            root: root?.standardizedFileURL.path, candidates: candidates, fallbackId: fallbackID
+        ))
+    }
+
+    func inspectRunConfiguration(
+        at rootURL: URL,
+        checkFingerprint: Bool? = nil,
+        javaEntrypoints: JavaEntrypoints? = nil
+    ) -> Result<RunConfigurationInspectPayload, CoreCallError> {
         executeResult(
             command: "runConfig.inspect",
-            payload: RunConfigurationInspectRequest(root: rootURL.standardizedFileURL.path)
+            payload: RunConfigurationInspectRequest(
+                root: rootURL.standardizedFileURL.path,
+                checkFingerprint: checkFingerprint,
+                javaEntrypoints: javaEntrypoints
+            )
         )
     }
 
@@ -3045,10 +2876,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
-    func gitStatus(at rootURL: URL) -> GitStatusPayload? {
+    func gitStatus(at rootURL: URL, repositoryRoots: [URL] = []) -> GitStatusPayload? {
         execute(
             command: "git.status",
-            payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+            payload: GitStatusRequest(repositoryRoots: repositoryRoots.map { $0.standardizedFileURL.path }, root: rootURL.standardizedFileURL.path)
         )
     }
 
@@ -3070,7 +2901,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func gitWorktrees(at rootURL: URL) -> GitWorktreesPayload? {
         execute(
             command: "git.worktrees",
-            payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+            payload: GitStatusRequest(repositoryRoots: [], root: rootURL.standardizedFileURL.path)
         )
     }
 
@@ -3695,6 +3526,23 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    /// Sends a changed Maven context to a running JDTLS session. JDT LS
+    /// re-resolves in place instead of restarting on its unchanged workspace state.
+    func lspUpdateMavenConfiguration(
+        sessionID: String,
+        context: MavenLaunchContext,
+        reloadProjects: Bool
+    ) -> Result<LanguageServerMavenConfigurationUpdate, CoreCallError> {
+        executeResult(
+            command: "lsp.updateMavenConfiguration",
+            payload: LspUpdateMavenConfigurationRequest(
+                sessionId: sessionID,
+                mavenContext: context,
+                reloadProjects: reloadProjects
+            )
+        )
+    }
+
     /// Publishes the current text of a document. Rust decides whether that means
     /// an open or a change, and assigns the version.
     func lspSyncDocument(
@@ -4025,12 +3873,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func executeResult<Payload: Encodable, Data: Decodable>(
         command: String,
         payload: Payload,
-        operationID: String? = nil
+        operationID: String? = nil,
+        onEvent: (@Sendable (String) -> Void)? = nil
     ) -> Result<Data, CoreCallError> {
         let outcome: Result<Envelope<Data>, CoreCallError> = decodeEnvelope(
             command: command,
             payload: payload,
-            operationID: operationID
+            operationID: operationID,
+            onEvent: onEvent
         )
         return outcome.flatMap { envelope in
             guard let value = envelope.data else {
@@ -4058,7 +3908,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private func decodeEnvelope<Payload: Encodable, Data: Decodable>(
         command: String,
         payload: Payload,
-        operationID: String? = nil
+        operationID: String? = nil,
+        onEvent: (@Sendable (String) -> Void)? = nil
     ) -> Result<Envelope<Data>, CoreCallError> {
         guard isAvailable else {
             return .failure(CoreCallError(
@@ -4087,7 +3938,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             )
         ),
         let request = String(data: requestData, encoding: .utf8),
-        let responsePointer = executeGitObserving(request, context: execution,
+        let responsePointer = executeObserving(request, onEvent: onEvent, context: execution,
             journal: observesGit && execution == nil ? gitExecutionJournal : nil) else {
             return .failure(CoreCallError(
                 code: "unknown",
@@ -4282,3 +4133,5 @@ private extension RustCoreBridge.WorkspaceNodePayload {
         )
     }
 }
+
+extension RustCoreBridge: JavaRuntimeSelecting {}

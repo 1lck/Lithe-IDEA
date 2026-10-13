@@ -1,0 +1,404 @@
+/* Diff chrome follows LitheTheme.Diff / IDEA Islands; each code control owns its offset. */
+.commit-file-diff-preview {
+  --commit-diff-background: #191a1c;
+  --commit-diff-title-border: #555555;
+  --commit-diff-title-text: #bcbec4;
+  --commit-diff-path-text: #73767c;
+  --commit-diff-toolbar-background: #212326;
+  --commit-diff-toolbar-border: #26282c;
+  --commit-diff-slider: #ffffff26;
+  --commit-diff-slider-hover: #ffffff4d;
+  --commit-diff-slider-border: #26262659;
+  --commit-diff-slider-border-hover: #2626268c;
+  --commit-diff-inserted: #294436;
+  --commit-diff-deleted: #484a4a;
+  --commit-diff-modified: #385570;
+  --commit-diff-inserted-stripe: var(--commit-diff-inserted);
+  --commit-diff-deleted-stripe: var(--commit-diff-deleted);
+  --commit-diff-modified-stripe: var(--commit-diff-modified);
+  background: var(--commit-diff-background);
+}
+
+[data-theme-type="light"] .commit-file-diff-preview,
+.commit-file-diff-preview:has(.monaco-editor.vs) {
+  --commit-diff-background: #ffffff;
+  --commit-diff-title-border: #d4d4d4;
+  --commit-diff-title-text: #080808;
+  --commit-diff-toolbar-background: #f7f8f9;
+  --commit-diff-toolbar-border: #e9eaee;
+  --commit-diff-slider: #00000033;
+  --commit-diff-slider-hover: #00000080;
+  --commit-diff-slider-border: transparent;
+  --commit-diff-slider-border-hover: transparent;
+  --commit-diff-inserted: #bee6be;
+  --commit-diff-deleted: #d6d6d6;
+  --commit-diff-modified: #c2d8f2;
+  --commit-diff-inserted-stripe: var(--commit-diff-inserted);
+  --commit-diff-deleted-stripe: var(--commit-diff-deleted);
+  --commit-diff-modified-stripe: var(--commit-diff-modified);
+}
+
+.commit-diff-toolbar {
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--commit-diff-toolbar-border);
+  background: var(--commit-diff-toolbar-background);
+  overflow: hidden;
+}
+
+.commit-diff-toolbar button[data-size="icon-xs"] {
+  width: 22px;
+  height: 22px;
+}
+
+.commit-diff-toolbar button {
+  transform: none;
+}
+
+.commit-diff-version-header {
+  display: grid;
+  grid-template-columns: minmax(0, var(--commit-diff-left-width, 50%)) minmax(0, 1fr);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--commit-diff-title-border);
+}
+
+.commit-diff-version-header[data-view-mode="unified"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 6px 0;
+}
+.commit-diff-version-header[data-single-version="true"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+}
+.commit-diff-version-header[data-single-version="true"] .commit-diff-version {
+  min-height: 28px;
+  padding: 6px;
+}
+
+.commit-diff-version {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 6px;
+  color: var(--commit-diff-title-text);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.commit-diff-version-header[data-view-mode="unified"] .commit-diff-version {
+  min-height: 16px;
+  padding: 0 6px;
+}
+
+.commit-diff-version-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--commit-diff-path-text);
+}
+
+.commit-file-diff-preview .monaco-editor,
+.commit-file-diff-preview .monaco-editor-background,
+.commit-file-diff-preview .monaco-editor .margin,
+.commit-file-diff-preview .diffOverview {
+  background: var(--commit-diff-background);
+}
+
+/* The unified viewer still uses Monaco's native DiffEditor. Scope its public
+   diff color variables to this preview, using the same Islands palette as the
+   custom split viewer; leave the active syntax theme and other editors intact. */
+.commit-file-diff-preview .monaco-editor,
+.commit-file-diff-preview .monaco-diff-editor {
+  --vscode-diffEditor-insertedLineBackground: var(--commit-diff-inserted);
+  --vscode-diffEditor-removedLineBackground: var(--commit-diff-deleted);
+  --vscode-diffEditor-insertedTextBackground: var(--commit-diff-inserted);
+  --vscode-diffEditor-removedTextBackground: var(--commit-diff-deleted);
+  --vscode-diffEditor-insertedTextBorder: transparent;
+  --vscode-diffEditor-removedTextBorder: transparent;
+  --vscode-diffEditorGutter-insertedLineBackground: var(--commit-diff-inserted);
+  --vscode-diffEditorGutter-removedLineBackground: var(--commit-diff-deleted);
+}
+
+.commit-file-diff-preview .monaco-scrollable-element > .scrollbar > .slider {
+  box-sizing: border-box;
+  border: 1px solid var(--commit-diff-slider-border);
+  border-radius: var(--app-scrollbar-radius);
+  background: var(--commit-diff-slider);
+}
+
+.commit-file-diff-preview .monaco-scrollable-element > .scrollbar {
+  background: transparent;
+}
+
+/* With ruler lanes disabled Monaco still assigns this canvas an inline theme
+   background. Remove that paint so code remains visible under the native rail. */
+.commit-file-diff-preview .monaco-editor .decorationsOverviewRuler {
+  background: transparent !important;
+}
+
+.commit-file-diff-preview .monaco-scrollable-element > .scrollbar > .slider:hover,
+.commit-file-diff-preview .monaco-scrollable-element > .scrollbar > .slider.active {
+  border-color: var(--commit-diff-slider-border-hover);
+  background: var(--commit-diff-slider-hover);
+}
+
+/* Monaco's overview duplicates the adjacent scrollbar thumb. Keep its diff
+   markers and delegated pointer/wheel handling without painting a second thumb. */
+.commit-file-diff-preview .diffOverview .diffViewport,
+.commit-file-diff-preview .diffOverview .diffViewport:hover,
+.commit-file-diff-preview .diffOverview .diffViewport:active {
+  background: transparent;
+}
+
+.commit-file-diff-preview .commit-diff-line-inserted {
+  background: var(--commit-diff-inserted);
+}
+.commit-file-diff-preview .commit-diff-line-deleted {
+  background: var(--commit-diff-deleted);
+}
+.commit-file-diff-preview .commit-diff-line-modified {
+  background: var(--commit-diff-modified);
+}
+.commit-diff-connection-inserted {
+  fill: var(--commit-diff-inserted);
+  stroke: var(--commit-diff-inserted);
+}
+.commit-diff-connection-deleted {
+  fill: var(--commit-diff-deleted);
+  stroke: var(--commit-diff-deleted);
+}
+.commit-diff-connection-modified {
+  fill: var(--commit-diff-modified);
+  stroke: var(--commit-diff-modified);
+}
+
+/* Independent line streams: the divider paints behind BOTH historical gutters. */
+.independent-commit-diff {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--commit-diff-background);
+}
+/* A complete new file has one source stream, including its number gutter and
+   EOF space. Do not paint an artificial empty deletion or an outer gray frame. */
+.independent-commit-diff[data-whole-file-added="true"],
+.independent-commit-diff[data-whole-file-added="true"] .independent-center,
+.commit-file-diff-preview .independent-commit-diff[data-whole-file-added="true"] .monaco-editor,
+.commit-file-diff-preview .independent-commit-diff[data-whole-file-added="true"] .monaco-editor-background,
+.commit-file-diff-preview .independent-commit-diff[data-whole-file-added="true"] .margin {
+  background: var(--commit-diff-inserted);
+}
+.independent-commit-diff[data-whole-file-added="true"] .independent-connections {
+  display: none;
+}
+.independent-code {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+.independent-chunk-borders {
+  position: absolute;
+  inset: 0 0 var(--independent-rail-width);
+  overflow: hidden;
+  pointer-events: none;
+}
+.independent-chunk-border {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.independent-chunk-border.independent-overview-inserted {
+  background: var(--commit-diff-inserted);
+}
+.independent-chunk-border.independent-overview-deleted {
+  background: var(--commit-diff-deleted);
+}
+.independent-chunk-border.independent-overview-modified {
+  background: var(--commit-diff-modified);
+}
+.independent-center {
+  position: absolute;
+  top: 0;
+  overflow: hidden;
+  background: var(--commit-diff-background);
+}
+/* Outer gutter edges follow IDEA's tearline. Keep them out of layout sizing so
+   the code, gutter fills and connector still share identical pixel boundaries. */
+.independent-commit-diff:not([data-whole-file-added="true"]) .independent-center::before,
+.independent-commit-diff:not([data-whole-file-added="true"]) .independent-center::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  z-index: 1;
+  background: var(--commit-diff-title-border);
+  pointer-events: none;
+}
+.independent-center::before { left: 0; }
+.independent-center::after { right: 0; }
+.independent-connections {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.independent-connections path {
+  stroke-width: 1;
+}
+.independent-connections .independent-connection-fill {
+  stroke: none;
+}
+.independent-connections .independent-connection-border {
+  fill: none;
+}
+.commit-file-diff-preview .commit-diff-line-modified.independent-line-muted {
+  background: color-mix(in srgb, var(--commit-diff-modified) 40%, var(--commit-diff-background));
+}
+.independent-numbers {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+.independent-numbers-0 {
+  left: 0;
+}
+.independent-numbers-1 {
+  right: 0;
+}
+.independent-numbers button {
+  position: absolute;
+  left: 0;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0 var(--independent-gutter-inset);
+  border: 0;
+  font: inherit;
+  text-align: right;
+  color: var(--commit-diff-path-text);
+  background: transparent;
+  cursor: default;
+  pointer-events: auto;
+}
+.independent-sash {
+  position: absolute;
+  top: 0;
+  bottom: var(--independent-rail-width);
+  width: 6px;
+  z-index: 6;
+  cursor: ew-resize;
+}
+.independent-block-actions {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+/* Mirror the old gutter and center each action between its line numbers and
+   the outer tearline, including the gutter inset in the available space. */
+.independent-block-actions-0 { left: 0; }
+.independent-block-actions-1 { right: 0; }
+.independent-block-actions-0 > button {
+  left: calc((var(--independent-gutter-inset) + var(--independent-block-action-width) - var(--independent-block-action-size)) / 2);
+}
+.independent-block-actions-1 > button {
+  right: calc((var(--independent-gutter-inset) + var(--independent-block-action-width) - var(--independent-block-action-size)) / 2);
+}
+.commit-file-diff-preview .commit-diff-block-toggle,
+.commit-file-diff-preview .commit-diff-block-rollback {
+  position: absolute;
+  width: var(--independent-block-action-size, 18px);
+  height: var(--independent-block-action-size, 18px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--commit-diff-title-text);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.commit-file-diff-preview .commit-diff-block-toggle {
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font: 14px/16px system-ui;
+}
+.commit-file-diff-preview .commit-diff-block-rollback svg { width: 18px; height: 18px; }
+.commit-file-diff-preview .commit-diff-block-toggle:disabled,
+.commit-file-diff-preview .commit-diff-block-rollback:disabled { opacity: .4; cursor: default; }
+.commit-file-diff-preview .commit-diff-block-toggle:focus-visible,
+.commit-file-diff-preview .commit-diff-block-rollback:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.independent-sash:focus-visible {
+  outline: 1px solid var(--commit-diff-modified-stripe);
+}
+.independent-rail {
+  position: absolute;
+  top: 0;
+  bottom: var(--independent-rail-width);
+  width: var(--independent-rail-width);
+  z-index: 7;
+  background: transparent;
+}
+.independent-rail-0 {
+  left: var(--independent-rail-gap, 0px);
+}
+.independent-rail-1 {
+  right: 0;
+}
+.independent-overview {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.independent-overview span {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.independent-overview-inserted {
+  background: var(--commit-diff-inserted-stripe);
+}
+.independent-overview-deleted {
+  background: var(--commit-diff-deleted-stripe);
+}
+.independent-overview-modified {
+  background: var(--commit-diff-modified-stripe);
+}
+.independent-thumb {
+  position: absolute;
+  left: calc((var(--independent-rail-width) - var(--independent-slider-width)) / 2);
+  width: var(--independent-slider-width);
+  box-sizing: border-box;
+  border: 1px solid var(--commit-diff-slider-border);
+  border-radius: var(--app-scrollbar-radius);
+  background: var(--commit-diff-slider);
+}
+.independent-thumb[hidden] {
+  display: none;
+}
+.independent-thumb:hover {
+  background: var(--commit-diff-slider-hover);
+}
+.independent-word-deleted {
+  background: var(--commit-diff-deleted);
+}
+.independent-word-inserted {
+  background: var(--commit-diff-inserted);
+}
+.independent-word-modified {
+  background: var(--commit-diff-modified);
+}
+.independent-fold {
+  opacity: 0.65;
+  font-style: italic;
+  cursor: pointer;
+  border-block: 1px solid var(--commit-diff-toolbar-border);
+}

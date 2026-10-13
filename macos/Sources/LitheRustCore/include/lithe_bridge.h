@@ -2,18 +2,24 @@
 #define LITHE_BRIDGE_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 const char *lithe_bridge_version(void);
+/* Borrowed UTF-8 slice: 1 text, 0 binary controls, -1 invalid input. */
+int32_t lithe_bridge_is_plain_text(const uint8_t *bytes, size_t length);
 int32_t lithe_bridge_git_askpass(const char *prompt);
 char *lithe_bridge_execute_json(const char *request);
 char *lithe_bridge_execute_json_with_events(const char *request, void (*callback)(const char *, void *), void *context);
 char *lithe_bridge_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_bridge_cancel(const char *operation_id);
 void lithe_bridge_free_string(char *value);
+void *lithe_bridge_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context);
+int32_t lithe_bridge_agent_send_json(void *handle, const char *command);
+void lithe_bridge_agent_close(void *handle);
 
 #ifdef __cplusplus
 }

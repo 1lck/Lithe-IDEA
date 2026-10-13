@@ -1,8 +1,9 @@
 import { getProviderById } from "@/features/ai/types/providers.types";
 import { normalizeCommitAI } from "@/features/git/types/ai-commit";
 import { normalizeOllamaBaseUrl } from "@/features/ai/lib/ollama-endpoint";
-import { normalizeV0DesignSystems } from "@/extensions/v0/lib/v0-design-systems";
+import { normalizeV0DesignSystems } from "./v0-design-system-profiles";
 import { isKeybindingPreset } from "@/features/keymaps/defaults/keybinding-presets";
+import { deriveProjectOpenDestinationFromLegacy } from "./settings-migrations";
 import {
   DEFAULT_AI_AUTOCOMPLETE_MODEL_ID,
   DEFAULT_AI_MODEL_ID,
@@ -21,6 +22,7 @@ import {
   SIDEBAR_ACTIVITY_ITEM_IDS,
   normalizeItemOrder,
 } from "@/features/layout/config/item-order";
+import { normalizeEditorFontSize } from "./editor-font-size";
 import { normalizeUiFontSize } from "@/features/settings/lib/ui-font-size";
 import type { Settings, SettingsSection } from "@/features/settings/types/settings.types";
 
@@ -146,11 +148,20 @@ const TAB_CLOSE_BUTTON_VISIBILITY_MODES = new Set<Settings["tabCloseButtonVisibi
   "hover",
   "always",
 ]);
+const EDITOR_TAB_LAYOUT_MODES = new Set<Settings["editorTabLayoutMode"]>([
+  "singleLine",
+  "multipleRows",
+]);
 const WINDOW_CHROME_DENSITIES = new Set<Settings["windowChromeDensity"]>([
   "focused",
   "comfortable",
 ]);
 const FILE_TREE_SORT_ORDERS = new Set<Settings["fileTreeSortOrder"]>(["folders-first", "name"]);
+const PROJECT_OPEN_DESTINATIONS = new Set<Settings["projectOpenDefaultDestination"]>([
+  "this-window",
+  "new-window",
+  "attach",
+]);
 const EXTERNAL_EDITOR_MODES = new Set<Settings["externalEditor"]>([
   "none",
   "nvim",
@@ -204,6 +215,11 @@ function normalizeStringList(value: unknown): string[] {
       value.filter((item): item is string => typeof item === "string" && item.trim().length > 0),
     ),
   );
+}
+
+function normalizeHiddenSidebarActivityItems(value: unknown): string[] {
+  const validIds = new Set<string>(SIDEBAR_ACTIVITY_ITEM_IDS);
+  return normalizeStringList(value).filter((id) => validIds.has(id));
 }
 
 function normalizeIconTheme(value: string): string {
@@ -269,6 +285,12 @@ function normalizeTabCloseButtonVisibility(value: unknown): Settings["tabCloseBu
     : defaultSettings.tabCloseButtonVisibility;
 }
 
+function normalizeEditorTabLayoutMode(value: unknown): Settings["editorTabLayoutMode"] {
+  return EDITOR_TAB_LAYOUT_MODES.has(value as Settings["editorTabLayoutMode"])
+    ? (value as Settings["editorTabLayoutMode"])
+    : defaultSettings.editorTabLayoutMode;
+}
+
 function normalizeWindowChromeDensity(value: unknown): Settings["windowChromeDensity"] {
   return WINDOW_CHROME_DENSITIES.has(value as Settings["windowChromeDensity"])
     ? (value as Settings["windowChromeDensity"])
@@ -279,6 +301,24 @@ function normalizeFileTreeSortOrder(value: unknown): Settings["fileTreeSortOrder
   return FILE_TREE_SORT_ORDERS.has(value as Settings["fileTreeSortOrder"])
     ? (value as Settings["fileTreeSortOrder"])
     : defaultSettings.fileTreeSortOrder;
+}
+
+// Accepts the retired openFoldersInNewWindow boolean from legacy imports so an old export
+// still resolves to the destination whose behavior it used to select. An explicit valid
+// destination always wins; the legacy key only fills a missing one.
+function normalizeProjectOpenDestination(
+  value: unknown,
+  legacyOpenFoldersInNewWindow: unknown,
+): Settings["projectOpenDefaultDestination"] {
+  if (PROJECT_OPEN_DESTINATIONS.has(value as Settings["projectOpenDefaultDestination"])) {
+    return value as Settings["projectOpenDefaultDestination"];
+  }
+
+  if (legacyOpenFoldersInNewWindow !== undefined && legacyOpenFoldersInNewWindow !== null) {
+    return deriveProjectOpenDestinationFromLegacy(legacyOpenFoldersInNewWindow);
+  }
+
+  return defaultSettings.projectOpenDefaultDestination;
 }
 
 function normalizeExternalEditor(
@@ -440,14 +480,22 @@ function normalizeAISettings(settings: Settings): Settings {
 export function normalizeSettings(settings: Settings): Settings {
   const normalizedSettings = normalizeAISettings(settings);
   normalizedSettings.aiCommit = normalizeCommitAI(settings.aiCommit);
-  normalizedSettings.gitExecutable = typeof settings.gitExecutable === "string" ? settings.gitExecutable : "";
+  normalizedSettings.gitExecutable =
+    typeof settings.gitExecutable === "string" ? settings.gitExecutable : "";
   normalizedSettings.gitUseCredentialHelper = settings.gitUseCredentialHelper !== false;
-  normalizedSettings.gitFetchPrune = typeof settings.gitFetchPrune === "boolean" ? settings.gitFetchPrune : true;
-  normalizedSettings.gitFetchSubmodules = ["inherit", "no", "onDemand", "yes"].includes(settings.gitFetchSubmodules) ? settings.gitFetchSubmodules : "inherit";
-  normalizedSettings.gitFetchTags = ["inherit", "all", "none", "prune"].includes(settings.gitFetchTags) ? settings.gitFetchTags : "inherit";
+  normalizedSettings.gitFetchPrune =
+    typeof settings.gitFetchPrune === "boolean" ? settings.gitFetchPrune : true;
+  normalizedSettings.gitFetchSubmodules = ["inherit", "no", "onDemand", "yes"].includes(
+    settings.gitFetchSubmodules,
+  )
+    ? settings.gitFetchSubmodules
+    : "inherit";
+  normalizedSettings.gitFetchTags = ["inherit", "all", "none", "prune"].includes(
+    settings.gitFetchTags,
+  )
+    ? settings.gitFetchTags
+    : "inherit";
   if (normalizedSettings.gitFetchTags === "prune") normalizedSettings.gitFetchPrune = true;
-  const persistedGitPanelMode = (normalizedSettings as { gitLastPanelMode?: string })
-    .gitLastPanelMode;
 
   normalizedSettings.coreFeatures = {
     ...defaultSettings.coreFeatures,
@@ -455,19 +503,6 @@ export function normalizeSettings(settings: Settings): Settings {
   };
   delete (normalizedSettings.coreFeatures as { litheEditorEngine?: unknown }).litheEditorEngine;
   delete (normalizedSettings.coreFeatures as { energyEdge?: unknown }).energyEdge;
-
-  if (
-    persistedGitPanelMode === "none" ||
-    (persistedGitPanelMode && !["changes", "history"].includes(persistedGitPanelMode))
-  ) {
-    normalizedSettings.gitLastPanelMode = "changes";
-  }
-  normalizedSettings.gitSidebarTabOrder = normalizedSettings.gitSidebarTabOrder.filter(
-    (item): item is "changes" | "history" => item === "changes" || item === "history",
-  );
-  if (normalizedSettings.gitSidebarTabOrder.length === 0) {
-    normalizedSettings.gitSidebarTabOrder = ["changes", "history"];
-  }
 
   if (
     normalizedSettings.uiFontFamily === LEGACY_DEFAULT_UI_FONT_FAMILY &&
@@ -478,6 +513,11 @@ export function normalizeSettings(settings: Settings): Settings {
   }
 
   normalizedSettings.uiFontSize = normalizeUiFontSize(normalizedSettings.uiFontSize);
+  normalizedSettings.fontSize = normalizeEditorFontSize(normalizedSettings.fontSize);
+  normalizedSettings.editorFontLigatures =
+    typeof normalizedSettings.editorFontLigatures === "boolean"
+      ? normalizedSettings.editorFontLigatures
+      : defaultSettings.editorFontLigatures;
   normalizedSettings.fontFamily = normalizeConfiguredFontFamily(
     normalizedSettings.fontFamily,
     DEFAULT_MONO_FONT_FAMILY,
@@ -511,12 +551,21 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.tabCloseButtonVisibility = normalizeTabCloseButtonVisibility(
     (normalizedSettings as { tabCloseButtonVisibility?: unknown }).tabCloseButtonVisibility,
   );
+  normalizedSettings.editorTabLayoutMode = normalizeEditorTabLayoutMode(
+    (normalizedSettings as { editorTabLayoutMode?: unknown }).editorTabLayoutMode,
+  );
   normalizedSettings.windowChromeDensity = normalizeWindowChromeDensity(
     (normalizedSettings as { windowChromeDensity?: unknown }).windowChromeDensity,
   );
   normalizedSettings.fileTreeSortOrder = normalizeFileTreeSortOrder(
     (normalizedSettings as { fileTreeSortOrder?: unknown }).fileTreeSortOrder,
   );
+  normalizedSettings.projectOpenDefaultDestination = normalizeProjectOpenDestination(
+    (normalizedSettings as { projectOpenDefaultDestination?: unknown })
+      .projectOpenDefaultDestination,
+    (normalizedSettings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow,
+  );
+  delete (normalizedSettings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow;
   normalizedSettings.activityRailWidth = normalizeBoundedWidth(
     normalizedSettings.activityRailWidth,
     defaultSettings.activityRailWidth,
@@ -559,7 +608,7 @@ export function normalizeSettings(settings: Settings): Settings {
     normalizedSettings.sidebarActivityItemsOrder,
     SIDEBAR_ACTIVITY_ITEM_IDS,
   );
-  normalizedSettings.hiddenSidebarActivityItems = normalizeStringList(
+  normalizedSettings.hiddenSidebarActivityItems = normalizeHiddenSidebarActivityItems(
     normalizedSettings.hiddenSidebarActivityItems,
   );
   normalizedSettings.collapsedActivityRailSections = normalizeStringList(
@@ -582,11 +631,23 @@ export function normalizeSettingValue<K extends keyof Settings>(
   value: Settings[K],
 ): Settings[K] {
   if (key === "aiCommit") return normalizeCommitAI(value) as Settings[K];
-  if (key === "gitFetchSubmodules") return (["inherit", "no", "onDemand", "yes"].includes(String(value)) ? value : "inherit") as Settings[K];
-  if (key === "gitFetchTags") return (["inherit", "all", "none", "prune"].includes(String(value)) ? value : "inherit") as Settings[K];
+  if (key === "gitFetchSubmodules")
+    return (
+      ["inherit", "no", "onDemand", "yes"].includes(String(value)) ? value : "inherit"
+    ) as Settings[K];
+  if (key === "gitFetchTags")
+    return (
+      ["inherit", "all", "none", "prune"].includes(String(value)) ? value : "inherit"
+    ) as Settings[K];
   if (key === "uiFontSize") {
     return normalizeUiFontSize(value as number) as Settings[K];
   }
+
+  if (key === "fontSize") return normalizeEditorFontSize(value) as Settings[K];
+  if (key === "editorFontLigatures")
+    return (
+      typeof value === "boolean" ? value : defaultSettings.editorFontLigatures
+    ) as Settings[K];
 
   if (key === "fontFamily") {
     return normalizeConfiguredFontFamily(value as string, DEFAULT_MONO_FONT_FAMILY) as Settings[K];
@@ -628,12 +689,20 @@ export function normalizeSettingValue<K extends keyof Settings>(
     return normalizeTabCloseButtonVisibility(value) as Settings[K];
   }
 
+  if (key === "editorTabLayoutMode") {
+    return normalizeEditorTabLayoutMode(value) as Settings[K];
+  }
+
   if (key === "windowChromeDensity") {
     return normalizeWindowChromeDensity(value) as Settings[K];
   }
 
   if (key === "fileTreeSortOrder") {
     return normalizeFileTreeSortOrder(value) as Settings[K];
+  }
+
+  if (key === "projectOpenDefaultDestination") {
+    return normalizeProjectOpenDestination(value, undefined) as Settings[K];
   }
 
   if (key === "activityRailWidth") {
@@ -656,7 +725,11 @@ export function normalizeSettingValue<K extends keyof Settings>(
     ) as Settings[K];
   }
 
-  if (key === "hiddenSidebarActivityItems" || key === "collapsedActivityRailSections") {
+  if (key === "hiddenSidebarActivityItems") {
+    return normalizeHiddenSidebarActivityItems(value) as Settings[K];
+  }
+
+  if (key === "collapsedActivityRailSections") {
     return normalizeStringList(value) as Settings[K];
   }
 

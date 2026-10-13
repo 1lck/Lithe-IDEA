@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "gbk-bytes-explicitly-read-as-utf8",
+      "bytes": [214, 208, 206, 196],
+      "storageEncoding": "GBK",
+      "readEncoding": "UTF-8",
+      "expectedText": "����",
+      "expectedReadEncoding": "UTF-8",
+      "expectedSaveEncoding": "GBK"
+    }
+  ]
+}

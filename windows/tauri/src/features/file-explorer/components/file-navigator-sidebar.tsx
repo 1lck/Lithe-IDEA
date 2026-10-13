@@ -366,7 +366,7 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
 
       document.addEventListener("pointermove", handlePointerMove);
       document.addEventListener("pointerup", handlePointerUp);
-      document.body.style.cursor = "col-resize";
+      document.body.style.cursor = "ew-resize";
       document.body.style.userSelect = "none";
     },
     [navigatorLayout.width, resizeTo],
@@ -462,7 +462,7 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
         )}
       </ScrollArea>
       <div
-        className="absolute top-0 -right-1 z-20 h-full w-2 cursor-col-resize transition-colors hover:bg-primary/20"
+        className="absolute top-0 -right-1 z-20 h-full w-2 cursor-ew-resize"
         onPointerDown={handleResizeStart}
         onKeyDown={handleResizeKeyDown}
         role="separator"
@@ -474,7 +474,7 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
         tabIndex={0}
       />
       {isResizing ? (
-        <div className="pointer-events-none fixed inset-0 z-10 cursor-col-resize" />
+        <div className="pointer-events-none fixed inset-0 z-10 cursor-ew-resize" />
       ) : null}
     </aside>
   );

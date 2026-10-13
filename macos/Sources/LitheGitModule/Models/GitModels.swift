@@ -208,13 +208,17 @@ package struct GitReference: Identifiable, Hashable, Sendable {
     package let peelsToCommit: Bool
     package let isCurrent: Bool
     package let upstreamShortName: String?
+    package let ahead: Int
+    package let behind: Int
     package init(
         fullName: String,
         shortName: String,
         kind: GitReferenceKind,
         peelsToCommit: Bool = true,
         isCurrent: Bool,
-        upstreamShortName: String?
+        upstreamShortName: String?,
+        ahead: Int = 0,
+        behind: Int = 0
     ) {
         self.fullName = fullName
         self.shortName = shortName
@@ -222,6 +226,8 @@ package struct GitReference: Identifiable, Hashable, Sendable {
         self.peelsToCommit = peelsToCommit
         self.isCurrent = isCurrent
         self.upstreamShortName = upstreamShortName
+        self.ahead = ahead
+        self.behind = behind
     }
 
     package var id: String { fullName }
@@ -234,6 +240,109 @@ package struct GitReference: Identifiable, Hashable, Sendable {
         guard let upstreamShortName,
               let separator = upstreamShortName.firstIndex(of: "/") else { return nil }
         return String(upstreamShortName[upstreamShortName.index(after: separator)...])
+    }
+}
+
+/// A real Git submodule edge between two discovered repository roots.
+///
+/// Nested paths alone are not enough to establish this relationship: a workspace
+/// may contain independent repositories below another repository. `path` is the
+/// parent repository's gitlink path, relative to `parent`.
+package struct GitRepositorySubmoduleRelation: Hashable, Sendable {
+    package let parent: URL
+    package let child: URL
+    package let path: String
+
+    package init(parent: URL, child: URL, path: String) {
+        self.parent = parent.standardizedFileURL
+        self.child = child.standardizedFileURL
+        self.path = path
+    }
+}
+
+/// Shared Core payload: Git owns the index fingerprint and gitlink interpretation.
+package struct GitCommitState: Codable, Equatable, Sendable {
+    package let head: String?
+    package let branch: String?
+    package let indexEntries: String
+    package let gitlinks: [GitCommitGitlink]
+    package let stagedPaths: [String]
+    package let conflictedPaths: [String]
+    package init(head: String?, branch: String?, indexEntries: String, gitlinks: [GitCommitGitlink], stagedPaths: [String], conflictedPaths: [String] = []) {
+        self.head = head; self.branch = branch; self.indexEntries = indexEntries
+        self.gitlinks = gitlinks; self.stagedPaths = stagedPaths; self.conflictedPaths = conflictedPaths
+    }
+}
+
+package struct GitCommitGitlink: Codable, Equatable, Sendable {
+    package let path: String
+    package let revision: String
+    package init(path: String, revision: String) { self.path = path; self.revision = revision }
+}
+
+package struct GitRepositoryCommitResult: Identifiable, Sendable {
+    package let root: URL
+    package var committed = false
+    package var pushed = false
+    package var detail = "Pending"
+    package var diagnostic = ""
+    package var id: String { root.path }
+}
+
+package struct GitRepositoryReferences: Hashable, Sendable {
+    package let repositoryRoot: URL
+    package let references: [GitReference]
+    package let recentReferences: [GitReference]
+
+    package init(
+        repositoryRoot: URL,
+        references: [GitReference],
+        recentReferences: [GitReference] = []
+    ) {
+        self.repositoryRoot = repositoryRoot
+        self.references = references
+        self.recentReferences = recentReferences
+    }
+}
+
+/// Pure helpers that reason about the repository roots a workspace discovered.
+package enum GitRepositoryHierarchy {
+    /// A repository is a linked worktree when another discovered root is a
+    /// strict ancestor of it. Comparing standardized path components keeps a
+    /// sibling such as `op-platform-extra` out of `op-platform`, which a plain
+    /// string prefix test would wrongly treat as nested.
+    package static func isLinkedWorktreeRepository(
+        _ repositoryRoot: URL,
+        among repositoryRoots: [URL]
+    ) -> Bool {
+        let candidate = pathComponents(of: repositoryRoot)
+        return repositoryRoots.contains { other in
+            let otherComponents = pathComponents(of: other)
+            guard otherComponents.count < candidate.count else { return false }
+            return Array(candidate.prefix(otherComponents.count)) == otherComponents
+        }
+    }
+
+    /// Repository roots the reference pane groups by. Hiding linked worktrees
+    /// drops the nested roots while always keeping the active repository, so
+    /// selecting a worktree never removes it from the grouping.
+    package static func visibleRepositoryRoots(
+        _ repositoryRoots: [URL],
+        activeRoot: URL?,
+        showWorktreeRepositories: Bool
+    ) -> [URL] {
+        guard repositoryRoots.count > 1, !showWorktreeRepositories else {
+            return repositoryRoots
+        }
+        let active = activeRoot?.standardizedFileURL
+        return repositoryRoots.filter { root in
+            root.standardizedFileURL == active
+                || !isLinkedWorktreeRepository(root, among: repositoryRoots)
+        }
+    }
+
+    private static func pathComponents(of url: URL) -> [String] {
+        url.standardizedFileURL.pathComponents
     }
 }
 
@@ -694,7 +803,7 @@ package struct GitLogQuery: Equatable, Sendable {
         return calendar.date(from: DateComponents(year: year, month: month, day: day))
     }
 
-    private static func parseCommitDate(_ value: String) -> Date? {
+    package static func parseCommitDate(_ value: String) -> Date? {
         let iso8601 = ISO8601DateFormatter()
         if let date = iso8601.date(from: value) { return date }
 
@@ -726,7 +835,9 @@ package struct GitChange: Identifiable, Hashable, Sendable {
     package let originalPath: String?
     package let indexStatus: Character
     package let workTreeStatus: Character
-    package init(repositoryRoot: URL, path: String, originalPath: String?, indexStatus: Character, workTreeStatus: Character) { self.repositoryRoot = repositoryRoot; self.path = path; self.originalPath = originalPath; self.indexStatus = indexStatus; self.workTreeStatus = workTreeStatus }
+    package let submodule: GitSubmoduleStatus?
+    package let canToggleStaging: Bool
+    package init(repositoryRoot: URL, path: String, originalPath: String?, indexStatus: Character, workTreeStatus: Character, submodule: GitSubmoduleStatus? = nil, canToggleStaging: Bool = true) { self.canToggleStaging = canToggleStaging; self.submodule = submodule; self.repositoryRoot = repositoryRoot; self.path = path; self.originalPath = originalPath; self.indexStatus = indexStatus; self.workTreeStatus = workTreeStatus }
 
     package var id: String {
         "\(repositoryRoot.standardizedFileURL.path):\(originalPath ?? "")->\(path)"
@@ -1235,6 +1346,20 @@ package enum GitPullStrategy: String, Sendable {
     case rebase
 }
 
+/// How far a reset moves HEAD, the index, and the working tree when the user
+/// resets the current branch to a commit.
+package enum GitResetMode: String, Sendable, CaseIterable {
+    /// Move HEAD only; the index and working tree keep their changes staged.
+    case soft
+    /// Move HEAD and the index; the working tree keeps its changes unstaged.
+    case mixed
+    /// Move HEAD, the index, and the working tree, discarding local changes.
+    case hard
+
+    /// The argument Rust Core parses in the `reset` write operation.
+    package var argument: String { "--\(rawValue)" }
+}
+
 package enum GitOperationKind: String, Equatable, Sendable {
     case merge
     case rebase
@@ -1473,5 +1598,14 @@ package enum DiffParser {
               let old = Int(header[oldRange]),
               let new = Int(header[newRange]) else { return nil }
         return (old, new)
+    }
+}
+
+package struct GitSubmoduleStatus: Codable, Hashable, Sendable {
+    package let commitChanged: Bool
+    package let trackedChanges: Bool
+    package let untrackedChanges: Bool
+    package init(commitChanged: Bool, trackedChanges: Bool, untrackedChanges: Bool) {
+        self.commitChanged = commitChanged; self.trackedChanges = trackedChanges; self.untrackedChanges = untrackedChanges
     }
 }

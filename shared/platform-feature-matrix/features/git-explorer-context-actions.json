@@ -1,0 +1,24 @@
+{
+  "id": "git-explorer-context-actions",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "项目文件树右键 Git 操作：比对单文件工作区/暂存区 Diff、添加（暂存）当前文件、暂存当前文件并打开提交面板；目录右键打开所属仓库的变更面板",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/LitheGitModule/Models/GitFileContextMenuPlan.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx",
+      "windows/tauri/src/features/file-explorer/lib/file-context-menu-git-file-items.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Git",
+  "verification": "在文件树对修改、未跟踪、已暂存文件右键：Show Diff/Show Git Diff 打开该文件的工作区或暂存区 Diff；Add 将该文件加入暂存区并更新状态；Stage and Open Commit…（暂存并打开提交）暂存该文件并打开源代码管理提交面板，注意面板提交范围为当前暂存区的全部内容。目录右键 Show Diff/Show Git Diff 切换到所属仓库的变更面板（macOS 为目录差异视图）。无变更的干净文件不显示 Git 菜单。多仓库工作区下打开嵌套仓库文件的 Diff 后修改该文件，刷新仍读所属仓库。 覆盖 MM/AM 部分暂存后 Add 与 Stage and Open Commit，以及首次打开和刷新 Diff 的比较基准一致性。"
+}

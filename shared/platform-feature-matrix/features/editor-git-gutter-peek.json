@@ -1,0 +1,24 @@
+{
+  "id": "editor-git-gutter-peek",
+  "area": "编辑器",
+  "group": "Git 变更",
+  "capability": "编辑器 Git 行变更标记、点击预览与变更导航",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Editor/CodeEditorView.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/editor/engines/monaco/git-gutter-controller.ts",
+      "windows/tauri/src/features/editor/engines/monaco/git-gutter-peek-widget.ts",
+      "windows/tauri/src/features/git/utils/git-gutter-changes.test.ts"
+    ]
+  },
+  "owner": "Editor / Git",
+  "verification": "在 Windows 打开已跟踪文件，新增、修改、删除内容并保存，点击标记查看差异、切换前后变更、按 Escape 关闭；确认多仓库同名文件互不影响。切换浅色、深色及自定义主色，检查面板边框、焦点和 Git 语义色；关闭 Git 标记设置后标记消失。macOS 检查对应行变更入口。Linux 单元测试不替代目标平台运行验证。"
+}

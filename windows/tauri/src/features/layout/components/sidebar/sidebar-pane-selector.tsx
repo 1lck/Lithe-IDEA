@@ -9,23 +9,24 @@ import {
   SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS,
   normalizeItemOrder,
 } from "@/features/layout/config/item-order";
-import { RunIcon } from "@/features/run/components/run-icon";
-import { MavenIcon } from "@/features/maven/components/maven-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { SidebarListItem } from "@/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
 import {
-  GearIcon,
-  GitBranchIcon,
+  GitCommitIcon,
   GitGraphIcon,
   FilesIcon,
+  IconContext,
   MagnifyingGlassIcon,
+  ProblemsToolWindowIcon,
+  RunToolWindowIcon,
   TerminalWindowIcon,
-  WarningIcon,
 } from "@/ui/icons";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 import type { SidebarView } from "../../utils/sidebar-pane-utils";
+
+const STRIPE_ICON_CONTEXT = { large: true } as const;
 
 interface SidebarPaneItem {
   id: string;
@@ -64,15 +65,12 @@ interface SidebarPaneSelectorProps {
   isSearchActive?: boolean;
   onGitLogClick?: () => void;
   isGitLogActive?: boolean;
-  onSettingsClick?: () => void;
   onTerminalClick?: () => void;
   isTerminalActive?: boolean;
   onDiagnosticsClick?: () => void;
   isDiagnosticsActive?: boolean;
   onRunClick?: () => void;
   isRunActive?: boolean;
-  onMavenClick?: () => void;
-  isMavenActive?: boolean;
   compact?: boolean;
   showLabels?: boolean;
   orientation?: "horizontal" | "vertical";
@@ -88,15 +86,12 @@ export const SidebarPaneSelector = ({
   isSearchActive = false,
   onGitLogClick,
   isGitLogActive = false,
-  onSettingsClick,
   onTerminalClick,
   isTerminalActive = false,
   onDiagnosticsClick,
   isDiagnosticsActive = false,
   onRunClick,
   isRunActive = false,
-  onMavenClick,
-  isMavenActive = false,
   compact = false,
   showLabels = false,
   orientation = "horizontal",
@@ -104,7 +99,8 @@ export const SidebarPaneSelector = ({
   const { t } = useTranslation();
   const isVertical = orientation === "vertical";
   const tooltipSide = isVertical ? "right" : "bottom";
-  const iconClassName = compact || isVertical ? "size-4" : undefined;
+  // IntelliJ Islands tool window stripe icons are 20px (StripeToolbar.Button.iconSize).
+  const iconClassName = isVertical ? "size-5" : compact ? "size-4" : undefined;
   const isBufferOwnedSurfaceActive = isSearchActive;
   const isPrimarySidebarItemActive = isSidebarVisible && !isBufferOwnedSurfaceActive;
   const isFilesActive =
@@ -152,13 +148,13 @@ export const SidebarPaneSelector = ({
         ? [
             {
               id: "git",
-              label: showLabels ? t("workbench.changes") : undefined,
-              icon: <GitBranchIcon className={iconClassName} />,
+              label: showLabels ? t("workbench.commit") : undefined,
+              icon: <GitCommitIcon className={iconClassName} />,
               isActive: isPrimarySidebarItemActive && isGitViewActive,
               onClick: () => onViewChange("git"),
-              ariaLabel: t("workbench.changes"),
+              ariaLabel: t("workbench.commit"),
               tooltip: {
-                content: t("workbench.changes"),
+                content: t("workbench.commit"),
                 shortcut: "Mod+Shift+G",
                 side: tooltipSide,
               },
@@ -207,7 +203,7 @@ export const SidebarPaneSelector = ({
             {
               id: "diagnostics",
               label: showLabels ? t("workbench.diagnostics") : undefined,
-              icon: <WarningIcon className={iconClassName} />,
+              icon: <ProblemsToolWindowIcon className={iconClassName} />,
               isActive: isDiagnosticsActive,
               onClick: onDiagnosticsClick,
               ariaLabel: t("workbench.diagnostics"),
@@ -224,44 +220,13 @@ export const SidebarPaneSelector = ({
             {
               id: "run",
               label: showLabels ? t("workbench.run") : undefined,
-              icon: <RunIcon className={iconClassName} />,
+              icon: <RunToolWindowIcon className={iconClassName} />,
               isActive: isRunActive,
               onClick: onRunClick,
               ariaLabel: t("workbench.run"),
               tooltip: {
                 content: t("workbench.run"),
                 shortcut: "Shift+F10",
-                side: tooltipSide,
-              },
-            } satisfies SidebarPaneItem,
-          ]
-        : []),
-      ...(onMavenClick
-        ? [
-            {
-              id: "maven",
-              label: showLabels ? `${t("run.title")} - ${t("maven.title")}` : undefined,
-              icon: <MavenIcon className={iconClassName} />,
-              isActive: isMavenActive,
-              onClick: onMavenClick,
-              ariaLabel: `${t("run.title")} - ${t("maven.title")}`,
-              tooltip: {
-                content: `${t("run.title")} - ${t("maven.title")}`,
-                side: tooltipSide,
-              },
-            } satisfies SidebarPaneItem,
-          ]
-        : []),
-      ...(onSettingsClick
-        ? [
-            {
-              id: "settings",
-              label: showLabels ? t("workbench.settings") : undefined,
-              icon: <GearIcon className={iconClassName} />,
-              onClick: onSettingsClick,
-              ariaLabel: t("workbench.settings"),
-              tooltip: {
-                content: t("workbench.settings"),
                 side: tooltipSide,
               },
             } satisfies SidebarPaneItem,
@@ -286,10 +251,7 @@ export const SidebarPaneSelector = ({
       onDiagnosticsClick,
       isDiagnosticsActive,
       onRunClick,
-      onSettingsClick,
       isRunActive,
-      onMavenClick,
-      isMavenActive,
       onViewChange,
       showLabels,
       t,
@@ -329,7 +291,16 @@ export const SidebarPaneSelector = ({
         disabled={item.disabled}
         aria-label={item.ariaLabel}
         aria-current={item.isActive ? "page" : undefined}
-        className="ui-text-sm min-h-6 py-1"
+        className={cn(
+          showLabels
+            ? "ui-text-sm min-h-6 py-1"
+            : // IntelliJ Islands stripe button: a 30x30 highlight with a 12px arc (6px radius).
+              "ui-text-sm mx-auto size-[30px] min-h-[30px] shrink-0 rounded-[6px] p-0",
+          item.isActive && !item.disabled &&
+            (item.id === "files" || item.id === "git" ||
+              SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS.some((id) => id === item.id)) &&
+            "lithe-left-activity-selected",
+        )}
       >
         {item.label ?? item.ariaLabel ?? item.id}
       </SidebarListItem>
@@ -354,17 +325,22 @@ export const SidebarPaneSelector = ({
   };
 
   if (isVertical) {
+    // IntelliJ stripe buttons are 40px tall around a 30px highlight, leaving a 10px gap.
+    const itemGap = showLabels ? "gap-1" : "gap-2.5";
     return (
-      <nav aria-label={t("workbench.activityViews")} className="flex h-full w-full flex-col">
-        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
-          {topItems.map(renderVerticalItem)}
-        </div>
-        {bottomItems.length > 0 ? (
-          <div className="flex shrink-0 flex-col gap-1 pt-1">
-            {bottomItems.map(renderVerticalItem)}
+      // Stripe icons use IntelliJ's 20x20 tool window artwork rather than scaled 16px icons.
+      <IconContext.Provider value={STRIPE_ICON_CONTEXT}>
+        <nav aria-label={t("workbench.activityViews")} className="flex h-full w-full flex-col">
+          <div className={cn("flex min-h-0 flex-1 flex-col overflow-y-auto", itemGap)}>
+            {topItems.map(renderVerticalItem)}
           </div>
-        ) : null}
-      </nav>
+          {bottomItems.length > 0 ? (
+            <div className={cn("flex shrink-0 flex-col pt-1", itemGap)}>
+              {bottomItems.map(renderVerticalItem)}
+            </div>
+          ) : null}
+        </nav>
+      </IconContext.Provider>
     );
   }
 

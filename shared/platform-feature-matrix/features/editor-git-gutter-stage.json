@@ -1,0 +1,23 @@
+{
+  "id": "editor-git-gutter-stage",
+  "area": "编辑器",
+  "group": "Git 变更",
+  "capability": "从编辑器行变更入口暂存单处修改",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Editor/CodeEditorView.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/git/services/git-gutter-actions.ts",
+      "windows/tauri/src/features/git/utils/git-gutter-changes.test.ts"
+    ]
+  },
+  "owner": "Editor / Git",
+  "verification": "保存含多处增删改的已跟踪文件，单独暂存后一处修改，检查 index 只包含选中修改，邻近与前方未暂存修改保留；未保存或只读时禁用暂存。Windows 与 macOS 均需实机验证。"
+}

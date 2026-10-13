@@ -45,6 +45,12 @@ export function useAppBootstrap() {
   useMybatisIndex();
 
   useEffect(() => {
+    void import("@/features/window/services/project-window-routing")
+      .then(({ projectWindowRouting }) => projectWindowRouting.initialize())
+      .catch((error) => console.error("Failed to register project windows:", error));
+  }, []);
+
+  useEffect(() => {
     let timer: number | null = null;
     const frame = window.requestAnimationFrame(() => {
       timer = window.setTimeout(() => {
@@ -88,7 +94,14 @@ export function useAppBootstrap() {
     const request = parseWindowOpenUrl(new URL(window.location.href));
     if (!request) return;
 
-    void enqueueWindowOpenRequest(request);
+    void enqueueWindowOpenRequest(request).catch((error) => {
+      console.error("Failed to open initial workspace:", error);
+    }).finally(() => {
+      // A rejected/invalid initial path must not leave an empty window owning it.
+      void invoke("release_pending_project_window").catch((error) => {
+        console.warn("Failed to release pending project window:", error);
+      });
+    });
 
     const nextUrl = `${window.location.pathname}${window.location.hash}`;
     window.history.replaceState(window.history.state, "", nextUrl || "/");

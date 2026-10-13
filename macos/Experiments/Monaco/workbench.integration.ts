@@ -12,6 +12,10 @@ import { CancellationTokenSource, CancellationToken } from "monaco-editor/esm/vs
 import { ready } from "./workbench";
 import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
 import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco-editor/esm/vs/editor/editor.api.js";
+import { mouseInputCases } from "./mouse-input.integration";
+import { contextMenuCases } from "./context-menu.integration";
+import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
+import { imeInputCases } from "./ime-input.integration";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
 // bounded native probe host. No DOM-based imitation of Monaco input.
@@ -20,6 +24,14 @@ const assert = (condition: unknown, message: string) => { if (!condition) throw 
 const assertRejects = async (operation: () => Promise<unknown>, message: string) => {
   try { await operation(); } catch { return; }
   throw new Error(message);
+};
+const withDeadline = async <T>(operation: Promise<T>, message: string): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([operation, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), 2000);
+    })]);
+  } finally { if (timer !== undefined) clearTimeout(timer); }
 };
 
 async function verify() {
@@ -31,6 +43,9 @@ async function verify() {
     await operation();
     cases.push({ name, durationMs: performance.now() - started });
   }
+  for (const test of contextMenuCases) await check(test.name, async () => test.run());
+  for (const test of mouseInputCases) await check(test.name, async () => test.run());
+  for (const test of imeInputCases) await check(test.name, async () => test.run());
   await check("diff projections preserve sparse source lines and release read-only models", async () => {
     const before = monacoEditor.getModels().length;
     const container = document.createElement("div");
@@ -108,6 +123,45 @@ async function verify() {
       const next = review.editor.getModifiedEditor();
       assert(next.getVisibleRanges().some(range => range.startLineNumber <= 51 && range.endLineNumber >= 51),
         "search target stayed hidden inside collapsed context");
+    } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
+      subscription?.dispose(); review.dispose(); container.remove();
+    }
+  });
+  // #557: the first text after the empty mount used to open with every
+  // unchanged region revealed, so a full-file review showed nothing to expand.
+  await check("first full-file diff folds unchanged regions and anchors hunk actions", async () => {
+    const container = document.createElement("div");
+    container.style.cssText = "position:absolute;inset:0;height:400px;width:1000px";
+    document.body.append(container);
+    const review = mountDiffReview(container);
+    const rows: ReviewRow[] = Array.from({ length: 120 }, (_, index) => ({
+      id: `full-${index}`, oldLine: index + 1, newLine: index + 1,
+      left: `value ${index}`, right: index === 4 ? "changed" : `value ${index}`,
+      kind: index === 4 ? "changed" : "context", hunkID: index < 8 ? "hunk-4" : null,
+      ...(index === 4 ? { actionAnchor: true } : {}),
+    }));
+    let subscription: { dispose(): void } | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const computed = new Promise<void>((resolve, reject) => {
+        deadline = setTimeout(() => reject(new Error("Full-file diff computation exceeded 5 seconds")), 5000);
+        subscription = review.editor.onDidUpdateDiff(() => {
+          if (review.editor.getLineChanges()?.length) resolve();
+        });
+      });
+      await Promise.all([review.update({ rows, language: "plaintext", collapse: true,
+        actions: [{ id: "stage", title: "Stage" }] }), computed]);
+      const next = review.editor.getModifiedEditor();
+      // Content height, unlike the viewport, shrinks only when lines are folded.
+      const lineHeight = next.getOption(monacoEditor.EditorOption.lineHeight);
+      assert(next.getContentHeight() < lineHeight * 40,
+        "unchanged region opened revealed instead of folded");
+      assert(container.querySelectorAll(".lithe-review-actions button").length === 1,
+        "full-file hunk did not render exactly one action band");
+      review.select({ revealID: "full-60", searchIDs: ["full-60"] });
+      assert(next.getVisibleRanges().some(range => range.startLineNumber <= 61 && range.endLineNumber >= 61),
+        "folded source row could not be revealed");
     } finally {
       if (deadline !== undefined) clearTimeout(deadline);
       subscription?.dispose(); review.dispose(); container.remove();
@@ -230,6 +284,26 @@ async function verify() {
   await send({ type: "open", text: source });
   await window.lithe.activate({ id: "A", text: source, revision: 0, language: "java", readonly: false, focus: false });
   const editor = monacoEditor.getEditors()[0];
+  await check("editor context menu routes existing Monaco actions to the native host", async () => {
+    const service = StandaloneServices.get(IContextMenuService) as any;
+    let listener: { dispose(): void } | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const hidden = new Promise<void>((resolve, reject) => {
+        deadline = setTimeout(() => reject(new Error("Native menu did not close within five seconds")), 5000);
+        listener = service.onDidHideContextMenu(resolve);
+      });
+      editor.focus();
+      editor.trigger("probe", "editor.action.showContextMenu", {});
+      await hidden;
+    } finally {
+      listener?.dispose();
+      if (deadline !== undefined) clearTimeout(deadline);
+    }
+    const menu = await send({ type: "lastContextMenu" });
+    assert(menu.items.length > 0 && menu.items.some((item: any) => item.id === "lithe.goToDefinition"), `lost existing resolved editor actions: ${JSON.stringify(menu.items?.map((item: any) => ({ id: item.id, title: item.title })))}`);
+    assert(!document.querySelector(".monaco-menu-container"), "Monaco web menu still covers the shared native menu");
+  });
   const model = editor.getModel()!;
   await check("workbench edit queue and save barrier preserve CRLF and UTF-16", async () => {
     editor.executeEdits("integration", [{ range: new Range(2, 8, 2, 10), text: "日本語🙂" }]);
@@ -306,6 +380,53 @@ async function verify() {
     assert(snapshots.A.text === source, "bulk snapshot mismatch");
     await window.lithe.retain([]);
     assert(monacoEditor.getModels().length === 0, "bulk close retained models");
+  });
+  await check("closed-document view notifications cancel without locking surviving editors", async () => {
+    for (const split of [false, true]) {
+      const closedID = split ? "closed-secondary" : "closed-primary";
+      const survivorID = `${closedID}-survivor`, text = "retained";
+      const focusTarget = document.createElement("button");
+      document.body.append(focusTarget);
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await send({ type: "open", id: closedID, text });
+        await send({ type: "open", id: survivorID, text });
+        await window.lithe.activate({ id: split ? survivorID : closedID, text, revision: 0,
+          language: "plaintext", readonly: false, focus: true });
+        if (split) await window.lithe.showSecondary({ id: closedID, text, revision: 0,
+          language: "plaintext", readonly: false, focus: true });
+        const staleView = split ? monacoEditor.getEditors().find(view => view !== editor)! : editor;
+        focusTarget.focus();
+        // Close native ownership while the browser still displays the model,
+        // then deliver real Monaco focus/cursor events before model disposal.
+        await send({ type: "closeFixtureDocument", documentID: closedID });
+        staleView.focus();
+        staleView.setPosition({ lineNumber: 1, column: 2 });
+        await Promise.race([send({ type: "awaitClosedDocumentNotification" }), new Promise((_, reject) => {
+          deadline = setTimeout(() => reject(new Error("Closed-document notification did not reach the host")), 2000);
+        })]);
+        // Text and save acknowledgments must still reject lost ownership.
+        await assertRejects(() => send({ type: "edit", id: closedID, baseRevision: 0, changes: [] }),
+          "closed-document edit was silently acknowledged");
+        await assertRejects(() => send({ type: "save", id: closedID }),
+          "closed-document save was silently acknowledged");
+        if (split) window.lithe.hideSecondary();
+        await window.lithe.activate({ id: survivorID, text, revision: 0,
+          language: "plaintext", readonly: false, focus: true });
+        await window.lithe.retain([survivorID]);
+        assert(!editor.getOption(monacoEditor.EditorOption.readOnly), "stale view notification locked the live editor");
+        editor.executeEdits("integration", [{ range: new Range(1, 1, 1, 9), text: "still editable" }]);
+        const snapshot = await window.lithe.freeze(survivorID);
+        assert(snapshot.text === "still editable", "surviving document no longer synchronized edits");
+        assert(getComputedStyle(document.getElementById("error")!).display === "none", "stale view notification showed a fatal banner");
+        window.lithe.unlock(survivorID);
+      } finally {
+        if (deadline !== undefined) clearTimeout(deadline);
+        focusTarget.remove();
+        window.lithe.hideSecondary();
+        await window.lithe.retain([]);
+      }
+    }
   });
   await check("large Java model opens once and reuses its view state", async () => {
     const text = "class Large {\n" + Array.from({ length: 10_000 }, (_, i) => `    int field${i}; // 中文 😀`).join("\n") + "\n}";
@@ -385,12 +506,76 @@ async function verify() {
     assert(editor.getModel()?.getValue() === "left", "split close changed primary document");
     await window.lithe.retain([]);
   });
+  for (const closeSecondary of [false, true]) {
+    await check(`queued symbol highlighting is cancelled after ${closeSecondary ? "secondary" : "primary"} model close`, async () => {
+      type HighlightContribution = { wordHighlighter: { _run(): Promise<void> } | null };
+      const highlight = (view: monacoEditor.ICodeEditor) =>
+        view.getContribution<HighlightContribution & monacoEditor.IEditorContribution>("editor.contrib.wordHighlighter")!.wordHighlighter!;
+      await window.lithe.activate({ id: "highlight-primary", text: "word word", revision: 0, language: "plaintext", readonly: false });
+      await window.lithe.showSecondary({ id: "highlight-secondary", text: "word word", revision: 0, language: "plaintext", readonly: false });
+      const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
+      const closing = closeSecondary ? secondary : editor;
+      const survivor = closeSecondary ? editor : secondary;
+      // Capture the actual upstream callback before close, then explicitly run
+      // it after model removal. No timer or guessed scheduling delay is needed.
+      const queuedHighlight = highlight(closing)._run.bind(highlight(closing));
+      try {
+        survivor.focus();
+        survivor.setPosition({ lineNumber: 1, column: 2 });
+        await withDeadline(highlight(survivor)._run(), "Live highlighting exceeded its deadline");
+        await window.lithe.retain([closeSecondary ? "highlight-primary" : "highlight-secondary"]);
+        assert(closing.getModel() === null, "closed view retained its model");
+        await withDeadline(queuedHighlight(), "Closed-model highlighting exceeded its deadline");
+        assert(!survivor.getOption(monacoEditor.EditorOption.readOnly), "stale highlight locked the surviving document");
+        assert(survivor.getModel()?.getValue() === "word word", "stale highlight changed the surviving document");
+      } finally {
+        window.lithe.hideSecondary();
+        await window.lithe.retain([]);
+      }
+    });
+  }
+  await check("queued symbol highlighting is cancelled after diff review disposal", async () => {
+    type HighlightContribution = monacoEditor.IEditorContribution & { wordHighlighter: { _run(): Promise<void> } | null };
+    const container = document.createElement("div");
+    container.style.cssText = "position:absolute;inset:0;height:400px";
+    document.body.append(container);
+    const review = mountDiffReview(container);
+    const row: ReviewRow = { id: "word", oldLine: 1, newLine: 1, left: "word", right: "word", kind: "context" };
+    let disposed = false;
+    try {
+      await review.update({ rows: [row], language: "plaintext" });
+      const closing = review.editor.getModifiedEditor();
+      const highlighter = closing.getContribution<HighlightContribution>("editor.contrib.wordHighlighter")!.wordHighlighter!;
+      const queuedHighlight = highlighter._run.bind(highlighter);
+      await window.lithe.activate({ id: "highlight-diff-survivor", text: "word word", revision: 0, language: "plaintext", readonly: false });
+      editor.focus();
+      editor.setPosition({ lineNumber: 1, column: 2 });
+      const live = editor.getContribution<HighlightContribution>("editor.contrib.wordHighlighter")!.wordHighlighter!;
+      await withDeadline(live._run(), "Live highlighting exceeded its deadline");
+      review.dispose(); disposed = true;
+      await withDeadline(queuedHighlight(), "Disposed-diff highlighting exceeded its deadline");
+      assert(editor.getModel()?.getValue() === "word word" && !editor.getOption(monacoEditor.EditorOption.readOnly),
+        "stale diff highlight changed or locked the live editor");
+    } finally {
+      if (!disposed) review.dispose();
+      container.remove();
+      await window.lithe.retain([]);
+    }
+  });
   await check("host themes replace the Monaco surface and reveal the native wallpaper", async () => {
     await window.lithe.activate({
       id: "theme-surface", text: "theme", revision: 0, language: "plaintext", readonly: true,
     });
     const surface = editor.getDomNode()!;
     const backgroundColor = () => getComputedStyle(surface).backgroundColor.replace(/ /g, "");
+    const overviewRulerBackground = () => getComputedStyle(surface)
+      .getPropertyValue("--vscode-editorOverviewRuler-background").trim().replace(/ /g, "");
+    const overviewRulerPixel = () => {
+      editor.render();
+      const canvas = surface.querySelector<HTMLCanvasElement>(".decorationsOverviewRuler")!;
+      assert(canvas.width > 0 && canvas.height > 0, "overview ruler has no render surface");
+      return [...canvas.getContext("2d")!.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data];
+    };
     try {
       window.lithe.configure({
         fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true,
@@ -401,6 +586,9 @@ async function verify() {
       const solid = backgroundColor();
       assert(["rgb(242,243,244)", "rgba(242,243,244,1)"].includes(solid),
         `host light theme did not replace Monaco's initial dark surface: ${solid}`);
+      assert(overviewRulerBackground() === "#f2f3f4",
+        `opaque overview ruler background did not match the editor surface: ${overviewRulerBackground()}`);
+      assert(overviewRulerPixel().join() === "242,243,244,255", "solid overview ruler rendered with a different background");
       window.lithe.configure({
         fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true,
         theme: { id: "probe-light-wallpaper", dark: false, colors: {
@@ -410,6 +598,9 @@ async function verify() {
       const transparent = backgroundColor();
       assert(transparent === "rgba(0,0,0,0)",
         `transparent Monaco surface still covered the native wallpaper: ${transparent}`);
+      assert(overviewRulerBackground() === "rgba(0,0,0,0)",
+        `overview ruler still covered the native wallpaper: ${overviewRulerBackground()}`);
+      assert(overviewRulerPixel().join() === "0,0,0,0", "transparent overview ruler rendered an opaque strip");
     } finally {
       window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
       await window.lithe.retain([]);
@@ -1507,4 +1698,4 @@ async function verify() {
   });
   await send({ type: "complete", cases, userAgent: navigator.userAgent });
 }
-void verify().catch(error => send({ type: "failure", message: String(error) }));
+void verify().catch(error => send({ type: "failure", message: error instanceof Error ? `${error}\n${error.stack ?? ""}` : String(error) }));

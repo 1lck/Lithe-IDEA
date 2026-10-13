@@ -1,6 +1,27 @@
 import Foundation
 
 package enum GitGraphLayoutService {
+    /// CurrentBranchHighlighter colors ancestry, including every merge parent.
+    /// ponytail: only the loaded graph can prove membership; a missing parent
+    /// ends this walk. A complete repository graph can extend it without I/O in drawing.
+    package static func currentBranchHashes(
+        commits: [GitCommit], repositoryCommits: [GitCommit], references: [GitReference]
+    ) -> Set<String> {
+        guard let branch = references.first(where: { $0.kind == .local && $0.isCurrent }) else { return [] }
+        let byHash = Dictionary((commits + repositoryCommits).map { ($0.hash, $0) },
+                                uniquingKeysWith: { first, _ in first })
+        guard let head = (commits + repositoryCommits).first(where: {
+            labels(from: $0.decorations, remoteNames: []).contains { $0.kind == .branch && $0.title == branch.shortName }
+        }) else { return [] }
+        var pending = [head.hash]
+        var result = Set<String>()
+        while let hash = pending.popLast() {
+            guard result.insert(hash).inserted else { continue }
+            pending.append(contentsOf: byHash[hash]?.parentHashes ?? [])
+        }
+        return result
+    }
+
     /// Uses IntelliJ's permanent-layout, visible-graph and print-element rules.
     /// Input stays in Git's child-before-parent order; filtering never mutates it.
     package static func layout(

@@ -1,22 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  type FffIndexedFile,
-  fffListFiles,
-  fffScanStatus,
-} from "@/features/file-search/lib/file-search-api";
+import { type FffIndexedFile, fffListFiles } from "@/features/file-search/lib/file-search-api";
 import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-search-paths";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import type { FileItem } from "../types/quick-open.types";
-import { shouldIgnoreFile } from "../utils/file-filtering";
 
+// Keep the complete snapshot: the switcher-only ignore list is applied by useFileSearch for empty
+// queries so an explicit filename search can still reach files such as .gitignore or Cargo.lock.
 const toQuickOpenFiles = (files: readonly Pick<FffIndexedFile, "name" | "path">[]): FileItem[] =>
-  files
-    .filter((file) => !shouldIgnoreFile(file.path))
-    .map((file) => ({
-      name: file.name,
-      path: file.path,
-      isDir: false,
-    }));
+  files.map((file) => ({
+    name: file.name,
+    path: file.path,
+    isDir: false,
+  }));
 
 export const useFileLoader = (isVisible: boolean) => {
   const getAllProjectFiles = useFileSystemStore((state) => state.getAllProjectFiles);
@@ -38,29 +33,7 @@ export const useFileLoader = (isVisible: boolean) => {
   useEffect(() => {
     if (!isVisible) return;
 
-    const isAlreadyLoaded = loadedForRootRef.current === workspaceKey;
     let cancelled = false;
-    let pollTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const pollNativeIndex = async () => {
-      try {
-        const status = await fffScanStatus(nativeRootPaths);
-        if (cancelled) return;
-
-        const indexedFiles = await fffListFiles(nativeRootPaths);
-        if (cancelled) return;
-        setFiles(toQuickOpenFiles(indexedFiles));
-        setIsIndexing(status.is_scanning);
-
-        if (status.is_scanning) {
-          pollTimer = setTimeout(() => void pollNativeIndex(), 150);
-        }
-      } catch (error) {
-        if (cancelled) return;
-        console.error("Failed to read project index:", error);
-        setIsIndexing(false);
-      }
-    };
 
     const loadFiles = async () => {
       if (loadedForRootRef.current !== workspaceKey) {
@@ -70,36 +43,30 @@ export const useFileLoader = (isVisible: boolean) => {
       setIsIndexing(nativeRootPaths.length > 0);
 
       try {
-        const allFiles = await getAllProjectFiles();
+        // The Core adapter returns a complete snapshot, not a background index.
+        // Refresh once per opening; typing searches this list without rescanning.
+        const allFiles =
+          nativeRootPaths.length > 0
+            ? await fffListFiles(nativeRootPaths)
+            : (await getAllProjectFiles()).filter((file) => !file.isDir);
         if (cancelled) return;
         loadedForRootRef.current = workspaceKey;
-        setFiles(toQuickOpenFiles(allFiles.filter((file) => !file.isDir)));
-
-        if (nativeRootPaths.length > 0) {
-          await pollNativeIndex();
-        } else {
-          setIsIndexing(false);
-        }
+        setFiles(toQuickOpenFiles(allFiles));
       } catch (error) {
         if (cancelled) return;
         console.error("Failed to load project files:", error);
         setIsIndexing(false);
       } finally {
-        if (!cancelled) setIsLoadingFiles(false);
+        if (!cancelled) {
+          setIsLoadingFiles(false);
+          setIsIndexing(false);
+        }
       }
     };
 
     const cleanup = () => {
       cancelled = true;
-      if (pollTimer) clearTimeout(pollTimer);
     };
-
-    if (isAlreadyLoaded) {
-      if (nativeRootPaths.length > 0) {
-        void pollNativeIndex();
-      }
-      return cleanup;
-    }
 
     void loadFiles();
     return cleanup;

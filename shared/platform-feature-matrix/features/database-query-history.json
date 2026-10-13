@@ -1,0 +1,22 @@
+{
+  "id": "database-query-history",
+  "area": "数据库",
+  "group": "数据库工作区",
+  "capability": "SQL 查询、历史与分页",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Database"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/database"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Database",
+  "verification": "执行查询、取消查询、查看 SQL 历史和分页结果，确认长结果不阻塞界面。"
+}

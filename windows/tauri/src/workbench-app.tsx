@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { MotionConfig } from "motion/react";
+import { closeMcpConnections } from "@/features/host-api/mcp-connection";
 import { FontStyleInjector } from "@/features/settings/components/font-style-injector";
 import { initializeAppBootstrap } from "@/features/bootstrap/initialize-app-bootstrap";
 import {
@@ -14,22 +15,26 @@ import {
 } from "@/features/window/utils/window-open-diagnostics";
 import { NotificationRecorder } from "@/features/notifications/components/notification-recorder";
 import { GitPushDialogHost } from "@/features/git/components/git-push-dialog";
-import { GitPullStrategyDialogHost } from "@/features/git/components/git-pull-strategy-dialog";
+import { GitPullDialogHost } from "@/features/git/components/git-pull-dialog";
 import { GitRebaseDialogHost } from "@/features/git/components/git-rebase-dialog";
 import { GitWorktreeDialogHost } from "@/features/git/components/git-worktree-dialog";
 import { GitPatchDialogHost } from "@/features/git/components/git-patch-dialog";
+import { GitWorkspaceCommitHost } from "@/features/git/runtime/git-workspace-commit-host";
 import { GitMetadataWatchHost } from "@/features/git/runtime/git-metadata-watch-host";
 
 import { MainLayout } from "./features/layout/components/main-layout";
+import { NativeWindowTitleHost } from "./features/window/components/native-window-title-host";
 import { ZoomIndicator } from "./features/window/components/zoom-indicator";
 import { Toaster } from "./ui/sonner";
 import { TooltipProvider } from "./ui/tooltip";
 import { WindowResizeBorder } from "./features/window/components/window-resize-border";
 import { DialogServiceProvider } from "@/ui/dialog";
 import { LogFallbackNotification } from "@/features/logging/log-fallback-notification";
+import { useNativeWindowTitle } from "@/features/window/hooks/use-native-window-title";
 
 function WorkbenchApp() {
   useAppBootstrap();
+  useNativeWindowTitle();
   const reduceMotion = useSettingsStore((state) => state.settings.reduceMotion);
 
   useEffect(() => {
@@ -73,11 +78,20 @@ function WorkbenchApp() {
     };
   }, []);
 
+  useEffect(() => {
+    window.addEventListener("beforeunload", closeMcpConnections);
+    return () => {
+      window.removeEventListener("beforeunload", closeMcpConnections);
+      closeMcpConnections();
+    };
+  }, []);
+
   return (
     <MotionConfig reducedMotion={reduceMotion ? "always" : "user"}>
       <DialogServiceProvider>
         <TooltipProvider>
           <WindowResizeBorder />
+          <NativeWindowTitleHost />
 
           <div className="h-dvh w-dvw overflow-hidden">
             <FontStyleInjector />
@@ -87,11 +101,12 @@ function WorkbenchApp() {
             <ZoomIndicator />
             <LogFallbackNotification />
             <GitPushDialogHost />
-            <GitPullStrategyDialogHost />
+            <GitPullDialogHost />
             <GitPatchDialogHost />
             <GitWorktreeDialogHost />
             <GitRebaseDialogHost />
             <GitMetadataWatchHost />
+            <GitWorkspaceCommitHost />
             <Toaster />
             <NotificationRecorder />
           </div>

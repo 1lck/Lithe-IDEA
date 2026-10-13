@@ -1,0 +1,65 @@
+name: Verify Platform Feature Matrix
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches:
+      - main
+      - preview
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-platform-feature-matrix-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify and publish matrix views
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Test matrix tooling
+        run: node --test scripts/test-platform-feature-matrix.mjs
+
+      - name: Verify source data
+        run: ./scripts/verify-platform-feature-matrix.sh
+
+      - name: Require matrix updates for platform changes
+        if: github.event_name == 'pull_request'
+        env:
+          MATRIX_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MATRIX_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MATRIX_UPDATE_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'matrix-exempt') }}
+        run: ./scripts/verify-platform-feature-matrix-change.sh
+
+      - name: Generate matrix views
+        run: node scripts/generate-platform-feature-matrix.mjs
+
+      - name: Upload matrix views
+        id: matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-feature-matrix-${{ github.run_id }}
+          path: .artifacts/platform-feature-matrix/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Add matrix links to job summary
+        env:
+          ARTIFACT_URL: ${{ steps.matrix.outputs.artifact-url }}
+        run: |
+          echo "Download the matrix for this revision: [HTML, Markdown, CSV and JSON](${ARTIFACT_URL})" >> "$GITHUB_STEP_SUMMARY"

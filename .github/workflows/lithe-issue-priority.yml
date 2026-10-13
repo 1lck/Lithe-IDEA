@@ -71,11 +71,11 @@ jobs:
             const currentLabels = issue.labels
               .map((label) => typeof label === 'string' ? label : label.name)
               .filter(Boolean);
-            const nextLabels = currentLabels.filter((label) => !managedLabels.includes(label));
-            nextLabels.push(...selectedLabels);
-            const unchanged = currentLabels.length === nextLabels.length &&
-              currentLabels.every((label, index) => label === nextLabels[index]);
-            if (unchanged) return;
+            // Only mutate labels owned by this workflow. Replacing the whole
+            // list can erase form labels applied after the snapshot was read.
+            const removedLabels = currentLabels.filter((label) => managedLabels.includes(label) && !selectedLabels.includes(label));
+            const addedLabels = selectedLabels.filter((label) => !currentLabels.includes(label));
+            if (!removedLabels.length && !addedLabels.length) return;
             for (const name of selectedLabels) {
               try {
                 await github.rest.issues.getLabel({ owner, repo, name });
@@ -86,4 +86,13 @@ jobs:
                 });
               }
             }
-            await github.rest.issues.setLabels({ owner, repo, issue_number, labels: nextLabels });
+            for (const name of removedLabels) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+            if (addedLabels.length) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: addedLabels });
+            }

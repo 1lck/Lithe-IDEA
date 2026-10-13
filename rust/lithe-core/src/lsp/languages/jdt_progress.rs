@@ -26,6 +26,7 @@ pub(crate) struct JavaPreparationDiagnostics {
     last_progress_at: Option<Instant>,
     absolute_deadline: Option<Instant>,
     idle_timeout: Duration,
+    idle_warning_reported: bool,
     last_activity_signature: Option<String>,
     phase: Option<String>,
     progress_percentage: Option<u64>,
@@ -58,6 +59,7 @@ impl JavaPreparationDiagnostics {
             last_progress_at: None,
             absolute_deadline: None,
             idle_timeout: Duration::ZERO,
+            idle_warning_reported: false,
             last_activity_signature: None,
             phase: None,
             progress_percentage: None,
@@ -98,6 +100,7 @@ impl JavaPreparationDiagnostics {
         self.last_progress_at = Some(now);
         self.absolute_deadline = Some(now + absolute_timeout);
         self.idle_timeout = idle_timeout;
+        self.idle_warning_reported = false;
         json!({
             "stage": "serviceReady",
             "initializeMilliseconds": initialize_elapsed.as_millis(),
@@ -120,6 +123,7 @@ impl JavaPreparationDiagnostics {
         }
         self.last_activity_signature = Some(progress.activity_signature);
         self.last_progress_at = Some(now);
+        self.idle_warning_reported = false;
 
         let phase_changed = progress
             .phase
@@ -273,25 +277,31 @@ impl JavaPreparationDiagnostics {
         .to_string()
     }
 
-    /// Takes an idle or absolute timeout once and returns its diagnostic snapshot.
+    /// Reports each quiet interval once without treating optional progress as a heartbeat.
+    pub(crate) fn take_idle_warning(&mut self, now: Instant) -> Option<String> {
+        let started_at = self.readiness_started_at?;
+        let idle = now.saturating_duration_since(self.last_progress_at.unwrap_or(started_at));
+        if self.idle_warning_reported || idle < self.idle_timeout {
+            return None;
+        }
+        self.idle_warning_reported = true;
+        Some(self.progress_detail(now))
+    }
+
+    /// Takes the absolute timeout once and returns its diagnostic snapshot.
     pub(crate) fn take_timeout(&mut self, now: Instant) -> Option<String> {
         let started_at = self.readiness_started_at?;
+        if now < self.absolute_deadline? {
+            return None;
+        }
         let last_progress_at = self.last_progress_at.unwrap_or(started_at);
         let idle = now.saturating_duration_since(last_progress_at);
-        let timeout_kind = if self
-            .absolute_deadline
-            .is_some_and(|deadline| now >= deadline)
-        {
-            "absolute"
-        } else if idle >= self.idle_timeout {
-            "idle"
-        } else {
-            return None;
-        };
-        let classification = match (timeout_kind, self.active_download.is_some()) {
-            ("idle", true) => "networkDownloadStalled",
-            ("idle", false) => "noProgressStall",
-            ("absolute", true) => "networkTransferActive",
+        // JDT reports work milestones, not liveness. Silence is diagnostic only;
+        // even a quiet Maven import retains the full, bounded readiness budget.
+        let classification = match (idle >= self.idle_timeout, self.active_download.is_some()) {
+            (true, true) => "networkDownloadStalled",
+            (true, false) => "noProgressStall",
+            (false, true) => "networkTransferActive",
             _ => "projectImportActive",
         };
         self.readiness_started_at = None;
@@ -299,7 +309,7 @@ impl JavaPreparationDiagnostics {
         Some(
             json!({
                 "stage": "serviceReady",
-                "timeoutKind": timeout_kind,
+                "timeoutKind": "absolute",
                 "classification": classification,
                 "elapsedMilliseconds": now.saturating_duration_since(started_at).as_millis(),
                 "idleMilliseconds": idle.as_millis(),
@@ -332,56 +342,160 @@ mod tests {
     }
 
     #[test]
-    fn meaningful_progress_refreshes_the_idle_deadline() {
+    fn shared_readiness_examples_preserve_warnings_and_the_absolute_cap() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../shared/fixtures/lsp/jdt-readiness-v1.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let started = Instant::now();
+            let mut diagnostics =
+                JavaPreparationDiagnostics::new(started, Duration::ZERO, "reused", true);
+            diagnostics.begin_readiness(
+                started,
+                Duration::ZERO,
+                Duration::from_millis(fixture["idleWarningMilliseconds"].as_u64().unwrap()),
+                Duration::from_millis(fixture["absoluteTimeoutMilliseconds"].as_u64().unwrap()),
+            );
+            for step in case["steps"].as_array().unwrap() {
+                let now = started + Duration::from_millis(step["atMilliseconds"].as_u64().unwrap());
+                match step["action"].as_str().unwrap() {
+                    "progress" => {
+                        diagnostics.record_progress(
+                            progress(
+                                &step["atMilliseconds"].to_string(),
+                                step["percentage"].as_u64().unwrap(),
+                            ),
+                            now,
+                        );
+                    }
+                    "ready" => {
+                        let result: serde_json::Value =
+                            serde_json::from_str(&diagnostics.ready_detail(now)).unwrap();
+                        assert_eq!(result["outcome"], "ready");
+                    }
+                    "poll" => {
+                        let timeout = diagnostics.take_timeout(now);
+                        assert_eq!(
+                            timeout.is_some(),
+                            step["timeout"].as_bool().unwrap(),
+                            "{}",
+                            case["name"]
+                        );
+                        let warning = diagnostics.take_idle_warning(now);
+                        assert_eq!(
+                            warning.is_some(),
+                            step["warning"].as_bool().unwrap(),
+                            "{}",
+                            case["name"]
+                        );
+                        if let Some(timeout) = timeout {
+                            let detail: serde_json::Value = serde_json::from_str(&timeout).unwrap();
+                            assert_eq!(detail["timeoutKind"], "absolute");
+                            assert_eq!(detail["classification"], step["classification"]);
+                        }
+                    }
+                    action => panic!("unknown fixture action: {action}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn quiet_import_warns_once_and_can_still_become_ready() {
         let started = Instant::now();
         let mut diagnostics =
-            JavaPreparationDiagnostics::new(started, Duration::from_millis(5), "new", true);
+            JavaPreparationDiagnostics::new(started, Duration::ZERO, "reused", true);
         diagnostics.begin_readiness(
             started,
-            Duration::from_millis(10),
+            Duration::ZERO,
+            Duration::from_secs(45),
+            Duration::from_secs(600),
+        );
+        diagnostics.record_progress(progress("maven", 23), started);
+        let quiet = started + Duration::from_secs(46);
+        assert!(diagnostics.take_timeout(quiet).is_none());
+        let warning = diagnostics
+            .take_idle_warning(quiet)
+            .expect("quiet import warning");
+        let warning: serde_json::Value = serde_json::from_str(&warning).unwrap();
+        assert_eq!(warning["idleMilliseconds"], 46_000);
+        assert_eq!(warning["progressPercent"], 23);
+        assert!(diagnostics
+            .take_idle_warning(quiet + Duration::from_secs(1))
+            .is_none());
+
+        let ready: serde_json::Value =
+            serde_json::from_str(&diagnostics.ready_detail(started + Duration::from_secs(90)))
+                .unwrap();
+        assert_eq!(ready["outcome"], "ready");
+        assert!(diagnostics
+            .take_timeout(started + Duration::from_secs(601))
+            .is_none());
+        assert!(diagnostics
+            .take_idle_warning(started + Duration::from_secs(601))
+            .is_none());
+    }
+
+    #[test]
+    fn meaningful_progress_refreshes_the_idle_warning() {
+        let started = Instant::now();
+        let mut diagnostics = JavaPreparationDiagnostics::new(started, Duration::ZERO, "new", true);
+        diagnostics.begin_readiness(
+            started,
+            Duration::ZERO,
             Duration::from_millis(100),
             Duration::from_secs(1),
         );
         diagnostics.record_progress(progress("first", 20), started + Duration::from_millis(80));
-
-        assert!(
-            diagnostics
-                .take_timeout(started + Duration::from_millis(150))
-                .is_none(),
-            "changed progress should extend the original idle deadline"
-        );
-        diagnostics.record_progress(progress("second", 25), started + Duration::from_millis(160));
-        assert!(
-            diagnostics
-                .take_timeout(started + Duration::from_millis(240))
-                .is_none(),
-            "each changed progress event should refresh the idle deadline"
-        );
-
-        let timeout = diagnostics
-            .take_timeout(started + Duration::from_millis(261))
-            .expect("silence after the refreshed deadline should still time out");
-        assert!(timeout.contains("\"timeoutKind\":\"idle\""));
+        assert!(diagnostics
+            .take_idle_warning(started + Duration::from_millis(150))
+            .is_none());
+        assert!(diagnostics
+            .take_idle_warning(started + Duration::from_millis(181))
+            .is_some());
+        diagnostics.record_progress(progress("second", 25), started + Duration::from_millis(200));
+        assert!(diagnostics
+            .take_idle_warning(started + Duration::from_millis(250))
+            .is_none());
+        assert!(diagnostics
+            .take_idle_warning(started + Duration::from_millis(301))
+            .is_some());
+        assert!(diagnostics
+            .take_timeout(started + Duration::from_millis(301))
+            .is_none());
     }
 
     #[test]
-    fn duplicate_progress_does_not_refresh_the_idle_deadline() {
+    fn duplicate_progress_does_not_refresh_the_idle_warning() {
         let started = Instant::now();
-        let mut diagnostics =
-            JavaPreparationDiagnostics::new(started, Duration::from_millis(5), "new", true);
+        let mut diagnostics = JavaPreparationDiagnostics::new(started, Duration::ZERO, "new", true);
         diagnostics.begin_readiness(
             started,
-            Duration::from_millis(10),
+            Duration::ZERO,
             Duration::from_millis(45),
             Duration::from_secs(10),
         );
         diagnostics.record_progress(progress("same", 20), started + Duration::from_millis(10));
         diagnostics.record_progress(progress("same", 20), started + Duration::from_millis(30));
-
-        let timeout = diagnostics
-            .take_timeout(started + Duration::from_millis(56))
-            .expect("unchanged progress must not keep preparation alive");
-        assert!(timeout.contains("\"timeoutKind\":\"idle\""));
+        let quiet = started + Duration::from_millis(56);
+        assert!(diagnostics.take_idle_warning(quiet).is_some());
+        diagnostics.record_progress(progress("same", 20), started + Duration::from_millis(70));
+        assert!(diagnostics
+            .take_idle_warning(started + Duration::from_millis(120))
+            .is_none());
+        assert!(diagnostics.take_timeout(quiet).is_none());
+        let timeout: serde_json::Value = serde_json::from_str(
+            &diagnostics
+                .take_timeout(started + Duration::from_secs(10))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(timeout["timeoutKind"], "absolute");
+        assert_eq!(timeout["classification"], "noProgressStall");
+        assert!(diagnostics
+            .take_timeout(started + Duration::from_secs(11))
+            .is_none());
     }
 
     #[test]

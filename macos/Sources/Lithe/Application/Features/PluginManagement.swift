@@ -30,6 +30,8 @@ protocol PluginManaging: AnyObject {
     var issues: [PluginManagementIssue] { get }
 
     func setEnabled(_ enabled: Bool, for pluginID: PluginID) async throws
+    func download(pluginID: PluginID) async throws
+    func reinstall(pluginID: PluginID) async throws
     func installPackage(at packageURL: URL) throws
     func rollback(_ pluginID: PluginID) throws
     func uninstall(_ pluginID: PluginID) async throws

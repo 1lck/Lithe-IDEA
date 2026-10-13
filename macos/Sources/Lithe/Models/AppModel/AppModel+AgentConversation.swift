@@ -1,0 +1,172 @@
+import Foundation
+import LitheAgentConversationModule
+import LitheCoreContracts
+import LitheModuleAPI
+
+extension AppModel {
+    func copyAgentSessionID(_ id: String) {
+        platformUI.copyToClipboard(id)
+    }
+
+    func openAgentFile(_ location: AgentToolDetails.Location) {
+        guard let workspaceURL, let url = location.fileURL(in: workspaceURL) else {
+            showNotification(String(localized: "This file is outside the current project."))
+            return
+        }
+        if let line = location.line {
+            navigateToEditorLocation(url: url, line: line - 1, utf16Column: 0)
+        } else {
+            openFile(url)
+        }
+    }
+
+    var isAgentConversationEnabled: Bool {
+        guard let snapshot = try? services.moduleRuntime.snapshot(for: .agentConversation) else { return false }
+        return snapshot.state != .disabled
+    }
+
+    var agentConversationFeatureIfActive: AgentConversationFeatureModel? {
+        (services.moduleRuntime.capability(.agentConversation) as? AgentConversationCapability)?.feature
+    }
+
+    /// The panel stays open when the feature is turned off; only the Agent
+    /// processes stop and the panel explains how to turn it back on.
+    func setAgentConversationEnabled(_ enabled: Bool) async {
+        if !enabled {
+            agentConversationNeedsAttention = false
+        }
+        do {
+            try await services.moduleRuntime.setEnabled(enabled, for: .agentConversation)
+            objectWillChange.send()
+        } catch {
+            showNotification(error.localizedDescription)
+            return
+        }
+        if enabled, workbenchFeature.isVisible(.agent) {
+            activateAgentConversation()
+        }
+    }
+
+    /// Show or hide the panel. The panel always renders its full layout; the
+    /// module is only activated when the feature is enabled.
+    func toggleAgentConversation() {
+        guard workspaceURL != nil else { return }
+        guard toggleToolWindow(.agent) else { return }
+        activateAgentConversation()
+    }
+
+    func activateAgentConversation() {
+        guard isAgentConversationEnabled, agentConversationFeatureIfActive == nil else {
+            connectAgentConversation()
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                await awaitModuleRuntimeShutdown()
+                _ = try await services.moduleRuntime.activateCapability(.agentConversation)
+                objectWillChange.send()
+                connectAgentConversation()
+            } catch {
+                showNotification(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Why a message cannot be sent right now, before any Agent is involved.
+    var agentConversationSetupError: AgentConversationError? {
+        if !isAgentConversationEnabled { return .featureDisabled }
+        if configuredAgentOptions.isEmpty { return .noAgentConfigured }
+        if agentConversationFeatureIfActive == nil { return .moduleStarting }
+        return nil
+    }
+
+    /// Which local CLI configuration an agent follows, if any.
+    static func localConfigurationSource(for agentID: String) -> AIConfigurationSourceKind? {
+        switch agentID {
+        case "codex-acp": .codex
+        case "claude-acp": .claude
+        default: nil
+        }
+    }
+
+    /// Read the user's own CLI configuration (endpoint, model, API key) and
+    /// bind it to `agentID`. Lithe keeps following that file; nothing is
+    /// copied into Lithe settings except the provider profile. The commit
+    /// message provider is left untouched.
+    @discardableResult
+    func importLocalConfiguration(for agentID: String, source: AIConfigurationSourceKind, name: String) -> Bool {
+        guard let configuration = loadAIConfigurations().first(where: { $0.source == source }) else {
+            detectedAIConfigurations.removeAll { $0.source == source }
+            showNotification(String(format: String(localized: "No %@ configuration was found on this Mac."), source.title))
+            return false
+        }
+        let commitProviderID = settings.commitMessageAI.activeProviderID
+        let provider = settings.importAIConfiguration(configuration)
+        settings.commitMessageAI.activeProviderID = commitProviderID
+        try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+        detectedAIConfigurations.removeAll { $0.source == source }
+        detectedAIConfigurations.append(configuration)
+        settings.setAgentProvider(provider.id, for: agentID, name: name)
+        showNotification(String(format: String(localized: "%@ now follows your local %@ configuration."), name, source.title))
+        return true
+    }
+
+    /// Directory holding Lithe-managed ACP adapter installs.
+    var agentDataDirectory: URL {
+        services.fileStorage.applicationSupportDirectory()
+            .appendingPathComponent("Lithe", isDirectory: true)
+    }
+
+    /// Agents with a provider assigned in Settings › Agents, for the panel.
+    var configuredAgentOptions: [AgentOption] {
+        settings.agentConfigurations
+            .filter { id, configuration in
+                configuration.isConfigured
+                    && (id != AgentConfiguration.customAgentID
+                        || !settings.agentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .map { id, configuration -> AgentOption in
+                let provider = settings.agentProvider(for: id)
+                let model = configuration.authentication == .codexSubscription ? String(localized: "Codex subscription") : (provider?.model.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+                return AgentOption(id: id, name: configuration.name, modelName: model.isEmpty ? provider?.name : model)
+            }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Refresh the panel's agents and start the selected one if needed.
+    func connectAgentConversation() {
+        guard !isChangingAgentProvider else { return }
+        guard let feature = agentConversationFeatureIfActive else { return }
+        if let workspaceURL { feature.bindWorkspace(workspaceURL) }
+        feature.onAttentionChanged = { [weak self] needsAttention in
+            self?.agentConversationNeedsAttention = needsAttention
+        }
+        feature.setAgents(configuredAgentOptions)
+        guard let agentID = feature.selectedAgentID else { return }
+        let connection = feature.connection(for: agentID)
+        guard !connection.hasActiveConnection else { return }
+        do {
+            // Refresh the displayed fallback even when credential validation fails.
+            defer { feature.setAgents(configuredAgentOptions) }
+            let configuration = try agentLaunchConfiguration(agentID: agentID)
+            try connection.connect(configuration: configuration)
+        } catch {
+            // The panel shows the reason and offers a retry.
+            connection.reportConnectionFailure(error.localizedDescription)
+        }
+    }
+
+    func selectAgentConversationAgent(_ agentID: String) {
+        agentConversationFeatureIfActive?.selectAgent(agentID)
+        connectAgentConversation()
+    }
+
+    func agentLaunchConfiguration(agentID: String) throws -> AgentLaunchConfiguration {
+        guard let workspaceURL else { throw AgentConversationError.notConnected }
+        return try AgentLaunchConfigurationResolver(settings: settings,
+            configurationSources: services.aiConfigurationSources,
+            credentialResolver: services.credentialResolver)
+            .resolve(agentID: agentID, workspaceURL: workspaceURL, dataDirectory: agentDataDirectory)
+    }
+}

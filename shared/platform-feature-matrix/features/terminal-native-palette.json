@@ -1,0 +1,23 @@
+{
+  "id": "terminal-native-palette",
+  "area": "工作台",
+  "group": "终端",
+  "capability": "macOS 终端正文优先使用 Terminal.app 默认描述文件的文字与 ANSI 配色",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift",
+      "macos/Tests/LitheTests/TerminalInputFocusTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/terminal"
+    ]
+  },
+  "owner": "Terminal",
+  "verification": "核对 macOS Terminal.app 默认描述文件的普通文字及 16 个 ANSI 颜色，确认终端提示符和 ANSI 输出优先使用这些颜色；描述文件或单项颜色缺失、无效时分别回退到 Lithe 主题文字色和现有 ANSI 默认值。背景、字体、字号、光标和选区保持原设置，保留 shell 的粗体与显式真彩色语义，不写入 Terminal.app 或 shell 配置。"
+}

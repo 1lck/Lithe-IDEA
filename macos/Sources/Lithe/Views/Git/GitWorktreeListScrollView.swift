@@ -410,12 +410,12 @@ final class GitWorktreeListNSView: NSView {
             success = LitheTheme.nsColor(.success, isDark: isDark)
             warningColor = LitheTheme.nsColor(.warning, isDark: isDark)
             error = LitheTheme.nsColor(.error, isDark: isDark)
-            title = TextStyle(font: .systemFont(ofSize: 13, weight: .medium), color: primary)
-            metadata = TextStyle(font: .systemFont(ofSize: 12.5), color: primary)
-            path = TextStyle(font: .systemFont(ofSize: 12.5), color: secondary)
-            accent = TextStyle(font: .systemFont(ofSize: 12.5), color: LitheTheme.nsColor(.accent, isDark: isDark))
-            warning = TextStyle(font: .systemFont(ofSize: 11), color: warningColor)
-            tertiary = TextStyle(font: .systemFont(ofSize: 17), color: secondary.withAlphaComponent(0.8))
+            title = TextStyle(font: LitheTheme.uiNSFont(size: 13, weight: .medium), color: primary)
+            metadata = TextStyle(font: LitheTheme.uiNSFont(size: 12.5), color: primary)
+            path = TextStyle(font: LitheTheme.uiNSFont(size: 12.5), color: secondary)
+            accent = TextStyle(font: LitheTheme.uiNSFont(size: 12.5), color: LitheTheme.nsColor(.accent, isDark: isDark))
+            warning = TextStyle(font: LitheTheme.uiNSFont(size: 11), color: warningColor)
+            tertiary = TextStyle(font: LitheTheme.uiNSFont(size: 17), color: secondary.withAlphaComponent(0.8))
         }
     }
 

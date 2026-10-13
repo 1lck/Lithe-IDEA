@@ -848,6 +848,12 @@ package protocol LanguageServerSession: AnyObject {
         mavenContext: MavenLaunchContext?
     ) throws
     func retryMavenProfiles()
+    /// Hands a changed Maven context to the running server. A failure means the
+    /// session cannot take it and should be restarted.
+    func updateMavenConfiguration(
+        _ context: MavenLaunchContext,
+        reloadProjects: Bool
+    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure>
     func synchronize(fileURL: URL, text: String, languageID: String) throws
     func notifyWorkspaceFilesChanged(_ changes: [LanguageServerWorkspaceFileChange]) throws
     func closeDocument(_ fileURL: URL)
@@ -960,6 +966,16 @@ package extension LanguageServerSession {
         set {}
     }
     func retryMavenProfiles() {}
+
+    func updateMavenConfiguration(
+        _: MavenLaunchContext,
+        reloadProjects _: Bool
+    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "unsupported",
+            message: "This language session cannot update Maven settings in place."
+        ))
+    }
 
     func start(
         rootURL: URL,

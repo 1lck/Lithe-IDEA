@@ -1,0 +1,23 @@
+{
+  "id": "wsl-boundaries",
+  "area": "Windows 专属",
+  "group": "WSL",
+  "capability": "跨 WSL 边界移动与重命名",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe"
+    ],
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/wsl",
+      "windows/tauri/src/features/file-system"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Windows Platform",
+  "verification": "Windows 验证本地、同发行版、跨发行版移动/重命名及明确错误提示。"
+}

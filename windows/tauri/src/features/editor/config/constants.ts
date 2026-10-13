@@ -1,5 +1,7 @@
 // Editor layout constants
 export const EDITOR_CONSTANTS = {
+  // Match the Windows diff editor's wheel response through Monaco's own handler.
+  MOUSE_WHEEL_SCROLL_SENSITIVITY: 2,
   // Line height calculation
   LINE_HEIGHT_MULTIPLIER: 1.4,
   DEFAULT_LINE_HEIGHT: 20,

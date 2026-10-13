@@ -3,6 +3,7 @@ import type { PersistedEditorViewState } from "@/features/editor/types/editor-se
 import { detectLanguageFromFileName } from "@/features/editor/utils/language-detection";
 import { parseWslPath } from "@/features/wsl/utils/wsl-path";
 import { readFileContent } from "./file-operations";
+import { isLocalDocumentPath, readDocumentFileDetails, type FileEncoding } from "@/platform/document-files";
 import {
   getDatabaseTypeFromPath,
   getFilenameFromPath,
@@ -30,15 +31,25 @@ export interface LoadedFileContent {
   kind: LoadedFileKind;
   content?: string;
   language?: string;
+  encoding?: FileEncoding;
+  diskIdentity?: string;
+}
+
+async function classifyLoadedText(value: LoadedFileContent): Promise<LoadedFileContent> {
+  // Core owns the same policy on macOS and Windows. Decoding failures remain
+  // read errors; a missing tokenizer never makes content binary.
+  const result = await invoke<{ isPlainText: boolean }>("document.classifyText", {
+    text: value.content ?? "",
+  });
+  return result.isPlainText ? value : { kind: "binary" };
 }
 
 /**
- * Read a file's content and type in a store-independent way, shared by the
- * session-restore path. This intentionally does not consult the global
- * `latestFileOpenRequestId` used by `handleFileSelect`, so concurrent restores
- * are never misclassified as stale.
+ * Shared content loading for initial opens and session restoration. File I/O
+ * and codecs belong to native adapters; Core classifies decoded Unicode.
+ * Cancellation/stale-result checks belong to the caller that owns the tab.
  */
-export async function loadFileContent(path: string): Promise<LoadedFileContent> {
+export async function loadFileContent(path: string, encoding?: FileEncoding): Promise<LoadedFileContent> {
   if (getDatabaseTypeFromPath(path)) return { kind: "database" };
   if (isImageFile(path)) return { kind: "image" };
   if (isPdfFile(path)) return { kind: "pdf" };
@@ -53,7 +64,7 @@ export async function loadFileContent(path: string): Promise<LoadedFileContent> 
       connectionId: match[1],
       filePath: match[2] || "/",
     });
-    return { kind: "text", content, language };
+    return classifyLoadedText({ kind: "text", content, language });
   }
 
   const wslInfo = parseWslPath(path);
@@ -62,16 +73,28 @@ export async function loadFileContent(path: string): Promise<LoadedFileContent> 
       distro: wslInfo.distro,
       filePath: wslInfo.linuxPath,
     });
-    return { kind: "text", content, language };
+    return classifyLoadedText({ kind: "text", content, language });
   }
 
+  if (encoding || isLocalDocumentPath(path)) {
+    const details = await readDocumentFileDetails(path, encoding);
+    if (!details || details.content === null) throw new Error("File no longer exists");
+    return classifyLoadedText({
+      kind: "text",
+      content: details.content,
+      language,
+      encoding: details.encoding,
+      diskIdentity: details.identity,
+    });
+  }
   const content = await readFileContent(path);
-  return { kind: "text", content, language };
+  return classifyLoadedText({ kind: "text", content, language, encoding: "UTF-8" });
 }
 
 export interface RestoreJob {
   bufferId: string;
   path: string;
+  encoding?: FileEncoding;
   editorState?: PersistedEditorViewState;
 }
 
@@ -140,7 +163,7 @@ export function createSessionRestoreController(
     let applied = false;
     callbacks.markLoading(job.bufferId);
     try {
-      const loaded = await loadFileContent(job.path);
+      const loaded = await loadFileContent(job.path, job.encoding);
       if (disposed) return;
       if (!callbacks.isSessionCurrent()) return; // a newer restore replaced this session
       if (!callbacks.isBufferValid(job.bufferId, job.path)) {
@@ -211,8 +234,9 @@ export function createSessionRestoreController(
 
     loadNow(job) {
       if (disposed) return Promise.resolve();
-      const activeCompletion = completionByBufferId.get(job.bufferId);
-      if (activeByBufferId.has(job.bufferId)) return activeCompletion?.promise ?? Promise.resolve();
+      // Joining a background read must await decoding and classification even
+      // when no caller previously requested a completion promise.
+      if (activeByBufferId.has(job.bufferId)) return completionFor(job.bufferId).promise;
 
       if (completedByBufferId.get(job.bufferId) === job.path) return Promise.resolve();
       completedByBufferId.delete(job.bufferId);

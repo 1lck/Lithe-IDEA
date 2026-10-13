@@ -463,6 +463,12 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
     }
     persistSessions();
   }
+  if (event.type === "semanticTokensRefresh") {
+    await emit("lsp://semantic-tokens-refresh", {
+      sessionId: session.id,
+      workspacePath: session.workspacePath,
+    });
+  }
   if (event.type === "featuresChanged") {
     session.featureState = { phase: "known", features: new Set(event.capabilities ?? []) };
     persistSessions();
@@ -1228,6 +1234,7 @@ function mainClassMatches(reported: string, configured: string): boolean {
 
 export const LSP_OPERATION_BY_COMMAND = {
   lsp_get_completions: "completion",
+  lsp_resolve_completion: "resolveCompletion",
   lsp_get_hover: "hover",
   lsp_get_definition: "definition",
   lsp_get_implementation: "implementation",
@@ -1237,12 +1244,12 @@ export const LSP_OPERATION_BY_COMMAND = {
   lsp_format_document: "formatting",
   lsp_get_code_actions: "codeActions",
   lsp_get_inlay_hints: "inlayHints",
+  lsp_get_semantic_tokens: "semanticTokens",
   lsp_get_code_lens: "codeLens",
   lsp_get_virtual_document: "virtualDocument",
 } as const;
 
 export const LSP_EXPLICITLY_UNAVAILABLE_COMMANDS = [
-  "lsp_get_semantic_tokens",
   "lsp_get_document_symbols",
   "lsp_get_workspace_symbols",
   "lsp_get_signature_help",
@@ -1272,6 +1279,7 @@ function semanticPayload(command: string, args: JsonRecord, session: Session): J
     payload.position = { line: args.line, utf16Column: args.character ?? 0 };
   }
   if (command === "lsp_rename") payload.newName = args.newName;
+  if (command === "lsp_resolve_completion") payload.completionItem = args.completionItem;
   if (command === "lsp_get_inlay_hints") {
     payload.range = {
       start: { line: args.startLine, utf16Column: 0 },
@@ -1305,6 +1313,8 @@ function unwrapResult(command: string, result: any): unknown {
   switch (command) {
     case "lsp_get_completions":
       return normalized.items ?? [];
+    case "lsp_resolve_completion":
+      return normalized.item ?? null;
     case "lsp_get_hover": {
       const hover = normalized.hover;
       if (!hover) return null;
@@ -1348,8 +1358,12 @@ function unwrapResult(command: string, result: any): unknown {
 }
 
 async function semanticRequest(command: string, args: JsonRecord): Promise<unknown> {
+  const key = fileKey(args.sessionFilePath ?? args.filePath);
+  const attachment = fileSessions.get(key);
   const session = sessionForFile(args.sessionFilePath ?? args.filePath);
   const result = await requestOperation(session, semanticPayload(command, args, session));
+  // A stopped/replaced attachment must not repaint the new session's document.
+  if (command === "lsp_get_semantic_tokens" && fileSessions.get(key) !== attachment) return null;
   return unwrapResult(command, result);
 }
 
@@ -1465,6 +1479,30 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     if (!session) throw new Error("No active Java language session for this workspace.");
     await core("lsp.retryMavenProfiles", { sessionId: session.id }, crypto.randomUUID());
     return undefined as T;
+  }
+  if (command === "lsp_update_maven_configuration") {
+    // A running Java session takes Maven changes through JDT LS's own update
+    // path. Without one there is nothing to update: the next start reads the
+    // workspace's current Maven context.
+    const session = [...sessions.values()].find(
+      (candidate) =>
+        candidate.languageId === "java" &&
+        !isSessionTerminal(candidate.lifecycle) &&
+        candidate.lifecycle.phase !== "stopping" &&
+        candidate.lifecycle.phase !== "recovering" &&
+        normalizedPathKey(candidate.workspacePath) === normalizedPathKey(args.workspacePath),
+    );
+    if (!session) return { kind: "noSession" } as T;
+    const result = await core<JsonRecord>(
+      "lsp.updateMavenConfiguration",
+      {
+        sessionId: session.id,
+        mavenContext: args.mavenContext,
+        reloadProjects: args.reloadProjects === true,
+      },
+      crypto.randomUUID(),
+    );
+    return { kind: "updated", ...result } as T;
   }
   if (command === "lsp_stop_for_file") {
     const operation = new LspOperationLog("fileDetach", crypto.randomUUID(), {
@@ -1618,6 +1656,56 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       sessionForWorkspace(String(args.workspacePath ?? ""), "java"),
       String(args.filePath ?? ""),
     )) as T;
+  }
+  if (command === "java_build_service_update") {
+    const session = sessionForWorkspace(String(args.workspacePath ?? ""), "java");
+    const target = args.target as {
+      mainClass: string;
+      projectName?: string;
+      modulePaths: string[];
+      classPaths: string[];
+    };
+    const execute = async (
+      command: string,
+      arguments_: unknown[],
+      timeout = LSP_REQUEST_TIMEOUT_MS,
+    ) => {
+      const result = normalizeCoreValue(
+        await requestOperation(
+          session,
+          {
+            sessionId: session.id,
+            operation: "executeCommand",
+            command: { title: "Update Java service", command, arguments: arguments_ },
+          },
+          "lsp.request",
+          timeout,
+        ),
+      ) as JsonRecord;
+      return result?.value;
+    };
+    const paths = await execute("vscode.java.resolveClasspath", [
+      target.mainClass,
+      target.projectName ?? "",
+      "runtime",
+    ]);
+    if (JSON.stringify(paths) !== JSON.stringify([target.modulePaths, target.classPaths])) {
+      throw new Error("Runtime paths changed. Restart the service to use the new dependencies.");
+    }
+    const status = await execute(
+      "vscode.java.buildWorkspace",
+      [
+        JSON.stringify({
+          mainClass: target.mainClass,
+          projectName: target.projectName,
+          filePath: args.sourcePath,
+          isFullBuild: false,
+        }),
+      ],
+      JAVA_BUILD_TIMEOUT_MS,
+    );
+    if (Number(status) !== 1) throw new Error("Java compilation did not complete successfully.");
+    return undefined as T;
   }
   if (command === "java_prepare_run_launch") {
     const workspacePath = String(args.workspacePath ?? "");

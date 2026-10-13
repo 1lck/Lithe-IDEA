@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "source": "codex",
+      "configuration": "model = 'unused'\nprofile = 'work'\n[profiles.work]\nmodel = 'fixture-model'\nmodel_provider = 'gateway'\n[model_providers.gateway]\nbase_url = 'https://example.test/v1'\nwire_api = 'responses'\nrequires_openai_auth = true\n",
+      "expected": {"endpoint": "https://example.test/v1", "model": "fixture-model", "apiProtocol": "responses"}
+    },
+    {
+      "source": "claude",
+      "configuration": "{\"env\":{\"ANTHROPIC_BASE_URL\":\"https://example.test/v1\",\"ANTHROPIC_MODEL\":\"sonnet\",\"ANTHROPIC_DEFAULT_SONNET_MODEL\":\"fixture-model\",\"ANTHROPIC_API_KEY\":\"fixture-secret\"}}",
+      "expected": {"endpoint": "https://example.test/v1", "model": "fixture-model", "apiProtocol": "anthropicMessages"}
+    }
+  ]
+}

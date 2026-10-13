@@ -1,0 +1,23 @@
+{
+  "id": "community-feed",
+  "area": "社区",
+  "group": "LINUX DO 社区",
+  "capability": "主题列表与详情",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Community",
+  "verification": "如果重新引入社区入口，在 macOS 和 Windows 验证 Latest/Top、主题详情、分页和浏览器跳转。",
+  "notes": "macOS 的 LINUX DO 插件已退役，当前两端均无社区入口。"
+}

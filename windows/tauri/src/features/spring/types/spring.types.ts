@@ -47,12 +47,38 @@ export interface SpringInjection {
   beanIds: string[];
 }
 
+export interface SpringEndpoint {
+  id: string;
+  httpMethods: string[];
+  route: string;
+  controller: string;
+  method: string;
+  path: string;
+  line: number;
+  column: number;
+}
+
+export type SpringIndexPhase = "idle" | "loading" | "ready" | "failed";
+
+export type SpringIndexErrorCategory =
+  | "unsupportedRoot"
+  | "rootUnavailable"
+  | "permissionDenied"
+  | "indexTimeout"
+  | "indexFailed";
+
+export interface SpringIndexError {
+  category: SpringIndexErrorCategory;
+  detail: string;
+}
+
 export interface SpringIndex {
   properties: SpringProperty[];
   values: SpringConfigurationValue[];
   propertyReferences: SpringPropertyReference[];
   beans: SpringBean[];
   injections: SpringInjection[];
+  endpoints: SpringEndpoint[];
 }
 
 export interface SpringNavigationLocation {
@@ -68,4 +94,5 @@ export const EMPTY_SPRING_INDEX: SpringIndex = {
   propertyReferences: [],
   beans: [],
   injections: [],
+  endpoints: [],
 };

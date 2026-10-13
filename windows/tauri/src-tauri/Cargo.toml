@@ -20,6 +20,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+lithe-git-host = { path = "../../../rust/lithe-git-host" }
 lithe-core = { path = "../../../rust/lithe-core" }
 lithe-project = { path = "../crates/project" }
 lithe-terminal = { path = "../crates/terminal" }
@@ -27,6 +28,8 @@ keyring = { version = "3.6.3", features = ["windows-native"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
+quick-xml = "0.37"
+same-file = "1.0.6"
 sha2 = "0.10"
 sysinfo = "0.32"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
@@ -47,13 +50,22 @@ tauri-plugin-window-state = "2"
 tokio = { version = "1", features = ["sync", "macros", "time"] }
 url = "2"
 windows-sys = { version = "0.61", features = [
-    "Win32_Foundation",
-    "Win32_Storage_FileSystem",
-    "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_ProcessStatus",
-    "Win32_System_Threading",
+  "Win32_Foundation",
+  "Win32_Globalization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Threading",
 ] }
+webbrowser = "1.2.4"
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# lithe-core's Discourse sign-in generates a 2048-bit RSA key; the rsa crate
+# documents that this is extremely slow unless num-bigint-dig is optimized.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.61.3", features = ["Win32_Graphics_DirectWrite", "Win32_Globalization"] }

@@ -1,0 +1,28 @@
+{
+  "id": "git-repository-discovery",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "仓库自动发现排除隐藏目录与构建缓存",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/git/mod.rs",
+      "rust/lithe-core/src/tests/git_repository_discovery.rs",
+      "macos/Sources/Lithe/Core/Rust/RustGitOperations.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/git/mod.rs",
+      "rust/lithe-core/src/tests/git_repository_discovery.rs",
+      "windows/tauri/src-tauri/src/platform.rs",
+      "windows/tauri/src/features/git/api/git-repo-api.ts"
+    ]
+  },
+  "owner": "Git",
+  "verification": "打开含 .build/checkouts、macos/.build/checkouts、.cache、node_modules 与可见嵌套仓库的项目，确认 Git 状态和引用只包含主仓库及可见源码仓库；.worktrees 和 .worktree 中的真实工作树仍可发现，其构建缓存仍被排除。直接打开隐藏仓库及其源码子目录应能使用 Git。",
+  "notes": "两端复用共享扫描规则和 fixture；Linux Core 集成验证不能代替 macOS、Windows 原生界面验收。"
+}

@@ -37,15 +37,20 @@ mkdir -p \
     "$APP_DIR/Contents/Resources/OfficialPlugins" \
     "$APP_DIR/Contents/Helpers"
 cp ".build/$TRIPLE/debug/Lithe" "$APP_DIR/Contents/MacOS/Lithe"
-swiftterm_resource_bundle=".build/$TRIPLE/debug/SwiftTerm_SwiftTerm.bundle"
-if [[ ! -d "$swiftterm_resource_bundle" ]]; then
-    print -u2 -- "Missing SwiftTerm Metal resource bundle: $swiftterm_resource_bundle"
-    exit 1
-fi
-cp -R "$swiftterm_resource_bundle" "$APP_DIR/Contents/Resources/SwiftTerm_SwiftTerm.bundle"
+for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
+    resource_bundle=".build/$TRIPLE/debug/$bundle_name"
+    if [[ ! -d "$resource_bundle" ]]; then
+        print -u2 -- "Missing SwiftPM resource bundle: $resource_bundle"
+        exit 1
+    fi
+    cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/$bundle_name"
+done
 cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
 cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
-plugin_root=$(scripts/build-official-plugins.sh --configuration debug --triple "$TRIPLE")
+plugin_root=$(scripts/build-official-plugins.sh \
+    --bundled-only \
+    --configuration debug \
+    --triple "$TRIPLE")
 for plugin_package in "$plugin_root"/*(/N); do
     cp -R "$plugin_package" "$APP_DIR/Contents/Resources/OfficialPlugins/${plugin_package:t}"
 done
@@ -61,6 +66,10 @@ MACOSX_DEPLOYMENT_TARGET=13.0 \
     CARGO_TARGET_DIR="$ROOT_DIR/rust/target/macos" \
     cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-db-mcp --target "$RUST_TARGET"
 cp "rust/target/macos/$RUST_TARGET/debug/lithe-db-mcp" "$APP_DIR/Contents/Helpers/lithe-db-mcp"
+MACOSX_DEPLOYMENT_TARGET=13.0 \
+    CARGO_TARGET_DIR="$ROOT_DIR/rust/target/macos" \
+    cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-ide-host --features mcp --bin lithe-mcp --target "$RUST_TARGET"
+cp "rust/target/macos/$RUST_TARGET/debug/lithe-mcp" "$APP_DIR/Contents/Helpers/lithe-mcp"
 cp macos/Resources/Info.plist "$APP_DIR/Contents/Info.plist"
 zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"
 "$ROOT_DIR/scripts/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"

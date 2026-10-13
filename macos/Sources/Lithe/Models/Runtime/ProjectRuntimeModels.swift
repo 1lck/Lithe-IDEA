@@ -230,6 +230,8 @@ enum RuntimeChoiceSource: Equatable, Sendable {
 /// Outcome of one runtime selection chain in `ProjectRuntimeService`.
 indirect enum RuntimeChoice: Equatable, Sendable {
     case found(URL, RuntimeChoiceSource)
+    case warning(URL, RuntimeChoiceSource, String)
+    case unavailable(String)
     /// A configured path that is not a usable runtime; a launch fails on it.
     case invalid(String)
     /// A configured path that is not usable, replaced by `to`.
@@ -239,15 +241,16 @@ indirect enum RuntimeChoice: Equatable, Sendable {
 
     var url: URL? {
         switch self {
-        case .found(let url, _): url
+        case .found(let url, _), .warning(let url, _, _): url
         case .fallback(_, let choice): choice.url
-        case .invalid, .notFound: nil
+        case .invalid, .notFound, .unavailable: nil
         }
     }
 
     /// The same choice presented as inherited from the project JDK.
     var inheritedAsProjectJDK: RuntimeChoice {
         if case .found(let url, _) = self { return .found(url, .projectJDK) }
+        if case .warning(let url, _, let message) = self { return .warning(url, .projectJDK, message) }
         return self
     }
 }

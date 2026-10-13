@@ -18,6 +18,7 @@ import {
   isEditorGoToDefinitionModifierKey,
 } from "@/features/editor/utils/go-to-definition-gesture";
 import { frontendTrace } from "@/utils/frontend-trace";
+import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { DefinitionHoverScheduler } from "./definition-link-scheduler";
 
 const DEFINITION_HOVER_DELAY_MILLISECONDS = 150;
@@ -37,6 +38,7 @@ interface MonacoDefinitionLinkOptions {
 }
 
 interface DefinitionWordRequest {
+  navigationContext: string;
   modelVersion: number;
   lineNumber: number;
   character: number;
@@ -54,7 +56,7 @@ export interface MonacoDefinitionLinkGesture extends Monaco.IDisposable {
 }
 
 function definitionWordKey(request: DefinitionWordRequest): string {
-  return `${request.modelVersion}:${request.lineNumber}:${request.startColumn}:${request.endColumn}`;
+  return `${request.modelVersion}:${request.lineNumber}:${request.startColumn}:${request.endColumn}:${request.navigationContext}`;
 }
 
 export function registerMonacoDefinitionLinkGesture({
@@ -85,11 +87,16 @@ export function registerMonacoDefinitionLinkGesture({
     });
   }
 
+  const navigationContextKey = () =>
+    LspClient.getInstance().getDocumentNavigationContextKey(documentTarget);
+
   const requestAtPosition = (position: Monaco.Position): DefinitionWordRequest | null => {
     if (!isGestureActive() || model.isDisposed()) return null;
     const word = model.getWordAtPosition(position);
     if (!word) return null;
     return {
+      // Capability changes and adapter snapshots need not notify the UI store.
+      navigationContext: navigationContextKey(),
       modelVersion: model.getVersionId(),
       lineNumber: position.lineNumber,
       character: position.column - 1,
@@ -101,6 +108,9 @@ export function registerMonacoDefinitionLinkGesture({
   const scheduler = new DefinitionHoverScheduler<DefinitionWordRequest, DefinitionWordResolution>({
     delayMilliseconds: DEFINITION_HOVER_DELAY_MILLISECONDS,
     keyOf: definitionWordKey,
+    // Missing definitions also represent transient preparation/request failures.
+    // A later gesture must ask again even when the source text has not changed.
+    shouldCache: (result) => result.locations.length > 0,
     onActiveRequest: (request) => {
       // IDEA exposes link affordance immediately. Semantic resolution remains
       // authoritative for click navigation and removes false candidates later.
@@ -174,7 +184,7 @@ export function registerMonacoDefinitionLinkGesture({
       }
     },
     onActiveResult: (request, result) => {
-      if (result.locations.length === 0) {
+      if (result.locations.length === 0 || request.navigationContext !== navigationContextKey()) {
         decorations.clear();
         return;
       }
@@ -247,6 +257,8 @@ export function registerMonacoDefinitionLinkGesture({
     syncLinkForModifier(event);
   };
 
+  let previousNavigationContext = structurallyCapable ? navigationContextKey() : null;
+
   if (structurallyCapable) {
     window.addEventListener("keydown", handleWindowModifierKey, true);
     window.addEventListener("keyup", handleWindowModifierKey, true);
@@ -254,6 +266,21 @@ export function registerMonacoDefinitionLinkGesture({
 
   const disposables = structurallyCapable
     ? [
+        {
+          dispose: useLspStore.subscribe((state, previous) => {
+            if (
+              state.lspStatus.documentRevision !== previous.lspStatus.documentRevision ||
+              state.lspStatus.lifecycleBySession !== previous.lspStatus.lifecycleBySession
+            ) {
+              const currentContext = navigationContextKey();
+              if (currentContext === previousNavigationContext) return;
+              previousNavigationContext = currentContext;
+              // Reattachment/restart invalidates both cached and in-flight locations.
+              scheduler.reset();
+              decorations.clear();
+            }
+          }),
+        },
         editor.onMouseMove((event) => {
           if (
             event.target.type !== monacoEditor.MouseTargetType.CONTENT_TEXT ||
@@ -299,6 +326,7 @@ export function registerMonacoDefinitionLinkGesture({
         !result ||
         model.isDisposed() ||
         request.modelVersion !== model.getVersionId() ||
+        request.navigationContext !== navigationContextKey() ||
         !isGestureActive()
       ) {
         return null;

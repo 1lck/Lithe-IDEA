@@ -7,6 +7,7 @@ struct StandaloneEditorView: View {
 
     var body: some View {
         let closeConfirmationID = model.pendingCloseConfirmationID
+        let encodingRequest = model.pendingEncodingReopen
         VStack(spacing: 0) {
             header
             Rectangle()
@@ -32,6 +33,22 @@ struct StandaloneEditorView: View {
             Button("Cancel", role: .cancel) { model.cancelPendingClose() }
         } message: {
             Text(model.pendingCloseDocument?.url.lastPathComponent ?? "")
+        }
+        .confirmationDialog(
+            "Save changes before reopening with \(encodingRequest?.encoding.displayName ?? "this encoding")?",
+            isPresented: Binding(
+                get: { encodingRequest != nil },
+                set: { if !$0 { model.dismissPendingEncodingReopen(encodingRequest?.id) } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Save") { model.resolvePendingEncodingReopen(saveChanges: true) }
+            Button("Discard Changes", role: .destructive) {
+                model.resolvePendingEncodingReopen(saveChanges: false)
+            }
+            Button("Cancel", role: .cancel) { model.cancelEncodingChange() }
+        } message: {
+            Text(encodingRequest?.document.url.lastPathComponent ?? "")
         }
     }
 
@@ -103,13 +120,13 @@ struct StandaloneEditorView: View {
     private func failureView(_ failure: StandaloneFileOpenFailure) -> some View {
         VStack(spacing: 10) {
             LitheSystemIcon(systemImage: "doc.text.magnifyingglass")
-                .font(.system(size: 26))
+                .font(LitheTheme.uiFont(size: 26))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(failure.title)
-                .font(.system(size: 14, weight: .medium))
+                .font(LitheTheme.uiFont(size: 14, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(failure.detail)
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
@@ -139,7 +156,7 @@ struct StandaloneEditorView: View {
                     size: 14
                 )
                 Text(document.displayName)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                 if document.isDirty {
@@ -148,6 +165,38 @@ struct StandaloneEditorView: View {
                         .frame(width: 6, height: 6)
                 }
                 Spacer()
+                LitheMenu {
+                    LitheContextMenuItem.heading("Reopen with Encoding")
+
+                    for descriptor in DocumentEncoding.catalog.filter(\.supportsRead) {
+                        let encoding = descriptor.id
+                        LitheContextMenuItem.action(
+                            descriptor.displayName, checked: document.readEncoding == encoding
+                        ) {
+                            model.reopenDocument(document, with: encoding)
+                        }
+                    }
+
+                    LitheContextMenuItem.separator
+
+                    LitheContextMenuItem.heading("Save with Encoding")
+
+                    for descriptor in DocumentEncoding.catalog.filter(\.supportsWrite) {
+                        let encoding = descriptor.id
+                        LitheContextMenuItem.action(
+                            descriptor.displayName, checked: document.saveEncoding == encoding
+                        ) {
+                            model.saveDocument(document, encoding: encoding)
+                        }
+                        .disabled(document.isReadOnly)
+                    }
+
+                } label: {
+                    Text(document.readEncoding.displayName)
+                }
+                .buttonStyle(.litheNoPress)
+                .fixedSize()
+                .help("File encoding")
                 if document.url.pathExtension.lowercased() == "svg" {
                     Picker("SVG view mode", selection: $svgViewMode) {
                         ForEach(DocumentPreviewMode.allCases) { mode in
@@ -174,12 +223,12 @@ struct StandaloneEditorView: View {
                     .frame(width: 104)
                 }
                 Text(document.url.path)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .lineLimit(1)
             } else {
                 Text(model.standaloneFileURL?.lastPathComponent ?? "Opening file…")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
         }

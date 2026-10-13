@@ -21,10 +21,11 @@ use crate::lsp::languages::java_tests::{java_test_items_command, normalize_java_
 use crate::lsp::languages::jdt::{
     adapt_initialization_options, adapt_start, import_progress, initialized_notification,
     is_structured_import_notification, is_virtual_source_uri, jdt_java_runtimes,
-    maven_profile_fingerprint, maven_profile_update_requests, normalize_location, readiness_signal,
-    virtual_source_content, virtual_source_resolve_params, waits_for_service_ready,
-    workspace_configuration, JdtDirectLaunchResources, JdtJavaRuntime, JdtMavenConfiguration,
-    JdtReadinessSignal, JdtSettings, JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
+    maven_profile_fingerprint, maven_profile_update_requests, normalize_location,
+    project_update_notification, readiness_signal, settings_notification, virtual_source_content,
+    virtual_source_resolve_params, waits_for_service_ready, workspace_configuration,
+    JdtDirectLaunchResources, JdtJavaRuntime, JdtMavenConfiguration, JdtReadinessSignal,
+    JdtSettings, JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
 };
 use crate::lsp::languages::jdt::{MavenProfileProjectResult, MavenProfileTaskStatus};
 use crate::lsp::languages::jdt_build::{
@@ -36,6 +37,7 @@ use crate::lsp::languages::jdt_build::{
 use crate::lsp::languages::jdt_build::{JavaBuildMarkerScope, JavaBuildRecovery};
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
+use crate::lsp::languages::{prepare_jdt_configuration_area, prepare_jdt_workspace};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -116,7 +118,8 @@ pub struct StartServerRequest {
     pub java_runtimes: Vec<JavaRuntimeCandidate>,
     #[serde(default = "default_initialize_timeout")]
     pub initialize_timeout_milliseconds: u64,
-    /// Maximum silence while waiting for a provider-specific readiness signal.
+    /// Quiet-progress warning threshold while waiting for provider readiness.
+    /// The historical wire name is retained; only the absolute cap terminates import.
     #[serde(default = "default_service_ready_idle_timeout")]
     pub service_ready_idle_timeout_milliseconds: u64,
     /// Absolute safety cap for provider-specific preparation even while active.
@@ -556,6 +559,14 @@ struct SessionState {
     maven_profile_queue: VecDeque<Value>,
     maven_profile_deadline: Option<Instant>,
     maven_profile_applied_fingerprint: Option<String>,
+    /// Fingerprint of the configuration the running profile task applies. A
+    /// configuration replaced while the task runs is applied by a follow-up
+    /// task instead of being recorded as applied.
+    maven_profile_running_fingerprint: Option<String>,
+    /// A newer profile selection waiting for the previous batch to drain.
+    maven_profile_update_pending: bool,
+    /// Explicit reload retained until JDT LS has imported its projects.
+    maven_project_reload_pending: bool,
     // Request IDs retain their owning task generation until a terminal response
     // arrives, including responses to advisory cancellation after a timeout.
     maven_profile_generation: u64,
@@ -572,7 +583,16 @@ struct SessionState {
 struct RuntimeSession {
     id: String,
     provider_id: String,
-    jdt_maven_configuration: Option<JdtMavenConfiguration>,
+    /// Maven import settings JDT LS currently holds. Replaced as a whole when
+    /// the workspace's Maven configuration changes; never held across another
+    /// lock.
+    jdt_maven_configuration: Mutex<Option<Arc<JdtMavenConfiguration>>>,
+    /// Inputs for rebuilding `jdt_maven_configuration`; `None` when the session
+    /// started without a Maven context.
+    maven_inputs: Option<SessionMavenInputs>,
+    /// Serializes configuration preparation and publication without blocking
+    /// protocol processing on filesystem I/O. Never acquired by protocol workers.
+    maven_update_order: Mutex<()>,
     /// JDKs JDT LS may bind projects to, one per execution environment.
     jdt_java_runtimes: Vec<JdtJavaRuntime>,
     /// Workspace URI the server was initialized with; scopes workspace-wide
@@ -638,13 +658,184 @@ pub fn retry_maven_profiles(request: SessionRequest) -> Result<(), CoreError> {
     session.retry_maven_profiles()
 }
 
+/// Replaces the Maven configuration of a running Java session.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMavenConfigurationRequest {
+    pub session_id: String,
+    /// The workspace's current Maven context, as a Maven launch would use it.
+    pub maven_context: crate::project::MavenLaunchContextRequest,
+    /// Force JDT LS to re-resolve every Maven project even when the settings
+    /// themselves did not change. Set by the explicit reload action.
+    #[serde(default)]
+    pub reload_projects: bool,
+}
+
+/// What an update asked JDT LS to do. Each step runs asynchronously inside
+/// JDT LS; resolution problems arrive later as `pom.xml` diagnostics.
+#[derive(Debug, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMavenConfigurationResponse {
+    /// New settings documents were sent; JDT LS re-imports every Maven
+    /// project because of them.
+    pub settings_changed: bool,
+    /// Settings were unchanged, so a forced project update was requested.
+    pub projects_reloaded: bool,
+    /// Profile application was started for changed profiles.
+    pub profiles_updating: bool,
+}
+
+/// Sends a changed Maven configuration to a running Java session.
+///
+/// JDT LS receives the change through its own mechanisms instead of a restart:
+/// changed settings documents through `workspace/didChangeConfiguration`,
+/// which makes it force-update every Maven project, and an explicit reload
+/// through `java/projectConfigurationsUpdate`. A restart reuses the workspace
+/// state and skips projects whose `pom.xml` did not change, so artifacts that
+/// failed to resolve under the old settings would stay missing.
+pub fn update_maven_configuration(
+    request: UpdateMavenConfigurationRequest,
+) -> Result<UpdateMavenConfigurationResponse, CoreError> {
+    engine()
+        .session(&request.session_id)?
+        .update_maven_configuration(request.maven_context, request.reload_projects)
+}
+
 impl RuntimeSession {
+    /// The Maven import settings JDT LS currently holds.
+    fn maven_configuration(&self) -> Option<Arc<JdtMavenConfiguration>> {
+        self.jdt_maven_configuration
+            .lock()
+            .map(|configuration| configuration.clone())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+    }
+
     /// Java settings Lithe owns for this session, as sent to JDT LS.
-    fn jdt_settings(&self) -> JdtSettings<'_> {
+    fn jdt_settings<'a>(&'a self, maven: Option<&'a JdtMavenConfiguration>) -> JdtSettings<'a> {
         JdtSettings {
-            maven: self.jdt_maven_configuration.as_ref(),
+            maven,
             java_runtimes: &self.jdt_java_runtimes,
         }
+    }
+
+    fn update_maven_configuration(
+        &self,
+        context: crate::project::MavenLaunchContextRequest,
+        reload_projects: bool,
+    ) -> Result<UpdateMavenConfigurationResponse, CoreError> {
+        let Some(inputs) = self
+            .maven_inputs
+            .as_ref()
+            .filter(|_| self.provider_id == "java")
+        else {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Maven configuration updates require a Java language session started for a Maven project.",
+            ));
+        };
+        let _update_order = self.maven_update_order.lock().map_err(|_| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Maven configuration update lock failed.",
+            )
+        })?;
+        // Disk I/O holds only the update serializer, never a protocol/state lock.
+        let (next, warnings) = inputs.configuration(context)?;
+        let next = Arc::new(next);
+
+        let outbound_order = self.lock_outbound_order()?;
+        let (initialized, ready) = {
+            let state = self.lock_state()?;
+            if matches!(
+                state.lifecycle,
+                LspLifecycleState::Stopping
+                    | LspLifecycleState::Stopped
+                    | LspLifecycleState::Failed
+            ) {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The Java language session is no longer running.",
+                ));
+            }
+            // Under `outbound_order`, an initialized client has already sent
+            // the `initialized` settings notification. Before that point the
+            // pending notification reads the configuration stored below.
+            (
+                state.client.initialized,
+                state.lifecycle == LspLifecycleState::Ready,
+            )
+        };
+        let previous = {
+            let mut current = self
+                .jdt_maven_configuration
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            current.replace(next.clone())
+        };
+        let settings_changed = previous.as_ref().is_none_or(|previous| {
+            previous.settings_path != next.settings_path
+                || previous.global_settings_path != next.global_settings_path
+        });
+        let profiles_changed = previous
+            .as_ref()
+            .is_none_or(|previous| previous.profiles != next.profiles);
+
+        {
+            let mut state = self.lock_state()?;
+            state.maven_profile_update_pending |= profiles_changed;
+            state.maven_project_reload_pending |= reload_projects && !ready;
+        }
+        let mut messages = Vec::new();
+        let mut projects_reloaded = false;
+        if initialized {
+            let notification = if settings_changed {
+                Some(settings_notification(self.jdt_settings(Some(&next))))
+            } else if reload_projects && ready {
+                projects_reloaded = true;
+                project_update_notification(&next)
+            } else {
+                None
+            };
+            if let Some(notification) = notification {
+                messages.push(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": notification.method,
+                        "params": notification.params
+                    })
+                    .to_string(),
+                );
+            }
+        }
+        // Before readiness, the profile task starts with the stored
+        // configuration once the import publishes `ServiceReady`.
+        let mut profiles_updating = false;
+        if ready && profiles_changed {
+            let (requests, pending) = self.maven_profile_requests()?;
+            messages.extend(requests);
+            profiles_updating = pending;
+        }
+        self.send_messages_or_fail(&outbound_order, messages, "mavenConfigurationUpdate")?;
+        drop(outbound_order);
+
+        for detail in warnings {
+            self.log(
+                "warn",
+                "Maven settings were passed to the Java language service unchanged",
+                Some(detail),
+            );
+        }
+        let response = UpdateMavenConfigurationResponse {
+            settings_changed: initialized && settings_changed,
+            projects_reloaded,
+            profiles_updating,
+        };
+        self.log(
+            "info",
+            "Java language service received the updated Maven configuration",
+            Some(json!(response).to_string()),
+        );
+        Ok(response)
     }
 
     fn retry_maven_profiles(&self) -> Result<(), CoreError> {
@@ -850,79 +1041,68 @@ fn engine() -> &'static LspEngine {
     ENGINE.get_or_init(LspEngine::new)
 }
 
-/// Bare user-level settings used when Maven Settings overrides the local
-/// repository without naming a settings file of its own.
-const EMPTY_MAVEN_SETTINGS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
-          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
-</settings>
-"#;
-
-/// Outcome of preparing the user-level Maven settings JDT LS reads.
-#[derive(Debug, Default)]
-struct MaterializedMavenSettings {
-    /// Generated document to send as `userSettings`, when one was produced.
-    path: Option<String>,
-    /// Why the local repository override could not be applied, when it could
-    /// not be. Reported to the session log rather than failing startup.
-    warning: Option<String>,
+/// Inputs a Java session keeps so it can rebuild its Maven import settings
+/// when the workspace's Maven configuration changes after startup.
+#[derive(Debug)]
+struct SessionMavenInputs {
+    workspace_root: PathBuf,
+    /// Content-addressed settings copies inside this session's `-data` directory.
+    settings_directory: Option<PathBuf>,
+    /// Maven's default user settings, used when none are configured.
+    default_user_settings: Option<PathBuf>,
 }
 
-/// Writes the user-level Maven settings JDT LS reads when Maven Settings
-/// overrides the local repository.
-///
-/// JDT LS exposes no preference for the repository location, so the override
-/// has to travel inside a settings document. Deriving that document from the
-/// configured settings file keeps its mirrors, servers, and proxies, and Maven
-/// still merges the installation's global settings underneath it.
-///
-/// An unreadable configured settings file degrades to no override instead of
-/// failing the session. The repository is one optional field, while failing
-/// here would leave the workspace without completion, navigation, or
-/// diagnostics for every Java file.
-fn materialized_maven_settings(
-    data_root: &Path,
-    configuration: &crate::project::MavenJdtConfiguration,
-) -> Result<MaterializedMavenSettings, CoreError> {
-    let Some(local_repository) = configuration.local_repository_path.as_deref() else {
-        return Ok(MaterializedMavenSettings::default());
-    };
-    let source = match configuration.settings_path.as_deref() {
-        Some(path) => match std::fs::read_to_string(path) {
-            Ok(source) => source,
-            Err(error) => {
-                return Ok(MaterializedMavenSettings {
-                    path: None,
-                    warning: Some(format!(
-                        "Could not read the configured Maven settings.xml, so the local repository override was not applied: {error}"
-                    )),
-                })
-            }
-        },
-        None => EMPTY_MAVEN_SETTINGS.to_string(),
-    };
-    let document = crate::project::settings_with_local_repository(&source, local_repository)?;
-    let directory = data_root.join("maven");
-    std::fs::create_dir_all(&directory).map_err(|error| {
-        CoreError::new(
-            ErrorCode::ProcessStartFailed,
-            "Could not create the Maven settings directory.",
-        )
-        .with_details(error.to_string())
-    })?;
-    let path = directory.join("settings.xml");
-    std::fs::write(&path, document).map_err(|error| {
-        CoreError::new(
-            ErrorCode::ProcessStartFailed,
-            "Could not write the generated Maven settings.",
-        )
-        .with_details(error.to_string())
-    })?;
-    Ok(MaterializedMavenSettings {
-        path: Some(path.to_string_lossy().into_owned()),
-        warning: None,
-    })
+impl SessionMavenInputs {
+    /// Validates `context` and produces the settings JDT LS receives, plus
+    /// warnings for documents that degraded to their original paths.
+    fn configuration(
+        &self,
+        context: crate::project::MavenLaunchContextRequest,
+    ) -> Result<(JdtMavenConfiguration, Vec<String>), CoreError> {
+        let working_directory = self.workspace_root.to_string_lossy().into_owned();
+        let configuration = crate::project::jdt_configuration(&working_directory, context)?;
+        let project_uris = configuration
+            .project_paths
+            .iter()
+            .map(|path| {
+                let directory = if path == "." {
+                    self.workspace_root.clone()
+                } else {
+                    self.workspace_root.join(path)
+                };
+                url::Url::from_directory_path(directory)
+                    .map(|url| url.to_string())
+                    .map_err(|_| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Maven project path cannot be represented as a URI",
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let materialized = match &self.settings_directory {
+            Some(directory) => crate::lsp::languages::jdt_maven_settings::materialize(
+                directory,
+                &configuration,
+                self.default_user_settings.as_deref(),
+            )?,
+            None => crate::lsp::languages::jdt_maven_settings::MaterializedMavenSettings {
+                user_settings_path: configuration.settings_path.clone(),
+                global_settings_path: configuration.global_settings_path.clone(),
+                warnings: Vec::new(),
+            },
+        };
+        Ok((
+            JdtMavenConfiguration {
+                settings_path: materialized.user_settings_path,
+                global_settings_path: materialized.global_settings_path,
+                profiles: configuration.profiles,
+                project_uris,
+                source_paths: configuration.source_paths,
+            },
+            materialized.warnings,
+        ))
+    }
 }
 
 impl LspEngine {
@@ -961,46 +1141,6 @@ impl LspEngine {
             .as_deref()
             .map(PathBuf::from)
             .unwrap_or_else(|| std::env::temp_dir().join("lithe-lsp"));
-        let mut maven_settings_warning = None;
-        let jdt_maven_configuration = request
-            .maven_context
-            .clone()
-            .map(|context| {
-                crate::project::jdt_configuration(&request.working_directory, context).and_then(
-                    |configuration| {
-                        let project_uris = configuration
-                            .project_paths
-                            .iter()
-                            .map(|path| {
-                                let directory = if path == "." {
-                                    workspace_root.clone()
-                                } else {
-                                    workspace_root.join(path)
-                                };
-                                url::Url::from_directory_path(directory)
-                                    .map(|url| url.to_string())
-                                    .map_err(|_| {
-                                        CoreError::new(
-                                            ErrorCode::InvalidRequest,
-                                            "Maven project path cannot be represented as a URI",
-                                        )
-                                    })
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let materialized = materialized_maven_settings(&data_root, &configuration)?;
-                        maven_settings_warning = materialized.warning;
-                        let settings_path = materialized.path.or(configuration.settings_path);
-                        Ok(JdtMavenConfiguration {
-                            settings_path,
-                            global_settings_path: configuration.global_settings_path,
-                            profiles: configuration.profiles,
-                            project_uris,
-                            source_paths: configuration.source_paths,
-                        })
-                    },
-                )
-            })
-            .transpose()?;
         let selected_java_executable = request
             .runtime_executable_path
             .as_deref()
@@ -1023,25 +1163,49 @@ impl LspEngine {
                 paths
             })
             .unwrap_or_default();
+        // The packaged configuration directory belongs to the installed
+        // product and must stay byte-identical; Equinox receives a writable
+        // copy in the host cache instead.
+        let configuration_area = request
+            .jdtls_launch_resources
+            .as_ref()
+            .map(|resources| {
+                prepare_jdt_configuration_area(
+                    &data_root,
+                    Path::new(&resources.configuration_directory),
+                    unix_seconds_now(),
+                )
+            })
+            .transpose()?;
         let adaptation = adapt_start(&JdtStartContext {
             provider_id: request.provider_id.clone(),
             workspace_root: workspace_root.clone(),
             data_root,
             selected_java_executable,
-            direct_launch_resources: request.jdtls_launch_resources.as_ref().map(|resources| {
-                JdtDirectLaunchResources {
+            direct_launch_resources: request
+                .jdtls_launch_resources
+                .as_ref()
+                .zip(configuration_area.as_ref())
+                .map(|(resources, configuration_area)| JdtDirectLaunchResources {
                     launcher_jar_path: PathBuf::from(&resources.launcher_jar_path),
-                    configuration_directory: PathBuf::from(&resources.configuration_directory),
+                    configuration_directory: configuration_area.directory.clone(),
                     lombok_agent_path: PathBuf::from(&resources.lombok_agent_path),
                     java_debug_bundle_path: resources
                         .java_debug_bundle_path
                         .as_deref()
                         .map(PathBuf::from),
-                }
-            }),
+                }),
             arguments: request.arguments.clone(),
             workspace_fingerprint: request.workspace_fingerprint.clone(),
         });
+        // Runs before the cache disposition is read: a reset state directory is
+        // reported as `new`, which is what the following import will be.
+        let legacy_metadata_cleanup = adaptation
+            .data_directory
+            .as_ref()
+            .map(|directory| prepare_jdt_workspace(&workspace_root, directory))
+            .transpose()?
+            .filter(|cleanup| !cleanup.removed_files.is_empty());
         let java_cache_disposition = adaptation.data_directory.as_ref().map(|directory| {
             if directory.join(".metadata").is_dir() {
                 "reused"
@@ -1058,6 +1222,28 @@ impl LspEngine {
                 .with_details(error.to_string())
             })?;
         }
+        // Built after the state directory exists and after any reset of it,
+        // because the settings copies JDT LS reads live inside that directory.
+        let maven_inputs = request.maven_context.as_ref().map(|_| SessionMavenInputs {
+            workspace_root: workspace_root.clone(),
+            settings_directory: adaptation
+                .data_directory
+                .as_deref()
+                .map(crate::lsp::languages::jdt_maven_settings::settings_directory),
+            default_user_settings:
+                crate::lsp::languages::jdt_maven_settings::default_user_settings_path(
+                    &request.environment,
+                ),
+        });
+        let mut maven_settings_warnings = Vec::new();
+        let jdt_maven_configuration = match (&maven_inputs, request.maven_context.clone()) {
+            (Some(inputs), Some(context)) => {
+                let (configuration, warnings) = inputs.configuration(context)?;
+                maven_settings_warnings = warnings;
+                Some(Arc::new(configuration))
+            }
+            _ => None,
+        };
 
         let process = self.launcher.launch(LspProcessSpec {
             executable: adaptation
@@ -1087,7 +1273,7 @@ impl LspEngine {
                 request.initialization_options,
                 &java_extension_bundle_paths,
                 JdtSettings {
-                    maven: jdt_maven_configuration.as_ref(),
+                    maven: jdt_maven_configuration.as_deref(),
                     java_runtimes: &jdt_java_runtimes,
                 },
             ),
@@ -1109,7 +1295,9 @@ impl LspEngine {
         let session = Arc::new(RuntimeSession {
             id: session_id.clone(),
             provider_id: request.provider_id,
-            jdt_maven_configuration,
+            jdt_maven_configuration: Mutex::new(jdt_maven_configuration),
+            maven_inputs,
+            maven_update_order: Mutex::new(()),
             jdt_java_runtimes,
             root_uri: request.root_uri,
             outbound_order: Mutex::new(()),
@@ -1148,6 +1336,9 @@ impl LspEngine {
                 maven_profile_queue: VecDeque::new(),
                 maven_profile_deadline: None,
                 maven_profile_applied_fingerprint: None,
+                maven_profile_running_fingerprint: None,
+                maven_profile_update_pending: false,
+                maven_project_reload_pending: false,
                 maven_profile_generation: 0,
                 maven_profile_request_generations: BTreeMap::new(),
                 java_builds: JavaBuildCoordinator::default(),
@@ -1169,12 +1360,43 @@ impl LspEngine {
                 Some(detail),
             );
         }
-        if let Some(detail) = maven_settings_warning {
+        if let Some(cleanup) = legacy_metadata_cleanup {
+            // Lithe deleted files from the user's project; keep a trace of which
+            // ones and why the following import starts from scratch.
+            session.log(
+                "info",
+                "Removed Java project files that earlier versions left in the workspace",
+                Some(
+                    json!({
+                        "removedFiles": cleanup.removed_files,
+                        "stateReset": cleanup.state_reset,
+                    })
+                    .to_string(),
+                ),
+            );
+        }
+        for detail in maven_settings_warnings {
             session.log(
                 "warn",
-                "Maven local repository override was not applied",
+                "Maven settings were passed to the Java language service unchanged",
                 Some(detail),
             );
+        }
+        if let Some(area) = configuration_area {
+            if !area.removed_keys.is_empty() {
+                session.log(
+                    "info",
+                    "Removed unused Java language-server configuration areas",
+                    Some(json!({ "removedKeys": area.removed_keys }).to_string()),
+                );
+            }
+            if let Some(failure) = area.cleanup_failure {
+                session.log(
+                    "warn",
+                    "Unused Java language-server configuration areas could not be removed",
+                    Some(failure),
+                );
+            }
         }
 
         self.lock_sessions()?
@@ -2536,9 +2758,12 @@ impl RuntimeSession {
                         };
                         let task_status = state.maven_profile_status;
                         push_maven_profile_task_event(self, &mut state, task_status);
+                        let applied = state.maven_profile_running_fingerprint.take();
+                        // A newer configuration must run even when this batch failed.
+                        apply_maven_context |= applied
+                            != maven_profile_fingerprint(self.maven_configuration().as_deref());
                         if state.maven_profile_status == MavenProfileTaskStatus::Succeeded {
-                            state.maven_profile_applied_fingerprint =
-                                maven_profile_fingerprint(self.jdt_maven_configuration.as_ref());
+                            state.maven_profile_applied_fingerprint = applied;
                         }
                         let profile_log_level =
                             if state.maven_profile_status == MavenProfileTaskStatus::Succeeded {
@@ -2891,9 +3116,10 @@ impl RuntimeSession {
             return Ok(());
         }
         if flush_documents {
-            if let Some(notification) =
-                initialized_notification(&self.provider_id, self.jdt_settings())
-            {
+            if let Some(notification) = initialized_notification(
+                &self.provider_id,
+                self.jdt_settings(self.maven_configuration().as_deref()),
+            ) {
                 outbound.push(
                     json!({
                         "jsonrpc": "2.0",
@@ -2925,6 +3151,27 @@ impl RuntimeSession {
                 push_features_event(self, &mut state, capabilities);
             }
             return Ok(());
+        }
+        if service_ready {
+            let reload = {
+                let mut state = self.lock_state()?;
+                std::mem::take(&mut state.maven_project_reload_pending)
+            };
+            if reload {
+                if let Some(notification) = self
+                    .maven_configuration()
+                    .as_deref()
+                    .and_then(project_update_notification)
+                {
+                    outbound.push(
+                        json!({
+                            "jsonrpc": "2.0", "method": notification.method,
+                            "params": notification.params
+                        })
+                        .to_string(),
+                    );
+                }
+            }
         }
         if apply_maven_context {
             let (profile_requests, profiles_pending) = self.maven_profile_requests()?;
@@ -2993,8 +3240,12 @@ impl RuntimeSession {
                     .map(ToString::to_string),
             })
             .collect();
-        let Some(values) = workspace_configuration(&self.provider_id, &items, self.jdt_settings())
-        else {
+        let maven = self.maven_configuration();
+        let Some(values) = workspace_configuration(
+            &self.provider_id,
+            &items,
+            self.jdt_settings(maven.as_deref()),
+        ) else {
             return Ok(None);
         };
         Ok(Some(
@@ -3014,15 +3265,18 @@ impl RuntimeSession {
     }
 
     fn maven_profile_requests(&self) -> Result<(Vec<String>, bool), CoreError> {
-        let fingerprint = maven_profile_fingerprint(self.jdt_maven_configuration.as_ref());
-        let requests = maven_profile_update_requests(self.jdt_maven_configuration.as_ref());
+        let maven = self.maven_configuration();
+        let fingerprint = maven_profile_fingerprint(maven.as_deref());
+        let requests = maven_profile_update_requests(maven.as_deref());
+        let mut state = self.lock_state()?;
         if requests.is_empty() {
+            state.maven_profile_update_pending = false;
             return Ok((Vec::new(), false));
         }
-        let mut state = self.lock_state()?;
         if state.maven_profile_applied_fingerprint.as_ref() == fingerprint.as_ref()
             && state.maven_profile_status == MavenProfileTaskStatus::Succeeded
         {
+            state.maven_profile_update_pending = false;
             return Ok((Vec::new(), false));
         }
         if state
@@ -3038,6 +3292,8 @@ impl RuntimeSession {
         // absolute safety limit rather than the short request timeout.
         let deadline = now + state.service_ready_absolute_timeout;
         state.maven_profile_deadline = Some(deadline);
+        state.maven_profile_running_fingerprint = fingerprint;
+        state.maven_profile_update_pending = false;
         let project_count = requests.len();
         const MAX_IN_FLIGHT: usize = 8;
         let requests = requests;
@@ -3327,12 +3583,40 @@ impl RuntimeSession {
 
     fn pump_outbound_maintenance(&self) {
         if !self.lock_state().is_ok_and(|state| {
-            state.java_builds.has_queued() || !state.deadline_cancellations.is_empty()
+            state.java_builds.has_queued()
+                || !state.deadline_cancellations.is_empty()
+                || (state.maven_profile_update_pending
+                    && state.lifecycle == LspLifecycleState::Ready
+                    && !state
+                        .pending
+                        .values()
+                        .any(|pending| pending.kind == PendingKind::JdtMavenProfiles))
         }) {
             return;
         }
         let Ok(outbound_order) = self.outbound_order.try_lock() else {
             return;
+        };
+        // Timed-out requests retain their slots until terminal replies arrive.
+        // Only then may a newer selection start; never automatically retry the
+        // same failed configuration.
+        let update_profiles = self.lock_state().is_ok_and(|state| {
+            state.maven_profile_update_pending && state.lifecycle == LspLifecycleState::Ready
+        });
+        let profile_messages = if update_profiles {
+            match self.maven_profile_requests() {
+                Ok((messages, _)) => messages,
+                Err(error) => {
+                    self.log(
+                        "warn",
+                        "Could not start the pending Maven profile update",
+                        Some(error.message),
+                    );
+                    return;
+                }
+            }
+        } else {
+            Vec::new()
         };
         let Ok(mut state) = self.lock_state() else {
             return;
@@ -3344,6 +3628,7 @@ impl RuntimeSession {
                     .to_string()
             })
             .collect();
+        messages.extend(profile_messages);
         messages.extend(self.dispatch_java_build_locked(&mut state, Instant::now()));
         if messages.is_empty() {
             return;
@@ -3358,7 +3643,10 @@ impl RuntimeSession {
     }
 
     fn expire_deadlines(&self) {
-        let now = Instant::now();
+        self.expire_deadlines_at(Instant::now());
+    }
+
+    fn expire_deadlines_at(&self, now: Instant) {
         let mut cancellations = Vec::new();
         let mut initialize_timeout = false;
         let mut service_ready_timeout = None;
@@ -3392,6 +3680,21 @@ impl RuntimeSession {
                     .java_preparation
                     .as_mut()
                     .and_then(|diagnostics| diagnostics.take_timeout(now));
+                if service_ready_timeout.is_none() {
+                    let warning = state
+                        .java_preparation
+                        .as_mut()
+                        .and_then(|diagnostics| diagnostics.take_idle_warning(now));
+                    if let Some(detail) = warning {
+                        push_log_event(
+                            self,
+                            &mut state,
+                            "warning",
+                            "Java workspace import has not reported progress; still waiting for ServiceReady",
+                            Some(detail),
+                        );
+                    }
+                }
             }
 
             let expired: Vec<_> = state
@@ -3881,6 +4184,14 @@ fn ensure_not_terminal(lifecycle: LspLifecycleState) -> Result<(), CoreError> {
     } else {
         Ok(())
     }
+}
+
+/// Wall-clock seconds used only to age cache directories; a clock before the
+/// Unix epoch makes every area look freshly used rather than expired.
+fn unix_seconds_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
 }
 
 fn java_executable_from_environment(environment: &BTreeMap<String, String>) -> Option<PathBuf> {
@@ -4768,6 +5079,8 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.deadline_cancellations.clear();
     state.maintenance_write_deadline = None;
     state.pending_workspace_file_changes.clear();
+    state.maven_profile_update_pending = false;
+    state.maven_project_reload_pending = false;
     state.initialize_deadline = None;
     state.shutdown_deadline = None;
     push_features_event(session, state, Vec::new());
@@ -4829,123 +5142,6 @@ mod real_jdt_tests;
 mod tests {
     use super::super::scripted::ScriptedServer;
     use super::*;
-
-    /// Builds an isolated data root for tests that materialize Maven settings.
-    fn maven_settings_root(label: &str) -> PathBuf {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be valid")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "lithe-maven-{label}-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&root).expect("data root should be creatable");
-        root
-    }
-
-    fn maven_jdt_configuration(
-        settings_path: Option<String>,
-        local_repository_path: Option<String>,
-    ) -> crate::project::MavenJdtConfiguration {
-        crate::project::MavenJdtConfiguration {
-            profiles: Vec::new(),
-            settings_path,
-            global_settings_path: None,
-            local_repository_path,
-            project_paths: Vec::new(),
-            source_paths: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn a_repository_override_generates_user_settings_that_keep_configured_mirrors() {
-        // JDT LS has no repository preference, so the override travels inside a
-        // settings document. Regenerating that document must not drop the
-        // mirrors the workspace already resolves through.
-        let root = maven_settings_root("repository-override");
-        let configured = root.join("configured-settings.xml");
-        std::fs::write(
-            &configured,
-            r#"<settings><localRepository>/old</localRepository><mirrors><mirror><id>aliyunmaven</id></mirror></mirrors></settings>"#,
-        )
-        .expect("configured settings should be writable");
-        let configuration = maven_jdt_configuration(
-            Some(configured.to_string_lossy().into_owned()),
-            Some("/opt/repository".to_string()),
-        );
-
-        let materialized = materialized_maven_settings(&root, &configuration)
-            .expect("settings should be materialized");
-        let generated = materialized
-            .path
-            .expect("an override must produce a settings document");
-        assert_eq!(materialized.warning, None);
-
-        let document = std::fs::read_to_string(&generated).expect("generated file should exist");
-        assert!(document.contains("<localRepository>/opt/repository</localRepository>"));
-        assert!(document.contains("<id>aliyunmaven</id>"));
-        assert!(!document.contains("/old"));
-        // The configured file stays untouched; only the generated copy changes.
-        let original = std::fs::read_to_string(&configured).expect("source should still exist");
-        assert!(original.contains("<localRepository>/old</localRepository>"));
-        std::fs::remove_dir_all(&root).expect("data root should be removable");
-    }
-
-    #[test]
-    fn a_repository_override_without_configured_settings_generates_a_minimal_document() {
-        let root = maven_settings_root("repository-only");
-        let configuration = maven_jdt_configuration(None, Some("/opt/repository".to_string()));
-
-        let generated = materialized_maven_settings(&root, &configuration)
-            .expect("settings should be materialized")
-            .path
-            .expect("an override must produce a settings document");
-
-        let document = std::fs::read_to_string(generated).expect("generated file should exist");
-        assert!(document.contains("<localRepository>/opt/repository</localRepository>"));
-        std::fs::remove_dir_all(&root).expect("data root should be removable");
-    }
-
-    #[test]
-    fn no_repository_override_leaves_the_configured_settings_in_place() {
-        let root = maven_settings_root("no-override");
-        let configuration = maven_jdt_configuration(Some("/local/settings.xml".to_string()), None);
-
-        let materialized =
-            materialized_maven_settings(&root, &configuration).expect("settings should resolve");
-        assert_eq!(materialized.path, None);
-        assert_eq!(materialized.warning, None);
-        std::fs::remove_dir_all(&root).expect("data root should be removable");
-    }
-
-    #[test]
-    fn an_unreadable_settings_file_warns_instead_of_failing_the_java_session() {
-        // Losing the repository override costs one optional setting. Failing
-        // here would leave every Java file without completion, navigation, and
-        // diagnostics because of a stale path in Maven Settings.
-        let root = maven_settings_root("unreadable-settings");
-        let configuration = maven_jdt_configuration(
-            Some(
-                root.join("deleted-settings.xml")
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            Some("/opt/repository".to_string()),
-        );
-
-        let materialized = materialized_maven_settings(&root, &configuration)
-            .expect("an unreadable settings file must not fail startup");
-
-        // The configured path is kept, which is what JDT LS received before the
-        // override existed.
-        assert_eq!(materialized.path, None);
-        assert!(materialized
-            .warning
-            .is_some_and(|warning| warning.contains("local repository override")));
-        std::fs::remove_dir_all(&root).expect("data root should be removable");
-    }
-
     /// The capabilities every test needs to reach `Ready` with a usable feature
     /// surface. Individual tests narrow or extend this.
     fn ready_capabilities() -> Value {
@@ -4955,6 +5151,19 @@ mod tests {
             "completionProvider": {},
             "renameProvider": true
         })
+    }
+
+    /// Contents of the one file Core reads from a packaged configuration directory.
+    const PACKAGED_JDTLS_CONFIG_INI: &str =
+        "osgi.bundles=reference\\:file\\:org.eclipse.jdt.ls.core_1.61.0.jar@4\\:start\n";
+
+    /// Creates `installation/jdtls/config_mac` holding only the shipped `config.ini`.
+    fn packaged_jdtls_configuration(installation: &Path) -> PathBuf {
+        let configuration = installation.join("jdtls").join("config_mac");
+        std::fs::create_dir_all(&configuration).expect("packaged configuration should be created");
+        std::fs::write(configuration.join("config.ini"), PACKAGED_JDTLS_CONFIG_INI)
+            .expect("packaged config.ini should be written");
+        configuration
     }
 
     fn start_request(server: &ScriptedServer) -> StartServerRequest {
@@ -5047,6 +5256,29 @@ mod tests {
                 maven_executable_path: Some("/local/maven/bin/mvn".to_string()),
                 java_home_path: Some("/local/jdk".to_string()),
             });
+        }
+    }
+
+    impl TemporaryMavenWorkspace {
+        /// The fixture's Maven context with a real settings file and the given
+        /// local repository override.
+        fn context_with_settings(
+            &self,
+            settings: &str,
+            local_repository: Option<&str>,
+        ) -> crate::project::MavenLaunchContextRequest {
+            let settings_path = self.root.join("settings.xml");
+            std::fs::write(&settings_path, settings).expect("settings fixture should be writable");
+            crate::project::MavenLaunchContextRequest {
+                version: 1,
+                reactor_path: "reactor".to_string(),
+                profiles: vec!["dev".to_string()],
+                settings_path: Some(settings_path.to_string_lossy().into_owned()),
+                local_repository_path: local_repository.map(ToString::to_string),
+                skip_tests: true,
+                maven_executable_path: None,
+                java_home_path: None,
+            }
         }
     }
 
@@ -5586,6 +5818,411 @@ mod tests {
         assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
     }
 
+    /// Messages the scripted server received for `method`, in order.
+    fn notifications(harness: &Harness, method: &str) -> Vec<Value> {
+        harness
+            .server
+            .messages()
+            .into_iter()
+            .filter(|message| message.get("method").and_then(Value::as_str) == Some(method))
+            .collect()
+    }
+
+    fn user_settings(notification: &Value) -> String {
+        notification["params"]["settings"]["java"]["configuration"]["maven"]["userSettings"]
+            .as_str()
+            .expect("userSettings should be a path")
+            .to_string()
+    }
+
+    #[test]
+    fn a_maven_settings_change_reaches_the_running_java_session() {
+        // Regression for #970: saving Maven settings only marked a reload, and
+        // a restart reused the workspace state without re-resolving. The change
+        // must reach the live session as a new settings path, which is what
+        // makes JDT LS force-update every Maven project.
+        let workspace = TemporaryMavenWorkspace::recursive("maven-update-settings");
+        let initial = workspace.context_with_settings("<settings><mirrors/></settings>", None);
+        let mut harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.maven_context = Some(initial.clone());
+        });
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let before = notifications(&harness, "workspace/didChangeConfiguration");
+        assert_eq!(before.len(), 1);
+        let profile_updates = notifications(&harness, "workspace/executeCommand").len();
+
+        let mut changed = initial.clone();
+        changed.local_repository_path = Some("/fixture/repository".to_string());
+        let response = harness
+            .session()
+            .update_maven_configuration(changed, false)
+            .expect("a running Java session should accept the update");
+
+        assert_eq!(
+            response,
+            UpdateMavenConfigurationResponse {
+                settings_changed: true,
+                projects_reloaded: false,
+                profiles_updating: false,
+            }
+        );
+        let after = notifications(&harness, "workspace/didChangeConfiguration");
+        assert_eq!(after.len(), 2);
+        let (old_path, new_path) = (user_settings(&before[0]), user_settings(&after[1]));
+        assert_ne!(
+            old_path, new_path,
+            "a changed document must arrive under a new path"
+        );
+        let document = std::fs::read_to_string(&new_path).expect("the new copy should exist");
+        assert!(document.contains("<localRepository>/fixture/repository</localRepository>"));
+        assert_eq!(
+            notifications(&harness, "workspace/executeCommand").len(),
+            profile_updates,
+            "unchanged profiles must not restart the profile task"
+        );
+        assert!(notifications(&harness, "java/projectConfigurationsUpdate").is_empty());
+    }
+
+    #[test]
+    fn an_explicit_maven_reload_forces_a_project_update_when_settings_are_unchanged() {
+        // JDT LS skips re-importing projects whose pom.xml did not change, so
+        // reloading must use its forced "update project" notification.
+        let workspace = TemporaryMavenWorkspace::recursive("maven-update-reload");
+        let context = workspace.context_with_settings("<settings/>", Some("/fixture/repository"));
+        let mut harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.maven_context = Some(context.clone());
+        });
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+
+        let quiet = harness
+            .session()
+            .update_maven_configuration(context.clone(), false)
+            .expect("an unchanged update should be accepted");
+        let reload = harness
+            .session()
+            .update_maven_configuration(context, true)
+            .expect("a reload should be accepted");
+
+        assert!(!quiet.settings_changed && !quiet.projects_reloaded);
+        assert!(!reload.settings_changed && reload.projects_reloaded);
+        assert_eq!(
+            notifications(&harness, "workspace/didChangeConfiguration").len(),
+            1
+        );
+        let updates = notifications(&harness, "java/projectConfigurationsUpdate");
+        assert_eq!(
+            updates.len(),
+            1,
+            "only the explicit reload forces an update"
+        );
+        let identifiers = updates[0]["params"]["identifiers"]
+            .as_array()
+            .expect("identifiers should be an array");
+        let suffixes = ["reactor/", "reactor/module-a/", "reactor/module-a/nested/"];
+        assert_eq!(identifiers.len(), suffixes.len());
+        for (identifier, suffix) in identifiers.iter().zip(suffixes) {
+            let uri = identifier["uri"].as_str().expect("identifier URI");
+            assert!(uri.ends_with(suffix), "unexpected project URI {uri}");
+        }
+    }
+
+    #[test]
+    fn a_maven_update_before_initialized_is_sent_with_the_initial_settings() {
+        // Before the handshake completes JDT LS cannot take a configuration
+        // change; the pending post-initialize notification carries it instead.
+        let workspace = TemporaryMavenWorkspace::recursive("maven-update-early");
+        let initial = workspace.context_with_settings("<settings/>", None);
+        let mut harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.maven_context = Some(initial.clone());
+        });
+        let mut changed = initial;
+        changed.local_repository_path = Some("/fixture/early".to_string());
+
+        let response = harness
+            .session()
+            .update_maven_configuration(changed, true)
+            .expect("an initializing session should accept the update");
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+
+        assert!(!response.settings_changed && !response.projects_reloaded);
+        let sent = notifications(&harness, "workspace/didChangeConfiguration");
+        assert_eq!(sent.len(), 1);
+        let document =
+            std::fs::read_to_string(user_settings(&sent[0])).expect("the copy should exist");
+        assert!(document.contains("<localRepository>/fixture/early</localRepository>"));
+        assert_eq!(
+            notifications(&harness, "java/projectConfigurationsUpdate").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn unchanged_settings_reload_before_initialize_waits_for_service_ready() {
+        let workspace = TemporaryMavenWorkspace::recursive("maven-reload-before-ready");
+        let context = workspace.context_with_settings("<settings/>", None);
+        let mut harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.maven_context = Some(context.clone());
+        });
+        let session = harness.session();
+        session
+            .update_maven_configuration(context.clone(), true)
+            .unwrap();
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+        // Reloads coalesce, including another request during project import.
+        session.update_maven_configuration(context, true).unwrap();
+        assert!(notifications(&harness, "java/projectConfigurationsUpdate").is_empty());
+        session
+            .handle_server_message(
+                json!({
+                    "jsonrpc": "2.0", "method": "language/status",
+                    "params": { "type": "ServiceReady" }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        harness.await_state(LspLifecycleState::Ready);
+        assert_eq!(
+            notifications(&harness, "java/projectConfigurationsUpdate").len(),
+            1
+        );
+        session
+            .handle_server_message(
+                json!({
+                    "jsonrpc": "2.0", "method": "language/status",
+                    "params": { "type": "ServiceReady" }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        assert_eq!(
+            notifications(&harness, "java/projectConfigurationsUpdate").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn changed_maven_profiles_restart_the_profile_task_on_a_ready_session() {
+        let workspace = TemporaryMavenWorkspace::recursive("maven-update-profiles");
+        let initial = workspace.context_with_settings("<settings/>", None);
+        let mut harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.maven_context = Some(initial.clone());
+        });
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        for index in 0..3 {
+            let id = harness
+                .server
+                .await_request_at("workspace/executeCommand", index)
+                .expect("the initial profile task should update every project");
+            harness
+                .server
+                .send(json!({ "jsonrpc": "2.0", "id": id, "result": null }));
+        }
+        harness.await_event(|event| {
+            event.maven_profile_task == Some(MavenProfileTaskStatus::Succeeded)
+        });
+
+        let mut changed = initial;
+        changed.profiles = vec!["prod".to_string()];
+        let response = harness
+            .session()
+            .update_maven_configuration(changed, false)
+            .expect("a profile change should be accepted");
+
+        assert!(response.profiles_updating);
+        assert!(!response.settings_changed);
+        let updates = notifications(&harness, "workspace/executeCommand");
+        assert_eq!(updates.len(), 6);
+        assert_eq!(
+            updates[5]["params"]["arguments"][1]["org.eclipse.m2e.core.selectedProfiles"],
+            "prod"
+        );
+    }
+
+    #[test]
+    fn a_profile_change_during_a_running_profile_task_is_applied_afterwards() {
+        // The running task applies the old profiles. Recording the new
+        // configuration as applied when it finishes would silently drop the
+        // user's change, so a follow-up task must apply it.
+        let workspace = TemporaryMavenWorkspace::recursive("maven-update-profiles-running");
+        let initial = workspace.context_with_settings("<settings/>", None);
+        let mut harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.maven_context = Some(initial.clone());
+        });
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let first_batch: Vec<_> = (0..3)
+            .map(|index| {
+                harness
+                    .server
+                    .await_request_at("workspace/executeCommand", index)
+                    .expect("the initial profile task should update every project")
+            })
+            .collect();
+
+        let mut changed = initial;
+        changed.profiles = vec!["prod".to_string()];
+        let response = harness
+            .session()
+            .update_maven_configuration(changed, false)
+            .expect("a profile change should be accepted while the task runs");
+        assert!(response.profiles_updating);
+        assert_eq!(notifications(&harness, "workspace/executeCommand").len(), 3);
+
+        for id in first_batch {
+            harness
+                .server
+                .send(json!({ "jsonrpc": "2.0", "id": id, "result": null }));
+        }
+        let follow_up = harness
+            .server
+            .await_request_at("workspace/executeCommand", 5)
+            .expect("the changed profiles should be applied by a follow-up task");
+        let request = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["id"] == follow_up)
+            .expect("the follow-up request should be recorded");
+        assert_eq!(
+            request["params"]["arguments"][1]["org.eclipse.m2e.core.selectedProfiles"],
+            "prod"
+        );
+    }
+
+    #[test]
+    fn a_new_profile_selection_runs_after_a_failed_batch() {
+        profile_selection_after_unsuccessful_batch(false);
+    }
+
+    #[test]
+    fn a_new_profile_selection_waits_for_timed_out_requests_to_drain() {
+        profile_selection_after_unsuccessful_batch(true);
+    }
+
+    fn profile_selection_after_unsuccessful_batch(timeout: bool) {
+        let workspace = TemporaryMavenWorkspace::recursive("maven-profile-failure-followup");
+        let context = workspace.context_with_settings("<settings/>", None);
+        let mut harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.maven_context = Some(context.clone());
+        });
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let session = harness.session();
+        let first_batch: Vec<_> = (0..3)
+            .map(|index| {
+                harness
+                    .server
+                    .await_request_at("workspace/executeCommand", index)
+                    .unwrap()
+            })
+            .collect();
+        let mut next = context;
+        next.profiles = vec!["prod".to_string()];
+        assert!(
+            session
+                .update_maven_configuration(next, false)
+                .unwrap()
+                .profiles_updating
+        );
+        if timeout {
+            // Advance the owned deadlines directly; no wall-clock wait or overlap.
+            {
+                let mut state = session.lock_state().unwrap();
+                for pending in state.pending.values_mut() {
+                    if pending.kind == PendingKind::JdtMavenProfiles {
+                        pending.deadline = Instant::now();
+                    }
+                }
+            }
+            session.expire_deadlines();
+        }
+        for (index, id) in first_batch.into_iter().enumerate() {
+            session
+                .handle_server_message(
+                    json!({
+                        "jsonrpc": "2.0", "id": id,
+                        "error": { "code": -32603, "message": "old profile failed" }
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+            session.pump_outbound_maintenance();
+            if index < 2 {
+                assert_eq!(notifications(&harness, "workspace/executeCommand").len(), 3);
+            }
+        }
+        let second_batch: Vec<_> = (3..6)
+            .map(|index| {
+                harness
+                    .server
+                    .await_request_at("workspace/executeCommand", index)
+                    .unwrap()
+            })
+            .collect();
+        for request in notifications(&harness, "workspace/executeCommand")
+            .iter()
+            .skip(3)
+        {
+            assert_eq!(
+                request["params"]["arguments"][1]["org.eclipse.m2e.core.selectedProfiles"],
+                "prod"
+            );
+        }
+        // A failure of the latest selection is terminal, not an infinite retry loop.
+        for id in second_batch {
+            session
+                .handle_server_message(
+                    json!({
+                        "jsonrpc": "2.0", "id": id,
+                        "error": { "code": -32603, "message": "new profile failed" }
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+        }
+        session.pump_outbound_maintenance();
+        assert_eq!(notifications(&harness, "workspace/executeCommand").len(), 6);
+    }
+
+    #[test]
+    fn a_session_without_a_maven_context_rejects_maven_updates() {
+        let workspace = TemporaryMavenWorkspace::recursive("maven-update-reject");
+        let harness = Harness::ready();
+
+        let error = harness
+            .session()
+            .update_maven_configuration(workspace.context_with_settings("<settings/>", None), true)
+            .expect_err("a session without Maven import settings cannot be updated");
+
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+    }
+
     #[test]
     fn maven_profile_log_redacts_absolute_project_paths() {
         let redacted = redacted_project_uri("file:///Users/alice/workspace/module-a/");
@@ -5761,15 +6398,40 @@ mod tests {
     }
 
     #[test]
-    fn java_preparation_timeout_covers_project_import() {
+    fn java_quiet_import_remains_alive_until_service_ready() {
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
-            request.initialize_timeout_milliseconds = 1_000;
-            request.service_ready_idle_timeout_milliseconds = 40;
-            request.service_ready_absolute_timeout_milliseconds = 5_000;
         });
         harness.server.complete_initialize(ready_capabilities());
         assert!(harness.server.await_notification("initialized"));
+        let session = harness.session();
+        // A quiet m2e batch is not a heartbeat failure. Advance only the deadline
+        // clock so the test needs neither a real project nor a 46-second sleep.
+        session.expire_deadlines_at(Instant::now() + Duration::from_secs(46));
+        harness.await_event(|event| {
+            event.message.as_deref() == Some(
+            "Java workspace import has not reported progress; still waiting for ServiceReady",
+        )
+        });
+        assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        assert!(!harness.events.iter().any(|event| event.error.is_some()));
+    }
+
+    #[test]
+    fn java_preparation_absolute_timeout_covers_quiet_project_import() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness.server.await_notification("initialized"));
+        harness
+            .session()
+            .expire_deadlines_at(Instant::now() + Duration::from_secs(601));
         harness.await_state(LspLifecycleState::Failed);
 
         let failure = harness
@@ -5779,10 +6441,10 @@ mod tests {
             .expect("project import timeout should be reported");
         assert_eq!(failure.code, "serviceReadyTimeout");
         assert_eq!(failure.stage, "serviceReady");
-        assert!(failure
-            .underlying_message
-            .as_deref()
-            .is_some_and(|detail| detail.contains("\"classification\":\"noProgressStall\"")));
+        let detail: Value =
+            serde_json::from_str(failure.underlying_message.as_deref().unwrap()).unwrap();
+        assert_eq!(detail["timeoutKind"], "absolute");
+        assert_eq!(detail["classification"], "noProgressStall");
     }
 
     #[test]
@@ -6382,18 +7044,67 @@ mod tests {
         let _ = std::fs::remove_dir_all(&cache);
     }
 
+    /// Lithe deletes files from the user's project before JDT LS starts; the
+    /// session log is the only place a user or support can see which ones.
+    #[test]
+    fn java_start_logs_legacy_project_files_it_removed() {
+        let root =
+            std::env::temp_dir().join(format!("lithe-core-legacy-metadata-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let workspace = root.join("workspace");
+        std::fs::create_dir_all(&workspace).expect("workspace should be creatable");
+        std::fs::write(workspace.join("pom.xml"), "<project/>").expect("pom should be writable");
+        std::fs::write(workspace.join(".classpath"), "legacy")
+            .expect("classpath should be writable");
+        let initialized = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&workspace)
+            .status()
+            .expect("git should run");
+        assert!(initialized.success());
+
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+            request.working_directory = workspace.to_string_lossy().into_owned();
+            request.cache_directory = Some(root.join("cache").to_string_lossy().into_owned());
+        });
+        let detail = harness
+            .await_event(|event| {
+                event.kind == "log"
+                    && event.message.as_deref()
+                        == Some("Removed Java project files that earlier versions left in the workspace")
+            })
+            .detail
+            .clone()
+            .expect("the log must name the removed files");
+        let removed_on_disk = !workspace.join(".classpath").exists();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(removed_on_disk);
+        assert_eq!(
+            serde_json::from_str::<Value>(&detail).expect("detail should be JSON"),
+            json!({ "removedFiles": [".classpath"], "stateReset": false })
+        );
+    }
+
     #[test]
     fn structured_jdtls_resources_launch_the_runtime_executable_directly() {
         let server = ScriptedServer::new();
         let engine = LspEngine::with_launcher(server.launcher());
-        let cache = std::env::temp_dir().join("lithe-core-direct-jdtls-tests");
+        let root = std::env::temp_dir().join(format!(
+            "lithe-core-direct-jdtls-tests-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let cache = root.join("cache");
+        let packaged_configuration = packaged_jdtls_configuration(&root.join("installation"));
         let mut request = start_request(&server);
         request.provider_id = "java".to_string();
         request.arguments = vec!["--jvm-arg=-Duser.language=en".to_string()];
         request.runtime_executable_path = Some("/opt/lithe/jdk/bin/java".to_string());
         request.jdtls_launch_resources = Some(JdtlsLaunchResources {
             launcher_jar_path: "/opt/lithe/jdtls/plugins/equinox.jar".to_string(),
-            configuration_directory: "/opt/lithe/jdtls/config_mac".to_string(),
+            configuration_directory: packaged_configuration.to_string_lossy().into_owned(),
             lombok_agent_path: "/opt/lithe/jdtls/lombok/lombok.jar".to_string(),
             java_debug_bundle_path: Some(
                 "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
@@ -6427,18 +7138,30 @@ mod tests {
                 .map(|index| spec.arguments[index + 1].as_str()),
             Some("/opt/lithe/jdtls/plugins/equinox.jar")
         );
-        assert_eq!(
-            spec.arguments
-                .iter()
-                .position(|argument| argument == "-configuration")
-                .map(|index| spec.arguments[index + 1].as_str()),
-            Some("/opt/lithe/jdtls/config_mac")
-        );
+        // Equinox writes into -configuration, so it must name the writable
+        // copy in the cache and never the packaged directory.
+        let configuration = spec
+            .arguments
+            .iter()
+            .position(|argument| argument == "-configuration")
+            .map(|index| PathBuf::from(&spec.arguments[index + 1]))
+            .expect("direct launch must pass a configuration area");
+        let copied_config = std::fs::read(configuration.join("config.ini"));
+        let packaged_entries = std::fs::read_dir(&packaged_configuration)
+            .expect("packaged configuration should stay readable")
+            .count();
         assert!(!spec
             .arguments
             .iter()
             .any(|argument| argument.starts_with("--java-executable")));
-        let _ = std::fs::remove_dir_all(&cache);
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(configuration.starts_with(cache.join("jdtls-configuration")));
+        assert_eq!(
+            copied_config.ok().as_deref(),
+            Some(PACKAGED_JDTLS_CONFIG_INI.as_bytes())
+        );
+        assert_eq!(packaged_entries, 1, "only the shipped config.ini remains");
     }
 
     /// A write that fails mid-session is a transport failure, not a silent drop.
@@ -6964,14 +7687,19 @@ mod tests {
 
     #[test]
     fn java_start_enables_and_normalizes_class_file_navigation() {
-        let cache = std::env::temp_dir().join("lithe-core-java-navigation-tests");
+        let root = std::env::temp_dir().join(format!(
+            "lithe-core-java-navigation-tests-{}",
+            std::process::id()
+        ));
+        let cache = root.join("cache");
+        let packaged_configuration = packaged_jdtls_configuration(&root.join("installation"));
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
             request.cache_directory = Some(cache.to_string_lossy().into_owned());
             request.runtime_executable_path = Some("/opt/lithe/jdk/bin/java".to_string());
             request.jdtls_launch_resources = Some(JdtlsLaunchResources {
                 launcher_jar_path: "/opt/lithe/jdtls/plugins/equinox.jar".to_string(),
-                configuration_directory: "/opt/lithe/jdtls/config_mac".to_string(),
+                configuration_directory: packaged_configuration.to_string_lossy().into_owned(),
                 lombok_agent_path: "/opt/lithe/jdtls/lombok/lombok.jar".to_string(),
                 java_debug_bundle_path: Some("/plugins/java-debug.jar".to_string()),
                 java_extension_bundle_paths: vec![
@@ -7040,7 +7768,7 @@ mod tests {
         assert_eq!(location["isReadOnly"], true);
         assert_eq!(location["displayPath"], "java.base/java/lang/String.java");
 
-        let _ = std::fs::remove_dir_all(cache);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -7474,6 +8202,49 @@ mod tests {
         assert_eq!(
             event.error.as_ref().map(|error| error.code.as_str()),
             Some("invalidServerResult")
+        );
+    }
+
+    #[test]
+    fn null_java_test_answer_for_a_file_without_tests_is_an_empty_list() {
+        // Issue #840: vscode-java-test answers `null` for a file with no tests;
+        // that must not surface as an `invalidServerResult` error in the logs.
+        let mut harness = java_entrypoints_harness();
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaTestItems,
+                    uri: Some("file:///workspace/src/main/java/demo/App.java".to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .unwrap();
+        let request_id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .unwrap();
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": request_id, "result": null
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.error.is_none(), "{event:?}");
+        assert_eq!(
+            event.result,
+            Some(json!({ "schemaVersion": 1, "items": [], "diagnostics": [] }))
         );
     }
 
@@ -8771,12 +9542,15 @@ public class Main {
                 .expect("a terminal build verdict must include its evidence");
             assert_eq!(report.marker_scope, JavaBuildMarkerScope::Workspace);
             assert!(!report.builder_failed_earlier);
-            assert_eq!(report.recovery, JavaBuildRecovery::None);
+            assert_eq!(report.recovery, JavaBuildRecovery::RebuildJavaIndex);
             let serialized = serde_json::to_value(error).expect("runtime error should serialize");
             assert_eq!(serialized["javaBuildReport"]["markerScope"], "workspace");
             assert_eq!(serialized["javaBuildReport"]["builderFailedEarlier"], false);
             assert!(serialized["javaBuildReport"]["elapsedMilliseconds"].is_u64());
-            assert_eq!(serialized["javaBuildReport"]["recovery"], "none");
+            assert_eq!(
+                serialized["javaBuildReport"]["recovery"],
+                "rebuildJavaIndex"
+            );
         }
         let builds_written = harness
             .server

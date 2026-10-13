@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "requests": {
+    "status": {
+      "command": "agent.status",
+      "payload": {
+        "dataDirectory": "/Users/example/Library/Application Support/Lithe"
+      }
+    },
+    "install": {
+      "command": "agent.install",
+      "payload": {
+        "dataDirectory": "/Users/example/Library/Application Support/Lithe",
+        "agentId": "codex-acp"
+      }
+    },
+    "uninstall": {
+      "command": "agent.uninstall",
+      "payload": {
+        "dataDirectory": "/Users/example/Library/Application Support/Lithe",
+        "agentId": "codex-acp"
+      }
+    },
+    "installCli": {
+      "command": "agent.installCli",
+      "payload": {
+        "dataDirectory": "/Users/example/Library/Application Support/Lithe",
+        "agentId": "codex-acp"
+      }
+    }
+  },
+  "responses": {
+    "status": {
+      "environment": {
+        "node": {
+          "version": "20.11.0",
+          "path": "/opt/example/node/bin/node"
+        },
+        "npm": {
+          "version": "10.2.4",
+          "path": "/opt/example/node/bin/npm"
+        },
+        "usedLoginShell": true
+      },
+      "agents": [
+        {
+          "id": "codex-acp",
+          "name": "Codex",
+          "description": "OpenAI Codex through its ACP adapter",
+          "package": "@agentclientprotocol/codex-acp",
+          "version": "1.13.1",
+          "installedVersion": "1.13.1",
+          "protocol": "responses",
+          "minimumNodeMajor": 20,
+          "verified": true,
+          "cli": {
+            "name": "Codex CLI",
+            "command": "codex",
+            "minimumVersion": "0.156.0",
+            "installHint": "npm install -g @openai/codex",
+            "detected": {
+              "version": "0.156.1",
+              "path": "/opt/example/node/bin/codex"
+            },
+            "package": "@openai/codex",
+            "installation": {
+              "source": "npm",
+              "canUpdate": true,
+              "updateHint": "npm install -g @openai/codex"
+            }
+          },
+          "issues": []
+        },
+        {
+          "id": "claude-acp",
+          "name": "Claude",
+          "description": "Claude Agent through its ACP adapter",
+          "package": "@agentclientprotocol/claude-agent-acp",
+          "version": "0.81.2",
+          "installedVersion": null,
+          "protocol": "anthropicMessages",
+          "minimumNodeMajor": 22,
+          "verified": false,
+          "cli": {
+            "name": "Claude Code",
+            "command": "claude",
+            "minimumVersion": "2.1.280",
+            "installHint": "npm install -g @anthropic-ai/claude-code",
+            "detected": null,
+            "package": "@anthropic-ai/claude-code",
+            "installation": {
+              "source": "missing",
+              "canUpdate": true,
+              "updateHint": "npm install -g @anthropic-ai/claude-code"
+            }
+          },
+          "issues": [
+            "Claude needs Node.js 22 or later; found 20.11.0.",
+            "Claude Code was not found. Install it (for example `npm install -g @anthropic-ai/claude-code`), then check again."
+          ]
+        }
+      ]
+    },
+    "install": {
+      "agentId": "codex-acp",
+      "installedVersion": "1.13.1"
+    },
+    "uninstall": {
+      "agentId": "codex-acp"
+    },
+    "installCli": {
+      "agentId": "codex-acp",
+      "cliVersion": "0.156.1",
+      "updaterWarning": null
+    },
+    "installCliRecovered": {
+      "agentId": "codex-acp",
+      "cliVersion": "0.157.1",
+      "updaterWarning": "Download failed; retry completed"
+    }
+  },
+  "events": {
+    "preparing": {
+      "kind": "agentInstallProgress",
+      "operationId": "install-example",
+      "progress": {
+        "stage": "preparing",
+        "downloadedBytes": 0,
+        "bytesPerSecond": 0,
+        "elapsedMilliseconds": 0,
+        "idleMilliseconds": 0
+      }
+    },
+    "downloading": {
+      "kind": "agentInstallProgress",
+      "operationId": "install-example",
+      "progress": {
+        "stage": "downloading",
+        "downloadedBytes": 25000000,
+        "bytesPerSecond": 75000,
+        "elapsedMilliseconds": 300000,
+        "idleMilliseconds": 0
+      }
+    },
+    "waiting": {
+      "kind": "agentInstallProgress",
+      "operationId": "install-example",
+      "progress": {
+        "stage": "downloading",
+        "downloadedBytes": 25000000,
+        "bytesPerSecond": 0,
+        "elapsedMilliseconds": 320000,
+        "idleMilliseconds": 20000
+      }
+    },
+    "updating": {
+      "kind": "agentInstallProgress",
+      "operationId": "install-example",
+      "progress": {
+        "stage": "updating",
+        "downloadedBytes": 0,
+        "bytesPerSecond": 0,
+        "elapsedMilliseconds": 0,
+        "idleMilliseconds": 0
+      }
+    }
+  },
+  "cliInstallations": {
+    "npm": {
+      "source": "npm",
+      "canUpdate": true,
+      "updateHint": "npm install -g @openai/codex"
+    },
+    "homebrew": {
+      "source": "homebrew",
+      "canUpdate": true,
+      "updateHint": "brew upgrade --cask codex"
+    },
+    "native": {
+      "source": "native",
+      "canUpdate": true,
+      "updateHint": "claude update"
+    },
+    "missing": {
+      "source": "missing",
+      "canUpdate": true,
+      "updateHint": "npm install -g @anthropic-ai/claude-code"
+    },
+    "unknown": {
+      "source": "unknown",
+      "canUpdate": false,
+      "updateHint": "Update this CLI using its original installer, then check again."
+    },
+    "npmEnvironmentMismatch": {
+      "source": "npm",
+      "canUpdate": false,
+      "updateHint": "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again."
+    }
+  }
+}

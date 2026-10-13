@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{
     mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
-    Mutex, OnceLock,
+    Arc, Mutex, OnceLock,
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -22,6 +22,8 @@ use tauri::{AppHandle, Emitter, Manager};
 mod launch_arguments;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const TOOLCHAIN_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const PRE_LAUNCH_TIMEOUT: Duration = Duration::from_secs(600);
 const RUN_OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 const RUN_OUTPUT_HIGH_WATER_BYTES: usize = 1_048_576;
 const RUN_OUTPUT_QUEUE_CAPACITY_CHUNKS: usize = 64;
@@ -78,10 +80,62 @@ fn sessions() -> &'static Mutex<HashMap<RunSessionKey, RunningSession>> {
     SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+// Serializes reservation changes with process publication, never with launch preparation.
+fn pending_launches() -> &'static Mutex<HashMap<RunSessionKey, PendingLaunch>> {
+    static PENDING: OnceLock<Mutex<HashMap<RunSessionKey, PendingLaunch>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+struct PendingLaunch {
+    identity: Arc<()>,
+    execution_id: Option<String>,
+}
+
+struct LaunchReservation {
+    key: RunSessionKey,
+    identity: Arc<()>,
+}
+
+impl LaunchReservation {
+    fn is_current(&self, pending: &HashMap<RunSessionKey, PendingLaunch>) -> bool {
+        pending
+            .get(&self.key)
+            .is_some_and(|launch| Arc::ptr_eq(&launch.identity, &self.identity))
+    }
+}
+
+impl Drop for LaunchReservation {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = pending_launches().lock() {
+            if self.is_current(&pending) {
+                pending.remove(&self.key);
+            }
+        }
+    }
+}
+
+fn cancel_pending_launch(
+    pending: &mut HashMap<RunSessionKey, PendingLaunch>,
+    key: &RunSessionKey,
+    execution_id: Option<&str>,
+) {
+    if pending.get(key).is_some_and(|launch| {
+        execution_id.is_none() || launch.execution_id.as_deref() == execution_id
+    }) {
+        pending.remove(key);
+    }
+}
+
 fn run_session_key(window_label: &str, session_id: &str) -> RunSessionKey {
     RunSessionKey {
         window_label: window_label.to_string(),
         session_id: session_id.to_string(),
+    }
+}
+
+pub fn cancel_window_prelaunches(window_label: &str) {
+    if let Ok(mut pending) = pending_launches().lock() {
+        pending.retain(|key, _| key.window_label != window_label);
     }
 }
 
@@ -212,6 +266,9 @@ pub struct TomcatLaunchMetadata {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutePreLaunchArgs {
+    pub window_label: String,
+    pub session_id: String,
+    pub execution_id: String,
     pub executable: String,
     pub arguments: Vec<String>,
     pub working_directory: String,
@@ -413,6 +470,8 @@ pub enum ToolchainResolution {
         version: String,
         vendor: String,
         source: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        warning: Option<String>,
     },
     /// Nothing was configured and nothing usable was detected.
     NotFound { message: Option<String> },
@@ -466,12 +525,14 @@ fn resolve_toolchains_for_display(
                 path,
                 version,
                 vendor,
+                warning,
                 ..
             } => ToolchainResolution::Resolved {
                 path: path.clone(),
                 version: version.clone(),
                 vendor: vendor.clone(),
                 source: "projectJdk",
+                warning: warning.clone(),
             },
             other => other.clone(),
         }
@@ -486,7 +547,19 @@ fn resolve_toolchains_for_display(
 }
 
 fn java_resolution(root: &Path, override_path: &str) -> ToolchainResolution {
-    match resolve_java_home(root, override_path) {
+    let automatic = if override_path.trim().is_empty() {
+        match select_project_java(Some(root), &discover_java_runtimes(Some(root))) {
+            Ok(selection) => Some(selection),
+            Err(message) => return ToolchainResolution::Invalid { message },
+        }
+    } else {
+        None
+    };
+    let resolved = automatic
+        .as_ref()
+        .map(|selection| Ok(selection.id.clone()))
+        .unwrap_or_else(|| resolve_java_home(root, override_path));
+    match resolved {
         Ok(Some(home)) => {
             let home_path = Path::new(&home);
             let source = if override_path.trim().is_empty() {
@@ -503,6 +576,7 @@ fn java_resolution(root: &Path, override_path: &str) -> ToolchainResolution {
                 vendor: runtime.map(|runtime| runtime.vendor).unwrap_or_default(),
                 path: home,
                 source,
+                warning: automatic.and_then(|selection| selection.warning),
             }
         }
         Ok(None) => ToolchainResolution::NotFound { message: None },
@@ -559,6 +633,7 @@ fn maven_resolution(root: &Path, override_path: &str) -> ToolchainResolution {
                 version,
                 vendor: String::new(),
                 source,
+                warning: None,
             }
         }
         Err(message) if override_path.trim().is_empty() => ToolchainResolution::NotFound {
@@ -568,45 +643,128 @@ fn maven_resolution(root: &Path, override_path: &str) -> ToolchainResolution {
     }
 }
 
-/// Runs one pre-launch step (e.g. `javac`) to completion and reports its exit
-/// code plus combined stdout/stderr. Standalone Java compiles here before the
-/// main `java` process starts; the store aborts the run when `exit_code != 0`
-/// and surfaces `output` as the compiler's real diagnostic.
+/// Runs one owned compiler or resource-processing step with bounded cleanup.
 #[tauri::command]
 pub async fn run_execute_prelaunch(args: ExecutePreLaunchArgs) -> Result<PreLaunchOutcome, String> {
-    // `.output()` blocks until the compiler exits. Sync Tauri commands run on the
-    // main thread, so a long `javac` compile would freeze the workbench; run the
-    // blocking wait on a worker thread instead.
+    if args.window_label.trim().is_empty() || args.execution_id.trim().is_empty() {
+        return Err("A pre-launch step requires an active window and execution.".into());
+    }
+    let reservation = {
+        let mut pending = pending_launches()
+            .lock()
+            .map_err(|_| "Run launch state is unavailable".to_string())?;
+        let key = run_session_key(&args.window_label, &args.session_id);
+        let identity = Arc::new(());
+        pending.insert(
+            key.clone(),
+            PendingLaunch {
+                identity: identity.clone(),
+                execution_id: Some(args.execution_id.clone()),
+            },
+        );
+        LaunchReservation { key, identity }
+    };
     tauri::async_runtime::spawn_blocking(move || {
-        let mut command = command_for_executable(&args.executable, &args.arguments);
-        command
-            .current_dir(&args.working_directory)
-            .envs(&args.environment)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        apply_creation_flags(&mut command);
-        let output = command
-            .output()
-            .map_err(|error| format!("Unable to start process: {error}"))?;
-        let mut text = decode_process_bytes(&output.stdout);
-        text.push_str(&decode_process_bytes(&output.stderr));
-        Ok(PreLaunchOutcome {
-            exit_code: output.status.code().unwrap_or(-1),
-            output: text,
-        })
+        execute_prelaunch(args, reservation, PRE_LAUNCH_TIMEOUT)
     })
     .await
-    .map_err(|error| format!("Pre-launch task failed: {error}"))?
+    .map_err(|error| format!("Pre-launch task failed: {error}"))
+}
+
+fn execute_prelaunch(
+    args: ExecutePreLaunchArgs,
+    reservation: LaunchReservation,
+    timeout: Duration,
+) -> PreLaunchOutcome {
+    let mut command = command_for_executable(&args.executable, &args.arguments);
+    command
+        .current_dir(&args.working_directory)
+        .envs(&args.environment);
+    apply_creation_flags(&mut command);
+    let started = Instant::now();
+    let output = lithe_git_host::run(
+        &mut command,
+        None,
+        || {
+            started.elapsed() >= timeout
+                || pending_launches()
+                    .lock()
+                    .map(|pending| !reservation.is_current(&pending))
+                    .unwrap_or(true)
+        },
+        || {},
+        |_, _| {},
+    );
+    let mut text = decode_process_bytes(&output.stdout);
+    text.push_str(&decode_process_bytes(&output.stderr));
+    if let Some(failure) = output.failure {
+        let reason = if started.elapsed() >= timeout {
+            format!(
+                "Pre-launch step timed out after {} seconds.",
+                timeout.as_secs()
+            )
+        } else {
+            format!("Pre-launch step failed: {failure:?}")
+        };
+        text.push_str(&format!("\n{reason}\n"));
+        return PreLaunchOutcome {
+            exit_code: -1,
+            output: text,
+        };
+    }
+    PreLaunchOutcome {
+        exit_code: output.status.and_then(|status| status.code()).unwrap_or(-1),
+        output: text,
+    }
 }
 
 #[tauri::command]
-pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), String> {
+pub async fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), String> {
     if args.window_label.trim().is_empty() {
         return Err("A run process must be started from an active window.".into());
     }
-    stop_session(&args.window_label, &args.session_id, None);
+    let (reservation, previous_pid) = {
+        let mut pending = pending_launches()
+            .lock()
+            .map_err(|_| "Run launch state is unavailable".to_string())?;
+        let previous_pid = take_running_pid(&args.window_label, &args.session_id, None);
+        let key = run_session_key(&args.window_label, &args.session_id);
+        let identity = Arc::new(());
+        pending.insert(
+            key.clone(),
+            PendingLaunch {
+                identity: identity.clone(),
+                execution_id: args.execution_id.clone(),
+            },
+        );
+        (LaunchReservation { key, identity }, previous_pid)
+    };
+    // Filesystem metadata, JAR writes and process creation may block. The worker
+    // owns the reservation and temporary file even if the awaiting task ends.
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(pid) = previous_pid {
+            terminate_run_process(pid);
+        }
+        start_reserved_process(app, args, reservation)
+    })
+    .await
+    .map_err(|error| format!("Run launch preparation failed: {error}"))?
+}
+
+fn start_reserved_process(
+    app: AppHandle,
+    args: StartProcessArgs,
+    reservation: LaunchReservation,
+) -> Result<(), String> {
     let (arguments, argfile) = prepare_launch_arguments(&args)?;
+    let pending = pending_launches()
+        .lock()
+        .map_err(|_| "Run launch state is unavailable".to_string())?;
+    if !reservation.is_current(&pending) {
+        return Err("Run launch was stopped or replaced during preparation.".into());
+    }
+    // Stop/restart cannot invalidate the reservation between this check and
+    // publication in sessions(). Preparation never holds this lock.
     let mut command = command_for_executable(&args.executable, &arguments);
     command
         .current_dir(&args.working_directory)
@@ -622,6 +780,9 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         std::fs::create_dir_all(context_dir).map_err(|e| e.to_string())?;
         std::fs::write(&tomcat.context_xml_path, &tomcat.context_xml).map_err(|e| e.to_string())?;
     }
+    let mut current = sessions()
+        .lock()
+        .map_err(|_| "Run process state is unavailable".to_string())?;
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -635,17 +796,18 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
     let stderr = child.stderr.take();
     let execution_id = args.execution_id.clone();
     let session_key = run_session_key(&args.window_label, &args.session_id);
-    sessions()
-        .lock()
-        .map_err(|_| "Run process state is unavailable".to_string())?
-        .insert(
-            session_key,
-            RunningSession {
-                pid,
-                execution_id: args.execution_id,
-                stdin,
-            },
-        );
+    current.insert(
+        session_key,
+        RunningSession {
+            pid,
+            execution_id: args.execution_id,
+            stdin,
+        },
+    );
+
+    drop(current);
+    drop(pending);
+    drop(reservation);
 
     // Run and Maven panels rebuild highlighted output when this event crosses
     // into the webview. Coalesce native pipe reads before that expensive
@@ -681,7 +843,7 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
 fn prepare_launch_arguments(
     args: &StartProcessArgs,
 ) -> Result<(Vec<String>, Option<launch_arguments::LaunchArgumentFile>), String> {
-    launch_arguments::prepare(&args.executable, &args.arguments)
+    launch_arguments::prepare(&args.executable, &args.arguments, &args.working_directory)
 }
 
 /// Explains a refused spawn with the detail the operating system reported.
@@ -706,12 +868,16 @@ fn spawn_failure_message(executable: &str, arguments: &[String], error: &std::io
 }
 
 #[tauri::command]
-pub fn run_stop_process(
+pub async fn run_stop_process(
     window_label: String,
     session_id: String,
     execution_id: Option<String>,
 ) -> Result<(), String> {
-    stop_session(&window_label, &session_id, execution_id.as_deref());
+    if let Some(pid) = stop_session(&window_label, &session_id, execution_id.as_deref()) {
+        tauri::async_runtime::spawn_blocking(move || terminate_run_process(pid))
+            .await
+            .map_err(|error| format!("Run stop failed: {error}"))?;
+    }
     Ok(())
 }
 
@@ -1009,6 +1175,58 @@ pub(crate) fn discover_java_runtimes(project_root: Option<&Path>) -> Vec<JavaRun
     probe_java_homes(java_home_candidates(project_root))
 }
 
+fn java_selection_candidates(
+    root: Option<&Path>,
+    runtimes: &[JavaRuntime],
+) -> Vec<lithe_core::execution::JavaSelectionCandidate> {
+    // Resolve source identities once, not from the sorting comparator. Windows
+    // path identity is case-insensitive and may be reached through a symlink.
+    let key = |path: &Path| normalize_path(path).to_string_lossy().to_lowercase();
+    let environment_home = std::env::var_os("JAVA_HOME").map(|value| key(Path::new(&value)));
+    let path_home = lookup_on_path("java.exe")
+        .or_else(|| lookup_on_path("java"))
+        .and_then(|path| java_home_from_executable(&path))
+        .map(|path| key(&path));
+    let project_home = root.map(|root| key(&root.join(".lithe/toolchains/jdk")));
+    runtimes
+        .iter()
+        .map(|runtime| {
+            let home = key(Path::new(&runtime.home_path));
+            let priority = if Some(&home) == environment_home.as_ref() {
+                0
+            } else if Some(&home) == path_home.as_ref() {
+                1
+            } else if Some(&home) == project_home.as_ref() {
+                3
+            } else {
+                2
+            };
+            lithe_core::execution::JavaSelectionCandidate {
+                id: runtime.home_path.clone(),
+                version: runtime.version.clone(),
+                priority,
+            }
+        })
+        .collect()
+}
+
+fn select_project_java(
+    root: Option<&Path>,
+    runtimes: &[JavaRuntime],
+) -> Result<lithe_core::execution::JavaSelection, String> {
+    let candidates = java_selection_candidates(root, runtimes);
+    let fallback_id = candidates
+        .iter()
+        .min_by(|a, b| lithe_core::execution::compare_java_candidates(a, b))
+        .map(|candidate| candidate.id.clone());
+    lithe_core::execution::select_java(lithe_core::execution::JavaSelectionRequest {
+        root: root.map(Path::to_path_buf),
+        candidates,
+        fallback_id,
+    })
+    .map_err(|error| error.message)
+}
+
 fn probe_java_homes(homes: Vec<PathBuf>) -> Vec<JavaRuntime> {
     let mut java = Vec::new();
     let mut seen_homes = std::collections::HashSet::new();
@@ -1020,11 +1238,17 @@ fn probe_java_homes(homes: Vec<PathBuf>) -> Vec<JavaRuntime> {
             java.push(runtime);
         }
     }
+    // Preserve source priority, then compare Java versions numerically. Discovery
+    // order from read_dir must never choose the runtime of a project.
+    let candidates = java_selection_candidates(None, &java)
+        .into_iter()
+        .map(|candidate| (candidate.id.clone(), candidate))
+        .collect::<HashMap<_, _>>();
     java.sort_by(|left, right| {
-        right
-            .version
-            .cmp(&left.version)
-            .then(left.home_path.cmp(&right.home_path))
+        lithe_core::execution::compare_java_candidates(
+            &candidates[&left.home_path],
+            &candidates[&right.home_path],
+        )
     });
     java
 }
@@ -1043,7 +1267,19 @@ fn discover_toolchains_with_overrides(
     if let Some(path) = java_home_path.filter(|value| !value.trim().is_empty()) {
         homes.insert(0, PathBuf::from(path));
     }
-    let java = probe_java_homes(homes);
+    let mut java = probe_java_homes(homes);
+    match select_project_java(project_root, &java) {
+        Ok(selection) => {
+            if let Some(index) = java
+                .iter()
+                .position(|runtime| Some(&runtime.home_path) == selection.id.as_ref())
+            {
+                let selected = java.remove(index);
+                java.insert(0, selected);
+            }
+        }
+        Err(error) => eprintln!("Could not select the project JDK: {error}"),
+    }
 
     let maven = discover_maven_candidates(
         maven_executable_candidates(project_root),
@@ -1315,7 +1551,12 @@ fn java_home_from_executable(executable: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-fn resolve_java_home(root: &Path, override_path: &str) -> Result<Option<String>, String> {
+/// Resolves the JDK a Java or Maven launch would run with. Shared with the
+/// Maven configuration surfaces so they report the value a launch actually uses.
+pub(crate) fn resolve_java_home(
+    root: &Path,
+    override_path: &str,
+) -> Result<Option<String>, String> {
     let configured = override_path.trim();
     if !configured.is_empty() {
         let path = if Path::new(configured).is_absolute() {
@@ -1330,10 +1571,9 @@ fn resolve_java_home(root: &Path, override_path: &str) -> Result<Option<String>,
             "JDK Home does not point to a directory: {configured}"
         ));
     }
-    Ok(discover_toolchains(Some(root))
-        .java
-        .first()
-        .map(|runtime| runtime.home_path.clone()))
+    // Resolving a JDK must not also run Maven wrappers or Node probes.
+    select_project_java(Some(root), &discover_java_runtimes(Some(root)))
+        .map(|selection| selection.id)
 }
 
 fn resolve_executable(
@@ -1525,7 +1765,10 @@ fn prepend_runtime_paths(
     Ok(())
 }
 
-fn resolve_maven_executable(
+/// Resolves the Maven executable a launch would run, including the wrapper,
+/// PATH, and `MAVEN_HOME` candidate chain. Shared with the Maven configuration
+/// surfaces so they report the value a launch actually uses.
+pub(crate) fn resolve_maven_executable(
     root: &Path,
     working_directory: &Path,
     override_path: &str,
@@ -1562,15 +1805,9 @@ fn resolve_maven_executable(
             saw_incomplete_wrapper = true;
         }
     }
-    discover_toolchains(Some(root))
-        .maven
-        .into_iter()
-        .find(|runtime| {
-            !runtime.executable_path.ends_with("mvnw.cmd")
-                && !runtime.executable_path.ends_with("mvnw.bat")
-                && !runtime.executable_path.ends_with("mvnw")
-        })
-        .map(|runtime| runtime.executable_path)
+    // Match project import's filesystem-only fallback. Discovering a launcher
+    // must never execute a wrapper or download its Maven distribution.
+    maven_executable_without_probing(root, None)
         .ok_or_else(|| {
             if saw_incomplete_wrapper {
                 "Maven wrapper is incomplete (.mvn/wrapper/maven-wrapper.properties is missing) and no system Maven was found. Install Maven or restore the wrapper files.".into()
@@ -1646,19 +1883,26 @@ fn command_output(executable: &Path, arguments: &[&str]) -> String {
         .map(|argument| (*argument).to_string())
         .collect::<Vec<_>>();
     let mut command = command_for_executable(&executable.to_string_lossy(), &arguments);
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
     apply_creation_flags(&mut command);
-    command
-        .output()
-        .map(|output| {
-            let mut text = decode_process_bytes(&output.stdout);
-            text.push_str(&decode_process_bytes(&output.stderr));
-            text
-        })
-        .unwrap_or_default()
+    toolchain_probe_output(&mut command, Instant::now() + TOOLCHAIN_PROBE_TIMEOUT)
+}
+
+fn toolchain_probe_output(command: &mut Command, deadline: Instant) -> String {
+    // Reuse the native runner's Job Object/process group, output bound and
+    // bounded drain so a timed-out probe cannot leave descendants behind.
+    let output = lithe_git_host::run(
+        command,
+        None,
+        || Instant::now() >= deadline,
+        || {},
+        |_, _| {},
+    );
+    if output.failure.is_some() || !output.status.is_some_and(|status| status.success()) {
+        return String::new();
+    }
+    let mut text = decode_process_bytes(&output.stdout);
+    text.push_str(&decode_process_bytes(&output.stderr));
+    text
 }
 
 fn is_batch_file(executable: &str) -> bool {
@@ -2061,27 +2305,168 @@ fn take_owned_session(
     current.remove(key)
 }
 
-fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>) {
-    let pid = sessions().lock().ok().and_then(|mut current| {
+fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>) -> Option<u32> {
+    // Use the same lock/order as publication, so a stop cannot miss a process
+    // between its pending reservation and its running session.
+    let Ok(mut pending) = pending_launches().lock() else {
+        eprintln!("Run launch state is unavailable while stopping a session");
+        return None;
+    };
+    cancel_pending_launch(
+        &mut pending,
+        &run_session_key(window_label, session_id),
+        execution_id,
+    );
+    take_running_pid(window_label, session_id, execution_id)
+}
+
+fn take_running_pid(
+    window_label: &str,
+    session_id: &str,
+    execution_id: Option<&str>,
+) -> Option<u32> {
+    sessions().lock().ok().and_then(|mut current| {
         take_owned_session(
             &mut current,
             &run_session_key(window_label, session_id),
             execution_id,
         )
         .map(|session| session.pid)
-    });
-    if let Some(pid) = pid {
-        let mut command = Command::new("taskkill");
-        command.args(["/F", "/T", "/PID", &pid.to_string()]);
-        apply_creation_flags(&mut command);
-        let _ = command.output();
-    }
+    })
+}
+
+fn terminate_run_process(pid: u32) {
+    let mut command = Command::new("taskkill");
+    command.args(["/F", "/T", "/PID", &pid.to_string()]);
+    apply_creation_flags(&mut command);
+    let _ = command.output();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn reserve_test_launch(
+        pending: &mut HashMap<RunSessionKey, PendingLaunch>,
+        window: &str,
+        execution: &str,
+    ) -> LaunchReservation {
+        let key = run_session_key(window, "launch-reservation-test");
+        let identity = Arc::new(());
+        pending.insert(
+            key.clone(),
+            PendingLaunch {
+                identity: identity.clone(),
+                execution_id: Some(execution.into()),
+            },
+        );
+        LaunchReservation { key, identity }
+    }
+
+    #[test]
+    fn pending_launch_owner_cleanup_preserves_replacement() {
+        // This key is exclusive to this test; every reservation has RAII cleanup
+        // even when an assertion unwinds. No threads or wall-clock waits needed.
+        let reserve = || {
+            let mut pending = pending_launches().lock().unwrap();
+            reserve_test_launch(&mut pending, "owner-cleanup-window", "same-id")
+        };
+        let old = reserve();
+        let latest = reserve();
+        let key = latest.key.clone();
+        drop(old);
+        assert!(latest.is_current(&pending_launches().lock().unwrap()));
+        drop(latest);
+        assert!(!pending_launches().lock().unwrap().contains_key(&key));
+    }
+
+    fn prelaunch_fixture(window: &str) -> (ExecutePreLaunchArgs, LaunchReservation) {
+        let reservation = reserve_test_launch(
+            &mut pending_launches().lock().unwrap(),
+            window,
+            "prelaunch-test",
+        );
+        let args = ExecutePreLaunchArgs {
+            window_label: window.into(),
+            session_id: reservation.key.session_id.clone(),
+            execution_id: "prelaunch-test".into(),
+            executable: std::env::var("COMSPEC").unwrap(),
+            arguments: vec![
+                "/d".into(),
+                "/c".into(),
+                "echo resource-failure & exit /b 7".into(),
+            ],
+            working_directory: std::env::temp_dir().to_string_lossy().into_owned(),
+            environment: HashMap::new(),
+        };
+        (args, reservation)
+    }
+
+    #[test]
+    fn prelaunch_preserves_nonzero_exit_and_output() {
+        let (args, reservation) = prelaunch_fixture("prelaunch-failure-window");
+        let outcome = execute_prelaunch(args, reservation, Duration::from_secs(2));
+        assert_eq!(outcome.exit_code, 7);
+        assert!(outcome.output.contains("resource-failure"));
+    }
+
+    #[test]
+    fn prelaunch_deadline_terminates_the_owned_process() {
+        let (args, reservation) = prelaunch_fixture("prelaunch-timeout-window");
+        let outcome = execute_prelaunch(args, reservation, Duration::ZERO);
+        assert_eq!(outcome.exit_code, -1);
+        assert!(outcome.output.contains("timed out"));
+    }
+
+    #[test]
+    fn prelaunch_window_close_cancels_without_affecting_other_windows() {
+        let (args, reservation) = prelaunch_fixture("prelaunch-close-window");
+        let (_, other) = prelaunch_fixture("prelaunch-other-window");
+        cancel_window_prelaunches("prelaunch-close-window");
+        assert!(other.is_current(&pending_launches().lock().unwrap()));
+        let outcome = execute_prelaunch(args, reservation, Duration::from_secs(2));
+        assert_eq!(outcome.exit_code, -1);
+        assert!(outcome.output.contains("Cancelled"));
+    }
+
+    #[test]
+    fn pending_launch_stop_prevents_late_publication() {
+        let mut pending = HashMap::new();
+        let launch = reserve_test_launch(&mut pending, "first-window", "first");
+        assert!(launch.is_current(&pending));
+        // Preparation is still in progress when Stop arrives. Completing that
+        // preparation later must never grant permission to spawn a process.
+        cancel_pending_launch(&mut pending, &launch.key, None);
+        assert!(!launch.is_current(&pending));
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn pending_launch_restart_rejects_out_of_order_completion() {
+        let mut pending = HashMap::new();
+        let old = reserve_test_launch(&mut pending, "first-window", "old");
+        let latest = reserve_test_launch(&mut pending, "first-window", "new");
+        assert!(latest.is_current(&pending));
+        assert!(!old.is_current(&pending));
+        // An old adapter's delayed Stop must not cancel the replacement Run.
+        cancel_pending_launch(&mut pending, &old.key, Some("old"));
+        assert!(latest.is_current(&pending));
+        cancel_pending_launch(&mut pending, &latest.key, Some("new"));
+        assert!(!latest.is_current(&pending));
+    }
+
+    #[test]
+    fn pending_launch_isolates_windows_and_reused_execution_ids() {
+        let mut pending = HashMap::new();
+        let old = reserve_test_launch(&mut pending, "first-window", "same-id");
+        let latest = reserve_test_launch(&mut pending, "first-window", "same-id");
+        let other = reserve_test_launch(&mut pending, "second-window", "same-id");
+        assert!(!old.is_current(&pending));
+        assert!(latest.is_current(&pending));
+        cancel_pending_launch(&mut pending, &latest.key, None);
+        assert!(other.is_current(&pending));
+    }
 
     #[test]
     fn output_batch_coalesces_queued_chunks_in_order() {
@@ -2552,6 +2937,61 @@ mod tests {
     }
 
     #[test]
+    fn automatic_java_selection_reads_requirement_changes_without_probing() {
+        let root = temp_project();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).expect("remove Java fixture");
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let runtimes = vec![
+            JavaRuntime {
+                home_path: root.join("jdk8").to_string_lossy().into_owned(),
+                version: "1.8.0_402".into(),
+                vendor: "fixture".into(),
+            },
+            JavaRuntime {
+                home_path: root.join("jdk21").to_string_lossy().into_owned(),
+                version: "21.0.4".into(),
+                vendor: "fixture".into(),
+            },
+        ];
+        fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+        let requirements = root.join(".lithe/toolchains/requirements.json");
+        fs::write(
+            &requirements,
+            r#"{"version":1,"toolchains":{"project-jdk":{"type":"java","minimumVersion":"17"}}}"#,
+        )
+        .unwrap();
+        let selected = select_project_java(Some(&root), &runtimes).unwrap();
+        assert_eq!(selected.id.as_deref(), Some(runtimes[1].home_path.as_str()));
+        assert!(selected.warning.is_none());
+        fs::write(
+            &requirements,
+            r#"{"version":1,"toolchains":{"project-jdk":{"type":"java","minimumVersion":"25"}}}"#,
+        )
+        .unwrap();
+        let fallback = select_project_java(Some(&root), &runtimes).unwrap();
+        assert_eq!(fallback.id, selected.id);
+        assert!(fallback.warning.unwrap().contains("25"));
+        fs::write(&requirements, "{").unwrap();
+        assert!(select_project_java(Some(&root), &runtimes).is_err());
+        // Explicit paths never pass through requirement-based auto selection.
+        fs::create_dir_all(root.join("jdk8/bin")).unwrap();
+        fs::write(root.join("jdk8/bin/java.exe"), b"fixture").unwrap();
+        assert_eq!(
+            resolve_java_home(&root, "jdk8").unwrap(),
+            Some(
+                normalize_path(&root.join("jdk8"))
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
+    }
+
+    #[test]
     fn displayed_maven_is_the_wrapper_a_launch_would_run() {
         // Settings shows the resolved Maven in place of "automatic"; it must be
         // the one `run_resolve_launch` picks, and a wrapper is never executed.
@@ -2595,6 +3035,24 @@ mod tests {
         // An empty Maven JDK inherits the project JDK, including its failure.
         assert_eq!(resolved.maven_java, resolved.java);
         fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn toolchain_probe_discards_output_after_its_deadline() {
+        let mut command = Command::new("cmd.exe");
+        command.args(["/D", "/C", "echo expired probe"]);
+        // An already-expired deadline controls cancellation without a sleep or
+        // a deliberately hanging child. The runner owns and reaps the process.
+        assert!(toolchain_probe_output(&mut command, Instant::now()).is_empty());
+    }
+
+    #[test]
+    fn toolchain_probe_captures_both_version_streams() {
+        let mut command = Command::new("cmd.exe");
+        command.args(["/D", "/C", "echo stdout-version & echo stderr-version 1>&2"]);
+        let output = toolchain_probe_output(&mut command, Instant::now() + TOOLCHAIN_PROBE_TIMEOUT);
+        assert!(output.contains("stdout-version"));
+        assert!(output.contains("stderr-version"));
     }
 
     #[test]
@@ -2755,6 +3213,7 @@ mod tests {
             toolchain: Some("project-jdk".into()),
             command: None,
             tool: Some("javac".into()),
+            path: None,
         };
         let resolved = resolve_executable(
             &home,
@@ -2785,6 +3244,35 @@ mod tests {
         assert!(
             resolved_main.ends_with("java.exe"),
             "resolved_main = {resolved_main}"
+        );
+        fs::remove_dir_all(home).ok();
+    }
+
+    /// The plan's resource step declares the reactor as its own working
+    /// directory. A workspace whose root has no wrapper must still resolve the
+    /// wrapper next to the reactor POM: the absolute `-f` argument anchors the
+    /// POM but cannot help find `mvnw.cmd`.
+    #[test]
+    fn resolve_maven_executable_finds_the_wrapper_beside_the_reactor_pom() {
+        let home = temp_project();
+        let reactor = home.join("projects").join("demo");
+        fs::create_dir_all(reactor.join(".mvn").join("wrapper")).expect("wrapper directory");
+        fs::write(reactor.join("pom.xml"), b"<project/>").expect("pom");
+        fs::write(reactor.join("mvnw.cmd"), b"").expect("mvnw.cmd");
+        fs::write(
+            reactor
+                .join(".mvn")
+                .join("wrapper")
+                .join("maven-wrapper.properties"),
+            b"distributionUrl=https://example.invalid/maven-bin.zip",
+        )
+        .expect("wrapper properties");
+
+        let resolved = resolve_maven_executable(&home, &reactor, "").expect("resolve wrapper");
+        assert!(resolved.ends_with("mvnw.cmd"), "resolved = {resolved}");
+        assert!(
+            resolved.contains("demo"),
+            "the wrapper must come from the reactor directory: {resolved}"
         );
         fs::remove_dir_all(home).ok();
     }

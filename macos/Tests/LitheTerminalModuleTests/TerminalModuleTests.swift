@@ -5,6 +5,23 @@ import Testing
 @MainActor
 struct TerminalModuleTests {
     @Test
+    func explicitlyChosenShellNamesToolTabsWithoutRenamingDefaultSessions() {
+        let feature = TerminalFeatureModel(terminalFactory: { TestTransport() })
+        defer { feature.stopAllSessions() }
+        let workspace = URL(fileURLWithPath: "/workspace")
+        let local = feature.createSession(in: workspace, shellPath: "/bin/zsh")
+        let firstZsh = feature.createSession(in: workspace, shellPath: "/bin/zsh", preferredToolTabTitle: "zsh")
+        let secondZsh = feature.createSession(in: workspace, shellPath: "/bin/zsh", preferredToolTabTitle: "zsh")
+        let bash = feature.createSession(in: workspace, shellPath: "/bin/bash", preferredToolTabTitle: "bash")
+        let sessions = feature.terminalSessions
+
+        #expect(feature.toolTabTitle(for: local, orderedSessions: sessions) == "Local")
+        #expect(feature.toolTabTitle(for: firstZsh, orderedSessions: sessions) == "zsh")
+        #expect(feature.toolTabTitle(for: secondZsh, orderedSessions: sessions) == "zsh (2)")
+        #expect(feature.toolTabTitle(for: bash, orderedSessions: sessions) == "bash")
+    }
+
+    @Test
     func unavailableShellReportsFailureAndCanRetryWithoutSelectingAnotherShell() {
         let transport = TestTransport()
         transport.startError = NSError(domain: "TerminalTest", code: 1, userInfo: [NSLocalizedDescriptionKey: "Shell is missing"])

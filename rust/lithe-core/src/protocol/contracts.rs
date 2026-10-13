@@ -285,6 +285,14 @@ pub struct MavenDependencyResponse {
     pub resolution: MavenDependencyResolutionResponse,
     /// Version Maven selected when this occurrence was omitted for conflict.
     pub selected_version: Option<String>,
+    /// Version before dependency management replaced it with `version`.
+    pub premanaged_version: Option<String>,
+    /// Scope before dependency management replaced it with `scope`.
+    pub premanaged_scope: Option<String>,
+    /// Declared scope before mediation widened it to `scope`.
+    pub original_scope: Option<String>,
+    /// Wider scope from another path that mediation did not apply here.
+    pub ignored_scope: Option<String>,
     pub children: Vec<MavenDependencyResponse>,
 }
 
@@ -524,6 +532,19 @@ pub struct GitChange {
     pub staged: bool,
     pub worktree: bool,
     pub untracked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub submodule: Option<GitSubmoduleStatus>,
+    /// False for parent gitlinks with only uncommitted child content.
+    pub can_toggle_staging: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Git porcelain v2 distinguishes a new gitlink target from child worktree dirt.
+pub struct GitSubmoduleStatus {
+    pub commit_changed: bool,
+    pub tracked_changes: bool,
+    pub untracked_changes: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -605,7 +626,12 @@ pub struct GitCommitResponse {
     pub parent_hashes: Vec<String>,
     pub author_name: String,
     pub author_email: String,
+    /// Author date as `YYYY/MM/DD HH:MM` in the author's own time zone.
     pub date: String,
+    /// Author's UTC offset in minutes (east positive) for `date`; `null` when
+    /// Git did not report one. Hosts compare it with the local offset before
+    /// presenting relative times.
+    pub date_utc_offset_minutes: Option<i32>,
     pub subject: String,
     pub decorations: String,
 }
@@ -695,6 +721,10 @@ pub struct GitPushTagResponse {
 /// Exact lookup result for one commit.
 pub struct GitCommitLookupResponse {
     pub commit: GitCommitResponse,
+    /// Message text after the subject paragraph, as Git's `%b` placeholder,
+    /// with line breaks preserved and trailing whitespace removed. Empty when
+    /// the message has only a subject. History pages omit it to stay compact.
+    pub body: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

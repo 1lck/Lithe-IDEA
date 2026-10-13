@@ -62,8 +62,17 @@ extension LanguageProviderCatalog {
                 languageIdentifier: existing?.languageIdentifier ?? support.id,
                 languageIdentifiersByExtension: existing?.languageIdentifiersByExtension ?? [:],
                 languageIdentifiersByFileName: existing?.languageIdentifiersByFileName ?? [:],
-                languageServerLaunch: nil,
-                languageServerInstallation: existing?.languageServerInstallation
+                // The extension owns whether the process may run, while the
+                // shared catalog still owns the descriptive launch metadata
+                // used by setup and diagnostics. Keeping this metadata lets
+                // an installed PHP extension appear in the LSP control
+                // center without restoring a fallback process path. Package
+                // owned servers must not expose the generic Homebrew/official
+                // installer, because Plugin Management owns their lifecycle.
+                languageServerLaunch: existing?.languageServerLaunch,
+                languageServerInstallation: support.languageServerModuleID == nil
+                    ? existing?.languageServerInstallation
+                    : nil
             )
 
             if let existingIndex {

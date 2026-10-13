@@ -140,6 +140,19 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: change.repositoryRoot, operation: "discardAll", paths: change.pathspecs)
     }
 
+    func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
+        let result: Result<GitWorkspaceCommitPreparation, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "git.workspaceCommitPrepare", payload: request)
+        return result.mapError { GitWorkspaceCommitFailure($0.userMessage) }
+    }
+
+    func stepWorkspaceCommit(_ session: GitWorkspaceCommitSession) -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure> {
+        struct Request: Encodable { let session: GitWorkspaceCommitSession }
+        let result: Result<GitWorkspaceCommitSession, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "git.workspaceCommitStep", payload: Request(session: session))
+        return result.mapError { GitWorkspaceCommitFailure($0.userMessage) }
+    }
+
     func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? {
         write(at: rootURL, operation: "commit", message: message, amend: amend)
     }
@@ -176,6 +189,11 @@ struct RustGitOperations: GitOperations, Sendable {
 
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
         core.gitPatchExport(at: rootURL, source: source, paths: paths, base: base, target: target, metadataOnly: metadataOnly)
+            .mapError { GitPatchFailure($0.userMessage) }
+    }
+
+    func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure> {
+        core.gitPatchPreview(at: rootURL, patch: patch, target: .worktree, metadataOnly: true)
             .mapError { GitPatchFailure($0.userMessage) }
     }
 
@@ -256,6 +274,14 @@ struct RustGitOperations: GitOperations, Sendable {
 
     func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> GitProcessResult? {
         write(at: rootURL, operation: "renameBranch", gitReference: reference, name: name)
+    }
+
+    func setUpstream(branch: GitReference, to upstream: GitReference, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "setUpstream", gitReference: upstream, name: branch.shortName)
+    }
+
+    func unsetUpstream(branch: GitReference, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "unsetUpstream", name: branch.shortName)
     }
 
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
@@ -428,14 +454,6 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "stageAll")
     }
 
-    func mutateLiteralLocalExcludePatterns(_ patterns: [String], adding: Bool, at rootURL: URL) -> GitProcessResult? {
-        write(
-            at: rootURL,
-            operation: adding ? "excludePatterns" : "unexcludePatterns",
-            paths: patterns
-        )
-    }
-
     func createTag(
         named name: String,
         at revision: String,
@@ -455,8 +473,10 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "deleteTag", name: name)
     }
 
-    func snapshot(at rootURL: URL) -> GitSnapshot? {
-        core.gitStatus(at: rootURL)?.makeSnapshot(at: rootURL)
+    func snapshot(at rootURL: URL) -> GitSnapshot? { snapshot(at: rootURL, repositoryRoots: []) }
+
+    func snapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? {
+        core.gitStatus(at: rootURL, repositoryRoots: repositoryRoots)?.makeSnapshot(at: rootURL)
     }
 
     func repositories(in workspaceURL: URL) -> [URL] {

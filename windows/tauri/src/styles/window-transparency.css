@@ -126,9 +126,10 @@ html[data-window-transparency="disabled"] .window-container {
   background: var(--background) !important;
 }
 
+/* Color only: the project-color gradient (project-gradient.css) layers its image here. */
 html[data-window-transparency="disabled"] .lithe-layout-shell,
 html[data-window-transparency="disabled"] .lithe-resizable-pane {
-  background: var(--surface) !important;
+  background-color: var(--surface) !important;
 }
 
 html.platform-windows [data-slot="menubar-content"],

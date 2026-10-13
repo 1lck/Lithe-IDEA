@@ -1,0 +1,23 @@
+{
+  "id": "vim-mode",
+  "area": "编辑器",
+  "group": "编辑模式",
+  "capability": "Vim 模式与命令状态",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Editor"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/vim",
+      "windows/tauri/src/features/editor"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Editor",
+  "verification": "Windows 验证 Normal/Insert/Visual 模式、命令执行和设置持久化；macOS 需要确认产品范围。"
+}

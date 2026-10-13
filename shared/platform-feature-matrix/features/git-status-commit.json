@@ -1,0 +1,45 @@
+{
+  "id": "git-status-commit",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "状态、暂存与提交",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Git",
+      "macos/Sources/Lithe/Services",
+      "macos/Sources/LitheGitModule/Application/GitFeatureModel.swift",
+      "macos/Tests/LitheGitModuleTests/GitModuleTests.swift",
+      "macos/Tests/LitheTests/GitStatusObservationTests.swift",
+      ".agents/notes/implemented/feature/2026-09-27-workspace-git-commit-plans.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/git",
+      "shared/contracts/application-boundary.md",
+      "windows/tauri/src/features/git/api/git-repository-path.ts",
+      "rust/lithe-core/tests/git_path_roundtrip.rs",
+      "shared/fixtures/git/windows-paths.json",
+      "windows/tauri/src/features/git/hooks/use-git-commit-area-resize.ts",
+      "windows/tauri/src/features/git/stores/git-commit-panel-preferences.store.ts",
+      "windows/tauri/src/features/git/components/status/git-status-panel.tsx",
+      "windows/tauri/src/features/sidebar/components/sidebar-tree.tsx",
+      "windows/tauri/src/features/git/utils/idea-control-styles.ts",
+      "windows/tauri/src/features/git/hooks/use-git-commit-picker.ts",
+      "windows/tauri/src/features/git/hooks/use-git-commit-picker.test.tsx",
+      "windows/tauri/src/features/git/hooks/use-commit-diff-review.ts",
+      "windows/tauri/src/features/git/services/commit-diff-review.ts",
+      "windows/tauri/src/features/git/utils/commit-diff-blocks.ts",
+      "windows/tauri/src/features/git/utils/commit-diff-blocks.integration.test.ts",
+      "windows/tauri/src/features/git/hooks/use-git-commit-area-resize.test.tsx",
+      "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Git",
+  "notes": "Windows Commit Diff 增加块级包含：复选框来自真实 Git 暂存区，支持相邻块独立包含/取消、部分包含三态、暂存插入后的索引坐标；Commit 仅提交已包含块，文件列表部分包含不会退回整文件暂存。包含/回退及刷新持有提交保护，关闭预览后等待已发出的写入结束才释放；回退沿用未暂存修改契约。验证两个相邻修改只勾选一块后实际提交、随后取消/继续包含、另仓库事件隔离与回退校验期间文件变化；开启丢弃确认时，双箭头仍直接回退对应未包含块，保留已包含内容。新增/删除使用整文件块，重命名/二进制等保留整文件操作。目标产品端到端验收仍 pending。 Commit 单文件比较保留文件顺序，末个差异后下箭头按需打开下一文件，块包含和刷新不丢失导航；同时收紧中央行号/图标留白并使块方框居中。 审核修复：EOF/CRLF 有损显示标识阻止新旧 Diff 的块写入，保留整文件入口；HEAD 到磁盘为空时显示真实暂存区内容并标注版本，显示回退不改变写入身份。整文件三态直接读取 staged/worktree，覆盖二进制、重命名及没有安全块的情况。新旧 Diff 块级双箭头按用户明确决定直接执行，与文件/整仓库的丢弃确认分开，设置描述明确范围。Unix 临时索引目录在创建时设置 0700，保持原子占有及错误/正常销毁清理；Windows 保持用户临时目录继承权限。 Windows 上下差异箭头补齐双向跨文件导航；Commit 列表从活动工作区预览的仓库/路径同步行选择和一次性虚拟滚动，沿用原有加载代次保护。组件回归覆盖双向边界、嵌套仓库、折叠展开、刷新及焦点/include 保持，完整原生验收 pending。",
+  "verification": "macOS 补充验证 #1033：在临时仓库对已提交文件执行 git rm --cached 并保留磁盘文件，打开项目及重复刷新 Git 状态应不闪退，保留暂存删除和未跟踪两条记录；暂存或取消暂存时旧快照不能提前清除待确认状态，两种记录顺序结果一致；实际暂存或取消暂存后，文件恢复干净时待确认状态必须清除。多仓库手动刷新时，A 成功且已干净、B 读取失败不能解除 B 的暂存等待状态或提交保护；B 随后返回旧状态仍保留乐观勾选值，只有成功读取到确认状态或干净快照后才解除。修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 Windows 另验证原生 UNC/verbatim 输入、中文/空格/长路径仓库往返及 linked worktree；末尾点/空格必须明确拒绝，外部提交/切换须触发元数据刷新。 Windows 另验证提交区（对齐 IntelliJ 非模态提交面板）：顶部右侧为已选文件图例（“N 添加  N 修改  N 删除”，未跟踪计入添加并显示为“新增+未跟踪”，重命名计入修改，各段按文件状态着色，未选择文件时不显示）；中间为提交说明编辑框（占位文字为“Commit Message/提交说明”，不带省略号；4px 圆角，常态 1px 控件边框，聚焦 2px 强调色边框，失败时错误色边框）；底部左侧为 IDEA 线框样式的 Commit 与 Commit and Push... 按钮（28px 高、4px 圆角、1px 边框），右侧为 AI 生成与设置按钮。提交区与变更列表之间只有一条分割线、无外框，拖动分割线（或聚焦后按上/下方向键）可调整提交说明编辑框高度：向上拖动变高，变更列表至少保留 96px，编辑框最小 48px，松开后保存并在重启后恢复，拖动过程中不写入持久化。提交按钮与 Commit and Push... 在未选文件或说明为空时不置灰：点击后在按钮上方显示 IDEA 文案提示（“请选择要提交的文件” / “请填写提交说明” / 二者合并），修正对应项后提示自动消失；焦点位于提交区（如编辑说明）时 Commit 变为蓝色默认按钮。变更列表按 IDEA 分为“更改”（Changes）与“未版本控制的文件”（Unversioned Files）两个可展开节点，节点名后显示灰色“N 个文件”，复选框为三态（部分包含时显示短横）；文件、文件夹、分组节点的包含复选框位于展开箭头之后、图标之前，箭头为 IDEA 细线 chevron（16px、1px 描边，亮色 #818594、暗色 #B4B8BF，悬停不变色），图标与文字在行内垂直居中，箭头/复选框/图标/文字间距 4px，文件夹名后紧跟灰色文件数；长文件名不再截断，变更列表出现横向滚动条。 变更列表工具栏有 IDEA 式“视图选项”（眼睛图标），菜单中直接列出“目录 / 平铺显示”并勾选当前项，两次点击即可切换（平铺时文件名后附灰色目录），选择持久化；文件行末尾不再显示暂存 +/- 按钮；列表很长时纵向/横向滚动条滑块按可视比例显示长度，笔记本触控板左右滑动可横向滚动；面板从隐藏切回显示、侧栏改宽或字体加载完成后，长文件名仍完整显示而不被截断；名称超出面板可视右边缘时，鼠标悬停该行会像 IDEA 一样在行上方弹出完整名称（含文件数或目录），移开、滚动或点击即消失。 Windows 补充验证：先拉高提交说明，再缩小窗口或侧栏可用高度、触发按钮换行，确认变更列表仍保留 96px；恢复空间后恢复原高度偏好，隐藏时不覆盖偏好，继续拖动从实际高度开始。提交比较选择器查询失败时显示错误和重试；重试成功且结果为空才显示无提交；关闭、切换仓库或工作区后迟到结果不得覆盖当前状态。 审核回归另核对无末尾换行、CRLF-only 和内容伴随 CRLF：不能用有损行投影显示已包含或写入块，整文件暂存及实际提交的 blob 字节必须与磁盘一致。暂存 B 后磁盘恢复 HEAD 的 a，仍应显示暂存版本和文件框；二进制 A→B 暂存后磁盘 C，文件框显示部分包含，点击包含剩余内容。Unix 在公共可遍历父目录验证临时上下文没有组/其他用户访问权限，Drop 清理 HEAD/index；本机 Windows 权限执行范围与 macOS CI 断言应分别记录。 Windows 单文件 Diff 上箭头在首处继续进入上一文件最后一处，下箭头在末处进入下一文件首处，集合首尾不循环、加载中禁用；Commit 文件列表随跨文件导航更新选中行并展开祖先、滚动到可见位置，保留编辑器焦点和 include 状态；同文件刷新、历史 Diff、无关仓库和迟到读取不扰动列表。"
+}

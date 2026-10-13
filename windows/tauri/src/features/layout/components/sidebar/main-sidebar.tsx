@@ -18,6 +18,7 @@ import GlobalSearchBuffer from "@/features/global-search/components/global-searc
 import { SidebarPaneSelector } from "@/features/layout/components/sidebar/sidebar-pane-selector";
 import { SidebarProjectDots } from "@/features/layout/components/sidebar/sidebar-projects";
 import { useSidebarPaneController } from "@/features/layout/hooks/use-sidebar-pane-controller";
+import { COLLAPSED_ACTIVITY_RAIL_WIDTH } from "@/features/layout/constants/activity-rail";
 import {
   getAdjacentProjectIndex,
   getProjectCarouselDirection,
@@ -34,10 +35,6 @@ import {
   openGlobalSearchSidebar,
   toggleDiagnosticsPane,
 } from "@/features/layout/actions/workbench-tool-window-actions";
-import { toggleMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
-import { MavenIcon } from "@/features/maven/components/maven-icon";
-import { RunIcon } from "@/features/run/components/run-icon";
-import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import {
   toggleGitLogPane,
@@ -72,12 +69,12 @@ import {
   FilesIcon,
   FolderIcon,
   FolderOpenIcon,
-  GearIcon,
-  GitBranchIcon,
+  GitCommitIcon,
   GitGraphIcon,
   MagnifyingGlassIcon,
+  ProblemsToolWindowIcon,
+  RunToolWindowIcon,
   TerminalWindowIcon,
-  WarningIcon,
 } from "@/ui/icons";
 
 interface MainSidebarProps {
@@ -94,11 +91,13 @@ interface SidebarActivityRailProps {
   expanded?: boolean;
 }
 
-export const COLLAPSED_ACTIVITY_RAIL_WIDTH = 38;
 const DEFAULT_ACTIVITY_RAIL_WIDTH = 160;
 const MIN_ACTIVITY_RAIL_WIDTH = 140;
 const MAX_ACTIVITY_RAIL_WIDTH = 320;
 const ACTIVITY_RAIL_HORIZONTAL_GUTTER = 8;
+// The collapsed rail is COLLAPSED_ACTIVITY_RAIL_WIDTH (38px) wide; 4px gutters leave the 30px
+// IntelliJ Islands stripe button highlight.
+const COLLAPSED_ACTIVITY_RAIL_HORIZONTAL_GUTTER = 4;
 const PROJECT_SWIPE_THRESHOLD_PX = 42;
 const PROJECT_WHEEL_END_DELAY_MS = 40;
 const PROJECT_WHEEL_COMMIT_PROGRESS = 0.82;
@@ -124,26 +123,21 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
   const activeSidebarView = useUIState((state) => state.activeSidebarView);
   const setIsProjectPickerVisible = useUIState((state) => state.setIsProjectPickerVisible);
-  const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
-  const hasMavenRun = useMavenStore(
-    (state) =>
-      state.taskStatus !== "idle" ||
-      state.taskTitle !== null ||
-      state.lastExitCode !== null ||
-      state.issues.length > 0,
-  );
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
   const askWhereToOpenProjects = useSettingsStore((state) => state.settings.askWhereToOpenProjects);
-  const openFoldersInNewWindow = useSettingsStore((state) => state.settings.openFoldersInNewWindow);
+  const projectOpenDefaultDestination = useSettingsStore(
+    (state) => state.settings.projectOpenDefaultDestination,
+  );
   const hiddenSidebarActivityItems = useSettingsStore(
     (state) => state.settings.hiddenSidebarActivityItems,
   );
   const showActivityRailProjectIcons = useSettingsStore(
     (state) => state.settings.showActivityRailProjectIcons,
   );
-  const projectCarouselEnabled = askWhereToOpenProjects || !openFoldersInNewWindow;
+  const projectCarouselEnabled =
+    askWhereToOpenProjects || projectOpenDefaultDestination !== "new-window";
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const [activityRailWidth, setActivityRailWidth] = useState(() =>
     clampActivityRailWidth(configuredActivityRailWidth || DEFAULT_ACTIVITY_RAIL_WIDTH),
@@ -191,27 +185,18 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
       { id: SidebarActivityItemId; label: string; icon: ReactNode }
     >([
       ["files", { id: "files", label: t("workbench.project"), icon: <FilesIcon /> }],
-      ["git", { id: "git", label: t("workbench.changes"), icon: <GitBranchIcon /> }],
+      ["git", { id: "git", label: t("workbench.commit"), icon: <GitCommitIcon /> }],
       ["search", { id: "search", label: t("workbench.search"), icon: <MagnifyingGlassIcon /> }],
-      [
-        "maven",
-        {
-          id: "maven",
-          label: `${t("run.title")} - ${t("maven.title")}`,
-          icon: <MavenIcon />,
-        },
-      ],
-      ["run", { id: "run", label: t("workbench.run"), icon: <RunIcon /> }],
+      ["run", { id: "run", label: t("workbench.run"), icon: <RunToolWindowIcon /> }],
       [
         "terminal",
         { id: "terminal", label: t("workbench.terminal"), icon: <TerminalWindowIcon /> },
       ],
       [
         "diagnostics",
-        { id: "diagnostics", label: t("workbench.diagnostics"), icon: <WarningIcon /> },
+        { id: "diagnostics", label: t("workbench.diagnostics"), icon: <ProblemsToolWindowIcon /> },
       ],
       ["gitLog", { id: "gitLog", label: t("workbench.gitLog"), icon: <GitGraphIcon /> }],
-      ["settings", { id: "settings", label: t("workbench.settings"), icon: <GearIcon /> }],
     ]);
     return sidebarActivityVisibilityItemIds(coreFeatures).map((id) => items.get(id)!);
   }, [coreFeatures.diagnostics, coreFeatures.git, coreFeatures.search, coreFeatures.terminal, t]);
@@ -308,7 +293,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
 
       isResizingRef.current = true;
       setIsActivityRailResizing(true);
-      document.body.style.cursor = "col-resize";
+      document.body.style.cursor = "ew-resize";
       document.body.style.userSelect = "none";
 
       const finishResize = (clientX: number) => {
@@ -607,8 +592,12 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         )}
         style={{
           boxSizing: "border-box",
-          paddingLeft: ACTIVITY_RAIL_HORIZONTAL_GUTTER,
-          paddingRight: ACTIVITY_RAIL_HORIZONTAL_GUTTER,
+          paddingLeft: expanded
+            ? ACTIVITY_RAIL_HORIZONTAL_GUTTER
+            : COLLAPSED_ACTIVITY_RAIL_HORIZONTAL_GUTTER,
+          paddingRight: expanded
+            ? ACTIVITY_RAIL_HORIZONTAL_GUTTER
+            : COLLAPSED_ACTIVITY_RAIL_HORIZONTAL_GUTTER,
           transform:
             position === "previous"
               ? "translateX(-100%)"
@@ -641,15 +630,12 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   }
                   onGitLogClick={() => toggleGitLogPane()}
                   isGitLogActive={isBottomPaneVisible && bottomPaneActiveTab === "gitLog"}
-                  onSettingsClick={() => openSettingsDialog()}
                   onTerminalClick={() => toggleTerminalPane()}
                   isTerminalActive={isBottomPaneVisible && bottomPaneActiveTab === "terminal"}
                   onDiagnosticsClick={() => toggleDiagnosticsPane()}
                   isDiagnosticsActive={isBottomPaneVisible && bottomPaneActiveTab === "diagnostics"}
                   onRunClick={() => toggleRunPane()}
                   isRunActive={isBottomPaneVisible && bottomPaneActiveTab === "run"}
-                  onMavenClick={hasMavenRun ? () => toggleMavenRunPane() : undefined}
-                  isMavenActive={isBottomPaneVisible && bottomPaneActiveTab === "maven"}
                   compact={!expanded}
                   showLabels={expanded}
                   orientation="vertical"
@@ -666,7 +652,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
     <ContextMenu>
       <ContextMenuTrigger
         ref={railRef}
-        className="lithe-sidebar-rail relative flex h-full shrink-0 overflow-hidden"
+        className="lithe-sidebar-rail relative flex h-full shrink-0 overflow-hidden bg-surface"
         style={{
           width: renderedRailWidth,
         }}
@@ -699,13 +685,11 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
             role="separator"
             aria-label={t("layout.resizeActivityRail")}
             aria-orientation="vertical"
-            className="group absolute top-0 right-0 z-20 flex h-full w-(--lithe-workbench-gap) cursor-col-resize items-center justify-center hover:bg-primary/8"
+            className="absolute top-0 right-0 z-20 flex h-full w-(--lithe-workbench-gap) cursor-ew-resize items-center justify-center"
             onMouseDown={handleResizeMouseDown}
-          >
-            <div className="h-full w-px bg-transparent transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) group-hover:bg-primary" />
-          </div>
+          />
         ) : null}
-        {isActivityRailResizing ? <div className="fixed inset-0 z-40 cursor-col-resize" /> : null}
+        {isActivityRailResizing ? <div className="fixed inset-0 z-40 cursor-ew-resize" /> : null}
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-56">
         <ContextMenuGroup>

@@ -7,9 +7,9 @@ import { cn } from "@/utils/cn";
 import { Button } from "@/ui/button";
 import { useTranslation } from "@/i18n/locale-provider";
 import {
-  AiLoadingIcon,
   CheckCircleIcon,
   InfoIcon,
+  LoaderCircleIcon,
   WarningIcon,
   XCircleIcon,
   XIcon,
@@ -157,7 +157,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
   }
 
   if (type === "loading") {
-    icon = <AiLoadingIcon className="animate-spin" aria-hidden="true" />;
+    icon = <LoaderCircleIcon className="animate-spin" aria-hidden="true" />;
   }
 
   if (!icon) {

@@ -1,6 +1,8 @@
+import CryptoKit
 import Foundation
 import LitheApplicationKernel
 import LitheModuleAPI
+import LithePluginPackageSigning
 import Security
 
 protocol PluginPackageSignatureVerifying {
@@ -20,6 +22,10 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
     case unsignedCode(URL)
     case invalidCodeSignature(URL)
     case signingTeamMismatch
+    case missingPackageSignature
+    case invalidPackageSignature(String)
+    case officialSignatureRequirementMismatch(PluginID)
+    case retiredPlugin(PluginID)
     case invalidInstalledPlugin(PluginID?, String)
 
     var errorDescription: String? {
@@ -36,6 +42,11 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
         case .unsignedCode(let url): "Plugin code is not signed: \(url.lastPathComponent)."
         case .invalidCodeSignature(let url): "Plugin signature is invalid: \(url.lastPathComponent)."
         case .signingTeamMismatch: "Plugin and host application signing teams do not match."
+        case .missingPackageSignature: "The official plugin package signature is missing."
+        case .invalidPackageSignature(let detail): "The official plugin package signature is invalid: \(detail)"
+        case .officialSignatureRequirementMismatch(let id):
+            "Official plugin \(id) declares a signature policy that does not match the host trust policy."
+        case .retiredPlugin(let id): "Plugin \(id) has been removed from Lithe. Uninstall the old package."
         case .invalidInstalledPlugin(let id, let message):
             if let id {
                 "Installed plugin \(id) is invalid: \(message)"
@@ -63,6 +74,9 @@ struct PluginPackageScanResult: Equatable {
 }
 
 final class MacPluginPackageStore {
+    private static let retiredPluginIDs: Set<PluginID> = [
+        PluginID("dev.lithe.plugin.linux-do-support")
+    ]
     private let rootURL: URL
     private let bundledRootURL: URL?
     private let hostVersion: PluginVersion
@@ -156,6 +170,9 @@ final class MacPluginPackageStore {
                     at: pluginDirectory.appendingPathComponent("installation.json")
                 )
                 issuePluginID = record.pluginID
+                guard !Self.retiredPluginIDs.contains(record.pluginID) else {
+                    throw PluginPackageStoreError.retiredPlugin(record.pluginID)
+                }
                 try validatePathComponent(record.pluginID.rawValue)
                 guard pluginDirectory.lastPathComponent == record.pluginID.rawValue else {
                     throw PluginPackageStoreError.manifestDoesNotMatchInstallation
@@ -169,8 +186,14 @@ final class MacPluginPackageStore {
                       manifest.version == record.activeVersion else {
                     throw PluginPackageStoreError.manifestDoesNotMatchInstallation
                 }
+                try validateOfficialTrustPolicy(manifest)
                 _ = try ValidatedPluginCatalog(manifests: [manifest], hostVersion: hostVersion)
                 try verifier.verify(packageAt: packageURL, manifest: manifest)
+                try MacPluginLanguageServerPackageValidator.validate(
+                    packageAt: packageURL,
+                    pluginManifest: manifest,
+                    fileManager: fileManager
+                )
                 let candidate = InstalledPluginPackage(
                     manifest: manifest,
                     installation: record,
@@ -215,15 +238,24 @@ final class MacPluginPackageStore {
             do {
                 let manifest = try loadManifest(at: packageURL)
                 issuePluginID = manifest.id
+                guard !Self.retiredPluginIDs.contains(manifest.id) else {
+                    throw PluginPackageStoreError.retiredPlugin(manifest.id)
+                }
                 try validatePathComponent(manifest.id.rawValue)
                 guard packageURL.lastPathComponent == manifest.id.rawValue else {
                     throw PluginPackageStoreError.manifestDoesNotMatchInstallation
                 }
+                try validateOfficialTrustPolicy(manifest)
                 _ = try ValidatedPluginCatalog(
                     manifests: installed.map(\.manifest) + [manifest],
                     hostVersion: hostVersion
                 )
                 try verifier.verify(packageAt: packageURL, manifest: manifest)
+                try MacPluginLanguageServerPackageValidator.validate(
+                    packageAt: packageURL,
+                    pluginManifest: manifest,
+                    fileManager: fileManager
+                )
                 installed.append(InstalledPluginPackage(
                     manifest: manifest,
                     installation: PluginInstallationRecord(
@@ -254,9 +286,14 @@ final class MacPluginPackageStore {
     @discardableResult
     func installPackage(
         from sourceURL: URL,
-        deferActivationUntilRestart: Bool = false
+        deferActivationUntilRestart: Bool = false,
+        replaceExisting: Bool = false
     ) throws -> InstalledPluginPackage {
         let sourceManifest = try loadManifest(at: sourceURL)
+        guard !Self.retiredPluginIDs.contains(sourceManifest.id) else {
+            throw PluginPackageStoreError.retiredPlugin(sourceManifest.id)
+        }
+        try validateOfficialTrustPolicy(sourceManifest)
         _ = try ValidatedPluginCatalog(manifests: [sourceManifest], hostVersion: hostVersion)
         try validatePathComponent(sourceManifest.id.rawValue)
 
@@ -271,7 +308,20 @@ final class MacPluginPackageStore {
         guard manifest == sourceManifest else {
             throw PluginPackageStoreError.manifestDoesNotMatchInstallation
         }
+        try validateOfficialTrustPolicy(manifest)
         try verifier.verify(packageAt: stagedURL, manifest: manifest)
+        do {
+            try MacPluginLanguageServerPackageValidator.validate(
+                packageAt: stagedURL,
+                pluginManifest: manifest,
+                fileManager: fileManager
+            )
+        } catch {
+            throw PluginPackageStoreError.invalidInstalledPlugin(
+                manifest.id,
+                error.localizedDescription
+            )
+        }
 
         let pluginDirectory = rootURL.appendingPathComponent(manifest.id.rawValue, isDirectory: true)
         let versionsDirectory = pluginDirectory.appendingPathComponent("versions", isDirectory: true)
@@ -280,22 +330,41 @@ final class MacPluginPackageStore {
             pluginDirectory: pluginDirectory,
             version: manifest.version
         )
-        guard !fileManager.fileExists(atPath: destination.path) else {
+        let destinationExists = fileManager.fileExists(atPath: destination.path)
+        guard !destinationExists || replaceExisting else {
             throw PluginPackageStoreError.versionAlreadyInstalled(manifest.version)
         }
 
         let existingRecord = try? installationRecord(at: pluginDirectory)
-        try fileManager.moveItem(at: stagedURL, to: destination)
-        shouldRemoveStaging = false
+        let backupURL = destinationExists
+            ? stagingRoot.appendingPathComponent("backup-\(UUID().uuidString)", isDirectory: true)
+            : nil
+        if let backupURL {
+            try fileManager.moveItem(at: destination, to: backupURL)
+        }
+        do {
+            try fileManager.moveItem(at: stagedURL, to: destination)
+            shouldRemoveStaging = false
+        } catch {
+            if let backupURL {
+                try? fileManager.moveItem(at: backupURL, to: destination)
+            }
+            throw error
+        }
         do {
             let record = PluginInstallationRecord(
                 pluginID: manifest.id,
                 activeVersion: manifest.version,
-                previousVersion: existingRecord?.activeVersion,
+                previousVersion: existingRecord?.activeVersion == manifest.version
+                    ? existingRecord?.previousVersion
+                    : existingRecord?.activeVersion,
                 origin: .marketplace,
                 status: deferActivationUntilRestart ? .updateStaged : .installed
             )
             try write(record, to: pluginDirectory.appendingPathComponent("installation.json"))
+            if let backupURL {
+                try? fileManager.removeItem(at: backupURL)
+            }
             return InstalledPluginPackage(
                 manifest: manifest,
                 installation: record,
@@ -303,6 +372,9 @@ final class MacPluginPackageStore {
             )
         } catch {
             try? fileManager.removeItem(at: destination)
+            if let backupURL {
+                try? fileManager.moveItem(at: backupURL, to: destination)
+            }
             throw error
         }
     }
@@ -326,6 +398,13 @@ final class MacPluginPackageStore {
         guard manifest.id == pluginID, manifest.version == previousVersion else {
             throw PluginPackageStoreError.manifestDoesNotMatchInstallation
         }
+        try validateOfficialTrustPolicy(manifest)
+        try verifier.verify(packageAt: previousPackageURL, manifest: manifest)
+        try MacPluginLanguageServerPackageValidator.validate(
+            packageAt: previousPackageURL,
+            pluginManifest: manifest,
+            fileManager: fileManager
+        )
         let restored = PluginInstallationRecord(
             pluginID: pluginID,
             activeVersion: previousVersion,
@@ -392,6 +471,15 @@ final class MacPluginPackageStore {
             origin: record.origin,
             status: .uninstallPending
         ), to: pluginDirectory.appendingPathComponent("installation.json"))
+    }
+
+    private func validateOfficialTrustPolicy(_ manifest: PluginManifest) throws {
+        guard let trustedManifest = OfficialPluginCatalog.manifests.first(where: {
+            $0.id == manifest.id
+        }) else { return }
+        guard manifest.vendor.signatureRequirement == trustedManifest.vendor.signatureRequirement else {
+            throw PluginPackageStoreError.officialSignatureRequirementMismatch(manifest.id)
+        }
     }
 
     private func loadManifest(at packageURL: URL) throws -> PluginManifest {
@@ -467,6 +555,13 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
         guard SecStaticCodeCheckValidity(pluginCode, validationFlags, nil) == errSecSuccess else {
             throw PluginPackageStoreError.invalidCodeSignature(pluginBundleURL)
         }
+        let signatureRequirement = OfficialPluginCatalog.manifests.first(where: {
+            $0.id == manifest.id
+        })?.vendor.signatureRequirement ?? manifest.vendor.signatureRequirement
+        if signatureRequirement == .publisherPackage {
+            try verifyPublisherPackageSignature(packageAt: packageURL, manifest: manifest)
+            return
+        }
         let pluginTeam = try teamIdentifier(for: pluginCode)
         let hostTeam = try teamIdentifier(for: hostCode)
         if let pluginTeam, let hostTeam {
@@ -480,6 +575,37 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
               hostTeam == nil,
               pluginBundleURL.path.hasPrefix(hostBundlePath) else {
             throw PluginPackageStoreError.signingTeamMismatch
+        }
+    }
+
+    private func verifyPublisherPackageSignature(
+        packageAt packageURL: URL,
+        manifest: PluginManifest
+    ) throws {
+        let signatureURL = packageURL.appendingPathComponent(PluginPackageSignature.signatureFileName)
+        guard FileManager.default.fileExists(atPath: signatureURL.path) else {
+            throw PluginPackageStoreError.missingPackageSignature
+        }
+        let document: PluginPackageSignature.Document
+        do {
+            document = try PluginPackageSignature.read(from: packageURL)
+        } catch {
+            throw PluginPackageStoreError.invalidPackageSignature("The signature document could not be decoded.")
+        }
+        guard let publicKeyData = Data(base64Encoded: PluginPackageSignature.publisherPublicKeyBase64),
+              let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData) else {
+            throw PluginPackageStoreError.invalidPackageSignature("The embedded public key is invalid.")
+        }
+        do {
+            try PluginPackageSignature.verify(
+                packageAt: packageURL,
+                pluginID: manifest.id.rawValue,
+                pluginVersion: manifest.version.description,
+                document: document,
+                publicKey: publicKey
+            )
+        } catch {
+            throw PluginPackageStoreError.invalidPackageSignature(error.localizedDescription)
         }
     }
 

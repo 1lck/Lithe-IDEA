@@ -2,6 +2,13 @@
   "protocolVersion": 1,
   "operations": [
     {
+      "operation": "pull",
+      "payload": {
+        "mode": "ffOnly",
+        "expectedBranch": "refs/heads/topic"
+      }
+    },
+    {
       "operation": "stage",
       "payload": {
         "paths": ["src/Main.java"]

@@ -12,7 +12,7 @@ struct GitRepositoryEmptyView: View {
     var body: some View {
         VStack(spacing: 12) {
             LitheSystemIcon(systemImage: "point.3.connected.trianglepath.dotted")
-                .font(.system(size: 27, weight: .light))
+                .font(LitheTheme.uiFont(size: 27, weight: .light))
             if setup.isBusy {
                 ProgressView().controlSize(.small)
                 Text("Checking Git repository…")

@@ -11,9 +11,12 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case terminal = "Terminal"
     case lsp = "LSP"
     case ai = "AI & Commit"
+    case providers = "AI Providers"
     case git = "Git"
     case updates = "Updates"
     case diagnostics = "Diagnostics"
+    case plugins = "Plugins"
+    case mcp = "MCP Configuration"
 
     var id: String { rawValue }
     var title: String { self == .project ? "Project · JDK & Maven" : rawValue }
@@ -28,9 +31,12 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .terminal: "terminal"
         case .lsp: "server.rack"
         case .ai: "wand.and.stars"
+        case .providers: "key"
         case .git: "arrow.triangle.branch"
         case .updates: "arrow.down.circle"
         case .diagnostics: "stethoscope"
+        case .plugins: "puzzlepiece.extension"
+        case .mcp: "network"
         }
     }
 }
@@ -62,7 +68,15 @@ struct WorkbenchNotification: Identifiable, Equatable {
     let id: UUID
     let message: String
     let createdAt: Date
+    /// When the message was shown last. Repeating a message keeps the single
+    /// entry but moves this forward, so the list reports fresh activity.
+    var updatedAt: Date
     var isRead: Bool
+    /// How often the same message has been shown. The first appearance is 1;
+    /// later appearances raise the count instead of adding a duplicate row.
+    var occurrenceCount = 1
+    /// Transient overflow attached to this balloon; history retains each message.
+    var collapsedCount = 0
 
     init(
         id: UUID = UUID(),
@@ -73,6 +87,7 @@ struct WorkbenchNotification: Identifiable, Equatable {
         self.id = id
         self.message = message
         self.createdAt = createdAt
+        self.updatedAt = createdAt
         self.isRead = isRead
     }
 }
@@ -104,22 +119,13 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .database: "Database"
         }
     }
-    var systemImage: String {
+    var ideaAssetPath: String {
         switch self {
-        case .project: "folder"
-        case .changes: "slider.horizontal.3"
-        case .pullRequests: "arrow.triangle.pull"
-        case .search: "magnifyingglass"
-        case .database: "cylinder.split.1x2"
-        }
-    }
-    var ideaAssetPath: String? {
-        switch self {
-        case .project: "toolwindows/toolWindowProject.svg"
-        case .changes: "toolwindows/toolWindowCommit.svg"
-        case .pullRequests: nil
-        case .search: "toolwindows/toolWindowFind.svg"
-        case .database: "toolwindows/toolWindowDatabase.svg"
+        case .project: "expui/toolwindows/project@20x20.svg"
+        case .changes: "expui/toolwindows/commit@20x20.svg"
+        case .pullRequests: "expui/toolwindows/vcs@20x20.svg"
+        case .search: "expui/toolwindows/find@20x20.svg"
+        case .database: "expui/toolwindows/toolWindowDataView@20x20.svg"
         }
     }
 

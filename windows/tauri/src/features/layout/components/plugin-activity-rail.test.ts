@@ -7,10 +7,13 @@ test("right activity rail opens the real singleton Extensions buffer", async () 
   expect(railSource).toContain(
     "const openExtensionsBuffer = useBufferStore.use.actions().openExtensionsBuffer;",
   );
-  expect(railSource).toContain('buffer.type === "extensions"');
+  expect(railSource).toContain('activeBuffer?.type === "extensions"');
   expect(railSource).toContain('const extensionsLabel = t("extensions.title");');
   expect(railSource).toContain("aria-pressed={isExtensionsActive}");
-  expect(railSource).toContain("onClick={openExtensionsBuffer}");
+  expect(railSource).toContain("onClick={toggleExtensionsBuffer}");
+  // A second click on the active Extensions tab closes it instead of reopening.
+  expect(railSource).toContain("closeBuffer(activeExtensionsBufferId);");
+  expect(railSource).toContain("openExtensionsBuffer();");
   expect(railSource).not.toContain("useState");
   expect(layoutSource).toContain("<PluginActivityRail />");
 });
@@ -25,22 +28,22 @@ test("right activity rail places Maven in the upper right tool group", async () 
   ).text();
 
   expect(railSource).toContain(
-    'className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center rounded-r-xl border-border border-r bg-surface pt-1"',
+    'className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center gap-2.5 bg-surface pt-1"',
   );
-  expect(railSource).toContain('<PuzzlePieceIcon className="size-4.5" />');
-  expect(railSource).toContain("<NotificationsTrigger />");
-  expect(railSource).toContain('<MavenIcon className="size-4.5" />');
+  expect(railSource).toContain('<PuzzlePieceIcon className="size-5" />');
+  expect(railSource).toContain("<NotificationsTrigger");
+  expect(railSource).toContain('<MavenIcon className="size-5" />');
   expect(railSource).toContain("active={isMavenActive}");
   expect(railSource).toContain("aria-pressed={isMavenActive}");
   expect(railSource).toContain("onClick={toggleMavenPane}");
-  expect(railSource.indexOf('<MavenIcon className="size-4.5" />')).toBeGreaterThan(
-    railSource.indexOf("<NotificationsTrigger />"),
+  expect(railSource.indexOf('<MavenIcon className="size-5" />')).toBeGreaterThan(
+    railSource.indexOf("<NotificationsTrigger"),
   );
-  expect(sidebarSource).toContain('id: "maven"');
+  expect(sidebarSource).not.toContain('id: "maven"');
   expect(transparencyStyles).toContain(".lithe-plugin-activity-rail");
 });
 
-test("left activity rail restores retained Maven output separately", async () => {
+test("left activity rail does not expose a duplicate Maven output entry", async () => {
   const sidebarSource = await Bun.file(
     new URL("./sidebar/sidebar-pane-selector.tsx", import.meta.url),
   ).text();
@@ -48,13 +51,11 @@ test("left activity rail restores retained Maven output separately", async () =>
     new URL("./sidebar/main-sidebar.tsx", import.meta.url),
   ).text();
 
-  expect(mainSidebarSource).toContain("const hasMavenRun = useMavenStore");
-  expect(mainSidebarSource).toContain(
-    "onMavenClick={hasMavenRun ? () => toggleMavenRunPane() : undefined}",
-  );
-  expect(sidebarSource).toContain("onClick: onMavenClick");
-  expect(sidebarSource).toContain('id: "maven"');
-  expect(sidebarSource).toContain("isActive: isMavenActive");
+  expect(mainSidebarSource).not.toContain("hasMavenRun");
+  expect(mainSidebarSource).not.toContain("onMavenClick");
+  expect(sidebarSource).not.toContain("onMavenClick");
+  expect(sidebarSource).not.toContain('id: "maven"');
+  expect(sidebarSource).not.toContain("isMavenActive");
 });
 
 test("Maven navigation stays right while task output uses the bottom pane", async () => {
@@ -85,6 +86,8 @@ test("Maven navigation stays right while task output uses the bottom pane", asyn
     "export default function MavenPane({ onClose }: MavenPaneProps)",
   );
   expect(mavenPaneSource).toContain("openMavenRunPane();");
+  expect(mavenPaneSource).toContain("onClick={openMavenRunPane}");
+  expect(mavenPaneSource).toContain('aria-label={t("maven.buildOutput")}');
   expect(mavenPaneSource).not.toContain("RunOutputText");
   expect(mavenPaneSource).not.toContain("showBuildOutput");
   expect(mavenPaneSource).not.toContain("actions.clearOutput");

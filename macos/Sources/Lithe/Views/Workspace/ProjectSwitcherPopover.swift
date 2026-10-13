@@ -1,15 +1,34 @@
 import SwiftUI
 
+@MainActor
 enum ProjectSwitcherLayoutMetrics {
-    static let width: CGFloat = 390
+    static func width(projects: [(name: String, path: String)], branches: [String] = [], locale: Locale) -> CGFloat {
+        let commands = ["New Project…", "Open…", "Clone Repository…"].map {
+            LitheContextMenuItem.action($0, systemImage: "plus") {}
+        }
+        let projectWidth = projects.map { project in
+            let name = (project.name as NSString).size(withAttributes: [.font: LitheTheme.uiNSFont(size: 13)]).width
+            let path = (project.path as NSString).size(withAttributes: [.font: LitheTheme.uiNSFont(size: 12)]).width
+            return max(name, path) + LitheDropdownMetrics.projectAvatarSize + 8 + 6
+                + 2 * (LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.itemHorizontalPadding)
+        }.max() ?? 0
+        let branchWidth = branches.map {
+            ($0 as NSString).size(withAttributes: [.font: LitheTheme.uiNSFont(size: 12)]).width
+                + LitheDropdownMetrics.iconSize + 4 + LitheDropdownMetrics.projectAvatarSize + 8 + 6
+                + 2 * (LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.itemHorizontalPadding)
+        }.max() ?? 0
+        return max(LitheContextMenuPresenter.menuWidth(for: commands, locale: locale), ceil(max(projectWidth, branchWidth)))
+    }
     static let maximumHeight: CGFloat = 520
 }
 
 struct ProjectSwitcherPopover: View {
+    @Environment(\.locale) private var locale
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
     @Environment(\.projectWindowScope) private var projectWindowScope
     @Binding var isPresented: Bool
+    @State private var projectBranches: [String: String] = [:]
     let onNewProject: () -> Void
     let onOpenProject: () -> Void
     let onCloneRepository: () -> Void
@@ -27,14 +46,19 @@ struct ProjectSwitcherPopover: View {
         model.recentProjects.filter { !openProjectPaths.contains($0.url.standardizedFileURL.path) }
     }
 
+    private var projectPaths: [String] {
+        scopedOpenProjects.compactMap { $0.workspaceURL?.standardizedFileURL.path }
+            + recentProjects.map { $0.url.standardizedFileURL.path }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                VStack(spacing: 2) {
-                    actionRow(icon: "plus", title: "New Project…", action: onNewProject)
-                    actionRow(icon: "folder", title: "Open…", action: onOpenProject)
+                VStack(spacing: 0) {
+                    actionRow(icon: "expui/general/add.svg", title: "New Project…", action: onNewProject)
+                    actionRow(icon: "expui/general/open.svg", title: "Open…", action: onOpenProject)
                     actionRow(
-                        icon: "point.3.connected.trianglepath.dotted",
+                        icon: "expui/general/vcs.svg",
                         title: "Clone Repository…",
                         action: onCloneRepository
                     )
@@ -52,7 +76,7 @@ struct ProjectSwitcherPopover: View {
                 sectionTitle("Recent Projects")
                 if recentProjects.isEmpty {
                     Text("No recent projects")
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 12)
@@ -62,10 +86,23 @@ struct ProjectSwitcherPopover: View {
                     }
                 }
             }
-            .padding(8)
+            .padding(LitheDropdownMetrics.popupPadding)
         }
-        .frame(width: ProjectSwitcherLayoutMetrics.width)
+        .frame(width: ProjectSwitcherLayoutMetrics.width(
+            projects: scopedOpenProjects.map { ($0.projectName, displayPath($0.workspaceURL?.path ?? "")) }
+                + recentProjects.map { ($0.name, displayPath($0.path)) }, branches: Array(projectBranches.values), locale: locale
+        ))
         .frame(maxHeight: ProjectSwitcherLayoutMetrics.maximumHeight)
+        .task(id: projectPaths) {
+            projectBranches = [:]
+            guard let git = await model.activateGitModule() else { return }
+            for path in projectPaths {
+                guard !Task.isCancelled else { return }
+                let branch = await git.repositorySetup.branch(at: URL(fileURLWithPath: path))
+                guard !Task.isCancelled else { return }
+                projectBranches[path] = branch
+            }
+        }
     }
 
     private var divider: some View {
@@ -77,7 +114,7 @@ struct ProjectSwitcherPopover: View {
 
     private func sectionTitle(_ title: String) -> some View {
         Text(LocalizedStringKey(title))
-            .font(.system(size: 12, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 12, weight: .semibold))
             .foregroundStyle(LitheTheme.secondaryText)
             .padding(.horizontal, 10)
             .padding(.bottom, 5)
@@ -85,27 +122,19 @@ struct ProjectSwitcherPopover: View {
 
     private func actionRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                LitheSystemIcon(systemImage: icon)
-                    .font(.system(size: 16, weight: .regular))
-                    .frame(width: 20)
+            HStack(spacing: 8) {
+                LitheIDEAIcon(resourcePath: icon, size: LitheDropdownMetrics.iconSize,
+                              preservesOriginalColors: true)
                 Text(LocalizedStringKey(title))
-                    .font(.system(size: 13, weight: .medium))
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 30)
             .contentShape(Rectangle())
-            .litheRowHover(cornerRadius: 5)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LitheDropdownRowStyle())
         .lithePointer()
     }
 
     private func openProjectRow(_ projectModel: AppModel) -> some View {
-        let isCurrent = projectModel.id == projectSessions.activeSessionID(in: projectWindowScope)
         return Button {
             isPresented = false
             projectSessions.activateSession(projectModel.id)
@@ -113,18 +142,11 @@ struct ProjectSwitcherPopover: View {
             projectRowContent(
                 name: projectModel.projectName,
                 path: projectModel.workspaceURL?.path ?? "",
-                badge: initials(for: projectModel.projectName),
-                badgeColor: color(for: projectModel.projectName),
-                isCurrent: isCurrent
+                colorIndex: ProjectIdentityAppearance.colorIndex(for: projectModel.workspaceURL)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LitheDropdownRowStyle())
         .lithePointer()
-        .litheRowHover(
-            isActive: isCurrent,
-            cornerRadius: 5,
-            activeBackground: LitheTheme.subtleSelection
-        )
     }
 
     private func recentProjectRow(_ project: RecentProject) -> some View {
@@ -136,72 +158,53 @@ struct ProjectSwitcherPopover: View {
             projectRowContent(
                 name: project.name,
                 path: project.path,
-                badge: initials(for: project.name),
-                badgeColor: exists ? color(for: project.name) : LitheTheme.raised,
-                isCurrent: false
+                colorIndex: ProjectIdentityAppearance.colorIndex(for: project.url),
+                isEnabled: exists
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LitheDropdownRowStyle())
         .disabled(!exists)
         .lithePointer()
-        .litheRowHover(cornerRadius: 5)
+    }
+
+    private func displayPath(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        return path == home ? "~" : path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 
     private func projectRowContent(
         name: String,
         path: String,
-        badge: String,
-        badgeColor: Color,
-        isCurrent: Bool
+        colorIndex: Int,
+        isEnabled: Bool = true
     ) -> some View {
-        HStack(spacing: 10) {
-            Text(badge)
-                .font(.system(size: 11.5, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(badgeColor)
-                .clipShape(RoundedRectangle(cornerRadius: 7))
+        HStack(alignment: .top, spacing: 8) {
+            ProjectAvatarBadge(name: name, colorIndex: colorIndex, size: LitheDropdownMetrics.projectAvatarSize, isEnabled: isEnabled)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(model.fileExists(at: URL(fileURLWithPath: path)) ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                Text(verbatim: name)
+                    .font(LitheTheme.uiFont(size: 13, weight: .regular))
                     .lineLimit(1)
-                Text(path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                    .font(.system(size: 11))
+                Text(verbatim: displayPath(path))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if let branch = projectBranches[URL(fileURLWithPath: path).standardizedFileURL.path] {
+                    HStack(spacing: 4) {
+                        LitheIDEAIcon(resourcePath: "expui/general/vcs.svg", size: LitheDropdownMetrics.iconSize)
+                        Text(verbatim: branch).fixedSize(horizontal: true, vertical: false)
+                    }
+                    .font(LitheTheme.uiFont(size: 12))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                }
             }
+            .layoutPriority(1)
 
             Spacer(minLength: 6)
-
-            if isCurrent {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(LitheTheme.accent)
-            }
         }
-        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
         .contentShape(Rectangle())
-    }
-
-    private func initials(for name: String) -> String {
-        let words = name.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-        let characters = words.prefix(2).compactMap(\.first)
-        return characters.isEmpty ? "LI" : String(characters).uppercased()
-    }
-
-    private func color(for value: String) -> Color {
-        let palette: [Color] = [
-            Color(red: 0.24, green: 0.49, blue: 0.88),
-            Color(red: 0.24, green: 0.63, blue: 0.43),
-            Color(red: 0.86, green: 0.39, blue: 0.20),
-            Color(red: 0.56, green: 0.34, blue: 0.82),
-            Color(red: 0.72, green: 0.52, blue: 0.10)
-        ]
-        let hash = value.utf8.reduce(0) { ($0 * 31 + Int($1)) & 0x7fffffff }
-        return palette[hash % palette.count]
     }
 }

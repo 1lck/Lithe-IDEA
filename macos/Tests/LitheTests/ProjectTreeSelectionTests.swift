@@ -1,0 +1,509 @@
+import AppKit
+import Foundation
+import LitheCoreContracts
+import SwiftUI
+import Testing
+@testable import Lithe
+
+struct ProjectTreeSelectionTests {
+    @Test
+    @MainActor
+    func treeArrowsAreConsumedAfterClickAndYieldOutsideTheTree() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let tree = ProjectTreeKeyboardCommandView(frame: NSRect(x: 0, y: 0, width: 200, height: 300))
+        defer { tree.removeMonitor(); window.makeFirstResponder(nil); window.close() }
+        window.contentView?.addSubview(tree)
+        var keys: [ProjectTreeNavigationKey] = []
+        var extended: [Bool] = []
+        tree.navigate = { key, extending in keys.append(key); extended.append(extending) }
+        _ = tree.handle(try mouseDown(at: NSPoint(x: 50, y: 50), in: window))
+        for code: UInt16 in [123, 124, 125, 126] {
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "",
+                charactersIgnoringModifiers: "", isARepeat: false, keyCode: code))
+            #expect(tree.handle(event) == nil, "Tree arrow must not reach the editor")
+        }
+        #expect(keys == [.left, .right, .down, .up])
+        #expect(extended == [false, false, false, false])
+        let shiftDown = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .shift, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "",
+            charactersIgnoringModifiers: "", isARepeat: false, keyCode: 125))
+        #expect(tree.handle(shiftDown) == nil)
+        #expect(extended.last == true)
+        _ = tree.handle(try mouseDown(at: NSPoint(x: 300, y: 50), in: window))
+        let down = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "",
+            charactersIgnoringModifiers: "", isARepeat: false, keyCode: 125))
+        #expect(tree.handle(down) != nil)
+        #expect(keys.count == 5)
+    }
+
+    @Test
+    func navigationUsesVisibleOrderAndDisplayedParentsOfCompactedPackages() {
+        func node(_ path: String, _ children: [FileNode]? = nil, collapsed: [String] = []) -> FileNode {
+            FileNode(url: URL(fileURLWithPath: path), isDirectory: children != nil, children: children,
+                     collapsedAncestorPaths: collapsed)
+        }
+        let root = node("/p", [
+            node("/p/src", [node("/p/src/com/acme", [node("/p/src/com/acme/App.java")],
+                                   collapsed: ["/p/src/com"])]),
+            node("/p/README.md")
+        ])
+        var expanded: Set<String> = ["/p"]
+        var selection = ProjectTreeSelection()
+        func press(_ key: ProjectTreeNavigationKey, extending: Bool = false) {
+            selection.navigate(key, in: root, expandedPaths: &expanded, extending: extending)
+        }
+        press(.down)
+        #expect(selection.focusedPath == "/p")
+        press(.down)
+        #expect(selection.paths == ["/p/src"])
+        press(.right)
+        #expect(expanded.contains("/p/src"))
+        #expect(selection.focusedPath == "/p/src")
+        press(.right)
+        #expect(selection.focusedPath == "/p/src/com/acme")
+        press(.right)
+        #expect(expanded.isSuperset(of: ["/p/src/com/acme", "/p/src/com"]))
+        press(.down)
+        #expect(selection.focusedPath == "/p/src/com/acme/App.java")
+        press(.left)
+        #expect(selection.focusedPath == "/p/src/com/acme")
+        press(.left)
+        #expect(!expanded.contains("/p/src/com/acme") && !expanded.contains("/p/src/com"))
+        press(.left)
+        #expect(selection.focusedPath == "/p/src")
+        press(.left)
+        press(.down, extending: true)
+        #expect(selection.paths == ["/p/src", "/p/README.md"])
+        press(.down)
+        #expect(selection.paths == ["/p/README.md"])
+        press(.up)
+        #expect(selection.focusedPath == "/p/src")
+        press(.up)
+        press(.up)
+        #expect(selection.focusedPath == "/p")
+    }
+
+    @Test
+    @MainActor
+    func nativeDoubleClickActivatesOncePerClickAndDispatchesTheDoubleClick() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 24),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let row = ProjectTreeRowInteractionView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        defer { window.close() }
+        window.contentView?.addSubview(row)
+        var activations = 0
+        var expansions = 0
+        var runs = 0
+        row.activate = { activations += 1 }
+        row.doubleClick = {
+            ProjectFileRowActivation.performDoubleClick(
+                isDirectory: true, isExecutableBinary: false,
+                toggleDirectory: { expansions += 1 }
+            ) { runs += 1 }
+        }
+        for count in [1, 2] {
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try #require(NSEvent.mouseEvent(
+                    with: type, location: NSPoint(x: 80, y: 12), modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: count,
+                    clickCount: count, pressure: 1))
+                if type == .leftMouseDown { row.mouseDown(with: event) } else { row.mouseUp(with: event) }
+            }
+        }
+        #expect(activations == 2)
+        #expect(expansions == 1)
+        #expect(runs == 0)
+    }
+
+    @Test
+    @MainActor
+    func nativeClipboardRoundTripsMultipleFilesAndIgnoresText() {
+        let pasteboard = NSPasteboard(name: .init("lithe-file-test-" + UUID().uuidString))
+        defer { pasteboard.releaseGlobally() }
+        let urls = [URL(fileURLWithPath: "/workspace/a.txt"), URL(fileURLWithPath: "/workspace/b.txt")]
+        #expect(MacFileClipboard.write(urls, to: pasteboard))
+        #expect(MacFileClipboard.read(from: pasteboard) == urls)
+        pasteboard.clearContents()
+        pasteboard.setString("ordinary editor text", forType: .string)
+        #expect(MacFileClipboard.read(from: pasteboard).isEmpty)
+        #expect(!MacFileClipboard.write([], to: pasteboard))
+        #expect(pasteboard.string(forType: .string) == "ordinary editor text")
+    }
+
+    @Test
+    @MainActor
+    func treeShortcutsYieldToKeyboardFocusMovedAfterTheTreeClick() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let tree = ProjectTreeKeyboardCommandView(frame: NSRect(x: 0, y: 0, width: 200, height: 300))
+        let other = ProjectTreeFocusTestView(frame: NSRect(x: 200, y: 0, width: 200, height: 150))
+        let search = NSTextField(frame: NSRect(x: 200, y: 200, width: 180, height: 24))
+        let filter = NSTextField(frame: NSRect(x: 200, y: 160, width: 180, height: 24))
+        defer { tree.removeMonitor(); window.makeFirstResponder(nil); window.close() }
+        [tree, other, search, filter].forEach { window.contentView?.addSubview($0) }
+        var copies = 0
+        tree.copyItems = { copies += 1 }
+
+        // Clicking the tree claims ⌘C even though the tree has no focusable view.
+        #expect(tree.handle(try mouseDown(at: NSPoint(x: 50, y: 50), in: window)) != nil)
+        #expect(tree.handle(try commandKey("c", in: window)) == nil)
+        #expect(copies == 1)
+
+        // A text field focused afterwards, such as Search Everywhere, keeps ⌘C/⌘V/⌘A.
+        #expect(window.makeFirstResponder(search))
+        #expect((window.firstResponder as? NSTextView)?.isFieldEditor == true)
+        #expect(tree.handle(try commandKey("c", in: window)) != nil)
+        #expect(tree.handle(try commandKey("v", in: window)) != nil)
+        #expect(copies == 1)
+
+        // Ownership stays released until the tree is clicked again.
+        #expect(window.makeFirstResponder(nil))
+        #expect(tree.handle(try commandKey("c", in: window)) != nil)
+        _ = tree.handle(try mouseDown(at: NSPoint(x: 50, y: 50), in: window))
+        #expect(tree.handle(try commandKey("c", in: window)) == nil)
+        #expect(copies == 2)
+
+        // Any other keyboard focus change after the first shortcut also releases it.
+        #expect(window.makeFirstResponder(other))
+        #expect(tree.handle(try commandKey("c", in: window)) != nil)
+        #expect(copies == 2)
+
+        // Fields share one field editor, so focusing another field still releases.
+        #expect(window.makeFirstResponder(filter))
+        _ = tree.handle(try mouseDown(at: NSPoint(x: 50, y: 50), in: window))
+        #expect(tree.handle(try commandKey("c", in: window)) == nil)
+        #expect(copies == 3)
+        #expect(window.makeFirstResponder(search))
+        #expect(tree.handle(try commandKey("c", in: window)) != nil)
+        #expect(copies == 3)
+
+        // A click outside the tree returns shortcuts to the clicked area.
+        _ = tree.handle(try mouseDown(at: NSPoint(x: 50, y: 50), in: window))
+        _ = tree.handle(try mouseDown(at: NSPoint(x: 300, y: 50), in: window))
+        #expect(tree.handle(try commandKey("c", in: window)) != nil)
+        #expect(copies == 3)
+    }
+
+    @Test
+    @MainActor
+    func consumedTreeShortcutIsNotAlsoDeliveredToTheEditor() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let tree = ProjectTreeKeyboardCommandView(frame: NSRect(x: 0, y: 0, width: 200, height: 300))
+        defer { tree.removeMonitor(); window.close() }
+        window.contentView?.addSubview(tree)
+        var selections = 0
+        tree.selectAllItems = { selections += 1 }
+
+        // The installed monitor returns this value to AppKit; a non-nil result
+        // means the editor would also select all text or paste the clipboard.
+        _ = ProjectTreeKeyboardCommandView.monitorResult(for: try mouseDown(at: NSPoint(x: 50, y: 50), in: window), view: tree)
+        #expect(ProjectTreeKeyboardCommandView.monitorResult(for: try commandKey("a", in: window), view: tree) == nil)
+        #expect(selections == 1)
+        #expect(ProjectTreeKeyboardCommandView.monitorResult(for: try commandKey("a", in: window), view: nil) != nil)
+    }
+
+    @MainActor
+    private func mouseDown(at point: NSPoint, in window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+    }
+
+    @MainActor
+    private func commandKey(_ character: String, in window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: character,
+            charactersIgnoringModifiers: character, isARepeat: false, keyCode: 0))
+    }
+
+    @Test
+    func modifiedClicksToggleAndShiftKeepsItsAnchor() {
+        var selection = ProjectTreeSelection()
+        let rows = ["a", "b", "c", "d"]
+        selection.select("b", visiblePaths: rows, extending: false, toggling: false)
+        selection.select("d", visiblePaths: rows, extending: true, toggling: false)
+        #expect(selection.paths == ["b", "c", "d"])
+        selection.select("a", visiblePaths: rows, extending: true, toggling: false)
+        #expect(selection.paths == ["a", "b"])
+        selection.select("d", visiblePaths: rows, extending: false, toggling: true)
+        #expect(selection.paths == ["a", "b", "d"])
+        selection.select("b", visiblePaths: rows, extending: false, toggling: true)
+        #expect(selection.paths == ["a", "d"])
+    }
+
+    @Test
+    @MainActor
+    func modifiedRowClicksReachTheOverlayThroughWindowDispatch() throws {
+        let rows = ["folder", "a", "b", "c"]
+        var selection = ProjectTreeSelection()
+        var activated: [String] = []
+        let rowHeight: CGFloat = 22
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: rowHeight * CGFloat(rows.count)),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.close() }
+        // Mirrors FileNodeRow: native input distinguishes selection from activation,
+        // and the underlying Button remains available for accessibility.
+        window.contentView = NSHostingView(rootView: VStack(spacing: 0) {
+            ForEach(rows, id: \.self) { row in
+                Button {
+                    selection.select(row, visiblePaths: rows, extending: false, toggling: false)
+                    activated.append(row)
+                } label: {
+                    Color.clear.frame(width: 240, height: rowHeight).contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress)
+                .overlay {
+                    ProjectTreeRowInteraction(
+                        workspaceURL: URL(fileURLWithPath: "/workspace"),
+                        select: { flags in
+                            selection.select(row, visiblePaths: rows, extending: flags.contains(.shift),
+                                             toggling: flags.contains(.command))
+                        },
+                        activate: {
+                            selection.select(row, visiblePaths: rows, extending: false, toggling: false)
+                            activated.append(row)
+                        },
+                        dragURLs: { [] }, move: { _, _ in }
+                    )
+                }
+            }
+        })
+        // Hosting views hit-test only in an on-screen window; it never becomes key.
+        window.orderFrontRegardless()
+        window.layoutIfNeeded()
+        // The window hit-tests each event and routes it to the overlay or the
+        // Button as in the app; only the current-event lookup is substituted.
+        var dispatching: NSEvent?
+        for overlay in try #require(window.contentView).descendants.compactMap({ $0 as? ProjectTreeRowInteractionView }) {
+            overlay.currentEvent = { dispatching }
+        }
+        func click(_ index: Int, _ flags: NSEvent.ModifierFlags) throws {
+            let point = NSPoint(x: 50, y: rowHeight * (CGFloat(rows.count - index) - 0.5))
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try #require(NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+                dispatching = event
+                window.sendEvent(event)
+            }
+            dispatching = nil
+        }
+
+        // A plain click activates only on mouse-up and sets the range anchor.
+        try click(1, [])
+        #expect(activated == ["a"])
+        #expect(selection.paths == ["a"])
+        // Shift extends forward and backward, ⌘ toggles; none of these clicks
+        // reach the Button, so files stay closed and the folder stays as is.
+        try click(3, .shift)
+        #expect(selection.paths == ["a", "b", "c"])
+        try click(2, .command)
+        #expect(selection.paths == ["a", "c"])
+        try click(3, [])
+        try click(1, .shift)
+        #expect(selection.paths == ["a", "b", "c"])
+        try click(0, .command)
+        #expect(selection.paths == ["folder", "a", "b", "c"])
+        #expect(activated == ["a", "c"])
+
+        // Control-click passes through the overlay to the row below, where
+        // FileNodeRow's context menu capture handles it.
+        try click(2, [.control, .shift])
+        #expect(activated == ["a", "c", "b"])
+    }
+
+    @Test
+    @MainActor
+    func nativeRowDefersSelectionAndLeavesDisclosureToItsButton() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 24),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let view = ProjectTreeRowInteractionView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        window.contentView?.addSubview(view)
+        view.disclosureInset = 24
+        var selection = ProjectTreeSelection()
+        selection.select("a", visiblePaths: [], extending: false, toggling: false)
+        selection.select("b", visiblePaths: [], extending: false, toggling: true)
+        view.activate = { selection.select("a", visiblePaths: [], extending: false, toggling: false) }
+        let down = try mouseDown(at: NSPoint(x: 80, y: 12), in: window)
+        view.currentEvent = { down }
+        #expect(view.hitTest(NSPoint(x: 12, y: 12)) == nil)
+        #expect(view.hitTest(NSPoint(x: 80, y: 12)) === view)
+        view.mouseDown(with: down)
+        // The drag recognizer gets to read both selected items before mouse-up.
+        #expect(selection.paths == ["a", "b"])
+        let up = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp, location: NSPoint(x: 80, y: 12), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+        view.mouseUp(with: up)
+        #expect(selection.paths == ["a"])
+
+        view.select = { flags in
+            selection.select("b", visiblePaths: [], extending: flags.contains(.shift), toggling: flags.contains(.command))
+        }
+        let commandDown = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: NSPoint(x: 80, y: 12), modifierFlags: .command, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        view.mouseDown(with: commandDown)
+        #expect(selection.paths == ["a"])
+        // Releasing Command before the mouse still toggles the clicked row.
+        view.mouseUp(with: up)
+        #expect(selection.paths == ["a", "b"])
+    }
+
+    @Test
+    func rightClickPreservesTheGroupOnlyForSelectedRows() {
+        let root = FileNode(url: URL(fileURLWithPath: "/p"), isDirectory: true, children: [
+            FileNode(url: URL(fileURLWithPath: "/p/a"), isDirectory: false, children: nil),
+            FileNode(url: URL(fileURLWithPath: "/p/b"), isDirectory: false, children: nil)
+        ])
+        var selection = ProjectTreeSelection()
+        selection.selectAll(in: root)
+        selection.selectForContextMenu("/p/a")
+        #expect(selection.paths == ["/p/a", "/p/b"])
+        selection.selectForContextMenu("/p/c")
+        #expect(selection.paths == ["/p/c"])
+        #expect(selection.anchorPath == "/p/c")
+    }
+
+    @Test
+    func selectAllUsesTheFocusedRowsSiblings() {
+        func node(_ path: String, _ children: [FileNode]? = nil, collapsed: [String] = []) -> FileNode {
+            FileNode(url: URL(fileURLWithPath: path), isDirectory: children != nil, children: children,
+                     collapsedAncestorPaths: collapsed)
+        }
+        // `src/com/acme` is a compacted package shown directly below `src`.
+        let root = node("/p", [
+            node("/p/dest", [node("/p/dest/a.txt")]),
+            node("/p/dest copy", [node("/p/dest copy/a.txt"), node("/p/dest copy/b.txt")]),
+            node("/p/src", [node("/p/src/com/acme", [node("/p/src/com/acme/App.java")], collapsed: ["/p/src/com"])]),
+            node("/p/alpha.txt"), node("/p/gamma.txt")
+        ])
+        let topLevel: Set<String> = ["/p/dest", "/p/dest copy", "/p/src", "/p/alpha.txt", "/p/gamma.txt"]
+        var selection = ProjectTreeSelection()
+        func selectAll(focusing path: String) -> Set<String> {
+            selection.select(path, visiblePaths: [path], extending: false, toggling: false)
+            selection.selectAll(in: root)
+            return selection.paths
+        }
+
+        // A file inside a folder selects that folder's items only.
+        #expect(selectAll(focusing: "/p/dest copy/a.txt") == ["/p/dest copy/a.txt", "/p/dest copy/b.txt"])
+        #expect(selection.focusedPath == "/p/dest copy/a.txt")
+        // A folder selects the items beside it, not its own contents.
+        #expect(selectAll(focusing: "/p/dest copy") == topLevel)
+        #expect(selectAll(focusing: "/p/alpha.txt") == topLevel)
+        // A similarly named sibling folder stays out of the scope.
+        #expect(selectAll(focusing: "/p/dest/a.txt") == ["/p/dest/a.txt"])
+        // Compacted packages use their displayed parent.
+        #expect(selectAll(focusing: "/p/src/com/acme") == ["/p/src/com/acme"])
+        #expect(selectAll(focusing: "/p/src/com/acme/App.java") == ["/p/src/com/acme/App.java"])
+        // Folder selection highlights only the folder, independent of descendants.
+        #expect(selectAll(focusing: "/p/dest copy") == topLevel)
+        #expect(!selection.covers("/p/dest copy/a.txt"))
+        #expect(!selection.covers("/p/src/com/acme/App.java"))
+        #expect(!selection.paths.contains("/p/dest copy/a.txt"))
+        // Right-clicking an unselected descendant targets only that row.
+        selection.selectForContextMenu("/p/dest copy/a.txt")
+        #expect(selection.paths == ["/p/dest copy/a.txt"])
+        // Inside a single selected folder, right-click targets the clicked row.
+        selection.select("/p/dest", visiblePaths: ["/p/dest"], extending: false, toggling: false)
+        #expect(!selection.covers("/p/dest/a.txt") && !selection.covers("/p/dest copy/a.txt"))
+        selection.selectForContextMenu("/p/dest/a.txt")
+        #expect(selection.paths == ["/p/dest/a.txt"])
+        // The project row, or no focus, selects the top-level items.
+        #expect(selectAll(focusing: "/p") == topLevel)
+        var unfocused = ProjectTreeSelection()
+        unfocused.selectAll(in: root)
+        #expect(unfocused.paths == topLevel)
+    }
+
+    @Test
+    func dragPreservesExplicitSelectionAndDeduplicatesWholeFolders() {
+        let root = URL(fileURLWithPath: "/workspace")
+        var selection = ProjectTreeSelection()
+        for path in ["/workspace/a", "/workspace/a/child", "/workspace/ab", "/workspace/b"] {
+            selection.select(path, visiblePaths: [], extending: false, toggling: true)
+        }
+        selection.selectForDragging("/workspace/a/child")
+        #expect(selection.paths.count == 4)
+        #expect(selection.draggedURLs(excluding: root).map(\.path) == ["/workspace/a", "/workspace/ab", "/workspace/b"])
+        selection.selectForDragging("/workspace/c")
+        #expect(selection.paths == ["/workspace/c"])
+        selection.selectForDragging(root.path)
+        #expect(selection.draggedURLs(excluding: root).isEmpty)
+        // An editor opened outside the workspace can temporarily own the focus;
+        // adding a tree row must not include that external path in file actions.
+        selection.select("/workspace-other/external.txt", visiblePaths: [], extending: false, toggling: true)
+        selection.select("/workspace/c", visiblePaths: [], extending: false, toggling: true)
+        #expect(selection.draggedURLs(excluding: root).map(\.path) == ["/workspace/c"])
+    }
+
+    @Test
+    func plainAndCommandSelectionDoNotEvaluateTheVisibleTree() {
+        var traversals = 0
+        func visiblePaths() -> [String] { traversals += 1; return ["folder", "file"] }
+        var selection = ProjectTreeSelection()
+        selection.select("folder", visiblePaths: visiblePaths(), extending: false, toggling: false)
+        selection.select("file", visiblePaths: visiblePaths(), extending: false, toggling: true)
+        #expect(traversals == 0)
+        selection.select("folder", visiblePaths: visiblePaths(), extending: true, toggling: false)
+        #expect(traversals == 1)
+        #expect(selection.paths == ["folder", "file"])
+    }
+
+    @Test
+    func flattenedRowsKeepDisplayedDepthAndCollapsedDirectoriesAtomic() {
+        let leaf = FileNode(url: URL(fileURLWithPath: "/p/src/com/acme/Main.java"), isDirectory: false, children: nil)
+        let package = FileNode(url: URL(fileURLWithPath: "/p/src/com/acme"), isDirectory: true, children: [leaf])
+        let root = FileNode(url: URL(fileURLWithPath: "/p"), isDirectory: true, children: [package])
+        let collapsed = ProjectTreeSelection.visibleRows(in: root, expandedPaths: ["/p"])
+        #expect(collapsed.map(\.id) == ["/p", "/p/src/com/acme"])
+        #expect(collapsed.map(\.depth) == [0, 1])
+        let expanded = ProjectTreeSelection.visibleRows(in: root, expandedPaths: ["/p", "/p/src/com/acme"])
+        #expect(expanded.map(\.depth) == [0, 1, 2])
+    }
+
+    @Test
+    func collapsedChildrenAreExcludedFromRangesAndSelection() {
+        let rootURL = URL(fileURLWithPath: "/workspace")
+        let child = FileNode(url: rootURL.appendingPathComponent("folder/hidden"), isDirectory: false, children: nil)
+        let folder = FileNode(url: rootURL.appendingPathComponent("folder"), isDirectory: true, children: [child])
+        let last = FileNode(url: rootURL.appendingPathComponent("last"), isDirectory: false, children: nil)
+        let root = FileNode(url: rootURL, isDirectory: true, children: [folder, last])
+        let visible = ProjectTreeSelection.visibleNodes(in: root, expandedPaths: [rootURL.path]).map { $0.url.path }
+        #expect(visible == [rootURL.path, folder.url.path, last.url.path])
+        var selection = ProjectTreeSelection()
+        selection.select(last.url.path, visiblePaths: visible, extending: false, toggling: false)
+        selection.select(child.url.path, visiblePaths: visible, extending: false, toggling: true)
+        selection.retain(visiblePaths: visible)
+        #expect(!selection.paths.contains(child.url.path))
+        #expect(selection.focusedPath == nil)
+        selection.select(folder.url.path, visiblePaths: visible, extending: false, toggling: false)
+        selection.select(last.url.path, visiblePaths: visible, extending: true, toggling: false)
+        #expect(selection.paths == [folder.url.path, last.url.path])
+    }
+}
+
+/// A non-text responder standing in for a focused editor or panel.
+private final class ProjectTreeFocusTestView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+}
+
+private extension NSView {
+    var descendants: [NSView] { subviews + subviews.flatMap(\.descendants) }
+}

@@ -237,7 +237,7 @@ extension AppModel {
         let departure = recordsHistory ? currentEditorNavigationLocation() : nil
         let providerID = location.virtualProviderID
             ?? virtualDocumentProviderIDs[location.url]
-            ?? languageNavigationCoordinator.state.providerID
+            ?? services.pluginCatalog.languageSupport(forVirtualDocumentURL: location.url)?.declaration.id
         languageNavigationCoordinator.navigate(
             to: location,
             recordsHistory: recordsHistory,
@@ -259,6 +259,7 @@ extension AppModel {
                 if let providerID {
                     self.virtualDocumentProviderIDs[url] = providerID
                 }
+                self.editorTabOrderFeature.repositoryDiffSelected = false
                 self.documentFeature.openVirtualDocument(url, text: text, displayPath: displayPath)
             },
             setTarget: { [weak self] destination in

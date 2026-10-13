@@ -186,12 +186,39 @@ function safeVersion(value) {
 async function verifyJdtlsCache(cacheRoot, manifestPath) {
   if (!cacheRoot || !manifestPath) return;
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
-  const expected = new Map([
-    [`jdtls-${safeVersion(manifest.version)}-${manifest.archiveSHA256.toLowerCase()}.tar.gz`, manifest.archiveSHA256],
-    [`EPL-2.0-${manifest.licenseSHA256.toLowerCase()}.txt`, manifest.licenseSHA256],
-    [`lombok-${safeVersion(manifest.lombokVersion)}-${manifest.lombokSHA256.toLowerCase()}.jar`, manifest.lombokSHA256],
-    [`lombok-MIT-${safeVersion(manifest.lombokVersion)}-${manifest.lombokLicenseSHA256.toLowerCase()}.txt`, manifest.lombokLicenseSHA256],
-  ]);
+  const expected = new Map();
+  const addExpected = (name, hash) => {
+    if (name && hash) expected.set(name, String(hash).toLowerCase());
+  };
+  const archiveHash = String(manifest.archiveSHA256).toLowerCase();
+  const licenseHash = String(manifest.licenseSHA256).toLowerCase();
+  const lombokHash = String(manifest.lombokSHA256).toLowerCase();
+  const lombokLicenseHash = String(manifest.lombokLicenseSHA256).toLowerCase();
+  addExpected(`jdtls-${safeVersion(manifest.version)}-${archiveHash}.tar.gz`, archiveHash);
+  addExpected(`EPL-2.0-${licenseHash}.txt`, licenseHash);
+  addExpected(`lombok-${safeVersion(manifest.lombokVersion)}-${lombokHash}.jar`, lombokHash);
+  addExpected(`lombok-MIT-${safeVersion(manifest.lombokVersion)}-${lombokLicenseHash}.txt`, lombokLicenseHash);
+
+  if (manifest.javaDebugArchiveSHA256) {
+    const hash = String(manifest.javaDebugArchiveSHA256).toLowerCase();
+    const prefix = `vscode-java-debug-${safeVersion(manifest.javaDebugExtensionVersion)}-${hash}`;
+    addExpected(`${prefix}.vsix`, hash);
+    addExpected(`${prefix}.zip`, hash);
+  }
+  if (manifest.javaDebugLicenseSHA256) {
+    const hash = String(manifest.javaDebugLicenseSHA256).toLowerCase();
+    addExpected(`java-debug-EPL-1.0-${safeVersion(manifest.javaDebugServerVersion)}-${hash}.txt`, hash);
+  }
+  if (manifest.javaTestArchiveSHA256) {
+    const hash = String(manifest.javaTestArchiveSHA256).toLowerCase();
+    const prefix = `vscode-java-test-${safeVersion(manifest.javaTestExtensionVersion)}-${hash}`;
+    addExpected(`${prefix}.vsix`, hash);
+    addExpected(`${prefix}.zip`, hash);
+  }
+  if (manifest.javaTestLicenseSHA256) {
+    const hash = String(manifest.javaTestLicenseSHA256).toLowerCase();
+    addExpected(`java-test-MIT-${safeVersion(manifest.javaTestExtensionVersion)}-${hash}.txt`, hash);
+  }
   let verified = 0;
   let removed = 0;
   for (const artifact of await collectFiles(cacheRoot)) {

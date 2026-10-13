@@ -1,0 +1,31 @@
+{
+  "id": "editor-language-basics",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "语法高亮与编辑器模型、关闭或切换模型后丢弃过期符号高亮回调",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Editor",
+      "macos/Sources/Lithe/Models/Editor",
+      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MonacoDocumentMessage.swift",
+      "macos/Experiments/Monaco/workbench.integration.ts",
+      "frontend/editor/src/word-highlight-lifecycle.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/editor",
+      "frontend/editor",
+      "windows/tauri/src/features/editor/engines/monaco/theme.ts",
+      "frontend/editor/src/word-highlight-lifecycle.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Editor",
+  "notes": "macOS 对已关闭文档的过期焦点、光标和工具请求返回取消，避免锁住其他文档；文本增量、保存和缺失 ID 的非法消息仍失败。原生 WKWebView 回归直接编译生产消息策略，覆盖主视图与分屏的关闭顺序，Windows 独立宿主不改；完整产品与 Windows 实机验收仍 pending。 共享高亮生命周期钩子绑定上游实例的原模型，模型关闭或切换后不再执行旧回调；保持上游符号计算、同步失败保护与完整验收 pending。",
+  "verification": "分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换；开启缩略图并滚动，确认滚动条轨道不透出编辑器代码。macOS 运行 scripts/probe-macos-monaco.sh --workbench-tests，验证原生关闭文档后到达的 Monaco 焦点和光标消息取消，主视图和分屏切换后不出现同步失败红条，其他文档仍可编辑并完成同步；已关闭文档的文本编辑与保存请求仍必须拒绝。真实产品另检查关闭文件、关闭搜索预览、删除文件后的文档切换及未保存输入保护。 原生探针捕获真实 Monaco 高亮回调，先在存活视图产生查询，再关闭主视图、分屏或差异视图，显式执行旧回调，确认没有空模型 URI 异常、存活文档仍可编辑且文本不变。升级固定 Monaco 版本时复核兼容钩子并运行三个回归；Windows 另在 WebView2 验证。"
+}

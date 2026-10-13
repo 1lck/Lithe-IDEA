@@ -6,6 +6,10 @@ import { registerGitCacheInvalidator } from "../runtime/git-cache-registry";
 import { initializeGitRepository } from "./git-setup-api";
 import type { GitFile, GitHunk, GitStatus } from "../types/git.types";
 import {
+  projectWorkspaceGitStatus,
+  type GitRepositoryStatuses,
+} from "../utils/git-workspace-status";
+import {
   isNotGitRepositoryError,
   resolveRepositoryPath,
   resolveRepositoryPathOrThrow,
@@ -42,14 +46,18 @@ export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> 
 
 // Keep failures distinct from a missing repository for workspace refreshes.
 // Optional status consumers retain the nullable getGitStatus API.
-const queryGitStatus = async (repoPath: string, source: GitExecutionSource = "unknown"): Promise<GitStatus | null> => {
+const queryGitStatus = async (
+  repoPath: string,
+  source: GitExecutionSource = "unknown",
+  repositoryRoots: readonly string[] = [],
+): Promise<GitStatus | null> => {
   const resolvedRepoPath = await resolveRepositoryPath(repoPath);
 
   if (!resolvedRepoPath) {
     return null;
   }
 
-  const requestKey = `${resolvedRepoPath}\0${source}`;
+  const requestKey = `${resolvedRepoPath}\0${source}\0${JSON.stringify(repositoryRoots)}`;
   const existingRequest = inFlightGitStatusRequests.get(requestKey);
   if (existingRequest) {
     return existingRequest;
@@ -59,12 +67,22 @@ const queryGitStatus = async (repoPath: string, source: GitExecutionSource = "un
   if (!gitStatusGenerations.has(resolvedRepoPath)) {
     gitStatusGenerations.set(resolvedRepoPath, generation);
   }
-  const request = (source === "unknown"
-    ? tauriInvoke<GitStatus>("git_status", { repoPath: resolvedRepoPath })
-    : tauriInvoke<GitStatus>("git_status", { repoPath: resolvedRepoPath }, { gitExecutionSource: source }))
+  const request = (
+    source === "unknown"
+      ? tauriInvoke<GitStatus>("git_status", {
+          repoPath: resolvedRepoPath,
+          includeIndexOnlyChanges: true,
+          repositoryRoots,
+        })
+      : tauriInvoke<GitStatus>(
+          "git_status",
+          { repoPath: resolvedRepoPath, includeIndexOnlyChanges: true, repositoryRoots },
+          { gitExecutionSource: source },
+        )
+  )
     .then((status) => {
       if (generation !== (gitStatusGenerations.get(resolvedRepoPath) ?? 0)) {
-        return queryGitStatus(resolvedRepoPath, source);
+        return queryGitStatus(resolvedRepoPath, source, repositoryRoots);
       }
       return status;
     })
@@ -98,20 +116,23 @@ export async function getWorkspaceRootGitStatus(
   return rootStatus;
 }
 
-function getRepoLabel(repoPath: string): string {
-  const normalized = repoPath.replace(/\\/g, "/").replace(/\/+$/, "");
-  return normalized.split("/").pop() || normalized || "repository";
-}
-
-function decorateWorkspaceFile(file: GitFile, repoPath: string, prefix: string): GitFile {
-  return {
-    ...file,
-    path: `${prefix}/${file.path}`,
-    originalPath: file.originalPath ? `${prefix}/${file.originalPath}` : undefined,
-    repositoryPath: repoPath,
-    repositoryRelativePath: file.path,
-    repositoryOriginalRelativePath: file.originalPath,
-  };
+/** Read raw repository snapshots; optional workspace roots may have no Git repository. */
+export async function getRepositoryGitStatuses(
+  repoPaths: readonly string[],
+  source: GitExecutionSource = "unknown",
+  requiredRepoPaths: readonly string[] = repoPaths,
+): Promise<GitRepositoryStatuses> {
+  const normalizedRepoPaths = normalizeStatusRepoPaths(repoPaths);
+  const required = new Set(requiredRepoPaths);
+  const entries = await Promise.all(
+    normalizedRepoPaths.map(async (repoPath) => {
+      const status = await queryGitStatus(repoPath, source, requiredRepoPaths);
+      if (!status && required.has(repoPath))
+        throw new Error("Git status query returned no snapshot");
+      return [repoPath, status] as const;
+    }),
+  );
+  return Object.fromEntries(entries);
 }
 
 export const getWorkspaceGitStatus = async (
@@ -121,44 +142,12 @@ export const getWorkspaceGitStatus = async (
 ): Promise<GitStatus | null> => {
   const normalizedRepoPaths = normalizeStatusRepoPaths(repoPaths);
   if (normalizedRepoPaths.length === 0) return null;
-  // These paths are already discovered/selected repositories. A null response
-  // is an unavailable snapshot, not evidence that the workspace has no changes.
-  const readStatus = async (repoPath: string): Promise<GitStatus> => {
-    const status = await queryGitStatus(repoPath, source);
-    if (!status) throw new Error("Git status query returned no snapshot");
-    return status;
-  };
-  if (normalizedRepoPaths.length === 1) return readStatus(normalizedRepoPaths[0]!);
-
-  const statuses = await Promise.all(
-    normalizedRepoPaths.map(async (repoPath) => ({
-      repoPath,
-      status: await readStatus(repoPath),
-    })),
+  const statuses = await getRepositoryGitStatuses(normalizedRepoPaths, source);
+  return projectWorkspaceGitStatus(
+    statuses,
+    normalizedRepoPaths,
+    activeRepoPath && statuses[activeRepoPath] ? activeRepoPath : normalizedRepoPaths[0]!,
   );
-  const duplicateLabels = new Set<string>();
-  const seenLabels = new Set<string>();
-  for (const repoPath of normalizedRepoPaths) {
-    const label = getRepoLabel(repoPath);
-    if (seenLabels.has(label)) duplicateLabels.add(label);
-    seenLabels.add(label);
-  }
-
-  const files = statuses.flatMap(({ repoPath, status }) => {
-    const label = getRepoLabel(repoPath);
-    const prefix = duplicateLabels.has(label) ? repoPath.replace(/\\/g, "/") : label;
-    return status.files.map((file) => decorateWorkspaceFile(file, repoPath, prefix));
-  });
-
-  const activeStatus =
-    statuses.find((entry) => entry.repoPath === activeRepoPath)?.status ??
-    statuses[0]!.status;
-  return {
-    branch: activeStatus.branch,
-    ahead: activeStatus.ahead,
-    behind: activeStatus.behind,
-    files,
-  };
 };
 
 export const stageFile = async (repoPath: string, filePath: string): Promise<boolean> => {
@@ -282,6 +271,28 @@ export const unstageHunk = async (repoPath: string, hunk: GitHunk): Promise<bool
     return true;
   } catch (error) {
     console.error("Failed to unstage hunk:", error);
+    return false;
+  }
+};
+
+/**
+ * Reverse-applies one working-tree hunk, discarding only that block's unstaged
+ * edits. The hunk must come from an index-to-worktree patch of `repoPath`;
+ * Git rejects it without writing when the file no longer matches.
+ */
+export const discardHunk = async (repoPath: string, hunk: GitHunk): Promise<boolean> => {
+  try {
+    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+    await tauriInvoke("git_discard_hunk", { repoPath: resolvedRepoPath, hunk });
+    emitGitChanged({
+      repoPath: resolvedRepoPath,
+      filePath: hunk.file_path,
+      scopes: ["working-tree"],
+      source: "discard-hunk",
+    });
+    return true;
+  } catch (error) {
+    console.error("Failed to discard hunk:", error);
     return false;
   }
 };

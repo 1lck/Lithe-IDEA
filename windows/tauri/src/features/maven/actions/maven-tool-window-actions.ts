@@ -9,27 +9,11 @@ interface MavenRunPaneUpdate {
   isBottomPaneVisible: boolean;
 }
 
-interface MavenRunPaneState {
-  bottomPaneActiveTab: BottomPaneTab;
-  isBottomPaneVisible: boolean;
-}
-
 export function resolveMavenRunPaneUpdate(): MavenRunPaneUpdate {
   return {
     bottomPaneActiveTab: "maven",
     isBottomPaneVisible: true,
   };
-}
-
-export function resolveMavenRunPaneToggleUpdate(state: MavenRunPaneState): MavenRunPaneUpdate {
-  if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "maven") {
-    return {
-      bottomPaneActiveTab: state.bottomPaneActiveTab,
-      isBottomPaneVisible: false,
-    };
-  }
-
-  return resolveMavenRunPaneUpdate();
 }
 
 function applyMavenRunPaneUpdate(update: MavenRunPaneUpdate): void {
@@ -44,11 +28,6 @@ function applyMavenRunPaneUpdate(update: MavenRunPaneUpdate): void {
 
 export function openMavenRunPane(): void {
   applyMavenRunPaneUpdate(resolveMavenRunPaneUpdate());
-}
-
-export function toggleMavenRunPane(): void {
-  const state = useUIState.getState();
-  applyMavenRunPaneUpdate(resolveMavenRunPaneToggleUpdate(state));
 }
 
 export function closeMavenToolWindow(): void {

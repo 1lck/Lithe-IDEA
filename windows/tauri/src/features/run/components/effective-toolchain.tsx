@@ -29,6 +29,9 @@ export function EffectiveToolchain({
       >
         {line.text}
       </p>
+      {state.status === "resolved" && state.warning && (
+        <p role="alert" className="break-all text-destructive ui-text-caption">{state.warning}</p>
+      )}
       {requirements.map((message) => (
         <p key={message} role="alert" className="break-all text-destructive ui-text-caption">
           {message}

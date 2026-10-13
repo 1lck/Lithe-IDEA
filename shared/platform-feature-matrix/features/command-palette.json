@@ -1,0 +1,23 @@
+{
+  "id": "command-palette",
+  "area": "工作台",
+  "group": "命令与布局",
+  "capability": "命令面板与全局动作",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift",
+      "macos/Sources/Lithe/Views/Search/SearchEverywhereView.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/command-palette"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "verification": "搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。"
+}

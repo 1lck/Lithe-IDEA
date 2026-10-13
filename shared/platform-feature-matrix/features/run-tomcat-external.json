@@ -1,0 +1,29 @@
+{
+  "id": "run-tomcat-external",
+  "area": "运行与调试",
+  "group": "运行配置",
+  "capability": "外部 Tomcat 的 exploded WAR 启动计划",
+  "macos": {
+    "evidence": [
+      "rust/lithe-core/src/execution/configuration.rs",
+      "rust/lithe-core/src/tests/run_configuration.rs",
+      "macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift",
+      "macos/Sources/Lithe/Services/Java/RunExecutableResolver.swift",
+      "macos/Sources/Lithe/Views/Run/RunConfigurationIcon.swift"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-core/src/execution/configuration.rs",
+      "rust/lithe-core/src/tests/run_configuration.rs",
+      "windows/tauri/src-tauri/src/run.rs",
+      "windows/tauri/src/features/run/stores/run.store.ts"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "owner": "Run",
+  "verification": "使用外部 Tomcat 和 Maven WAR 项目验证创建配置、war:exploded、路径启动器解析、Context 加载、停止清理和调试断点；同时验证现有 Java/Maven 配置仍可启动。当前仅有启动计划和宿主接入代码，完整配置入口及双平台真实部署尚未验收，CI 编译通过不能替代这些验收。"
+}

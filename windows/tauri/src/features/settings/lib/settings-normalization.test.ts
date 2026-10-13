@@ -1,17 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { getDefaultSettingsSnapshot } from "@/features/settings/config/default-settings";
+import {
+  defaultSettings,
+  getDefaultSettingsSnapshot,
+} from "@/features/settings/config/default-settings";
 import {
   normalizeSettings,
   normalizeSettingValue,
 } from "@/features/settings/lib/settings-normalization";
+import type { Settings } from "@/features/settings/types/settings.types";
 
 describe("default settings", () => {
   test("enables auto-save unless the user turns it off", () => {
     expect(getDefaultSettingsSnapshot().autoSave).toBe(true);
   });
 
-  test("shows the editor minimap by default", () => {
-    expect(getDefaultSettingsSnapshot().showMinimap).toBe(true);
+  test("hides the editor minimap by default", () => {
+    expect(getDefaultSettingsSnapshot().showMinimap).toBe(false);
   });
 
   test("starts with IDEA-style hidden file and directory patterns", () => {
@@ -29,6 +33,16 @@ describe("retired JDTLS JDK setting normalization", () => {
     (settings as unknown as { jdtlsJavaHomePath: unknown }).jdtlsJavaHomePath = "C:/Java/jdk-21";
 
     expect("jdtlsJavaHomePath" in normalizeSettings(settings)).toBe(false);
+  });
+});
+
+describe("sidebar activity visibility normalization", () => {
+  test("drops the retired Maven activity while preserving valid hidden items", () => {
+    const settings = getDefaultSettingsSnapshot();
+    settings.hiddenSidebarActivityItems = ["maven", "run", "maven"];
+
+    expect(normalizeSettings(settings).hiddenSidebarActivityItems).toEqual(["run"]);
+    expect(normalizeSettingValue("hiddenSidebarActivityItems", ["maven", "run"])).toEqual(["run"]);
   });
 });
 
@@ -80,5 +94,80 @@ describe("Windows New UI defaults", () => {
 
     expect(normalized.uiFontFamily).toBe("Geist Sans");
     expect(normalized.uiFontSize).toBe(14);
+  });
+});
+
+describe("editor tab layout mode normalization", () => {
+  test("defaults to a single row like macOS", () => {
+    expect(defaultSettings.editorTabLayoutMode).toBe("singleLine");
+  });
+
+  test("keeps a supported layout and falls back for unknown values", () => {
+    expect(normalizeSettingValue("editorTabLayoutMode", "multipleRows")).toBe("multipleRows");
+    expect(
+      normalizeSettingValue("editorTabLayoutMode", "wrap" as Settings["editorTabLayoutMode"]),
+    ).toBe("singleLine");
+  });
+});
+
+describe("project open destination normalization", () => {
+  test("keeps a supported destination and falls back for unknown values", () => {
+    expect(normalizeSettingValue("projectOpenDefaultDestination", "attach")).toBe("attach");
+    expect(normalizeSettingValue("projectOpenDefaultDestination", "this-window")).toBe(
+      "this-window",
+    );
+    expect(
+      normalizeSettingValue(
+        "projectOpenDefaultDestination",
+        "sidebar" as Settings["projectOpenDefaultDestination"],
+      ),
+    ).toBe(defaultSettings.projectOpenDefaultDestination);
+  });
+
+  test("derives the destination from a legacy record only when the destination is missing", () => {
+    const settings = getDefaultSettingsSnapshot();
+    (settings as { projectOpenDefaultDestination?: unknown }).projectOpenDefaultDestination =
+      undefined;
+    (settings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow = false;
+
+    const normalized = normalizeSettings(settings);
+
+    expect(normalized.projectOpenDefaultDestination).toBe("attach");
+    expect("openFoldersInNewWindow" in normalized).toBe(false);
+  });
+
+  test("keeps an explicit destination over a legacy boolean", () => {
+    const settings = getDefaultSettingsSnapshot();
+    settings.projectOpenDefaultDestination = "this-window";
+    (settings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow = true;
+
+    expect(normalizeSettings(settings).projectOpenDefaultDestination).toBe("this-window");
+  });
+
+  test("derives new-window from a legacy import that preferred separate windows", () => {
+    const settings = getDefaultSettingsSnapshot();
+    (settings as { projectOpenDefaultDestination?: unknown }).projectOpenDefaultDestination =
+      undefined;
+    (settings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow = true;
+
+    expect(normalizeSettings(settings).projectOpenDefaultDestination).toBe("new-window");
+  });
+});
+
+describe("v0 profile persistence", () => {
+  test("normalizes saved profiles while the plugin is inactive", () => {
+    const settings = getDefaultSettingsSnapshot();
+    settings.v0DesignSystems = [
+      { id: "", name: " Starter ", registryUrl: " https://example.test/registry.json " },
+      { id: "duplicate", name: "Duplicate", registryUrl: "https://example.test/registry.json" },
+    ];
+
+    expect(normalizeSettings(settings).v0DesignSystems).toEqual([
+      {
+        id: "starter-example-test-registry-json",
+        name: "Starter",
+        registryUrl: "https://example.test/registry.json",
+      },
+    ]);
   });
 });

@@ -1,5 +1,6 @@
 import Foundation
 import LitheAIAssistanceModule
+import LitheAgentConversationModule
 import LitheApplicationKernel
 import LitheCoreContracts
 import LitheDatabaseModule
@@ -74,12 +75,9 @@ final class MacServiceContainer {
         gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
-        authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil,
         platformUI providedPlatformUI: (any PlatformUI)? = nil,
         gitPerformanceLogger: (any GitPerformanceLogger)? = nil
     ) {
-        let authorizationCallbackRouter = providedAuthorizationCallbackRouter
-            ?? MacExternalAuthorizationCallbackRouter()
         let gitExecutionJournal = GitExecutionJournal()
         let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences,
                                       gitExecutionJournal: gitExecutionJournal)
@@ -117,12 +115,6 @@ final class MacServiceContainer {
             git: MacGitHubGitOperations(core: rustCore)
         )
         let platformUI = providedPlatformUI ?? MacPlatformUI()
-        let discourseCommunityService = DiscourseCommunityService(
-            core: rustCore,
-            credentialStore: MacKeychainSecureStore(service: "app.lithe.desktop.linux-do"),
-            platformUI: platformUI,
-            callbackRouter: authorizationCallbackRouter
-        )
         let diagnosticsExportService = Self.makeDiagnosticsExportService(
             fileStorage: fileStorage,
             processRunner: processRunner,
@@ -139,10 +131,17 @@ final class MacServiceContainer {
             configurationSources: aiConfigurationSources
         )
         let pluginHostServices = MacPluginHostServiceRegistry()
+        let ideCapabilityRegistry = IdeCapabilityRegistry()
+        pluginHostServices.register(ideCapabilityRegistry, for: .ideCapabilities)
         let languageExecutionHost = MacLanguageExecutionHost(processRegistry: processRegistry)
         pluginHostServices.register(languageExecutionHost, for: .languageExecution)
         let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
         let moduleStore = providedModuleStore ?? MacModuleConfigurationStore(store: store)
+        // Database is now an internal on-demand workspace feature, so an old
+        // plugin-market preference must not leave the workspace inaccessible.
+        if moduleStore.enabledState(for: .database) == false {
+            moduleStore.setEnabledState(true, for: .database)
+        }
         let moduleRuntime = ModuleRuntime(
             configurationStore: moduleStore,
             recoveryStore: moduleStore,
@@ -184,6 +183,16 @@ final class MacServiceContainer {
                     credentialResolver: credentialResolver
                 )
             })
+            try moduleRegistry.register(ModuleFactory(
+                manifest: AgentConversationModule.moduleManifest,
+                contributions: AgentConversationModule.moduleContributions
+            ) {
+                AgentConversationModule(
+                    transportFactory: { MacACPAgentTransport() },
+                    historyPersistence: MacAgentHistoryPersistence(store: store),
+                    historyExporter: MacAgentHistoryExporter(storage: fileStorage)
+                )
+            })
             try moduleRegistry.register(ModuleFactory(manifest: DatabaseModule.moduleManifest, contributions: DatabaseModule.moduleContributions) {
                 DatabaseModule(
                     processRunner: processRunner,
@@ -206,10 +215,24 @@ final class MacServiceContainer {
         } catch {
             preconditionFailure("Invalid built-in module graph: \(error.localizedDescription)")
         }
+        let activePluginIDs = Set(pluginStartup.activeNativeManifests.map(\.id))
+        let pluginToolRoots = pluginStartup.installedPlugins
+            .filter { activePluginIDs.contains($0.manifest.id) }
+            .compactMap { installed -> URL? in
+                guard installed.manifest.id == OfficialPluginCatalog.phpPluginID,
+                      case .nativeBundle = installed.manifest.entrypoint.kind,
+                      let bundlePath = installed.manifest.entrypoint.bundlePath else {
+                    return nil
+                }
+                return installed.packageURL
+                    .appendingPathComponent(bundlePath, isDirectory: true)
+                    .appendingPathComponent("Contents/Resources/LanguageServers/php", isDirectory: true)
+                    .standardizedFileURL
+            }
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store,
-            toolDiscovery: MacRuntimeToolDiscovery()
+            toolDiscovery: MacRuntimeToolDiscovery(pluginToolRoots: pluginToolRoots)
         )
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
@@ -253,7 +276,9 @@ final class MacServiceContainer {
                         core: rustCore,
                         cacheDirectoryURL: languageServerCacheDirectory
                     )
-                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver()
+                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver(
+                        configurationCacheDirectoryURL: languageServerCacheDirectory
+                    )
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,
@@ -367,7 +392,8 @@ final class MacServiceContainer {
                             process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             dependencyProcess: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             mavenOperations: javaMavenOperations,
-                            configurationStore: MacMavenConfigurationStore(storage: fileStorage)
+                            configurationStore: MacMavenConfigurationStore(storage: fileStorage),
+                            dependencyOutputs: MacMavenDependencyOutputStore()
                         ),
                         run: RunService(
                             runtime: runtimeService,
@@ -380,7 +406,10 @@ final class MacServiceContainer {
                             executableResolver: executableResolver,
                             languageProviderCatalog: languagePackRegistry.catalog,
                             languageRunProviders: languagePackRegistry.runProviders,
-                            extensionRequiredLanguageIDs: pluginLanguageIDs
+                            extensionRequiredLanguageIDs: pluginLanguageIDs,
+                            languageSupports: installedLanguageSupports,
+                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage),
+                            javaLaunchArgumentPreparer: rustCore
                         ),
                         tests: LanguageTestService(
                             catalog: languagePackRegistry.catalog,
@@ -397,6 +426,33 @@ final class MacServiceContainer {
                             }
                         )
                     )
+                    let mavenFeature = graph.mavenFeature
+                    graph.run.configureLanguageDependencyProvider { [weak mavenFeature] languageID, workspace, serviceID in
+                        let capabilityID: ModuleCapabilityID = languageID == "java"
+                            ? .languageIntelligence : .languageServerExtension(languageID)
+                        guard let provider = moduleRuntime.capability(capabilityID)
+                            as? any LanguageDependencyProviding else { return nil }
+                        let snapshot = provider.dependencySnapshot(workspaceURL: workspace, serviceID: serviceID)
+                        guard languageID == "java", snapshot?.dependencyRoots.isEmpty != false,
+                              let mavenFeature,
+                              let project = mavenFeature.project,
+                              project.rootURL.standardizedFileURL == workspace.standardizedFileURL,
+                              !mavenFeature.isProjectReloadRequired else { return snapshot }
+                        let modules = ["."] + project.allModules.map(\.relativePath)
+                        let roots = modules.flatMap {
+                            mavenFeature.resolvedDependencyArtifactPaths(
+                                modulePath: $0,
+                                defaultRepositoryURL: mavenRepositoryURL
+                            )
+                        }.filter { fileStorage.fileExists(at: $0) }
+                        guard !roots.isEmpty else { return snapshot }
+                        return LanguageDependencySnapshot(
+                            sourceRoots: snapshot?.sourceRoots ?? [],
+                            binaryRoots: snapshot?.binaryRoots ?? [],
+                            dependencyRoots: Array(Set(roots)).sorted { $0.path < $1.path },
+                            virtualDocuments: snapshot?.virtualDocuments ?? []
+                        )
+                    }
                     return graph
                 })
             })
@@ -502,7 +558,8 @@ final class MacServiceContainer {
                     shelfStorage: MacGitShelfStorage(storage: fileStorage),
                     performanceLogger: gitPerformanceLogger ?? NullGitPerformanceLogger(),
                     patchFileAccess: MacGitPatchFileAccess(storage: fileStorage),
-                    executionJournal: gitExecutionJournal
+                    executionJournal: gitExecutionJournal,
+                    changelistStorage: MacGitChangelistStorage(store: store)
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {
@@ -553,8 +610,8 @@ final class MacServiceContainer {
             configurationStore: moduleStore,
             launchMode: moduleLaunchMode,
             startup: pluginStartup,
-            managedBuiltInPlugins: (BuiltInPluginCatalog.manifest(forModule: .database).map { [$0] } ?? [])
-                + bundledLanguageManifests
+            managedBuiltInPlugins: bundledLanguageManifests,
+            packageDownloader: MacPluginPackageDownloader()
         )
         let pluginCatalog: ValidatedPluginCatalog
         do {
@@ -588,15 +645,17 @@ final class MacServiceContainer {
             store: store,
             fileStorage: fileStorage,
             fileOperations: fileOperations,
+            agentEditRestorer: MacAgentEditRestorer(fileOperations: fileOperations),
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
             gitWatchContextProvider: gitWatchContextProvider,
             githubService: githubService,
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,
-            discourseCommunityService: discourseCommunityService,
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
+            agentManagement: RustAgentManagementService(core: rustCore),
+            agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
@@ -607,6 +666,8 @@ final class MacServiceContainer {
             platformUI: platformUI,
             shortcutDetectorFactory: MacShortcutDetectorFactory()
         )
+        services.ideCapabilityRegistry = ideCapabilityRegistry
+        services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
         moduleLifecycleCoordinator.start()
         Task { try? await moduleRegistry.startEagerModules() }
     }

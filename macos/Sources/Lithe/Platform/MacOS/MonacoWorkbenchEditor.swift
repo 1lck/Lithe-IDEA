@@ -124,6 +124,7 @@ private struct MonacoWorkbenchContent: View {
             if MonacoWorkbenchResources.directory != nil {
                 MonacoWorkbenchSurface(session: session, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model,
                     fontSize: settings.editorFontSize,
+                    fontFamily: settings.editorFontFamily,
                     theme: MonacoWorkbenchThemeConfiguration(
                         colorTheme: settings.colorTheme,
                         isDark: colorScheme == .dark,
@@ -151,6 +152,10 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
     let markdownScrollPosition: Binding<MarkdownScrollPosition>?
     let model: AppModel
     let fontSize: Double
+    /// Configured programming font family. Resolved to an installed family
+    /// before it reaches the embedded editor, which looks fonts up by CSS family
+    /// name rather than PostScript name.
+    let fontFamily: String
     let theme: MonacoWorkbenchThemeConfiguration
     let wrap: Bool
     let minimap: Bool
@@ -168,18 +173,34 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
         coordinator.session.detachView(ownerID: coordinator.ownerID)
     }
     func updateNSView(_ view: NSView, context: Context) {
-        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, theme: theme, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers)
+        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers)
     }
 }
 
 final class MonacoWorkbenchAssets: NSObject, WKURLSchemeHandler {
     let root: URL
-    init(root: URL) { self.root = root.standardizedFileURL.resolvingSymlinksInPath() }
+    let fontsRoot: URL?
+    init(root: URL, fontsRoot: URL? = Bundle.main.resourceURL?.appendingPathComponent("Fonts")) {
+        self.root = root.standardizedFileURL.resolvingSymlinksInPath()
+        self.fontsRoot = fontsRoot?.standardizedFileURL.resolvingSymlinksInPath()
+    }
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         do {
             guard let url = task.request.url, url.scheme == "lithe-editor", url.host == "app" else { throw CocoaError(.fileReadNoPermission) }
-            let file = root.appendingPathComponent(url.path).standardizedFileURL.resolvingSymlinksInPath()
-            guard file.path.hasPrefix(root.path + "/") else { throw CocoaError(.fileReadNoPermission) }
+            // WebKit has its own process and cannot rely on CoreText's process-local registration.
+            // Serve the same signed, read-only font files without widening editor asset access.
+            let assetRoot: URL
+            let assetPath: String
+            if url.path.hasPrefix("/fonts/") {
+                guard let fontsRoot, url.pathExtension == "ttf" else { throw CocoaError(.fileReadNoPermission) }
+                assetRoot = fontsRoot
+                assetPath = String(url.path.dropFirst("/fonts/".count))
+            } else {
+                assetRoot = root
+                assetPath = url.path
+            }
+            let file = assetRoot.appendingPathComponent(assetPath).standardizedFileURL.resolvingSymlinksInPath()
+            guard file.path.hasPrefix(assetRoot.path + "/") else { throw CocoaError(.fileReadNoPermission) }
             let data = try Data(contentsOf: file)
             let types = ["html": "text/html", "js": "application/javascript", "css": "text/css", "ttf": "font/ttf"]
             task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": types[file.pathExtension] ?? "application/octet-stream"])!)
@@ -225,6 +246,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var loadingInterval: LitheSignpost.State?
     private struct DocumentReference { weak var value: EditorDocument? }
     private var webView: WKWebView?
+    private let contextMenu = MonacoEditorContextMenu()
     private weak var model: AppModel?
     private var documentReferences: [String: DocumentReference] = [:]
     private var documents: [String: EditorDocument] { documentReferences.compactMapValues(\.value) }
@@ -309,10 +331,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         guard let selected, let container = mounts[selected]?.container else {
             viewOwnerID = nil; latestUpdate = nil
             markdownScrollBinding = nil; markdownScrollID = nil; markdownScrollRevision = nil
+            contextMenu.dismiss()
             webView?.removeFromSuperview()
             return
         }
         if viewOwnerID != selected {
+            contextMenu.dismiss()
             let isPreview = mounts[selected]?.isPreview == true
             if isPreview && !currentMountIsPreview && ready { call("window.lithe.suspendMain()") }
             if !isPreview && currentMountIsPreview { needsMainRestore = true }
@@ -337,17 +361,17 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         selectMount()
     }
 
-    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
+    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
         guard mounts[ownerID] != nil else { return }
         self.model = model
         observeFind(model: model)
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
-            self.present(document: document, model: model, fontSize: fontSize, theme: theme, wrap: wrap, minimap: minimap, markers: markers)
+            self.present(document: document, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers)
             self.presentMarkdownScroll(document: document, binding: markdownScrollPosition)
             if let secondaryDocument {
                 self.hasSecondaryView = true
-                self.present(document: secondaryDocument, model: model, fontSize: fontSize, theme: theme, wrap: wrap, minimap: minimap, markers: secondaryMarkers, surface: "secondary")
+                self.present(document: secondaryDocument, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: secondaryMarkers, surface: "secondary")
             } else if self.hasSecondaryView {
                 self.hasSecondaryView = false
                 self.activeIDs.removeValue(forKey: "secondary")
@@ -667,7 +691,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         }
     }
 
-    private func present(document: EditorDocument, model: AppModel, fontSize: Double, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
+    private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
         guard viewOwnerID != nil else { return }
         let id = document.id.uuidString
         let liveIDs = Set(model.documentFeature.editorDocuments.map { $0.id.uuidString })
@@ -737,7 +761,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         }
         let configuration = MonacoWorkbenchDisplayConfiguration(
             fontSize: fontSize,
-            fontFamily: LitheTheme.editorFont(size: fontSize).familyName ?? "monospace",
+            // The embedded editor resolves fonts through CSS family names, and an
+            // uninstalled preference must not reach the web view as an
+            // unresolvable family, so resolve against the macOS font database here.
+            // A stack rather than one name: the embedded editor needs the bundled
+            // family as its explicit fallback for glyphs the chosen font lacks.
+            fontFamily: MacEditorFontCatalog.editorFontStack(fontFamily),
             wrap: wrap,
             minimap: minimap,
             theme: theme
@@ -893,6 +922,16 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
             reply(["ok": true], nil); return
         }
+        if type == "contextMenu" {
+            guard !failed, let webView, webView.window != nil else { reply(["selected": NSNull()], nil); return }
+            do {
+                let request = try MonacoEditorContextMenu.Request.decode(body)
+                contextMenu.show(request, in: webView) { key, handled in
+                    reply(["selected": key as Any? ?? NSNull(), "handled": handled], nil)
+                }
+            } catch { reply(nil, "Invalid editor context menu") }
+            return
+        }
         if type == "failure" { fail(body["message"] as? String ?? "Editor failed"); reply(["ok": true], nil); return }
         // Import completion may arrive after its document has closed. The
         // notification still explains where the already saved asset went.
@@ -900,8 +939,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             if let message = body["message"] as? String { model?.showNotification(message) }
             reply(["ok": true], nil); return
         }
-        guard let id = body["id"] as? String, let document = currentDocument(id), let revision = revisions[id] else {
-            reply(nil, "Document closed"); return
+        guard let id = body["id"] as? String else {
+            reply(nil, "Missing editor document identifier"); return
+        }
+        guard let document = currentDocument(id), let revision = revisions[id] else {
+            MonacoDocumentMessage.replyToClosedDocument(type: type, reply: reply)
+            return
         }
         let context = MonacoDocumentContext(document: document, revision: revision, workspaceURL: model?.workspaceURL)
         // Text edits still belong to the same buffer after a move, and saves must
@@ -1390,6 +1433,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
 
     private func fail(_ message: String) {
         failed = true
+        contextMenu.dismiss()
         model?.showNotification("Editor: \(message)")
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -1399,6 +1443,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail(error.localizedDescription) }
 
     isolated deinit {
+        contextMenu.dismiss()
         gitLoads.values.forEach { $0.cancel() }
         blameLoads.values.forEach { $0.cancel() }
         webView?.stopLoading()

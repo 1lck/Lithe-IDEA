@@ -4,6 +4,10 @@ import LitheLocalHistoryModule
 struct ProjectLocalHistoryView: View {
     @EnvironmentObject private var model: AppModel
     let request: ProjectLocalHistoryRequest
+    /// Family for the comparison text. Defaults to the bundled monospaced family
+    /// so the sheet keeps rendering without a required `AppSettings` environment
+    /// object; the presenting root view passes the configured family explicitly.
+    var fontFamily: String = EditorFontDefaults.monospacedFamily
     @State private var isRestoreConfirmationPresented = false
 
     var body: some View {
@@ -40,10 +44,10 @@ struct ProjectLocalHistoryView: View {
             Image(systemName: "clock.arrow.circlepath")
                 .foregroundStyle(LitheTheme.accent)
             Text("Project Local History")
-                .font(.system(size: 13, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(model.projectName)
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
             Button {
@@ -78,11 +82,11 @@ struct ProjectLocalHistoryView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Project changes")
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
                 Text("\(model.projectLocalHistoryEntries.count)")
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .padding(.horizontal, 12)
@@ -97,7 +101,7 @@ struct ProjectLocalHistoryView: View {
             } else if model.projectLocalHistoryEntries.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "clock.badge.questionmark")
-                        .font(.system(size: 28, weight: .light))
+                        .font(LitheTheme.uiFont(size: 28, weight: .light))
                     Text("No project history recorded yet")
                 }
                 .font(LitheTheme.uiFont)
@@ -112,7 +116,7 @@ struct ProjectLocalHistoryView: View {
                             } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(entry.relativePath)
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                                         .foregroundStyle(LitheTheme.primaryText)
                                         .lineLimit(1)
                                         .truncationMode(.middle)
@@ -121,7 +125,7 @@ struct ProjectLocalHistoryView: View {
                                         Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
                                         Text(ByteCountFormatter.string(fromByteCount: Int64(entry.byteCount), countStyle: .file))
                                     }
-                                    .font(.system(size: 10.5))
+                                    .font(LitheTheme.uiFont(size: 10.5))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .lineLimit(1)
                                 }
@@ -134,7 +138,7 @@ struct ProjectLocalHistoryView: View {
                                 )
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .lithePointer()
                         }
                     }
@@ -171,7 +175,8 @@ struct ProjectLocalHistoryView: View {
             } else {
                 DiffPaneView(
                     rows: model.projectLocalHistoryDiffRows,
-                    fileExtension: selectedFileExtension
+                    fileExtension: selectedFileExtension,
+                    fontFamily: fontFamily
                 )
             }
         }
@@ -185,15 +190,15 @@ struct ProjectLocalHistoryView: View {
     private func versionHeader(_ title: String, icon: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: icon)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             if title == "Historical version",
                let entry = model.selectedProjectLocalHistoryEntry {
                 Text(entry.relativePath)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
             }

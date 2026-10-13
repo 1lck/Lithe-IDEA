@@ -1,9 +1,9 @@
 //! Maven reactor inspection, profile discovery, and source diagnostics.
 
+use super::maven_dependency_tree;
 use super::maven_test_reports::{self, MavenTestReportsRequest};
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
-    MavenDependenciesResponse, MavenDependencyResolutionResponse, MavenDependencyResponse,
     MavenDiagnosticResponse, MavenDiagnosticsResponse, MavenLaunchExecutableResponse,
     MavenLaunchPlanResponse, MavenModuleResponse, MavenProfileResponse, MavenScanResponse,
     MavenSourceRootKind, MavenSourceRootResponse, MavenTestFailureResponse,
@@ -14,6 +14,7 @@ use quick_xml::{Reader, Writer};
 use regex::Regex;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -48,11 +49,6 @@ pub struct MavenTestResultsRequest {
 }
 
 const MAVEN_CONTEXT_VERSION: u32 = 1;
-const MAVEN_DEPENDENCY_PLUGIN_GOAL: &str =
-    "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree";
-const MAX_MAVEN_DEPENDENCY_OUTPUT_CHARACTERS: usize = 500_000;
-const MAX_MAVEN_DEPENDENCY_NODES: usize = 10_000;
-const MAX_MAVEN_DEPENDENCY_DEPTH: usize = 64;
 const MAX_MAVEN_TEST_OUTPUT_CHARACTERS: usize = 500_000;
 const MAX_MAVEN_TEST_FAILURES: usize = 10_000;
 const MAX_MAVEN_TEST_SOURCE_SEARCH_DIRECTORIES: usize = 10_000;
@@ -99,14 +95,9 @@ pub struct MavenDependencyPlanRequest {
     pub context: MavenLaunchContextRequest,
     #[serde(default)]
     pub module: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-/// Captured Maven dependency-plugin output associated with one reactor module.
-pub struct MavenDependenciesRequest {
-    pub module_path: String,
-    pub output: String,
+    /// Absolute platform-owned file the plugin writes the tree to. The same
+    /// path is later passed to `maven.dependencies`.
+    pub output_file: String,
 }
 
 #[derive(Debug, Clone)]
@@ -155,22 +146,33 @@ pub fn launch_plan(request: MavenLaunchPlanRequest) -> Result<MavenLaunchPlanRes
     )
 }
 
-/// Produces a fixed, non-recursive Maven dependency-tree invocation.
+/// Produces a fixed invocation that writes one module's tree to a file.
+///
+/// Exactly one project runs, because every project in the session would
+/// overwrite the same file: a module is selected with `-pl`, and the reactor
+/// root with `-N` so its modules are not visited.
 pub fn dependency_plan(
     request: MavenDependencyPlanRequest,
 ) -> Result<MavenLaunchPlanResponse, CoreError> {
+    let output_file = maven_dependency_tree::validated_output_file(&request.output_file)?;
+    let selects_root = request
+        .module
+        .as_deref()
+        .map(|module| normalized_project_path(module, "Maven module"))
+        .transpose()?
+        .is_none_or(|module| module == ".");
+    let mut arguments = Vec::new();
+    if selects_root {
+        arguments.push("-N".to_string());
+    }
+    arguments.extend(maven_dependency_tree::dependency_tree_arguments(
+        &output_file,
+    ));
     launch_plan_with_arguments(
         request.root,
         request.context,
         request.module,
-        vec![
-            MAVEN_DEPENDENCY_PLUGIN_GOAL.to_string(),
-            "-Dverbose=true".to_string(),
-            "-DoutputType=text".to_string(),
-            "-Dstyle.color=never".to_string(),
-            "-Duser.language=en".to_string(),
-            "-Duser.country=US".to_string(),
-        ],
+        arguments,
         false,
     )
 }
@@ -611,7 +613,7 @@ fn normalized_tool_window_arguments(values: Vec<String>) -> Result<Vec<String>, 
     Ok(arguments)
 }
 
-fn normalized_project_path(value: &str, label: &str) -> Result<String, CoreError> {
+pub(super) fn normalized_project_path(value: &str, label: &str) -> Result<String, CoreError> {
     let trimmed = value.trim();
     if trimmed == "." {
         return Ok(".".to_string());
@@ -665,19 +667,26 @@ fn maven_context_fingerprint(
     format!("sha256:{:x}", digest.finalize())
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 /// Parsed POM fields needed by reactor discovery and run-configuration detection.
 struct Descriptor {
     group_id: Option<String>,
     artifact_id: Option<String>,
     version: Option<String>,
+    /// Coordinates of `<parent>`, recorded so a module can be matched back to the
+    /// reactor entry it inherits from. Maven identifies a parent by all three
+    /// coordinates: a shared `artifactId` does not prove the relationship, so a
+    /// module whose parent lives outside this reactor keeps its own plugins.
+    parent_group_id: Option<String>,
+    parent_artifact_id: Option<String>,
+    parent_version: Option<String>,
     packaging: String,
     build_directory: Option<String>,
     /// `<reportsDirectory>` values configured for Surefire or Failsafe, raw.
     test_report_directories: Vec<String>,
     module_paths: Vec<String>,
     profiles: Vec<MavenProfileResponse>,
-    plugins: Vec<String>,
+    plugins: Vec<BuildPlugin>,
     source_directory: Option<String>,
     test_source_directory: Option<String>,
     resource_directories: Vec<String>,
@@ -686,10 +695,93 @@ struct Descriptor {
     generated_test_source_directories: Vec<String>,
 }
 
+impl Descriptor {
+    /// The coordinates a child must name in `<parent>` to inherit from this POM.
+    ///
+    /// `groupId` and `version` fall back to what `<parent>` declares, which is the
+    /// value Maven gives a module that inherits them. A coordinate that is still a
+    /// `${...}` expression proves nothing -- see `still_an_expression`.
+    fn coordinates(&self) -> Option<ModuleCoordinates> {
+        verified_coordinates(
+            self.group_id.as_deref(),
+            self.artifact_id.as_deref(),
+            self.version.as_deref(),
+        )
+    }
+
+    /// The coordinates this POM names in its own `<parent>`, when it declares all
+    /// three. A partial declaration, or one still carrying a `${...}` expression,
+    /// names no verifiable parent.
+    fn parent_key(&self) -> Option<ModuleCoordinates> {
+        verified_coordinates(
+            self.parent_group_id.as_deref(),
+            self.parent_artifact_id.as_deref(),
+            self.parent_version.as_deref(),
+        )
+    }
+}
+
+/// Whether a coordinate value is still a `${...}` expression.
+///
+/// Maven interpolates expressions before it matches a parent, so the same raw text
+/// can resolve to different values: two POMs writing `${revision}` may end up with
+/// different versions once their own properties apply. A coordinate that has not
+/// been resolved therefore cannot prove which POM a module inherits from, and is
+/// refused rather than compared as a literal.
+fn still_an_expression(value: &str) -> bool {
+    value.contains("${")
+}
+
+/// Builds the `groupId:artifactId:version` triple a parent is identified by, or
+/// `None` when any part is missing or still an unresolved expression.
+fn verified_coordinates(
+    group_id: Option<&str>,
+    artifact_id: Option<&str>,
+    version: Option<&str>,
+) -> Option<ModuleCoordinates> {
+    let parts = [group_id?, artifact_id?, version?];
+    if parts.iter().any(|value| still_an_expression(value)) {
+        return None;
+    }
+    Some((
+        parts[0].to_string(),
+        parts[1].to_string(),
+        parts[2].to_string(),
+    ))
+}
+
+/// One `<build><plugins>` entry as Maven applies it.
+///
+/// `inherited` mirrors `<inherited>`: `false` keeps the plugin on the module that
+/// declares it and stops it from reaching any child, which is the only way a
+/// parent can ship a framework plugin to itself without making the whole reactor
+/// runnable.
+
+/// Maven's default `<groupId>` for a plugin declaration that omits one. The
+/// `Plugin` model initializes the field to this value, so a bare artifactId is
+/// never resolved against another group.
+const DEFAULT_PLUGIN_GROUP: &str = "org.apache.maven.plugins";
+
+#[derive(Debug, Clone)]
+/// Visibility matches `DeclaredModule`, which is re-exported crate-wide.
+pub(crate) struct BuildPlugin {
+    /// The group Maven resolves the plugin under. A declaration that omits
+    /// `<groupId>` gets Maven's default of `org.apache.maven.plugins`, so a
+    /// bare `spring-boot-maven-plugin` names a different plugin than
+    /// `org.springframework.boot:spring-boot-maven-plugin`.
+    pub(crate) group_id: String,
+    pub(crate) artifact_id: String,
+    pub(crate) inherited: bool,
+}
+
 #[derive(Debug, Default)]
 /// Configuration buffered until the owning build plugin's `artifactId` is known.
 struct PendingBuildPlugin {
+    /// `<groupId>`; absent means Maven's default of `org.apache.maven.plugins`.
+    group_id: Option<String>,
     artifact_id: Option<String>,
+    /// `<inherited>`; absent means Maven's default of `true`.
+    inherited: Option<bool>,
     compiler_generated_source_directories: Vec<String>,
     compiler_generated_test_source_directories: Vec<String>,
     build_helper_source_directories: Vec<String>,
@@ -710,16 +802,27 @@ pub struct DeclaredModule {
     pub relative_path: String,
     pub artifact_id: String,
     pub packaging: String,
-    /// `artifactId` of every plugin the module applies in `<build><plugins>`.
-    pub plugins: Vec<String>,
+    /// Every plugin in the module's effective `<build><plugins>`, including the
+    /// ones it inherits from `<parent>`.
+    pub plugins: Vec<BuildPlugin>,
     /// Source roots parsed from this module's own POM.
     pub source_roots: Vec<MavenSourceRootResponse>,
 }
 
 impl DeclaredModule {
-    /// Reports whether this module applies a build plugin directly.
-    pub fn applies_plugin(&self, artifact_id: &str) -> bool {
-        self.plugins.iter().any(|value| value == artifact_id)
+    /// Reports whether this module applies a build plugin, whether it declares
+    /// the plugin itself or inherits it from `<parent>`.
+    ///
+    /// A plugin is identified by `groupId:artifactId`. Maven gives a declaration
+    /// that omits `<groupId>` the default `org.apache.maven.plugins`, so a bare
+    /// `spring-boot-maven-plugin` names a different artifact than
+    /// `org.springframework.boot:spring-boot-maven-plugin` -- matching on the
+    /// artifactId alone would hand the module a framework whose goal it never
+    /// applied.
+    pub fn applies_plugin(&self, group_id: &str, artifact_id: &str) -> bool {
+        self.plugins
+            .iter()
+            .any(|plugin| plugin.group_id == group_id && plugin.artifact_id == artifact_id)
     }
 
     /// `pom` packaging is an aggregator: it produces no artifact to run, so a
@@ -735,12 +838,172 @@ pub fn declared_modules(root: &Path) -> Result<Vec<DeclaredModule>, CoreError> {
     let Some(root_descriptor) = descriptor(&root.join("pom.xml"))? else {
         return Ok(Vec::new());
     };
+    // Inheritance is resolved from the `<parent>` coordinates a module names, so
+    // the reactor is indexed by directory first and the walk reads that resolved
+    // set instead of assuming an ancestor sits above the module in the module graph.
+    let resolved = inheritance_index(root, &root_descriptor)?;
     let mut modules = Vec::new();
     let mut visited = vec![root.to_path_buf()];
-    collect_modules(root, root, root_descriptor, &mut modules, &mut visited);
+    collect_modules(
+        root,
+        root,
+        root_descriptor,
+        &mut modules,
+        &mut visited,
+        &resolved,
+    );
     Ok(modules)
 }
 
+/// Full `groupId:artifactId:version` identity of one POM.
+///
+/// Maven matches a `<parent>` reference against this triple, so a shared
+/// `artifactId` cannot prove which POM a module inherits from: a reactor may
+/// aggregate a module whose real parent lives outside it under that name.
+type ModuleCoordinates = (String, String, String);
+
+/// Indexes every module the reactor declares by the directory it lives in, with
+/// the plugin set it effectively applies.
+///
+/// Only the reactor is consulted. A `<parent>` this reactor cannot prove -- one
+/// whose full coordinates match no module here, including a parent reached through
+/// `<relativePath>` outside the workspace or from the local repository --
+/// contributes nothing, which is what keeps a module from being handed a
+/// framework the reactor cannot verify.
+///
+/// The reader stays deliberately shallow rather than reproducing Maven's
+/// effective model: it reads coordinates, `<modules>`, and `<build><plugins>`
+/// with their `<inherited>` flags, and resolves only parent links the reactor
+/// itself proves. Property interpolation, profiles, and `relativePath` resolution
+/// stay with Maven, and anything that would need them resolves to no inheritance
+/// instead of a guess.
+fn inheritance_index(
+    root: &Path,
+    root_descriptor: &Descriptor,
+) -> Result<BTreeMap<PathBuf, Vec<BuildPlugin>>, CoreError> {
+    // Pass one: every POM the reactor declares. Inheritance can only be resolved
+    // once all of them are known, because a child may name a parent that is not
+    // its aggregator and sits later in the module graph.
+    let mut modules: Vec<(PathBuf, Descriptor)> = Vec::new();
+    let mut pending = vec![(root.to_path_buf(), root_descriptor.clone())];
+    let mut visited = vec![root.to_path_buf()];
+
+    while let Some((directory, current)) = pending.pop() {
+        modules.push((directory.clone(), current.clone()));
+        for raw_path in &current.module_paths {
+            let Some(relative) = normalize_relative_path(raw_path) else {
+                continue;
+            };
+            let child = directory.join(&relative).clean();
+            if visited.iter().any(|path| path == &child) || !child.starts_with(root) {
+                continue;
+            }
+            let Ok(Some(child_descriptor)) = descriptor(&child.join("pom.xml")) else {
+                continue;
+            };
+            visited.push(child.clone());
+            pending.push((child, child_descriptor));
+        }
+    }
+
+    // Two modules sharing one coordinate set leave a child unable to say which it
+    // inherits, so neither is offered as a parent.
+    let mut by_coordinates: BTreeMap<ModuleCoordinates, usize> = BTreeMap::new();
+    let mut ambiguous: BTreeSet<ModuleCoordinates> = BTreeSet::new();
+    for (position, (_, module)) in modules.iter().enumerate() {
+        let Some(coordinates) = module.coordinates() else {
+            continue;
+        };
+        if by_coordinates.contains_key(&coordinates) {
+            by_coordinates.remove(&coordinates);
+            ambiguous.insert(coordinates);
+        } else if !ambiguous.contains(&coordinates) {
+            by_coordinates.insert(coordinates, position);
+        }
+    }
+
+    // Pass two: resolve from the top down, so every module reads the set its own
+    // parent ended up with. Reading the ancestors' raw declarations instead would
+    // let a plugin an intermediate parent stopped reappear below it.
+    let mut resolved: BTreeMap<usize, Vec<BuildPlugin>> = BTreeMap::new();
+    let mut visiting: BTreeSet<usize> = BTreeSet::new();
+    for position in 0..modules.len() {
+        resolve_plugins(
+            position,
+            &modules,
+            &by_coordinates,
+            &mut resolved,
+            &mut visiting,
+        );
+    }
+
+    Ok(modules
+        .into_iter()
+        .enumerate()
+        .map(|(position, (directory, _))| {
+            (
+                directory,
+                resolved.get(&position).cloned().unwrap_or_default(),
+            )
+        })
+        .collect())
+}
+
+/// Resolves one module's effective `<build><plugins>`: its own declarations plus
+/// what its parent hands down.
+///
+/// `<inherited>false</inherited>` stops a plugin at the module that declares it.
+/// Because a child reads this resolved set rather than the ancestors' raw
+/// declarations, the stop holds for every descendant instead of letting a further
+/// ancestor supply the plugin again.
+fn resolve_plugins(
+    position: usize,
+    modules: &[(PathBuf, Descriptor)],
+    by_coordinates: &BTreeMap<ModuleCoordinates, usize>,
+    resolved: &mut BTreeMap<usize, Vec<BuildPlugin>>,
+    visiting: &mut BTreeSet<usize>,
+) -> Vec<BuildPlugin> {
+    if let Some(existing) = resolved.get(&position) {
+        return existing.clone();
+    }
+    // Two POMs naming each other cannot produce a model; stopping at the repeat
+    // keeps the walk finite and leaves that module with its own declarations.
+    if !visiting.insert(position) {
+        return modules[position].1.plugins.clone();
+    }
+
+    let descriptor = &modules[position].1;
+    let inherited = descriptor
+        .parent_key()
+        .and_then(|key| by_coordinates.get(&key).copied())
+        .filter(|parent| *parent != position)
+        .map(|parent| resolve_plugins(parent, modules, by_coordinates, resolved, visiting))
+        .unwrap_or_default();
+    visiting.remove(&position);
+
+    let effective = merge_inherited(&descriptor.plugins, &inherited);
+    resolved.insert(position, effective.clone());
+    effective
+}
+
+/// Merges what a module declares with what its parent hands down.
+///
+/// The module's own declaration wins, matching the single `groupId:artifactId`
+/// Maven merges the two under, and only plugins the parent passes on are
+/// considered at all.
+fn merge_inherited(own: &[BuildPlugin], inherited: &[BuildPlugin]) -> Vec<BuildPlugin> {
+    let mut merged = own.to_vec();
+    for plugin in inherited {
+        if plugin.inherited
+            && !merged.iter().any(|existing| {
+                existing.group_id == plugin.group_id && existing.artifact_id == plugin.artifact_id
+            })
+        {
+            merged.push(plugin.clone());
+        }
+    }
+    merged
+}
 /// Flattens the graph depth-first. Unlike `module`, which builds the nested
 /// response, a visited path is never released: a module reachable through two
 /// parents is one module, and emitting it twice would produce two run
@@ -751,6 +1014,7 @@ fn collect_modules(
     current: Descriptor,
     modules: &mut Vec<DeclaredModule>,
     visited: &mut Vec<PathBuf>,
+    resolved: &BTreeMap<PathBuf, Vec<BuildPlugin>>,
 ) {
     let relative_path = directory
         .strip_prefix(root)
@@ -759,6 +1023,13 @@ fn collect_modules(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| ".".to_string());
     let current_source_roots = source_roots(Some(&current));
+    // The index already resolved this directory against the `<parent>` it names,
+    // so these are the effective plugins. A directory it did not resolve has no
+    // provable parent and keeps only what it declares.
+    let effective_plugins = resolved
+        .get(directory)
+        .cloned()
+        .unwrap_or_else(|| current.plugins.clone());
     modules.push(DeclaredModule {
         relative_path,
         artifact_id: current.artifact_id.unwrap_or_else(|| {
@@ -769,7 +1040,7 @@ fn collect_modules(
                 .to_string()
         }),
         packaging: current.packaging,
-        plugins: current.plugins,
+        plugins: effective_plugins,
         source_roots: current_source_roots,
     });
     for raw_path in &current.module_paths {
@@ -784,7 +1055,7 @@ fn collect_modules(
             continue;
         };
         visited.push(child.clone());
-        collect_modules(root, &child, child_descriptor, modules, visited);
+        collect_modules(root, &child, child_descriptor, modules, visited, resolved);
     }
 }
 
@@ -1508,6 +1779,44 @@ fn path_has_suffix(path: &str, suffix: &str) -> bool {
             .is_some_and(|prefix| prefix.ends_with('/'))
 }
 
+/// The reactor resolves inheritance through `<parent>`, so the parent's full
+/// coordinates have to survive parsing -- they are what proves which reactor POM
+/// a module inherits from. The parent's values also become the module's own
+/// `groupId`/`version` when it declares neither, so this asserts both readings.
+#[test]
+fn descriptor_keeps_the_parent_coordinates() {
+    let dir = std::env::temp_dir().join(format!("lithe-descriptor-parent-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pom = dir.join("pom.xml");
+    std::fs::write(
+        &pom,
+        "<project><parent><groupId>com.example</groupId><artifactId>the-parent</artifactId><version>1</version></parent><artifactId>the-child</artifactId></project>",
+    )
+    .unwrap();
+
+    let parsed = descriptor(&pom).unwrap().expect("descriptor");
+    assert_eq!(parsed.artifact_id.as_deref(), Some("the-child"));
+    assert_eq!(
+        parsed.parent_key(),
+        Some((
+            "com.example".to_string(),
+            "the-parent".to_string(),
+            "1".to_string()
+        ))
+    );
+    // The module declares neither value itself, so its effective coordinates are
+    // the parent's pair plus its own `artifactId`.
+    assert_eq!(
+        parsed.coordinates(),
+        Some((
+            "com.example".to_string(),
+            "the-child".to_string(),
+            "1".to_string()
+        ))
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
 #[cfg(test)]
 mod test_source_index_tests {
     use super::MavenTestSourceIndex;
@@ -1583,247 +1892,6 @@ fn workspace_relative_path(root: &Path, path: &Path) -> Option<String> {
     let canonical_path = path.canonicalize().ok()?;
     let relative = canonical_path.strip_prefix(canonical_root).ok()?;
     Some(relative.to_string_lossy().replace('\\', "/"))
-}
-
-#[derive(Clone)]
-struct ParsedDependency {
-    depth: usize,
-    node: MavenDependencyResponse,
-}
-
-/// Parses bounded Maven dependency-plugin text into a deterministic tree.
-pub fn dependencies(
-    request: MavenDependenciesRequest,
-) -> Result<MavenDependenciesResponse, CoreError> {
-    if request
-        .output
-        .chars()
-        .nth(MAX_MAVEN_DEPENDENCY_OUTPUT_CHARACTERS)
-        .is_some()
-    {
-        return Err(CoreError::new(
-            ErrorCode::ParseFailed,
-            "Maven dependency output exceeds the supported limit",
-        )
-        .with_details(format!(
-            "maximumCharacters={MAX_MAVEN_DEPENDENCY_OUTPUT_CHARACTERS}"
-        )));
-    }
-    let module_path = normalized_project_path(&request.module_path, "Maven module")?;
-    let ansi =
-        Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]").expect("static ANSI escape expression is valid");
-    let mut parsed = Vec::new();
-    for raw_line in request.output.lines() {
-        let line = ansi.replace_all(raw_line, "");
-        let Some(entry) = parse_dependency_line(&line, &module_path)? else {
-            continue;
-        };
-        if parsed.len() == MAX_MAVEN_DEPENDENCY_NODES {
-            return Err(CoreError::new(
-                ErrorCode::ParseFailed,
-                "Maven dependency count exceeds the supported limit",
-            )
-            .with_details(format!("maximumNodes={MAX_MAVEN_DEPENDENCY_NODES}")));
-        }
-        parsed.push(entry);
-    }
-
-    let mut cursor = 0;
-    let dependencies = if parsed.is_empty() {
-        Vec::new()
-    } else {
-        if parsed[0].depth != 0 {
-            return Err(invalid_dependency_structure());
-        }
-        let dependencies = build_dependency_level(&parsed, &mut cursor, 0)?;
-        if cursor != parsed.len() {
-            return Err(invalid_dependency_structure());
-        }
-        dependencies
-    };
-    Ok(MavenDependenciesResponse {
-        module_path,
-        dependencies,
-    })
-}
-
-fn parse_dependency_line(
-    raw_line: &str,
-    module_path: &str,
-) -> Result<Option<ParsedDependency>, CoreError> {
-    let trimmed = raw_line.trim();
-    let line = trimmed
-        .strip_prefix("[INFO]")
-        .and_then(|value| value.strip_prefix(' '))
-        .unwrap_or(trimmed);
-    let marker = match (line.find("+- "), line.find("\\- ")) {
-        (Some(left), Some(right)) => left.min(right),
-        (Some(index), None) | (None, Some(index)) => index,
-        (None, None) => return Ok(None),
-    };
-    let prefix = &line[..marker];
-    let mut chunks = prefix.as_bytes().chunks_exact(3);
-    if !chunks.all(|chunk| chunk == b"|  " || chunk == b"   ") || !chunks.remainder().is_empty() {
-        return Ok(None);
-    }
-    let depth = prefix.len() / 3;
-    if depth >= MAX_MAVEN_DEPENDENCY_DEPTH {
-        return Err(CoreError::new(
-            ErrorCode::ParseFailed,
-            "Maven dependency tree exceeds the supported depth",
-        )
-        .with_details(format!("maximumDepth={MAX_MAVEN_DEPENDENCY_DEPTH}")));
-    }
-
-    let value = line[(marker + 3)..].trim();
-    // Verbose dependency-plugin output wraps omitted nodes as
-    // `(coordinate - annotation)`, while resolved nodes use
-    // `coordinate (annotation)`. Normalize both forms before splitting the
-    // Maven coordinate so duplicate/conflict markers remain observable.
-    let (coordinate, annotation) = if let Some(inner) = value
-        .strip_prefix('(')
-        .and_then(|value| value.strip_suffix(')'))
-    {
-        inner
-            .split_once(" - ")
-            .map(|(coordinate, annotation)| (coordinate.trim(), Some(annotation.trim())))
-            .unwrap_or((inner.trim(), None))
-    } else {
-        value
-            .split_once(" (")
-            .map(|(coordinate, annotation)| (coordinate, Some(annotation.trim_end_matches(')'))))
-            .unwrap_or((value, None))
-    };
-    let parts = coordinate.split(':').collect::<Vec<_>>();
-    let (group_id, artifact_id, artifact_type, classifier, version, scope) = match parts.as_slice()
-    {
-        [group_id, artifact_id, artifact_type, version, scope] => (
-            *group_id,
-            *artifact_id,
-            *artifact_type,
-            None,
-            *version,
-            *scope,
-        ),
-        [group_id, artifact_id, artifact_type, classifier, version, scope] => (
-            *group_id,
-            *artifact_id,
-            *artifact_type,
-            Some(*classifier),
-            *version,
-            *scope,
-        ),
-        _ => return Ok(None),
-    };
-    if [group_id, artifact_id, artifact_type, version, scope]
-        .iter()
-        .any(|value| value.trim().is_empty())
-        || classifier.is_some_and(|value| value.trim().is_empty())
-    {
-        return Ok(None);
-    }
-
-    let (resolution, selected_version) = dependency_resolution(annotation);
-    Ok(Some(ParsedDependency {
-        depth,
-        node: MavenDependencyResponse {
-            module_path: module_path.to_string(),
-            group_id: group_id.to_string(),
-            artifact_id: artifact_id.to_string(),
-            version: version.to_string(),
-            r#type: artifact_type.to_string(),
-            classifier: classifier.map(str::to_string),
-            scope: scope.to_string(),
-            resolution,
-            selected_version,
-            children: Vec::new(),
-        },
-    }))
-}
-
-fn dependency_resolution(
-    annotation: Option<&str>,
-) -> (MavenDependencyResolutionResponse, Option<String>) {
-    let Some(annotation) = annotation else {
-        return (MavenDependencyResolutionResponse::Resolved, None);
-    };
-    let normalized = annotation.to_ascii_lowercase();
-    const CONFLICT: &str = "omitted for conflict with ";
-    if let Some(index) = normalized.find(CONFLICT) {
-        let selected_version = annotation[(index + CONFLICT.len())..]
-            .split_whitespace()
-            .next()
-            .map(|value| value.trim_end_matches([',', ')']).to_string())
-            .filter(|value| !value.is_empty());
-        return (
-            MavenDependencyResolutionResponse::OmittedConflict,
-            selected_version,
-        );
-    }
-    if normalized.contains("omitted for duplicate") {
-        return (MavenDependencyResolutionResponse::OmittedDuplicate, None);
-    }
-    (MavenDependencyResolutionResponse::Resolved, None)
-}
-
-fn build_dependency_level(
-    parsed: &[ParsedDependency],
-    cursor: &mut usize,
-    depth: usize,
-) -> Result<Vec<MavenDependencyResponse>, CoreError> {
-    let mut dependencies = Vec::new();
-    while *cursor < parsed.len() {
-        let entry_depth = parsed[*cursor].depth;
-        if entry_depth < depth {
-            break;
-        }
-        if entry_depth > depth {
-            return Err(invalid_dependency_structure());
-        }
-        let mut dependency = parsed[*cursor].node.clone();
-        *cursor += 1;
-        if *cursor < parsed.len() {
-            let next_depth = parsed[*cursor].depth;
-            if next_depth > depth + 1 {
-                return Err(invalid_dependency_structure());
-            }
-            if next_depth == depth + 1 {
-                dependency.children = build_dependency_level(parsed, cursor, depth + 1)?;
-            }
-        }
-        sort_dependencies(&mut dependency.children);
-        dependencies.push(dependency);
-    }
-    sort_dependencies(&mut dependencies);
-    Ok(dependencies)
-}
-
-fn sort_dependencies(dependencies: &mut [MavenDependencyResponse]) {
-    dependencies.sort_by(|left, right| {
-        (
-            &left.group_id,
-            &left.artifact_id,
-            &left.r#type,
-            &left.classifier,
-            &left.version,
-            &left.scope,
-        )
-            .cmp(&(
-                &right.group_id,
-                &right.artifact_id,
-                &right.r#type,
-                &right.classifier,
-                &right.version,
-                &right.scope,
-            ))
-    });
-}
-
-fn invalid_dependency_structure() -> CoreError {
-    CoreError::new(
-        ErrorCode::ParseFailed,
-        "Maven dependency tree structure is invalid",
-    )
 }
 
 fn module(
@@ -2138,15 +2206,27 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                     .collect::<Vec<_>>()
                     .join("/");
                 match path.as_str() {
-                    "project/groupId" | "project/parent/groupId" => {
-                        if value.group_id.is_none() || path == "project/groupId" {
-                            value.group_id = non_empty(text.clone());
+                    "project/groupId" => value.group_id = non_empty(text.clone()),
+                    "project/artifactId" => value.artifact_id = non_empty(text.clone()),
+                    "project/version" => value.version = non_empty(text.clone()),
+                    // `<parent>` coordinates are recorded separately from the
+                    // module's own. Maven identifies a parent by all three, so a
+                    // shared `artifactId` alone cannot prove the relationship, and
+                    // they also become the module's own `groupId`/`version` when it
+                    // declares neither -- the effective coordinates Maven resolves.
+                    "project/parent/groupId" => {
+                        value.parent_group_id = non_empty(text.clone());
+                        if value.group_id.is_none() {
+                            value.group_id = value.parent_group_id.clone();
                         }
                     }
-                    "project/artifactId" => value.artifact_id = non_empty(text.clone()),
-                    "project/version" | "project/parent/version" => {
-                        if value.version.is_none() || path == "project/version" {
-                            value.version = non_empty(text.clone());
+                    "project/parent/artifactId" => {
+                        value.parent_artifact_id = non_empty(text.clone())
+                    }
+                    "project/parent/version" => {
+                        value.parent_version = non_empty(text.clone());
+                        if value.version.is_none() {
+                            value.version = value.parent_version.clone();
                         }
                     }
                     "project/packaging" => {
@@ -2224,16 +2304,29 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                     // Only `<build><plugins>` counts. A plugin under
                     // `<pluginManagement>` pins a version for children without
                     // applying it, and one under `<reporting>` never runs.
+                    "project/build/plugins/plugin/groupId" => {
+                        if let Some(plugin) = pending_build_plugin.as_mut() {
+                            plugin.group_id = non_empty(text.clone());
+                        }
+                    }
                     "project/build/plugins/plugin/artifactId" => {
                         if let Some(plugin) = pending_build_plugin.as_mut() {
                             plugin.artifact_id = non_empty(text.clone());
                         }
                     }
+                    "project/build/plugins/plugin/inherited" => {
+                        if let Some(plugin) = pending_build_plugin.as_mut() {
+                            plugin.inherited = Some(text.eq_ignore_ascii_case("true"));
+                        }
+                    }
                     "project/build/plugins/plugin" => {
                         if let Some(plugin) = pending_build_plugin.take() {
                             if let Some(artifact_id) = plugin.artifact_id {
-                                match artifact_id.as_str() {
-                                    "maven-compiler-plugin" => {
+                                let group_id = plugin
+                                    .group_id
+                                    .unwrap_or_else(|| DEFAULT_PLUGIN_GROUP.to_string());
+                                match (group_id.as_str(), artifact_id.as_str()) {
+                                    ("org.apache.maven.plugins", "maven-compiler-plugin") => {
                                         value.generated_source_directories.extend(
                                             plugin.compiler_generated_source_directories,
                                         );
@@ -2241,20 +2334,25 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                                             plugin.compiler_generated_test_source_directories,
                                         );
                                     }
-                                    "build-helper-maven-plugin" => {
+                                    ("org.codehaus.mojo", "build-helper-maven-plugin") => {
                                         value.generated_source_directories
                                             .extend(plugin.build_helper_source_directories);
                                         value.generated_test_source_directories
                                             .extend(plugin.build_helper_test_source_directories);
                                     }
-                                    "maven-surefire-plugin" | "maven-failsafe-plugin" => {
+                                    ("org.apache.maven.plugins", "maven-surefire-plugin")
+                                    | ("org.apache.maven.plugins", "maven-failsafe-plugin") => {
                                         value
                                             .test_report_directories
                                             .extend(plugin.reports_directories);
                                     }
                                     _ => {}
                                 }
-                                value.plugins.push(artifact_id);
+                                value.plugins.push(BuildPlugin {
+                                    group_id,
+                                    inherited: plugin.inherited.unwrap_or(true),
+                                    artifact_id,
+                                });
                             }
                         }
                     }

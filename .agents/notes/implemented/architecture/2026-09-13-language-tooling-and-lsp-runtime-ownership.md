@@ -78,6 +78,20 @@ Rename/Formatting/Code Action/Resolve/Execute Command 目前仍是
 LSP-only，未声明能力时返回明确的 capability 错误。Provider 抛错不会
 让路由提前结束，用于隔离第三方语言服务器故障。
 
+### Windows 语义颜色请求
+
+Windows 的语义高亮复用 Core 已有 `semanticTokens` 操作与请求时捕获的图例，
+前端只将归一化结果映射成 Monaco 的固定图例，不再解码服务器原始相对坐标。
+仅移除客户端能力检查并不能修复 #675：适配器必须映射命令，服务器的
+`semanticTokensRefresh` 也必须触发 Monaco 重新请求。
+
+正确顺序是先冲刷编辑器待发送的文档变更，再请求颜色，最后检查模型版本、
+文件路径、文档打开状态与取消状态。否则请求可能基于服务器尚未更新的旧文本，
+即便 Monaco 版本号在请求期间没变，也会把旧位置应用到新文本。
+适配器还会核对文件 attachment（文档与语言服务器会话的归属对象），归属被替换
+后丢弃旧响应。取消与 deadline 继续走现有请求路径；设置开关和大文件降级仍由
+Monaco 选项控制，缺少协商能力时保留基础语法高亮。
+
 ### 会话生命周期不变量
 
 会话生命周期必须是单一判别状态；capability 协商单独表示为 `unknown`
@@ -93,7 +107,7 @@ registry；`syncDocument` 由 Rust 决定发送 `didOpen`（version 1）还是
 `didChange`（递增版本），服务器声明 Incremental sync 且请求携带
 range 时发送增量变化，否则发送全文。`initializeTimeoutMilliseconds`
 只约束标准 LSP 握手；JDTLS 的 `ServiceReady` 等待独立计时（连续 45
-秒无 `$/progress` 变化判定 idle timeout，10 分钟绝对上限），平台
+秒无 `$/progress` 变化只记录一次警告，10 分钟绝对上限才终止），平台
 adapter 不得再添加自己的固定 readiness deadline，最终 ready 只认
 `language/status: ServiceReady`。
 
@@ -105,6 +119,33 @@ JDTLS 报告 `ServiceReady` 后按排序后的 Profiles 发送
 capability → Rust 以 LSP request ID 关联 deadline，用不透明 operation
 ID 投影 terminal result。停止 session 时先 `shutdown` 后 `exit`，服务器
 无响应则由超时路径强制停止，不直接用 `terminate()` 代替。
+
+### Java 导入安静期与 Windows 跳转缓存
+
+#1052 的两次导入在 Maven 23% 时因连续约 45 秒没有变化的进度通知而被
+Lithe 终止。仓库固定的 JDT LS 1.61.0（提交 `08eafe6`）中，
+[ProgressReporterManager](https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/08eafe6/org.eclipse.jdt.ls.core/src/org/eclipse/jdt/ls/core/internal/handlers/ProgressReporterManager.java)
+只在任务回调时发送进度，并过滤系统任务、节流通知；它没有定时心跳。
+[MavenProjectImporter](https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/08eafe6/org.eclipse.jdt.ls.core/src/org/eclipse/jdt/ls/core/internal/managers/MavenProjectImporter.java)
+把批次导入交给 m2e（Eclipse 的 Maven 项目引擎），不能保证每个批次在
+45 秒内上报变化。因此，“没有新进度”不足以证明进程卡死。
+
+Core 保留 45 秒观察阈值及原有 JSON 字段名，但只发带最后进度的日志警告；
+变化的进度可重新触发下一次安静期警告。只有固定的 10 分钟总期限、服务器
+明确报错或进程退出才使导入失败。就绪仍只认 `ServiceReady`，不从日志中的
+项目数量或百分比推算。正确示例：导入 90 秒没有新进度后收到 `ServiceReady`，
+正常进入就绪；错误示例：把 45 秒无变化当作失败并杀死仍在导入的进程。
+
+#1051 对应的 Windows Ctrl+悬停和点击共用有界调度器。空结果可能来自
+暂时不可用或请求失败，不能缓存成“这个词永远没有定义”。成功结果仍可复用，
+但语言服务生命周期或文档归属变化会清空缓存、丢弃在途旧结果；监听器跟随
+编辑器销毁。每次手势的缓存键还包含当前导航上下文，返回结果时再次核对，避免
+能力独立变化或适配器快照先于/晚于 UI 通知更新时使用旧位置。模型内容变化仍
+使缓存失效，F12 的即时查询路径保持不变。
+
+这些更改修正的是 Lithe 的等待和缓存策略，不重建 Maven 项目模型，不升级
+上游工具，也不声称已复现报告者的私有项目。若总期限后仍失败，应继续采集
+JDT 自身错误日志，排查具体依赖或导入故障。
 
 ### Windows 工作区打开时的 Git 优先级
 
@@ -164,6 +205,10 @@ capability 为准。
 
 ## 考虑过的备选方案
 
+- **只把 45 秒改成更大的空闲超时**：仍把可选进度当作心跳，不能消除误杀。
+- **把任意 JDT 日志都当作进展**：重复日志可能掩盖真正停滞；保留诊断信息，
+  就绪信号和总期限继续分别负责正确性与资源上限。
+
 - **仅延后 Windows 后台 Java 预热，或统一增加 Git 超时**：前者遗漏恢复文档的
   启动入口，后者延长故障等待而没有减少启动竞争。因此在共同的 Java 启动解析
   入口等待 Git 准备，继续使用已有查询期限。
@@ -193,6 +238,11 @@ capability 为准。
 
 ## 后果
 
+- 无进度但仍在工作的导入可使用完整准备时间；真正停滞但未报错的导入也会等到
+  总期限，用户仍可关闭工作区或重启语言服务。不能用任意日志来不断延长总期限。
+- 不缓存空定义会增加重复悬停失败位置时的查询，但仍保留防抖、单请求并发和
+  点击优先级。成功结果的缓存继续减少正常使用时的请求。
+
 - Windows 首次打开 Java 文档需要等待 Git 首轮查询完成；大型仓库的语言服务
   会相应晚启动，但减少了两者竞争导致 Git 超时的机会。Git 失败时只等待已有
   操作期限，随后允许 Java 继续，并由 Git 界面的独立重试恢复仓库数据。
@@ -214,6 +264,19 @@ capability 为准。
   的唯一真值来源。
 
 ## 验证
+
+本次等待策略由 `jdt_progress.rs` 的受控时钟测试和 `engine.rs` 的模拟服务测试
+覆盖：45 秒静默仍可就绪、警告去重、变化后再次警告、持续进展也不能越过总期限。
+共享示例位于 `shared/fixtures/lsp/jdt-readiness-v1.json`。Windows 的
+`definition-link.test.ts` 和 `definition-link-scheduler.test.ts` 验证失败恢复、
+成功缓存复用、重启/文档归属变化和迟到结果丢弃，进入 Windows CI 独立计时进程。
+Linux 的模拟验证不能代替 Windows WebView2 或报告者项目的实机验收。
+
+Windows 语义颜色使用 `lsp-core-adapter.test.ts` 和
+`semantic-token-provider.test.ts` 消费同一份
+`shared/fixtures/lsp/semantic-tokens-v1.json`，覆盖命令路由、图例转换、刷新通知、
+取消、归属替换、同步先后顺序及过期模型。Linux 可运行这些确定性前端测试；
+真实 JDTLS 与 WebView2 上色、大文件降级仍需 Windows 验收。
 
 Windows 启动回归由 `workspace-git-bootstrap.test.ts` 验证恢复 Java 文档与后台
 共用准备任务、子仓库未完成时不启动 Maven、失败后继续、关闭重开丢弃旧结果，

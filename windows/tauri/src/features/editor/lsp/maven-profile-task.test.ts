@@ -65,3 +65,18 @@ test("shared Maven event fixture keeps task warnings separate from service readi
   expect(toast.warning).toHaveBeenCalledTimes(1);
   expect(toast.success).not.toHaveBeenCalled();
 });
+
+test("a completed profile task dismisses its progress without claiming Maven resolved", () => {
+  const toast = {
+    loading: mock(() => "id"), success: mock(() => "id"),
+    warning: mock(() => "id"), error: mock(() => "id"), dismiss: mock(() => "id"),
+  };
+
+  presentMavenProfileTask(
+    { sessionId: "session", status: "succeeded" },
+    { toast, clearProjects: mock(() => undefined), retry: mock(async () => undefined) },
+  );
+
+  expect(toast.success).not.toHaveBeenCalled();
+  expect(toast.dismiss).toHaveBeenCalledWith("java-maven-profiles:session");
+});

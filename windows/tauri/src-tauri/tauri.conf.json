@@ -4,9 +4,9 @@
   "version": "0.3.0",
   "identifier": "app.lithe.windows",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "node ../../scripts/build-windows-ide-mcp.mjs && bun run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "node ../../scripts/build-windows-ide-mcp.mjs && bun run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -22,7 +22,8 @@
     "active": true,
     "targets": ["nsis", "msi"],
     "resources": {
-      "../src/extensions/bundled/**/*": "extensions/bundled/"
+      "../src/extensions/bundled/**/*": "extensions/bundled/",
+      "helpers/": "helpers/"
     },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
   },

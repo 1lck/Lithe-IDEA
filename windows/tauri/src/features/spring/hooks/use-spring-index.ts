@@ -1,17 +1,24 @@
+import { getLspWorkspaceSessionSnapshot } from "@/platform/lsp-core-adapter";
+import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { exists } from "@tauri-apps/plugin-fs";
 import { homeDir, join } from "@tauri-apps/api/path";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { pathStartsWithRoot } from "@/utils/path-helpers";
 import { requestSpringIndex } from "../api/spring-index-api";
 import { useSpringStore } from "../stores/spring.store";
 import { EMPTY_SPRING_INDEX } from "../types/spring.types";
+import { classifySpringIndexError } from "../utils/spring-index-error";
 import {
   collectSpringIndexPaths,
   isSpringIndexPath,
+  shouldScheduleSpringReloadForExternalChange,
   workspaceRelativeSpringPath,
 } from "../utils/spring-index-paths";
+import { isSupportedSpringRoot } from "../utils/spring-root";
 
 const RELOAD_DELAY_MS = 300;
 
@@ -25,85 +32,164 @@ async function resolveMavenMetadataRepository(): Promise<string | undefined> {
   return undefined;
 }
 
-export function useSpringIndex() {
+export interface SpringIndexDependencies {
+  requestIndex: typeof requestSpringIndex;
+  resolveMetadataRepository: typeof resolveMavenMetadataRepository;
+  scheduleReload: (reload: () => void) => () => void;
+  subscribeDependencyReady?: (root: string, reload: () => void) => () => void;
+}
+
+function isDependencyReady(phase: string | undefined): boolean {
+  // The Core adapter emits serviceReady; keep the legacy client alias too.
+  return phase === "serviceReady" || phase === "fullyReady";
+}
+
+/** Observe the current workspace Java session, not readiness in another project. */
+export const subscribeSpringDependencyReady: NonNullable<
+  SpringIndexDependencies["subscribeDependencyReady"]
+> = (root, reload) =>
+  useLspStore.subscribe((state, previous) => {
+    const session = getLspWorkspaceSessionSnapshot({ workspacePath: root, languageId: "java" });
+    if (!session) return;
+    const phase = state.lspStatus.lifecycleBySession[session.id];
+    if (
+      isDependencyReady(phase) &&
+      !isDependencyReady(previous.lspStatus.lifecycleBySession[session.id])
+    )
+      reload();
+  });
+
+const defaultDependencies: SpringIndexDependencies = {
+  subscribeDependencyReady: subscribeSpringDependencyReady,
+  requestIndex: requestSpringIndex,
+  resolveMetadataRepository: resolveMavenMetadataRepository,
+  scheduleReload: (reload) => {
+    const timer = setTimeout(reload, RELOAD_DELAY_MS);
+    return () => clearTimeout(timer);
+  },
+};
+
+export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDependencies) {
+  const workspaceId = useActiveWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
-  const loadGeneration = useRef(0);
-  const reloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    const store = useSpringStore.getState();
+    // Capture the owning stores before awaiting; active-workspace accessors can
+    // point at a different project by the time a scan or native request returns.
+    const store = useSpringStore.getStore(workspaceId).getState();
+    const fileSystemStore = useFileSystemStore.getStore(workspaceId);
+    const bufferStore = useBufferStore.getStore(workspaceId);
     if (!rootFolderPath) {
       store.actions.reset();
       return;
     }
 
     let cancelled = false;
+    let cancelReload: (() => void) | undefined;
+    let metadataRepository: Promise<string | undefined> | undefined;
+    let refreshDependencies = false;
 
     const load = async (refreshDependencyMetadata: boolean) => {
       const generation = store.actions.beginLoad(rootFolderPath);
-      loadGeneration.current = generation;
+      if (!isSupportedSpringRoot(rootFolderPath)) {
+        store.actions.failLoad(
+          generation,
+          classifySpringIndexError(
+            new Error("Spring indexing is unavailable for this workspace root"),
+            rootFolderPath,
+          ),
+        );
+        return;
+      }
       try {
-        const files = await useFileSystemStore.getState().getAllProjectFiles();
+        const files = await fileSystemStore.getState().getAllProjectFiles();
+        if (cancelled) return;
         const paths = collectSpringIndexPaths(
           files.map((file) => file.path),
           rootFolderPath,
         );
         const textOverrides: Record<string, string> = {};
-        for (const buffer of useBufferStore.getState().buffers) {
+        for (const buffer of bufferStore.getState().buffers) {
           if (!buffer.path || !hasTextContent(buffer) || !isSpringIndexPath(buffer.path)) continue;
           const relative = workspaceRelativeSpringPath(buffer.path, rootFolderPath);
           if (relative) textOverrides[relative] = buffer.content;
         }
-        const metadataRepository = refreshDependencyMetadata
-          ? await resolveMavenMetadataRepository()
-          : undefined;
+        // Keep the repository on every request: Core's cache is keyed by the
+        // supplied roots, so omitting it would drop dependency completions as
+        // soon as the user types. Resolve again when JDT finishes importing.
+        if (!metadataRepository || refreshDependencyMetadata) {
+          metadataRepository = dependencies.resolveMetadataRepository();
+        }
+        const repository = await metadataRepository;
+        if (cancelled) return;
         const index =
           paths.length === 0
             ? EMPTY_SPRING_INDEX
-            : await requestSpringIndex({
+            : await dependencies.requestIndex({
                 root: rootFolderPath,
                 paths,
-                metadataRepositories: metadataRepository ? [metadataRepository] : [],
+                metadataRepositories: repository ? [repository] : [],
                 textOverrides,
                 refreshDependencyMetadata,
               });
         if (cancelled) return;
-        useSpringStore.getState().actions.completeLoad(generation, rootFolderPath, index);
+        store.actions.completeLoad(generation, rootFolderPath, index);
       } catch (error) {
-        console.warn("Spring index failed:", error);
-        if (!cancelled) useSpringStore.getState().actions.failLoad(generation);
+        if (!cancelled) {
+          const failure = classifySpringIndexError(error, rootFolderPath);
+          console.warn("Spring index failed:", failure.category);
+          store.actions.failLoad(generation, failure);
+        }
       }
     };
 
     const scheduleReload = () => {
-      if (reloadTimer.current) clearTimeout(reloadTimer.current);
-      reloadTimer.current = setTimeout(() => {
-        void load(false);
-      }, RELOAD_DELAY_MS);
+      cancelReload?.();
+      cancelReload = dependencies.scheduleReload(() => {
+        cancelReload = undefined;
+        const refresh = refreshDependencies;
+        refreshDependencies = false;
+        void load(refresh);
+      });
     };
 
+    const unsubscribeDependencies = dependencies.subscribeDependencyReady?.(rootFolderPath, () => {
+      if (cancelled) return;
+      refreshDependencies = true;
+      scheduleReload();
+    });
     void load(true);
 
-    const unsubscribeBuffers = useBufferStore.subscribe((state, previous) => {
+    const unsubscribeBuffers = bufferStore.subscribe((state, previous) => {
       const changed = state.buffers.some((buffer) => {
-        if (!buffer.path || !isSpringIndexPath(buffer.path) || !hasTextContent(buffer)) return false;
+        if (!buffer.path || !isSpringIndexPath(buffer.path) || !hasTextContent(buffer))
+          return false;
         const previousBuffer = previous.buffers.find((candidate) => candidate.id === buffer.id);
-        return !previousBuffer || !hasTextContent(previousBuffer) || previousBuffer.content !== buffer.content;
+        return (
+          !previousBuffer ||
+          !hasTextContent(previousBuffer) ||
+          previousBuffer.content !== buffer.content
+        );
       });
       if (changed) scheduleReload();
     });
 
     const handleExternalChange = (event: Event) => {
-      const path = (event as CustomEvent<{ path?: string }>).detail?.path;
-      if (path && isSpringIndexPath(path)) scheduleReload();
+      const detail = (event as CustomEvent<{ path?: string; event_type?: string }>).detail;
+      if (!detail?.path || !detail.event_type) return;
+      if (!pathStartsWithRoot(detail.path, rootFolderPath)) return;
+      if (shouldScheduleSpringReloadForExternalChange(detail.event_type, detail.path)) {
+        scheduleReload();
+      }
     };
     window.addEventListener("file-external-change", handleExternalChange);
 
     return () => {
       cancelled = true;
       unsubscribeBuffers();
+      unsubscribeDependencies?.();
       window.removeEventListener("file-external-change", handleExternalChange);
-      if (reloadTimer.current) clearTimeout(reloadTimer.current);
+      cancelReload?.();
     };
-  }, [rootFolderPath]);
+  }, [workspaceId, rootFolderPath, dependencies]);
 }

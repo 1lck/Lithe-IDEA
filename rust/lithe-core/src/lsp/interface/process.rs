@@ -303,6 +303,28 @@ mod tests {
         }));
     }
 
+    /// Libtest name of [`argv_echo_helper`], which the batch test re-launches.
+    const ARGV_ECHO_TEST: &str = "lsp::interface::process::tests::argv_echo_helper";
+    /// Separates libtest's own arguments from the arguments under test.
+    const ARGV_ECHO_MARKER: &str = "lithe-argv-echo";
+    const ARGV_ECHO_EXECUTABLE_ENV: &str = "LITHE_TEST_ARGV_ECHO_EXECUTABLE";
+    const ARGV_ECHO_OUTPUT_ENV: &str = "LITHE_TEST_ARGV_ECHO_OUTPUT";
+
+    /// Not a scenario of its own: a no-op unless the batch test launches this
+    /// test binary with it. It then writes the arguments that follow the marker
+    /// exactly as this native Windows process parsed them.
+    #[test]
+    fn argv_echo_helper() {
+        let Some(output) = std::env::var_os(ARGV_ECHO_OUTPUT_ENV) else {
+            return;
+        };
+        let arguments = std::env::args()
+            .skip_while(|argument| argument != ARGV_ECHO_MARKER)
+            .skip(1)
+            .collect::<Vec<_>>();
+        fs::write(output, arguments.join("\r\n")).expect("argument echo output");
+    }
+
     #[test]
     fn batch_language_server_preserves_spaced_paths_and_shell_metacharacters() {
         let stamp = SystemTime::now()
@@ -312,15 +334,16 @@ mod tests {
         let root = std::env::temp_dir().join(format!("lithe lsp batch {stamp}"));
         fs::create_dir_all(&root).expect("temp directory");
         let executable = root.join("scripted server.cmd");
-        let argument_writer = root.join("write-argument.ps1");
-        fs::write(
-            &argument_writer,
-            "[Console]::Out.Write(($args -join [Environment]::NewLine))\r\n",
-        )
-        .expect("PowerShell argument writer");
+        let echo_output = root.join("arguments.txt");
+        // The script forwards `%*` to a native Windows program, which parses the
+        // command line the way a real language server such as java.exe does.
+        // This test binary plays that program: starting PowerShell here instead
+        // took from 0.2 s to the whole per-test budget on CI runners.
         fs::write(
             &executable,
-            "@echo off\r\npowershell.exe -NoLogo -NoProfile -File \"%~dp0write-argument.ps1\" %*\r\n",
+            format!(
+                "@echo off\r\n\"%{ARGV_ECHO_EXECUTABLE_ENV}%\" --exact {ARGV_ECHO_TEST} --test-threads 1 {ARGV_ECHO_MARKER} %*\r\n"
+            ),
         )
         .expect("batch script");
         let arguments = vec![
@@ -336,17 +359,32 @@ mod tests {
             executable,
             arguments: arguments.clone(),
             working_directory: root.clone(),
-            environment: BTreeMap::new(),
+            environment: BTreeMap::from([
+                (
+                    ARGV_ECHO_EXECUTABLE_ENV.to_string(),
+                    std::env::current_exe()
+                        .expect("test executable")
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                (
+                    ARGV_ECHO_OUTPUT_ENV.to_string(),
+                    echo_output.to_string_lossy().into_owned(),
+                ),
+            ]),
         };
 
         let mut streams = SystemProcessLauncher
             .launch(spec)
             .expect("launch batch script");
         streams.handle.close_input();
+        // Reading to the end waits for the script and the echo process to exit.
         let mut output = String::new();
         streams.output.read_to_string(&mut output).expect("stdout");
 
-        assert_eq!(output, arguments.join("\r\n"));
+        let echoed = fs::read_to_string(&echo_output)
+            .unwrap_or_else(|error| panic!("echo output missing ({error}); stdout: {output}"));
+        assert_eq!(echoed, arguments.join("\r\n"));
         fs::remove_dir_all(root).ok();
     }
 }

@@ -1,0 +1,29 @@
+{
+  "id": "agent-claude-api-key-authentication",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Claude API Key 鉴权：所选供应商及新建/恢复路由保持；永久错误快速返回；临时故障五次短尝试、二十秒重连上限、错误保持与已开始工作禁止重放",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/session_routing.rs",
+      "rust/lithe-agent-host/src/prompt_retry.rs",
+      "rust/lithe-agent-host/src/tests.rs",
+      "rust/lithe-agent-host/tests/real_agent.rs",
+      "rust/lithe-agent-host/tests/claude_api_failure.rs",
+      "shared/fixtures/agent/acp-events-v1.json",
+      ".agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/session_routing.rs",
+      "shared/contracts/rust-core-api.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS：验证所选 Anthropic Messages 供应商的正常流式回复、读写文件、执行测试、追问、停止和历史恢复。新建与恢复用同一公开 SDK env/settings.env 禁用原生长退避、watchdog、非流式回退，清除冲突路由并只发送有效 x-api-key。隔离配置目录以已安装 CLI/ACP 和本地 HTTP 服务覆盖 400/401/402/403 的快速终止、404 原生模型探测、408/429/500/502/503/504/529 及响应前断连五次短尝试，即使 Retry-After:180 和 x-should-retry:true 也不能等待三分钟；验证实际 HTTP 次数、结构化失败不能当成功、失败后恢复正常流、部分输出后不重放、项目重试配置冲突。Host 虚拟时钟验证二十秒预算不刷新、取消确认前仍忙碌、退避中停止、已有进度禁止重放和其他会话隔离。检查关闭后子进程退出和包内文件哈希不变。生产 macOS UI 和 Windows 真实验收仍待完成，不能把本地假服务当真实供应商或 Windows 验证。"
+}

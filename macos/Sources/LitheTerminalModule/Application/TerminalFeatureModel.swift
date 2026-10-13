@@ -36,9 +36,21 @@ public final class TerminalFeatureModel: ObservableObject {
         return index == 0 ? session.shellName : "\(session.shellName) (\(index + 1))"
     }
 
+    public func toolTabTitle(for session: TerminalSession, orderedSessions: [TerminalSession]) -> String {
+        guard !session.isManagedProcess else { return terminalTitle(for: session) }
+        let base = session.preferredToolTabTitle ?? "Local"
+        guard let index = orderedSessions.firstIndex(where: { $0.id == session.id }) else { return base }
+        let number = orderedSessions[..<index].filter { ($0.preferredToolTabTitle ?? "Local") == base }.count + 1
+        return number == 1 ? base : "\(base) (\(number))"
+    }
+
     @discardableResult
-    public func createSession(in workspaceURL: URL, shellPath: String? = nil) -> TerminalSession {
-        let session = TerminalSession(transport: terminalFactory())
+    public func createSession(
+        in workspaceURL: URL,
+        shellPath: String? = nil,
+        preferredToolTabTitle: String? = nil
+    ) -> TerminalSession {
+        let session = TerminalSession(transport: terminalFactory(), preferredToolTabTitle: preferredToolTabTitle)
         session.start(in: workspaceURL, shellPath: shellPath)
         terminalSessions.append(session)
         activeTerminalSessionID = session.id

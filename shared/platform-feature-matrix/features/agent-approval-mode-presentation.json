@@ -1,0 +1,25 @@
+{
+  "id": "agent-approval-mode-presentation",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Agent 权限模式呈现：Claude/Codex 名称保留上游原文，说明按界面语言显示并补齐图标，保留各 Agent 实际支持的选项及权限语义",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
+      "macos/Resources/en.lproj/Localizable.strings",
+      "macos/Resources/zh-Hans.lproj/Localizable.strings",
+      "macos/Tests/LitheTests/AgentSessionSelectorPresentationTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "pending",
+    "evidence": [
+      "shared/contracts/application-boundary.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "中文和英文环境分别验证 Claude/Codex：权限名称保留上游原文，Plan 菜单与底栏一致，已知权限 ID 显示对应图标，未知选项原文和默认图标不变；说明使用当前界面语言，保留各 Agent 实际的审批和环境约束。检查原始 ID、数量、顺序及确认/失败行为不变。使用指定语言的资源 Bundle 验证名称与通用 Plan 翻译不会串用；整合紧凑布局后检查双行说明和长列表滚动。Windows 对话 UI 待实现。"
+}

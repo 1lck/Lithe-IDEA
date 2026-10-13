@@ -17,6 +17,7 @@
   <p>
     <a href="https://hellogithub.com/repository/1lck/Lithe-IDEA" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=633af067f07d4d16af010b9dc16c0b8d&amp;claim_uid=7NYd4yvRlGtqfgr" alt="Featured | HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54"></a>
     <a href="https://atomgit.com/lithe_IDEA/Lithe-IDEA"><img src="https://atomgit.com/lithe_IDEA/Lithe-IDEA/star/new_badge.svg" alt="AtomGit G-Star" style="width: 250px; height: 54px;" width="250" height="54"></a>
+    <a href="https://trendshift.io/repositories/124763?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-124763" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/124763/weekly?language=Swift" alt="Lithe-IDEA | Trendshift 周榜" width="250" height="55"></a>
   </p>
 
   <p>
@@ -30,6 +31,8 @@
   </p>
 </div>
 
+https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
+
 ## 欢迎加入群聊
 
 欢迎加入 Lithe 社区，分享使用体验、交流问题，并获取项目最新动态。
@@ -42,7 +45,7 @@
   </tr>
   <tr>
     <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="Lithe QQ 群二维码"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="Lithe 微信群二维码"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr-2026-10.png" width="280" alt="Lithe 微信群二维码"></a></td>
   </tr>
 </table>
 </div>
@@ -109,20 +112,26 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 <p align="center">
   <img src="./docs/assets/screenshots/search-everywhere.png" width="49%" alt="双击 Shift 全局搜索">
+  <img src="./docs/assets/screenshots/git-diff-review.png" width="49%" alt="Git 双栏 Diff 审查">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/ai-commit-message.png" width="49%" alt="使用 AI 自动生成 Commit Message">
+  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="49%" alt="项目自动识别和一键运行配置">
+</p>
+
+<details>
+<summary>更多截图</summary>
+<br>
+
+<p align="center">
   <img src="./docs/assets/screenshots/global-search.png" width="49%" alt="Command Shift F 全局搜索和替换">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/git-diff-review.png" width="96%" alt="Git 双栏 Diff 审查">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="从本机 AI 工具导入 API 配置">
   <img src="./docs/assets/screenshots/ai-commit-format.png" width="49%" alt="自定义 AI Commit Message 格式">
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/ai-commit-message.png" width="96%" alt="使用 AI 自动生成 Commit Message">
+  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="从本机 AI 工具导入 API 配置">
+  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="按语言配置语言服务">
 </p>
 
 <p align="center">
@@ -136,18 +145,15 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="96%" alt="项目自动识别和一键运行配置">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="按语言配置语言服务">
   <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="多行编辑器标签">
+  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="数据库连接工作台">
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="数据库连接工作台">
   <img src="./docs/assets/screenshots/database-sql-operation.png" width="49%" alt="数据库 SQL 操作和表结构">
 </p>
+
+</details>
 
 ## 下载与安装
 
@@ -169,20 +175,27 @@ macOS 是当前参考产品，Windows 是独立的 React/Tauri 实现。两端�
 ```mermaid
 flowchart LR
     subgraph macOS["macOS"]
-        MacUI["SwiftUI / AppKit 工作台"] --> MacApp["应用模型与服务"]
-        MacApp --> MacAdapters["macOS 适配器"]
+        MacViews["SwiftUI / AppKit Views"] --> MacModel["AppModel 与界面模型"]
+        MacModel --> MacFeatures["Application 功能模型"]
+        MacFeatures --> MacServices["AppServices 与 Swift Services"]
+        MacServices --> MacRust["类型化 Rust 操作"]
+        MacServices --> MacPorts["平台无关端口"]
+        MacPorts --> MacAdapters["macOS 适配器"]
     end
 
     subgraph Shared["共享行为"]
+        Editor["共享 Monaco 编辑器"]
         Contracts["JSON 契约与 Fixtures"] --> Core["Rust lithe-core"]
     end
 
     subgraph Windows["Windows"]
-        WinUI["React 工作台"] --> WinFeatures["TypeScript Features 与 Stores"]
-        WinFeatures --> Tauri["Tauri 2 Host 与 Windows 适配器"]
+        WinUI["React 工作台与功能状态"] --> WinBoundary["src/platform/tauri-core.ts"]
+        WinBoundary --> Tauri["Tauri 组合根与 Windows 适配器"]
     end
 
-    MacApp -->|"JSON C ABI"| Core
+    Editor -.-> MacViews
+    Editor -.-> WinUI
+    MacRust -->|"JSON C ABI"| Core
     Tauri -->|"Rust crate"| Core
 ```
 
@@ -256,6 +269,17 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
+      <a href="https://www.packyapi.ai/register?aff=dWNN">
+        <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
+      </a>
+    </td>
+    <td>
+      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> 是一家稳定、高效的 API 中转服务商，一句话接入主流大模型。统一域名、统一密钥、智能容灾切换，97% 可用性。人民币 1:1 充值，无汇率无手续费坑，新用户首充立享折扣 + $1 免费体验额度，多分组折扣低至 2 折起，提供专属 Codex/Claude Code 高速通道。<br>
+      <a href="https://www.packyapi.ai/register?aff=dWNN">点此链接注册，立即开始使用！</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
       <a href="https://torchai.ai/sign-up?aff=FdkE">
         <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
       </a>
@@ -295,6 +319,25 @@ open dist/Lithe.app
     </td>
   </tr>
 </table>
+
+### ☕ 支持 Lithe
+
+如果 Lithe 对你有帮助，欢迎请项目喝一杯咖啡。收到的每一笔支持都会继续投入 Lithe 的开发与维护。
+
+<div align="center">
+<table>
+  <tr>
+    <td align="center">
+      <img src="./docs/assets/donation/wechat.png" width="280" alt="微信收款码"><br>
+      <strong>微信</strong>
+    </td>
+    <td align="center">
+      <img src="./docs/assets/donation/alipay.png" width="280" alt="支付宝收款码"><br>
+      <strong>支付宝</strong>
+    </td>
+  </tr>
+</table>
+</div>
 
 ### ⭐ 特别鸣谢
 

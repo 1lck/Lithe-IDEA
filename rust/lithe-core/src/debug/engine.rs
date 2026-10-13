@@ -617,6 +617,11 @@ pub(crate) fn inspect(request: InspectRequest) -> Result<DebugSessionUpdate, Cor
                 "Debugger inspection requires a running or paused session.",
             ));
         }
+        if request.kind == DebugInspectKind::RedefineClasses && session.adapter_id != "java" {
+            return Err(invalid_request(
+                "Hot code replacement requires a Java debug session.",
+            ));
+        }
         if request.kind == DebugInspectKind::StepInTargets
             && !session.capabilities.supports_step_in_targets_request
         {
@@ -774,6 +779,18 @@ impl DebugSession {
         )?;
         if self.adapter_id == "java" && !arguments.contains_key("stepFilters") {
             arguments.insert("stepFilters".to_string(), java_step_filters(&filters));
+        }
+        if self.adapter_id == "java" && request_kind == DebugRequestKind::Launch {
+            // A DevTools classloader restart would discard the debugger's hot-replacement target.
+            let option = super::JAVA_DEBUG_DISABLE_DEVTOOLS_RESTART;
+            let vm_args = arguments.entry("vmArgs").or_insert_with(|| json!(""));
+            match vm_args {
+                Value::String(value) => {
+                    *value = format!("{} {}", value, option).trim().to_owned();
+                }
+                Value::Array(values) => values.push(json!(option)),
+                _ => return Err(invalid_request("Java vmArgs must be a string or an array.")),
+            }
         }
         self.stepping_filters = filters;
         arguments
@@ -1138,11 +1155,27 @@ impl DebugSession {
             }
             PendingRequest::Inspect { operation_id, kind } => {
                 let result =
-                    normalize_inspection(kind, &body, &self.stepping_filters, &self.root_path)?;
-                self.emit(DebugEventBody::OperationCompleted {
-                    operation_id,
-                    result,
-                });
+                    normalize_inspection(kind, &body, &self.stepping_filters, &self.root_path);
+                // HCR rejection is an operation failure, not a broken transport/session.
+                if kind == DebugInspectKind::RedefineClasses {
+                    match result {
+                        Ok(result) => self.emit(DebugEventBody::OperationCompleted {
+                            operation_id,
+                            result,
+                        }),
+                        Err(error) => self.emit(DebugEventBody::OperationFailed {
+                            operation_id,
+                            command: kind.command().into(),
+                            code: DebugOperationFailureCode::AdapterRejected,
+                            message: error.message,
+                        }),
+                    }
+                } else {
+                    self.emit(DebugEventBody::OperationCompleted {
+                        operation_id,
+                        result: result?,
+                    });
+                }
             }
             PendingRequest::Disconnect => {}
         }
@@ -1402,7 +1435,7 @@ fn inspect_arguments(request: &InspectRequest) -> Result<Map<String, Value>, Cor
     }
     let mut arguments = Map::new();
     match request.kind {
-        DebugInspectKind::Threads => {}
+        DebugInspectKind::Threads | DebugInspectKind::RedefineClasses => {}
         DebugInspectKind::StackTrace => {
             arguments.insert(
                 "threadId".to_string(),
@@ -1543,6 +1576,28 @@ fn normalize_inspection(
                 details: body.get("details").and_then(parse_exception_details),
             },
         }),
+        DebugInspectKind::RedefineClasses => {
+            // Java Debug Server can return DAP success with an application-level error.
+            if let Some(message) = body
+                .get("errorMessage")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                return Err(invalid_request(message));
+            }
+            let mut changed_classes = required_array(body, "changedClasses")?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid_request("Invalid changed class name."))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            changed_classes.sort();
+            changed_classes.dedup();
+            Ok(DebugOperationResult::RedefineClasses { changed_classes })
+        }
         DebugInspectKind::StepInTargets => Ok(DebugOperationResult::StepInTargets {
             targets: required_array(body, "targets")?
                 .iter()
@@ -2223,6 +2278,131 @@ mod tests {
             .unwrap()
             + 4;
         serde_json::from_slice(&bytes[body_start..]).unwrap()
+    }
+
+    #[test]
+    fn hot_replace_normalizes_success_empty_and_error_bodies() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/hot-code-replace-v1.json"
+        )))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let result = normalize_inspection(
+                DebugInspectKind::RedefineClasses,
+                &case["body"],
+                &DebugSteppingFilters::defaults_for_adapter("java"),
+                "/workspace",
+            );
+            if case["failure"].as_bool() == Some(true) {
+                assert!(result.is_err(), "{}", case["name"]);
+            } else {
+                let value = serde_json::to_value(result.unwrap()).unwrap();
+                assert_eq!(value, case["result"], "{}", case["name"]);
+            }
+        }
+    }
+
+    #[test]
+    fn hot_replace_requires_java_and_preserves_paused_state() {
+        for (id, adapter) in [("hcr-java", "java"), ("hcr-other", "python")] {
+            create_session(CreateSessionRequest {
+                session_id: id.into(),
+                adapter_id: adapter.into(),
+                root_path: "/workspace".into(),
+                supports_run_in_terminal_request: false,
+            })
+            .unwrap();
+            // The guard always removes the process-free session, including on assertion failure.
+            struct Cleanup(&'static str);
+            impl Drop for Cleanup {
+                fn drop(&mut self) {
+                    let _ = destroy_session(SessionRequest {
+                        session_id: self.0.into(),
+                    });
+                }
+            }
+            let _cleanup = Cleanup(id);
+            receive_messages(id, vec![response_message(1, "initialize", json!({}))]);
+            let launched = launch(LaunchRequest {
+                session_id: id.into(),
+                operation_id: "launch".into(),
+                configuration: DebugLaunchConfiguration {
+                    name: "service".into(),
+                    request: DebugRequestKind::Launch,
+                    arguments: serde_json::from_value(json!({"vmArgs":"-Xmx256m"})).unwrap(),
+                    stepping_filters: None,
+                },
+            })
+            .unwrap();
+            let launch_frame = decode_frame(&launched.outbound_frames[0]);
+            if adapter == "java" {
+                assert_eq!(
+                    launch_frame["arguments"]["vmArgs"],
+                    "-Xmx256m -Dspring.devtools.restart.enabled=false"
+                );
+            }
+            receive_messages(
+                id,
+                vec![response_message(
+                    launch_frame["seq"].as_i64().unwrap(),
+                    "launch",
+                    json!({}),
+                )],
+            );
+            receive_messages(
+                id,
+                vec![
+                    json!({"type":"event", "event":"stopped", "body":{"reason":"breakpoint","threadId":1}}),
+                ],
+            );
+            let request: InspectRequest = serde_json::from_value(json!({
+                "sessionId":id,"operationId":"apply","kind":"redefineClasses"
+            }))
+            .unwrap();
+            let update = inspect(request);
+            if adapter != "java" {
+                assert!(update.is_err());
+                continue;
+            }
+            let update = update.unwrap();
+            let frame = decode_frame(&update.outbound_frames[0]);
+            assert_eq!(frame["command"], "redefineClasses");
+            assert_eq!(frame["arguments"], json!({}));
+            let result = receive_messages(
+                id,
+                vec![response_message(
+                    frame["seq"].as_i64().unwrap(),
+                    "redefineClasses",
+                    json!({"changedClasses":["example.Service"]}),
+                )],
+            );
+            assert_eq!(result.state, DebugSessionState::Paused);
+            assert!(result.events.iter().any(|e| matches!(&e.body,
+                DebugEventBody::OperationCompleted { operation_id, result: DebugOperationResult::RedefineClasses { changed_classes } }
+                if operation_id == "apply" && changed_classes == &["example.Service".to_string()])));
+            // A success envelope with a JVM error must not tear down the debug transport.
+            let rejected = inspect(
+                serde_json::from_value(json!({
+                    "sessionId":id,"operationId":"rejected","kind":"redefineClasses"
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let frame = decode_frame(&rejected.outbound_frames[0]);
+            let result = receive_messages(
+                id,
+                vec![response_message(
+                    frame["seq"].as_i64().unwrap(),
+                    "redefineClasses",
+                    json!({"changedClasses":[], "errorMessage":"Schema change not supported"}),
+                )],
+            );
+            assert_eq!(result.state, DebugSessionState::Paused);
+            assert!(result.events.iter().any(|e| matches!(&e.body,
+                DebugEventBody::OperationFailed { operation_id, message, .. }
+                if operation_id == "rejected" && message == "Schema change not supported")));
+        }
     }
 
     #[test]

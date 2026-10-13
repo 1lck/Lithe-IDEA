@@ -1,11 +1,11 @@
 import { invoke } from "@/platform/tauri-core";
 import type { CommitAISettings, CommitDetection, CommitFileInput } from "../types/ai-commit";
-import { getWorkingTreePathDiff } from "../api/git-diff-api";
+import { getFileDiff } from "../api/git-diff-api";
 import { collectCommitContext } from "./ai-commit-context";
 import type { GitFile } from "../types/git.types";
 export { commitSelectionKey } from "./ai-commit-context";
 export const collectCommitFiles = (repo: string, files: GitFile[], signal: AbortSignal) =>
-  collectCommitContext(repo, files, signal, getWorkingTreePathDiff);
+  collectCommitContext(repo, files, signal, (root, path) => getFileDiff(root, path, true));
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 export function commitAIError(error: unknown, t: Translate): string {

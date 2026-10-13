@@ -18,11 +18,13 @@ export const buttonVariants = cva(
         danger:
           "border-0 bg-transparent text-foreground hover:bg-destructive/10 hover:text-destructive data-[active=true]:bg-destructive/12 data-[active=true]:text-destructive",
       },
+      // Text buttons follow IntelliJ Islands Button.arc 8 (4px radius); icon buttons keep
+      // the toolbar-button radius.
       size: {
-        default: "h-8 px-3",
-        xs: "h-6 gap-1 px-1.5",
-        sm: "h-7 px-2.5",
-        lg: "h-9 px-4",
+        default: "h-8 rounded-[4px] px-3",
+        xs: "h-6 gap-1 rounded-[4px] px-1.5",
+        sm: "h-7 rounded-[4px] px-2.5",
+        lg: "h-9 rounded-[4px] px-4",
         icon: "size-8 p-0",
         "icon-xs": "size-6 p-0",
         "icon-sm": "size-7 p-0",

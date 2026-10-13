@@ -1,4 +1,5 @@
 import { ProjectPreparationStatus } from "@/features/run/components/project-preparation-status";
+import { GitFetchStatus } from "@/features/git/components/git-fetch-status";
 import { useMemo } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import {
@@ -68,6 +69,7 @@ const Footer = () => {
       </ChromeGroup>
 
       <ChromeGroup gap="tight" align="end" className="shrink-0">
+        <GitFetchStatus />
         {orderChromeItems(visibleTrailingItems, footerTrailingOrder).map((item) => (
           <div key={item.id} className="flex min-h-(--lithe-chrome-control-height) items-center">
             {item.content}

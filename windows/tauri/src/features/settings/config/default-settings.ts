@@ -58,7 +58,7 @@ export const defaultSettings: Settings = {
   renderWhitespace: "none",
   renderIndentGuides: true,
   highlightOccurrences: true,
-  showMinimap: true,
+  showMinimap: false,
   editorFontLigatures: false,
   editorItalicComments: false,
   editorStickyScroll: false,
@@ -94,6 +94,7 @@ export const defaultSettings: Settings = {
   showStatusBar: true,
   showTabIcons: true,
   tabCloseButtonVisibility: "active",
+  editorTabLayoutMode: "singleLine",
   windowChromeDensity: "focused",
   // Theme
   theme: "lithe-dark",
@@ -104,12 +105,13 @@ export const defaultSettings: Settings = {
   nativeMenuBar: false,
   compactMenuBar: true,
   windowTransparency: false,
+  differentiateProjects: true,
   sidebarActivityItemsOrder: [...SIDEBAR_ACTIVITY_ITEM_IDS],
   hiddenSidebarActivityItems: [],
   footerLeadingItemsOrder: [...FOOTER_LEADING_ITEM_IDS],
   footerTrailingItemsOrder: [...FOOTER_TRAILING_ITEM_IDS],
   askWhereToOpenProjects: true,
-  openFoldersInNewWindow: true,
+  projectOpenDefaultDestination: "new-window",
   // AI
   aiProviderId: DEFAULT_AI_PROVIDER_ID,
   aiModelId: DEFAULT_AI_MODEL_ID,
@@ -176,7 +178,6 @@ export const defaultSettings: Settings = {
   lastSettingsTab: "general",
   extensionsActiveTab: "all",
   maxOpenTabs: 100,
-  horizontalTabScroll: true,
   //// File tree
   fileTreeSortOrder: "folders-first",
   fileTreeIndentSize: 16,
@@ -200,16 +201,14 @@ export const defaultSettings: Settings = {
   showGitStatusInFileTree: true,
   compactGitStatusBadges: false,
   collapseEmptyGitSections: false,
-  rememberLastGitPanelMode: false,
   gitExecutable: "",
   gitUseCredentialHelper: true,
   gitFetchPrune: true,
   gitFetchSubmodules: "inherit",
   gitFetchTags: "inherit",
-  gitLastPanelMode: "changes",
-  gitSidebarTabOrder: ["changes", "history"],
   githubSidebarSectionOrder: ["pull-requests", "issues", "actions"],
   enableInlineGitBlame: true,
+  enableGitGutter: true,
 };
 
 export const getDefaultSetting = <K extends keyof Settings>(key: K): Settings[K] =>

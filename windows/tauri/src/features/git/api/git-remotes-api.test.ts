@@ -5,7 +5,8 @@ import type { GitPullPreflight, GitReference } from "../types/git.types";
 const invoke = mock(async (_command: string, _args?: unknown): Promise<unknown> => null);
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 
 const {
   deleteRemoteBranch,
@@ -92,7 +93,10 @@ describe("Git remote Pull API", () => {
       pullResult: { status: "cancelled" },
     });
     expect(invoke).not.toHaveBeenCalledWith("git_pull", expect.anything());
-    expect(invoke).toHaveBeenCalledWith("git_status", { repoPath: "C:/repo" });
+    expect(invoke).toHaveBeenCalledWith(
+      "git_status",
+      expect.objectContaining({ repoPath: "C:/repo" }),
+    );
     expect(invoke).toHaveBeenCalledWith("git_log", { repoPath: "C:/repo", limit: 50 });
     expect(invoke).toHaveBeenCalledWith("git_branches", { repoPath: "C:/repo" });
     expect(invoke).toHaveBeenCalledWith("git_get_remotes", { repoPath: "C:/repo" });
@@ -131,5 +135,13 @@ describe("Git remote Pull API", () => {
       scopes: ["history", "refs", "remotes"],
       source: "delete-remote-branch",
     });
+  });
+});
+
+test("Background Pull forwards the complete expected checkout identity to Core", async () => {
+  invoke.mockImplementation(async (command: string) => command === "git_discover_repo" ? "C:/guarded-repo" : null);
+  await expect(executePullChanges("C:/guarded-repo", "ffOnly", "refs/heads/topic")).resolves.toEqual({ success: true });
+  expect(invoke).toHaveBeenCalledWith("git_pull", {
+    repoPath: "C:/guarded-repo", mode: "ffOnly", expectedBranch: "refs/heads/topic",
   });
 });

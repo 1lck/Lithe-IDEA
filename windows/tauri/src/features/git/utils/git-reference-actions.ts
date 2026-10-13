@@ -17,7 +17,8 @@ export type GitReferenceAction =
   | "tracking"
   | "rename"
   | "deleteLocal"
-  | "deleteRemote";
+  | "deleteRemote"
+  | "deleteTag";
 
 const CURRENT_BRANCH_ACTIONS: GitReferenceAction[] = [
   "createBranch",
@@ -64,6 +65,7 @@ const TAG_ACTIONS: GitReferenceAction[] = [
   "createBranch",
   "compareWithCurrent",
   "diffWithWorkingTree",
+  "deleteTag",
 ];
 
 export function getGitReferenceActions(reference: GitReference): GitReferenceAction[] {
@@ -102,9 +104,7 @@ export function getGitReferenceToolbarState(
 ): GitReferenceToolbarState {
   const selectedLocalBranch = selectedReference?.kind === "local" ? selectedReference : null;
   const canUpdateSelected = Boolean(
-    selectedLocalBranch &&
-      (selectedLocalBranch.isCurrent ||
-        (selectedLocalBranch.upstreamShortName && (selectedLocalBranch.behind ?? 0) > 0)),
+    selectedLocalBranch?.upstreamShortName,
   );
   return {
     canCreateBranch: !isMutating && Boolean(selectedReference ?? currentReference),

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import LitheCoreContracts
 
 enum MacJDTLSLaunchResourceResolution {
@@ -14,14 +15,17 @@ struct MacJDTLSLaunchResourceResolver {
     private static let javaTestRunnerName = "com.microsoft.java.test.runner-jar-with-dependencies.jar"
 
     private let bundledJdtlsRootURL: URL?
+    private let configurationCacheDirectoryURL: URL?
     private let fileManager: FileManager
 
     init(
         bundledJdtlsRootURL: URL? = Bundle.main.resourceURL?
             .appendingPathComponent("LanguageServers/jdtls", isDirectory: true),
+        configurationCacheDirectoryURL: URL? = nil,
         fileManager: FileManager = .default
     ) {
         self.bundledJdtlsRootURL = bundledJdtlsRootURL?.standardizedFileURL
+        self.configurationCacheDirectoryURL = configurationCacheDirectoryURL?.standardizedFileURL
         self.fileManager = fileManager
     }
 
@@ -40,7 +44,7 @@ struct MacJDTLSLaunchResourceResolver {
     private func directLaunchResources(for executableURL: URL) throws -> JDTLSLaunchResources {
         for rootURL in installationRoots(for: executableURL) {
             let pluginsURL = rootURL.appendingPathComponent("plugins", isDirectory: true)
-            let configurationURL = configurationDirectory(in: rootURL)
+            let bundledConfigurationURL = configurationDirectory(in: rootURL)
             let lombokURL = rootURL.appendingPathComponent("lombok/lombok.jar")
             let javaDebugURL = try firstJavaDebugBundle(
                 in: rootURL.appendingPathComponent("java-debug", isDirectory: true)
@@ -52,7 +56,7 @@ struct MacJDTLSLaunchResourceResolver {
                 .appendingPathComponent("java-test/runner", isDirectory: true)
                 .appendingPathComponent(Self.javaTestRunnerName)
             guard let launcherURL = try firstEquinoxLauncher(in: pluginsURL),
-                  let configurationURL,
+                  let bundledConfigurationURL,
                   let javaDebugURL,
                   javaTestBundleURLs.contains(where: {
                       $0.lastPathComponent.hasPrefix(Self.javaTestBundlePrefix)
@@ -61,6 +65,10 @@ struct MacJDTLSLaunchResourceResolver {
                   fileManager.fileExists(atPath: lombokURL.path) else {
                 continue
             }
+            let configurationURL = try writableConfigurationDirectory(
+                bundledConfigurationURL,
+                for: executableURL
+            )
             return JDTLSLaunchResources(
                 launcherJarURL: launcherURL,
                 configurationDirectoryURL: configurationURL,
@@ -71,6 +79,58 @@ struct MacJDTLSLaunchResourceResolver {
             )
         }
         throw ResolutionError.incompleteInstallation
+    }
+
+    /// JDT LS writes its OSGi state below the configuration directory. Keep
+    /// that mutable state outside the signed app bundle so Sparkle deltas can
+    /// still match the shipped application bytes.
+    private func writableConfigurationDirectory(
+        _ bundledConfigurationURL: URL,
+        for executableURL: URL
+    ) throws -> URL {
+        guard let configurationCacheDirectoryURL,
+              isBundled(executableURL) else {
+            return bundledConfigurationURL
+        }
+
+        let configurationName = bundledConfigurationURL.lastPathComponent
+        let sourceConfigURL = bundledConfigurationURL.appendingPathComponent("config.ini")
+        let digest = SHA256.hash(data: try Data(contentsOf: sourceConfigURL))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let cacheRoot = configurationCacheDirectoryURL
+            .appendingPathComponent("jdtls/configurations", isDirectory: true)
+        let cachedConfigurationURL = cacheRoot
+            .appendingPathComponent("\(configurationName)-\(digest)", isDirectory: true)
+        if isDirectory(cachedConfigurationURL),
+           fileManager.fileExists(
+               atPath: cachedConfigurationURL.appendingPathComponent("config.ini").path
+           ) {
+            return cachedConfigurationURL
+        }
+
+        try fileManager.createDirectory(
+            at: cacheRoot,
+            withIntermediateDirectories: true
+        )
+        let stagingURL = cacheRoot.appendingPathComponent(
+            ".\(configurationName)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        do {
+            try fileManager.copyItem(at: bundledConfigurationURL, to: stagingURL)
+            do {
+                try fileManager.moveItem(at: stagingURL, to: cachedConfigurationURL)
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                // Another launch may have populated the same immutable cache
+                // while this launch was copying it.
+                try? fileManager.removeItem(at: stagingURL)
+            }
+        } catch {
+            try? fileManager.removeItem(at: stagingURL)
+            throw error
+        }
+        return cachedConfigurationURL
     }
 
     private func installationRoots(for executableURL: URL) -> [URL] {

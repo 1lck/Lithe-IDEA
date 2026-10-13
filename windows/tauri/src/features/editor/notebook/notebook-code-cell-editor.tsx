@@ -10,6 +10,7 @@ import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { toMonacoLanguageId } from "../engines/monaco/language";
 import { defineActiveMonacoTheme, defineMonacoTheme } from "../engines/monaco/theme";
 import { useMonacoEditorSettings } from "../engines/monaco/use-monaco-editor-settings";
+import { EDITOR_CONSTANTS } from "../config/constants";
 
 interface NotebookCodeCellEditorProps {
   id: string;
@@ -80,6 +81,7 @@ export function NotebookCodeCellEditor({
       stickyScroll: { enabled: editorStickyScroll },
       bracketPairColorization: { enabled: editorBracketPairColorization },
       smoothScrolling: editorSmoothScrolling,
+      mouseWheelScrollSensitivity: EDITOR_CONSTANTS.MOUSE_WHEEL_SCROLL_SENSITIVITY,
       scrollBeyondLastLine: editorScrollBeyondLastLine,
       cursorStyle: editorCursorStyle,
       cursorBlinking: editorCursorBlinking,
@@ -181,6 +183,7 @@ export function NotebookCodeCellEditor({
       stickyScroll: { enabled: editorStickyScroll },
       bracketPairColorization: { enabled: editorBracketPairColorization },
       smoothScrolling: editorSmoothScrolling,
+      mouseWheelScrollSensitivity: EDITOR_CONSTANTS.MOUSE_WHEEL_SCROLL_SENSITIVITY,
       scrollBeyondLastLine: editorScrollBeyondLastLine,
       cursorStyle: editorCursorStyle,
       cursorBlinking: editorCursorBlinking,

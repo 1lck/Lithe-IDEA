@@ -4,6 +4,50 @@ use super::*;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
+#[test]
+fn agent_provider_configuration_matches_fixture_without_credentials() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/provider-configuration-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&crate::execute_json(
+            &json!({
+                "id": "provider-fixture", "command": "agent.parseProviderConfiguration",
+                "payload": {"source": case["source"], "configuration": case["configuration"]}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["id"], "provider-fixture");
+        let parsed = &response["data"];
+        for (key, value) in case["expected"].as_object().unwrap() {
+            assert_eq!(&parsed[key], value);
+        }
+        assert!(!parsed.to_string().contains("fixture-secret"));
+        assert!(parsed.get("credential").is_none());
+        assert!(parsed.get("hasCredential").is_none());
+    }
+}
+
+#[test]
+fn agent_provider_configuration_errors_are_bounded_and_redacted() {
+    for payload in [
+        json!({"source":"codex", "configuration":"fixture-secret = ["}),
+        json!({"source":"claude", "configuration":"[]"}),
+        json!({"source":"unknown", "configuration":"{}"}),
+        json!({"source":"codex", "configuration":"x".repeat(65 * 1024)}),
+        json!({"source":"codex", "configuration": null}),
+    ] {
+        let error = parse_provider_configuration(payload).unwrap_err();
+        let value = serde_json::to_string(&error).unwrap();
+        assert!(value.contains("invalid_request"));
+        assert!(!value.contains("fixture-secret"));
+        assert!(!value.contains("details"));
+    }
+}
+
 fn fixture() -> (Provider, CommitOptions, Vec<CommitFile>, Value) {
     let value: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/ai/commit-generation-v1.json"

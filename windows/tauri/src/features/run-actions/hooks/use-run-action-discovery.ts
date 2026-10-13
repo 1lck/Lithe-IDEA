@@ -1,3 +1,5 @@
+import { uiExtensionHost } from "@/extensions/ui/services/ui-extension-host";
+import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferByPath } from "@/features/editor/utils/buffer-index";
@@ -18,6 +20,13 @@ export function useRunActionDiscovery(
   includeCodeLenses: boolean,
   enabled = true,
 ) {
+  const enabledExtensions = useExtensionStore((state) =>
+    [...state.availableExtensions.values()]
+      .filter((ext) => ext.isInstalled && ext.isEnabled && ext.manifest.runActions)
+      .map((ext) => ext.manifest.id)
+      .sort()
+      .join("\n"),
+  );
   const [projectActions, setProjectActions] = useState<RunActionItem[]>([]);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
@@ -26,7 +35,7 @@ export function useRunActionDiscovery(
   const codeLenses = useCodeLens(activeFilePath, enabled && includeCodeLenses);
   const activeFileContent = useBufferStore((state) => {
     const buffer = getBufferByPath(state.buffers, activeFilePath);
-    return buffer?.type === "editor" ? buffer.content ?? "" : "";
+    return buffer?.type === "editor" ? (buffer.content ?? "") : "";
   });
   const javaTestScope = useMemo(
     () => (workspacePath ? { workspaceId, root: workspacePath } : null),
@@ -50,7 +59,11 @@ export function useRunActionDiscovery(
     setIsDiscovering(true);
     setDiscoveryError(null);
 
-    void discoverProjectRunActions(workspacePath)
+    void Promise.all([
+      discoverProjectRunActions(workspacePath),
+      uiExtensionHost.discoverRunActions(workspacePath),
+    ])
+      .then((groups) => groups.flat())
       .then((actions) => {
         if (!cancelled) setProjectActions(actions);
       })
@@ -66,7 +79,7 @@ export function useRunActionDiscovery(
     return () => {
       cancelled = true;
     };
-  }, [enabled, revision, workspacePath]);
+  }, [enabled, revision, workspacePath, enabledExtensions]);
 
   useEffect(() => {
     if (!enabled || !workspacePath || !activeFilePath || !/\.java$/i.test(activeFilePath)) {
@@ -89,9 +102,7 @@ export function useRunActionDiscovery(
     () =>
       activeFilePath
         ? [
-            ...(mavenTestsAvailable
-              ? javaTestActionsForFile(activeFilePath, javaTestMethods)
-              : []),
+            ...(mavenTestsAvailable ? javaTestActionsForFile(activeFilePath, javaTestMethods) : []),
             ...codeLensesToRunActions(codeLenses, activeFilePath),
           ]
         : [],
@@ -100,7 +111,9 @@ export function useRunActionDiscovery(
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
 
   return {
-    projectActions,
+    projectActions: projectActions.filter(
+      (action) => !action.extensionId || enabledExtensions.split("\n").includes(action.extensionId),
+    ),
     lspActions,
     isDiscovering,
     discoveryError,

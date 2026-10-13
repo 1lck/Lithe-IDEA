@@ -8,6 +8,7 @@
 @import "@fontsource/geist-mono/700.css";
 
 @import "tailwindcss";
+@source "../../../Plugins/win/Official/V0Support";
 
 @import "./styles/theme.css";
 @import "./styles/base.css";
@@ -15,6 +16,7 @@
 @import "./styles/syntax-tokens.css";
 @import "./styles/rendered-code-tokens.css";
 @import "./styles/window-transparency.css";
+@import "./styles/project-gradient.css";
 @import "./styles/utilities.css";
 
 @import "tw-animate-css";

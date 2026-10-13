@@ -108,6 +108,39 @@ prune、仓库覆盖关闭时，重置提示应为开启；子模块只有选择
 普通 Fetch 仍是一项直接操作，可选的设置预览留在现有 Git 菜单中。控制台
 页签不增加 Fetch 按钮，也不把预览变成普通操作的必经确认步骤。
 
+Windows Git Log 点击普通 Fetch 或提交 Fetch 选项后保持当前页签，底部状态栏
+显示后台进度。参考 IntelliJ Community `fb72b4df43aba102479eb0502d20b03586b9c5b8`
+的 `plugins/git4idea/backend/src/actions/GitFetch.java` 后台任务，以及
+`platform/platform-impl/src/com/intellij/openapi/wm/impl/status/InfoAndProgressPanel.kt`
+紧凑状态栏：进度条宽 104，旁边显示任务文字；条高沿用共享 Progress 的 4px。
+不自动打开 Console，避免打断用户查看提交；实际命令和输出仍由项目控制台保留。
+
+状态栏复用应用生命周期内的 Git 执行事件和现有 100ms 输出合批。请求开始就
+显示未知进度，收到结构化阶段百分比才显示对应数值；多个远程或阶段的百分比
+不能当作整体进度。子进程结束、认证等待或切换到下个远程时回到未知进度，
+直到整个请求结束才移除；预检查失败和取消同样移除。按请求和子进程标识
+忽略迟到输出，不从可清空、可截断的历史记录反推活动状态，也不让状态栏
+组件的卸载中断进度追踪。多个仓库同时 Fetch 时显示最新任务和活动数量，
+不平均各仓库的百分比。无百分比时只用 CSS 动画，不增加前端轮询或定时器。
+
+### 单分支抓取规则下的上游信息
+
+只抓取 `preview` 的仓库仍可能保留其他远端引用以及本地分支的上游配置。
+Git 的 `for-each-ref %(upstream)` 依赖 fetch 映射，此时可能返回空；不能据此
+断言用户没有配置上游。Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`
+的 `plugins/git4idea/backend/src/repo/GitConfig.kt` 从分支的 remote/merge 配置
+匹配已存在的远端引用，所以 IDEA 仍能显示名称与提交差异。
+
+Core 的 `git.references` 保留正常 Git 查询结果；对缺失的上游元数据，
+用本次读取专用的 `-c remote.<name>.fetch=...` 常规映射再交给 Git 解析，
+复用 Git 本身的配置读取、引用映射和领先／落后计算，不另写配置解析器。
+已有上游（包括自定义映射）不被覆盖，没有跟踪配置的同名分支也不被猜测关联。
+补齐后再生成 Recent 引用，历史兼容入口和两个产品使用同一份数据。
+
+这个配置只存在于子进程参数，不写 `.git/config`，不执行 Fetch；宽窄抓取规则
+仍由用户控制。回归检查用真实临时仓库覆盖领先和落后、非当前分支、Recent、
+仅抓取一个分支，以及同名远端但未跟踪的分支，并核对查询前后配置内容不变。
+
 ### 项目控制台保留原文与取消能力
 
 历史属于项目窗口，切换仓库或打开关联工作树不会隐藏之前的操作。内部状态、
@@ -163,6 +196,12 @@ stdout/stderr 分开，复制原始输出时不混入提示。没有完整变化
 
 ## 验证
 
+- `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/git/services/git-fetch-progress.test.ts,src/features/git/components/git-fetch-status.test.tsx,src/features/git/stores/git-fetch-progress.integration.test.ts`
+
+Fetch 状态回归覆盖无输出等待、阶段切换、认证、并发仓库、迟到事件、预检查
+失败、取消和状态栏重新挂载；原生验收需要实际 Windows 产品核对 Fetch 后
+仍停留在 Git Log、底部进度变化和完成后收起。
+
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./scripts/verify-rust-core-comments.sh`
 - `./scripts/verify-rust-core.sh`
@@ -193,7 +232,11 @@ Windows CI 使用同一计时工具执行生命周期日志回归并保留 HTML/
 历史改写回归需要创建仓库并启动大量 Git 子进程，有的用例还重复建立多个
 仓库；Windows 计时已触及原有请求或测试截止时间，因此整个历史改写集成
 模块和旧 Git 集成模块中的 squash、drop、reword 用例采用独立的 30 秒
-进程预算，内部 rebase 请求限时 20 秒。夹具初始化
+进程预算，内部 rebase 请求限时 20 秒。非当前分支更新回归也需要建立裸远程和
+两个工作仓库、多次 push/fetch，并检查普通与分离 HEAD 的更新；Windows 真实
+JDT 通道曾触发其 15 秒测试期限，同一提交在 SharedRust 通道用时 2.4 秒通过。
+因此仅为这一完整用例设置 30 秒预算，Windows 的 SharedRust 与真实 JDT 入口
+保持相同，仍保留原断言、进程树终止和整套总期限。夹具初始化
 直接合并本地 Git 配置，减少与待测行为无关的进程启动。普通 Rust 测试仍
 限时 15 秒，整套测试共用总截止
 时间；报告逐条采用实际预算。不能靠删掉过期计划校验、重试失败断言或提高
@@ -215,3 +258,21 @@ Windows CI 使用同一计时工具执行生命周期日志回归并保留 HTML/
 - `shared/contracts/rust-core-api.md`
 - `scripts/test-git-execution.py`
 - `.github/workflows/ci-windows.yml`
+
+### macOS Console 左侧工具栏样式
+
+外观依据 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`VcsConsoleTabService` → `ActionToolbarImpl` → `ActionButtonLook`，以及
+`ManyIslandsDark/Light.theme.json`，与上文执行行为参考版本分开记录。
+使用原始 16pt 明暗 SVG，22pt 背景、竖向上下 2/左右 1 的按钮留白，以及
+上下 5/左右 7 的容器留白；按钮圆角半径 4。清空动作通过
+`ClearConsoleAction` / `PlatformIconMappings` 映射到 `expui/general/delete`。
+
+复用 `LitheIconButtonStyle`，通过可选颜色与选中参数承接 Islands 状态色，
+其他调用者保留原默认值。保留 Lithe 已有的六个动作和可用条件；查找展开、
+软换行与跟随状态仍由原绑定决定，跟随状态是 Lithe 自有行为，不能归因于
+上游一次性的 ScrollToTheEnd 动作。停止/清空/复制禁用时降低图标透明度。
+不用 SF Symbols 近似，也不在这一轮扩展上游控制台功能。
+
+`GitConsoleToolbarTests` 在资源 helper 中检查所有明暗 SVG 真实解析并捕获
+实际 NSHostingView；完整应用中的动作、hover 和视觉检查仍需单独验收。

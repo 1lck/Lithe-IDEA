@@ -15,6 +15,7 @@ final class AppSettings: ObservableObject {
         static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
+        static let editorFontFamily = "settings.editorFontFamily"
         static let editorSoftWrap = "settings.editorSoftWrap"
         static let editorMinimap = "settings.editorMinimap"
         static let projectTreeRowHeight = "settings.projectTreeRowHeight"
@@ -33,7 +34,12 @@ final class AppSettings: ObservableObject {
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
         static let commitMessageAI = "settings.commitMessageAI"
+        static let agentCommand = "settings.agentCommand"
+        static let agentArguments = "settings.agentArguments"
+        static let agentConfigurations = "settings.agentConfigurations"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
+        static let keyboardShortcutPreset = "settings.keyboardShortcutPreset"
+        static let keyboardShortcutPresets = "settings.keyboardShortcutPresets"
         static let customLogDirectory = "settings.customLogDirectory"
         static let workbenchBackground = "settings.workbenchBackground"
         static let javaBuildFailurePolicies = "settings.javaBuildFailurePolicies"
@@ -44,6 +50,13 @@ final class AppSettings: ObservableObject {
 
         let version: Int
         let commands: [String: [KeyboardShortcutBinding]]
+    }
+
+    private struct KeyboardShortcutPresetsPayload: Codable {
+        static let currentVersion = 1
+
+        let version: Int
+        let presets: [String: [String: [KeyboardShortcutBinding]]]
     }
 
     private let defaults: any KeyValueStore
@@ -60,6 +73,13 @@ final class AppSettings: ObservableObject {
     }
     @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
+    /// 代码编辑器编程字体族。默认是随包分发的 JetBrains Mono，只有在用户
+    /// 显式选择系统字体后才偏离打包字体；终端、Output 工具窗和提交信息
+    /// 输入框继续使用打包字体，与 IDEA 的 Editor/Console 字体分工一致。
+    /// 存储值只保存族名，解析失败（字体被卸载）时由字体目录回退到默认族。
+    @Published var editorFontFamily: String {
+        didSet { defaults.set(editorFontFamily, forKey: Key.editorFontFamily) }
+    }
     /// 主编辑器软换行开关。默认关闭，与 IDEA 代码编辑器一致；
     /// 折行布局对超大文件有行数阈值兜底，见 `LitheTextViewportLayout`。
     @Published var editorSoftWrapEnabled: Bool {
@@ -121,7 +141,22 @@ final class AppSettings: ObservableObject {
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
     }
+    @Published var agentCommand: String { didSet { defaults.set(agentCommand, forKey: Key.agentCommand) } }
+    /// One command argument per line, so paths with spaces need no shell parser.
+    @Published var agentArguments: String { didSet { defaults.set(agentArguments, forKey: Key.agentArguments) } }
+    /// AI provider whose endpoint and API key the Agent uses; `nil` until chosen.
+    /// Per-agent setup from Settings › Agents, keyed by ACP registry id or
+    /// `AgentConfiguration.customAgentID`.
+    @Published var agentConfigurations: [String: AgentConfiguration] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentConfigurations) {
+                defaults.set(data, forKey: Key.agentConfigurations)
+            }
+        }
+    }
     @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
+    @Published private(set) var keyboardShortcutPreset: KeyboardShortcutPreset
+    private var keyboardShortcutOverridesByPreset: [String: [String: [KeyboardShortcutBinding]]]
     @Published private(set) var customLogDirectory: URL?
     @Published private(set) var workbenchBackground: WorkbenchBackgroundConfiguration
     @Published var workbenchBackgroundOpacity: Double {
@@ -155,6 +190,9 @@ final class AppSettings: ObservableObject {
         ) ?? .dark
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        editorFontFamily = EditorFontResolution.normalizedFamily(
+            defaults.string(forKey: Key.editorFontFamily)
+        )
         editorSoftWrapEnabled = defaults.object(forKey: Key.editorSoftWrap) as? Bool ?? false
         editorMinimapEnabled = defaults.object(forKey: Key.editorMinimap) as? Bool ?? true
         projectTreeRowHeight = defaults.object(forKey: Key.projectTreeRowHeight) as? Double ?? 24
@@ -183,7 +221,13 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = ProjectOpenBehavior(
             rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
         ) ?? .ask
-        keyboardShortcutOverrides = Self.loadKeyboardShortcutOverrides(from: defaults)
+        let selectedPreset = KeyboardShortcutPreset(
+            rawValue: defaults.string(forKey: Key.keyboardShortcutPreset) ?? ""
+        ) ?? .macOS
+        let presetOverrides = Self.loadKeyboardShortcutPresets(from: defaults)
+        keyboardShortcutPreset = selectedPreset
+        keyboardShortcutOverridesByPreset = presetOverrides
+        keyboardShortcutOverrides = presetOverrides[selectedPreset.rawValue] ?? [:]
         customLogDirectory = defaults.string(forKey: Key.customLogDirectory).flatMap { path in
             guard !path.isEmpty else { return nil }
             return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
@@ -197,10 +241,15 @@ final class AppSettings: ObservableObject {
         } else {
             commitMessageAI = .default
         }
+        agentCommand = defaults.string(forKey: Key.agentCommand) ?? ""
+        agentArguments = defaults.string(forKey: Key.agentArguments) ?? ""
+        agentConfigurations = defaults.data(forKey: Key.agentConfigurations)
+            .flatMap { try? JSONDecoder().decode([String: AgentConfiguration].self, from: $0) } ?? [:]
         if let data = defaults.data(forKey: Key.javaBuildFailurePolicies),
            let saved = try? JSONDecoder().decode([String: JavaBuildFailurePolicy].self, from: data) {
             javaBuildFailurePolicies = saved
         }
+        repairImportedAgentProviders()
         AppThemeRuntime.shared.activate(colorTheme)
         updateGitExecutionPreferences()
     }
@@ -311,6 +360,7 @@ final class AppSettings: ObservableObject {
         themePreference = .dark
         language = .english
         editorFontSize = 13
+        editorFontFamily = EditorFontDefaults.monospacedFamily
         editorSoftWrapEnabled = false
         editorMinimapEnabled = true
         projectTreeRowHeight = 24
@@ -329,17 +379,91 @@ final class AppSettings: ObservableObject {
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
         commitMessageAI = .default
+        agentCommand = ""
+        agentArguments = ""
+        agentConfigurations = [:]
         setCustomLogDirectory(nil)
         clearWorkbenchBackground()
         workbenchBackgroundOpacity = 0.22
+        keyboardShortcutOverridesByPreset = [:]
+        keyboardShortcutPreset = .macOS
+        defaults.set(KeyboardShortcutPreset.macOS.rawValue, forKey: Key.keyboardShortcutPreset)
         setKeyboardShortcutOverrides([:])
         javaBuildFailurePolicies = [:]
         defaults.set(nil, forKey: Key.javaBuildFailurePolicies)
     }
 
     func setKeyboardShortcutOverrides(_ value: [String: [KeyboardShortcutBinding]]) {
+        keyboardShortcutOverridesByPreset[keyboardShortcutPreset.rawValue] = value
         keyboardShortcutOverrides = value
-        saveKeyboardShortcutOverrides()
+        saveKeyboardShortcutPresets()
+    }
+
+    func selectKeyboardShortcutPreset(_ preset: KeyboardShortcutPreset) {
+        guard keyboardShortcutPreset != preset else { return }
+        keyboardShortcutPreset = preset
+        defaults.set(preset.rawValue, forKey: Key.keyboardShortcutPreset)
+        keyboardShortcutOverrides = keyboardShortcutOverridesByPreset[preset.rawValue] ?? [:]
+    }
+
+    /// Providers an agent speaking `apiProtocol` can use.
+    func agentProviderCandidates(for apiProtocol: CommitMessageAPIProtocol) -> [AIProviderProfile] {
+        commitMessageAI.providers.filter { $0.apiProtocol == apiProtocol }
+    }
+
+    /// The provider assigned to `agentID`, if it still exists.
+    func agentProvider(for agentID: String) -> AIProviderProfile? {
+        guard let providerID = agentConfigurations[agentID]?.providerID else { return nil }
+        return commitMessageAI.providers.first { $0.id == providerID }
+    }
+
+    func setAgentProvider(_ providerID: UUID?, for agentID: String, name: String) {
+        agentConfigurations[agentID] = AgentConfiguration(name: name, providerID: providerID)
+    }
+
+    /// Repair imports made with the old, non-interpolated shared identifier.
+    private func repairImportedAgentProviders() {
+        var value = commitMessageAI
+        for index in value.providers.indices {
+            guard value.providers[index].apiKeyIdentifier == "lithe.(snapshot.source.rawValue).imported.apiKey",
+                  let source = value.providers[index].credentialSource.configurationSource else { continue }
+            value.providers[index].apiKeyIdentifier = "lithe.\(source.rawValue).imported.apiKey"
+        }
+        if value != commitMessageAI { commitMessageAI = value }
+
+        // A prior refresh may already have repaired the identifier while both
+        // agents still point to the last imported source. Do not guess or
+        // recreate the overwritten profile; require an explicit new binding.
+        let sources: [String: AIConfigurationSourceKind] = ["codex-acp": .codex, "claude-acp": .claude]
+        var bindings = agentConfigurations
+        for (agentID, expectedSource) in sources {
+            guard bindings[agentID]?.providerID != nil else { continue }
+            // The collision could also remove the original profile after a
+            // commit-provider refresh had given it a source-specific identifier.
+            guard let provider = agentProvider(for: agentID) else {
+                bindings[agentID]?.providerID = nil
+                continue
+            }
+            guard let actualSource = provider.credentialSource.configurationSource,
+                  actualSource != expectedSource else { continue }
+            bindings[agentID]?.providerID = nil
+        }
+        if bindings != agentConfigurations { agentConfigurations = bindings }
+    }
+
+    /// Refresh linked agents' default models without changing the commit provider
+    /// selection, endpoints, credentials, or manually configured models.
+    func refreshAgentModels(from configurations: [AIConfigurationModel]) {
+        let linkedIDs = Set(agentConfigurations.values.compactMap(\.providerID))
+        var value = commitMessageAI
+        for index in value.providers.indices {
+            let provider = value.providers[index]
+            guard linkedIDs.contains(provider.id),
+                  let source = provider.credentialSource.configurationSource,
+                  let snapshot = configurations.first(where: { $0.source == source }) else { continue }
+            value.providers[index].model = snapshot.model
+        }
+        if value != commitMessageAI { commitMessageAI = value }
     }
 
     var activeCommitMessageProvider: AIProviderProfile? {
@@ -365,6 +489,37 @@ final class AppSettings: ObservableObject {
         commitMessageAI = value
     }
 
+    /// Edit any provider without changing which one commit messages use.
+    func updateAIProvider(_ id: UUID, _ update: (inout AIProviderProfile) -> Void) {
+        var value = commitMessageAI
+        guard let index = value.providers.firstIndex(where: { $0.id == id }) else { return }
+        update(&value.providers[index])
+        commitMessageAI = value
+    }
+
+    /// Add a provider; commit messages switch to it only when none was selected.
+    @discardableResult
+    func addAIProvider() -> UUID {
+        var value = commitMessageAI
+        let previous = value.activeProviderID
+        let provider = value.addProvider()
+        if previous != nil { value.activeProviderID = previous }
+        value.codexImportCompleted = true
+        commitMessageAI = value
+        return provider.id
+    }
+
+    /// Remove a provider and every reference to it.
+    func removeAIProvider(_ id: UUID) {
+        var value = commitMessageAI
+        value.providers.removeAll { $0.id == id }
+        if value.activeProviderID == id { value.activeProviderID = value.providers.first?.id }
+        commitMessageAI = value
+        for (agentID, configuration) in agentConfigurations where configuration.providerID == id {
+            agentConfigurations[agentID]?.providerID = nil
+        }
+    }
+
     func removeActiveCommitMessageProvider() {
         var value = commitMessageAI
         value.removeActiveProvider()
@@ -372,28 +527,27 @@ final class AppSettings: ObservableObject {
     }
 
     @discardableResult
+    func refreshImportedAIProvider(_ id: UUID, from snapshot: AIConfigurationSnapshot) -> AIProviderProfile? {
+        var value = commitMessageAI
+        guard let index = value.providers.firstIndex(where: { $0.id == id }),
+              value.providers[index].credentialSource == snapshot.source.credentialSource else { return nil }
+        let provider = importedAIProvider(from: snapshot, replacing: value.providers[index])
+        value.providers[index] = provider
+        // Refresh metadata in place: agent bindings and the commit selection retain their identities.
+        if value != commitMessageAI { commitMessageAI = value }
+        return provider
+    }
+
+    @discardableResult
     func importAIConfiguration(
         _ snapshot: AIConfigurationSnapshot
     ) -> AIProviderProfile {
-        let importedKeyIdentifier = "lithe.(snapshot.source.rawValue).imported.apiKey"
+        let importedKeyIdentifier = "lithe.\(snapshot.source.rawValue).imported.apiKey"
         let credentialSource = snapshot.source.credentialSource
         let existing = commitMessageAI.providers.first {
             $0.apiKeyIdentifier == importedKeyIdentifier || $0.credentialSource == credentialSource
         }
-        let provider = AIProviderProfile(
-            id: existing?.id ?? UUID(),
-            name: snapshot.providerName.isEmpty
-                ? "\(snapshot.source.title) (imported)"
-                : "\(snapshot.source.title) · \(snapshot.providerName)",
-            endpoint: snapshot.endpoint,
-            model: snapshot.model,
-            apiProtocol: snapshot.apiProtocol,
-            authentication: snapshot.authentication,
-            allowsInsecureHTTP: existing?.allowsInsecureHTTP ?? false,
-            apiKeyIdentifier: importedKeyIdentifier,
-            requiresAPIKey: snapshot.requiresAPIKey,
-            credentialSource: credentialSource
-        )
+        let provider = importedAIProvider(from: snapshot, replacing: existing)
 
         var value = commitMessageAI
         value.providers.removeAll {
@@ -415,6 +569,23 @@ final class AppSettings: ObservableObject {
         return provider
     }
 
+    private func importedAIProvider(from snapshot: AIConfigurationSnapshot, replacing existing: AIProviderProfile?) -> AIProviderProfile {
+        AIProviderProfile(
+            id: existing?.id ?? UUID(),
+            name: snapshot.providerName.isEmpty
+                ? "\(snapshot.source.title) (imported)"
+                : "\(snapshot.source.title) · \(snapshot.providerName)",
+            endpoint: snapshot.endpoint,
+            model: snapshot.model,
+            apiProtocol: snapshot.apiProtocol,
+            authentication: snapshot.authentication,
+            allowsInsecureHTTP: existing?.allowsInsecureHTTP ?? false,
+            apiKeyIdentifier: "lithe.\(snapshot.source.rawValue).imported.apiKey",
+            requiresAPIKey: snapshot.requiresAPIKey,
+            credentialSource: snapshot.source.credentialSource
+        )
+    }
+
     @discardableResult
     func importCodexConfiguration(
         _ snapshot: CodexConfigurationSnapshot
@@ -427,13 +598,29 @@ final class AppSettings: ObservableObject {
         defaults.set(data, forKey: Key.commitMessageAI)
     }
 
-    private func saveKeyboardShortcutOverrides() {
-        let payload = KeyboardShortcutOverridesPayload(
-            version: KeyboardShortcutOverridesPayload.currentVersion,
-            commands: keyboardShortcutOverrides
+    private func saveKeyboardShortcutPresets() {
+        let payload = KeyboardShortcutPresetsPayload(
+            version: KeyboardShortcutPresetsPayload.currentVersion,
+            presets: keyboardShortcutOverridesByPreset
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        defaults.set(data, forKey: Key.keyboardShortcutOverrides)
+        defaults.set(data, forKey: Key.keyboardShortcutPresets)
+        defaults.set(nil, forKey: Key.keyboardShortcutOverrides)
+    }
+
+    private static func loadKeyboardShortcutPresets(
+        from defaults: any KeyValueStore
+    ) -> [String: [String: [KeyboardShortcutBinding]]] {
+        guard let data = defaults.data(forKey: Key.keyboardShortcutPresets) else {
+            return [KeyboardShortcutPreset.macOS.rawValue: loadKeyboardShortcutOverrides(from: defaults)]
+        }
+        guard let payload = try? JSONDecoder().decode(KeyboardShortcutPresetsPayload.self, from: data),
+              payload.version == KeyboardShortcutPresetsPayload.currentVersion else {
+            return [:]
+        }
+        return payload.presets
+            .filter { KeyboardShortcutPreset(rawValue: $0.key) != nil }
+            .mapValues(validatedKeyboardShortcutOverrides)
     }
 
     private static func loadKeyboardShortcutOverrides(
@@ -445,8 +632,14 @@ final class AppSettings: ObservableObject {
             return [:]
         }
 
+        return validatedKeyboardShortcutOverrides(payload.commands)
+    }
+
+    private static func validatedKeyboardShortcutOverrides(
+        _ commands: [String: [KeyboardShortcutBinding]]
+    ) -> [String: [KeyboardShortcutBinding]] {
         let knownCommandIDs = Set(LitheCommandCatalog.commands.map(\.id))
-        return payload.commands.filter { commandID, bindings in
+        return commands.filter { commandID, bindings in
             knownCommandIDs.contains(commandID)
                 && bindings.allSatisfy(\.isAssignable)
                 && Set(bindings).count == bindings.count
@@ -730,4 +923,34 @@ enum TerminalShell: String, CaseIterable, Identifiable {
         case .bash: "/bin/bash"
         }
     }
+}
+
+/// Agent setup chosen in Settings › Agents.
+struct AgentConfiguration: Codable, Equatable {
+    /// Identifier of the user-provided command agent configured by
+    /// `agentCommand` and `agentArguments`.
+    static let customAgentID = "custom"
+
+    /// Display name recorded when the agent was set up, for the Agent panel.
+    var name: String
+    var providerID: UUID?
+    var authentication: AgentAuthentication
+    var isConfigured: Bool { authentication == .codexSubscription || providerID != nil }
+
+    init(name: String, providerID: UUID?, authentication: AgentAuthentication = .apiKey) {
+        self.name = name
+        self.providerID = providerID
+        self.authentication = authentication
+    }
+
+    private enum CodingKeys: String, CodingKey { case name, providerID, authentication }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = try values.decode(String.self, forKey: .name)
+        providerID = try values.decodeIfPresent(UUID.self, forKey: .providerID)
+        authentication = try values.decodeIfPresent(AgentAuthentication.self, forKey: .authentication) ?? .apiKey
+        if authentication == .codexSubscription { providerID = nil }
+    }
+
 }

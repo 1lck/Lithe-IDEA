@@ -7,6 +7,8 @@ import LitheDebugModule
 /// Platform composition roots construct this graph with their own adapters.
 @MainActor
 final class AppServices {
+    var ideCapabilityRegistry: IdeCapabilityRegistry?
+    var ideHostTransport: (any IdeHostTransport)?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginCatalog: ValidatedPluginCatalog
@@ -35,6 +37,7 @@ final class AppServices {
     let store: any KeyValueStore
     let fileStorage: any FileStorage
     let fileOperations: any WorkspaceFileOperations
+    let agentEditRestorer: any AgentEditRestoring
     /// Empty by default; binary support exists only after an explicit registration.
     let binaryFileViewerRegistry: BinaryFileViewerRegistry
     let projectRuntimeService: ProjectRuntimeService
@@ -42,9 +45,11 @@ final class AppServices {
     let githubService: GitHubService
     let secureStore: any SecureStore
     let databaseSecureStore: any SecureStore
-    let discourseCommunityService: DiscourseCommunityService
     let diagnosticsExportService: DiagnosticsExportService
     let credentialResolver: any AIProviderCredentialResolver
+    /// Detects Node.js and installs ACP adapters for the Agents settings page.
+    let agentManagement: any AgentManagementService
+    let agentProviderConfigurationParser: any AgentProviderConfigurationParsing
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
     let workspaceSessionStore: WorkspaceSessionStore
@@ -75,15 +80,17 @@ final class AppServices {
         store: any KeyValueStore,
         fileStorage: any FileStorage,
         fileOperations: any WorkspaceFileOperations,
+        agentEditRestorer: any AgentEditRestoring = UnavailableAgentEditRestorer(),
         binaryFileViewerRegistry: BinaryFileViewerRegistry,
         projectRuntimeService: ProjectRuntimeService,
         gitWatchContextProvider: any GitWatchContextProviding,
         githubService: GitHubService,
         secureStore: any SecureStore,
         databaseSecureStore: any SecureStore,
-        discourseCommunityService: DiscourseCommunityService,
         diagnosticsExportService: DiagnosticsExportService,
         credentialResolver: any AIProviderCredentialResolver,
+        agentManagement: any AgentManagementService = UnavailableAgentManagementService(),
+        agentProviderConfigurationParser: any AgentProviderConfigurationParsing = UnavailableAgentProviderConfigurationParser(),
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
         workspaceSessionStore: WorkspaceSessionStore,
@@ -122,15 +129,17 @@ final class AppServices {
         self.store = store
         self.fileStorage = fileStorage
         self.fileOperations = fileOperations
+        self.agentEditRestorer = agentEditRestorer
         self.binaryFileViewerRegistry = binaryFileViewerRegistry
         self.projectRuntimeService = projectRuntimeService
         self.gitWatchContextProvider = gitWatchContextProvider
         self.githubService = githubService
         self.secureStore = secureStore
         self.databaseSecureStore = databaseSecureStore
-        self.discourseCommunityService = discourseCommunityService
         self.diagnosticsExportService = diagnosticsExportService
         self.credentialResolver = credentialResolver
+        self.agentManagement = agentManagement
+        self.agentProviderConfigurationParser = agentProviderConfigurationParser
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore
         self.workspaceSessionStore = workspaceSessionStore

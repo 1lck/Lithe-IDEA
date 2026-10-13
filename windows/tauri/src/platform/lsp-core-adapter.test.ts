@@ -50,6 +50,10 @@ let semanticRequestPending = false;
 let semanticOperationId = "";
 let semanticRequestResult: unknown = { locations: [] };
 let semanticRequestResults: unknown[] = [];
+let semanticResultGate: Promise<void> | undefined;
+let releaseSemanticResult: (() => void) | undefined;
+let onSemanticRequest: (() => void) | undefined;
+let semanticRefreshOnReady = false;
 let releaseInitialization: (() => void) | undefined;
 
 /** A queued semantic outcome that Core reports as a structured request error. */
@@ -260,11 +264,15 @@ const executeCore = mock(
           return {
             id: request.id,
             ok: true as const,
-            data: { events: readyEvents(sessionId) },
+            data: { events: [
+              ...readyEvents(sessionId),
+              ...(semanticRefreshOnReady ? [{ type: "semanticTokensRefresh", sessionId }] : []),
+            ] },
           };
         }
         if (semanticRequestPending) {
           semanticRequestPending = false;
+          await semanticResultGate;
           const outcome =
             semanticRequestResults.length > 0
               ? semanticRequestResults.shift()
@@ -367,6 +375,7 @@ const executeCore = mock(
       if (scenario === "semantic-request") {
         semanticRequestPending = true;
         semanticOperationId = operationId;
+        onSemanticRequest?.();
       } else {
         virtualDocumentPending = true;
       }
@@ -374,6 +383,14 @@ const executeCore = mock(
         id: request.id,
         ok: true as const,
         data: { operationId },
+      };
+    }
+    if (request.command === "lsp.updateMavenConfiguration") {
+      requestPayload = request.payload;
+      return {
+        id: request.id,
+        ok: true as const,
+        data: { settingsChanged: true, projectsReloaded: false, profilesUpdating: false },
       };
     }
     return { id: request.id, ok: true as const, data: null };
@@ -434,6 +451,10 @@ describe("Rust Core LSP adapter failures", () => {
     semanticOperationId = "";
     semanticRequestResult = { locations: [] };
     semanticRequestResults = [];
+    semanticResultGate = undefined;
+    releaseSemanticResult = undefined;
+    onSemanticRequest = undefined;
+    semanticRefreshOnReady = false;
     releaseInitialization = undefined;
     releaseRuntimeReady = undefined;
     emit.mockClear();
@@ -442,6 +463,7 @@ describe("Rust Core LSP adapter failures", () => {
   });
 
   afterEach(async () => {
+    releaseSemanticResult?.();
     releaseInitialization?.();
     releaseRuntimeReady?.();
     await invokeLsp("lsp_stop", { workspacePath: "C:/work/project" });
@@ -616,6 +638,39 @@ describe("Rust Core LSP adapter failures", () => {
     expect(ownsLspSession("java-session")).toBe(false);
   });
 
+  test("sends Maven configuration changes to the running Java session of the workspace", async () => {
+    scenario = "capabilities";
+    const mavenContext = { version: 1, reactorPath: ".", settingsPath: "C:/maven/settings.xml" };
+
+    const beforeStart = await invokeLsp("lsp_update_maven_configuration", {
+      workspacePath: "C:/work",
+      mavenContext,
+      reloadProjects: true,
+    });
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+    const running = await invokeLsp("lsp_update_maven_configuration", {
+      workspacePath: "C:\\work",
+      mavenContext,
+      reloadProjects: true,
+    });
+
+    // Without a session the next start reads the current context; Core is not asked.
+    expect(beforeStart).toEqual({ kind: "noSession" });
+    expect(running).toEqual({
+      kind: "updated",
+      settingsChanged: true,
+      projectsReloaded: false,
+      profilesUpdating: false,
+    });
+    expect(requestPayload).toEqual({ sessionId: "java-session", mavenContext, reloadProjects: true });
+    expect(commands.filter((command) => command === "lsp.updateMavenConfiguration")).toHaveLength(1);
+  });
+
   test("startup poll failure retires preparation and explicit stop clears the failed snapshot", async () => {
     scenario = "poll-failure";
     await expect(
@@ -730,6 +785,59 @@ describe("Rust Core LSP adapter failures", () => {
             (payload.command as { command?: string } | undefined)?.command ?? payload.operation,
         ),
     ).toEqual(["javaEntrypoints", "vscode.java.buildWorkspace", "vscode.java.resolveClasspath"]);
+  });
+
+  test("service update validates original paths before building the original target", async () => {
+    scenario = "semantic-request";
+    const target = {
+      mainClass: "example.Main",
+      projectName: "service",
+      modulePaths: [],
+      classPaths: ["C:/work/classes"],
+    };
+    semanticRequestResults = [{ value: [[], target.classPaths] }, { value: 1 }];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+    await invokeLsp("java_build_service_update", {
+      workspacePath: "C:/work",
+      sourcePath: "C:/work/src/Main.java",
+      target,
+    });
+    expect(
+      requestPayloads.slice(-2).map((payload) => (payload.command as { command: string }).command),
+    ).toEqual(["vscode.java.resolveClasspath", "vscode.java.buildWorkspace"]);
+    const build = requestPayloads[requestPayloads.length - 1]!.command as { arguments: string[] };
+    expect(JSON.parse(build.arguments[0])).toEqual({
+      mainClass: "example.Main",
+      projectName: "service",
+      filePath: "C:/work/src/Main.java",
+      isFullBuild: false,
+    });
+  });
+
+  test("service update refuses changed runtime paths before compiling", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [{ value: [[], ["C:/work/new-classes"]] }];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+    await expect(
+      invokeLsp("java_build_service_update", {
+        workspacePath: "C:/work",
+        sourcePath: "C:/work/src/Main.java",
+        target: { mainClass: "example.Main", modulePaths: [], classPaths: ["C:/work/classes"] },
+      }),
+    ).rejects.toThrow("Runtime paths changed");
+    expect(
+      (requestPayloads[requestPayloads.length - 1]!.command as { command: string }).command,
+    ).toBe("vscode.java.resolveClasspath");
   });
 
   test("picks the launch target by source path when two modules share a class", async () => {
@@ -1222,6 +1330,69 @@ describe("Rust Core LSP adapter failures", () => {
     await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
   });
 
+  test("resolves an incomplete class completion so import edits can be applied", async () => {
+    scenario = "semantic-request";
+    const filePath = "C:/work/index.php";
+    const completionItem = {
+      label: "Carbon",
+      kind: 7,
+      insertText: "Carbon",
+      data: { fqn: "Carbon\\Carbon" },
+    };
+    semanticRequestResult = {
+      item: {
+        ...completionItem,
+        detail: "class Carbon\\Carbon",
+        additionalTextEdits: [
+          {
+            range: {
+              start: { line: 1, utf16Column: 0 },
+              end: { line: 1, utf16Column: 0 },
+            },
+            newText: "use Carbon\\Carbon;\n",
+          },
+        ],
+      },
+    };
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work",
+      filePath,
+      languageId: "php",
+      providerId: "php",
+      serverPath: "C:/Lithe/intelephense.cmd",
+    });
+
+    const resolved = await invokeLsp("lsp_resolve_completion", {
+      filePath,
+      completionItem,
+    });
+
+    expect(resolved).toEqual({
+      label: "Carbon",
+      kind: 7,
+      insertText: "Carbon",
+      data: { fqn: "Carbon\\Carbon" },
+      detail: "class Carbon\\Carbon",
+      additionalTextEdits: [
+        {
+          range: {
+            start: { line: 1, character: 0 },
+            end: { line: 1, character: 0 },
+          },
+          newText: "use Carbon\\Carbon;\n",
+        },
+      ],
+    });
+    expect(requestPayload).toEqual({
+      sessionId: "java-session",
+      operation: "resolveCompletion",
+      uri: "file:///C:/work/index.php",
+      completionItem,
+    });
+
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
+  });
+
   test("normalizes Core Java navigation locations to standard LSP positions", async () => {
     scenario = "semantic-request";
     const filePath = "C:/work/Main.java";
@@ -1334,6 +1505,47 @@ describe("Rust Core LSP adapter failures", () => {
     expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(3);
   });
 
+  test("routes semantic tokens through Core and preserves its negotiated legend and null results", async () => {
+    scenario = "semantic-request";
+    const fixture = JSON.parse(readFileSync(new URL("../../../../shared/fixtures/lsp/semantic-tokens-v1.json", import.meta.url), "utf8"));
+    semanticRequestResult = fixture.expectedResult;
+    const filePath = "C:/work/Main.java";
+    await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" });
+    expect(await invokeLsp("lsp_get_semantic_tokens", { filePath })).toEqual(fixture.expectedResult);
+    expect(requestPayload).toEqual({ sessionId: "java-session", operation: "semanticTokens", uri: "file:///C:/work/Main.java" });
+    semanticRequestResult = null;
+    expect(await invokeLsp("lsp_get_semantic_tokens", { filePath })).toBeNull();
+    semanticRequestResult = { coreError: { code: "cancelled", message: "Document changed" } };
+    await expect(invokeLsp("lsp_get_semantic_tokens", { filePath })).rejects.toMatchObject({ code: "cancelled" });
+  });
+
+  test("forwards Core semantic token refresh notifications", async () => {
+    scenario = "semantic-request";
+    semanticRefreshOnReady = true;
+    await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath: "C:/work/Main.java", languageId: "java", serverPath: "java-lsp" });
+    expect(emit).toHaveBeenCalledWith("lsp://semantic-tokens-refresh", { sessionId: "java-session", workspacePath: "C:/work" });
+  });
+
+  test("discards semantic colors from a replaced file attachment", async () => {
+    scenario = "semantic-request";
+    semanticRequestResult = { tokenTypes: ["class"], tokenModifiers: [], tokens: [] };
+    const filePath = "C:/work/Main.java";
+    const start = { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" };
+    await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "old" });
+    semanticResultGate = new Promise<void>((resolve) => { releaseSemanticResult = resolve; });
+    const requested = new Promise<void>((resolve) => { onSemanticRequest = resolve; });
+    const result = invokeLsp("lsp_get_semantic_tokens", { filePath });
+    try {
+      await requested;
+      await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "replacement" });
+      releaseSemanticResult!();
+      expect(await result).toBeNull();
+    } finally {
+      releaseSemanticResult!();
+      await result.catch(() => undefined);
+    }
+  });
+
   test("returns a structured capability error for explicitly unavailable commands", async () => {
     await expect(
       invokeLsp("lsp_prepare_rename", {
@@ -1350,6 +1562,7 @@ describe("Rust Core LSP adapter failures", () => {
   test("maps or explicitly rejects every LspClient adapter command", () => {
     expect(LSP_OPERATION_BY_COMMAND).toEqual({
       lsp_get_completions: "completion",
+      lsp_resolve_completion: "resolveCompletion",
       lsp_get_hover: "hover",
       lsp_get_definition: "definition",
       lsp_get_implementation: "implementation",
@@ -1359,6 +1572,7 @@ describe("Rust Core LSP adapter failures", () => {
       lsp_format_document: "formatting",
       lsp_get_code_actions: "codeActions",
       lsp_get_inlay_hints: "inlayHints",
+      lsp_get_semantic_tokens: "semanticTokens",
       lsp_get_code_lens: "codeLens",
       lsp_get_virtual_document: "virtualDocument",
     });
@@ -1377,6 +1591,7 @@ describe("Rust Core LSP adapter failures", () => {
       "lsp_stop_for_file",
       "lsp_workspace_files_changed",
       "lsp_retry_maven_profiles",
+      "lsp_update_maven_configuration",
     ]);
     const clientSource = readFileSync(
       new URL("../features/editor/lsp/lsp-client.ts", import.meta.url),

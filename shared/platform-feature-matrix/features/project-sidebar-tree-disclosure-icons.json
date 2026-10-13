@@ -1,0 +1,25 @@
+{
+  "id": "project-sidebar-tree-disclosure-icons",
+  "area": "工作台",
+  "group": "项目侧边栏",
+  "capability": "项目树展开与折叠箭头使用 IDEA Community 明暗 SVG，目录行保持默认箭头光标和 24pt 连续行距",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/Lithe/Theme/LitheTheme.swift",
+      "macos/Resources/IDEAIcons/expui/general/chevronRight.svg",
+      "macos/Resources/IDEAIcons/expui/general/chevronDown.svg"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/panes"
+    ]
+  },
+  "owner": "Workbench",
+  "verification": "macOS 深浅主题下检查项目树箭头 SVG 的尺寸、笔画与 IDEA Community 一致；展开和折叠多层目录，确认 24pt 连续行距、目录行默认箭头光标及操作正常。"
+}

@@ -13,12 +13,12 @@ struct GitWorktreesView: View {
     }
 
     private enum Visual {
-        static let title = Font.system(size: 18, weight: .semibold)
-        static let section = Font.system(size: 13, weight: .semibold)
-        static let body = Font.system(size: 13)
-        static let bodyMedium = Font.system(size: 13, weight: .medium)
-        static let metadata = Font.system(size: 12.5)
-        static let mono = Font.system(size: 12.5, design: .monospaced)
+        static let title = LitheTheme.uiFont(size: 18, weight: .semibold)
+        static let section = LitheTheme.uiFont(size: 13, weight: .semibold)
+        static let body = LitheTheme.uiFont(size: 13)
+        static let bodyMedium = LitheTheme.uiFont(size: 13, weight: .medium)
+        static let metadata = LitheTheme.uiFont(size: 12.5)
+        static let mono = LitheTheme.uiFont(size: 12.5, design: .monospaced)
         static let listWidth: CGFloat = 360
         static let quickInfoWidth: CGFloat = 282
         static let quickInfoThreshold: CGFloat = 1_080
@@ -371,7 +371,7 @@ struct GitWorktreesView: View {
                     Image(systemName: "arrow.clockwise")
                         .frame(width: 24, height: 24)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .disabled(feature.isPerformingWorktreeOperation)
                 .help("Refresh worktrees")
@@ -459,9 +459,9 @@ struct GitWorktreesView: View {
                     actions.copyPath(worktree.url)
                 } label: {
                     Image(systemName: "doc.on.doc")
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help("Copy worktree path")
                 Spacer()
@@ -496,7 +496,7 @@ struct GitWorktreesView: View {
                         .frame(height: 2)
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 
@@ -547,7 +547,7 @@ struct GitWorktreesView: View {
                     } label: {
                         Image(systemName: "doc.on.doc")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .lithePointer()
                 }
             }
@@ -867,7 +867,7 @@ struct GitWorktreesView: View {
                         Label("Copy worktree path", systemImage: "arrow.right")
                             .font(Visual.bodyMedium)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.link)
                     .lithePointer()
                 }
@@ -911,7 +911,7 @@ struct GitWorktreesView: View {
 
     private func worktreeBadge(_ title: String, color: Color) -> some View {
         Text(LocalizedStringKey(title))
-            .font(.system(size: 11, weight: .medium))
+            .font(LitheTheme.uiFont(size: 11, weight: .medium))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
@@ -1146,7 +1146,7 @@ struct GitWorktreesView: View {
     private func worktreeMessage(icon: String, title: String, detail: String) -> some View {
         VStack(spacing: 9) {
             Image(systemName: icon)
-                .font(.system(size: 24, weight: .regular))
+                .font(LitheTheme.uiFont(size: 24, weight: .regular))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(LocalizedStringKey(title))
                 .font(Visual.section)

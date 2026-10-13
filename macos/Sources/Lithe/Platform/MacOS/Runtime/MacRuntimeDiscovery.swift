@@ -1,12 +1,12 @@
 import Foundation
 
 enum MacRuntimeDiscovery {
+    private static let probeCache = MacRuntimeProbeCache()
+
+    static func invalidateProbeCaches() { probeCache.invalidate() }
+
     static func discover(environment: [String: String]) -> RuntimeDiscoveryResult {
-        let javaRuntimes = discoverJavaHomes(environment: environment)
-            .compactMap(probeJavaHome)
-            .sorted { lhs, rhs in
-                lhs.version.localizedStandardCompare(rhs.version) == .orderedDescending
-            }
+        let javaRuntimes = discoverJavaRuntimes(environment: environment)
         let mavenRuntimes = discoverMavenExecutables(environment: environment)
             .compactMap(probeMaven)
             .sorted { lhs, rhs in
@@ -45,6 +45,34 @@ enum MacRuntimeDiscovery {
         return FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("bin/java").path)
             ? url
             : nil
+    }
+
+    static func discoverJavaRuntimes(
+        environment: [String: String], isCancelled: @Sendable () -> Bool = { false }
+    ) -> [JavaRuntimeCandidate] {
+        guard !isCancelled() else { return [] }
+        let homes = discoverJavaHomes(environment: environment)
+        var runtimes: [JavaRuntimeCandidate] = []
+        for home in homes {
+            guard !isCancelled() else { return [] }
+            if let runtime = probeJavaHome(home) { runtimes.append(runtime) }
+        }
+        return runtimes.sorted { lhs, rhs in
+            lhs.version.localizedStandardCompare(rhs.version) == .orderedDescending
+        }
+    }
+
+    static func javaHomeOnPath(environment: [String: String]) -> URL? {
+        for directory in (environment["PATH"] ?? "").split(separator: ":") {
+            let executable = URL(fileURLWithPath: String(directory), isDirectory: true).appendingPathComponent("java")
+            guard FileManager.default.isExecutableFile(atPath: executable.path) else { continue }
+            let resolved = executable.resolvingSymlinksInPath()
+            // Apple's system launcher selects a JDK itself; /usr is not a JDK
+            // home and must never become JAVA_HOME for child processes.
+            guard resolved.path != "/usr/bin/java" else { return nil }
+            return validJavaHome(resolved.deletingLastPathComponent().deletingLastPathComponent().path)
+        }
+        return nil
     }
 
     private static func discoverJavaHomes(environment: [String: String]) -> [URL] {
@@ -134,9 +162,10 @@ enum MacRuntimeDiscovery {
     }
 
     static func probeJavaHome(_ home: URL) -> JavaRuntimeCandidate? {
-        let output = commandOutput(
+        let output = cachedCommandOutput(
             executable: home.appendingPathComponent("bin/java"),
-            arguments: ["-version"]
+            arguments: ["-version"], dependencies: [home.appendingPathComponent("release")],
+            accepts: { firstCapture(pattern: #"version\s+\"([^\"]+)\""#, in: $0) != nil }
         )
         guard let version = firstCapture(pattern: #"version\s+\"([^\"]+)\""#, in: output) else {
             return nil
@@ -150,16 +179,32 @@ enum MacRuntimeDiscovery {
     }
 
     static func probeMaven(_ executable: URL) -> MavenRuntimeCandidate? {
-        let output = commandOutput(executable: executable, arguments: ["-version"])
+        let resolvedExecutable = executable.resolvingSymlinksInPath()
+        let homeURL = resolvedExecutable.deletingLastPathComponent().deletingLastPathComponent()
+        let library = homeURL.appendingPathComponent("lib")
+        let libraries = directoryNames(at: library.path).filter { $0.hasPrefix("maven-core-") }.sorted()
+        let wrapper = resolvedExecutable.deletingLastPathComponent().appendingPathComponent(".mvn/wrapper")
+        let output = cachedCommandOutput(
+            executable: executable, arguments: ["-version"],
+            dependencies: [library] + libraries.map { library.appendingPathComponent($0) }
+                + [wrapper.appendingPathComponent("maven-wrapper.properties"), wrapper.appendingPathComponent("maven-wrapper.jar")],
+            accepts: { firstCapture(pattern: #"Apache Maven\s+([^\s]+)"#, in: $0) != nil }
+        )
         let version = firstCapture(pattern: #"Apache Maven\s+([^\s]+)"#, in: output) ?? ""
         let home = executable.deletingLastPathComponent().deletingLastPathComponent().path
         return MavenRuntimeCandidate(homePath: home, executablePath: executable.path, version: version)
     }
 
     private static func javaHomeOutput() -> [String] {
-        let output = commandOutput(
+        let roots = ["/Library/Java/JavaVirtualMachines", NSHomeDirectory() + "/Library/Java/JavaVirtualMachines"]
+        let dependencies = roots.flatMap { root in
+            [URL(fileURLWithPath: root)] + directoryNames(at: root).sorted().map {
+                URL(fileURLWithPath: root).appendingPathComponent($0)
+            }
+        }
+        let output = cachedCommandOutput(
             executable: URL(fileURLWithPath: "/usr/libexec/java_home"),
-            arguments: ["-V"]
+            arguments: ["-V"], dependencies: dependencies, accepts: { _ in true }
         )
         return output
             .split(separator: "\n")
@@ -172,12 +217,15 @@ enum MacRuntimeDiscovery {
         (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
     }
 
-    private static func commandOutput(executable: URL, arguments: [String]) -> String {
-        MacProcessRunner().run(ProcessRequest(
-            executablePath: executable.path,
-            arguments: arguments,
-            timeoutMilliseconds: 5_000
-        )).output
+    private static func cachedCommandOutput(
+        executable: URL, arguments: [String], dependencies: [URL], accepts: (String) -> Bool
+    ) -> String {
+        probeCache.value(for: MacRuntimeProbeCache.key(executable: executable, dependencies: dependencies)) {
+            let result = MacProcessRunner().run(ProcessRequest(
+                executablePath: executable.path, arguments: arguments, timeoutMilliseconds: 5_000
+            ))
+            return result.succeeded && accepts(result.output) ? result.output : nil
+        } ?? ""
     }
 
     private static func firstCapture(pattern: String, in input: String) -> String? {

@@ -28,6 +28,7 @@ export interface DebugLaunchConfig {
 }
 
 export interface DebugSession {
+  javaRun?: { workspaceId: string; sessionId: string; executionId: string };
   id: string;
   name: string;
   configId: string;

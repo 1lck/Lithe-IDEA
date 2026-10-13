@@ -10,6 +10,11 @@ import {
 } from "./git-status-selection";
 
 describe("Git status row selection", () => {
+  test("including a partially staged file includes its remaining worktree changes", () => {
+    const partial = { path: "partial.ts", status: "modified" as const, staged: true, worktree: true };
+    expect(resolveGitFilesForStagedState([partial], true)).toEqual([partial]);
+    expect(resolveGitFilesForStagedState([partial], false)).toEqual([partial]);
+  });
   test("includes both sides of a rename in Git mutations", () => {
     expect(
       resolveGitFileMutationPaths([

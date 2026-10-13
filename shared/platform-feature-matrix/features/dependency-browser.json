@@ -1,0 +1,23 @@
+{
+  "id": "dependency-browser",
+  "area": "工作区",
+  "group": "项目浏览",
+  "capability": "项目依赖与模块浏览",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace/DependencySidebarView.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/maven",
+      "windows/tauri/src/features/sidebar"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workspace / Java",
+  "verification": "打开 Maven 项目依赖和模块树，验证导航、刷新和空项目状态。"
+}

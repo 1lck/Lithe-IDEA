@@ -125,6 +125,11 @@ export type IconProps = SVGProps<SVGSVGElement> & {
   mirrored?: boolean;
   alt?: string;
   title?: string;
+  /**
+   * Use IntelliJ's dedicated 20x20 artwork, as its main toolbar and tool window stripes do,
+   * instead of scaling the 16px icon. Ignored for icons without such artwork.
+   */
+  large?: boolean;
 };
 
 export type Icon = ForwardRefExoticComponent<Omit<IconProps, "ref"> & RefAttributes<SVGSVGElement>>;
@@ -156,6 +161,7 @@ function createIconComponent(IconComponent: ComponentType<any>, displayName: str
       style,
       title,
       weight,
+      large,
       ...iconProps
     } = { ...context, ...props };
     const nextStyle = mirrored
@@ -173,13 +179,15 @@ function createIconComponent(IconComponent: ComponentType<any>, displayName: str
     const asset = ideaIconAssets[displayName];
     if (asset) {
       const { className, ...svgProps } = iconProps;
+      const art = large && asset.large ? asset.large : asset;
+      const artSize = art === asset ? 16 : 20;
       return createElement(
         "svg",
         {
           ...svgProps,
           ref,
           className: ["lithe-idea-icon", className].filter(Boolean).join(" "),
-          viewBox: "0 0 16 16",
+          viewBox: `0 0 ${artSize} ${artSize}`,
           width: size,
           height: size,
           fill: "none",
@@ -189,20 +197,20 @@ function createIconComponent(IconComponent: ComponentType<any>, displayName: str
           "aria-hidden": title ?? alt ? undefined : true,
         },
         createElement("image", {
-          href: asset.light,
+          href: art.light,
           className: "lithe-idea-icon-light",
           x: 0,
           y: 0,
-          width: 16,
-          height: 16,
+          width: artSize,
+          height: artSize,
         }),
         createElement("image", {
-          href: asset.dark,
+          href: art.dark,
           className: "lithe-idea-icon-dark",
           x: 0,
           y: 0,
-          width: 16,
-          height: 16,
+          width: artSize,
+          height: artSize,
         }),
       );
     }
@@ -222,6 +230,7 @@ function createIconComponent(IconComponent: ComponentType<any>, displayName: str
 
 export const Icon = createIconComponent(Nucleo.IconCircleQuestionOutline18, "Icon");
 export const AiLoadingIcon = createIconComponent(Nucleo.IconAiLoadingOutline18, "AiLoadingIcon");
+export const LoaderCircleIcon = createIconComponent(lucideIcons.LoaderCircle, "LoaderCircleIcon");
 export const ArchiveIcon = createIconComponent(Nucleo.IconArchiveOutline18, "ArchiveIcon");
 export const ArrowBendDownLeftIcon = createIconComponent(
   Nucleo.IconArrowCornerBottomLeftOutline18,
@@ -408,6 +417,8 @@ export const FunnelIcon = createIconComponent(Nucleo.IconFilterOutline18, "Funne
 export const GearIcon = createIconComponent(Nucleo.IconGearOutline18, "GearIcon");
 export const GearSixIcon = createIconComponent(Nucleo.IconGear2Outline18, "GearSixIcon");
 export const GitBranchIcon = createIconComponent(Nucleo.IconCodeBranchOutline18, "GitBranchIcon");
+/** IntelliJ main toolbar Git widget icon (AllIcons.General.Vcs). */
+export const VcsIcon = createIconComponent(Nucleo.IconCodeBranchOutline18, "VcsIcon");
 export const GitCommitIcon = createIconComponent(Nucleo.IconCircleDotsOutline18, "GitCommitIcon");
 export const GitGraphIcon = createIconComponent(Nucleo.IconGitGraphOutline18, "GitGraphIcon");
 export const GitDiffIcon = createIconComponent(Nucleo.IconBranchMergeOutline18, "GitDiffIcon");
@@ -463,6 +474,7 @@ export const MagnifyingGlassPlusIcon = createIconComponent(
   Nucleo.IconMagnifierPlusOutline18,
   "MagnifyingGlassPlusIcon",
 );
+export const MenuIcon = createIconComponent(lucideIcons.Menu, "MenuIcon");
 export const MegaphoneIcon = createIconComponent(Nucleo.IconMegaphoneOutline18, "MegaphoneIcon");
 export const MicrophoneIcon = createIconComponent(Nucleo.IconMicrophoneOutline18, "MicrophoneIcon");
 export const MinusCircleIcon = createIconComponent(
@@ -517,6 +529,10 @@ export const PuzzlePieceIcon = createIconComponent(
   "PuzzlePieceIcon",
 );
 export const QuestionIcon = createIconComponent(Nucleo.IconCircleQuestionOutline18, "QuestionIcon");
+export const ProblemsToolWindowIcon = createIconComponent(
+  Nucleo.IconCircleWarningOutline18,
+  "ProblemsToolWindowIcon",
+);
 export const RadioButtonIcon = createIconComponent(Nucleo.IconRadioOutline18, "RadioButtonIcon");
 export const RobotIcon = createIconComponent(Nucleo.IconRobotOutline18, "RobotIcon");
 export const RocketLaunchIcon = createIconComponent(Nucleo.IconRocketOutline18, "RocketLaunchIcon");
@@ -524,6 +540,10 @@ export const RowsIcon = createIconComponent(Nucleo.IconTableRowsOutline18, "Rows
 export const RowsPlusTopIcon = createIconComponent(
   Nucleo.IconTableRowNewTopOutline18,
   "RowsPlusTopIcon",
+);
+export const RunToolWindowIcon = createIconComponent(
+  Nucleo.IconMediaPlayOutline18,
+  "RunToolWindowIcon",
 );
 export const ScissorsIcon = createIconComponent(Nucleo.IconScissorsOutline18, "ScissorsIcon");
 export const ShieldCheckIcon = createIconComponent(

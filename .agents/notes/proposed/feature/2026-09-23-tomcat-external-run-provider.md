@@ -89,6 +89,16 @@ Lithe 当前只识别 Spring Boot / Quarkus / Micronaut 这类自带嵌入式容
 否决原因：需要改项目 `pom.xml` 加插件，且 `tomcat7-maven-plugin` 与用户已
 有的外部 Tomcat 9/10 安装目录是两回事，容易引入版本混乱。
 
+## CI 兼容性与当前验证边界
+
+新增 `RunConfigurationKind.tomcat` 和 `SharedLaunchPlan.Executable.path` 时，
+必须同步更新 macOS 图标及测试命令展示的穷举分支，以及 Windows 原有启动器测试的
+结构体初始化。同步 preview 时保留已有的语言依赖提供器、启动预留锁和工作目录回归测试，
+不能用旧分支实现覆盖这些修复。绝对路径的可执行性检查复用运行时服务的原生适配器。
+
+功能矩阵暂记为“部分实现、待验证”。启动计划单元测试和 CI 编译通过只能证明类型、
+契约和已有用例兼容，不能证明配置入口、真实 Context 加载、停止清理和双平台调试已完成。
+
 ## 验收标准
 
 - 在 macOS 和 Windows 上，打开一个 `packaging=war` 的 Maven 项目，新建

@@ -6,9 +6,10 @@ import { EffectiveToolchain } from "@/features/run/components/effective-toolchai
 import { useResolvedToolchains } from "@/features/run/hooks/use-resolved-toolchains";
 import { toolchainRequirementMessages } from "@/features/run/utils/effective-toolchain";
 import type { RunDiagnostic } from "@/features/run/types/run.types";
+import { MavenDetectedValue } from "@/features/maven/components/maven-detected-value";
 import { mavenLaunchContextForWorkspace, useMavenStore } from "@/features/maven/stores/maven.store";
-import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import type { MavenSettings } from "@/features/maven/types/maven.types";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
@@ -29,7 +30,13 @@ export function ProjectEnvironmentSettings() {
   const { t } = useTranslation();
   if (!root) return <p>{t("settings.project.openProject")}</p>;
   return (
-    <ProjectEnvironmentForm key={`${workspaceId}:${root}`} root={root} workspaceId={workspaceId} />
+    <div className="space-y-4">
+      <ProjectEnvironmentForm
+        key={`${workspaceId}:${root}`}
+        root={root}
+        workspaceId={workspaceId}
+      />
+    </div>
   );
 }
 
@@ -43,6 +50,17 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
   const mounted = useRef(true);
   const revision = useRef(0);
   const saveRevision = useRef(0);
+  const effectiveConfiguration = useMavenStore((state) => state.effectiveConfiguration);
+  const effectiveConfigurationStatus = useMavenStore((state) => state.effectiveConfigurationStatus);
+  const mavenProject = useMavenStore((state) => state.project);
+  const resolveEffectiveConfiguration = useMavenStore(
+    (state) => state.actions.resolveEffectiveConfiguration,
+  );
+
+  useEffect(() => {
+    if (!mavenProject) return;
+    void resolveEffectiveConfiguration();
+  }, [mavenProject, resolveEffectiveConfiguration]);
 
   const load = async () => {
     const current = ++revision.current;
@@ -126,12 +144,17 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
     );
   };
 
+  // A project refresh may change minimum Java requirements without changing
+  // the draft's empty automatic paths. Re-resolve the displayed choice too.
+  const discoveredJava = useRunStore((state) => state.discoveredJava);
   // Resolve the draft, so the line under each field shows what saving it would launch.
   const resolved = useResolvedToolchains(
     environment ? root : null,
     environment?.toolchain.javaHomePath ?? "",
     environment?.toolchain.mavenExecutablePath ?? "",
     environment?.toolchain.mavenJavaHomePath ?? "",
+    undefined,
+    discoveredJava,
   );
   // Core checks the saved defaults against the project's requirements.
   const diagnostics = useRunStore((state) =>
@@ -310,6 +333,12 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
                   <FolderIcon />
                 </Button>
               </div>
+              <MavenDetectedValue
+                field={key}
+                value={maven[key]}
+                effective={effectiveConfiguration}
+                status={effectiveConfigurationStatus}
+              />
             </label>
           ))}
       </fieldset>

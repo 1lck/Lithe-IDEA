@@ -1,0 +1,28 @@
+{
+  "id": "ide-api-environment",
+  "area": "AI",
+  "group": "IDE MCP",
+  "capability": "插件与 MCP 查询和修改项目 Java/Maven 默认环境，并返回实际选择结果",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+      "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+      "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+      "rust/lithe-ide-host/src/lib.rs"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/host-api/ide-capabilities.ts",
+      "windows/tauri/src/features/host-api/mcp-settings.tsx",
+      "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+      "rust/lithe-ide-host/src/lib.rs"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "读取环境、修改一个默认值，检查其他字段保留；对照设置页与实际启动路径，验证保存失败及项目切换。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+}

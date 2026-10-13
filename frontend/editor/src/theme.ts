@@ -47,8 +47,9 @@ export function defineWorkbenchTheme(input: WorkbenchThemeInput, palette: Syntax
     "editorOverviewRuler.wordHighlightTextForeground": "#00000000",
   };
   const surfaceColors: [keyof NonNullable<WorkbenchThemeInput["colors"]>, string[]][] = [
+    // Monaco otherwise fills the right overview ruler from tokenizer defaults when the minimap is enabled.
     ["background", ["editor.background", "editorGutter.background", "editorStickyScroll.background",
-      "editorStickyScrollGutter.background", "minimap.background"]],
+      "editorStickyScrollGutter.background", "minimap.background", "editorOverviewRuler.background"]],
     ["cursor", ["editorCursor.foreground"]],
     ["selection", ["editor.selectionBackground", "editor.inactiveSelectionBackground"]],
     ["lineHighlight", ["editor.lineHighlightBackground"]],

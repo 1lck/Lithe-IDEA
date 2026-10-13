@@ -23,6 +23,7 @@ import type {
 import {
   formatNotificationAge,
   formatNotificationGroupDate,
+  formatNotificationMessage,
   formatNotificationText,
 } from "@/features/notifications/utils/notification-formatters";
 import { Button } from "@/ui/button";
@@ -96,7 +97,7 @@ export function NotificationsToolWindow({ isVisible, onClose }: NotificationsToo
   };
 
   const copyActiveNotification = async (notification: NotificationEntry) => {
-    await copyText(formatNotificationText(notification));
+    await copyText(formatNotificationText(notification, t));
     setCopiedNotificationId(notification.id);
     window.setTimeout(() => {
       setCopiedNotificationId((currentId) => (currentId === notification.id ? null : currentId));
@@ -112,7 +113,7 @@ export function NotificationsToolWindow({ isVisible, onClose }: NotificationsToo
         id: "copy-message",
         label: t("notifications.copyMessage"),
         icon: <Copy />,
-        onClick: () => void copyText(notification.message),
+        onClick: () => void copyText(formatNotificationMessage(notification, t)),
       },
       ...(notification.description
         ? [
@@ -128,7 +129,7 @@ export function NotificationsToolWindow({ isVisible, onClose }: NotificationsToo
         id: "copy-notification",
         label: t("notifications.copyNotification"),
         icon: <ClipboardText />,
-        onClick: () => void copyText(formatNotificationText(notification)),
+        onClick: () => void copyText(formatNotificationText(notification, t)),
       },
       { id: "sep-delete", label: "", separator: true, onClick: () => {} },
       {
@@ -153,7 +154,8 @@ export function NotificationsToolWindow({ isVisible, onClose }: NotificationsToo
         label: t("notifications.copyAll"),
         icon: <ClipboardText />,
         disabled: notifications.length === 0,
-        onClick: () => void copyText(notifications.map(formatNotificationText).join("\n\n---\n\n")),
+        onClick: () =>
+          void copyText(notifications.map((item) => formatNotificationText(item, t)).join("\n\n---\n\n")),
       },
       {
         id: "clear-all",
@@ -518,7 +520,7 @@ export function NotificationsToolWindow({ isVisible, onClose }: NotificationsToo
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="font-sans ui-text-base truncate font-medium text-foreground">
-                    {activeNotification.message}
+                    {formatNotificationMessage(activeNotification, t)}
                   </div>
                   <div className="font-sans ui-text-base mt-0.5 flex items-center gap-1 text-subtle-foreground">
                     <span className="capitalize">{activeNotification.type}</span>

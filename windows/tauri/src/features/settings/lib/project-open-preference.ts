@@ -1,8 +1,10 @@
-export type ProjectOpenPreference = "ask" | "this-window" | "new-window";
+import type { ProjectOpenDefaultDestination } from "@/features/settings/types/settings.types";
+
+export type ProjectOpenPreference = "ask" | ProjectOpenDefaultDestination;
 
 interface ProjectOpenPreferenceSettings {
   askWhereToOpenProjects: boolean;
-  openFoldersInNewWindow: boolean;
+  projectOpenDefaultDestination: ProjectOpenDefaultDestination;
 }
 
 export function getProjectOpenPreference(
@@ -12,7 +14,7 @@ export function getProjectOpenPreference(
     return "ask";
   }
 
-  return settings.openFoldersInNewWindow ? "new-window" : "this-window";
+  return settings.projectOpenDefaultDestination;
 }
 
 export function getProjectOpenPreferencePatch(
@@ -24,6 +26,6 @@ export function getProjectOpenPreferencePatch(
 
   return {
     askWhereToOpenProjects: false,
-    openFoldersInNewWindow: preference === "new-window",
+    projectOpenDefaultDestination: preference,
   };
 }

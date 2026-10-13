@@ -58,7 +58,11 @@ extension AppModel {
             }
             return nil
         }
-        let session = feature.createSession(in: workspaceURL, shellPath: shellPath ?? settings.terminalShellPath)
+        let session = feature.createSession(
+            in: workspaceURL,
+            shellPath: shellPath ?? settings.terminalShellPath,
+            preferredToolTabTitle: shellPath.map { URL(fileURLWithPath: $0).lastPathComponent }
+        )
         configureTerminalSession(session)
         terminalPlacementFeature.registerSession(session.id)
         showToolWindow(.terminal)
@@ -243,6 +247,7 @@ extension AppModel {
     func selectEditorTerminalSession(_ session: TerminalSession) {
         guard terminalPlacementFeature.editorSessionIDs.contains(session.id),
               terminalFeature?.selectSession(session) == true else { return }
+        editorTabOrderFeature.repositoryDiffSelected = false
         mediaFeature.deactivate()
         terminalPlacementFeature.activateEditorSession(session.id)
     }
@@ -254,6 +259,7 @@ extension AppModel {
 
     func moveTerminalToEditor(_ sessionID: UUID) {
         guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
+        editorTabOrderFeature.repositoryDiffSelected = false
         terminalPlacementFeature.moveToEditor(sessionID)
         editorTabOrderFeature.moveToEnd(.terminal(sessionID))
         terminalPlacementFeature.reorderEditorSessions(
@@ -296,34 +302,6 @@ extension AppModel {
 
     func requestCloseTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
-        guard session.isRunning else {
-            closeTerminalSession(session)
-            return
-        }
-        pendingTerminalCloseSessionID = session.id
-    }
-
-    var pendingTerminalCloseSession: TerminalSession? {
-        guard let pendingTerminalCloseSessionID else { return nil }
-        return terminalSessions.first { $0.id == pendingTerminalCloseSessionID }
-    }
-
-    func confirmTerminalClose() {
-        guard let session = pendingTerminalCloseSession else {
-            pendingTerminalCloseSessionID = nil
-            return
-        }
-        pendingTerminalCloseSessionID = nil
-        closeTerminalSession(session)
-    }
-
-    func cancelTerminalClose() {
-        pendingTerminalCloseSessionID = nil
-    }
-
-    private func closeTerminalSession(_ session: TerminalSession) {
-        guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
-        pendingTerminalCloseSessionID = nil
         debugTerminalSessionIDs.remove(session.id)
         for debugSessionID in debugTerminalSessionIDsByDebugSession.keys {
             debugTerminalSessionIDsByDebugSession[debugSessionID]?.remove(session.id)
@@ -340,8 +318,10 @@ extension AppModel {
         editorTabOrderFeature.remove(.terminal(session.id))
         terminalPlacementFeature.removeSession(session.id)
         terminalFeature?.closeSession(session)
-        if terminalSessions.isEmpty {
+        if toolTerminalSessions.isEmpty {
             workbenchFeature.setVisibility(.terminal, isVisible: false)
+        }
+        if terminalSessions.isEmpty {
             try? services.moduleRuntime.markIdle(.terminal)
         }
     }

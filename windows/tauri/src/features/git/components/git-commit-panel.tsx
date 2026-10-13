@@ -1,22 +1,27 @@
+import type { WorkspaceCommitPathScope } from "../types/git-workspace-commit.types";
+import { Checkbox } from "@/ui/checkbox";
 import {
   ArrowDownIcon as ArrowDown,
   ArrowUpIcon as ArrowUp,
-  CaretDownIcon as ChevronDown,
   WarningCircleIcon as AlertCircle,
   SparkleIcon as Sparkles,
   GearSixIcon as SettingsIcon,
 } from "@/ui/icons";
 import type React from "react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useWorkspaceCommitStore } from "../stores/git-workspace-commit.store";
+import { commitDiffWritePending } from "../runtime/commit-diff-write-state";
+import { workspaceCommitBindings } from "../utils/git-workspace-commit-bindings";
+import { GitWorkspaceCommitReview } from "./git-workspace-commit-review";
+import { workspaceCommitEnglish } from "@/i18n/git-workspace-commit";
+import type { TranslationKey } from "@/i18n/locale";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
-import { ButtonGroup, ButtonGroupSeparator } from "@/ui/button-group";
-import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import { SidebarComposerBody } from "@/ui/sidebar";
 import Textarea from "@/ui/textarea";
 import { cn } from "@/utils/cn";
+import { IDEA_BUTTON_CLASS_NAME } from "../utils/idea-control-styles";
 import {
   commitAIError,
   collectCommitFiles,
@@ -26,49 +31,103 @@ import {
 import { generateCommitDraft } from "../services/ai-commit-workflow";
 import { showConfirmDialog } from "@/ui/dialog";
 import { useUIState } from "@/features/window/stores/ui-state.store";
-import { commitSelectedChanges } from "../api/git-commits-api";
 import { showGitPushDialog } from "../services/git-push-dialog-service";
-import { useGitBlameStore } from "../stores/git-blame.store";
-import { useGitStore } from "../stores/git.store";
-import type { GitFile } from "../types/git.types";
 import {
-  getGitFileRepositoryPath,
-  resolveGitFileMutationPaths,
-} from "../utils/git-status-selection";
+  useActiveWorkspaceId,
+  useWorkspaceReady,
+  useWorkspaceStoreScopeId,
+} from "@/features/workspace/stores/create-workspace-scoped-store";
+import type { GitFile } from "../types/git.types";
+import { COMMIT_MESSAGE_MAX_VIEWPORT_RATIO } from "../hooks/use-git-commit-area-resize";
 
 interface GitCommitPanelProps {
+  pathScope?: WorkspaceCommitPathScope;
+  commitScopeError?: string;
   selectedFiles: GitFile[];
+  workspacePath: string;
+  repositoryPaths: string[];
+  isStaging?: boolean;
   commitMessage: string;
   onCommitMessageChange: (message: string) => void;
   currentBranch?: string;
   repoPath?: string;
   ahead?: number;
   behind?: number;
-  onCommitSuccess?: () => void;
   onPull?: () => Promise<unknown> | void;
   isPulling?: boolean;
   isPullLocked?: boolean;
   focusRequest?: number;
 }
 
-const COMMIT_TEXTAREA_MIN_HEIGHT = 64;
-const COMMIT_TEXTAREA_MAX_HEIGHT = 128;
+// IntelliJ CommitLegendComponent: "N added   N modified   N deleted", each part
+// tinted with its file-status color. Untracked files count as added (shown as
+// "new+unversioned") and renames count as modified, as in ChangeInfoCalculator.
+interface CommitLegendChunk {
+  id: "added" | "modified" | "deleted";
+  value: string;
+  labelKey: "git.changeAdded" | "git.changeModified" | "git.changeDeleted";
+  className: string;
+}
+
+function buildCommitLegend(files: GitFile[]): CommitLegendChunk[] {
+  let added = 0;
+  let untracked = 0;
+  let modified = 0;
+  let deleted = 0;
+  for (const file of files) {
+    if (file.status === "added") added += 1;
+    else if (file.status === "untracked") untracked += 1;
+    else if (file.status === "deleted") deleted += 1;
+    else modified += 1;
+  }
+  const chunks: CommitLegendChunk[] = [];
+  if (added > 0 || untracked > 0) {
+    chunks.push({
+      id: "added",
+      value: added > 0 && untracked > 0 ? `${added}+${untracked}` : String(added || untracked),
+      labelKey: "git.changeAdded",
+      className: "text-git-added",
+    });
+  }
+  if (modified > 0) {
+    chunks.push({
+      id: "modified",
+      value: String(modified),
+      labelKey: "git.changeModified",
+      className: "text-git-modified",
+    });
+  }
+  if (deleted > 0) {
+    chunks.push({
+      id: "deleted",
+      value: String(deleted),
+      labelKey: "git.changeDeleted",
+      className: "text-git-file-deleted",
+    });
+  }
+  return chunks;
+}
 
 const GitCommitPanel = ({
+  pathScope,
+  commitScopeError,
   selectedFiles,
+  workspacePath,
+  repositoryPaths,
+  isStaging = false,
   commitMessage,
   onCommitMessageChange,
   currentBranch,
   repoPath,
   ahead = 0,
   behind = 0,
-  onCommitSuccess,
   onPull,
   isPulling = false,
   isPullLocked = false,
   focusRequest = 0,
 }: GitCommitPanelProps) => {
   const { t } = useTranslation();
+  const [includeParentReferences, setIncludeParentReferences] = useState(true);
   const aiSettings = useSettingsStore((state) => state.settings.aiCommit);
   const openSettings = useUIState((state) => state.openSettingsDialog);
   const generationRef = useRef<AbortController | null>(null);
@@ -84,34 +143,29 @@ const GitCommitPanel = ({
       generationRef.current = null;
     };
   }, [selection]);
-  const [isCommitting, setIsCommitting] = useState(false);
+  const workflow = useWorkspaceCommitStore((state) => state.workflow);
+  const batch = useSyncExternalStore(workflow.subscribe, workflow.getState, workflow.getState);
+  const isCommitting = batch.busy;
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const workspaceId = useWorkspaceStoreScopeId() ?? activeWorkspaceId;
+  const workspaceReady = useWorkspaceReady(workspaceId);
+  const isCurrentWorkspace = workspaceReady && workspaceId === activeWorkspaceId;
+  const setDraftOwner = useWorkspaceCommitStore((state) => state.setDraftOwner);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isCommitActionMenuOpen, setIsCommitActionMenuOpen] = useState(false);
   const [remoteAction, setRemoteAction] = useState<"push" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const commitMenuAnchorRef = useRef<HTMLDivElement>(null);
+  // IntelliJ CommitProgressPanel: the buttons stay enabled and a click with nothing
+  // to commit explains what is missing until the selection or message changes.
+  const [commitHint, setCommitHint] = useState<{ noChanges: boolean; noMessage: boolean } | null>(
+    null,
+  );
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedFilesCount = selectedFiles.length;
-  const operationState = useGitStore((state) => state.operationState);
 
   useEffect(() => {
     if (focusRequest <= 0) return;
     globalThis.requestAnimationFrame?.(() => commitTextareaRef.current?.focus());
   }, [focusRequest]);
-
-  useLayoutEffect(() => {
-    const textarea = commitTextareaRef.current;
-    if (!textarea) return;
-
-    textarea.style.height = "auto";
-    const nextHeight = Math.min(
-      COMMIT_TEXTAREA_MAX_HEIGHT,
-      Math.max(COMMIT_TEXTAREA_MIN_HEIGHT, textarea.scrollHeight),
-    );
-    textarea.style.height = `${nextHeight}px`;
-    textarea.style.overflowY =
-      textarea.scrollHeight > COMMIT_TEXTAREA_MAX_HEIGHT ? "auto" : "hidden";
-  }, [commitMessage]);
 
   const handleGenerateCommitMessage = async () => {
     if (!repoPath || selectedFilesCount === 0 || generationRef.current || !aiSettings.enabled)
@@ -145,76 +199,54 @@ const GitCommitPanel = ({
   };
 
   const handleCommit = async (pushAfterCommit = false) => {
-    if (selectedFilesCount === 0) {
-      setError(t("git.selectFilesToCommit"));
+    if (
+      !isCurrentWorkspace ||
+      commitScopeError ||
+      isStaging ||
+      commitDiffWritePending() ||
+      batch.busy ||
+      batch.review ||
+      (batch.session && !batch.session.succeeded)
+    )
+      return;
+    const noChanges = selectedFilesCount === 0;
+    const noMessage = !commitMessage.trim();
+    if (noChanges || noMessage) {
+      setCommitHint({ noChanges, noMessage });
+      if (noMessage && !noChanges) commitTextareaRef.current?.focus();
       return;
     }
-    if (!repoPath || !commitMessage.trim()) return;
-    const selectedRepoPaths = new Set(
-      selectedFiles.map((file) => getGitFileRepositoryPath(file, repoPath) ?? repoPath),
-    );
-    if (selectedRepoPaths.size > 1 || !selectedRepoPaths.has(repoPath)) {
-      setError(t("git.selectSingleRepositoryForCommit"));
-      return;
-    }
-
-    // A conflicted merge/rebase must be resolved before the merge commit can
-    // be finalized; guard here so Git's raw refusal never reaches the user.
-    const activeOperation = useGitStore.getState().operationState;
-    const conflictedPaths = activeOperation?.conflictedPaths ?? [];
-    if (activeOperation && conflictedPaths.length > 0) {
-      setError(t("git.resolveConflictsFirst", { paths: conflictedPaths.join(", ") }));
-      return;
-    }
-    if (activeOperation) {
-      setError(t("git.finishOperationBeforeCommit"));
-      return;
-    }
-
-    setIsCommitting(true);
+    if (!repoPath) return;
+    setCommitHint(null);
+    setDraftOwner(repoPath);
     setError(null);
+    await workflow.prepare({
+      repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
+      message: commitMessage.trim(),
+      amend: false,
+      push: pushAfterCommit,
+      includeParentReferences,
+      pathScope,
+    });
+  };
 
-    try {
-      const warnings = await commitSelectedChanges(
-        repoPath,
-        commitMessage.trim(),
-        resolveGitFileMutationPaths(selectedFiles),
-      );
-      useGitBlameStore.getState().actions.clearAllBlame();
-      onCommitMessageChange("");
-      for (const warning of warnings) {
-        toast.warning(
-          warning.code === "git_index_reconcile_failed"
-            ? t("git.commitIndexReconcileFailed")
-            : warning.message,
-        );
-      }
-      if (pushAfterCommit) {
-        setRemoteAction("push");
-        try {
-          await showGitPushDialog(repoPath);
-        } catch (pushError) {
-          setError(pushError instanceof Error ? pushError.message : t("git.pushFailed"));
-        } finally {
-          setRemoteAction(null);
-        }
-      }
-      onCommitSuccess?.();
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-            ? error
-            : t("ai.unknownError"),
-      );
-    } finally {
-      setIsCommitting(false);
-    }
+  const handleRetry = () => {
+    const previous = batch.session;
+    if (!previous?.canRetry || isStaging || commitDiffWritePending() || !isCurrentWorkspace) return;
+    setError(null);
+    return workflow.prepare({
+      repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
+      message: previous.plan.message,
+      amend: previous.plan.amend,
+      push: previous.plan.push,
+      includeParentReferences: previous.plan.includeParentReferences,
+      pathScope: previous.plan.pathScope,
+      previous,
+    });
   };
 
   const handlePush = async () => {
-    if (!repoPath) return;
+    if (!repoPath || isCommitting) return;
 
     setRemoteAction("push");
     setError(null);
@@ -233,35 +265,88 @@ const GitCommitPanel = ({
     }
   };
 
+  // Missing files or message no longer grey the buttons out (see commitHint); only
+  // states where a click cannot start a commit at all still disable them.
   const isCommitDisabled =
-    selectedFilesCount === 0 ||
-    !commitMessage.trim() ||
-    Boolean(operationState) ||
+    Boolean(commitScopeError) ||
+    !isCurrentWorkspace ||
+    isStaging ||
+    Boolean(batch.review) ||
+    Boolean(batch.session && !batch.session.succeeded) ||
     isCommitting ||
     isGenerating;
   const isGenerateDisabled =
     selectedFilesCount === 0 || isGenerating || isCommitting || !aiSettings.enabled;
-  const hasRemoteChanges = ahead > 0 || behind > 0;
   const isRemoteActionLoading = remoteAction !== null;
   const composerButtonClassName =
     "h-6 rounded-md border-transparent bg-transparent px-1.5 ui-text-sm leading-none text-subtle-foreground shadow-none hover:bg-accent/80 hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-strong/35 [&_svg]:size-3";
-  const commitActionItems: MenuItem[] = [
-    {
-      id: "commit-and-push",
-      label: t("git.commitAndPush"),
-      icon: <ArrowUp />,
-      disabled: isCommitDisabled || isRemoteActionLoading || isPulling,
-      onClick: () => {
-        setIsCommitActionMenuOpen(false);
-        void handleCommit(true);
-      },
-    },
-  ];
+  const isCommitAndPushDisabled = isCommitDisabled || isRemoteActionLoading || isPulling;
+
+  const hasNoChanges = selectedFilesCount === 0;
+  const hasNoMessage = !commitMessage.trim();
+  // Drop each part of the hint as soon as the user fixes it, like clearError().
+  const visibleCommitHint =
+    commitHint && ((commitHint.noChanges && hasNoChanges) || (commitHint.noMessage && hasNoMessage))
+      ? {
+          noChanges: commitHint.noChanges && hasNoChanges,
+          noMessage: commitHint.noMessage && hasNoMessage,
+        }
+      : null;
+  const commitHintText = visibleCommitHint
+    ? t(
+        visibleCommitHint.noChanges && visibleCommitHint.noMessage
+          ? "git.selectFilesAndSpecifyCommitMessage"
+          : visibleCommitHint.noChanges
+            ? "git.selectFilesToCommit"
+            : "git.specifyCommitMessage",
+      )
+    : null;
+  const hasError = Boolean(
+    error || batch.error || commitScopeError || visibleCommitHint?.noMessage,
+  );
+  const commitLegend = useMemo(() => buildCommitLegend(selectedFiles), [selectedFiles]);
 
   return (
-    <>
-      <SidebarComposerBody>
-        {error && (
+    // IntelliJ NonModalCommitPanel order: status row (legend), commit message, then
+    // commit actions with the options button pushed right.
+    <div className="group/commit-panel flex flex-col gap-1.5 px-2 pt-2 pb-1">
+      {commitLegend.length > 0 ? (
+        <div className="flex min-h-6 items-center gap-2">
+          <span
+            className="ml-auto flex min-w-0 flex-wrap justify-end gap-x-3 ui-text-sm"
+            data-testid="git-commit-legend"
+          >
+            {commitLegend.map((chunk) => (
+              <span key={chunk.id} className={cn("whitespace-nowrap", chunk.className)}>
+                {chunk.value} {t(chunk.labelKey)}
+              </span>
+            ))}
+          </span>
+        </div>
+      ) : null}
+
+      <SidebarComposerBody
+        variant="plain"
+        className={cn(
+          // IntelliJ CommitInputBorder look: 1px neutral border, 2px accent
+          // (border + outer ring) when focused, error outline on failures.
+          "relative z-10 rounded-[4px] border bg-background transition-[border-color,box-shadow] duration-(--app-duration-fast) ease-(--app-ease-smooth)",
+          hasError ? "border-destructive/60" : "border-control-border",
+          "focus-within:border-primary focus-within:ring-1 focus-within:ring-primary",
+          hasError && "focus-within:border-destructive focus-within:ring-destructive",
+        )}
+      >
+        {pathScope && (
+          <label className="flex items-center gap-2 ui-text-xs">
+            <Checkbox
+              checked={includeParentReferences}
+              onCheckedChange={setIncludeParentReferences}
+              disabled={isCommitting || Boolean(batch.review)}
+            />
+            {t("git.workspaceCommit.parents")}
+          </label>
+        )}
+        {(error || batch.error || commitScopeError) && (
           <div
             className={cn(
               "mx-2 mt-2 flex items-center gap-2 rounded-md border border-destructive/30",
@@ -269,8 +354,64 @@ const GitCommitPanel = ({
             )}
           >
             <AlertCircle />
-            {error}
+            {error || batch.error || commitScopeError}
           </div>
+        )}
+
+        {batch.session && (
+          <div className="max-h-40 overflow-auto px-3 py-2 ui-text-sm" aria-live="polite">
+            {Object.entries(batch.session.results).map(([id, result]) => {
+              const key = `git.workspaceCommit.${result.status}`;
+              const label =
+                key in workspaceCommitEnglish
+                  ? (key as TranslationKey)
+                  : "git.workspaceCommit.attention";
+              return (
+                <div key={id} className="break-words">
+                  <strong>{id}</strong>: {t(label)}
+                  {result.detail && <p className="whitespace-pre-wrap">{result.detail}</p>}
+                </div>
+              );
+            })}
+            {!isCommitting && (
+              <div className="flex flex-wrap gap-2">
+                {batch.session.canRetry && (
+                  <Button
+                    size="xs"
+                    onClick={() => void handleRetry()}
+                    disabled={Boolean(batch.review) || isStaging}
+                  >
+                    {t("git.workspaceCommit.retry")}
+                  </Button>
+                )}
+                <Button size="xs" onClick={workflow.dismiss}>
+                  {t("git.workspaceCommit.dismiss")}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {isCommitting && (
+          <Button size="xs" onClick={workflow.cancel}>
+            {t("git.workspaceCommit.stop")}
+          </Button>
+        )}
+        {batch.review && isCurrentWorkspace && (
+          <GitWorkspaceCommitReview
+            preparation={batch.review.preparation}
+            busy={isCommitting || isStaging}
+            error={batch.error}
+            onConfirm={() =>
+              void workflow.confirm(workspaceCommitBindings(workspacePath, repositoryPaths))
+            }
+            onClose={workflow.closeReview}
+            onIncludeParents={(include) =>
+              void workflow.setIncludeParentReferences(
+                include,
+                workspaceCommitBindings(workspacePath, repositoryPaths),
+              )
+            }
+          />
         )}
 
         <Textarea
@@ -281,74 +422,92 @@ const GitCommitPanel = ({
           placeholder={t("git.commitMessagePlaceholder")}
           variant="ghost"
           className={cn(
-            "max-h-32 min-h-16 w-full resize-none overflow-x-hidden bg-transparent",
-            "font-sans ui-text-sm px-3 pt-3 pb-2 text-foreground placeholder:text-subtle-foreground",
+            "w-full resize-none overflow-x-hidden overflow-y-auto bg-transparent",
+            "font-sans ui-text-sm px-2 py-1.5 text-foreground placeholder:text-subtle-foreground",
             "focus:outline-none",
           )}
-          rows={2}
+          // The height follows the divider above the commit area (see
+          // useGitCommitAreaResize); the cap keeps a short window usable.
+          style={{
+            height: `min(var(--git-commit-message-height, 72px), var(--git-commit-message-max-height, 640px), ${COMMIT_MESSAGE_MAX_VIEWPORT_RATIO * 100}vh)`,
+          }}
           disabled={isCommitting}
         />
       </SidebarComposerBody>
 
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 pt-1.5">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-          <span className="px-1 ui-text-sm text-subtle-foreground">
-            {selectedFilesCount > 0
-              ? t(selectedFilesCount === 1 ? "git.fileSelected" : "git.filesSelected", {
-                  count: selectedFilesCount,
-                })
-              : t("git.noFilesSelected")}
-          </span>
-
-          {hasRemoteChanges && (
-            <div className="flex items-center gap-1">
-              {ahead > 0 && (
-                <Button
-                  type="button"
-                  onClick={() => void handlePush()}
-                  disabled={!repoPath || isRemoteActionLoading || isPulling}
-                  variant="ghost"
-                  size="xs"
-                  className={cn(composerButtonClassName, "text-git-added hover:text-git-added")}
-                  tooltip={`Push ${ahead} commit${ahead !== 1 ? "s" : ""}`}
-                >
-                  <ArrowUp />
-                  <span>{ahead}</span>
-                </Button>
-              )}
-
-              {behind > 0 && (
-                <Button
-                  type="button"
-                  onClick={() => void onPull?.()}
-                  disabled={!repoPath || isRemoteActionLoading || isPullLocked}
-                  variant="ghost"
-                  size="xs"
-                  className={cn(composerButtonClassName, "text-git-deleted hover:text-git-deleted")}
-                  tooltip={`Pull ${behind} commit${behind !== 1 ? "s" : ""}`}
-                >
-                  <ArrowDown />
-                  <span>{behind}</span>
-                </Button>
-              )}
-            </div>
-          )}
+      {commitHintText ? (
+        <div
+          role="alert"
+          className="flex items-center gap-1.5 ui-text-sm text-destructive"
+          data-testid="git-commit-hint"
+        >
+          <AlertCircle className="size-3.5 shrink-0" />
+          {commitHintText}
         </div>
+      ) : null}
 
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            type="button"
-            size="xs"
-            onClick={() => openSettings("ai-commit")}
-            tooltip={t("aiCommit.settings")}
-            aria-label={t("aiCommit.settings")}
-          >
-            <SettingsIcon />
-          </Button>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => void handleCommit()}
+          disabled={isCommitDisabled}
+          className={cn(
+            IDEA_BUTTON_CLASS_NAME,
+            // IntelliJ makes Commit the blue default button while focus is inside the
+            // commit area (typically the message), so Ctrl+Enter visibly targets it and
+            // the highlight survives moving focus onto the button itself.
+            "group-focus-within/commit-panel:border-primary group-focus-within/commit-panel:bg-primary group-focus-within/commit-panel:text-white group-focus-within/commit-panel:hover:bg-primary/90",
+          )}
+          data-commit-default-button=""
+        >
+          {isCommitting ? t("git.committing") : t("git.commit")}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => void handleCommit(true)}
+          disabled={isCommitAndPushDisabled}
+          className={IDEA_BUTTON_CLASS_NAME}
+        >
+          {t("git.commitAndPushEllipsis")}
+        </Button>
+
+        <div className="ml-auto flex items-center gap-1">
+          {ahead > 0 && (
+            <Button
+              type="button"
+              onClick={() => void handlePush()}
+              disabled={!repoPath || isCommitting || isRemoteActionLoading || isPulling}
+              variant="ghost"
+              size="xs"
+              className={cn(composerButtonClassName, "text-git-added hover:text-git-added")}
+              tooltip={`Push ${ahead} commit${ahead !== 1 ? "s" : ""}`}
+            >
+              <ArrowUp />
+              <span>{ahead}</span>
+            </Button>
+          )}
+          {behind > 0 && (
+            <Button
+              type="button"
+              onClick={() => void onPull?.()}
+              disabled={!repoPath || isCommitting || isRemoteActionLoading || isPullLocked}
+              variant="ghost"
+              size="xs"
+              className={cn(composerButtonClassName, "text-git-deleted hover:text-git-deleted")}
+              tooltip={`Pull ${behind} commit${behind !== 1 ? "s" : ""}`}
+            >
+              <ArrowDown />
+              <span>{behind}</span>
+            </Button>
+          )}
           {isGenerating ? (
             <Button
               type="button"
               size="xs"
+              variant="ghost"
+              className={composerButtonClassName}
               onClick={() => {
                 generationRef.current?.abort();
                 generationRef.current = null;
@@ -361,6 +520,8 @@ const GitCommitPanel = ({
             <Button
               type="button"
               size="xs"
+              variant="ghost"
+              className={composerButtonClassName}
               onClick={() => void handleGenerateCommitMessage()}
               disabled={isGenerateDisabled}
               tooltip={t("git.generateCommitMessageWithAI")}
@@ -370,54 +531,19 @@ const GitCommitPanel = ({
               <span>AI</span>
             </Button>
           )}
-
-          <ButtonGroup ref={commitMenuAnchorRef}>
-            <Button
-              type="button"
-              onClick={() => void handleCommit()}
-              disabled={isCommitDisabled}
-              variant="ghost"
-              size="xs"
-              className={cn(
-                composerButtonClassName,
-                isCommitDisabled
-                  ? "cursor-not-allowed text-subtle-foreground opacity-50"
-                  : "text-primary hover:bg-primary/8 hover:text-primary/80",
-              )}
-            >
-              {isCommitting ? t("git.committing") : t("git.commit")}
-            </Button>
-            <ButtonGroupSeparator />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => setIsCommitActionMenuOpen((open) => !open)}
-              disabled={isCommitDisabled || isRemoteActionLoading || isPulling}
-              active={isCommitActionMenuOpen}
-              className={cn(
-                composerButtonClassName,
-                "px-1 text-primary hover:bg-primary/8 hover:text-primary/80",
-              )}
-              tooltip={t("git.chooseCommitAction")}
-              aria-label={t("git.chooseCommitAction")}
-              aria-haspopup="menu"
-              aria-expanded={isCommitActionMenuOpen}
-            >
-              <ChevronDown />
-            </Button>
-          </ButtonGroup>
-          <Dropdown
-            isOpen={isCommitActionMenuOpen}
-            anchorRef={commitMenuAnchorRef}
-            anchorAlign="end"
-            onClose={() => setIsCommitActionMenuOpen(false)}
-            items={commitActionItems}
-            className="min-w-37.5"
-          />
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost"
+            onClick={() => openSettings("ai-commit")}
+            tooltip={t("aiCommit.settings")}
+            aria-label={t("aiCommit.settings")}
+          >
+            <SettingsIcon />
+          </Button>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 

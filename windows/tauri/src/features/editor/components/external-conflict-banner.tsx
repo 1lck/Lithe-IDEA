@@ -2,6 +2,7 @@ import { AlertTriangle } from "lucide-react";
 import { useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
+import { isMissingExternalDocument } from "@/features/editor/services/document-external-change-workflow";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 
@@ -19,7 +20,8 @@ export function ExternalConflictBanner({ bufferId }: ExternalConflictBannerProps
   });
   const missing = useBufferStore((state) => {
     const buffer = getBufferById(state.buffers, bufferId);
-    return buffer?.type === "editor" && buffer.externalDiskContent === null;
+    return buffer?.type === "editor" &&
+      isMissingExternalDocument(buffer.externalDiskContent, buffer.externalDiskIdentity);
   });
   const resolveExternalConflict = useBufferStore.use.actions().resolveExternalConflict;
 
@@ -36,7 +38,8 @@ export function ExternalConflictBanner({ bufferId }: ExternalConflictBannerProps
 
   return (
     <div
-      className="flex min-h-10 items-center gap-2 border-b border-warning/35 bg-warning/10 px-3 text-xs text-foreground"
+      // IntelliJ Islands editor notifications are 7px-inset cards with a 12px arc.
+      className="mx-[7px] my-1 flex min-h-10 items-center gap-2 rounded-[6px] border border-warning/35 bg-warning/10 px-3 text-xs text-foreground"
       data-testid="editor-external-conflict-banner"
       role="alert"
     >

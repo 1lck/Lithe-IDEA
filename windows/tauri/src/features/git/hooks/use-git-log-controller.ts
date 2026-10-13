@@ -7,7 +7,7 @@ import {
   getGitReferences,
 } from "../api/git-commits-api";
 import { subscribeToGitChanges } from "../events/git-events";
-import type { GitHistorySnapshot, GitReference } from "../types/git.types";
+import type { GitCommit, GitHistorySnapshot, GitReference } from "../types/git.types";
 import {
   reconcileGitLogReference,
   selectedReferenceAfterRemoval,
@@ -26,9 +26,13 @@ const EMPTY_HISTORY: GitHistorySnapshot = {
   hasMore: false,
 };
 
-export function useGitLogController(repoPath: string | null) {
+export function useGitLogController(
+  repoPath: string | null,
+  preferredReference: GitReference | null = null,
+) {
   const { t } = useTranslation();
   const [history, setHistory] = useState<GitHistorySnapshot>(EMPTY_HISTORY);
+  const [repositoryCommits, setRepositoryCommits] = useState<GitCommit[]>([]);
   const [loadState, setLoadState] = useState<GitLogLoadState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [selectedReference, setSelectedReferenceState] = useState<GitReference | null>(null);
@@ -37,15 +41,19 @@ export function useGitLogController(repoPath: string | null) {
   const controllerIdRef = useRef<number | null>(null);
   const activeCursorRef = useRef<string | null>(null);
   const activeOperationIdsRef = useRef(new Set<string>());
+  const graphRequestIdRef = useRef(0);
+  const graphOperationRef = useRef<string | null>(null);
   const scheduledRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historyRef = useRef(history);
   const selectedReferenceRef = useRef(selectedReference);
   const repoPathRef = useRef(repoPath);
   const stateRepoPathRef = useRef(repoPath);
+  const preferredReferenceRef = useRef<GitReference | null>(null);
 
   historyRef.current = history;
   selectedReferenceRef.current = selectedReference;
   repoPathRef.current = repoPath;
+  preferredReferenceRef.current = preferredReference;
   if (controllerIdRef.current === null) controllerIdRef.current = ++nextControllerId;
 
   const cancelActiveOperations = useCallback(() => {
@@ -66,6 +74,36 @@ export function useGitLogController(repoPath: string | null) {
     scheduledRefreshTimeoutRef.current = null;
     if (timeoutId !== null) clearTimeout(timeoutId);
   }, []);
+
+  const cancelRepositoryGraph = useCallback(() => {
+    graphRequestIdRef.current += 1;
+    const operationId = graphOperationRef.current;
+    graphOperationRef.current = null;
+    if (operationId) void cancelGitHistoryOperation(operationId);
+  }, []);
+
+  const refreshRepositoryGraph = useCallback(async () => {
+    if (!repoPath || repoPathRef.current !== repoPath) return;
+    cancelRepositoryGraph();
+    const requestId = graphRequestIdRef.current;
+    const operationId = `git-log-${controllerIdRef.current}-graph-${requestId}`;
+    graphOperationRef.current = operationId;
+    const isStale = () =>
+      requestId !== graphRequestIdRef.current || repoPathRef.current !== repoPath;
+    try {
+      // Independent from the visible page/cursor: pagination must not cancel
+      // this bounded all-reference context or wait for it before showing rows.
+      const page = await getGitHistoryPage(repoPath, undefined, MAX_COMMITS, operationId);
+      if (page?.nextCursor) await closeGitHistoryCursor(repoPath, page.nextCursor);
+      if (!isStale()) setRepositoryCommits(page?.commits ?? []);
+    } catch (graphError) {
+      if (isStale()) return;
+      console.error("Failed to load Git graph context:", graphError);
+      setRepositoryCommits([]);
+    } finally {
+      if (graphOperationRef.current === operationId) graphOperationRef.current = null;
+    }
+  }, [cancelRepositoryGraph, repoPath]);
 
   const load = useCallback(
     async ({
@@ -96,7 +134,7 @@ export function useGitLogController(repoPath: string | null) {
       else setLoadState("loading");
 
       try {
-        const [references, initialPage] = await Promise.all([
+        const pendingPage = Promise.all([
           refreshReferences
             ? getGitReferences(repoPath, referencesOperationId)
             : Promise.resolve(null),
@@ -108,6 +146,8 @@ export function useGitLogController(repoPath: string | null) {
             reference?.fullName,
           ),
         ]);
+        if (!loadingMore) void refreshRepositoryGraph();
+        const [references, initialPage] = await pendingPage;
         if (isStaleRequest()) {
           if (initialPage?.nextCursor) {
             void closeGitHistoryCursor(repoPath, initialPage.nextCursor);
@@ -188,19 +228,23 @@ export function useGitLogController(repoPath: string | null) {
         if (!isStaleRequest()) setIsLoadingMore(false);
       }
     },
-    [cancelActiveOperations, closeActiveCursor, repoPath, t],
+    [cancelActiveOperations, closeActiveCursor, refreshRepositoryGraph, repoPath, t],
   );
 
   useEffect(() => {
     requestIdRef.current += 1;
     cancelScheduledRefresh();
     cancelActiveOperations();
+    cancelRepositoryGraph();
     closeActiveCursor();
     stateRepoPathRef.current = repoPath;
     historyRef.current = EMPTY_HISTORY;
-    selectedReferenceRef.current = null;
+    setRepositoryCommits([]);
+    const initialReference = preferredReferenceRef.current;
+    preferredReferenceRef.current = null;
+    selectedReferenceRef.current = initialReference;
     setHistory(EMPTY_HISTORY);
-    setSelectedReferenceState(null);
+    setSelectedReferenceState(initialReference);
     setIsLoadingMore(false);
     setError(null);
 
@@ -208,19 +252,32 @@ export function useGitLogController(repoPath: string | null) {
       setLoadState("idle");
       return;
     }
-    void load({ reference: null });
+    void load({ reference: initialReference });
 
     return () => {
       requestIdRef.current += 1;
       cancelScheduledRefresh();
       cancelActiveOperations();
+      cancelRepositoryGraph();
       closeActiveCursor();
     };
-  }, [cancelActiveOperations, cancelScheduledRefresh, closeActiveCursor, load, repoPath]);
+  }, [
+    cancelActiveOperations,
+    cancelRepositoryGraph,
+    cancelScheduledRefresh,
+    closeActiveCursor,
+    load,
+    repoPath,
+  ]);
 
   const selectReference = useCallback(
     (reference: GitReference | null) => {
       if (repoPathRef.current !== repoPath) return;
+      // Selecting the reference that is already active is a no-op; reloading it
+      // would make a plain click on HEAD/current branch flash the whole log.
+      if ((selectedReferenceRef.current?.fullName ?? null) === (reference?.fullName ?? null)) {
+        return;
+      }
       selectedReferenceRef.current = reference;
       setSelectedReferenceState(reference);
       closeActiveCursor();
@@ -284,6 +341,7 @@ export function useGitLogController(repoPath: string | null) {
 
   return {
     history: stateBelongsToRepository ? history : EMPTY_HISTORY,
+    repositoryCommits: stateBelongsToRepository ? repositoryCommits : [],
     loadState: stateBelongsToRepository ? loadState : repoPath ? "loading" : "idle",
     error: stateBelongsToRepository ? error : null,
     selectedReference: stateBelongsToRepository ? selectedReference : null,

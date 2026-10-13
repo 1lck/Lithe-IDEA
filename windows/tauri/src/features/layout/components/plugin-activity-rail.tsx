@@ -8,16 +8,30 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { PuzzlePieceIcon } from "@/ui/icons";
 
+// IntelliJ Islands stripe button: 30px highlight, 12px arc (6px radius), 20px icon.
+const STRIPE_BUTTON_CLASS_NAME = "size-[30px] rounded-[6px]";
+
 export function PluginActivityRail() {
   const { t } = useTranslation();
   const openExtensionsBuffer = useBufferStore.use.actions().openExtensionsBuffer;
-  const isExtensionsActive = useBufferStore((state) => {
-    if (!state.activeBufferId) return false;
+  const closeBuffer = useBufferStore.use.actions().closeBuffer;
+  const activeExtensionsBufferId = useBufferStore((state) => {
+    if (!state.activeBufferId) return null;
 
-    return state.buffers.some(
-      (buffer) => buffer.id === state.activeBufferId && buffer.type === "extensions",
-    );
+    const activeBuffer = state.buffers.find((buffer) => buffer.id === state.activeBufferId);
+    return activeBuffer?.type === "extensions" ? activeBuffer.id : null;
   });
+  const isExtensionsActive = activeExtensionsBufferId !== null;
+
+  // The Extensions page is a singleton buffer: a second click while it is the
+  // active tab closes it, otherwise the click opens or focuses it.
+  const toggleExtensionsBuffer = () => {
+    if (activeExtensionsBufferId) {
+      closeBuffer(activeExtensionsBufferId);
+      return;
+    }
+    openExtensionsBuffer();
+  };
   const isMavenAvailable = useMavenStore(
     (state) => Boolean(state.project) || state.projectStatus === "failed",
   );
@@ -31,7 +45,7 @@ export function PluginActivityRail() {
   return (
     <aside
       aria-label={activityViewsLabel}
-      className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center rounded-r-xl border-border border-r bg-surface pt-1"
+      className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center gap-2.5 bg-surface pt-1"
     >
       <Button
         type="button"
@@ -42,12 +56,12 @@ export function PluginActivityRail() {
         tooltipSide="left"
         aria-label={extensionsLabel}
         aria-pressed={isExtensionsActive}
-        className="rounded-sm"
-        onClick={openExtensionsBuffer}
+        className={STRIPE_BUTTON_CLASS_NAME}
+        onClick={toggleExtensionsBuffer}
       >
-        <PuzzlePieceIcon className="size-4.5" />
+        <PuzzlePieceIcon className="size-5" />
       </Button>
-      <NotificationsTrigger />
+      <NotificationsTrigger className={STRIPE_BUTTON_CLASS_NAME} />
       {isMavenAvailable ? (
         <Button
           type="button"
@@ -58,10 +72,10 @@ export function PluginActivityRail() {
           tooltipSide="left"
           aria-label={mavenLabel}
           aria-pressed={isMavenActive}
-          className="rounded-sm"
+          className={STRIPE_BUTTON_CLASS_NAME}
           onClick={toggleMavenPane}
         >
-          <MavenIcon className="size-4.5" />
+          <MavenIcon className="size-5" />
         </Button>
       ) : null}
     </aside>

@@ -7,6 +7,19 @@ import Testing
 
 @Suite("Git graph performance baseline", .serialized)
 struct GitGraphPerformanceBaselineTests {
+    @Test("Window compositor sampling requires an explicit desktop opt-in")
+    func compositorSamplingRequiresExplicitOptIn() {
+        #expect(!GitCompositorTestConfiguration.isEnabled(environment: [:]))
+        for value in ["", "0", "true", "yes"] {
+            #expect(!GitCompositorTestConfiguration.isEnabled(environment: [
+                GitCompositorTestConfiguration.environmentVariable: value
+            ]))
+        }
+        #expect(GitCompositorTestConfiguration.isEnabled(environment: [
+            GitCompositorTestConfiguration.environmentVariable: "1"
+        ]))
+    }
+
     @Test("The synthetic history is deterministic and child-before-parent")
     func syntheticHistoryIsDeterministic() {
         let first = SyntheticGitGraphFixture.mergeHeavy(commitCount: 1_000)
@@ -61,17 +74,25 @@ struct GitGraphPerformanceBaselineTests {
         #expect(benchmark.viewportDrawReductionPercent == 97.5)
     }
 
-    @Test("The native graph view frame sample stays within the test budget")
+    @Test("The native graph view samples only a visible viewport", arguments: [0, 480, 960])
     @MainActor
-    func nativeGraphViewFrameSample() {
-        let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 1_000)
+    func nativeGraphViewFrameSample(startRow: Int) throws {
+        let rowCount = 1_000
+        let viewportRowCount = 40
+        let rowHeight = GitGraphGeometry.rowHeight
+        let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: rowCount)
         let layout = GitGraphLayoutService.layout(commits: commits)
-        let view = GitGraphNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 1_000 * 30))
-        view.update(snapshot: GitGraphLayoutService.routingSnapshot(for: layout), width: 120, rowHeight: 30)
-        let bitmap = NSBitmapImageRep(
+        let view = GitGraphNSView(frame: NSRect(x: 0, y: 0, width: 120, height: CGFloat(rowCount) * rowHeight))
+        view.update(snapshot: GitGraphLayoutService.routingSnapshot(for: layout), width: 120, rowHeight: rowHeight)
+        // Keep the complete history, but draw a viewport as AppKit does while
+        // scrolling. Repainting all 1,000 rows 220 times measures bulk raster
+        // work rather than a frame and can exceed the unchanged CI test budget.
+        let viewport = NSRect(x: 0, y: CGFloat(startRow) * rowHeight,
+                              width: 120, height: CGFloat(viewportRowCount) * rowHeight)
+        let bitmap = try #require(NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: 120,
-            pixelsHigh: 1_000 * 30,
+            pixelsHigh: Int(viewport.height),
             bitsPerSample: 8,
             samplesPerPixel: 4,
             hasAlpha: true,
@@ -80,26 +101,38 @@ struct GitGraphPerformanceBaselineTests {
             bitmapFormat: [],
             bytesPerRow: 0,
             bitsPerPixel: 0
-        )!
-        let context = NSGraphicsContext(bitmapImageRep: bitmap)!
+        ))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        context.cgContext.clear(NSRect(origin: .zero, size: viewport.size))
+        // Mid-history view coordinates must land inside the viewport bitmap;
+        // otherwise clipping would make an empty render look artificially fast.
+        context.cgContext.translateBy(x: 0, y: -viewport.minY)
         let clock = ContinuousClock()
         var samples: [Double] = []
         samples.reserveCapacity(10)
 
         for _ in 0..<1 {
-            _ = sampleFrame(view: view, context: context, clock: clock)
+            _ = sampleFrame(view: view, dirtyRect: viewport, context: context, clock: clock)
         }
         for _ in 0..<10 {
-            samples.append(sampleFrame(view: view, context: context, clock: clock))
+            samples.append(sampleFrame(view: view, dirtyRect: viewport, context: context, clock: clock))
         }
 
         let sorted = samples.sorted()
         let median = sorted[sorted.count / 2]
         let p95 = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
         let maximum = sorted.last ?? 0
-        print("GitGraph frame sample: rows=1000, samples=10, median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms, max=\(String(format: "%.3f", maximum))ms")
+        print("GitGraph frame sample: rows=\(rowCount), viewportRows=\(viewportRowCount), startRow=\(startRow), samples=10, median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms, max=\(String(format: "%.3f", maximum))ms")
         #expect(samples.count == 10)
         #expect(median < 100)
+        let bytes = try #require(bitmap.bitmapData)
+        // Only inspect pixel alpha, never uninitialized row-padding bytes.
+        let didPaint = (0..<bitmap.pixelsHigh).contains { y in
+            (0..<bitmap.pixelsWide).contains { x in
+                bytes[y * bitmap.bytesPerRow + x * bitmap.samplesPerPixel + 3] != 0
+            }
+        }
+        #expect(didPaint, "Every viewport must paint actual graph pixels")
     }
 
     @Test("The routing snapshot preserves layout topology and ordering")
@@ -408,7 +441,7 @@ struct GitGraphPerformanceBaselineTests {
             onSelect: { _ in },
             onCherryPick: { _ in },
             onRevert: { _ in },
-            onReset: { _ in },
+            onReset: { _, _ in },
             onCreateTag: { _ in }
         )
         let scrollView = GitGraphScrollView.makeScrollView(
@@ -472,7 +505,7 @@ struct GitGraphPerformanceBaselineTests {
             onSelect: { _ in },
             onCherryPick: { _ in },
             onRevert: { _ in },
-            onReset: { _ in },
+            onReset: { _, _ in },
             onCreateTag: { _ in }
         )
         rowsView.update(
@@ -590,13 +623,17 @@ struct GitGraphPerformanceBaselineTests {
         print(
             "Git commit file-tree native rows: total=\(items.count), visible=\(visibleRange.count), samples=\(samples.count), median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms"
         )
-        #expect(visibleRange.count <= 17)
+        #expect(visibleRange.count <= Int(ceil(dirtyRect.height / GitCommitFileTreeNSView.rowHeight)) + 1)
         #expect(median < 30)
         #expect(p95 < 100)
     }
 
     @Test(
         "The native Git log keeps a window display-link cadence while scrolling",
+        .enabled(
+            if: GitCompositorTestConfiguration.isEnabled(environment: ProcessInfo.processInfo.environment),
+            "Set LITHE_RUN_GIT_COMPOSITOR_TESTS=1 to allow visible desktop test windows."
+        ),
         .enabled(
             if: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 14,
             "Requires macOS 14 or newer for NSWindow display links."
@@ -621,7 +658,7 @@ struct GitGraphPerformanceBaselineTests {
             onSelect: { _ in },
             onCherryPick: { _ in },
             onRevert: { _ in },
-            onReset: { _ in },
+            onReset: { _, _ in },
             onCreateTag: { _ in }
         )
         let scrollView = GitGraphScrollView.makeScrollView(
@@ -643,31 +680,30 @@ struct GitGraphPerformanceBaselineTests {
                 width: 900,
                 height: 520
             ),
-            styleMask: [.borderless],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.level = .floating
-        window.ignoresMouseEvents = true
-        window.backgroundColor = .clear
-        window.contentView = scrollView
-        let application = NSApplication.shared
-        application.setActivationPolicy(.accessory)
-        application.finishLaunching()
-        application.activate(ignoringOtherApps: true)
-        window.orderFrontRegardless()
-        window.makeKey()
-        window.displayIfNeeded()
-        guard window.isVisible, window.screen != nil else {
-            print("Window compositor sample skipped: test window is not attached to a display.")
-            window.orderOut(nil)
-            window.close()
-            return
-        }
         defer {
             window.orderOut(nil)
             window.close()
+        }
+        window.title = "Lithe Git log compositor test"
+        window.level = .normal
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        window.contentView = scrollView
+        let application = NSApplication.shared
+        let previousActivationPolicy = application.activationPolicy()
+        defer { application.setActivationPolicy(previousActivationPolicy) }
+        application.setActivationPolicy(.accessory)
+        application.finishLaunching()
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        guard window.isVisible, window.screen != nil else {
+            print("Window compositor sample skipped: test window is not attached to a display.")
+            return
         }
 
         let sampler = WindowCompositorFrameSampler(
@@ -675,6 +711,8 @@ struct GitGraphPerformanceBaselineTests {
             scrollView: scrollView,
             targetFrameCount: 45
         )
+        // A timeout must also invalidate the display link's retained target.
+        defer { sampler.stop() }
         sampler.start()
 
         let firstSampleDeadline = CACurrentMediaTime() + 0.5
@@ -682,7 +720,6 @@ struct GitGraphPerformanceBaselineTests {
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
         }
         guard sampler.sampleCount > 0 else {
-            sampler.stop()
             print("Window compositor sample skipped: WindowServer did not deliver a display-link callback.")
             return
         }
@@ -709,6 +746,10 @@ struct GitGraphPerformanceBaselineTests {
 
     @Test(
         "The native Worktree rows keep a window display-link cadence while scrolling",
+        .enabled(
+            if: GitCompositorTestConfiguration.isEnabled(environment: ProcessInfo.processInfo.environment),
+            "Set LITHE_RUN_GIT_COMPOSITOR_TESTS=1 to allow visible desktop test windows."
+        ),
         .enabled(
             if: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 14,
             "Requires macOS 14 or newer for NSWindow display links."
@@ -743,31 +784,30 @@ struct GitGraphPerformanceBaselineTests {
                 width: 900,
                 height: 520
             ),
-            styleMask: [.borderless],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.level = .floating
-        window.ignoresMouseEvents = true
-        window.backgroundColor = .clear
-        window.contentView = scrollView
-        let application = NSApplication.shared
-        application.setActivationPolicy(.accessory)
-        application.finishLaunching()
-        application.activate(ignoringOtherApps: true)
-        window.orderFrontRegardless()
-        window.makeKey()
-        window.displayIfNeeded()
-        guard window.isVisible, window.screen != nil else {
-            print("Worktree window compositor sample skipped: test window is not attached to a display.")
-            window.orderOut(nil)
-            window.close()
-            return
-        }
         defer {
             window.orderOut(nil)
             window.close()
+        }
+        window.title = "Lithe Worktree compositor test"
+        window.level = .normal
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        window.contentView = scrollView
+        let application = NSApplication.shared
+        let previousActivationPolicy = application.activationPolicy()
+        defer { application.setActivationPolicy(previousActivationPolicy) }
+        application.setActivationPolicy(.accessory)
+        application.finishLaunching()
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        guard window.isVisible, window.screen != nil else {
+            print("Worktree window compositor sample skipped: test window is not attached to a display.")
+            return
         }
 
         let sampler = WindowCompositorFrameSampler(
@@ -775,6 +815,8 @@ struct GitGraphPerformanceBaselineTests {
             scrollView: scrollView,
             targetFrameCount: 45
         )
+        // A timeout must also invalidate the display link's retained target.
+        defer { sampler.stop() }
         sampler.start()
 
         let firstSampleDeadline = CACurrentMediaTime() + 0.5
@@ -782,7 +824,6 @@ struct GitGraphPerformanceBaselineTests {
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
         }
         guard sampler.sampleCount > 0 else {
-            sampler.stop()
             print("Worktree window compositor sample skipped: WindowServer did not deliver a display-link callback.")
             return
         }
@@ -830,6 +871,14 @@ private func makeWorktreeListFixtureItem(
         pruneReason: nil
     )
     return GitWorktreeListItem(worktree: worktree, status: status)
+}
+
+private enum GitCompositorTestConfiguration {
+    static let environmentVariable = "LITHE_RUN_GIT_COMPOSITOR_TESTS"
+
+    static func isEnabled(environment: [String: String]) -> Bool {
+        environment[environmentVariable] == "1"
+    }
 }
 
 private struct TestTimeoutError: Error, CustomStringConvertible {
@@ -961,6 +1010,7 @@ private func appendVisibleFileTreeItems(
 @MainActor
 private func sampleFrame(
     view: NSView,
+    dirtyRect: NSRect,
     context: NSGraphicsContext,
     clock: ContinuousClock
 ) -> Double {
@@ -968,7 +1018,7 @@ private func sampleFrame(
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = context
     for _ in 0..<20 {
-        view.draw(view.bounds)
+        view.draw(dirtyRect)
     }
     NSGraphicsContext.restoreGraphicsState()
     return milliseconds(clock.now - start) / 20

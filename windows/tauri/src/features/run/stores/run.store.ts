@@ -1,8 +1,16 @@
+import { withContextJavaEntrypoint } from "../services/java-context-entrypoint";
+import type { JavaEntrypoint } from "@/platform/lsp-core-adapter";
+import { invokeLsp } from "@/platform/lsp-core-adapter";
+import { applyJavaCodeChanges } from "@/features/debugger/services/debug-adapter-service";
+import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
+import { supportsDevToolsUpdate, updateJavaService } from "../services/java-service-update";
+import type { JavaServiceUpdateContext } from "../types/run.types";
 import { createStore } from "zustand/vanilla";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
-import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
+import { mavenLaunchContextForWorkspace, useMavenStore } from "@/features/maven/stores/maven.store";
+import type { MavenLaunchContext, MavenSettings } from "@/features/maven/types/maven.types";
 import {
   createLaunchPlan,
   generateRunConfiguration,
@@ -105,6 +113,9 @@ interface RunState {
   selectedConfigurationId: string | null;
   defaultConfigurationId: string | null;
   primaryOutput: string;
+  primaryExecutionId: string | null;
+  primaryConfigurationId: string | null;
+  primaryPreparing: boolean;
   primaryRunning: boolean;
   primaryTitle: string | null;
   primaryExitCode: number | null;
@@ -115,6 +126,16 @@ interface RunState {
   editingConfigurationId: string | null;
   generationNotice: string | null;
   javaLaunchDecisions: Record<string, JavaLaunchDecision>;
+  serviceUpdates: Record<
+    string,
+    {
+      executionId: string;
+      context: JavaServiceUpdateContext;
+      pending: boolean;
+      message?: string;
+      failed?: boolean;
+    }
+  >;
   discoveredJava: JavaRuntime[];
   discoveredMaven: MavenRuntime[];
   discoveredRuntimes: GenericRuntime[];
@@ -122,7 +143,7 @@ interface RunState {
   effectiveRuntimeExecutablePaths: Record<string, string>;
   actions: {
     loadProject: (root: string) => Promise<void>;
-    generate: (root: string) => Promise<void>;
+    generate: (root: string, requestedEntrypoint?: JavaEntrypoint) => Promise<void>;
     selectConfiguration: (id: string | null) => void;
     selectSession: (id: string | null) => void;
     editConfiguration: (id: string | null) => void;
@@ -139,6 +160,7 @@ interface RunState {
     continueJavaLaunch: (sessionId: string, decisionId: string, remember: boolean) => void;
     cancelJavaLaunch: (sessionId: string, decisionId?: string) => void;
     rebuildJavaIndex: (sessionId: string, decisionId: string) => Promise<void>;
+    updateService: (sessionId: string, debugSessionId?: string) => Promise<void>;
     stop: (sessionId?: string, executionId?: string) => Promise<void>;
     clearOutput: (sessionId?: string) => void;
     saveEditorChanges: (
@@ -161,8 +183,10 @@ export interface RunStoreDependencies {
   resolveRunLaunch: typeof resolveRunLaunch;
   executePreLaunchStep: typeof executePreLaunchStep;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
+  seedMavenLocalConfiguration: (workspaceId: string, settings: Partial<MavenSettings>) => void;
   startRunProcess: typeof startRunProcess;
   stopRunProcess: typeof stopRunProcess;
+  buildJavaServiceUpdate?: (root: string, context: JavaServiceUpdateContext) => Promise<void>;
   prepareJavaRunLaunch: typeof prepareJavaRunLaunch;
   rebuildJavaIndexForWorkspace?: typeof rebuildJavaIndexForWorkspace;
   javaBuildFailurePolicyForWorkspace?: typeof javaBuildFailurePolicyForWorkspace;
@@ -175,12 +199,20 @@ export interface RunStoreDependencies {
   writeGeneratedRunDocuments?: typeof writeGeneratedRunDocuments;
 }
 
+// Explicit import of a legacy run toolchain into blank Maven settings. Load and
+// launch do not call it: a per-configuration override stays on the run document,
+// and project settings are written only when the user saves them.
+function seedMavenLocalConfiguration(workspaceId: string, settings: Partial<MavenSettings>): void {
+  useMavenStore.getStore(workspaceId).getState().actions.seedLocalConfiguration(settings);
+}
+
 const defaultRunStoreDependencies: RunStoreDependencies = {
   createLaunchPlan,
   mavenLaunchContextForWorkspace,
   resolveRunLaunch,
   executePreLaunchStep,
   saveWorkspaceBeforeLaunch,
+  seedMavenLocalConfiguration,
   startRunProcess,
   stopRunProcess,
   prepareJavaRunLaunch,
@@ -296,6 +328,20 @@ function flushStampedOutput(sessionId: string, existing: string): string {
   return trimOutput(existing + stamperFor(sessionId).flush());
 }
 
+// A value written on the run configuration wins. An empty field falls back to
+// the Maven project context, matching macOS RunService.effectiveOptions.
+function mavenProcessPaths(
+  mavenContext: MavenLaunchContext | null,
+  configuration: { mavenExecutablePath: string; mavenJavaHomePath: string },
+) {
+  const configuredExecutable = configuration.mavenExecutablePath.trim();
+  const configuredJavaHome = configuration.mavenJavaHomePath.trim();
+  return {
+    mavenExecutablePath: configuredExecutable || mavenContext?.mavenExecutablePath || "",
+    mavenJavaHomePath: configuredJavaHome || mavenContext?.javaHomePath || "",
+  };
+}
+
 function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
   return {
     javaHomePath: configuration.javaHomePath,
@@ -315,17 +361,42 @@ async function readRunProjectSnapshot(
   dependencies: RunStoreDependencies,
   checkFingerprint = true,
 ): Promise<RunProjectSnapshot> {
-  const inspection = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root, checkFingerprint);
+  const inspection = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(
+    root,
+    checkFingerprint,
+  );
   const inspectionDiagnostics = mapDiagnostics(inspection.diagnostics);
   if (inspection.status !== "ready") {
     return { status: "missing", diagnostics: inspectionDiagnostics };
   }
-  const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
+  const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(
+    root,
+    workspaceId,
+  );
   return {
     status: "ready",
     ...resolved,
     diagnostics: [...inspectionDiagnostics, ...resolved.diagnostics],
   };
+}
+
+/** Diagnostics from `incoming` that `existing` does not already show. */
+function newDiagnostics(existing: RunDiagnostic[], incoming: RunDiagnostic[]): RunDiagnostic[] {
+  return incoming.filter(
+    (diagnostic) =>
+      !existing.some(
+        (shown) =>
+          shown.code === diagnostic.code &&
+          shown.message === diagnostic.message &&
+          shown.id === diagnostic.id &&
+          shown.toolchain === diagnostic.toolchain,
+      ),
+  );
+}
+
+/** Java entries and the Current File fallback exist only for Java projects. */
+function isJavaConfiguration(configuration: RunConfiguration): boolean {
+  return configuration.provider.startsWith("java.");
 }
 
 function readyRunState(
@@ -370,8 +441,7 @@ export const createRunStore = (
       useRunPreferencesStore.getState().actions.setJavaBuildFailurePolicy(workspace, policy));
   const rebuildJavaIndex =
     dependencies.rebuildJavaIndexForWorkspace ?? rebuildJavaIndexForWorkspace;
-  const presentJavaLaunchDecision =
-    dependencies.presentJavaLaunchDecision ?? openRunDecisionPane;
+  const presentJavaLaunchDecision = dependencies.presentJavaLaunchDecision ?? openRunDecisionPane;
   const executions = new Map<string, string>();
   const pendingJavaLaunchDecisions = new Map<
     string,
@@ -401,6 +471,50 @@ export const createRunStore = (
     stopWaitingForJavaProject?.();
     stopWaitingForJavaProject = null;
   };
+  // Generation hashes only the Java sources it reads, so a main method added to
+  // an existing class is found by comparing JDT's answer with the generated
+  // entries. The check waits for JDT outside the load task and never starts it.
+  let stopWaitingForEntrypointCheck: (() => void) | null = null;
+  const cancelEntrypointCheck = () => {
+    stopWaitingForEntrypointCheck?.();
+    stopWaitingForEntrypointCheck = null;
+  };
+  const checkJavaEntrypoints = async (
+    root: string,
+    owns: () => boolean,
+    publish: (diagnostics: RunDiagnostic[]) => void,
+  ): Promise<void> => {
+    const discovery = await (dependencies.discoverJavaEntrypoints ?? discoverJavaEntrypoints)(
+      { workspaceId, root },
+      [],
+    );
+    if (!owns()) return;
+    if (discovery.kind === "pending") {
+      stopWaitingForEntrypointCheck = (
+        dependencies.whenJavaProjectPrepared ?? whenJavaProjectPrepared
+      )(root, () => {
+        stopWaitingForEntrypointCheck = null;
+        if (owns()) void checkJavaEntrypoints(root, owns, publish);
+      });
+      return;
+    }
+    // A failed Java service has no answer to compare; generation reports it.
+    if (discovery.kind !== "discovered") return;
+    try {
+      const inspected = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(
+        root,
+        false,
+        discovery.entrypoints,
+      );
+      if (!owns()) return;
+      publish(mapDiagnostics(inspected.diagnostics));
+    } catch (error) {
+      if (!owns()) return;
+      frontendTrace("warn", "run.entrypointCheck", root, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   return createStore<RunState>()((set, get) => ({
     root: null,
     javaDiscovery: "idle",
@@ -414,6 +528,9 @@ export const createRunStore = (
     selectedConfigurationId: null,
     defaultConfigurationId: null,
     primaryOutput: "",
+    primaryExecutionId: null,
+    primaryConfigurationId: null,
+    primaryPreparing: false,
     primaryRunning: false,
     primaryTitle: null,
     primaryExitCode: null,
@@ -423,6 +540,7 @@ export const createRunStore = (
     editingConfigurationId: null,
     generationNotice: null,
     javaLaunchDecisions: {},
+    serviceUpdates: {},
     discoveredJava: [],
     discoveredMaven: [],
     discoveredRuntimes: [],
@@ -430,6 +548,7 @@ export const createRunStore = (
     effectiveRuntimeExecutablePaths: {},
     actions: {
       loadProject: async (root) => {
+        cancelEntrypointCheck();
         const sameProject = get().root === root;
         if (sameProject) {
           // Reloading the same project only refreshes its documents and toolchains.
@@ -458,7 +577,15 @@ export const createRunStore = (
           saveError: null,
           editingConfigurationId: sameProject ? get().editingConfigurationId : null,
           generationNotice: null,
-          ...(sameProject ? {} : { javaLaunchDecisions: {} }),
+          ...(sameProject
+            ? {}
+            : {
+                javaLaunchDecisions: {},
+                serviceUpdates: {},
+                primaryExecutionId: null,
+                primaryConfigurationId: null,
+                primaryPreparing: false,
+              }),
         });
         try {
           // Show validated documents before the potentially expensive content scan.
@@ -476,28 +603,49 @@ export const createRunStore = (
             return;
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
-          const ownsSnapshot = () => revision === projectLoadRevision &&
-            get().root === root && get().configurations === snapshot.configurations;
+          const ownsSnapshot = () =>
+            revision === projectLoadRevision &&
+            get().root === root &&
+            get().configurations === snapshot.configurations;
           try {
             const checked = await checkFingerprint(root);
             if (!ownsSnapshot()) return;
             if (checked.status !== "ready") {
-              throw new Error("Run configuration documents changed during inspection. Reload the project.");
+              throw new Error(
+                "Run configuration documents changed during inspection. Reload the project.",
+              );
             }
-            const additionalDiagnostics = mapDiagnostics(checked.diagnostics).filter((diagnostic) =>
-              !snapshot.diagnostics.some((existing) => existing.code === diagnostic.code &&
-                existing.message === diagnostic.message && existing.id === diagnostic.id &&
-                existing.toolchain === diagnostic.toolchain));
+            const additionalDiagnostics = newDiagnostics(
+              snapshot.diagnostics,
+              mapDiagnostics(checked.diagnostics),
+            );
             set({ diagnostics: [...snapshot.diagnostics, ...additionalDiagnostics] });
           } catch (error) {
             if (!ownsSnapshot()) return;
             // A freshness-check timeout must not discard usable configurations.
             // Keep the failure visible instead of implying the fingerprint matched.
             const detail = error instanceof Error ? error.message : "Unknown inspection failure";
-            set({ diagnostics: [...snapshot.diagnostics, {
-              code: "fingerprintCheckFailed",
-              message: `Could not check run configuration freshness: ${detail}`,
-            }] });
+            set({
+              diagnostics: [
+                ...snapshot.diagnostics,
+                {
+                  code: "fingerprintCheckFailed",
+                  message: `Could not check run configuration freshness: ${detail}`,
+                },
+              ],
+            });
+          }
+          // A regeneration already waiting for JDT will replace the Java entries.
+          if (
+            stopWaitingForJavaProject === null &&
+            ownsSnapshot() &&
+            snapshot.configurations.some(isJavaConfiguration)
+          ) {
+            void checkJavaEntrypoints(root, ownsSnapshot, (incoming) => {
+              const current = get().diagnostics;
+              const added = newDiagnostics(current, incoming);
+              if (added.length > 0) set({ diagnostics: [...current, ...added] });
+            });
           }
         } catch (error) {
           if (revision !== projectLoadRevision || get().root !== root) return;
@@ -516,9 +664,10 @@ export const createRunStore = (
         }
       },
 
-      generate: (root) => {
+      generate: (root, requestedEntrypoint) => {
         const task = (async () => {
           cancelJavaRefresh();
+          cancelEntrypointCheck();
           const revision = ++projectLoadRevision;
           const isCurrent = () => revision === projectLoadRevision && get().root === root;
           set({
@@ -547,11 +696,17 @@ export const createRunStore = (
                     paths,
                   );
             if (!isCurrent()) return;
-            const generated = await (dependencies.generateRunConfiguration ?? generateRunConfiguration)(
+            const generated = await (
+              dependencies.generateRunConfiguration ?? generateRunConfiguration
+            )(
               root,
               paths,
               [],
-              discovery?.kind === "discovered" ? discovery.entrypoints : undefined,
+              withContextJavaEntrypoint(
+                discovery?.kind === "discovered" ? discovery.entrypoints : undefined,
+                requestedEntrypoint,
+                get().configurations,
+              ),
             );
             if (!isCurrent()) return;
             await (dependencies.writeGeneratedRunDocuments ?? writeGeneratedRunDocuments)({
@@ -561,7 +716,10 @@ export const createRunStore = (
               defaultRunConfiguration: defaultGeneratedConfigurationId(generated.generated),
             });
             if (!isCurrent()) return;
-            const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
+            const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(
+              root,
+              workspaceId,
+            );
             if (!isCurrent()) return;
             const notice =
               generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
@@ -598,8 +756,9 @@ export const createRunStore = (
               configurations: resolved.configurations,
               selectedConfigurationId:
                 resolved.defaultConfigurationId ??
-                resolved.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)
-                  ?.id ??
+                resolved.configurations.find(
+                  (configuration) => configuration.id !== CURRENT_FILE_ID,
+                )?.id ??
                 null,
               defaultConfigurationId: resolved.defaultConfigurationId,
               discoveredJava: resolved.discoveredJava,
@@ -613,7 +772,8 @@ export const createRunStore = (
             });
           } catch (error) {
             if (!isCurrent()) return;
-            const message = error instanceof Error ? error.message : "Project identification failed";
+            const message =
+              error instanceof Error ? error.message : "Project identification failed";
             set({
               status: "invalid",
               invalidMessage: message,
@@ -656,6 +816,7 @@ export const createRunStore = (
           set({
             primaryOutput: trimOutput(`${state.primaryOutput}${blocking.message}\n`),
             primaryRunning: false,
+            primaryPreparing: false,
             primaryExitCode: 1,
           });
           return null;
@@ -666,6 +827,7 @@ export const createRunStore = (
               `${state.primaryOutput}Open a source file before running Current File.\n`,
             ),
             primaryRunning: false,
+            primaryPreparing: false,
             primaryExitCode: 1,
           });
           return null;
@@ -685,6 +847,17 @@ export const createRunStore = (
         const executionId = crypto.randomUUID();
         // Reserve ownership before yielding so old Debug callbacks cannot stop a replacement.
         executions.set(sessionId, executionId);
+        if (sessionId === PRIMARY_SESSION_ID) {
+          set({
+            primaryExecutionId: executionId,
+            primaryConfigurationId: configuration.id,
+            primaryPreparing: true,
+            primaryRunning: false,
+            primaryOutput: "",
+            primaryExitCode: null,
+            primaryTitle: configuration.name,
+          });
+        }
         const isCurrent = () => executions.get(sessionId) === executionId && get().root === root;
         bindRunSessionWorkspace(sessionId, workspaceId);
         resetOutputStamper(sessionId);
@@ -696,7 +869,8 @@ export const createRunStore = (
             save = dependencies.saveWorkspaceBeforeLaunch(workspaceId);
             workspaceSaveInFlight.set(workspaceId, save);
             const clearSave = () => {
-              if (workspaceSaveInFlight.get(workspaceId) === save) workspaceSaveInFlight.delete(workspaceId);
+              if (workspaceSaveInFlight.get(workspaceId) === save)
+                workspaceSaveInFlight.delete(workspaceId);
             };
             void save.then(clearSave, clearSave);
           }
@@ -725,9 +899,11 @@ export const createRunStore = (
                   {
                     id: sessionId,
                     configurationId: configuration.id,
+                    executionId,
                     title: configuration.name,
                     output: JAVA_PREPARATION_NOTICE,
                     isRunning: false,
+                    isPreparing: true,
                     exitCode: null,
                   },
                 ],
@@ -803,19 +979,35 @@ export const createRunStore = (
             executable: plan.executable,
             workingDirectory: plan.workingDirectory,
             javaHomePath: configuration.javaHomePath,
-            mavenExecutablePath:
-              configuration.mavenExecutablePath || mavenContext?.mavenExecutablePath || "",
-            mavenJavaHomePath:
-              configuration.mavenJavaHomePath || mavenContext?.javaHomePath || "",
+            ...mavenProcessPaths(mavenContext, configuration),
             runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
           if (!isCurrent()) return null;
+          if (javaLaunch && configuration.sourcePath) {
+            set((current) => ({
+              serviceUpdates: {
+                ...current.serviceUpdates,
+                [sessionId]: {
+                  executionId,
+                  pending: false,
+                  context: { target: javaLaunch, sourcePath: configuration.sourcePath!, debugPort },
+                },
+              },
+            }));
+          } else {
+            set((current) => {
+              const serviceUpdates = { ...current.serviceUpdates };
+              delete serviceUpdates[sessionId];
+              return { serviceUpdates };
+            });
+          }
           const mainArguments = withJavaPaths(plan.arguments, plan.classpath, plan.modulepath);
           const commandLine = `$ ${resolved.executable.split(/[\\/]/).pop()} ${mainArguments.join(" ")}\n\n`;
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
               primaryRunning: true,
+              primaryPreparing: false,
               primaryTitle: configuration.name,
               primaryExitCode: null,
               primaryOutput: trimOutput(`${commandLine}${javaBuildWarning}`),
@@ -829,6 +1021,7 @@ export const createRunStore = (
                 {
                   id: sessionId,
                   configurationId: configuration.id,
+                  executionId,
                   title: configuration.name,
                   output: trimOutput(`${commandLine}${javaBuildWarning}`),
                   isRunning: true,
@@ -855,10 +1048,11 @@ export const createRunStore = (
             }
           };
           const markPreLaunchFailure = (exitCode: number) => {
-            const message = `Compilation failed (exit code ${exitCode}).\n`;
+            const message = `Pre-launch step failed (exit code ${exitCode}).\n`;
             if (sessionId === PRIMARY_SESSION_ID) {
               set((current) => ({
                 primaryRunning: false,
+                primaryPreparing: false,
                 primaryExitCode: exitCode,
                 primaryOutput: trimOutput(`${current.primaryOutput}${message}`),
               }));
@@ -869,6 +1063,7 @@ export const createRunStore = (
                     ? {
                         ...session,
                         isRunning: false,
+                        isPreparing: false,
                         exitCode,
                         output: trimOutput(`${session.output}${message}`),
                       }
@@ -885,12 +1080,12 @@ export const createRunStore = (
             const stepResolved = await dependencies.resolveRunLaunch({
               root,
               executable: step.executable,
-              workingDirectory: plan.workingDirectory,
+              // A step may own its resolution root: the Maven resource step runs
+              // from the reactor so a project wrapper is found even when the
+              // application working directory is overridden.
+              workingDirectory: step.workingDirectory ?? plan.workingDirectory,
               javaHomePath: configuration.javaHomePath,
-              mavenExecutablePath:
-                configuration.mavenExecutablePath || mavenContext?.mavenExecutablePath || "",
-              mavenJavaHomePath:
-                configuration.mavenJavaHomePath || mavenContext?.javaHomePath || "",
+              ...mavenProcessPaths(mavenContext, configuration),
               runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
               environment: mergeLaunchEnvironment(configuration.env, plan),
             });
@@ -902,6 +1097,8 @@ export const createRunStore = (
               `$ ${stepResolved.executable.split(/[\\/]/).pop()} ${stepArguments.join(" ")}\n`,
             );
             const outcome = await dependencies.executePreLaunchStep({
+              sessionId,
+              executionId,
               executable: stepResolved.executable,
               arguments: stepArguments,
               workingDirectory: stepResolved.workingDirectory,
@@ -943,20 +1140,21 @@ export const createRunStore = (
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
               primaryRunning: false,
+              primaryPreparing: false,
               primaryExitCode: 1,
               primaryOutput: trimOutput(`${get().primaryOutput}${message}\n`),
             });
           } else {
             set((current) => {
-              const existingSession = current.sessions.find(
-                (session) => session.id === sessionId,
-              );
+              const existingSession = current.sessions.find((session) => session.id === sessionId);
               const failedSession: RunSession = {
                 id: sessionId,
                 configurationId: configuration.id,
+                executionId,
                 title: configuration.name,
                 output: trimOutput(`${existingSession?.output ?? ""}${message}\n`),
                 isRunning: false,
+                isPreparing: false,
                 exitCode: 1,
               };
               return {
@@ -1003,7 +1201,18 @@ export const createRunStore = (
         set((current) => {
           const javaLaunchDecisions = { ...current.javaLaunchDecisions };
           delete javaLaunchDecisions[sessionId];
-          return { javaLaunchDecisions };
+          return {
+            javaLaunchDecisions,
+            primaryPreparing:
+              sessionId === PRIMARY_SESSION_ID && current.primaryExecutionId === pending.executionId
+                ? false
+                : current.primaryPreparing,
+            sessions: current.sessions.map((session) =>
+              session.id === sessionId && session.executionId === pending.executionId
+                ? { ...session, isPreparing: false }
+                : session,
+            ),
+          };
         });
         pending.resolve(false);
       },
@@ -1037,6 +1246,59 @@ export const createRunStore = (
         }
       },
 
+      updateService: async (sessionId, debugSessionId) => {
+        const entry = get().serviceUpdates[sessionId];
+        const root = get().root;
+        if (!entry || !root || entry.pending) return;
+        const isCurrent = () => {
+          const state = get();
+          const running =
+            sessionId === PRIMARY_SESSION_ID
+              ? state.primaryRunning
+              : state.sessions.some((session) => session.id === sessionId && session.isRunning);
+          const debug = useDebuggerStore.getState().activeSession;
+          return (
+            state.root === root &&
+            executions.get(sessionId) === entry.executionId &&
+            running &&
+            (!debugSessionId ||
+              (debug?.id === debugSessionId &&
+                debug.status !== "idle" &&
+                debug.javaRun?.executionId === entry.executionId &&
+                debug.javaRun?.workspaceId === workspaceId))
+          );
+        };
+        if (!isCurrent() || (!debugSessionId && !supportsDevToolsUpdate(entry.context))) return;
+        const change = (values: { pending?: boolean; message?: string; failed?: boolean }) => {
+          if (get().serviceUpdates[sessionId]?.executionId !== entry.executionId) return;
+          set((state) => ({
+            serviceUpdates: {
+              ...state.serviceUpdates,
+              [sessionId]: { ...state.serviceUpdates[sessionId], ...values },
+            },
+          }));
+        };
+        change({ pending: true, message: undefined, failed: false });
+        try {
+          await updateJavaService({
+            isCurrent,
+            save: () => dependencies.saveWorkspaceBeforeLaunch(workspaceId),
+            build: () =>
+              dependencies.buildJavaServiceUpdate
+                ? dependencies.buildJavaServiceUpdate(root, entry.context)
+                : invokeLsp<void>("java_build_service_update", {
+                    workspacePath: root,
+                    sourcePath: `${root}/${entry.context.sourcePath}`,
+                    target: entry.context.target,
+                  }),
+            apply: debugSessionId ? () => applyJavaCodeChanges(debugSessionId) : undefined,
+            report: (message, failed = false) => change({ message, failed }),
+          });
+        } finally {
+          change({ pending: false });
+        }
+      },
+
       stop: async (sessionId, executionId) => {
         const target = sessionId ?? get().selectedSessionId ?? PRIMARY_SESSION_ID;
         get().actions.cancelJavaLaunch(target);
@@ -1044,12 +1306,15 @@ export const createRunStore = (
         const ownsSlot = !executionId || executionId === ownedExecution;
         if (ownsSlot) executions.delete(target);
         // Native ownership remains authoritative after a workspace store is disposed/recreated.
-        await dependencies.stopRunProcess(target, executionId ?? ownedExecution).catch(() => undefined);
+        await dependencies
+          .stopRunProcess(target, executionId ?? ownedExecution)
+          .catch(() => undefined);
         // A new launch can claim the slot while the native stop is in flight.
         if (!ownsSlot || executions.has(target)) return;
         if (target === PRIMARY_SESSION_ID) {
           set({
             primaryRunning: false,
+            primaryPreparing: false,
             primaryOutput: flushStampedOutput(target, get().primaryOutput),
           });
           return;
@@ -1060,6 +1325,7 @@ export const createRunStore = (
               ? {
                   ...session,
                   isRunning: false,
+                  isPreparing: false,
                   output: flushStampedOutput(target, session.output),
                 }
               : session,
@@ -1166,6 +1432,7 @@ export const createRunStore = (
         if (sessionId === PRIMARY_SESSION_ID) {
           set({
             primaryRunning: false,
+            primaryPreparing: false,
             primaryExitCode: exitCode,
             primaryOutput: flushStampedOutput(sessionId, get().primaryOutput),
           });
@@ -1177,6 +1444,7 @@ export const createRunStore = (
               ? {
                   ...session,
                   isRunning: false,
+                  isPreparing: false,
                   exitCode,
                   output: flushStampedOutput(sessionId, session.output),
                 }

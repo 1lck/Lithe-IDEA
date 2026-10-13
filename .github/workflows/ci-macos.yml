@@ -36,6 +36,37 @@ jobs:
         shell: bash
         run: ./scripts/test-classify-ci-changes.sh
 
+      - name: Test release scripts and Markdown preview
+        timeout-minutes: 2
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
+            scripts/test-download-sparkle-baseline.mjs scripts/test-reuse-worktree-resources.mjs scripts/test-markdown-preview.mjs \
+            scripts/test-codex-config-relay.mjs
+
+      - name: Generate Sparkle download timing report
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { parseJUnitCases } from './.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs';
+          import { writeTestReportArtifacts } from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs';
+          const stem = '.artifacts/test-stability/sparkle-baseline';
+          const tests = parseJUnitCases(fs.readFileSync(`${stem}.junit.xml`, 'utf8'));
+          if (tests.length === 0) throw new Error('Missing Sparkle download test results');
+          fs.writeFileSync(`${stem}.json`, JSON.stringify({ runner: 'node', warnMs: 1000, maxMs: 15000, tests }));
+          writeTestReportArtifacts(`${stem}.json`);
+          NODE
+
+      - name: Upload Sparkle download timing report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stability-sparkle-baseline
+          path: .artifacts/test-stability/
+          if-no-files-found: error
+
       - name: Resolve comparison base
         id: base
         env:
@@ -136,7 +167,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.swift == 'true'
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: 65
 
     steps:
       - name: Check out source
@@ -149,21 +180,35 @@ jobs:
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
+          cargo: "true"
+
+      # Compile and discover tests before starting the test execution deadline.
+      - name: Build Swift tests
+        timeout-minutes: 20
+        run: ./scripts/test-macos.sh list > /dev/null
 
       - name: Run Swift unit tests
-        timeout-minutes: 12
+        timeout-minutes: 17
         run: |
-          # The stable rollback integration test creates and mounts a real
-          # macOS disk image; keep its measured bound explicit and bounded.
           ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
             --report .artifacts/test-stability/macos-unit.json \
-            --max-seconds 20 \
-            --suite-timeout-seconds 660 -- \
-            --skip WebKitIntegrationTests \
+            --suite-timeout-seconds 960 -- --skip-build \
+            --skip fullSignedDiskImageStagesWithoutChangingInstalledApp \
+            --skip StableRollbackDiskImageIntegrationTests \
             --skip GitStatusObservationTests \
             --skip LitheGitPerformanceTests \
             --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
             --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
+
+      - name: Run stable rollback disk image integration test
+        timeout-minutes: 3
+        run: |
+          # Creating and mounting a real disk image has variable runner latency.
+          ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+            --report .artifacts/test-stability/macos-rollback-dmg.json \
+            --max-seconds 45 --suite-timeout-seconds 120 -- \
+            --skip-build \
+            --filter fullSignedDiskImageStagesWithoutChangingInstalledApp
 
       - name: Run Git performance baseline
         if: needs.changes.outputs.git_validation == 'true'
@@ -180,14 +225,16 @@ jobs:
             --skip-build \
             --filter GitStatusObservationTests
 
-      - name: Run WebKit lifecycle integration tests
+      - name: Run stable rollback disk image integration tests
         timeout-minutes: 3
         run: |
+          # Builds, signs, and mounts a real disk image; CI runners measured
+          # 17-20s, so it gets its own budget instead of raising the unit lane's.
           ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
-            --report .artifacts/test-stability/macos-webkit.json \
+            --report .artifacts/test-stability/macos-rollback-dmg.json \
             --max-seconds 60 --suite-timeout-seconds 150 -- \
             --skip-build \
-            --filter WebKitIntegrationTests
+            --filter StableRollbackDiskImageIntegrationTests
 
       - name: Generate combined Swift test report
         if: always()
@@ -209,7 +256,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust_core == 'true'
     runs-on: macos-26
-    timeout-minutes: 20
+    # Cold Rust and Swift builds can consume 30 minutes before report upload.
+    # Individual test harness deadlines still bound the integration suites.
+    timeout-minutes: 40
 
     steps:
       - name: Check out source

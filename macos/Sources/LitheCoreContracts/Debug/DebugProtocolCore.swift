@@ -98,11 +98,12 @@ public struct DebugCoreOperationResult: Decodable, Equatable, Sendable {
     public let accessTypes: [String]?
     public let canPersist: Bool?
     public let targets: [DebugCoreTarget]?
+    public let changedClasses: [String]?
 
     private enum CodingKeys: String, CodingKey {
         case kind, command, threads, stackFrames, scopes, variables, variable, exceptionInfo
         case dataID = "dataId"
-        case description, accessTypes, canPersist, targets
+        case description, accessTypes, canPersist, targets, changedClasses
     }
 }
 

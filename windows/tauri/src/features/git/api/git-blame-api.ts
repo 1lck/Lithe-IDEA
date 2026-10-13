@@ -20,7 +20,7 @@ export const getResolvedGitBlame = async (
     }
 
     const blame = await tauriInvoke<GitBlame>("git_blame_file", {
-      rootPath: resolved.repoPath,
+      repoPath: resolved.repoPath,
       filePath: resolved.filePath,
       operationId,
     });

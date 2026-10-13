@@ -76,6 +76,14 @@ export interface MavenDependency {
   scope: string;
   resolution: MavenDependencyResolution;
   selectedVersion?: string | null;
+  /** Version before dependency management replaced it with `version`. */
+  premanagedVersion?: string | null;
+  /** Scope before dependency management replaced it with `scope`. */
+  premanagedScope?: string | null;
+  /** Declared scope before mediation widened it to `scope`. */
+  originalScope?: string | null;
+  /** Wider scope from another path that mediation did not apply here. */
+  ignoredScope?: string | null;
   children: MavenDependency[];
 }
 
@@ -176,6 +184,24 @@ export interface MavenSettings {
   localRepositoryPath: string;
   mavenExecutablePath: string;
   javaHomePath: string;
+}
+
+export type MavenEffectiveConfigurationStatus = "idle" | "loading" | "ready" | "failed";
+
+/**
+ * What a Maven launch would use for the current settings, plus the values
+ * machine detection found while ignoring saved overrides. A `null` field means
+ * detection found nothing, not that the field is disabled.
+ */
+export interface MavenEffectiveConfiguration {
+  settingsPath: string | null;
+  localRepositoryPath: string | null;
+  mavenExecutablePath: string | null;
+  javaHomePath: string | null;
+  detectedSettingsPath: string | null;
+  detectedLocalRepositoryPath: string | null;
+  detectedMavenExecutablePath: string | null;
+  detectedJavaHomePath: string | null;
 }
 
 export const MAVEN_LIFECYCLE_PHASES = [

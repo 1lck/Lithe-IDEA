@@ -7,11 +7,6 @@ import { useJumpListStore } from "@/features/editor/stores/jump-list.store";
 import { usePaneStore } from "@/features/panes/stores/pane.store";
 import { useRecentFilesStore } from "@/features/file-system/stores/recent-files.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { useFffSearch } from "@/features/file-search/hooks/use-fff-search";
-import {
-  canUseNativeFileSearch,
-  getNativeWorkspaceRootPaths,
-} from "@/features/file-search/utils/file-search-paths";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useCenterCursor } from "@/features/editor/hooks/use-center-cursor";
 import { calculateOffsetFromContentPosition } from "@/features/editor/utils/position";
@@ -32,11 +27,6 @@ export const useQuickOpen = () => {
   const setIsQuickOpenVisible = useUIState((state) => state.setIsQuickOpenVisible);
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
-  const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
-  const nativeRootPaths = useMemo(
-    () => getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
-    [rootFolderPath, workspaceFolders],
-  );
   const addOrUpdateRecentFile = useRecentFilesStore((state) => state.actions.addOrUpdateRecentFile);
   const [query, setQuery] = useState("");
   const [debouncedQuery] = useDebounce(query, SEARCH_DEBOUNCE_DELAY);
@@ -46,7 +36,6 @@ export const useQuickOpen = () => {
   // Detect symbol mode (query starts with @) and workspace-symbol mode (query starts with #)
   const isSymbolMode = query.startsWith("@");
   const isWorkspaceSymbolMode = query.startsWith("#");
-  const useBackendFileSearch = canUseNativeFileSearch(rootFolderPath);
 
   const onClose = useCallback(() => {
     setIsQuickOpenVisible(false);
@@ -60,24 +49,13 @@ export const useQuickOpen = () => {
     rootFolderPath: loaderRootFolder,
   } = useFileLoader(isQuickOpenVisible);
 
-  const { hits: fffHits, isSearching: isFffSearching } = useFffSearch(
-    debouncedQuery,
-    isQuickOpenVisible && !isSymbolMode && !isWorkspaceSymbolMode,
-    nativeRootPaths,
-  );
-
   const { openBufferFiles, recentFilesInResults, otherFiles } = useFileSearch(
     files,
     isSymbolMode || isWorkspaceSymbolMode ? "" : debouncedQuery,
-    isSymbolMode || isWorkspaceSymbolMode ? null : fffHits,
+    null,
     {
       hasLoadedFiles,
       rootFolderPath,
-      useBackendResults:
-        useBackendFileSearch &&
-        !isSymbolMode &&
-        !isWorkspaceSymbolMode &&
-        debouncedQuery.trim().length > 0,
     },
   );
 
@@ -267,8 +245,8 @@ export const useQuickOpen = () => {
     scrollContainerRef,
     onClose,
     files,
-    isLoadingFiles: isLoadingFiles || isFffSearching,
-    isIndexing: isIndexing || isFffSearching,
+    isLoadingFiles,
+    isIndexing,
     openBufferFiles,
     recentFilesInResults,
     otherFiles,

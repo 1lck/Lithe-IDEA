@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+"$ROOT_DIR/scripts/verify-runtime-bundle-immutability.sh"
+
 workbench_path="macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift"
 drawing_group_pattern='\.drawingGroup[[:space:]]*\('
 workbench_rasterization_violations=$(
@@ -31,6 +33,10 @@ fi
 for packaging_script in scripts/package-app.sh scripts/preview.sh; do
     if ! /usr/bin/grep -Fq -- 'stamp-macos-app-build-info.sh' "$packaging_script"; then
         print -u2 -- "$packaging_script must stamp traceable build metadata"
+        exit 1
+    fi
+    if ! /usr/bin/grep -Fq -- 'Lithe_Lithe.bundle' "$packaging_script"; then
+        print -u2 -- "$packaging_script must package Lithe's SwiftPM resources"
         exit 1
     fi
     if ! /usr/bin/grep -Fq -- 'SwiftTerm_SwiftTerm.bundle' "$packaging_script"; then

@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-快捷键只有一个集中目录，菜单、搜索、设置和实际分发都从这个目录生成。持久化使用稳定的命令 ID，显示文字或分组变化不能随意改变 ID；普通输入按键也不能被误识别成全局命令。
+快捷键只有一个集中命令目录，菜单、搜索、设置和实际分发都从这个目录生成。用户可以在 macOS、IntelliJ IDEA Classic 和 Eclipse 三套预设间切换；每套预设的自定义修改分别保存。持久化使用稳定的命令 ID，显示文字或分组变化不能随意改变 ID；普通输入按键也不能被误识别成全局命令。
 
 ## 问题
 
@@ -27,7 +27,8 @@ ID、本地化标题、分组和默认绑定；菜单、Search Everywhere、设�
 `⌘`、`⌥` 等字符串只在渲染时生成。普通字符必须带有
 Command、Control 或 Option 之一，功能键、方向键等特殊按键可以单独使用。
 
-`AppSettings` 在版本化的 `keyboardShortcutOverrides` 载荷中保存用户覆盖：
+`AppSettings` 保存当前预设和按预设分开的版本化用户覆盖。旧版单套
+`keyboardShortcutOverrides` 载荷只在首次迁移时归入 macOS 预设：
 
 - 没有命令条目时使用目录默认值；
 - 非空列表替换该命令的全部绑定；
@@ -36,15 +37,29 @@ Command、Control 或 Option 之一，功能键、方向键等特殊按键可以
 - 未知命令、非法绑定和重复绑定被忽略；
 - 整个载荷无法解码时回退到全部默认值。
 
+预设只映射 Lithe 已有且与 IntelliJ Community 源码能对应的操作，真正没有
+对应上游动作的 Lithe 命令才沿用 Lithe 默认绑定。Eclipse 预设先解析
+`$default`、`Mac OS X 10.5+`、`Eclipse (Mac OS X)` 的继承顺序；子层
+没有声明动作时继承父层，声明空动作时清除父层绑定。例如 Eclipse 的
+`Find` 为空，不能回退成 Lithe 的 `⌘F`。切换预设时先切换预设身份，再发布该预设的覆盖值，
+使设置页、菜单和原生监听器同时看到新绑定；录制中的操作在切换前取消。
+IDEA 的 `Stop` 是按上下文停止运行或调试的单一动作；Lithe 目前仍有独立的
+`stop-run` 和 `stop-debug`，因此 `Control-F2` 暂时只绑定 `stop-run`。
+要同时覆盖调试场景，需要先提供能识别当前会话的统一 Stop 命令。
+应用级恢复默认清除所有预设的用户覆盖并返回 macOS，Keymap 页的恢复默认
+只清除当前预设的覆盖。官方映射依据是 IntelliJ Community 的
+[`$default.xml`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-resources/src/keymaps/%24default.xml)
+和 [`Eclipse (Mac OS X).xml`](https://github.com/JetBrains/intellij-community/blob/master/plugins/keymaps/eclipse-keymap/resources/keymaps/Eclipse%20%28Mac%20OS%20X%29.xml)；
+Eclipse 文件继承的 macOS 映射见 [`Mac OS X 10.5+.xml`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-resources/src/keymaps/Mac%20OS%20X%2010.5%2B.xml)。
+
 `KeyboardShortcutFeatureModel` 负责合成有效值、录制状态、冲突检测、单项
 恢复和全部恢复。相同绑定发生冲突时指出占用它的命令并拒绝保存，不自动
 覆盖已有命令。`ShortcutSessionCoordinator` 将有效注册同步给 macOS
 监听器；录制快捷键时暂停命令分发，非活动会话和已关闭会话不执行排队的
 旧命令。
 
-Search Everywhere 保留双击 Shift 和 `⇧⌘O` 两个默认入口。应用级
-“恢复全部默认”会同时清除快捷键覆盖，Keymap 页面自己的“全部恢复默认”
-只清除快捷键覆盖。该功能只属于 macOS，不把 Windows keymap 或新的跨平台
+Search Everywhere 的 macOS 预设保留双击 Shift 和 `⇧⌘O` 两个默认入口。
+该功能只属于 macOS，不把 Windows keymap 或新的跨平台
 快捷键契约纳入本决策。
 
 ## 考虑过的备选方案
@@ -59,8 +74,9 @@ Search Everywhere 保留双击 Shift 和 `⇧⌘O` 两个默认入口。应用�
   明确报告冲突并拒绝保存。
 - **立即设计 Windows 与 macOS 共用 keymap 契约**：两端事件模型和原生
   编辑行为不同，当前收益不足以抵消跨平台兼容面，暂不扩展范围。
-- **加入 IDEA keymap 导入、预设、导出或云同步**：这些能力会扩大稳定性
-  和数据兼容范围，当前需求不包含它们。
+- **直接导入 IDEA 全量 keymap 文件**：Lithe 没有 IDEA 的全部命令和动作
+  语义，全量导入会产生无法执行的配置；只映射现有对应操作。自定义 keymap
+  文件导入、导出和云同步仍不在本次范围。
 
 ## 后果
 

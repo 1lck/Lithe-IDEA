@@ -25,7 +25,7 @@ export function GitLogTitleBar({
   const { t } = useTranslation();
 
   return (
-    <div className="shrink-0 border-border border-b bg-surface font-sans ui-text-sm">
+    <div className="shrink-0 border-border border-b bg-background font-sans ui-text-sm">
       <div className="flex h-8 items-center gap-2 px-2">
         <GitBranchIcon className="size-3.5 text-subtle-foreground" />
         <span className="font-medium">{t("workbench.gitLog")}</span>
@@ -58,13 +58,13 @@ export function GitLogTitleBar({
         >
           <Settings />
         </Button>
-        <span className="ml-auto text-subtle-foreground">{t("footer.readOnly")}</span>
         <Button
           type="button"
           variant="ghost"
           size="icon-xs"
           onClick={onClose}
           tooltip={t("git.log.hide")}
+          tooltipTriggerClassName="ml-auto"
           aria-label={t("git.log.hide")}
         >
           <MinusIcon />

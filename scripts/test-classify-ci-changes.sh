@@ -47,7 +47,6 @@ printf '%s\n' '#!/bin/zsh' 'print -- package' > scripts/verify-macos-package.sh
 printf '%s\n' 'struct App {}' > macos/Sources/Lithe/App.swift
 printf '%s\n' 'struct RustCoreBridge {}' > macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift
 printf '%s\n' 'struct PluginManager {}' > macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift
-printf '%s\n' 'struct LinuxDoCommunityView {}' > macos/Sources/Lithe/Views/Community/LinuxDoCommunityView.swift
 printf '%s\n' 'struct DatabaseView {}' > macos/Sources/Lithe/Views/Database/DatabaseView.swift
 printf '%s\n' 'struct CoreContracts {}' > macos/Sources/LitheCoreContracts/CoreContracts.swift
 printf '%s\n' 'struct DatabaseModule {}' > macos/Sources/LitheDatabaseModule/DatabaseModule.swift
@@ -56,8 +55,6 @@ printf '%s\n' 'struct AppTests {}' > macos/Tests/LitheTests/AppTests.swift
 printf '%s\n' 'struct GitFeature {}' > macos/Sources/LitheGitModule/GitFeature.swift
 printf '%s\n' 'struct GitPerformanceTests {}' > macos/Tests/LitheGitPerformanceTests/GitPerformanceTests.swift
 printf '%s\n' 'struct PluginManagerTests {}' > macos/Tests/LitheTests/PluginManagerTests.swift
-printf '%s\n' 'struct LinuxDoCommunityFormattingTests {}' > macos/Tests/LitheTests/LinuxDoCommunityFormattingTests.swift
-printf '%s\n' 'struct WebKitIntegrationTests {}' > macos/Tests/LitheTests/WebKitIntegrationTests.swift
 printf '%s\n' 'struct LitheCoreLogicTests {}' > macos/Tests/LitheTests/LitheCoreLogicTests.swift
 printf '%s\n' 'struct DatabaseTests {}' > macos/Tests/LitheDatabaseModuleTests/DatabaseTests.swift
 printf '%s\n' 'struct GoSupportTests {}' > Plugins/mac/Official/GoSupport/Tests/LitheGoSupportModuleTests/GoSupportTests.swift
@@ -142,9 +139,6 @@ modify_plugin_test() { printf '%s\n' 'struct UpdatedGoSupportTests {}' > Plugins
 modify_windows_plugin_manifest() { printf '%s\n' '{"id":"dev.lithe.win.example-support","version":"2.0.0"}' > Plugins/win/ExampleSupport/plugin.json; }
 modify_plugin_host_source() { printf '%s\n' 'struct UpdatedPluginManager {}' > macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift; }
 modify_plugin_host_test() { printf '%s\n' 'struct UpdatedPluginManagerTests {}' > macos/Tests/LitheTests/PluginManagerTests.swift; }
-modify_linux_do_source() { printf '%s\n' 'struct UpdatedLinuxDoCommunityView {}' > macos/Sources/Lithe/Views/Community/LinuxDoCommunityView.swift; }
-modify_linux_do_test() { printf '%s\n' 'struct UpdatedLinuxDoCommunityFormattingTests {}' > macos/Tests/LitheTests/LinuxDoCommunityFormattingTests.swift; }
-modify_plugin_webkit_test() { printf '%s\n' 'struct UpdatedWebKitIntegrationTests {}' > macos/Tests/LitheTests/WebKitIntegrationTests.swift; }
 modify_shared_swift_contract() { printf '%s\n' 'struct UpdatedCoreContracts {}' > macos/Sources/LitheCoreContracts/CoreContracts.swift; }
 modify_database_swift() { printf '%s\n' 'struct UpdatedDatabaseModule {}' > macos/Sources/LitheDatabaseModule/DatabaseModule.swift; }
 modify_database_swift_test() { printf '%s\n' 'struct UpdatedDatabaseTests {}' > macos/Tests/LitheDatabaseModuleTests/DatabaseTests.swift; }
@@ -154,6 +148,7 @@ modify_shared_fixture() { printf '%s\n' '{"operation":"updated"}' > shared/fixtu
 modify_windows_frontend() { printf '%s\n' 'export const value = 2;' > windows/tauri/src/value.ts; }
 modify_windows_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > windows/tauri/src-tauri/src/main.rs; }
 modify_download_cache_validator() { printf '%s\n' 'console.log("updated");' > scripts/verify-download-cache.mjs; }
+modify_worktree_resource_registry() { printf '%s\n' '{"schemaVersion":1,"resources":[]}' > scripts/worktree-resources.json; }
 modify_test_stability_runner() {
     mkdir -p .agents/skills/write-stable-tests/scripts
     printf '%s\n' '#!/bin/zsh' 'print -- test-stability' > .agents/skills/write-stable-tests/scripts/test-stability-macos.sh
@@ -240,15 +235,6 @@ assert_classification plugin-host-source \
 assert_classification plugin-host-test \
     "$(classification false true false false false false false false false false)" \
     modify_plugin_host_test
-assert_classification linux-do-source \
-    "$(classification true true false false false true false false false false)" \
-    modify_linux_do_source
-assert_classification linux-do-test \
-    "$(classification false true false false false false false false false false)" \
-    modify_linux_do_test
-assert_classification plugin-webkit-test \
-    "$(classification false true false false false false false false false false)" \
-    modify_plugin_webkit_test
 assert_classification shared-swift-contract \
     "$(classification true true true false false true false false false false)" \
     modify_shared_swift_contract
@@ -282,6 +268,9 @@ assert_classification java-jdt \
 assert_classification download-cache-validator \
     "$(classification true true true true false true true true false false)" \
     modify_download_cache_validator
+assert_classification worktree-resource-registry \
+    "$(classification true true true true false true true true false false)" \
+    modify_worktree_resource_registry
 assert_classification test-stability-runner \
     "$(classification true true true true false false true true false false true)" \
     modify_test_stability_runner

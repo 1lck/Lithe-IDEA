@@ -1,0 +1,25 @@
+{
+  "id": "workbench-settings-entry",
+  "area": "工作台",
+  "group": "命令与布局",
+  "capability": "从工作台 chrome 打开设置：Windows 点击标题栏搜索按钮右侧的齿轮，macOS 通过应用菜单及面板内入口",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Models/LitheAction.swift",
+      "macos/Sources/Lithe/Views/App/SettingsView.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/window/components/title-bar/title-bar.tsx",
+      "windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx",
+      "windows/tauri/src/features/layout/config/item-order.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "verification": "在 Windows 打开工作区，确认左侧活动栏底部不再显示设置齿轮，活动栏右键“在活动栏中显示”列表不包含设置项；点击标题栏右上搜索按钮右侧的齿轮打开设置对话框并再次关闭；携带旧版设置文件（活动栏排序或隐藏列表含 settings）启动后确认遗留条目被清理且活动栏显示正常。macOS 通过应用菜单和各面板入口打开设置保持不变。"
+}

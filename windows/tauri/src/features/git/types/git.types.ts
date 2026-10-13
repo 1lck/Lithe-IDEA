@@ -9,6 +9,8 @@ export interface GitFile {
   repositoryOriginalRelativePath?: string;
   status: "modified" | "added" | "deleted" | "untracked" | "renamed";
   staged: boolean;
+  canToggleStaging?: boolean;
+  submodule?: { commitChanged: boolean; trackedChanges: boolean; untrackedChanges: boolean };
   /** Raw porcelain XY status retained for whole-path commit review semantics. */
   rawStatus?: string;
   /** Whether the worktree differs from the index for this path. */
@@ -31,6 +33,8 @@ export interface GitCommit {
   author: string;
   email?: string;
   date: string;
+  /** Author's UTC offset in minutes (east positive) for `date`, when Core reports one. */
+  dateUtcOffsetMinutes?: number;
   decorations: string;
 }
 
@@ -45,6 +49,8 @@ export interface GitReference {
   upstreamShortName?: string;
   ahead?: number;
   behind?: number;
+  /** Repository root that owns this reference when a workspace aggregates multiple Git repositories. */
+  repositoryPath?: string;
 }
 
 export interface GitHistorySnapshot {
@@ -127,9 +133,16 @@ export interface GitDiff {
   old_blob_base64?: string;
   new_blob_base64?: string;
   raw_patch?: string;
+  /** Display normalization lost EOF/CRLF bytes; only whole-file writes are safe. */
+  has_lossy_line_endings?: boolean;
   additions?: number;
   deletions?: number;
   is_truncated?: boolean;
+  /**
+   * Every line of the file is present as patch context, so a review can fold
+   * and reveal unchanged regions locally instead of showing sparse hunks.
+   */
+  is_full_context?: boolean;
   split_hunks?: GitDiffSplitRow[][];
 }
 

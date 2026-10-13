@@ -116,6 +116,111 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
+    func mavenReloadUpdatesARunningJavaSessionInPlace() async throws {
+        // #970: restarting JDT LS reused its workspace state and skipped every
+        // project whose pom.xml had not changed, so missing artifacts stayed
+        // missing. A running session must take a forced update instead.
+        let root = URL(fileURLWithPath: "/workspace/java-reload-in-place", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
+            for: root.appendingPathComponent("Main.java")
+        ))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        let context = MavenLaunchContext(
+            reactorPath: ".", profiles: [], settingsPath: "/maven/conf/settings.xml",
+            localRepositoryPath: "/repository", skipTests: false,
+            mavenExecutablePath: "/maven/bin/mvn", javaHomePath: nil
+        )
+        manager.configureMavenContextProvider { _, _ in context }
+        defer { manager.stopLanguageServer(providerID: "java") }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        session.publish(.ready)
+        session.mavenUpdateResult = .success(LanguageServerMavenConfigurationUpdate(
+            settingsChanged: false, projectsReloaded: true, profilesUpdating: false
+        ))
+
+        try await manager.reloadJavaWorkspace(rootURL: root)
+
+        #expect(session.startCallCount == 1)
+        #expect(session.stopCallCount == 0)
+        #expect(session.mavenUpdates.count == 1)
+        #expect(session.mavenUpdates.first?.context == context)
+        #expect(session.mavenUpdates.first?.reloadProjects == true)
+    }
+
+    @Test
+    func mavenReloadRestartsASessionThatCannotTakeTheUpdate() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-reload-restart", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
+            for: root.appendingPathComponent("Main.java")
+        ))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        manager.configureMavenContextProvider { _, _ in
+            MavenLaunchContext(
+                reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false,
+                mavenExecutablePath: nil, javaHomePath: nil
+            )
+        }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        session.publish(.ready)
+
+        let task = Task { try await manager.reloadJavaWorkspace(rootURL: root) }
+        defer { task.cancel(); manager.stopLanguageServer(providerID: "java") }
+        // The failed update, stop, and restart run synchronously on the main
+        // actor before the reload suspends for readiness; a bounded number of
+        // yields lets the task reach that point.
+        for _ in 0..<100 where session.startCallCount < 2 { await Task.yield() }
+        try #require(session.startCallCount == 2)
+        session.publish(.ready)
+        try await task.value
+
+        #expect(session.mavenUpdates.count == 1)
+        #expect(session.stopCallCount == 1)
+        #expect(session.startCallCount == 2)
+    }
+
+    @Test
+    func mavenSettingsReachOnlyARunningJavaSessionOfTheSameWorkspace() throws {
+        let root = URL(fileURLWithPath: "/workspace/java-settings", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
+            for: root.appendingPathComponent("Main.java")
+        ))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        manager.configureMavenContextProvider { _, _ in
+            MavenLaunchContext(
+                reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false,
+                mavenExecutablePath: nil, javaHomePath: nil
+            )
+        }
+        defer { manager.stopLanguageServer(providerID: "java") }
+
+        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .noSession)
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        let update = LanguageServerMavenConfigurationUpdate(
+            settingsChanged: true, projectsReloaded: false, profilesUpdating: false
+        )
+        session.mavenUpdateResult = .success(update)
+
+        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .updated(update))
+        #expect(manager.updateJavaMavenConfiguration(
+            rootURL: URL(fileURLWithPath: "/workspace/other", isDirectory: true),
+            reloadProjects: false
+        ) == .noSession)
+        #expect(session.mavenUpdates.map(\.reloadProjects) == [false])
+    }
+
+    @Test
     func disabledModuleDoesNotConstructFactoryOrServiceGraph() async throws {
         let recorder = Recorder()
         let runtime = ModuleRuntime()
@@ -353,6 +458,114 @@ struct LanguageIntelligenceModuleTests {
         #expect(callbacks.contains { $0.0 == .ready && $0.1 == operationID })
         #expect(callbacks.contains { $0.0 == .stopped && $0.1 == operationID })
         #expect(manager.languageServerOperationIDs["java"] == nil)
+    }
+
+    @Test
+    func javaDependencySnapshotReadsResolvedJdtClasspathsWithoutBuilding() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-dependencies", isDirectory: true)
+        let module = root.appendingPathComponent("service", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
+            for: root.appendingPathComponent("Main.java")
+        ))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        defer { manager.stopAllLanguageServers() }
+        let (events, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        defer { continuation.finish() }
+        manager.onJavaDependencySnapshotChange = { continuation.yield(()) }
+
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        session.publish(.ready)
+        #expect(session.executedCommands.isEmpty)
+        session.publishPreparation(.init(phase: "ready", status: "ready", blocksRun: false))
+        let projects = try await session.waitForExecuteCommand()
+        #expect(projects.command == "java.project.getAll")
+        session.completeExecuteReturningValue(.success(.array([
+            .string(root.absoluteString), .string(module.absoluteString),
+            .string("file:///unrelated/project")
+        ])))
+
+        let rootClasspath = try await session.waitForExecuteCommand(number: 2)
+        #expect(rootClasspath.command == "java.project.getClasspaths")
+        #expect(rootClasspath.arguments == [
+            .string(root.absoluteString), .object(["scope": .string("runtime")])
+        ])
+        session.completeExecuteReturningValue(.success(.object([
+            "classpaths": .array([
+                .string("/external/cache/one.jar"), .string(root.appendingPathComponent("target/classes").path)
+            ]),
+            "modulepaths": .array([.string("/external/cache/two.jar")])
+        ])))
+        let moduleClasspath = try await session.waitForExecuteCommand(number: 3)
+        #expect(moduleClasspath.arguments.first == .string(module.absoluteString))
+        session.completeExecuteReturningValue(.success(.object([
+            "classpaths": .array([.string("/external/cache/one.jar"), .string("relative.jar")]),
+            "modulepaths": .array([])
+        ])))
+
+        let published = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in events { return true }
+                return false
+            }
+            group.addTask {
+                // test-stability: allow(swift-real-sleep) reason: this is the bounded failure deadline for the snapshot callback stream.
+                try? await Task.sleep(for: .seconds(2))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            continuation.finish()
+            return result
+        }
+        #expect(published)
+        #expect(manager.dependencySnapshot(workspaceURL: root)?.dependencyRoots.map(\.path) == [
+            "/external/cache/one.jar", "/external/cache/two.jar"
+        ])
+        #expect(manager.dependencySnapshot(workspaceURL: module) == nil)
+        #expect(session.executedCommands.count == 3)
+
+        let (updates, updatedContinuation) = AsyncStream.makeStream(
+            of: Void.self, bufferingPolicy: .bufferingNewest(1)
+        )
+        defer { updatedContinuation.finish() }
+        manager.onJavaDependencySnapshotChange = { updatedContinuation.yield(()) }
+        try manager.notifyWorkspaceFilesChanged(providerID: "java", changes: [
+            .init(fileURL: module.appendingPathComponent("pom.xml"), kind: .changed)
+        ])
+        let refreshedProjects = try await session.waitForExecuteCommand(number: 4)
+        #expect(refreshedProjects.command == "java.project.getAll")
+        session.completeExecuteReturningValue(.success(.array([.string(module.absoluteString)])))
+        let refreshedClasspath = try await session.waitForExecuteCommand(number: 5)
+        #expect(refreshedClasspath.command == "java.project.getClasspaths")
+        session.completeExecuteReturningValue(.success(.object([
+            "classpaths": .array([.string("/external/cache/updated.jar")]),
+            "modulepaths": .array([])
+        ])))
+        let updated = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in updates { return true }
+                return false
+            }
+            group.addTask {
+                // test-stability: allow(swift-real-sleep) reason: this bounds a missing dependency refresh callback.
+                try? await Task.sleep(for: .seconds(2))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            updatedContinuation.finish()
+            return result
+        }
+        #expect(updated)
+        #expect(manager.dependencySnapshot(workspaceURL: root)?.dependencyRoots.map(\.path) == [
+            "/external/cache/updated.jar"
+        ])
+        #expect(session.executedCommands.count == 5)
+        manager.stopLanguageServer(providerID: "java")
+        #expect(manager.dependencySnapshot(workspaceURL: root) == nil)
     }
 
     @Test
@@ -1127,6 +1340,7 @@ private final class WorkspaceStateLanguageProviderRuntime: LanguageProviderRunti
 
 @MainActor
 private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
+    var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)?
     var onMavenProfileTask: ((String) -> Void)?
     var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)?
     var isRunning = false
@@ -1144,6 +1358,10 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     private(set) var startCallCount = 0
     var startError: Error?
     private(set) var executedCommands: [LanguageServerCommand] = []
+    /// Maven updates handed to the running session, in order.
+    private(set) var mavenUpdates: [(context: MavenLaunchContext, reloadProjects: Bool)] = []
+    var mavenUpdateResult: Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> =
+        .failure(LanguageServerRuntimeFailure(code: "unsupported", message: "unsupported"))
     private var startWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
     private var startTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var executeWaiters: [UUID: (
@@ -1179,6 +1397,18 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
 
     func publish(_ state: LanguageServerSessionState) {
         onStateChange?(state)
+    }
+
+    func updateMavenConfiguration(
+        _ context: MavenLaunchContext,
+        reloadProjects: Bool
+    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> {
+        mavenUpdates.append((context, reloadProjects))
+        return mavenUpdateResult
+    }
+
+    func publishPreparation(_ snapshot: ProjectPreparationSnapshot) {
+        onProjectPreparation?(snapshot)
     }
 
     func waitUntilStarted(timeout: Duration = .seconds(2)) async throws {

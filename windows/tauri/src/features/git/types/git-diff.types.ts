@@ -97,6 +97,34 @@ export interface ImageDiffViewerProps {
   commitHash?: string;
 }
 
+/**
+ * Repository-owned identity of a working-tree file diff. Refreshes reuse it so
+ * they read the same repository, path, and HEAD-to-worktree semantics as the
+ * initial open instead of re-deriving them from workspace display paths.
+ */
+export interface WorkingTreeDiffTarget {
+  /** Preserve index review semantics across automatic refreshes. */
+  staged?: boolean;
+  repoPath: string;
+  /** Path relative to repoPath. */
+  filePath: string;
+  /** Repository-relative source path for renames. */
+  originalPath?: string;
+  untracked: boolean;
+  /**
+   * The index differs from HEAD for this path. Unstaged reviews are
+   * HEAD-to-worktree snapshots, so their blocks then include staged edits and
+   * must not be reverse-applied to the worktree.
+   */
+  hasStagedChanges?: boolean;
+}
+
+export interface DiffRevisionPair {
+  /** Null denotes the empty tree, not an unknown parent. */
+  before: string | null;
+  after: string;
+}
+
 export interface MultiFileDiff {
   title?: string;
   repoPath?: string;
@@ -111,8 +139,27 @@ export interface MultiFileDiff {
   totalDeletions: number;
   fileKeys?: string[];
   fileLabels?: string[];
+  /** Before/after identities in file order, including repeated paths across commits. */
+  fileRevisions?: DiffRevisionPair[];
   initiallyExpandedFileKey?: string;
   initiallySelectedFileKey?: string;
+  /** Backward file navigation lands at the last change after the comparison is ready. */
+  initialDifference?: "first" | "last";
+  /** Passive Git Log previews reveal the first change without taking keyboard focus. */
+  preserveFocus?: boolean;
+  /** Hides the changed-files navigator, e.g. for a single-file commit preview. */
+  hideFileList?: boolean;
+  /** Git Log preview: one visible file, with the complete comparison retained for navigation. */
+  commitFilePreview?: boolean;
+  /**
+   * Opened from the commit (local changes) panel, so the tab is titled like IntelliJ's commit
+   * diff preview ("Commit: <file>"); other working-tree diffs keep the generic title.
+   */
+  commitPreview?: boolean;
+  /** Working-tree refresh identities keyed by file key. */
+  workingTreeTargets?: Record<string, WorkingTreeDiffTarget>;
+  /** Commit file order only; load the next comparison on demand in the same tab. */
+  workingTreeFileOrder?: Array<{ fileKey: string; target: WorkingTreeDiffTarget }>;
   isLoading?: boolean;
   indexingProgress?: {
     processed: number;

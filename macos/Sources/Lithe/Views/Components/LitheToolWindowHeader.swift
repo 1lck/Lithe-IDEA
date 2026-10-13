@@ -38,15 +38,15 @@ struct LitheToolWindowHeader<Actions: View>: View {
                 .foregroundStyle(LitheTheme.toolWindowText)
             } else if let systemImage {
                 Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.toolWindowText)
             }
             Text(LocalizedStringKey(title))
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.toolWindowText)
             if let subtitle, !subtitle.isEmpty {
                 Text(LocalizedStringKey(subtitle))
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
             }
@@ -91,5 +91,24 @@ extension LitheToolWindowHeader where Actions == EmptyView {
         ) {
             EmptyView()
         }
+    }
+}
+
+struct LitheSidebarHideButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            LitheIDEAIcon(
+                resourcePath: "expui/general/hide.svg",
+                size: LitheTheme.Metrics.toolbarIconSize,
+                fallbackSystemImage: "minus",
+                preservesOriginalColors: true
+            )
+        }
+        .litheToolbarIconButton()
+        .help("Hide \(title) tool window")
+        .accessibilityLabel("Hide \(title) tool window")
     }
 }

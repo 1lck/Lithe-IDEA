@@ -97,12 +97,12 @@ struct MediaViewerView: View {
             } else {
                 VStack(spacing: 10) {
                     Image(systemName: "photo.badge.exclamationmark")
-                        .font(.system(size: 28))
+                        .font(LitheTheme.uiFont(size: 28))
                         .foregroundStyle(LitheTheme.secondaryText)
                     Text("Could not load this image")
                         .foregroundStyle(LitheTheme.primaryText)
                     Text(media.url.path)
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(2)
                 }
@@ -177,7 +177,7 @@ struct MediaViewerView: View {
         HStack(spacing: 8) {
             LitheIcon(kind: LitheIcons.kind(for: media.url, isDirectory: false), size: 14)
             Text(media.displayName)
-                .font(.system(size: 12, weight: .medium))
+                .font(LitheTheme.uiFont(size: 12, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             Spacer()
@@ -193,7 +193,7 @@ struct MediaViewerView: View {
                     imageScale = 1
                 } label: {
                     Text("\(imageZoomPercentage)%")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11, weight: .medium))
                         .monospacedDigit()
                 }
                 .buttonStyle(MediaZoomPercentageButtonStyle())

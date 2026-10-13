@@ -1,0 +1,23 @@
+JetBrains Mono 2.304 — https://github.com/JetBrains/JetBrainsMono/tree/v2.304
+The JetBrainsMono-*.ttf files are unmodified static fonts from the 2.304 distribution.
+Copyright and redistribution terms: OFL.txt and AUTHORS.txt.
+
+These committed resources are copied into Contents/Resources/Fonts by package-app.sh
+and preview.sh during builds. CoreText registers them at process scope by reading the
+bundle; runtime code never modifies these files. They remain part of the signed app
+and the immutable baseline used for Sparkle differential updates.
+
+Inter 4.1 — https://github.com/rsms/inter/releases/tag/v4.1
+The Inter-*.otf files are unmodified static fonts from extras/otf in Inter-4.1.zip.
+Copyright and redistribution terms: Inter-LICENSE.txt.
+
+JetBrains Mono Nerd Font Mono — Nerd Fonts v3.5.1 (JetBrains Mono 2.304).
+https://github.com/ryanoasis/nerd-fonts/tree/v3.5.1/patched-fonts/JetBrainsMono/Ligatures
+Four unmodified upstream TTF faces; redistribution: JetBrainsMonoNerdFont-OFL.txt.
+These complete patched terminal faces include cell-aligned prompt symbols.
+They follow the same build-only packaging and read-only process registration as the UI fonts.
+SHA-256:
+bfcf9a917276ffc058867d87cbc8a5b2f1ab0f4b710e9170dc02763ccb80bd4b  JetBrainsMonoNerdFontMono-Bold.ttf
+9dba502e00e35209f6ed2a151c7376c051657b067cdebbc6e52d06cb9002cf31  JetBrainsMonoNerdFontMono-BoldItalic.ttf
+31efd6ead98746f5b0afa1ee6dba60267ad48db36428360bee327bec10621f97  JetBrainsMonoNerdFontMono-Italic.ttf
+f2a5ea6cfab397445ffab00c0370927b66d61e560a05db5db271b42006381c1a  JetBrainsMonoNerdFontMono-Regular.ttf

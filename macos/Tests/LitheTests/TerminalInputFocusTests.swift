@@ -1,5 +1,6 @@
 import AppKit
 import MetalKit
+import os
 import SwiftTerm
 import Testing
 @testable import Lithe
@@ -7,6 +8,80 @@ import Testing
 @Suite("Terminal input focus")
 @MainActor
 struct TerminalInputFocusTests {
+    @Test
+    func terminalPaletteUsesDefaultProfileAndKeepsMissingColorsAvailableForFallback() throws {
+        let text = NSColor(srgbRed: 0.8, green: 0.7, blue: 0.6, alpha: 0.5)
+        let red = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
+        let blue = NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
+        func archive(_ color: NSColor) throws -> Data {
+            try NSKeyedArchiver.archivedData(withRootObject: color, requiringSecureCoding: true)
+        }
+        let palette = MacTerminalPalette(preferences: [
+            "Default Window Settings": "Selected",
+            "Window Settings": [
+                "Selected": ["TextColor": try archive(text), "ANSIRedColor": try archive(red),
+                             "ANSIBrightBlueColor": try archive(blue), "ANSIGreenColor": "invalid"],
+                "Other": ["TextColor": try archive(red)]
+            ]
+        ])
+        #expect(abs(try #require(palette.textColor).redComponent - 0.8) < 0.001)
+        #expect(palette.textColor?.alphaComponent == 0.5)
+        #expect(palette.ansiColors.count == 16)
+        #expect(palette.ansiColors[1]?.red == 65535)
+        #expect(palette.ansiColors[12]?.blue == 65535)
+        #expect(palette.ansiColors[2] == nil)
+        #expect(palette.ansiColors[4] == nil)
+        let missing = MacTerminalPalette(preferences: nil)
+        #expect(missing.textColor == nil)
+        #expect(missing.ansiColors.allSatisfy { $0 == nil })
+    }
+
+    @Test
+    func terminalCanvasLeavesSharedPaneBackgroundVisible() {
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        terminal.applyThemeColors()
+        #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
+        #expect(terminal.layer?.isOpaque == false)
+        let renderer = MTKView(frame: terminal.bounds, device: nil)
+        terminal.addSubview(renderer)
+        terminal.hasFocus = false
+        #expect(renderer.layer?.isOpaque == false)
+    }
+
+    @Test
+    func terminalTabFocusNotificationTracksResponderAndWindow() throws {
+        let window = CursorFocusTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 250),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        let editor = TerminalOtherResponderView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
+        content.addSubview(terminal)
+        content.addSubview(editor)
+
+        let focusStates = OSAllocatedUnfairLock(initialState: [Bool]())
+        let observer = NotificationCenter.default.addObserver(
+            forName: LitheTerminalView.focusDidChange, object: terminal, queue: nil
+        ) { notification in
+            let focused = notification.userInfo?["focused"] as? Bool ?? false
+            focusStates.withLock { $0.append(focused) }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        #expect(window.makeFirstResponder(terminal))
+        #expect(focusStates.withLock { $0.last } == true)
+        #expect(window.makeFirstResponder(editor))
+        #expect(focusStates.withLock { $0.last } == false)
+        #expect(window.makeFirstResponder(terminal))
+        #expect(focusStates.withLock { $0.last } == true)
+        window.reportsKeyWindow = false
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(focusStates.withLock { $0.last } == false)
+    }
+
     @Test
     func coreGraphicsCaretIsRemovedOutsideKeyboardOwner() throws {
         let window = CursorFocusTestWindow(

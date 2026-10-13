@@ -413,6 +413,17 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         }
     }
 
+    public func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void) {
+        inspect(kind: "redefineClasses") { result in
+            completion(result.flatMap { value in
+                guard value.kind == "redefineClasses", let classes = value.changedClasses else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("redefineClasses"))
+                }
+                return .success(classes)
+            })
+        }
+    }
+
     public func requestStepInTargets(
         frameID: Int,
         completion: @escaping (Result<[DebugStepInTarget], Error>) -> Void

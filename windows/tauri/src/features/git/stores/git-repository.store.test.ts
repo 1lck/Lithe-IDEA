@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import * as repoApi from "../api/git-repo-api";
 
 const discoverWorkspaceRepositories = mock(async (): Promise<string[]> => ["C:/repo"]);
+const realDiscoverWorkspaceRepositories = repoApi.discoverWorkspaceRepositories;
 const { createGitRepositoryStore } = await import("./git-repository.store");
 let discoverySpy: ReturnType<typeof spyOn<typeof repoApi, "discoverWorkspaceRepositories">>;
 beforeEach(() => {
@@ -9,6 +10,17 @@ beforeEach(() => {
   discoverySpy = spyOn(repoApi, "discoverWorkspaceRepositories").mockImplementation(discoverWorkspaceRepositories);
 });
 afterEach(() => discoverySpy.mockRestore());
+
+test("unsupported Windows roots report discovery errors without breaking repository state", async () => {
+  discoverySpy.mockImplementation(realDiscoverWorkspaceRepositories);
+  const store = createGitRepositoryStore();
+  const unsupported = String.raw`\\?\C:\work\repo.`;
+  await store.getState().actions.syncWorkspaceRepositories(unsupported);
+  expect(store.getState().workspaceRootPath).toBe(unsupported);
+  expect(store.getState().error).toContain("Git does not support Windows paths");
+  expect(store.getState().isDiscovering).toBe(false);
+  expect(store.getState().availableRepoPaths).toEqual([]);
+});
 
 test("unchanged rescans do not notify repository-list consumers", async () => {
   const store = createGitRepositoryStore();

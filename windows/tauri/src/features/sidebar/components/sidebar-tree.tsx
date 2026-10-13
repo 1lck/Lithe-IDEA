@@ -158,6 +158,10 @@ export const SidebarTree = forwardRef<HTMLDivElement, SidebarTreeProps>(function
   );
 });
 
+// Distance from the content start to a leadingAction when a disclosure slot precedes it:
+// default rows use a 16px disclosure + 2px margin + 6px gap, IntelliJ rows 16px + 4px gap.
+const SIDEBAR_TREE_DISCLOSURE_OFFSET = { default: 24, idea: 20 } as const;
+
 type SidebarTreeRowProps = Omit<React.ComponentPropsWithoutRef<"button">, "children"> & {
   active?: boolean;
   depth?: number;
@@ -171,6 +175,17 @@ type SidebarTreeRowProps = Omit<React.ComponentPropsWithoutRef<"button">, "child
   leading?: React.ReactNode;
   trailing?: React.ReactNode;
   action?: React.ReactNode;
+  /**
+   * Interactive control drawn between the disclosure and the icon, such as IntelliJ's
+   * include-in-commit checkbox. It is laid over a reserved gap rather than nested in the
+   * row button, which must not contain another interactive element.
+   */
+  leadingAction?: React.ReactNode;
+  /**
+   * `"idea"` follows IntelliJ's changes tree: thin 16px chevrons and 4px gaps between the
+   * disclosure, checkbox, icon and text.
+   */
+  variant?: "default" | "idea";
   guides?: React.ReactNode;
   description?: React.ReactNode;
   onToggle?: (event: React.MouseEvent<HTMLSpanElement>) => void;
@@ -195,6 +210,8 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
       leading,
       trailing,
       action,
+      leadingAction,
+      variant = "default",
       guides,
       description,
       onToggle,
@@ -209,9 +226,15 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
     },
     ref,
   ) {
+    const contentIndent = baseIndent + depth * indentSize;
+    const hasDisclosureSlot = showDisclosure || reserveDisclosureSpace;
     return (
       <div
-        className={cn("file-tree-item flex w-full min-w-0 items-center", containerClassName)}
+        className={cn(
+          "file-tree-item flex w-full min-w-0 items-center",
+          leadingAction !== undefined && "relative",
+          containerClassName,
+        )}
         data-sidebar-tree-row=""
         data-active={active ? "true" : undefined}
         data-depth={depth}
@@ -228,6 +251,19 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
             nextDepth={nextDepth}
           />
         ) : null}
+        {/* Before the row button so keyboard focus and reading order match the visuals. */}
+        {leadingAction !== undefined ? (
+          <span
+            className="absolute top-1/2 z-3 flex -translate-y-1/2 items-center"
+            // Matches the reserved slot: the row button's 1px border and indent, then the
+            // 16px disclosure, its 2px margin and the 6px row gap when a disclosure is present.
+            style={{
+              left: `${1 + contentIndent + (hasDisclosureSlot ? SIDEBAR_TREE_DISCLOSURE_OFFSET[variant] : 0)}px`,
+            }}
+          >
+            {leadingAction}
+          </span>
+        ) : null}
         <button
           ref={ref}
           type="button"
@@ -241,9 +277,10 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
             "file-tree-row font-sans ui-text-chrome flex w-full min-w-0 flex-1 select-none items-center whitespace-nowrap rounded-(--lithe-chrome-radius) border border-transparent bg-transparent text-left text-foreground outline-none transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) hover:bg-accent focus-visible:border-primary/40 gap-1.5 px-1.5 py-1 leading-row",
             active && "bg-selected",
             action && "pr-0",
+            variant === "idea" && "gap-1",
             className,
           )}
-          style={{ paddingLeft: `${baseIndent + depth * indentSize}px`, ...style }}
+          style={{ paddingLeft: `${contentIndent}px`, ...style }}
           {...props}
         >
           {showDisclosure || reserveDisclosureSpace ? (
@@ -251,11 +288,28 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
               visible={showDisclosure}
               expanded={expanded}
               onClick={onToggle}
+              variant={variant}
             />
           ) : null}
-          {leading ? <SidebarTreeIcon icon={leading} /> : null}
+          {leadingAction !== undefined ? (
+            <span aria-hidden="true" className="size-4 shrink-0" data-sidebar-tree-leading-slot="" />
+          ) : null}
+          {leading ? (
+            <SidebarTreeIcon
+              icon={leading}
+              // A flex box keeps inline SVG icons off the text baseline so they centre
+              // on the row like IntelliJ's 16px tree icons.
+              className={variant === "idea" ? "flex size-4 items-center justify-center" : undefined}
+            />
+          ) : null}
           {label !== undefined ? (
-            <span className="relative z-1 flex min-w-0 flex-1 items-baseline gap-1.5 overflow-clip">
+            <span
+              className={cn(
+                "relative z-1 flex min-w-0 flex-1 gap-1.5 overflow-clip",
+                variant === "idea" ? "items-center" : "items-baseline",
+              )}
+              data-sidebar-tree-label=""
+            >
               <span className="min-w-0 truncate">{label}</span>
               {description ? (
                 <span className="min-w-0 flex-1 truncate text-subtle-foreground/80">
@@ -281,6 +335,7 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
 );
 
 interface SidebarTreeDisclosureProps {
+  variant?: "default" | "idea";
   expanded?: boolean;
   visible?: boolean;
   onClick?: (event: React.MouseEvent<HTMLSpanElement>) => void;
@@ -288,6 +343,7 @@ interface SidebarTreeDisclosureProps {
 }
 
 export function SidebarTreeDisclosure({
+  variant = "default",
   expanded = false,
   visible = true,
   onClick,
@@ -296,10 +352,15 @@ export function SidebarTreeDisclosure({
   return (
     <span
       data-sidebar-tree-disclosure=""
+      data-variant={variant}
       aria-hidden="true"
       className={cn(
-        "mr-0.5 flex size-4 shrink-0 items-center justify-center rounded text-subtle-foreground transition-colors",
-        visible ? "hover:text-foreground" : "pointer-events-none text-transparent",
+        "flex size-4 shrink-0 items-center justify-center rounded text-subtle-foreground transition-colors",
+        variant === "default" && "mr-0.5",
+        variant === "idea" && "text-tree-chevron",
+        !visible
+          ? "pointer-events-none text-transparent"
+          : variant === "default" && "hover:text-foreground",
         className,
       )}
       onClick={(event) => {
@@ -309,7 +370,17 @@ export function SidebarTreeDisclosure({
         onClick(event);
       }}
     >
-      {visible ? (
+      {visible && variant === "idea" ? (
+        // IntelliJ expui/general/chevronDown.svg and chevronRight.svg (1px round stroke).
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="size-4">
+          <path
+            d={expanded ? "M11.5 6.25L8 9.75L4.5 6.25" : "M6 11.5L9.5 8L6 4.5"}
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : visible ? (
         expanded ? (
           <ChevronDown className="size-3" weight="bold" />
         ) : (

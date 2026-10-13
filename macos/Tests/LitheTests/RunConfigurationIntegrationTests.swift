@@ -1648,6 +1648,41 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func absoluteExecutableUsesRuntimeLocatorAndProcessEnvironment() throws {
+        // This executable is supplied by the adapter, not the host filesystem.
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let resolver = RunExecutableResolver(runtimeService: runtime)
+        let plan = SharedLaunchPlan(
+            executable: .path("/external/tomcat/bin/catalina.sh"),
+            arguments: ["run"],
+            workingDirectory: ".",
+            environment: ["FROM_PLAN": "yes"]
+        )
+        let resolved = try resolver.resolve(
+            plan,
+            projectURL: URL(fileURLWithPath: "/tmp/lithe-path-test"),
+            options: RunOptions(environment: ["APP_ENV": "test"])
+        )
+
+        #expect(resolved.executableURL.path == "/external/tomcat/bin/catalina.sh")
+        #expect(resolved.environment["PATH"] == "/usr/bin")
+        #expect(resolved.environment["FROM_PLAN"] == "yes")
+        #expect(resolved.environment["APP_ENV"] == "test")
+        #expect(resolved.environment["JAVA_HOME"] == nil)
+
+        let unavailable = RunExecutableResolver(runtimeService: ProjectRuntimeService(
+            runtimeLocator: MissingJavaRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        ))
+        #expect(throws: RunExecutableResolutionError.self) {
+            try unavailable.resolve(plan, projectURL: URL(fileURLWithPath: "/tmp/lithe-path-test"), options: RunOptions())
+        }
+    }
+
+    @Test
     func registeredGoToolchainResolvesWithoutMavenFallback() throws {
         let runtime = ProjectRuntimeService(
             runtimeLocator: RunTestRuntimeLocator(),

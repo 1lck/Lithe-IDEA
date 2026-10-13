@@ -1,0 +1,30 @@
+{
+  "id": "ide-mcp-connection",
+  "area": "AI",
+  "group": "IDE MCP",
+  "capability": "从设置侧栏独立的 MCP 配置页按项目开启连接，分别授权配置与执行，复制 stdio 客户端配置；关闭项目撤销访问",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+      "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+      "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+      "rust/lithe-ide-host/src/lib.rs",
+      "macos/Sources/Lithe/Views/App/SettingsView.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/host-api/ide-capabilities.ts",
+      "windows/tauri/src/features/host-api/mcp-settings.tsx",
+      "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+      "rust/lithe-ide-host/src/lib.rs",
+      "windows/tauri/src/features/settings/components/mcp-configuration-settings.tsx"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "检查设置侧栏 MCP 配置入口与搜索跳转；未打开项目时显示提示，切换项目后展示对应授权。双端打包启动后开启连接，配置真实 Agent，验证工具发现、默认拒绝写入、启用权限、禁用、项目关闭和多窗口隔离。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+}

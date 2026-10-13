@@ -38,7 +38,7 @@ report. One suite deadline covers compilation, enumeration, every test process,
 and the clean cache retry; a timeout writes the completed records before the
 runner exits. This isolation makes the exact hanging test visible.
 
-SharedRust explicitly runs both `lithe-git-host` and `lithe-core`, keeping the
+SharedRust explicitly runs `lithe-agent-host`, `lithe-git-host`, and `lithe-core`, keeping the
 native Git process/AskPass tests in `git-host-rust.json` and Core tests in
 `shared-rust.json`. Testing a Cargo package does not run its dependencies' own
 tests. macOS's `verify-rust-core.sh` runs the same native adapter timing lane.
@@ -52,8 +52,21 @@ Git subprocesses, sometimes rebuilding several repositories in one case. The
 SharedRust lane assigns the `tests::git_history_rewrite::` module and the older
 `tests::git::git_write_squashes_`, `git_write_deletes_a_local_commit_`, and
 `git_write_edits_a_local_commit_message_` scenarios a 30-second process budget.
-Core rebase requests use a nested 20-second deadline. Other cases retain the
-normal 15-second budget. The Rust runner's repeatable
+The `tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset`
+case also gets 30 seconds because it writes and inspects a real file larger
+than the 32 MiB patch limit; Windows CI terminated it at 16.1 seconds under
+the default 15-second limit. Core rebase requests use a nested 20-second
+deadline. The workspace commit submodule publication test also gets 30 seconds
+because it creates two local remotes and runs multiple real Git pushes. Other
+multi-repository coverage includes
+`tests::git::git_write_updates_a_noncurrent_branch_without_switching_head`,
+which also gets 30 seconds in both SharedRust and real-JDT lanes: it builds a
+bare remote and two working repositories, pushes and fetches commits, then
+checks branch updates with an attached and detached HEAD. A Windows real-JDT
+run reached the 15-second process deadline during this case, while the same
+revision passed it in 2.4 seconds in SharedRust. This scoped allowance covers
+native process and filesystem variability without changing assertions; other
+cases retain the normal 15-second budget. The Rust runner's repeatable
 `--test-budget prefix=milliseconds` option uses the most specific matching
 prefix, records each case's effective budget in JSON, uses that budget for
 HTML/JUnit classification, and remains capped by the shared suite deadline.

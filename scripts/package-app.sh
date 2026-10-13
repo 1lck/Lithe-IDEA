@@ -86,6 +86,9 @@ if [[ -n "$database_mcp" ]]; then
     mkdir -p "$APP_DIR/Contents/Helpers"
     cp "$database_mcp" "$APP_DIR/Contents/Helpers/lithe-db-mcp"
 fi
+ide_mcp=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/build-ide-mcp.sh")
+mkdir -p "$APP_DIR/Contents/Helpers"
+cp "$ide_mcp" "$APP_DIR/Contents/Helpers/lithe-mcp"
 if [[ "$ARCH" == "universal" ]]; then
     arm64_binary="$ROOT_DIR/.build/$ARM64_TRIPLE/release/Lithe"
     x86_64_binary="$ROOT_DIR/.build/$X86_64_TRIPLE/release/Lithe"
@@ -129,10 +132,10 @@ fi
 OFFICIAL_PLUGIN_DESTINATION="$APP_DIR/Contents/Resources/OfficialPlugins"
 mkdir -p "$OFFICIAL_PLUGIN_DESTINATION"
 if [[ "$ARCH" == "universal" ]]; then
-    arm64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh \
+    arm64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
         --configuration release \
         --triple "$ARM64_TRIPLE")
-    x86_64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh \
+    x86_64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
         --configuration release \
         --triple "$X86_64_TRIPLE")
     for arm64_plugin in "$arm64_plugin_root"/*(/N); do
@@ -153,7 +156,7 @@ if [[ "$ARCH" == "universal" ]]; then
             "$OFFICIAL_PLUGIN_DESTINATION/$plugin_id/$bundle_path"
     done
 else
-    plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh \
+    plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
         --configuration release \
         --triple "$ARCH-apple-macosx")
     for plugin_package in "$plugin_root"/*(/N); do

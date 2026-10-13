@@ -1,6 +1,25 @@
 import Foundation
 import LitheModuleAPI
 
+/// What a running Java session was asked to do with a Maven configuration.
+///
+/// Every step runs asynchronously inside JDT LS; resolution problems arrive
+/// later as `pom.xml` diagnostics.
+package struct LanguageServerMavenConfigurationUpdate: Decodable, Equatable, Sendable {
+    /// New settings documents were sent, so JDT LS re-imports every Maven project.
+    package let settingsChanged: Bool
+    /// Settings were unchanged, so a forced project update was requested.
+    package let projectsReloaded: Bool
+    /// Changed profiles are being applied.
+    package let profilesUpdating: Bool
+
+    package init(settingsChanged: Bool, projectsReloaded: Bool, profilesUpdating: Bool) {
+        self.settingsChanged = settingsChanged
+        self.projectsReloaded = projectsReloaded
+        self.profilesUpdating = profilesUpdating
+    }
+}
+
 package struct LanguageServerRuntimeFailure: Error, Equatable, Sendable {
     package let code: String
     package let message: String
@@ -343,6 +362,13 @@ package protocol LanguageServerRuntimeCore: Sendable {
     func stopLanguageServer(sessionID: String)
     /// Retries a failed Maven profile task without restarting the server.
     func retryMavenProfiles(sessionID: String) -> Result<Void, LanguageServerRuntimeFailure>
+    /// Sends a changed Maven context to a running Java session, or with
+    /// `reloadProjects` forces JDT LS to re-resolve its Maven projects.
+    func updateMavenConfiguration(
+        sessionID: String,
+        context: MavenLaunchContext,
+        reloadProjects: Bool
+    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure>
     func syncLanguageServerDocument(
         sessionID: String,
         fileURL: URL,
@@ -385,6 +411,19 @@ package protocol LanguageServerRuntimeCore: Sendable {
 
 package extension LanguageServerRuntimeCore {
     func retryMavenProfiles(sessionID _: String) -> Result<Void, LanguageServerRuntimeFailure> { .success(()) }
+
+    /// Runtimes without in-place Maven updates report that they cannot take
+    /// one, so callers fall back to restarting the session.
+    func updateMavenConfiguration(
+        sessionID _: String,
+        context _: MavenLaunchContext,
+        reloadProjects _: Bool
+    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "unsupported",
+            message: "This language runtime cannot update Maven settings in place."
+        ))
+    }
 
     func startLanguageServer(
         providerID: String,

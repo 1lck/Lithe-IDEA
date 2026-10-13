@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+"$ROOT_DIR/scripts/verify-runtime-bundle-immutability.sh"
+
 SWIFT_ARGS=(
     test --disable-sandbox
     -Xswiftc -Xfrontend
@@ -12,18 +14,20 @@ SWIFT_ARGS=(
     -Xcc "$ROOT_DIR/scripts/MacOS13SDKCompatibility.h"
 )
 
-# Real process-backed integration tests need the same Rust Core static library
-# that is force-loaded into the application and the bridge verification binary.
-# Keep it opt-in so the normal unit-test build remains lightweight and does not
-# change its existing linkage behavior.
-if [[ "${LITHE_RUN_JAVA_DEBUG_INTEGRATION:-0}" == "1" \
-   || "${LITHE_RUN_JAVA_TEST_DEBUG_INTEGRATION:-0}" == "1" ]]; then
-    case "$(uname -m)" in
-        arm64) RUST_TARGET="aarch64-apple-darwin" ;;
-        x86_64) RUST_TARGET="x86_64-apple-darwin" ;;
-        *) print -u2 -- "Unsupported host architecture for Rust Core integration tests: $(uname -m)"; exit 1 ;;
-    esac
-    RUST_LIBRARY="$(scripts/build-rust-core.sh --debug --target "$RUST_TARGET")"
+# Text classification is a production Core dependency, including in the file
+# policy unit tests. Link the same implementation instead of testing a Swift copy.
+case "$(uname -m)" in
+    arm64) RUST_TARGET="aarch64-apple-darwin" ;;
+    x86_64) RUST_TARGET="x86_64-apple-darwin" ;;
+    *) print -u2 -- "Unsupported host architecture: $(uname -m)"; exit 1 ;;
+esac
+RUST_LIBRARY="$(scripts/build-rust-core.sh --debug --target "$RUST_TARGET")"
+# Integration callers may already pass this exact archive explicitly.
+core_link_supplied=0
+for argument in "$@"; do
+    if [[ "$argument" == "$RUST_LIBRARY" ]]; then core_link_supplied=1; fi
+done
+if (( ! core_link_supplied )); then
     SWIFT_ARGS+=(-Xlinker -force_load -Xlinker "$RUST_LIBRARY")
 fi
 

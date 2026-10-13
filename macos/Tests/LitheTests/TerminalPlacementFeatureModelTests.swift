@@ -72,37 +72,37 @@ struct TerminalPlacementFeatureModelTests {
     }
 
     @Test
-    func cancelingRunningTerminalCloseKeepsTheSessionAlive() {
+    func closingRunningTerminalImmediatelyStopsAndRemovesIt() {
         let context = makeTerminalCloseContext()
+        defer { context.model.terminalFeature?.stopAllSessions() }
 
         #expect(context.model.requestCloseActiveWorkbenchItem())
-        #expect(context.model.pendingTerminalCloseSessionID == context.session.id)
-        #expect(context.model.terminalSessions.contains { $0.id == context.session.id })
-        #expect(context.transport.stopCount == 0)
-
-        context.model.cancelTerminalClose()
-
-        #expect(context.model.pendingTerminalCloseSessionID == nil)
-        #expect(context.model.terminalSessions.contains { $0.id == context.session.id })
-        #expect(context.session.isRunning)
-        #expect(context.transport.stopCount == 0)
-    }
-
-    @Test
-    func confirmingRunningTerminalCloseStopsAndRemovesTheSession() {
-        let context = makeTerminalCloseContext()
-
-        #expect(context.model.requestCloseActiveWorkbenchItem())
-        #expect(context.model.pendingTerminalCloseSessionID == context.session.id)
-        #expect(context.transport.stopCount == 0)
-
-        context.model.confirmTerminalClose()
-
-        #expect(context.model.pendingTerminalCloseSessionID == nil)
         #expect(!context.model.terminalSessions.contains { $0.id == context.session.id })
         #expect(context.model.activeEditorTerminalSession == nil)
         #expect(!context.session.isRunning)
         #expect(context.transport.stopCount == 1)
+        context.model.requestCloseTerminalSession(context.session)
+        #expect(context.transport.stopCount == 1)
+    }
+
+    @Test
+    func closingLastToolTerminalHidesPanelAndPreservesEditorSession() throws {
+        let context = makeTerminalCloseContext()
+        let feature = try #require(context.model.terminalFeature)
+        defer { feature.stopAllSessions() }
+        let toolSession = feature.createSession(
+            in: URL(fileURLWithPath: "/tmp/lithe-terminal-close-tests"), shellPath: "/bin/zsh"
+        )
+        context.model.terminalPlacementFeature.registerSession(toolSession.id)
+        context.model.workbenchFeature.setVisibility(.terminal, isVisible: true)
+
+        context.model.requestCloseTerminalSession(toolSession)
+
+        #expect(context.model.toolTerminalSessions.isEmpty)
+        #expect(!context.model.workbenchFeature.isVisible(.terminal))
+        #expect(context.model.terminalSessions.contains { $0.id == context.session.id })
+        #expect(context.session.isRunning)
+        #expect(!toolSession.isRunning)
     }
 
     private func makeTerminalCloseContext() -> (
@@ -119,7 +119,11 @@ struct TerminalPlacementFeatureModelTests {
         ).services
         let model = AppModel(settings: settings, services: services)
         let transport = PlacementTestTerminalTransport()
-        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        var isFirstTransport = true
+        let feature = TerminalFeatureModel(terminalFactory: {
+            defer { isFirstTransport = false }
+            return isFirstTransport ? transport : PlacementTestTerminalTransport()
+        })
         model.cacheModuleCapability(
             TerminalModuleCapability(feature: feature),
             id: .terminalWorkspace,

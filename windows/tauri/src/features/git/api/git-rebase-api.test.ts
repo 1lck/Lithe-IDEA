@@ -11,7 +11,8 @@ const invoke = mock(
       ? "C:/repo"
       : { command: { exitCode: 0, warnings: [] }, session: fixture.sessionResponse },
 );
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 const { controlGitRebase, startGitRebase } = await import("./git-rebase-api");
 beforeEach(() => {
   invoke.mockClear();

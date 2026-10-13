@@ -1,0 +1,30 @@
+{
+  "id": "git-multi-repository-references",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "多仓库引用面板：分组、配色与引用操作",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Git",
+      "macos/Sources/LitheGitModule/Application/GitFeatureModel.swift",
+      "macos/Tests/LitheGitModuleTests/GitModuleTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/git",
+      "windows/tauri/src/features/git/components/log/git-reference-tree.tsx",
+      "windows/tauri/src/features/git/components/git-branch-manager.tsx",
+      ".agents/notes/implemented/feature/2026-09-24-windows-git-log-multi-repository-groups.md",
+      "windows/tauri/src/features/git/hooks/use-git-log-tag-deletion.ts",
+      "windows/tauri/src/features/git/hooks/use-git-log-tag-deletion.test.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "verified"
+  },
+  "owner": "Git",
+  "verification": "在多仓库工作区打开 Git Log：确认按仓库分组、仓库配色、非活动仓库分组只读，点其它仓库的引用会切换活动仓库且只加载一次，Pull 弹窗可选择远程分支与策略。 Windows 无已保存折叠设置时，单仓库与多仓库的 Tags 默认折叠、Local / Remote 默认展开；手动展开 Tags 后重新打开面板仍保留选择，已有折叠设置继续生效。 Windows 明暗主题中普通本地、远程分支均复用顶部分支按钮的空心 VcsIcon，当前分支勾选、收藏星标、标签与文件夹提示保持可辨认。 macOS 在两个分支名不同的仓库间切换时不得查询旧分支；目标历史读取失败也不能保留旧仓库的提交、分页或文件详情。 Windows Git Log 本地和远程分支右键菜单的拷贝分支名称在删除之前，删除是最后一个操作并单独分组；当前分支无删除入口，执行 Git 写操作时删除仍禁用。 Windows Git Log Tags 标签节点右键菜单最后一组提供 Delete，点击后直接删除活动仓库本地标签，不弹二次确认；失败保留引用和选择，成功后清除被删标签的历史筛选并刷新。非活动仓库及写操作期间禁用；旧工作区/仓库的动作回调不得发起删除，迟到结果不得刷新新仓库或释放新请求状态。 Windows Tags 的 Delete 与分支和提交节点删除复用相同 TrashIcon，明暗主题图标与禁用状态一致。",
+  "notes": "2026-10-06：用户确认 PR #1083 涉及的 Windows 功能改动均已完成实机测试，未发现问题；实机验收依据为用户反馈。"
+}

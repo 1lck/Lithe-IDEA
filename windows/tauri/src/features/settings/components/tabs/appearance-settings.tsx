@@ -2,6 +2,7 @@ import { invoke } from "@/platform/tauri-core";
 import { FilePlusIcon, TrashIcon, UploadIcon } from "@/ui/icons";
 import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry";
 import { useRegisteredIconThemes } from "@/extensions/icon-themes/use-registered-icon-themes";
+import { builtinIconThemes } from "@/extensions/icon-themes/builtin-icon-themes";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useMemo, useState } from "react";
@@ -15,6 +16,11 @@ import {
   UI_FONT_SIZE_STEP,
 } from "@/features/settings/lib/ui-font-size";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
+import {
+  getProjectOpenPreference,
+  getProjectOpenPreferencePatch,
+  type ProjectOpenPreference,
+} from "@/features/settings/lib/project-open-preference";
 import type {
   TabCloseButtonVisibility,
   WindowChromeDensity,
@@ -46,7 +52,8 @@ export const AppearanceSettings = () => {
       compactMenuBar: state.settings.compactMenuBar,
       iconTheme: state.settings.iconTheme,
       nativeMenuBar: state.settings.nativeMenuBar,
-      openFoldersInNewWindow: state.settings.openFoldersInNewWindow,
+      askWhereToOpenProjects: state.settings.askWhereToOpenProjects,
+      projectOpenDefaultDestination: state.settings.projectOpenDefaultDestination,
       reduceMotion: state.settings.reduceMotion,
       showStatusBar: state.settings.showStatusBar,
       showTabIcons: state.settings.showTabIcons,
@@ -57,6 +64,7 @@ export const AppearanceSettings = () => {
       uiFontFamily: state.settings.uiFontFamily,
       uiFontSize: state.settings.uiFontSize,
       windowTransparency: state.settings.windowTransparency,
+      differentiateProjects: state.settings.differentiateProjects,
       windowChromeDensity: state.settings.windowChromeDensity,
     })),
   );
@@ -112,11 +120,12 @@ export const AppearanceSettings = () => {
   );
 
   const iconThemeOptions = useMemo(
-    () =>
-      registeredIconThemes.map((theme) => ({
-        value: theme.id,
-        label: theme.name,
-      })),
+    () => [
+      ...builtinIconThemes.map((theme) => ({ value: theme.id, label: theme.name })),
+      ...registeredIconThemes
+        .filter((theme) => !builtinIconThemes.some((builtin) => builtin.id === theme.id))
+        .map((theme) => ({ value: theme.id, label: theme.name })),
+    ],
     [registeredIconThemes],
   );
 
@@ -289,7 +298,7 @@ export const AppearanceSettings = () => {
           label={t("settings.appearance.customThemes")}
           description={
             <>
-              {t("settings.appearance.customThemesDescription")} {" "}
+              {t("settings.appearance.customThemesDescription")}{" "}
               <a
                 href={themeDocsUrl}
                 target="_blank"
@@ -487,7 +496,9 @@ export const AppearanceSettings = () => {
             className={SETTINGS_CONTROL_WIDTHS.number}
             size="sm"
             disabled={!settings.activityRailExpanded}
-            aria-label={t("settings.appearance.activityBarWidthAria", { size: settings.activityRailWidth })}
+            aria-label={t("settings.appearance.activityBarWidthAria", {
+              size: settings.activityRailWidth,
+            })}
           />
         </SettingRow>
 
@@ -559,17 +570,53 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label={t("settings.appearance.openProjectsNewWindow")}
-          description={t("settings.appearance.openProjectsNewWindowDescription")}
+          label={t("settings.appearance.differentiateProjects")}
+          description={t("settings.appearance.differentiateProjectsDescription")}
           onReset={() =>
-            updateSetting("openFoldersInNewWindow", getDefaultSetting("openFoldersInNewWindow"))
+            updateSetting("differentiateProjects", getDefaultSetting("differentiateProjects"))
           }
-          canReset={settings.openFoldersInNewWindow !== getDefaultSetting("openFoldersInNewWindow")}
+          canReset={settings.differentiateProjects !== getDefaultSetting("differentiateProjects")}
         >
           <Switch
-            checked={settings.openFoldersInNewWindow}
-            onChange={(checked) => updateSetting("openFoldersInNewWindow", checked)}
+            checked={settings.differentiateProjects}
+            onChange={(checked) => updateSetting("differentiateProjects", checked)}
             size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={t("settings.appearance.openProjectsDestination")}
+          description={t("settings.appearance.openProjectsDestinationDescription")}
+          onReset={() => {
+            void updateSetting(
+              "projectOpenDefaultDestination",
+              getDefaultSetting("projectOpenDefaultDestination"),
+            );
+            void updateSetting("askWhereToOpenProjects", true);
+          }}
+          canReset={getProjectOpenPreference(settings) !== "ask"}
+        >
+          <Select
+            value={getProjectOpenPreference(settings)}
+            options={[
+              { value: "ask", label: t("settings.appearance.openAskEveryTime") },
+              { value: "this-window", label: t("settings.appearance.openThisWindow") },
+              { value: "new-window", label: t("settings.appearance.openNewWindow") },
+              { value: "attach", label: t("settings.appearance.openAttach") },
+            ]}
+            onChange={(value) => {
+              const patch = getProjectOpenPreferencePatch(value as ProjectOpenPreference);
+              if (patch.projectOpenDefaultDestination !== undefined) {
+                void updateSetting(
+                  "projectOpenDefaultDestination",
+                  patch.projectOpenDefaultDestination,
+                );
+              }
+              void updateSetting("askWhereToOpenProjects", patch.askWhereToOpenProjects ?? true);
+            }}
+            className={SETTINGS_CONTROL_WIDTHS.wide}
+            size="sm"
+            variant="default"
           />
         </SettingRow>
       </Section>

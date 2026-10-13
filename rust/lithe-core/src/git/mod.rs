@@ -2,6 +2,10 @@
 
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
+mod commit_state;
+pub(crate) mod workspace_commit;
+pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
+
 pub(crate) mod configuration;
 pub(crate) mod console;
 pub(crate) mod execution_events;
@@ -68,22 +72,34 @@ use std::time::Duration;
 
 const DEFAULT_PUSH_PREVIEW_LIMIT: usize = 500;
 const INTERNAL_REF_PREFIX: &str = "refs/lithe/";
+/// Commit date argument for every `parse_commit` producer. The trailing `%z`
+/// carries the author's UTC offset, which `parse_commit` splits off so the
+/// displayed `date` keeps its `%Y/%m/%d %H:%M` shape.
+const GIT_COMMIT_DATE_ARGUMENT: &str = "--date=format:%Y/%m/%d %H:%M %z";
 const DEFAULT_REPOSITORY_SCAN_MAX_DIRECTORIES: usize = usize::MAX;
 const DEFAULT_REPOSITORY_SCAN_MAX_DEPTH: usize = usize::MAX;
+const FULL_FILE_CONTEXT_LINES: usize = 1_073_741_823;
 static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static AUTO_STASH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-const REPOSITORY_SCAN_SKIP_DIRS: &[&str] = &[".git"];
+fn append_full_file_context_arguments(arguments: &mut Vec<String>, context_lines: usize) {
+    if context_lines >= FULL_FILE_CONTEXT_LINES {
+        // Git xdiff combines nearby hunks using this value. Pin it to zero for
+        // whole-file reviews so user configuration cannot reintroduce the
+        // signed 32-bit overflow present in older Git for Windows releases.
+        arguments.push("--inter-hunk-context=0".into());
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Request to discover Git repositories belonging to one opened workspace.
 pub struct WorkspaceRepositoriesRequest {
     pub root: String,
-    /// Optional traversal budget; defaults to all directories below the workspace.
+    /// Optional traversal budget; defaults to all eligible directories below the workspace.
     #[serde(default = "default_repository_scan_max_directories")]
     pub max_directories: usize,
-    /// Optional traversal depth; defaults to the complete workspace tree.
+    /// Optional traversal depth; defaults to the complete eligible workspace tree.
     #[serde(default = "default_repository_scan_max_depth")]
     pub max_depth: usize,
 }
@@ -93,6 +109,13 @@ pub struct WorkspaceRepositoriesRequest {
 /// Request for a deterministic porcelain status snapshot.
 pub struct GitStatusRequest {
     pub root: String,
+    /// Staging-based UIs must retain additions deleted only from the worktree.
+    /// Omission preserves the Windows final-worktree projection.
+    #[serde(default)]
+    pub include_index_only_changes: bool,
+    /// Discovered native root bindings used to exclude independently owned untracked paths.
+    #[serde(default)]
+    pub repository_roots: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,6 +170,13 @@ pub struct GitCommandRequest {
     pub arguments: Vec<String>,
     #[serde(default)]
     pub input: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request to resolve the repository root containing a workspace path.
+pub struct GitRepositoryRootRequest {
+    pub root: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -411,7 +441,7 @@ pub struct GitPushTagExpectationRequest {
     pub object_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Typed mutation request translated into a controlled Git invocation.
 pub struct GitWriteRequest {
@@ -448,6 +478,11 @@ pub struct GitWriteRequest {
     /// Operation-specific strategy, such as reset mode or pull reconciliation.
     #[serde(default)]
     pub mode: Option<String>,
+    /// Complete local branch ref for a background update after Fetch. The guarded
+    /// path integrates its fetched upstream without a second network wait.
+    /// Omission preserves interactive Pull compatibility.
+    #[serde(default)]
+    pub expected_branch: Option<String>,
     #[serde(default)]
     pub include_untracked: bool,
     #[serde(default)]
@@ -461,6 +496,12 @@ pub struct GitWriteRequest {
     pub no_checkout: bool,
     #[serde(default)]
     pub amend: bool,
+    /// Reviewed HEAD/index required by a planned workspace commit.
+    #[serde(default)]
+    pub expected_commit_state: Option<GitCommitState>,
+    /// Exact child commits to record; requires expected_commit_state.
+    #[serde(default)]
+    pub gitlink_updates: Vec<GitCommitGitlink>,
     #[serde(default)]
     pub force: bool,
     /// Tag scope for push: `none`, `all`, or `reachable`.
@@ -469,6 +510,9 @@ pub struct GitWriteRequest {
     /// Optional reviewed preview snapshot that must still match before pushing.
     #[serde(default)]
     pub expected_push: Option<GitPushExpectationRequest>,
+    /// Verify submodule commits are published before a workspace branch push.
+    #[serde(default)]
+    pub check_submodules: bool,
     #[serde(default)]
     pub auto_stash: bool,
     /// Mandatory immutable preview for undo, reword, squash, and drop.
@@ -476,7 +520,7 @@ pub struct GitWriteRequest {
     pub expected_state: Option<GitHistoryRewriteExpectation>,
 }
 
-/// Isolated Git administration directory used to commit a reviewed snapshot.
+/// Owns an isolated Git administration directory for commits or read-only diffs.
 struct TemporaryGitCommitContext {
     directory: PathBuf,
     index_path: PathBuf,
@@ -490,21 +534,41 @@ impl TemporaryGitCommitContext {
             &["rev-parse", "--path-format=absolute", "--git-common-dir"],
             "Git common directory",
         )?;
+        Self::prepare_in(&common_directory, "lithe-commit", head)
+    }
+
+    fn prepare_snapshot(head: Option<&str>) -> Result<Self, CoreError> {
+        // Creating even an ignored child inside .git changes its parent directory
+        // on Windows. A read-only diff must not invalidate the Git watcher that
+        // requested it; keep its disposable index outside repository metadata.
+        Self::prepare_in(&std::env::temp_dir(), "lithe-git-snapshot", head)
+    }
+
+    fn prepare_in(parent: &Path, prefix: &str, head: Option<&str>) -> Result<Self, CoreError> {
         let (directory, sequence) = loop {
             let sequence = TEMPORARY_INDEX_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let candidate =
-                common_directory.join(format!("lithe-commit-{}-{sequence}", std::process::id()));
-            if !candidate.exists() {
-                break (candidate, sequence);
+            let candidate = parent.join(format!("{prefix}-{}-{sequence}", std::process::id()));
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(false);
+            // Public POSIX temp roots must not expose tracked paths/object IDs.
+            // Set permissions at atomic creation, before writing HEAD or index.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&candidate) {
+                Ok(()) => break (candidate, sequence),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(CoreError::new(
+                        ErrorCode::Unknown,
+                        "Could not create an isolated Git commit context",
+                    )
+                    .with_details(error.to_string()));
+                }
             }
         };
-        std::fs::create_dir(&directory).map_err(|error| {
-            CoreError::new(
-                ErrorCode::Unknown,
-                "Could not create an isolated Git commit context",
-            )
-            .with_details(error.to_string())
-        })?;
         let temporary_reference = head.is_none().then(|| {
             format!(
                 "refs/lithe/selected-commit-{}-{sequence}",
@@ -519,19 +583,21 @@ impl TemporaryGitCommitContext {
                     .expect("an unborn repository needs a temporary reference")
             )
         });
-        std::fs::write(directory.join("HEAD"), head_contents).map_err(|error| {
+        // Establish ownership before initializing HEAD so errors also remove
+        // the temporary directory through Drop.
+        let context = Self {
+            index_path: directory.join("index"),
+            directory,
+            temporary_reference,
+        };
+        std::fs::write(context.directory.join("HEAD"), head_contents).map_err(|error| {
             CoreError::new(
                 ErrorCode::Unknown,
                 "Could not initialize an isolated Git commit context",
             )
             .with_details(error.to_string())
         })?;
-        let index_path = directory.join("index");
-        Ok(Self {
-            directory,
-            index_path,
-            temporary_reference,
-        })
+        Ok(context)
     }
 
     fn environment(&self, root: &str, common_directory: &Path) -> Vec<(String, String)> {
@@ -789,10 +855,7 @@ pub fn workspace_repositories(
                 discovered_repositories.insert(canonical_directory.clone());
                 continue;
             }
-            if REPOSITORY_SCAN_SKIP_DIRS
-                .iter()
-                .any(|skipped| name.eq_ignore_ascii_case(skipped))
-            {
+            if !repository_scan_directory_is_visible(&name) {
                 continue;
             }
             let file_type = entry.file_type().map_err(repository_scan_error)?;
@@ -833,6 +896,20 @@ pub fn workspace_repositories(
     })
 }
 
+fn repository_scan_directory_is_visible(name: &str) -> bool {
+    // These intentional checkout containers are hidden in the file tree but
+    // remain discoverable in Git. Apply exclusions to their children as usual.
+    if name.eq_ignore_ascii_case(".worktree") || name.eq_ignore_ascii_case(".worktrees") {
+        return true;
+    }
+    // Filter descendants, never the explicitly opened root or its containing
+    // repository. Git ignore rules govern tracked files, not repository ownership.
+    !name.starts_with('.')
+        && !crate::project::BUILT_IN_HIDDEN_DIRECTORIES
+            .iter()
+            .any(|hidden| name.eq_ignore_ascii_case(hidden))
+}
+
 /// Executes an argument-based Git command after validating the workspace root.
 pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
     with_git_invocation_trace(|| {
@@ -850,6 +927,15 @@ fn readonly_command(request: GitCommandRequest) -> Result<GitCommandResponse, Co
     execute_git_readonly(&root, &request.arguments, request.input)
 }
 
+/// Resolves the containing repository root without participating in write coordination.
+pub fn discover_repository_root(
+    request: GitRepositoryRootRequest,
+) -> Result<Option<String>, CoreError> {
+    let root = validate_root(&request.root)?;
+    Ok(discover_containing_repository(Path::new(&root))?
+        .map(|path| path.to_string_lossy().replace('\\', "/")))
+}
+
 /// Executes one supported repository mutation without invoking a shell.
 pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     with_git_invocation_trace(|| write_with_trace(request))
@@ -860,6 +946,27 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Fetch options require a fetch operation",
+        ));
+    }
+    if request.check_submodules && request.operation != "push" {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Submodule publication checks require a push operation",
+        ));
+    }
+    if request.expected_branch.is_some() && request.operation != "pull" {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Branch preconditions require a pull operation",
+        ));
+    }
+    if request.operation != "commit"
+        && (!request.gitlink_updates.is_empty()
+            || (request.expected_commit_state.is_some() && request.operation != "push"))
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Commit state preconditions require a commit or push operation",
         ));
     }
     let root = validate_root(&request.root)?;
@@ -886,6 +993,28 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         "unstage" => {
             let paths = validate_paths(&request.paths)?;
             let pathspec_input = nul_pathspec_input(&paths);
+
+            // An unborn repository has no HEAD for `restore --staged` or
+            // `reset HEAD` to resolve. Its index can only contain newly added
+            // paths, so remove those entries from the index while preserving
+            // the working tree files.
+            let head = execute_git(
+                &root,
+                &["rev-parse".into(), "--verify".into(), "HEAD".into()],
+                None,
+            )?;
+            if head.exit_code != 0 && commit_state::is_unborn(&root)? {
+                arguments = vec![
+                    "rm".into(),
+                    "--cached".into(),
+                    "--force".into(),
+                    "--ignore-unmatch".into(),
+                    "--pathspec-from-file=-".into(),
+                    "--pathspec-file-nul".into(),
+                ];
+                return execute_git(&root, &arguments, Some(pathspec_input));
+            }
+
             let restore_arguments = vec![
                 "restore".into(),
                 "--staged".into(),
@@ -943,6 +1072,20 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         "stageAll" => arguments = vec!["add".into(), "--all".into()],
         "commit" => {
             let message = required_text(request.message.as_deref(), "commit message")?;
+            if request.expected_commit_state.is_some() && !request.paths.is_empty() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Planned commits use the reviewed index",
+                ));
+            }
+            if let Some(expected) = &request.expected_commit_state {
+                commit_state::prepare(&root, expected, &request.gitlink_updates)?;
+            } else if !request.gitlink_updates.is_empty() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Submodule updates require a reviewed commit state",
+                ));
+            }
             if !request.paths.is_empty() {
                 let paths = validate_paths(&request.paths)?;
                 return commit_selected_paths(&root, paths, message, request.amend);
@@ -958,25 +1101,6 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         }
         "exclude" => {
             return append_git_ignore_patterns(&root, &request.paths, GitIgnoreTarget::LocalExclude)
-        }
-        // Literal ignore-line mutations for recommended IDE patterns such as
-        // `.factorypath`. Unlike `exclude`, these keep the caller's text and do
-        // not root-anchor or escape pathspec characters.
-        "excludePatterns" => {
-            return mutate_literal_git_ignore_patterns(
-                &root,
-                &request.paths,
-                GitIgnoreTarget::LocalExclude,
-                true,
-            )
-        }
-        "unexcludePatterns" => {
-            return mutate_literal_git_ignore_patterns(
-                &root,
-                &request.paths,
-                GitIgnoreTarget::LocalExclude,
-                false,
-            )
         }
         "cherryPick" => {
             arguments = vec![
@@ -1119,6 +1243,83 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         // divergent history should be merged or replayed. Absent a choice we stay on
         // `--ff-only`, which refuses rather than inventing a merge commit.
         "pull" => {
+            if let Some(expected) = request.expected_branch.as_deref() {
+                if !expected.starts_with("refs/heads/") || expected == "refs/heads/" {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Expected branch must be a complete local reference",
+                    ));
+                }
+                // Repeat the frontend's post-Fetch check under the shared writer
+                // lease. A changed checkout must never update its replacement.
+                let current = execute_git(
+                    &root,
+                    &["symbolic-ref".into(), "--quiet".into(), "HEAD".into()],
+                    None,
+                )?;
+                if current.exit_code != 0 || current.output.trim() != expected {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "The selected branch changed; review and retry",
+                    ));
+                }
+                if request.auto_stash
+                    || request.reference.is_some()
+                    || request.git_reference.is_some()
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Guarded background updates use the fetched upstream without auto-stash",
+                    ));
+                }
+                // The host already fetched. Freeze the selected branch's upstream
+                // commit and integrate locally; `git pull` would fetch again and
+                // reopen a long window for an external client to switch HEAD.
+                let upstream = execute_git(
+                    &root,
+                    &[
+                        "rev-parse".into(),
+                        "--verify".into(),
+                        // Git's upstream selector takes a branch name, while the
+                        // checkout guards above/below compare complete refs.
+                        format!(
+                            "{}@{{upstream}}^{{commit}}",
+                            expected.strip_prefix("refs/heads/").unwrap()
+                        ),
+                    ],
+                    None,
+                )?;
+                if upstream.exit_code != 0 {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "The selected branch has no fetched upstream commit",
+                    ));
+                }
+                let revision = upstream.stdout.trim().to_owned();
+                arguments = match request.mode.as_deref() {
+                    None | Some("ffOnly") => vec!["merge".into(), "--ff-only".into(), revision],
+                    Some("merge") => vec!["merge".into(), "--no-edit".into(), revision],
+                    Some("rebase") => vec!["rebase".into(), revision],
+                    Some(other) => {
+                        return Err(CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            format!("Unknown pull strategy '{other}'"),
+                        ))
+                    }
+                };
+                let current = execute_git(
+                    &root,
+                    &["symbolic-ref".into(), "--quiet".into(), "HEAD".into()],
+                    None,
+                )?;
+                if current.exit_code != 0 || current.output.trim() != expected {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "The selected branch changed; review and retry",
+                    ));
+                }
+                return execute_git(&root, &arguments, None);
+            }
             arguments = match request.mode.as_deref() {
                 None | Some("ffOnly") => vec!["pull".into(), "--ff-only".into()],
                 Some("merge") => vec!["pull".into(), "--no-rebase".into(), "--no-edit".into()],
@@ -1181,6 +1382,14 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             ];
         }
         "push" => {
+            if let Some(expected) = &request.expected_commit_state {
+                if commit_state::inspect_root(&root)? != *expected {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Push state changed; review the commit plan again",
+                    ));
+                }
+            }
             let reference = optional_write_request_reference(&root, &request)?;
             return push(
                 &root,
@@ -1188,6 +1397,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 request.force,
                 request.push_tags.as_deref(),
                 request.expected_push.as_ref(),
+                request.check_submodules,
             );
         }
         "checkout" => return checkout(&root, request),
@@ -1436,6 +1646,7 @@ fn capture_git_process(
     environment: &[(String, String)],
     visible: bool,
 ) -> Result<GitProcessOutput, CoreError> {
+    validate_windows_git_path(Path::new(root)).map_err(git_path_error)?;
     crate::protocol::cancellation::check()?;
     let mut process = git_process();
     let version = lithe_git_host::configuration::version(process.get_program(), || {
@@ -1711,6 +1922,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         }
         arguments
     };
+    append_full_file_context_arguments(&mut arguments, request.context_lines);
     if request.ignore_all_whitespace {
         arguments.push("--ignore-all-space".to_string());
     }
@@ -1755,6 +1967,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
                 "--no-index".into(),
                 format!("--unified={}", request.context_lines),
             ];
+            append_full_file_context_arguments(&mut untracked_arguments, request.context_lines);
             if request.ignore_all_whitespace {
                 untracked_arguments.push("--ignore-all-space".into());
             }
@@ -1793,7 +2006,7 @@ fn worktree_snapshot_diff(
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
         "Git common directory",
     )?;
-    let temporary_context = TemporaryGitCommitContext::prepare(root, head.as_deref())?;
+    let temporary_context = TemporaryGitCommitContext::prepare_snapshot(head.as_deref())?;
     let environment = temporary_context.environment(root, &common_directory);
     let initialize_arguments = if let Some(head) = head.as_ref() {
         vec!["read-tree".to_string(), head.clone()]
@@ -1816,6 +2029,7 @@ fn worktree_snapshot_diff(
         "--binary".to_string(),
         format!("--unified={}", request.context_lines),
     ];
+    append_full_file_context_arguments(&mut arguments, request.context_lines);
     if request.ignore_all_whitespace {
         arguments.push("--ignore-all-space".to_string());
     }
@@ -1863,6 +2077,7 @@ fn worktree_snapshot_diff(
             "--no-index".into(),
             format!("--unified={}", request.context_lines),
         ];
+        append_full_file_context_arguments(&mut untracked_arguments, request.context_lines);
         if request.ignore_all_whitespace {
             untracked_arguments.push("--ignore-all-space".into());
         }
@@ -1958,7 +2173,7 @@ fn read_commit_log(
         "--decorate=short".to_string(),
         "-n".to_string(),
         (limit.saturating_add(1)).to_string(),
-        "--date=format:%Y/%m/%d %H:%M".to_string(),
+        GIT_COMMIT_DATE_ARGUMENT.to_string(),
         "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
     ]);
     let commit_output = readonly_command(GitCommandRequest {
@@ -1980,7 +2195,7 @@ fn read_commit_log(
     Ok((all_commits.into_iter().take(limit).collect(), has_more))
 }
 
-/// Resolves one commit and its parent metadata.
+/// Resolves one commit, its parent metadata, and the message body after the subject.
 pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.commit)?;
@@ -1989,8 +2204,13 @@ pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, Core
         arguments: vec![
             "show".to_string(),
             "-s".to_string(),
-            "--date=format:%Y/%m/%d %H:%M".to_string(),
-            "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
+            // `log.showSignature` would otherwise print verification output ahead of
+            // the machine-parsed format.
+            "--no-show-signature".to_string(),
+            GIT_COMMIT_DATE_ARGUMENT.to_string(),
+            // The body is free-form multi-line text that may contain the unit
+            // separator, so it follows a NUL that Git never emits in the header fields.
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D%x00%b".to_string(),
             request.commit,
         ],
         input: None,
@@ -2001,12 +2221,19 @@ pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, Core
                 .with_details(response.output),
         );
     }
-    let commit = response
-        .output
-        .lines()
-        .find_map(parse_commit)
-        .ok_or_else(|| CoreError::new(ErrorCode::ProcessFailed, "Git commit was not found"))?;
-    Ok(GitCommitLookupResponse { commit })
+    parse_commit_lookup(&response.stdout)
+        .ok_or_else(|| CoreError::new(ErrorCode::ProcessFailed, "Git commit was not found"))
+}
+
+/// Splits `git show` output produced by [`commit`] into header metadata and body.
+fn parse_commit_lookup(output: &str) -> Option<GitCommitLookupResponse> {
+    let (header, body) = output.split_once('\0')?;
+    let commit = parse_commit(header.trim_end_matches(['\r', '\n']))?;
+    Some(GitCommitLookupResponse {
+        commit,
+        // Git terminates `%b` with a line break; trailing blank lines carry no content.
+        body: body.trim_end().to_string(),
+    })
 }
 
 /// Lists workspace-relative files changed by one commit.
@@ -3050,34 +3277,119 @@ pub fn blame(request: GitBlameRequest) -> Result<GitBlameResponse, CoreError> {
     Ok(GitBlameResponse { lines })
 }
 
-/// Removes the Windows verbatim prefix that `Path::canonicalize` adds.
-///
-/// Canonical Windows paths come back as `\\?\C:\...` or `\\?\UNC\server\share`.
-/// Once a consumer normalizes separators, both forms turn into `//?/...`,
-/// which no longer resolves to the original location. Repository roots cross
-/// the platform boundary as identifiers and are reused as Git working
-/// directories, so they must stay in plain native form. Non-Windows paths are
-/// returned unchanged.
-pub(crate) fn simplified_canonical_path(path: PathBuf) -> PathBuf {
-    let simplified = {
-        let text = path.to_string_lossy();
-        if let Some(network_path) = text.strip_prefix(r"\\?\UNC\") {
-            Some(PathBuf::from(format!(r"\\{network_path}")))
-        } else {
-            text.strip_prefix(r"\\?\").map(PathBuf::from)
+/// Rejects Windows names that cannot round-trip through ordinary path identifiers.
+/// POSIX names keep their native meaning; Windows validates relative paths too.
+fn validate_windows_git_path(path: &Path) -> std::io::Result<()> {
+    let text = path.to_string_lossy().replace('\\', "/");
+    let windows_path = cfg!(windows)
+        || text.starts_with("//")
+        || (text.as_bytes().get(1) == Some(&b':') && text.as_bytes()[0].is_ascii_alphabetic());
+    if !windows_path {
+        return Ok(());
+    }
+    let verbatim = text.strip_prefix("//?/");
+    let ordinary = match verbatim {
+        Some(rest)
+            if rest
+                .get(..4)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("UNC/")) =>
+        {
+            format!("//{}", &rest[4..])
         }
+        Some(rest) => rest.to_string(),
+        None => text.clone(),
     };
-    simplified.unwrap_or(path)
+    let drive = ordinary.as_bytes().get(1..3) == Some(b":/")
+        && ordinary.as_bytes()[0].is_ascii_alphabetic();
+    let network = ordinary.starts_with("//");
+    // Server/share names identify the UNC route, not local file components.
+    let components: Vec<_> = ordinary
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect();
+    let skip = if network {
+        2
+    } else if drive {
+        1
+    } else {
+        0
+    };
+    let invalid_component = components.iter().skip(skip).any(|part| {
+        if matches!(*part, "." | "..") {
+            return verbatim.is_some();
+        }
+        let basename = part
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase();
+        let reserved = matches!(basename.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || basename
+                .strip_prefix("COM")
+                .or_else(|| basename.strip_prefix("LPT"))
+                .is_some_and(|number| {
+                    matches!(
+                        number,
+                        "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                    )
+                });
+        part.ends_with('.') || part.ends_with(' ') || reserved
+    });
+    if text.starts_with("//./")
+        || (verbatim.is_some() && !drive && !(network && components.len() >= 2))
+        || invalid_component
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Git does not support Windows paths requiring verbatim semantics (trailing dots/spaces, reserved names or device namespaces)",
+        ));
+    }
+    Ok(())
 }
 
-/// Canonicalizes `path` and strips the Windows verbatim prefix from the result.
+/// Removes a Windows verbatim prefix only for paths safe in ordinary native form.
+/// Canonical roots cross the UI boundary and return as Git working directories;
+/// unsupported names fail explicitly instead of silently accessing a sibling.
+pub(crate) fn simplified_canonical_path(path: PathBuf) -> std::io::Result<PathBuf> {
+    validate_windows_git_path(&path)?;
+    let text = path.to_string_lossy();
+    let normalized = text.replace('\\', "/");
+    if normalized
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("//?/UNC/"))
+    {
+        Ok(PathBuf::from(format!(r"\\{}", &text[8..])))
+    } else if normalized.starts_with("//?/") {
+        Ok(PathBuf::from(&text[4..]))
+    } else {
+        Ok(path)
+    }
+}
+
+/// Validates before filesystem I/O and again after canonicalization (symlinks).
 fn canonicalize_simplified(path: &Path) -> std::io::Result<PathBuf> {
-    path.canonicalize().map(simplified_canonical_path)
+    validate_windows_git_path(path)?;
+    path.canonicalize().and_then(simplified_canonical_path)
+}
+
+/// Missing worktrees may still be listed, but invalid path identities never fall back.
+fn canonicalize_or_original(path: &Path) -> std::io::Result<PathBuf> {
+    match canonicalize_simplified(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::InvalidInput => Ok(path.to_path_buf()),
+        result => result,
+    }
+}
+
+fn git_path_error(error: std::io::Error) -> CoreError {
+    if error.kind() == std::io::ErrorKind::InvalidInput {
+        CoreError::new(ErrorCode::InvalidRequest, error.to_string())
+    } else {
+        CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist")
+    }
 }
 
 fn validate_root(raw_root: &str) -> Result<String, CoreError> {
-    let root = canonicalize_simplified(Path::new(raw_root))
-        .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
+    let root = canonicalize_simplified(Path::new(raw_root)).map_err(git_path_error)?;
     if !root.is_dir() {
         return Err(CoreError::new(
             ErrorCode::WorkspaceNotFound,
@@ -3088,6 +3400,9 @@ fn validate_root(raw_root: &str) -> Result<String, CoreError> {
 }
 
 fn repository_scan_error(error: std::io::Error) -> CoreError {
+    if error.kind() == std::io::ErrorKind::InvalidInput {
+        return git_path_error(error);
+    }
     CoreError::new(
         ErrorCode::Unknown,
         "Could not complete workspace repository discovery",
@@ -3104,12 +3419,11 @@ fn discover_containing_repository(root: &Path) -> Result<Option<PathBuf>, CoreEr
     if output.exit_code != 0 {
         return Ok(None);
     }
-    let repository_root = output.stdout.trim();
+    let repository_root = output.stdout.trim_end_matches(['\r', '\n']);
     if repository_root.is_empty() {
         return Ok(None);
     }
-    let path = canonicalize_simplified(Path::new(repository_root))
-        .unwrap_or_else(|_| PathBuf::from(repository_root));
+    let path = canonicalize_or_original(Path::new(repository_root)).map_err(git_path_error)?;
     Ok(Some(path))
 }
 
@@ -3395,181 +3709,12 @@ fn append_git_ignore_patterns(
     Ok(successful_git_result())
 }
 
-/// Inserts or removes exact ignore lines while preserving unrelated rules.
-///
-/// Existing file lines are compared as stored bytes, including leading and
-/// trailing whitespace and non-UTF-8 content. Git ignore treats a leading
-/// space as part of the pattern, so ` .factorypath` is not the same rule as
-/// `.factorypath`. Request patterns are still trimmed and validated
-/// separately. Line terminators stay with their original lines and are not
-/// part of the match. Add appends without rewriting existing bytes; remove
-/// rebuilds from the original line bytes so unrelated invalid UTF-8 is kept.
-///
-/// Missing managed lines are a no-op on remove. Non-repository roots fail with
-/// a stable "Not a Git repository" message so hosts can skip Git UI side effects.
-fn mutate_literal_git_ignore_patterns(
-    root: &str,
-    patterns: &[String],
-    target: GitIgnoreTarget,
-    adding: bool,
-) -> Result<GitCommandResponse, CoreError> {
-    require_git_repository(root)?;
-    let patterns = literal_git_ignore_patterns(patterns)?;
-    let target_path = match target {
-        GitIgnoreTarget::Repository => repository_root(root)?.join(".gitignore"),
-        GitIgnoreTarget::LocalExclude => git_path(root, "info/exclude")?,
-    };
-    let existing = read_git_ignore_bytes(&target_path)?;
-    let lines = split_git_ignore_file_lines(&existing);
-    let managed: HashSet<&[u8]> = patterns.iter().map(|pattern| pattern.as_bytes()).collect();
-
-    if adding {
-        let present: HashSet<&[u8]> = lines.iter().map(|(body, _)| *body).collect();
-        let additions = patterns
-            .iter()
-            .map(String::as_bytes)
-            .filter(|pattern| !present.contains(*pattern))
-            .collect::<Vec<_>>();
-        if additions.is_empty() {
-            return Ok(successful_git_result());
-        }
-
-        let terminator = git_ignore_appended_line_terminator(&existing);
-        let mut appended = Vec::new();
-        if !existing.is_empty() && !existing.ends_with(b"\n") {
-            appended.extend_from_slice(terminator);
-        }
-        for pattern in additions {
-            appended.extend_from_slice(pattern);
-            appended.extend_from_slice(terminator);
-        }
-
-        if let Some(parent) = target_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| git_ignore_io_error("create", error))?;
-        }
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&target_path)
-            .map_err(|error| git_ignore_io_error("open", error))?;
-        file.write_all(&appended)
-            .map_err(|error| git_ignore_io_error("write", error))?;
-        return Ok(successful_git_result());
-    }
-
-    if lines.iter().all(|(body, _)| !managed.contains(body)) {
-        return Ok(successful_git_result());
-    }
-
-    let mut updated = Vec::with_capacity(existing.len());
-    for (body, terminator) in lines {
-        if managed.contains(body) {
-            continue;
-        }
-        updated.extend_from_slice(body);
-        updated.extend_from_slice(terminator);
-    }
-
-    if let Some(parent) = target_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| git_ignore_io_error("create", error))?;
-    }
-    std::fs::write(&target_path, updated).map_err(|error| git_ignore_io_error("write", error))?;
-    Ok(successful_git_result())
-}
-
-/// Splits an ignore file into line bodies and their original terminators.
-///
-/// Split on `\n` and treat a preceding `\r` as part of the terminator so CRLF
-/// files keep their stored endings. Line bodies stay raw bytes; they are never
-/// decoded as UTF-8.
-fn split_git_ignore_file_lines(bytes: &[u8]) -> Vec<(&[u8], &[u8])> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'\n' {
-            let terminator_start = if index > start && bytes[index - 1] == b'\r' {
-                index - 1
-            } else {
-                index
-            };
-            lines.push((
-                &bytes[start..terminator_start],
-                &bytes[terminator_start..=index],
-            ));
-            start = index + 1;
-        }
-        index += 1;
-    }
-    if start < bytes.len() {
-        lines.push((&bytes[start..], &[]));
-    }
-    lines
-}
-
-fn git_ignore_appended_line_terminator(bytes: &[u8]) -> &'static [u8] {
-    if bytes.windows(2).any(|window| window == b"\r\n") {
-        b"\r\n"
-    } else {
-        b"\n"
-    }
-}
-
-fn require_git_repository(root: &str) -> Result<(), CoreError> {
-    // Keep this probe outside the command invocation trace so a missing
-    // repository stays a standard invalid_request envelope for hosts.
-    let resolved = capture_git_with_options(
-        root,
-        &["rev-parse".into(), "--is-inside-work-tree".into()],
-        None,
-        true,
-    )?;
-    let stdout = String::from_utf8_lossy(&resolved.stdout);
-    if resolved.exit_code != 0 || stdout.trim() != "true" {
-        let details = {
-            let stderr = String::from_utf8_lossy(&resolved.stderr);
-            let combined = format!("{stdout}{stderr}");
-            combined.trim().to_string()
-        };
-        return Err(
-            CoreError::new(ErrorCode::InvalidRequest, "Not a Git repository").with_details(details),
-        );
-    }
-    Ok(())
-}
-
 fn read_git_ignore_bytes(path: &Path) -> Result<Vec<u8>, CoreError> {
     match std::fs::read(path) {
         Ok(content) => Ok(content),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(error) => Err(git_ignore_io_error("read", error)),
     }
-}
-
-fn literal_git_ignore_patterns(patterns: &[String]) -> Result<Vec<String>, CoreError> {
-    let mut normalized = Vec::with_capacity(patterns.len());
-    for pattern in patterns {
-        // Trim request input only. Existing exclude lines keep their stored
-        // whitespace because a leading space changes Git ignore semantics.
-        let trimmed = pattern.trim();
-        if trimmed.is_empty() || trimmed.contains(['\0', '\n', '\r']) {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Git ignore operation contains an invalid pattern",
-            ));
-        }
-        normalized.push(trimmed.to_string());
-    }
-    normalized.sort();
-    normalized.dedup();
-    if normalized.is_empty() {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Git ignore operation contains an invalid pattern",
-        ));
-    }
-    Ok(normalized)
 }
 
 fn git_ignore_patterns(paths: &[String]) -> Result<Vec<String>, CoreError> {
@@ -3640,13 +3785,14 @@ fn git_resolved_path(root: &str, arguments: &[&str], label: &str) -> Result<Path
         )
         .with_details(response.output));
     }
-    let path = response.output.trim();
+    let path = response.output.trim_end_matches(['\r', '\n']);
     if path.is_empty() {
         return Err(CoreError::new(
             ErrorCode::ProcessFailed,
             format!("Could not resolve {label}"),
         ));
     }
+    validate_windows_git_path(Path::new(path)).map_err(git_path_error)?;
     Ok(PathBuf::from(path))
 }
 
@@ -4949,6 +5095,7 @@ fn push(
     force: bool,
     push_tags: Option<&str>,
     expected_push: Option<&GitPushExpectationRequest>,
+    check_submodules: bool,
 ) -> Result<GitCommandResponse, CoreError> {
     let tag_scope = push_tags.unwrap_or("none");
     let tag_argument = match tag_scope {
@@ -4968,6 +5115,9 @@ fn push(
         validate_push_expectation(root, &target, tag_scope, expected_push)?;
     }
     let mut arguments = vec!["push".to_string()];
+    if check_submodules {
+        arguments.push("--recurse-submodules=check".into());
+    }
     if force {
         // Bind reviewed pushes to the observed remote OID so an unseen remote update is rejected.
         arguments.push(match expected_push {
@@ -5049,8 +5199,7 @@ fn list_worktrees(root: &str) -> Result<Vec<GitWorktreeResponse>, CoreError> {
                 .with_details(response.output),
         );
     }
-    let current_root =
-        canonicalize_simplified(&repository_root(root)?).unwrap_or_else(|_| PathBuf::from(root));
+    let current_root = canonicalize_or_original(&repository_root(root)?).map_err(git_path_error)?;
     let mut records = Vec::new();
     let mut fields = Vec::new();
     for field in response.stdout.split('\0') {
@@ -5135,8 +5284,7 @@ fn parse_worktree_record(
     let lock = value_after_marker("locked");
     let prunable = value_after_marker("prunable");
     let reported_path = PathBuf::from(path);
-    let normalized_path =
-        canonicalize_simplified(&reported_path).unwrap_or_else(|_| reported_path.clone());
+    let normalized_path = canonicalize_or_original(&reported_path).map_err(git_path_error)?;
     Ok(GitWorktreeResponse {
         path: normalized_path.to_string_lossy().to_string(),
         head,
@@ -5735,6 +5883,20 @@ fn checkout(root: &str, request: GitWriteRequest) -> Result<GitCommandResponse, 
         }
     }
     if request.auto_stash {
+        // Reject local-only commits before creating a stash. Ordinary remote
+        // checkout aligns the branch; checkoutAndRebase retains its own policy.
+        let is_remote = request.git_reference.as_ref().map_or(
+            request.reference_kind.as_deref() == Some("remote"),
+            |reference| reference.kind == "remote",
+        );
+        if is_remote {
+            let reference = checkout_request_reference(root, &request)?;
+            let (_, local_name) = mutations::remote_branch_components(root, &reference.full_name)?;
+            let local_ref = format!("refs/heads/{local_name}");
+            if resolve_ref_object(root, &local_ref)?.is_some() {
+                remote_checkout_revisions(root, &local_ref, &reference.full_name)?;
+            }
+        }
         return checkout_with_auto_stash(root, request);
     }
     switch_reference(root, &request)
@@ -5799,13 +5961,19 @@ pub(super) fn switch_reference(
     request: &GitWriteRequest,
 ) -> Result<GitCommandResponse, CoreError> {
     let reference = checkout_request_reference(root, request)?;
-    switch_validated_reference(root, &reference, request.force)
+    switch_validated_reference(
+        root,
+        &reference,
+        request.force,
+        request.operation == "checkout",
+    )
 }
 
 fn switch_validated_reference(
     root: &str,
     reference: &ValidatedGitReference,
     force: bool,
+    update_remote: bool,
 ) -> Result<GitCommandResponse, CoreError> {
     let mut base: Vec<String> = vec!["switch".into()];
     if force {
@@ -5849,7 +6017,7 @@ fn switch_validated_reference(
                         "for-each-ref".into(),
                         "--format=%(upstream)".into(),
                         "--count=1".into(),
-                        local_ref,
+                        local_ref.clone(),
                     ],
                     None,
                 )?;
@@ -5865,6 +6033,15 @@ fn switch_validated_reference(
                         ErrorCode::InvalidRequest,
                         "A same-named local branch tracks a different Git reference",
                     ));
+                }
+                if update_remote {
+                    return checkout_updated_remote_branch(
+                        root,
+                        &local_name,
+                        &local_ref,
+                        &reference.full_name,
+                        force,
+                    );
                 }
                 if current_branch(root)? == local_name {
                     return Err(CoreError::new(
@@ -5886,6 +6063,92 @@ fn switch_validated_reference(
             "Invalid Git reference kind",
         )),
     }
+}
+
+/// Pins the local and fetched remote commits and rejects any local-only history.
+fn remote_checkout_revisions(
+    root: &str,
+    local_ref: &str,
+    remote_ref: &str,
+) -> Result<(String, String), CoreError> {
+    let local_revision = resolve_commit_revision(root, local_ref)?;
+    let remote_revision = resolve_commit_revision(root, remote_ref)?;
+    let ancestor = execute_git_readonly(
+        root,
+        &[
+            "merge-base".into(),
+            "--is-ancestor".into(),
+            local_revision.clone(),
+            remote_revision.clone(),
+        ],
+        None,
+    )?;
+    match ancestor.exit_code {
+        0 => Ok((local_revision, remote_revision)),
+        1 => Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The local branch has commits not included in the selected remote branch. Reconcile those commits before checking out the remote branch.",
+        )),
+        _ => Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not compare the local and remote branch commits",
+        )
+        .with_details(ancestor.output)),
+    }
+}
+
+/// Switches to an existing tracking branch and fast-forwards to a pinned remote
+/// commit, including when that local branch is already current.
+fn checkout_updated_remote_branch(
+    root: &str,
+    local_name: &str,
+    local_ref: &str,
+    remote_ref: &str,
+    force: bool,
+) -> Result<GitCommandResponse, CoreError> {
+    let (local_revision, remote_revision) = remote_checkout_revisions(root, local_ref, remote_ref)?;
+    if !force {
+        // Check against the final remote tree before switching to the old local
+        // tree, so a blocked update cannot leave the user on another branch.
+        let preflight = checkout_preflight(GitCheckoutPreflightRequest {
+            root: root.to_string(),
+            reference: Some(remote_revision.clone()),
+            git_reference: None,
+        })?;
+        if !preflight.blocking_paths.is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Local changes would be overwritten by checking out the remote branch",
+            )
+            .with_details(preflight.blocking_paths.join("\n")));
+        }
+    }
+    if force || current_branch(root)? != local_name {
+        let mut arguments = vec!["switch".into()];
+        if force {
+            arguments.push("--discard-changes".into());
+        }
+        arguments.push(local_name.to_string());
+        let switched = execute_git(root, &arguments, None)?;
+        if switched.exit_code != 0 {
+            return Ok(switched);
+        }
+    }
+    // Post-checkout hooks and external clients may change HEAD. Verify the
+    // branch and its tip again; --ff-only also prevents losing local commits.
+    if current_branch(root)? != local_name
+        || resolve_commit_revision(root, "HEAD")? != local_revision
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The selected branch changed; review and retry",
+        ));
+    }
+    execute_git(
+        root,
+        &["merge".into(), "--ff-only".into(), remote_revision],
+        None,
+    )
 }
 
 fn parse_reference(line: &str) -> Option<GitReferenceResponse> {
@@ -5945,16 +6208,38 @@ fn parse_commit(line: &str) -> Option<GitCommitResponse> {
     if columns.len() < 8 {
         return None;
     }
+    let (date, date_utc_offset_minutes) = split_commit_date_offset(columns[5]);
     Some(GitCommitResponse {
         hash: columns[0].to_string(),
         short_hash: columns[1].to_string(),
         parent_hashes: columns[2].split_whitespace().map(String::from).collect(),
         author_name: columns[3].to_string(),
         author_email: columns[4].to_string(),
-        date: columns[5].to_string(),
+        date: date.to_string(),
+        date_utc_offset_minutes,
         subject: columns[6].to_string(),
         decorations: columns[7].to_string(),
     })
+}
+
+/// Splits a `GIT_COMMIT_DATE_ARGUMENT` value into the displayed local date and
+/// the author's UTC offset in minutes. Values without a valid `±HHMM` suffix are
+/// kept whole with no offset so unexpected Git output stays visible.
+fn split_commit_date_offset(value: &str) -> (&str, Option<i32>) {
+    let Some((date, zone)) = value.rsplit_once(' ') else {
+        return (value, None);
+    };
+    let bytes = zone.as_bytes();
+    if bytes.len() != 5
+        || !matches!(bytes[0], b'+' | b'-')
+        || !zone[1..].bytes().all(|b| b.is_ascii_digit())
+    {
+        return (value, None);
+    }
+    let hours: i32 = zone[1..3].parse().unwrap_or(0);
+    let minutes: i32 = zone[3..5].parse().unwrap_or(0);
+    let sign = if bytes[0] == b'-' { -1 } else { 1 };
+    (date, Some(sign * (hours * 60 + minutes)))
 }
 
 fn validate_revision(value: &str) -> Result<(), CoreError> {
@@ -6354,8 +6639,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
 pub fn watch_context(
     request: GitWatchContextRequest,
 ) -> Result<Option<GitWatchContextResponse>, CoreError> {
-    let root = canonicalize_simplified(Path::new(&request.root))
-        .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
+    let root = canonicalize_simplified(Path::new(&request.root)).map_err(git_path_error)?;
     if !root.is_dir() {
         return Err(CoreError::new(
             ErrorCode::WorkspaceNotFound,
@@ -6389,10 +6673,13 @@ fn canonical_git_output(output: std::process::Output, label: &str) -> Result<Str
         .with_details(String::from_utf8_lossy(&output.stderr)));
     }
     let raw_path = String::from_utf8_lossy(&output.stdout);
-    let path = PathBuf::from(raw_path.trim());
+    let path = PathBuf::from(raw_path.trim_end_matches(['\r', '\n']));
     canonicalize_simplified(&path)
         .map(|path| path.to_string_lossy().into_owned())
         .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::InvalidInput {
+                return git_path_error(error);
+            }
             CoreError::new(
                 ErrorCode::ProcessFailed,
                 format!("Could not resolve {label}"),
@@ -6524,8 +6811,7 @@ fn branch_requires_publish(root: &str, branch: &str) -> bool {
 
 /// Returns the normalized repository status and branch context.
 pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError> {
-    let root = canonicalize_simplified(Path::new(&request.root))
-        .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
+    let root = canonicalize_simplified(Path::new(&request.root)).map_err(git_path_error)?;
     if !root.is_dir() {
         return Err(CoreError::new(
             ErrorCode::WorkspaceNotFound,
@@ -6543,9 +6829,9 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         });
     }
     let repository_root_text = String::from_utf8_lossy(&repository_root_output.stdout);
-    let repository_root_path = PathBuf::from(repository_root_text.trim());
+    let repository_root_path = PathBuf::from(repository_root_text.trim_end_matches(['\r', '\n']));
     let repository_root =
-        canonicalize_simplified(&repository_root_path).unwrap_or(repository_root_path);
+        canonicalize_or_original(&repository_root_path).map_err(git_path_error)?;
     let branch = run_git(&repository_root, &["branch", "--show-current"])
         .ok()
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -6557,7 +6843,8 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
             "-c",
             "core.quotepath=false",
             "status",
-            "--porcelain=v1",
+            "--porcelain=v2",
+            "--ignore-submodules=none",
             "-z",
             "--untracked-files=all",
         ],
@@ -6568,7 +6855,24 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
                 .with_details(String::from_utf8_lossy(&status_output.stderr)),
         );
     }
-    let changes = parse_status(&status_output.stdout);
+    let mut changes = parse_status(&status_output.stdout, request.include_index_only_changes);
+    // Native bindings may use macOS /var aliases or Windows short/verbatim
+    // paths. Compare the same canonical identity as Git's reported root.
+    let known_roots = request
+        .repository_roots
+        .iter()
+        .map(|root| canonicalize_or_original(Path::new(root)).map_err(git_path_error))
+        .collect::<Result<Vec<_>, _>>()?;
+    // An embedded independent repository must not become a gitlink through a
+    // parent Stage All. Gitlinks already tracked by the parent remain visible.
+    changes.retain(|change| {
+        !change.untracked
+            || !known_roots.iter().any(|other| {
+                other != &repository_root
+                    && other.starts_with(&repository_root)
+                    && repository_root.join(&change.path).starts_with(other)
+            })
+    });
     let (ahead, behind) = tracking_counts(&repository_root);
     Ok(GitStatusResponse {
         repository_root: Some(relative_or_absolute(&repository_root, &root)),
@@ -6598,6 +6902,65 @@ fn tracking_counts(repository_root: &Path) -> (usize, usize) {
     (ahead, behind)
 }
 
+/// Upper bound on the pathspec bytes passed to one `git ls-files` call.
+///
+/// Windows limits a whole command line to 32,767 UTF-16 units; batching well
+/// below it keeps large reactors from failing to start the query.
+const LS_FILES_PATHSPEC_BUDGET: usize = 16 * 1024;
+
+/// Returns the entries of `candidates` that the Git repository enclosing
+/// `directory` does not track.
+///
+/// Candidates are paths relative to `directory` with `/` separators. `None`
+/// means Git could not answer — `directory` is outside any work tree, the
+/// repository is unreadable, or Git is unavailable — and callers must treat
+/// every candidate as possibly owned by the user.
+pub(crate) fn untracked_candidates(directory: &Path, candidates: &[String]) -> Option<Vec<String>> {
+    let mut tracked = HashSet::new();
+    for batch in pathspec_batches(candidates, LS_FILES_PATHSPEC_BUDGET) {
+        let mut arguments = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
+        arguments.extend(batch.iter().map(String::as_str));
+        let output = run_git(directory, &arguments).ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        tracked.extend(
+            output
+                .stdout
+                .split(|byte| *byte == 0)
+                .filter(|record| !record.is_empty())
+                .map(|record| String::from_utf8_lossy(record).into_owned()),
+        );
+    }
+    Some(
+        candidates
+            .iter()
+            .filter(|candidate| !tracked.contains(candidate.as_str()))
+            .cloned()
+            .collect(),
+    )
+}
+
+/// Splits `paths` into consecutive non-empty batches whose summed byte length
+/// stays within `budget`; a single longer path forms its own batch.
+fn pathspec_batches(paths: &[String], budget: usize) -> Vec<&[String]> {
+    let mut batches = Vec::new();
+    let mut start = 0;
+    let mut used = 0;
+    for (index, path) in paths.iter().enumerate() {
+        if index > start && used + path.len() > budget {
+            batches.push(&paths[start..index]);
+            start = index;
+            used = 0;
+        }
+        used += path.len();
+    }
+    if start < paths.len() {
+        batches.push(&paths[start..]);
+    }
+    batches
+}
+
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {
     // Status and path discovery are read-only from Lithe's point of view. Git
     // may otherwise refresh its optional index data while answering a query,
@@ -6614,43 +6977,74 @@ fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output,
         })
 }
 
-fn parse_status(output: &[u8]) -> Vec<GitChange> {
+fn parse_status(output: &[u8], include_index_only_changes: bool) -> Vec<GitChange> {
     let mut changes = Vec::new();
-    let records = output
+    let mut records = output
         .split(|byte| *byte == 0)
-        .filter(|record| !record.is_empty())
-        .collect::<Vec<_>>();
-    let mut index = 0;
-    while index < records.len() {
-        let record = String::from_utf8_lossy(records[index]).to_string();
-        let bytes = record.as_bytes();
-        if bytes.len() < 3 {
-            index += 1;
+        .filter(|record| !record.is_empty());
+    while let Some(record) = records.next() {
+        let record = String::from_utf8_lossy(record);
+        let (status, submodule, path, original_path) = match record.as_bytes().first() {
+            Some(b'?') => ("??".to_string(), None, record[2..].to_string(), None),
+            Some(kind @ (b'1' | b'2' | b'u')) => {
+                // v2 headers have fixed field counts; the remaining path may
+                // contain whitespace. A rename's old path is the next NUL record.
+                let count = match kind {
+                    b'1' => 9,
+                    b'2' => 10,
+                    _ => 11,
+                };
+                let fields = record.splitn(count, ' ').collect::<Vec<_>>();
+                if fields.len() != count {
+                    continue;
+                }
+                let status = fields[1].replace('.', " ");
+                let submodule = if fields[2].starts_with('S') {
+                    Some(crate::protocol::GitSubmoduleStatus {
+                        commit_changed: fields[2].as_bytes().get(1) == Some(&b'C'),
+                        tracked_changes: fields[2].as_bytes().get(2) == Some(&b'M'),
+                        untracked_changes: fields[2].as_bytes().get(3) == Some(&b'U'),
+                    })
+                } else {
+                    None
+                };
+                let original = if *kind == b'2' {
+                    records
+                        .next()
+                        .map(|path| String::from_utf8_lossy(path).to_string())
+                } else {
+                    None
+                };
+                (status, submodule, fields[count - 1].to_string(), original)
+            }
+            _ => continue,
+        };
+        let bytes = status.as_bytes();
+        if bytes.len() != 2 {
             continue;
         }
         let x = bytes[0] as char;
         let y = bytes[1] as char;
-        // The commit checkbox represents the final worktree snapshot. A path
-        // added only to the index and then deleted is identical to HEAD.
-        if x == 'A' && y == 'D' {
-            index += 1;
+        // Preserve the existing final-worktree projection used by Windows.
+        if !include_index_only_changes && x == 'A' && y == 'D' {
             continue;
         }
-        let path = record[3..].to_string();
-        let mut original_path = None;
-        if (matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C')) && index + 1 < records.len() {
-            original_path = Some(String::from_utf8_lossy(records[index + 1]).to_string());
-            index += 1;
-        }
+        let can_toggle_staging = (x != ' ' && x != '?')
+            || submodule.as_ref().is_none_or(|s| s.commit_changed)
+            || x == 'U'
+            || y == 'U'
+            || y == 'D'
+            || (x == 'A' && y == 'A');
         changes.push(GitChange {
+            can_toggle_staging,
             path,
             original_path,
-            status: format!("{}{}", x, y),
+            status,
             staged: x != ' ' && x != '?',
             worktree: y != ' ' && y != '?',
             untracked: x == '?' && y == '?',
+            submodule,
         });
-        index += 1;
     }
     changes.sort_by(|left, right| left.path.cmp(&right.path));
     changes
@@ -6672,16 +7066,56 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        annotation_message_from_tag_object, line_similarity, pair_diff_entries, parse_diff,
-        simplified_canonical_path, structured_diff_from_output, DiffEntry, GitCommandInvocation,
-        GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
+        annotation_message_from_tag_object, line_similarity, pair_diff_entries, parse_commit,
+        parse_commit_lookup, parse_diff, pathspec_batches, simplified_canonical_path,
+        structured_diff_from_output, DiffEntry, GitCommandInvocation, GitCommandResponse,
+        GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
     use crate::protocol::{
-        CoreError, ErrorCode, GitCommitResponse, GitHistoryPageResponse, GitHistoryResponse,
-        GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitReferencesResponse,
+        CoreError, ErrorCode, GitCommitLookupResponse, GitCommitResponse, GitHistoryPageResponse,
+        GitHistoryResponse, GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse,
+        GitReferencesResponse,
     };
     use serde_json::Value;
     use std::path::PathBuf;
+
+    #[test]
+    fn temporary_git_context_is_private_and_cleans_up_under_a_public_parent() {
+        let parent = super::TemporaryGitCommitContext::prepare_snapshot(Some(&"a".repeat(40)))
+            .expect("owned fixture parent should be created");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&parent.directory, std::fs::Permissions::from_mode(0o755))
+                .expect("fixture parent should allow public traversal");
+        }
+        let context = super::TemporaryGitCommitContext::prepare_in(
+            &parent.directory,
+            "private-index",
+            Some(&"b".repeat(40)),
+        )
+        .expect("private context should be created atomically");
+        let directory = context.directory.clone();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&directory).unwrap().permissions().mode() & 0o077,
+                0
+            );
+        }
+        std::fs::write(&context.index_path, b"tracked/path\0object-id")
+            .expect("index fixture should stay inside the owned context");
+        assert_eq!(
+            std::fs::read(directory.join("HEAD")).unwrap(),
+            format!("{}\n", "b".repeat(40)).as_bytes()
+        );
+        drop(context);
+        assert!(
+            !directory.exists(),
+            "HEAD and index should be removed with their owner"
+        );
+    }
 
     #[test]
     fn simplified_canonical_path_strips_windows_verbatim_prefixes() {
@@ -6689,16 +7123,87 @@ mod tests {
         // separators, which would turn them into `//?/C:/...` and break every
         // later lookup of the discovered repository root.
         assert_eq!(
-            simplified_canonical_path(PathBuf::from(r"\\?\C:\work\repo")),
+            simplified_canonical_path(PathBuf::from(r"\\?\C:\work\repo")).unwrap(),
             PathBuf::from(r"C:\work\repo")
         );
         assert_eq!(
-            simplified_canonical_path(PathBuf::from(r"\\?\UNC\server\share\repo")),
+            simplified_canonical_path(PathBuf::from(r"\\?\UNC\server\share\repo")).unwrap(),
             PathBuf::from(r"\\server\share\repo")
         );
         assert_eq!(
-            simplified_canonical_path(PathBuf::from("/work/repo")),
+            simplified_canonical_path(PathBuf::from("/work/repo")).unwrap(),
             PathBuf::from("/work/repo")
+        );
+    }
+
+    #[test]
+    fn windows_git_paths_follow_shared_identity_policy() {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/git/windows-paths.json"
+        ))
+        .unwrap();
+        for case in cases["accepted"].as_array().unwrap() {
+            let path =
+                simplified_canonical_path(PathBuf::from(case["input"].as_str().unwrap())).unwrap();
+            assert_eq!(
+                path.to_string_lossy().replace('\\', "/"),
+                case["normalized"].as_str().unwrap()
+            );
+        }
+        for path in cases["rejected"].as_array().unwrap() {
+            let path = PathBuf::from(path.as_str().unwrap());
+            let error = simplified_canonical_path(path.clone()).unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{path:?}");
+            // A missing/stale worktree must not bypass the same identity check.
+            assert!(super::canonicalize_or_original(&path).is_err());
+        }
+    }
+
+    #[test]
+    fn repository_root_discovery_does_not_acquire_a_write_lease() {
+        struct Repository(std::path::PathBuf);
+        impl Drop for Repository {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).expect("temporary repository should be removed");
+            }
+        }
+
+        let repository = Repository(std::env::temp_dir().join(format!(
+            "lithe-repository-root-{}-{}",
+            std::process::id(),
+            super::TEMPORARY_INDEX_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )));
+        std::fs::create_dir_all(&repository.0).unwrap();
+        let root = repository.0.to_string_lossy().into_owned();
+        let initialized = super::command(super::GitCommandRequest {
+            root: root.clone(),
+            arguments: vec!["init".into(), "-q".into()],
+            input: None,
+        })
+        .unwrap();
+        assert_eq!(initialized.exit_code, 0);
+
+        let lease = super::rewrite::RewriteLease::acquire(&root).unwrap();
+        let response: Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({
+                "id": "repository-root",
+                "command": "git.repositoryRoot",
+                "payload": { "root": root.clone() },
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        drop(lease);
+
+        let expected_root = super::canonicalize_simplified(&repository.0)
+            .expect("temporary repository should canonicalize")
+            .to_string_lossy()
+            .replace('\\', "/");
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(
+            response["data"],
+            serde_json::json!(expected_root),
+            "{response}"
         );
     }
 
@@ -7063,6 +7568,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_commit_splits_the_author_utc_offset_from_the_displayed_date() {
+        let line =
+            |date: &str| format!("h\u{1f}s\u{1f}\u{1f}A\u{1f}a@x\u{1f}{date}\u{1f}msg\u{1f}");
+
+        let east = parse_commit(&line("2026/09/30 21:05 +0800")).expect("commit should parse");
+        assert_eq!(east.date, "2026/09/30 21:05");
+        assert_eq!(east.date_utc_offset_minutes, Some(480));
+
+        let west = parse_commit(&line("2026/09/30 08:05 -0330")).expect("commit should parse");
+        assert_eq!(west.date, "2026/09/30 08:05");
+        assert_eq!(west.date_utc_offset_minutes, Some(-210));
+
+        // Output without a recognizable zone stays visible unchanged instead of being trimmed.
+        let legacy = parse_commit(&line("2026/09/30 08:05")).expect("commit should parse");
+        assert_eq!(legacy.date, "2026/09/30 08:05");
+        assert_eq!(legacy.date_utc_offset_minutes, None);
+    }
+
+    #[test]
     fn history_response_matches_shared_fixture() {
         let fixture: Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -7099,6 +7623,7 @@ mod tests {
                 author_name: "Lithe Test".into(),
                 author_email: "test@example.invalid".into(),
                 date: "2026/08/30 12:00".into(),
+                date_utc_offset_minutes: Some(480),
                 subject: "Initial commit".into(),
                 decorations: "HEAD -> feature/recent".into(),
             }],
@@ -7168,6 +7693,7 @@ mod tests {
                 author_name: "Lithe Test".into(),
                 author_email: "test@example.invalid".into(),
                 date: "2026/08/30 12:00".into(),
+                date_utc_offset_minutes: Some(480),
                 subject: "Initial commit".into(),
                 decorations: "HEAD -> feature/recent".into(),
             }],
@@ -7180,6 +7706,54 @@ mod tests {
             serde_json::to_value(response).expect("Git history page response should serialize"),
             fixture
         );
+    }
+
+    #[test]
+    fn commit_lookup_response_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/commit-lookup-response-v1.json"
+        )))
+        .expect("Git commit lookup response fixture should be valid JSON");
+        let response = GitCommitLookupResponse {
+            commit: GitCommitResponse {
+                hash: "0123456789abcdef0123456789abcdef01234567".into(),
+                short_hash: "0123456".into(),
+                parent_hashes: vec!["89abcdef0123456789abcdef0123456789abcdef".into()],
+                author_name: "Lithe Test".into(),
+                author_email: "test@example.invalid".into(),
+                date: "2026/08/30 12:00".into(),
+                date_utc_offset_minutes: Some(480),
+                subject: "Fix commit details".into(),
+                decorations: "HEAD -> feature/recent".into(),
+            },
+            body: "Explain why the change is needed.\n\n- keep blank lines\n  and indentation"
+                .into(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(response).expect("Git commit lookup response should serialize"),
+            fixture
+        );
+    }
+
+    #[test]
+    fn commit_lookup_keeps_separator_characters_inside_the_body() {
+        // The body may contain the header's unit separator or CRLF line breaks;
+        // only the first NUL delimits the header from the free-form message.
+        let output = "abc\u{1f}ab\u{1f}p1 p2\u{1f}Dev\u{1f}dev@example.invalid\u{1f}2026/08/30 12:00\u{1f}Subject\u{1f}tag: v1\0Line \u{1f} one\r\n\r\nLine two\n\n";
+        let lookup = parse_commit_lookup(output).expect("lookup output should parse");
+        assert_eq!(lookup.commit.parent_hashes, ["p1", "p2"]);
+        assert_eq!(lookup.commit.subject, "Subject");
+        assert_eq!(lookup.commit.decorations, "tag: v1");
+        assert_eq!(lookup.body, "Line \u{1f} one\r\n\r\nLine two");
+
+        let subject_only = parse_commit_lookup(
+            "abc\u{1f}ab\u{1f}\u{1f}Dev\u{1f}dev@example.invalid\u{1f}2026/08/30 12:00\u{1f}Only\u{1f}\0",
+        )
+        .expect("subject-only output should parse");
+        assert_eq!(subject_only.body, "");
+        assert!(parse_commit_lookup("missing delimiter").is_none());
     }
 
     #[test]
@@ -7207,6 +7781,7 @@ mod tests {
                 author_name: "Lithe Developer".into(),
                 author_email: "developer@lithe.local".into(),
                 date: "2026/08/31 10:30".into(),
+                date_utc_offset_minutes: Some(-300),
                 subject: "Add push preview".into(),
                 decorations: "HEAD -> feature/core".into(),
             }],
@@ -7316,5 +7891,20 @@ mod tests {
                 .as_u64()
                 .expect("fixture count should be a number") as usize
         );
+    }
+
+    #[test]
+    fn pathspec_batches_stay_within_the_budget_and_keep_every_path() {
+        let paths = ["aaaa", "bbbb", "cc", "dddddddddd", "e"]
+            .map(String::from)
+            .to_vec();
+
+        let batches = pathspec_batches(&paths, 8);
+
+        assert_eq!(
+            batches,
+            vec![&paths[0..2], &paths[2..3], &paths[3..4], &paths[4..5]]
+        );
+        assert!(pathspec_batches(&[], 8).is_empty());
     }
 }

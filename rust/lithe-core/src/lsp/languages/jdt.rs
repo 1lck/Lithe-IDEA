@@ -20,10 +20,20 @@ const JDT_URI_SCHEME: &str = "jdt";
 const JDTLS_DATA_DIRECTORY: &str = "jdtls";
 const JAVA_DECOMPILE_COMMAND: &str = "java.decompile";
 const DID_CHANGE_CONFIGURATION_METHOD: &str = "workspace/didChangeConfiguration";
+/// JDT LS extension that force-updates the listed projects' build configuration.
+const PROJECT_CONFIGURATIONS_UPDATE_METHOD: &str = "java/projectConfigurationsUpdate";
 const LANGUAGE_STATUS_METHOD: &str = "language/status";
 const WORK_DONE_PROGRESS_METHOD: &str = "$/progress";
 const SERVICE_READY_STATUS: &str = "ServiceReady";
 const ERROR_STATUS: &str = "Error";
+/// JVM system property read by JDT LS's `org.eclipse.jdt.ls.filesystem` bundle.
+///
+/// When the property is absent, JDT LS writes `.project`, `.classpath`,
+/// `.factorypath`, and `.settings/*.prefs` into every imported module directory.
+/// `false` redirects them to the `-data` metadata area, so opening a project
+/// never adds Eclipse files to the user's tree. Files that already exist at a
+/// module root still take precedence; `jdt_project_metadata` removes those.
+const METADATA_AT_PROJECT_ROOT_PROPERTY: &str = "-Djava.import.generatesMetadataFilesAtProjectRoot";
 
 /// JDT LS readiness transition conveyed through its `language/status`
 /// extension after the standard LSP initialize handshake.
@@ -220,6 +230,9 @@ pub(crate) fn maven_profile_fingerprint(
 #[serde(rename_all = "camelCase")]
 pub(crate) struct JdtDirectLaunchResources {
     pub launcher_jar_path: PathBuf,
+    /// Writable Equinox configuration area passed as `-configuration`. The
+    /// engine supplies the cache copy from `jdt_configuration`, never the
+    /// packaged directory, because Equinox writes its state here.
     pub configuration_directory: PathBuf,
     pub lombok_agent_path: PathBuf,
     #[serde(default)]
@@ -449,11 +462,43 @@ pub(crate) fn initialized_notification(
     provider_id: &str,
     settings: JdtSettings<'_>,
 ) -> Option<ProviderNotification> {
-    is_java_provider(provider_id).then(|| ProviderNotification {
+    is_java_provider(provider_id).then(|| settings_notification(settings))
+}
+
+/// `workspace/didChangeConfiguration` carrying every Java setting Lithe owns.
+///
+/// When the Maven settings paths differ from the ones JDT LS holds, JDT LS
+/// reloads them and force-updates every Maven project itself
+/// (`StandardPreferenceManager.update`), including an import still in progress.
+pub(crate) fn settings_notification(settings: JdtSettings<'_>) -> ProviderNotification {
+    ProviderNotification {
         method: DID_CHANGE_CONFIGURATION_METHOD.to_string(),
         params: json!({
             "settings": java_settings(settings)
         }),
+    }
+}
+
+/// Forces JDT LS to re-resolve the given Maven projects even though neither
+/// their `pom.xml` nor the Maven settings changed.
+///
+/// A JDT LS restart does not do this: its importer skips projects whose build
+/// file is older than the saved workspace state, so dependencies that failed to
+/// resolve stay missing. `java/projectConfigurationsUpdate` is the upstream
+/// "update project" action and ignores that check.
+pub(crate) fn project_update_notification(
+    configuration: &JdtMavenConfiguration,
+) -> Option<ProviderNotification> {
+    let mut seen = std::collections::BTreeSet::new();
+    let identifiers = configuration
+        .project_uris
+        .iter()
+        .filter(|uri| seen.insert(uri.as_str()))
+        .map(|uri| json!({ "uri": uri }))
+        .collect::<Vec<_>>();
+    (!identifiers.is_empty()).then(|| ProviderNotification {
+        method: PROJECT_CONFIGURATIONS_UPDATE_METHOD.to_string(),
+        params: json!({ "identifiers": identifiers }),
     })
 }
 
@@ -692,6 +737,7 @@ fn wrapper_arguments(
     arguments.extend([
         "--jvm-arg=-Xms256m".to_string(),
         "--jvm-arg=-Xmx1024m".to_string(),
+        format!("--jvm-arg={METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
         "-data".to_string(),
         data_directory.to_string_lossy().into_owned(),
     ]);
@@ -720,6 +766,7 @@ fn direct_java_arguments(
         "-Dosgi.bundles.defaultStartLevel=4".to_string(),
         "-Dlog.protocol=true".to_string(),
         "-Dlog.level=ALL".to_string(),
+        format!("{METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
     ];
     adapted.extend(custom_jvm_arguments);
     adapted.extend([
@@ -825,7 +872,14 @@ fn is_jdt_owned_jvm_argument(argument: &str) -> bool {
         || argument.starts_with("-Dosgi.bundles.defaultStartLevel=")
         || argument.starts_with("-Dlog.protocol=")
         || argument.starts_with("-Dlog.level=")
+        || is_metadata_location_argument(argument)
         || is_lombok_agent_argument(argument)
+}
+
+fn is_metadata_location_argument(argument: &str) -> bool {
+    argument
+        .strip_prefix(METADATA_AT_PROJECT_ROOT_PROPERTY)
+        .is_some_and(|rest| rest.starts_with('='))
 }
 
 fn is_lombok_agent_argument(argument: &str) -> bool {
@@ -853,7 +907,10 @@ fn without_wrapper_owned_arguments(arguments: &[String]) -> Vec<String> {
         let owns_inline_value = argument.starts_with("--java-executable=")
             || argument.starts_with("-data=")
             || argument.starts_with("--jvm-arg=-Xms")
-            || argument.starts_with("--jvm-arg=-Xmx");
+            || argument.starts_with("--jvm-arg=-Xmx")
+            || argument
+                .strip_prefix("--jvm-arg=")
+                .is_some_and(is_metadata_location_argument);
         if owns_following_value {
             index += usize::from(index + 1 < arguments.len()) + 1;
         } else {
@@ -1318,6 +1375,7 @@ mod tests {
                 "/jdk/bin/java",
                 "--jvm-arg=-Xms256m",
                 "--jvm-arg=-Xmx1024m",
+                "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-data",
                 data_directory.to_string_lossy().as_ref()
             ]
@@ -1333,6 +1391,8 @@ mod tests {
             "--jvm-arg=-Xms2g".to_string(),
             "--jvm-arg=-Xmx4g".to_string(),
             "--jvm-arg=-Duser.language=en".to_string(),
+            // A catalog or user override must not put metadata back into the project.
+            "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=true".to_string(),
             "-data".to_string(),
             "/old/data".to_string(),
         ];
@@ -1346,6 +1406,14 @@ mod tests {
             .contains(&"--jvm-arg=-Duser.language=en".to_string()));
         assert!(!first.arguments.contains(&"/old/java".to_string()));
         assert!(!first.arguments.contains(&"/old/data".to_string()));
+        assert_eq!(
+            first
+                .arguments
+                .iter()
+                .filter(|argument| argument.contains("generatesMetadataFilesAtProjectRoot"))
+                .collect::<Vec<_>>(),
+            vec!["--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false"]
+        );
     }
 
     #[test]
@@ -1366,6 +1434,7 @@ mod tests {
             "--java-executable=/old/java".to_string(),
             "--jvm-arg=-Xmx4g".to_string(),
             "--jvm-arg=-Duser.language=en".to_string(),
+            "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=true".to_string(),
             "-data=/old/data".to_string(),
         ];
 
@@ -1390,6 +1459,7 @@ mod tests {
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Dlog.protocol=true",
                 "-Dlog.level=ALL",
+                "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-Duser.language=en",
                 "-jar",
                 "/jdtls/plugins/equinox.jar",

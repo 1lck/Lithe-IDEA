@@ -172,9 +172,13 @@ pub(crate) enum JavaBuildMarkerScope {
 pub(crate) enum JavaBuildRecovery {
     /// Nothing beyond fixing the reported code is indicated.
     None,
-    /// The language service's own builder failed, which leaves error markers
-    /// that later builds neither refresh nor clear. Resetting the Java index is
-    /// the only way back to a trustworthy verdict.
+    /// The build reached a verdict about the code -- a builder failure or
+    /// error markers -- that may not describe the current sources: a failed
+    /// builder leaves markers that later builds neither refresh nor clear, and
+    /// error markers can also be decided by unrelated projects when the marker
+    /// scope widened. Resetting the Java index is the way back to a
+    /// trustworthy verdict, so it is offered alongside fixing the reported
+    /// errors.
     RebuildJavaIndex,
 }
 
@@ -224,13 +228,25 @@ pub(crate) fn java_build_marker_scope(command: &Value) -> JavaBuildMarkerScope {
 }
 
 /// Builds the report that accompanies an unsuccessful build.
+///
+/// Any verdict about the code carries the rebuild option: a builder failure
+/// leaves markers that later builds neither refresh nor clear, error markers
+/// can be decided by unrelated projects when the marker scope widened, and a
+/// project opened for the first time can still be mid-import while its
+/// markers already read as errors. Cancellation and unrecognized results
+/// reached no verdict about the code, so there the only useful action is a
+/// retry.
 pub(crate) fn java_build_report(
     outcome: JavaBuildOutcome,
     command: &Value,
     builder_failed_earlier: bool,
     elapsed: Duration,
 ) -> JavaBuildReport {
-    let recovery = if outcome == JavaBuildOutcome::Failed || builder_failed_earlier {
+    let recovery = if matches!(
+        outcome,
+        JavaBuildOutcome::Failed | JavaBuildOutcome::CompilationErrors
+    ) || builder_failed_earlier
+    {
         JavaBuildRecovery::RebuildJavaIndex
     } else {
         JavaBuildRecovery::None
@@ -798,12 +814,17 @@ mod tests {
     }
 
     #[test]
-    fn compilation_errors_without_a_builder_failure_need_no_workspace_reset() {
+    fn every_code_verdict_offers_the_workspace_reset() {
         let mut coordinator = JavaBuildCoordinator::default();
         coordinator.observe_outcome(JavaBuildOutcome::Succeeded);
         coordinator.observe_outcome(JavaBuildOutcome::Cancelled);
         assert!(!coordinator.builder_failed_earlier());
 
+        // Error markers can predate or misdescribe the current sources even
+        // without a builder failure -- a first import can still be running,
+        // and a widened marker scope lets unrelated projects decide the
+        // verdict -- so the rebuild option stays available for every verdict
+        // about the code.
         let report = java_build_report(
             JavaBuildOutcome::CompilationErrors,
             &json!({ "command": JAVA_BUILD_WORKSPACE_COMMAND, "arguments": [] }),
@@ -811,8 +832,18 @@ mod tests {
             Duration::from_millis(12511),
         );
         assert!(!report.builder_failed_earlier);
-        assert_eq!(report.recovery, JavaBuildRecovery::None);
+        assert_eq!(report.recovery, JavaBuildRecovery::RebuildJavaIndex);
         assert_eq!(report.marker_scope, JavaBuildMarkerScope::Workspace);
+
+        // A cancelled build reached no verdict about the code, so resetting
+        // the workspace is not indicated.
+        let cancelled = java_build_report(
+            JavaBuildOutcome::Cancelled,
+            &json!({ "command": JAVA_BUILD_WORKSPACE_COMMAND, "arguments": [] }),
+            coordinator.builder_failed_earlier(),
+            Duration::from_millis(4),
+        );
+        assert_eq!(cancelled.recovery, JavaBuildRecovery::None);
     }
 
     #[test]

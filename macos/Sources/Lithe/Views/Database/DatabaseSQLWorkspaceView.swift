@@ -3,28 +3,28 @@ import SwiftUI
 import LitheDatabaseModule
 
 struct DatabaseWorkspaceView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
 
     var body: some View {
         Group {
-            if model.databaseFeature.selectedProfile == nil {
+            if feature.selectedProfile == nil {
                 DatabaseDashboardView(
                     onOpenConnection: { profile in
-                        Task { await model.databaseFeature.select(profile) }
+                        Task { await feature.select(profile) }
                     },
                     onNewQuery: { profile in
                         Task {
-                            await model.databaseFeature.select(profile)
-                            guard model.databaseFeature.selectedProfileID == profile.id else { return }
-                            model.databaseFeature.workspaceSection = .sql
+                            await feature.select(profile)
+                            guard feature.selectedProfileID == profile.id else { return }
+                            feature.workspaceSection = .sql
                         }
                     }
                 )
-            } else if model.databaseFeature.selectedProfile?.kind == .redis {
+            } else if feature.selectedProfile?.kind == .redis {
                 RedisWorkspaceView()
-            } else if model.databaseFeature.selectedProfile?.kind == .nacos {
+            } else if feature.selectedProfile?.kind == .nacos {
                 NacosWorkspaceView()
-            } else if model.databaseFeature.selectedProfile?.kind == .mongodb {
+            } else if feature.selectedProfile?.kind == .mongodb {
                 mongoWorkspace
             } else {
                 sqlWorkspace
@@ -35,7 +35,7 @@ struct DatabaseWorkspaceView: View {
 
     private var sqlWorkspace: some View {
         VStack(spacing: 0) {
-            if !model.databaseFeature.openTableTabs.isEmpty {
+            if !feature.openTableTabs.isEmpty {
                 DatabaseOpenTableTabsView()
             }
 
@@ -43,7 +43,7 @@ struct DatabaseWorkspaceView: View {
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            switch model.databaseFeature.workspaceSection {
+            switch feature.workspaceSection {
             case .data:
                 DatabaseTableView()
             case .sql:
@@ -61,8 +61,8 @@ struct DatabaseWorkspaceView: View {
             Picker(
                 "Database workspace",
                 selection: Binding(
-                    get: { model.databaseFeature.workspaceSection },
-                    set: { model.databaseFeature.workspaceSection = $0 }
+                    get: { feature.workspaceSection },
+                    set: { feature.workspaceSection = $0 }
                 )
             ) {
                 ForEach(DatabaseWorkspaceSection.allCases) { section in
@@ -82,18 +82,18 @@ struct DatabaseWorkspaceView: View {
     private var mongoWorkspace: some View {
         VStack(spacing: 0) {
             HStack(spacing: 9) {
-                if let profile = model.databaseFeature.selectedProfile {
+                if let profile = feature.selectedProfile {
                     DatabaseBrandIcon(kind: .mongodb, size: 18)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("MongoDB Documents").font(.system(size: 12, weight: .semibold))
+                        Text("MongoDB Documents").font(LitheTheme.uiFont(size: 12, weight: .semibold))
                         Text(profile.database.isEmpty ? "admin" : profile.database)
-                            .font(.system(size: 9.5))
+                            .font(LitheTheme.uiFont(size: 9.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
                 }
                 Spacer()
                 Text("Collection data can be edited directly in the grid.")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .padding(.horizontal, 12)
@@ -107,14 +107,15 @@ struct DatabaseWorkspaceView: View {
 
 private struct DatabaseDashboardView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @State private var showsConnectionEditor = false
     let onOpenConnection: (DatabaseProfile) -> Void
     let onNewQuery: (DatabaseProfile) -> Void
 
-    private var profiles: [DatabaseProfile] { model.databaseFeature.profiles }
+    private var profiles: [DatabaseProfile] { feature.profiles }
     private var sqlProfiles: [DatabaseProfile] { profiles.filter { $0.kind.isSQLDatabase } }
     private var databaseTypeCount: Int { Set(profiles.map(\.kind)).count }
-    private var connectedCount: Int { model.databaseFeature.connectedProfileCount }
+    private var connectedCount: Int { feature.connectedProfileCount }
     private let dashboardColumns = [
         GridItem(.flexible(), spacing: 1),
         GridItem(.flexible(), spacing: 1)
@@ -159,27 +160,27 @@ private struct DatabaseDashboardView: View {
                             symbol: "clock.arrow.circlepath",
                             minHeight: max(160, min(320, geometry.size.height - 288))
                         ) {
-                            if model.databaseFeature.sqlHistory.isEmpty {
+                            if feature.sqlHistory.isEmpty {
                                 dashboardEmpty("No SQL history yet.")
                             } else {
-                                ForEach(Array(model.databaseFeature.sqlHistory.prefix(8))) { entry in
+                                ForEach(Array(feature.sqlHistory.prefix(8))) { entry in
                                     Button { openHistoryEntry(entry) } label: {
                                         HStack(spacing: 10) {
                                             Image(systemName: "terminal")
                                                 .foregroundStyle(LitheTheme.accent)
                                             Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
-                                                .font(.system(size: 10.5, design: .monospaced))
+                                                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                                 .lineLimit(1)
                                             Spacer()
                                             Text(entry.executedAt, style: .relative)
-                                                .font(.system(size: 9.5))
+                                                .font(LitheTheme.uiFont(size: 9.5))
                                                 .foregroundStyle(LitheTheme.tertiaryText)
                                         }
                                         .padding(.horizontal, 12)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .frame(height: 36)
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.litheNoPress)
                                     .disabled(profiles.first(where: { $0.id == entry.profileID })?.kind.isSQLDatabase != true)
                                     .litheRowHover(cornerRadius: 0)
                                 }
@@ -207,12 +208,12 @@ private struct DatabaseDashboardView: View {
                     Image(systemName: "cylinder.split.1x2")
                         .foregroundStyle(LitheTheme.tertiaryText)
                     Text("No saved connections yet.")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 Button { showsConnectionEditor = true } label: {
                     Label("New Connection", systemImage: "plus")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                         .padding(.horizontal, 11)
                         .frame(height: 28)
                         .background(LitheTheme.inputBackground)
@@ -222,7 +223,7 @@ private struct DatabaseDashboardView: View {
                                 .stroke(LitheTheme.panelBorder, lineWidth: 1)
                         }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
             }
             .frame(maxWidth: .infinity)
@@ -244,14 +245,14 @@ private struct DatabaseDashboardView: View {
     private var quickStartAddConnectionRow: some View {
         Button { showsConnectionEditor = true } label: {
             Label("New Connection", systemImage: "plus")
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.horizontal, 13)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: 48)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .litheRowHover(cornerRadius: 0)
     }
@@ -266,9 +267,9 @@ private struct DatabaseDashboardView: View {
                         .frame(width: 3, height: 28)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(profile.name)
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                         Text(connectionSubtitle(profile))
-                            .font(.system(size: 9.5))
+                            .font(LitheTheme.uiFont(size: 9.5))
                             .foregroundStyle(LitheTheme.tertiaryText)
                     }
                     Spacer()
@@ -278,17 +279,17 @@ private struct DatabaseDashboardView: View {
                 .frame(height: 48)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
 
             if profile.kind.isSQLDatabase {
                 Button { onNewQuery(profile) } label: {
                     Image(systemName: "doc.badge.plus")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(width: 40, height: 40)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help("New Query")
                 .accessibilityLabel("New Query")
@@ -302,20 +303,20 @@ private struct DatabaseDashboardView: View {
     private func openHistoryEntry(_ entry: DatabaseSQLHistoryEntry) {
         guard let profile = profiles.first(where: { $0.id == entry.profileID }), profile.kind.isSQLDatabase else { return }
         Task {
-            await model.databaseFeature.select(profile)
-            guard model.databaseFeature.selectedProfileID == profile.id else { return }
-            model.databaseFeature.workspaceSection = .sql
-            model.databaseFeature.restoreSQLHistory(entry)
+            await feature.select(profile)
+            guard feature.selectedProfileID == profile.id else { return }
+            feature.workspaceSection = .sql
+            feature.restoreSQLHistory(entry)
         }
     }
 
     private func metricCard(title: LocalizedStringKey, value: Int, symbol: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(title, systemImage: symbol)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text("\(value)")
-                .font(.system(size: 25, weight: .semibold, design: .rounded))
+                .font(LitheTheme.uiFont(size: 25, weight: .semibold, design: .rounded))
                 .foregroundStyle(LitheTheme.primaryText)
         }
         .padding(15)
@@ -333,7 +334,7 @@ private struct DatabaseDashboardView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Label(title, systemImage: symbol)
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                 .padding(.horizontal, 13)
                 .frame(height: 40)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -354,13 +355,13 @@ private struct DatabaseDashboardView: View {
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: symbol)
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 13)
                 .frame(height: 48)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.42)
         .background(LitheTheme.raised)
@@ -370,7 +371,7 @@ private struct DatabaseDashboardView: View {
 
     private func dashboardEmpty(_ message: LocalizedStringKey) -> some View {
         Text(message)
-            .font(.system(size: 10.5))
+            .font(LitheTheme.uiFont(size: 10.5))
             .foregroundStyle(LitheTheme.tertiaryText)
             .padding(16)
     }
@@ -401,11 +402,11 @@ extension DatabaseWorkspaceSection {
 }
 
 private struct DatabaseHistoryView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
 
     private var entries: [DatabaseSQLHistoryEntry] {
-        guard let profileID = model.databaseFeature.selectedProfileID else { return [] }
-        return model.databaseFeature.sqlHistory.filter { $0.profileID == profileID }
+        guard let profileID = feature.selectedProfileID else { return [] }
+        return feature.sqlHistory.filter { $0.profileID == profileID }
     }
 
     var body: some View {
@@ -413,10 +414,10 @@ private struct DatabaseHistoryView: View {
             HStack(spacing: 8) {
                 Image(systemName: "clock.arrow.circlepath")
                     .foregroundStyle(LitheTheme.accent)
-                Text("SQL History").font(.system(size: 12.5, weight: .semibold))
+                Text("SQL History").font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                 Spacer()
                 Text("\(entries.count) statements")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .padding(.horizontal, 14)
@@ -429,17 +430,17 @@ private struct DatabaseHistoryView: View {
             } else {
                 List(entries) { entry in
                     Button {
-                        model.databaseFeature.restoreSQLHistory(entry)
-                        model.databaseFeature.workspaceSection = .sql
+                        feature.restoreSQLHistory(entry)
+                        feature.workspaceSection = .sql
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "terminal").foregroundStyle(LitheTheme.accent)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
-                                    .font(.system(size: 11.5, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                                     .lineLimit(2)
                                 Text(entry.executedAt, format: .dateTime.year().month().day().hour().minute().second())
-                                    .font(.system(size: 9.5))
+                                    .font(LitheTheme.uiFont(size: 9.5))
                                     .foregroundStyle(LitheTheme.tertiaryText)
                             }
                             Spacer()
@@ -448,7 +449,7 @@ private struct DatabaseHistoryView: View {
                         }
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                 }
                 .listStyle(.inset)
             }
@@ -485,7 +486,7 @@ private extension DatabaseKind {
 }
 
 struct DatabaseSQLWorkspaceView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @State private var pendingRisk: DatabaseSQLAnalysis?
     @State private var pendingScope: DatabaseSQLExecutionScope = .all
     @State private var pendingTabID: UUID?
@@ -510,7 +511,7 @@ struct DatabaseSQLWorkspaceView: View {
             }
             Button(analysis.statementCount > 1 ? "Run batch" : "Run statement", role: .destructive) {
                 if let tabID = pendingTabID {
-                    Task { await model.databaseFeature.runSQL(in: tabID, scope: pendingScope, confirmedRisk: true) }
+                    Task { await feature.runSQL(in: tabID, scope: pendingScope, confirmedRisk: true) }
                 }
                 pendingRisk = nil
                 pendingTabID = nil
@@ -518,7 +519,7 @@ struct DatabaseSQLWorkspaceView: View {
         } message: { analysis in
             DatabaseLocalization.text(analysis.warning ?? "This statement can change the database.")
         }
-        .onChange(of: model.databaseFeature.selectedSQLTabID) { _ in
+        .onChange(of: feature.selectedSQLTabID) { _ in
             sqlSelection = ""
         }
     }
@@ -527,40 +528,40 @@ struct DatabaseSQLWorkspaceView: View {
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
-                    ForEach(model.databaseFeature.sqlTabs) { tab in
+                    ForEach(feature.sqlTabs) { tab in
                         HStack(spacing: 2) {
-                            Button { model.databaseFeature.selectedSQLTabID = tab.id } label: {
+                            Button { feature.selectedSQLTabID = tab.id } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: tab.isRunning ? "arrow.triangle.2.circlepath" : "terminal")
-                                        .font(.system(size: 10))
+                                        .font(LitheTheme.uiFont(size: 10))
                                     DatabaseLocalization.queryTabTitle(tab.title).lineLimit(1)
                                 }
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(model.databaseFeature.selectedSQLTabID == tab.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                                .font(LitheTheme.uiFont(size: 11.5))
+                                .foregroundStyle(feature.selectedSQLTabID == tab.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
                                 .padding(.leading, 10)
                                 .frame(height: 31)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
 
-                            Button { model.databaseFeature.closeSQLTab(tab.id) } label: {
+                            Button { feature.closeSQLTab(tab.id) } label: {
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(LitheTheme.uiFont(size: 8, weight: .semibold))
                             }
                             .litheIconButton()
                             .foregroundStyle(LitheTheme.secondaryText)
                             .padding(.trailing, 5)
                             .help("Close query tab")
                         }
-                        .background(model.databaseFeature.selectedSQLTabID == tab.id ? LitheTheme.activeTabBackground : LitheTheme.inactiveTabBackground)
+                        .background(feature.selectedSQLTabID == tab.id ? LitheTheme.activeTabBackground : LitheTheme.inactiveTabBackground)
                         .overlay(alignment: .bottom) {
-                            if model.databaseFeature.selectedSQLTabID == tab.id {
+                            if feature.selectedSQLTabID == tab.id {
                                 Rectangle().fill(LitheTheme.accent).frame(height: 2)
                             }
                         }
                     }
                 }
             }
-            Button { model.databaseFeature.addSQLTab() } label: { Image(systemName: "plus") }
+            Button { feature.addSQLTab() } label: { Image(systemName: "plus") }
                 .litheIconButton()
                 .help("New query tab")
                 .padding(.horizontal, 5)
@@ -576,62 +577,60 @@ struct DatabaseSQLWorkspaceView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .disabled(model.databaseFeature.selectedSQLTab?.isRunning == true || model.databaseFeature.selectedProfile == nil)
+            .disabled(feature.selectedSQLTab?.isRunning == true || feature.selectedProfile == nil)
             .help(hasSQLSelection ? "Run selected SQL (Command-Return)" : "Run all SQL (Command-Return)")
 
-            Menu {
-                Button { runAllQuery() } label: {
-                    Label("Run All", systemImage: "play.fill")
-                }
-                Button { runSelectionQuery() } label: {
-                    Label("Run Selection", systemImage: "text.cursor")
-                }
-                .disabled(!hasSQLSelection)
+            LitheMenu {
+                LitheContextMenuItem.action("Run All", systemImage: "play.fill") { runAllQuery() }
+                LitheContextMenuItem.action("Run Selection", systemImage: "text.cursor") { runSelectionQuery() }
+                    .disabled(!hasSQLSelection)
             } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
             .frame(width: 18)
-            .disabled(model.databaseFeature.selectedSQLTab?.isRunning == true || model.databaseFeature.selectedProfile == nil)
+            .disabled(feature.selectedSQLTab?.isRunning == true || feature.selectedProfile == nil)
             .help("Choose SQL execution scope")
 
-            Button { if let id = model.databaseFeature.selectedSQLTabID { model.databaseFeature.formatSQL(in: id) } } label: {
+            Button { if let id = feature.selectedSQLTabID { feature.formatSQL(in: id) } } label: {
                 Image(systemName: "text.alignleft")
             }
             .litheIconButton()
-            .disabled(model.databaseFeature.selectedSQLTab?.sql.isEmpty != false)
+            .disabled(feature.selectedSQLTab?.sql.isEmpty != false)
             .help("Format SQL")
 
-            Menu {
+            LitheMenu {
                 let history = historyForSelectedProfile
                 if history.isEmpty {
-                    Text("No query history")
+                    LitheContextMenuItem.heading("No query history")
                 } else {
-                    ForEach(history) { entry in
-                        Button(historyLabel(entry)) { model.databaseFeature.restoreSQLHistory(entry) }
+                    for entry in history {
+                        LitheContextMenuItem.action(historyLabel(entry)) {
+                            feature.restoreSQLHistory(entry)
+                        }
                     }
                 }
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
             .frame(width: 28)
             .help("Query history")
 
-            if let execution = model.databaseFeature.selectedSQLTab?.execution {
+            if let execution = feature.selectedSQLTab?.execution {
                 executionLabel(execution)
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer()
-            if let profile = model.databaseFeature.selectedProfile {
+            if let profile = feature.selectedProfile {
                 Text(profile.database.isEmpty ? (profile.path.isEmpty ? profile.name : profile.path) : profile.database)
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
             } else {
                 Text("No connection")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.warning)
             }
         }
@@ -642,13 +641,13 @@ struct DatabaseSQLWorkspaceView: View {
 
     @ViewBuilder
     private var editor: some View {
-        if let tab = model.databaseFeature.selectedSQLTab {
+        if let tab = feature.selectedSQLTab {
             SQLSyntaxEditor(
                 text: Binding(
-                    get: { model.databaseFeature.selectedSQLTab?.sql ?? "" },
-                    set: { model.databaseFeature.updateSQL($0, in: tab.id) }
+                    get: { feature.selectedSQLTab?.sql ?? "" },
+                    set: { feature.updateSQL($0, in: tab.id) }
                 ),
-                completions: model.databaseFeature.sqlCompletionItems,
+                completions: feature.sqlCompletionItems,
                 onRun: runSelectedQuery,
                 onSelectionChange: { sqlSelection = $0 }
             )
@@ -661,7 +660,7 @@ struct DatabaseSQLWorkspaceView: View {
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
                     }
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.error)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -676,19 +675,19 @@ struct DatabaseSQLWorkspaceView: View {
 
     @ViewBuilder
     private var results: some View {
-        if let tab = model.databaseFeature.selectedSQLTab,
+        if let tab = feature.selectedSQLTab,
            let result = tab.result {
             DatabaseQueryResultGrid(columns: tab.resultColumns, rows: result.rows)
                 .overlay(alignment: .topTrailing) {
                     if result.truncated {
                         Text("Limited to 10,000 rows")
-                            .font(.system(size: 10.5))
+                            .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(LitheTheme.warning)
                             .padding(8)
                     }
                 }
-        } else if let affected = model.databaseFeature.selectedSQLTab?.rowsAffected {
-            let count = model.databaseFeature.selectedSQLTab.map { model.databaseFeature.analysis(forSQLTab: $0.id).statementCount } ?? 1
+        } else if let affected = feature.selectedSQLTab?.rowsAffected {
+            let count = feature.selectedSQLTab.map { feature.analysis(forSQLTab: $0.id).statementCount } ?? 1
             LitheUnavailableView(count > 1 ? "Statements completed" : "Statement completed", systemImage: "checkmark.circle", description: Text("Rows affected: \(affected)"))
                 .foregroundStyle(LitheTheme.secondaryText)
         } else {
@@ -698,8 +697,8 @@ struct DatabaseSQLWorkspaceView: View {
     }
 
     private var historyForSelectedProfile: [DatabaseSQLHistoryEntry] {
-        guard let profileID = model.databaseFeature.selectedProfileID else { return [] }
-        return model.databaseFeature.sqlHistory.filter { $0.profileID == profileID }
+        guard let profileID = feature.selectedProfileID else { return [] }
+        return feature.sqlHistory.filter { $0.profileID == profileID }
     }
 
     private func runSelectedQuery() {
@@ -720,15 +719,15 @@ struct DatabaseSQLWorkspaceView: View {
     }
 
     private func run(scope: DatabaseSQLExecutionScope) {
-        guard let tabID = model.databaseFeature.selectedSQLTabID else { return }
-        let analysis = model.databaseFeature.analysis(forSQLTab: tabID, scope: scope)
+        guard let tabID = feature.selectedSQLTabID else { return }
+        let analysis = feature.analysis(forSQLTab: tabID, scope: scope)
         if analysis.requiresConfirmation {
             pendingRisk = analysis
             pendingScope = scope
             pendingTabID = tabID
             showsRiskConfirmation = true
         } else {
-            Task { await model.databaseFeature.runSQL(in: tabID, scope: scope) }
+            Task { await feature.runSQL(in: tabID, scope: scope) }
         }
     }
 
@@ -763,13 +762,13 @@ private struct DatabaseQueryResultGrid: View {
                         ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                             HStack(spacing: 0) {
                                 Text("\(index + 1)")
-                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .frame(width: 44, height: 27)
                                     .background(LitheTheme.toolHeader)
                                 ForEach(columns, id: \.self) { column in
                                     Text(display(row[column]))
-                                        .font(.system(size: 11.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                                         .lineLimit(1)
                                         .truncationMode(.tail)
                                         .padding(.horizontal, 7)
@@ -784,7 +783,7 @@ private struct DatabaseQueryResultGrid: View {
                             Text("#").frame(width: 44, height: 29)
                             ForEach(columns, id: \.self) { column in
                                 Text(column)
-                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                                     .lineLimit(1)
                                     .padding(.horizontal, 7)
                                     .frame(width: 180, height: 29, alignment: .leading)
@@ -807,31 +806,32 @@ private struct DatabaseQueryResultGrid: View {
 
 private struct DatabaseStructureView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @State private var editor: DatabaseSchemaEditorKind?
     @State private var pendingChange: DatabaseSchemaChange?
     @State private var showsDestructiveConfirmation = false
 
     var body: some View {
-        if let table = model.databaseFeature.selectedTable {
+        if let table = feature.selectedTable {
             VStack(spacing: 0) {
                 HStack(spacing: 5) {
-                    Text(table).font(.system(size: 12.5, weight: .semibold))
+                    Text(table).font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                     Spacer()
                     Button { editor = .column } label: { Image(systemName: "plus") }.litheIconButton().help("Add column")
                     Button { editor = .index } label: { Image(systemName: "plus.square.on.square") }.litheIconButton().help("Add index")
                     Button { editor = .foreignKey } label: { Image(systemName: "link.badge.plus") }.litheIconButton().help("Add foreign key")
-                    Button { Task { await model.databaseFeature.openTable(table) } } label: { Image(systemName: "arrow.clockwise") }.litheIconButton().help("Refresh structure")
+                    Button { Task { await feature.openTable(table) } } label: { Image(systemName: "arrow.clockwise") }.litheIconButton().help("Refresh structure")
                 }
                 .padding(.horizontal, 10).frame(height: 36).background(LitheTheme.toolHeader)
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 List {
                     Section("Columns") {
-                        ForEach(model.databaseFeature.columns, id: \.self) { column in
+                        ForEach(feature.columns, id: \.self) { column in
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(column)
-                                    Text(model.databaseFeature.columnTypes[column] ?? "")
-                                        .font(.system(size: 10.5, design: .monospaced))
+                                    Text(feature.columnTypes[column] ?? "")
+                                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                 }
                                 Spacer()
@@ -858,14 +858,14 @@ private struct DatabaseStructureView: View {
                         }
                     }
                     Section("Indexes") {
-                        if model.databaseFeature.indexes.isEmpty { Text("No indexes").foregroundStyle(LitheTheme.secondaryText) }
-                        ForEach(Array(model.databaseFeature.indexes.enumerated()), id: \.offset) { _, row in
+                        if feature.indexes.isEmpty { Text("No indexes").foregroundStyle(LitheTheme.secondaryText) }
+                        ForEach(Array(feature.indexes.enumerated()), id: \.offset) { _, row in
                             Text(metadata(row))
                         }
                     }
                     Section("Foreign Keys") {
-                        if model.databaseFeature.foreignKeys.isEmpty { Text("No foreign keys").foregroundStyle(LitheTheme.secondaryText) }
-                        ForEach(Array(model.databaseFeature.foreignKeys.enumerated()), id: \.offset) { _, row in
+                        if feature.foreignKeys.isEmpty { Text("No foreign keys").foregroundStyle(LitheTheme.secondaryText) }
+                        ForEach(Array(feature.foreignKeys.enumerated()), id: \.offset) { _, row in
                             Text(metadata(row))
                         }
                     }
@@ -876,10 +876,10 @@ private struct DatabaseStructureView: View {
                 DatabaseSchemaEditorView(
                     kind: editor,
                     table: table,
-                    columns: model.databaseFeature.columns,
+                    columns: feature.columns,
                     onSave: { change in
                         self.editor = nil
-                        Task { _ = await model.databaseFeature.applySchemaChange(change, confirmed: false) }
+                        Task { _ = await feature.applySchemaChange(change, confirmed: false) }
                     }
                 )
                 .environment(\.locale, model.settings.language.locale)
@@ -888,7 +888,7 @@ private struct DatabaseStructureView: View {
             .alert("Drop database object?", isPresented: $showsDestructiveConfirmation, presenting: pendingChange) { change in
                 Button("Cancel", role: .cancel) { pendingChange = nil }
                 Button("Drop", role: .destructive) {
-                    Task { _ = await model.databaseFeature.applySchemaChange(change, confirmed: true) }
+                    Task { _ = await feature.applySchemaChange(change, confirmed: true) }
                     pendingChange = nil
                 }
             } message: { change in
@@ -947,7 +947,7 @@ private struct DatabaseSchemaEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(LocalizedStringKey(title)).font(.system(size: 15, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading).padding(16)
+            Text(LocalizedStringKey(title)).font(LitheTheme.uiFont(size: 15, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading).padding(16)
             Form {
                 switch kind {
                 case .column:
@@ -1027,29 +1027,23 @@ private struct DatabaseSchemaEditorView: View {
 
 private struct DatabaseDiagnosticsView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @State private var diagnosticKind = "tableSize"
     @State private var pendingRollback: DatabaseRecoveryPoint?
     @State private var showsRollbackConfirmation = false
     @State private var showsBackupSchedule = false
 
     var body: some View {
-        let tab = model.databaseFeature.selectedSQLTab
-        let analysis = tab.map { model.databaseFeature.analysis(forSQLTab: $0.id) }
+        let tab = feature.selectedSQLTab
+        let analysis = tab.map { feature.analysis(forSQLTab: $0.id) }
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Picker("Diagnostic", selection: $diagnosticKind) {
-                    Text("Table size").tag("tableSize")
-                    Text("Locks").tag("locks")
-                    Text("Slow queries").tag("slowQueries")
-                    Text("Indexes").tag("indexes")
-                    Text("Data quality").tag("dataQuality")
-                    Text("Schema impact").tag("schemaImpact")
-                }
+                LitheSettingsSelect(selection: $diagnosticKind, options: ["tableSize", "locks", "slowQueries", "indexes", "dataQuality", "schemaImpact"], width: 170, accessibilityLabel: "Diagnostic", title: { ["tableSize": "Table size", "locks": "Locks", "slowQueries": "Slow queries", "indexes": "Indexes", "dataQuality": "Data quality", "schemaImpact": "Schema impact"][$0] ?? $0 })
                 .frame(width: 170)
                 Button { loadDiagnostics() } label: { Image(systemName: "arrow.clockwise") }.litheIconButton().help("Run diagnostic")
-                Button { if let profileID = model.databaseFeature.selectedProfileID { Task { _ = await model.databaseFeature.createBackup(profileID: profileID) } } } label: { Image(systemName: "archivebox") }.litheIconButton().help("Create database backup")
+                Button { if let profileID = feature.selectedProfileID { Task { _ = await feature.createBackup(profileID: profileID) } } } label: { Image(systemName: "archivebox") }.litheIconButton().help("Create database backup")
                 Button { showsBackupSchedule = true } label: { Image(systemName: "calendar.badge.clock") }.litheIconButton().help("Configure backup schedule")
-                if let progress = model.databaseFeature.backupProgress {
+                if let progress = feature.backupProgress {
                     ProgressView(value: progress)
                         .frame(width: 90)
                         .help("Backing up database")
@@ -1075,8 +1069,8 @@ private struct DatabaseDiagnosticsView: View {
                     }
                 }
                 Section("Execution log") {
-                    let events = model.databaseFeature.executionEvents
-                        .filter { $0.profileID == model.databaseFeature.selectedProfileID }
+                    let events = feature.executionEvents
+                        .filter { $0.profileID == feature.selectedProfileID }
                         .prefix(20)
                     if events.isEmpty {
                         Text("No execution events yet").foregroundStyle(LitheTheme.secondaryText)
@@ -1088,20 +1082,20 @@ private struct DatabaseDiagnosticsView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack {
                                         Text("\(event.source.rawValue.uppercased()) · \(event.operation)")
-                                            .font(.system(size: 11, weight: .medium))
+                                            .font(LitheTheme.uiFont(size: 11, weight: .medium))
                                         Spacer()
                                         Text("\(event.durationMilliseconds) ms")
-                                            .font(.system(size: 10, design: .monospaced))
+                                            .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                                             .foregroundStyle(LitheTheme.secondaryText)
                                     }
                                     if let error = event.errorMessage {
                                         Text(error)
-                                            .font(.system(size: 10))
+                                            .font(LitheTheme.uiFont(size: 10))
                                             .foregroundStyle(LitheTheme.error)
                                             .lineLimit(2)
                                     } else if let rows = event.rowsReturned {
                                         Text("\(rows) rows returned")
-                                            .font(.system(size: 10))
+                                            .font(LitheTheme.uiFont(size: 10))
                                             .foregroundStyle(LitheTheme.secondaryText)
                                     }
                                 }
@@ -1110,8 +1104,8 @@ private struct DatabaseDiagnosticsView: View {
                     }
                 }
                 Section("Recent executions") {
-                    let entries = model.databaseFeature.sqlHistory
-                        .filter { $0.profileID == model.databaseFeature.selectedProfileID }
+                    let entries = feature.sqlHistory
+                        .filter { $0.profileID == feature.selectedProfileID }
                         .prefix(10)
                     if entries.isEmpty {
                         Text("No executed SQL yet").foregroundStyle(LitheTheme.secondaryText)
@@ -1122,11 +1116,11 @@ private struct DatabaseDiagnosticsView: View {
                                     DatabaseLocalization.statementKind(entry.kind)
                                     Spacer()
                                     Text("\(entry.durationMilliseconds) ms")
-                                        .font(.system(size: 11, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                 }
                                 Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .lineLimit(1)
                                     .textSelection(.enabled)
@@ -1135,14 +1129,14 @@ private struct DatabaseDiagnosticsView: View {
                     }
                 }
                 Section("Recovery points") {
-                    let points = model.databaseFeature.recoveryPoints.prefix(10)
+                    let points = feature.recoveryPoints.prefix(10)
                     if points.isEmpty { Text("No recovery point yet").foregroundStyle(LitheTheme.secondaryText) }
                     ForEach(points) { point in
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 DatabaseLocalization.text(point.reason)
                                 Text("\(point.byteCount) bytes")
-                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                             }
                             Spacer()
@@ -1152,8 +1146,8 @@ private struct DatabaseDiagnosticsView: View {
                     }
                 }
                 Section("Audit") {
-                    let entries = model.databaseFeature.auditEntries
-                        .filter { $0.profileID == model.databaseFeature.selectedProfileID }
+                    let entries = feature.auditEntries
+                        .filter { $0.profileID == feature.selectedProfileID }
                         .prefix(10)
                     if entries.isEmpty {
                         Text("No audit entries yet").foregroundStyle(LitheTheme.secondaryText)
@@ -1170,7 +1164,7 @@ private struct DatabaseDiagnosticsView: View {
                 }
             }
             .listStyle(.inset)
-            if let result = model.databaseFeature.lastDiagnostics {
+            if let result = feature.lastDiagnostics {
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 let columns = result.columns ?? result.rows.reduce(into: [String]()) { columns, row in
                     for key in row.keys where !columns.contains(key) { columns.append(key) }
@@ -1182,14 +1176,14 @@ private struct DatabaseDiagnosticsView: View {
         .alert("Restore recovery point?", isPresented: $showsRollbackConfirmation, presenting: pendingRollback) { point in
             Button("Cancel", role: .cancel) { pendingRollback = nil }
             Button("Restore", role: .destructive) {
-                Task { _ = await model.databaseFeature.rollback(to: point) }
+                Task { _ = await feature.rollback(to: point) }
                 pendingRollback = nil
             }
         } message: { point in
             Text("This will restore the saved SQL snapshot from \(point.reason). Current data may be overwritten.")
         }
         .sheet(isPresented: $showsBackupSchedule) {
-            if let profile = model.databaseFeature.selectedProfile {
+            if let profile = feature.selectedProfile {
                 DatabaseBackupScheduleEditor(profile: profile)
                     .environment(\.locale, model.settings.language.locale)
                     .id(model.settings.language)
@@ -1199,14 +1193,14 @@ private struct DatabaseDiagnosticsView: View {
 
     private func loadDiagnostics() {
         Task {
-            _ = await model.databaseFeature.loadDiagnostics(DatabaseDiagnosticsRequest(kind: diagnosticKind, schema: "", table: model.databaseFeature.selectedTable ?? ""))
+            _ = await feature.loadDiagnostics(DatabaseDiagnosticsRequest(kind: diagnosticKind, schema: "", table: feature.selectedTable ?? ""))
         }
     }
 }
 
 private struct DatabaseBackupScheduleEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     let profile: DatabaseProfile
     @State private var enabled = true
     @State private var intervalHours = 24
@@ -1214,7 +1208,7 @@ private struct DatabaseBackupScheduleEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("Backup Schedule").font(.system(size: 15, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading).padding(16)
+            Text("Backup Schedule").font(LitheTheme.uiFont(size: 15, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading).padding(16)
             Form {
                 LabeledContent("Connection") { Text(profile.name) }
                 Toggle("Enable scheduled backups", isOn: $enabled)
@@ -1228,7 +1222,7 @@ private struct DatabaseBackupScheduleEditor: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
-                    model.databaseFeature.configureBackupSchedule(profileID: profile.id, isEnabled: enabled, intervalHours: intervalHours, retentionCount: retentionCount)
+                    feature.configureBackupSchedule(profileID: profile.id, isEnabled: enabled, intervalHours: intervalHours, retentionCount: retentionCount)
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -1237,7 +1231,7 @@ private struct DatabaseBackupScheduleEditor: View {
         }
         .frame(width: 420, height: 280)
         .onAppear {
-            if let schedule = model.databaseFeature.backupSchedules.first(where: { $0.profileID == profile.id }) {
+            if let schedule = feature.backupSchedules.first(where: { $0.profileID == profile.id }) {
                 enabled = schedule.isEnabled
                 intervalHours = schedule.intervalHours
                 retentionCount = schedule.retentionCount
@@ -1265,7 +1259,7 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
         let textView = SQLTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
         textView.delegate = context.coordinator
         textView.string = text
-        textView.font = .monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        textView.font = LitheTheme.uiNSFont(size: 12.5, weight: .regular)
         applyAppearance(to: textView, in: scrollView, isDark: isDark)
         textView.textContainerInset = NSSize(width: 11, height: 9)
         textView.isRichText = false
@@ -1414,7 +1408,7 @@ private enum SQLSyntaxHighlighter {
             : NSColor(srgbRed: 0.16, green: 0.17, blue: 0.19, alpha: 1)
         storage.beginEditing()
         storage.setAttributes([
-            .font: NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular),
+            .font: LitheTheme.uiNSFont(size: 12.5, weight: .regular),
             .foregroundColor: textColor
         ], range: range)
         apply(pattern: "(?i)\\b(SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|DELETE|MERGE|REPLACE|CREATE|ALTER|DROP|TRUNCATE|TABLE|VIEW|INDEX|DATABASE|SCHEMA|TRIGGER|PROCEDURE|FUNCTION|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|AND|OR|NOT|NULL|IS|IN|EXISTS|BETWEEN|LIKE|DISTINCT|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|UNION|ALL|WITH|RETURNING|SET|SHOW|DESCRIBE|DESC|EXPLAIN|PRAGMA|BEGIN|COMMIT|ROLLBACK|GRANT|REVOKE)\\b", color: isDark ? NSColor(srgbRed: 0.43, green: 0.67, blue: 0.98, alpha: 1) : NSColor(srgbRed: 0.10, green: 0.39, blue: 0.72, alpha: 1), in: storage)

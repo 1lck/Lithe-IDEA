@@ -67,6 +67,9 @@ export interface ExtensionManifest {
   icons?: IconThemeContribution[];
   iconThemes?: IconThemeContribution[];
 
+  // Manifest files and executable names available to an installed worker plugin.
+  runActions?: { manifestFiles: string[]; executables: string[] };
+
   // LSP configuration
   lsp?: LspConfiguration;
 
@@ -153,6 +156,7 @@ export interface LanguageContribution {
 }
 
 export interface LspConfiguration {
+  requiredExecutables?: string[];
   // Tool metadata for runtime installation
   name?: string;
   runtime?: ToolRuntime;
@@ -248,6 +252,8 @@ export interface IntegrationContribution {
 }
 
 export interface ExtensionPermissions {
+  /** Access the IDE API only for projects explicitly enabled in Project Environment. */
+  ide?: boolean;
   network?: string[];
   secrets?: boolean;
   workspace?: "read";
@@ -432,7 +438,7 @@ export interface Snippet {
 }
 
 interface InstallationMetadata {
-  type?: "download" | "bundled";
+  type?: "download" | "bundled" | "local";
 
   // Download URL for the extension package (used when no platform-specific packages)
   downloadUrl?: string;

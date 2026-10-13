@@ -5,6 +5,7 @@ import LitheCoreContracts
 @MainActor
 public final class TerminalSession: ObservableObject, Identifiable {
     public let id = UUID()
+    public let preferredToolTabTitle: String?
     @Published public private(set) var isRunning = false
     @Published public private(set) var isReady = false
     @Published public private(set) var isManagedProcess = false
@@ -25,8 +26,9 @@ public final class TerminalSession: ObservableObject, Identifiable {
     private var selectedShellPath: String?
     private var outputDecoder = StreamingUTF8Decoder()
 
-    public init(transport: any TerminalTransport) {
+    public init(transport: any TerminalTransport, preferredToolTabTitle: String? = nil) {
         self.transport = transport
+        self.preferredToolTabTitle = preferredToolTabTitle
         transport.onTermination = { [weak self] exitCode in
             guard let self else { return }
             finishDecodedOutput()

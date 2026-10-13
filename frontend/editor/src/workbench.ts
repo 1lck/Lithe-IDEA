@@ -1,4 +1,5 @@
 import { runEditorCommand } from "./editor-commands";
+import { installWordHighlightLifecycle } from "./word-highlight-lifecycle";
 import { IBulkEditService } from "monaco-editor/esm/vs/editor/browser/services/bulkEditService.js";
 import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js";
 import { mountNativeFind, type NativeFindInput } from "./native-find";
@@ -276,7 +277,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     banner.style.display = "block";
     banner.textContent = `编辑器同步失败，请保留窗口和未保存内容：${String(error)}`;
     for (const view of allEditors()) view.updateOptions({ readOnly: true });
-    void send({ type: "failure", message: String(error) }).catch(console.error);
+    void send({ type: "failure", message: String(error), stack: error instanceof Error ? error.stack : undefined }).catch(console.error);
   }
   addEventListener("unhandledrejection", event => {
     if (isCancellationError(event.reason)) { event.preventDefault(); return; }
@@ -836,6 +837,7 @@ export function mountWorkbench(host: WorkbenchHost) {
         let surface = surfaces.get(surfaceID);
         if (!surface) {
           const view = monaco.editor.create(container, { ...displayOptions, model: null });
+          installWordHighlightLifecycle(view);
           attachDebugInteractions(view);
           surface = { editor: view, id: payload.id, states: new Map() };
           surfaces.set(surfaceID, surface);
@@ -1128,6 +1130,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       glyphMargin: true, scrollBeyondLastLine: false, fixedOverflowWidgets: true, "semanticHighlighting.enabled": true,
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
+    installWordHighlightLifecycle(editor);
     attachDebugInteractions(editor);
     editor.onDidLayoutChange(preserveMarkdownScroll);
     editor.onDidScrollChange(event => {

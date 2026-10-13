@@ -11,7 +11,8 @@ const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> =
   }
   return { patch: "", files: [], byteLength: 0 };
 });
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 const { applyGitPatch, exportGitPatch } = await import("./git-patch-api");
 
 beforeEach(() => {

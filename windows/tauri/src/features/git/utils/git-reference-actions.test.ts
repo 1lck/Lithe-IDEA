@@ -76,12 +76,13 @@ describe("Git reference actions", () => {
     expect(suggestWorktreeBranchName(remote)).toBe("orders-worktree");
   });
 
-  test("offers only checkout, branch creation, and comparisons for tags", () => {
+  test("offers checkout, branch creation, comparisons, and local deletion for tags", () => {
     expect(getGitReferenceActions(reference("tag", "v1.0.0"))).toEqual([
       "checkout",
       "createBranch",
       "compareWithCurrent",
       "diffWithWorkingTree",
+      "deleteTag",
     ]);
   });
 
@@ -107,6 +108,13 @@ describe("Git reference actions", () => {
       canDeleteBranch: true,
       canCompareWithCurrent: true,
     });
+    // Ahead/behind is only a cached local view; Update must fetch even at zero or unknown behind.
+    for (const branch of [current, behind]) {
+      for (const behindCount of [0, undefined]) {
+        expect(getGitReferenceToolbarState({ ...branch, behind: behindCount }, current, false).canUpdateSelected).toBe(true);
+      }
+    }
+    expect(getGitReferenceToolbarState({ ...current, upstreamShortName: undefined }, current, false).canUpdateSelected).toBe(false);
     expect(
       getGitReferenceToolbarState(reference("local", "feature"), current, false),
     ).toMatchObject({

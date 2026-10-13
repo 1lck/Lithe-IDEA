@@ -2,6 +2,7 @@ import type {
   GitOperationState,
   GitPullPreflight,
   GitPullResult,
+  GitReference,
   PullStrategy,
 } from "../types/git.types";
 
@@ -13,12 +14,31 @@ interface RemoteActionResult {
 export interface GitPullWorkflowDependencies {
   fetch: (repoPath: string) => Promise<RemoteActionResult>;
   preflight: (repoPath: string) => Promise<GitPullPreflight>;
-  pull: (repoPath: string, strategy: PullStrategy) => Promise<RemoteActionResult>;
+  /** Pulls the configured upstream, or the explicit `reference` when the Pull dialog chose another branch. */
+  pull: (
+    repoPath: string,
+    strategy: PullStrategy,
+    reference?: GitReference,
+    expectedBranch?: string,
+  ) => Promise<RemoteActionResult>;
   operationState: (repoPath: string) => Promise<GitOperationState | null>;
 }
 
 export interface GitPullWorkflowOptions {
   refresh: () => Promise<void>;
+  /**
+   * Strategy confirmed in Pull or selected by a background update. Merge/rebase
+   * skips the divergent-history prompt; ffOnly may prompt unless explicitly disabled.
+   */
+  strategy?: PullStrategy;
+  /** Remote branch to pull into the current branch instead of the configured upstream. */
+  reference?: GitReference;
+  /** Background fast-forward updates must fail rather than wait for a dialog host. */
+  allowStrategyPrompt?: boolean;
+  /** Complete local ref selected by a background update, not a new Pull source. */
+  expectedBranch?: string;
+  /** Revalidate that the worktree still has the selected branch checked out. */
+  validateBranch?: () => Promise<boolean>;
 }
 
 export interface GitPullWorkflowSnapshot {
@@ -79,6 +99,10 @@ export class GitPullWorkflow {
         };
       }
 
+      if (options.validateBranch && !(await options.validateBranch())) {
+        return { status: "blocked", reason: "state-changed" };
+      }
+
       let preflight: GitPullPreflight;
       try {
         preflight = await this.dependencies.preflight(repoPath);
@@ -90,7 +114,9 @@ export class GitPullWorkflow {
         };
       }
 
-      if (!preflight.upstream) {
+      // A dialog-selected branch is pulled explicitly, so the current branch's
+      // upstream must not gate it; Git rejects an incompatible target itself.
+      if (!options.reference && !preflight.upstream) {
         return {
           status: "blocked",
           reason: "no-upstream",
@@ -104,15 +130,26 @@ export class GitPullWorkflow {
         };
       }
 
-      if (preflight.behind === 0 && !preflight.diverged) {
+      // "Up to date" is a property of the configured upstream, not of an
+      // arbitrary branch the user chose to pull from.
+      if (!options.reference && preflight.behind === 0 && !preflight.diverged) {
         return {
           status: "blocked",
           reason: "up-to-date",
         };
       }
 
-      let strategy: PullStrategy = "ffOnly";
-      if (preflight.diverged) {
+      let strategy: PullStrategy = options.strategy ?? "ffOnly";
+      // Merge/rebase has a selected policy. Background fast-forward updates fail
+      // on divergence; interactive Pull can still ask the user to choose.
+      if (preflight.diverged && (!options.strategy || options.strategy === "ffOnly")) {
+        if (options.allowStrategyPrompt === false) {
+          return {
+            status: "failed",
+            stage: "pull",
+            error: "The selected branch cannot be fast-forwarded",
+          };
+        }
         const selectedStrategy = await this.waitForStrategy(preflight);
         if (!selectedStrategy) {
           return { status: "cancelled" };
@@ -150,7 +187,10 @@ export class GitPullWorkflow {
         strategy = selectedStrategy;
       }
 
-      const pulled = await this.dependencies.pull(repoPath, strategy);
+      if (options.validateBranch && !(await options.validateBranch())) {
+        return { status: "blocked", reason: "state-changed" };
+      }
+      const pulled = await this.dependencies.pull(repoPath, strategy, options.reference, options.expectedBranch);
       if (pulled.success) {
         return { status: "pulled", strategy };
       }

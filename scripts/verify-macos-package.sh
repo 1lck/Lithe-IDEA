@@ -8,10 +8,10 @@ java_debug_server_version="$(
     /usr/bin/plutil -extract javaDebugServerVersion raw -o - third_party/jdtls/manifest.json
 )"
 java_debug_plugin_name="com.microsoft.java.debug.plugin-$java_debug_server_version.jar"
-java_test_extension_version="$(
-    /usr/bin/plutil -extract javaTestExtensionVersion raw -o - third_party/jdtls/manifest.json
+java_test_plugin_version="$(
+    /usr/bin/plutil -extract javaTestPluginVersion raw -o - third_party/jdtls/manifest.json
 )"
-java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_extension_version.jar"
+java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_plugin_version.jar"
 java_test_runner_name="com.microsoft.java.test.runner-jar-with-dependencies.jar"
 
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/lithe-package-verification.XXXXXX")
@@ -73,6 +73,7 @@ java_test_extension_bundles=(
 )
 for bundle in "${java_test_extension_bundles[@]}"; do
     : > "$jdtls_root/java-test/extensions/$bundle"
+    print -r -- "$bundle" >> "$jdtls_root/java-test/extensions.txt"
 done
 : > "$jdtls_root/java-test/runner/$java_test_runner_name"
 : > "$jdtls_root/java-test/LICENSE-MIT.txt"
@@ -130,6 +131,7 @@ required_executables=(
     "$app_path/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater"
     "$app_path/Contents/Helpers/lithe-db-sidecar"
     "$app_path/Contents/Helpers/lithe-db-mcp"
+    "$app_path/Contents/Helpers/lithe-mcp"
 )
 for executable in "${required_executables[@]}"; do
     if [[ ! -x "$executable" ]]; then
@@ -141,6 +143,49 @@ done
 required_resources=(
     "$app_path/Contents/Info.plist"
     "$app_path/Contents/Resources/Lithe_Lithe.bundle"
+    "$app_path/Contents/Resources/Fonts/Inter-Black.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-BlackItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Bold.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-BoldItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-ExtraBold.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-ExtraBoldItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-ExtraLight.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-ExtraLightItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Italic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Light.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-LightItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Medium.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-MediumItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Regular.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-SemiBold.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-SemiBoldItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Thin.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-ThinItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-LICENSE.txt"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Bold.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-BoldItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-ExtraBold.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-ExtraBoldItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-ExtraLight.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-ExtraLightItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Italic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Light.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-LightItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Medium.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-MediumItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Regular.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-SemiBold.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-SemiBoldItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Thin.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-ThinItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMonoNerdFontMono-Regular.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMonoNerdFontMono-Bold.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMonoNerdFontMono-Italic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMonoNerdFontMono-BoldItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMonoNerdFont-OFL.txt"
+    "$app_path/Contents/Resources/Fonts/OFL.txt"
+    "$app_path/Contents/Resources/Fonts/AUTHORS.txt"
+    "$app_path/Contents/Resources/Fonts/NOTICE.txt"
     "$app_path/Contents/Resources/SwiftTerm_SwiftTerm.bundle/Shaders.metal"
     "$app_path/Contents/Resources/MonacoEditor/index.html"
     "$app_path/Contents/Resources/MonacoEditor/workbench.js"
@@ -184,6 +229,11 @@ done
 /usr/bin/lipo \
     "$app_path/Contents/Resources/LanguageServers/jdk-x86_64/bin/java" \
     -verify_arch x86_64
+
+if [[ -e "$app_path/Contents/Resources/OfficialPlugins/dev.lithe.plugin.php-support" ]]; then
+    print -u2 -- "Optional PHP support must not be bundled with Lithe"
+    exit 1
+fi
 
 plugin_manifests=("$app_path/Contents/Resources/OfficialPlugins"/*/plugin.json(N))
 if (( ${#plugin_manifests[@]} == 0 )); then

@@ -10,8 +10,8 @@ verification scripts are the executable source of boundary checks.
 
 - All payloads are UTF-8 JSON when exchanged across a process or language boundary.
 - Workspace paths are relative to the opened workspace and use `/` separators.
-- Absolute paths may appear at native editor/process boundaries and as LSP
-  `file://` URIs, but are not persisted as cross-platform identifiers.
+- Absolute paths may appear at native editor/process boundaries and as LSP/ACP
+  `file://` resource URIs, but are not persisted as cross-platform identifiers.
 - Product-facing line numbers are one-based. Editor/LSP positions explicitly use
   zero-based lines and UTF-16 columns. Missing locations are `null`.
 - Lists have deterministic ordering so contract fixtures can be compared directly.
@@ -20,14 +20,50 @@ verification scripts are the executable source of boundary checks.
 
 ## Feature Contracts
 
+Shared Monaco highlighting is owned by the current view/model pair. A queued
+callback for a closed or replaced model must finish without running against the
+new model or locking surviving documents. Primary, split and diff views share
+this lifecycle protection; actual symbol computation remains upstream-owned.
+
+Agent prompt completion may include Agent-reported token counters; their accounting
+scope belongs to the provider and is separate from context occupancy and subscription
+quota. Platforms may measure locally observed turns with a monotonic clock, including
+tools and permission waits, and freeze elapsed time at completion, failure or disconnect.
+Normal Agent turns and permission decisions have no total-duration deadline. Quiet
+activity notices are advisory and retain the busy turn; stop remains acknowledged
+with bounded process cleanup. Missing usage and unmeasured replayed history remain
+unknown. See the
+[Agent host contract](rust-core-api.md) and `fixtures/agent/acp-events-v1.json`.
+
+Agent activity presentation uses the selected session's reported plan, pending
+tools and file diffs. Review acknowledgements are local to the exact reported
+version; later edits remain reviewable and start after the acknowledged prefix.
+The same open session retains its acknowledgements through disconnects and history
+reloads; closing its tab releases them. Replay must still match the exact version
+or prefix, so changed upstream evidence is never hidden by a stale acknowledgement.
+Reported excerpts and missing original content are not full-file snapshots.
+Native rollback is an explicit user action: preserve dirty editor buffers,
+reject paths outside the workspace and ambiguous or incomplete evidence, retain
+unrelated text, and use guarded native writes preserving encoding. Creation
+requires explicit evidence before recoverable removal. Reject replacement terminal
+symlinks instead of following them. Guard removal with the expected byte identity
+and the native save lock; verify the actual moved object, restore it on conflict
+without overwriting a recreated path, and report any manual recovery location.
+Unsupported adapters must reject removal rather than use unchecked Trash.
+Restoring a deletion
+requires the path to remain absent. Batch failures retain unprocessed changes.
+These presentation actions do not add Agent Host commands or persist chat history.
+
 | Feature | Shared input/output | Platform-owned implementation |
 | --- | --- | --- |
 | Workspace | visible snapshot, relative paths, file metadata, deterministic ordering | workspace root selection, native dialogs, and watchers |
-| Documents | relative-path validation, UTF-8 read/write results, dirty/save state | native file integration and external-change notifications |
+| Documents | relative-path validation, decoded text, selected encoding, dirty/save state, and conflict outcome | native byte conversion, atomic write, and external-change notifications |
 | Search | query matching, deterministic result ordering, symbols, and replacement preview | workspace lifecycle and optional index persistence |
-| Git | changes, commits, branches, diffs, reviewed history actions and recovery, worktree listing and safe management, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment, opening checkout paths |
+| Git | workspace commit plans with optional immutable ChangeList path scopes, dependency ordering, guarded steps and partial-success retry, changes, commits, branches, diffs, reviewed history actions and recovery, worktree listing and safe management, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment, opening checkout paths, local ChangeList selection and preference persistence |
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
 | [AI commit messages](ai-commit.md) | provider configuration parsing, commit rules, bounded diff evidence, request plans, and response text | local configuration discovery, credentials, HTTP, cancellation, and draft UI |
+| Agent conversation (ACP) | supported-agent catalog, Node.js/npm detection, adapter install with the user's npm and numbers-only live download progress, CLI provenance and owner-preserving updates, per-agent API-key and model delivery over ACP stdio (Codex gateway authentication; Claude public session options), explicit Codex subscription authentication via the installed CLI, bounded official App Server quota reads with account checks, ACP v1 connection per workspace and agent, agent-owned session history (list/load), session config options, user-selected file references as ACP resource links, streamed tool evidence, permission decisions, acknowledged cancellation with bounded recovery, and process-tree lifecycle in the shared Rust host | provider and agent settings, API-key storage, credential-independent local default-model reading through AI configuration ports, data directory, workspace selection, module enablement, conversation UI and compact subscription quota presentation, workspace/Agent-scoped local history annotations (favorites, title overrides and recoverable hidden rows), and user-selected Markdown export destinations |
+| [IDE capability API / MCP](ide-api/v1.md) | tool catalog, permission/argument validation, stable execution IDs, bounded output cursors and errors | explicit project authorization, live environment/Maven/Run application actions, helper discovery and writable connection storage |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
 | Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles, bounded dependency-tree normalization; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS/Java Debug adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, and sockets |
@@ -38,6 +74,26 @@ verification scripts are the executable source of boundary checks.
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
 | Updates | normalized release metadata, state names, preference semantics, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
+
+### Document encoding
+
+Local text documents expose the selected encoding in the editor status bar. The
+supported labels are `UTF-8`, `UTF-8 with BOM`, `GBK`, `GB18030`, `Shift JIS`,
+and `Windows-1252`. Native adapters auto-detect UTF-8/BOM and the GBK family
+when opening a file; an explicit reopen request decodes with the selected codec
+and exposes replacement characters for invalid byte sequences. “Save
+with Encoding” converts the current Unicode buffer only after the target codec
+accepts every character. Both products preserve the raw-byte identity of the
+last acknowledged disk snapshot and reject a save when another process changed
+those bytes.
+
+### External HTML preview
+
+Both products open an existing local `.html` / `.htm` document in the system's
+configured web browser, independently of the file type's default editor. The
+browser reads the saved file; this action does not save buffers or start a web
+server. File URLs preserve Unicode and reserved characters. Browser discovery
+and launch belong to platform adapters, and launch failures are shown to the user.
 
 ## Module Lifecycle Contract
 
@@ -74,11 +130,12 @@ contract must preserve these invariants:
 - Native plugin factories receive a read-only host context. Host services use
   stable IDs and shared protocols; plugin code cannot import a platform
   composition root or the application executable.
-- AI Assistance, Terminal, Git, Search, Local History, Debug, and Java/Maven
+- AI Assistance, Agent Conversation, Terminal, Git, Search, Local History, Debug, and Java/Maven
   execution are built-in lifecycle modules. They are not marketplace plugins.
 - Java language tooling remains part of the built-in product. Every other
   language provider is represented by an independently configurable bundled
-  language-support plugin; Go uses the signed native-package path while the
+  language-support plugin; PHP uses an optional separately installed native package,
+  Go uses the bundled signed native-package path while the
   remaining providers share the host's generic language-server module.
 - A downloadable language support package may declare language-server,
   execution, testing, and debug module IDs under one language ID. All referenced
@@ -472,3 +529,80 @@ Core's bounded preparation wait is the single launch gate; platform services and
 Run controls do not race it with a second snapshot check. Preparation remains
 visible while a click queues behind Core, and a stale visible `ready` state
 cannot disagree with a separate host-owned preparation veto.
+
+### Optional PHP support
+
+PHP plugin installation is explicit. The base application ships neither the PHP
+native package nor Node/Bun/Intelephense. macOS accepts a verified signed package
+through plugin management; its tools are user-owned and never deleted by Lithe.
+Windows installs language tools only on an explicit install/repair action; its
+managed tool cache is removed on uninstall without touching global tools. PHP
+run/test discovery and launch require enabled support. Disable cancels installation,
+stops in-flight and active owned processes, and unregisters providers; closing a
+workspace stops that workspace's PHP Run sessions. Shared lexical PHP recognition
+may remain available without spawning processes or downloading dependencies.
+
+Windows optional language implementations are single-module worker packages
+(`lithe-worker-plugin`, format version 1). PHP configuration and Composer/PHPUnit
+plan generation live in `Plugins/win/Official/PhpSupport`; application builds must
+not import that implementation, even through a dynamic import. The inert optional
+language catalog may identify package ownership without carrying executable code.
+
+A user imports a `.lithe-extension` file through extension management. The package
+contains a validated manifest and ESM source (maximum 256 KiB), stored atomically in
+the WebView user profile under `lithe.worker-package:<id>`. Import installs language
+tools but leaves the plugin disabled; enabling starts the existing worker host.
+Incomplete installation is not restored on restart. Uninstall removes the source,
+parser cache and owned tools; the application installation directory stays read-only.
+Local packages are user-selected code, not authenticated official downloads.
+
+The v1 language package accepts `languages`, `lsp`, and `runActions` declarations;
+other host permissions and contributions are not granted. `lsp.requiredExecutables`
+is passed to the native tool adapter for PATH validation. `runActions.manifestFiles`
+contains at most 16 root-level file names; `executables` names allowed PATH commands.
+The worker's `api.runActions.register` receives file contents and returns bounded
+plans (`id`, `name`, `sourceLabel`, optional `description`, `executable`, `arguments`).
+Only a user click launches a validated plan through the host Run service after saving
+the workspace. Workers never own the native process handles; the host tracks both
+extension ID and workspace ID, stops pending and active runs on disable/close, and
+rejects stale discovery results. Remote/WSL projects do not use these local plans.
+
+## Text content and language selection
+
+Native adapters decode document bytes using the existing encoding catalog.
+Decoded content is classified by Core's `document.classifyText` policy, also
+available through its borrowed UTF-8 C ABI. File extensions and installed
+language contributions must not exempt text from control-character validation
+or cause Unicode text to be classified as binary. Windows opening and session
+restoration share one content loader; read failures remain actionable errors.
+Explicit image, database, PDF, and binary-format viewers retain their host routing.
+
+Both Monaco hosts use the bundled INI tokenizer for `.properties`. Tokenization
+is presentation only: no grammar or language server is required to open plain
+text. Register bundled contributions in `frontend/editor`, not in a separate
+platform-specific tokenizer. Text fixtures are shared under
+`shared/fixtures/editor/text-content-v1.json`.
+
+### Updating a running Java service
+
+Run/Debug presentation owns an explicit update action bound to an execution ID,
+not the latest Run configuration or focused editor. Platform workflows save the
+workspace, reuse the live JDT session to verify the original runtime paths, and
+compile with the existing Core build coordinator. Build failures cannot be
+bypassed for updates. Core owns Java Debug Server response normalization; hosts
+own deadlines, stale-result rejection, UI progress and explicit restart actions.
+
+Run offers compilation for executions whose launch classpath includes Spring
+Boot DevTools. Compilation completion does not establish restart or readiness;
+the UI directs users to service output, and respects a project-configured trigger
+file. Debug uses HotSwap with DevTools automatic restart disabled at JVM launch.
+Remote attach and non-JDT launches have no update action in this first version.
+No installed resources or new runtime caches are written: output remains in
+JDT-owned workspace build paths and the existing platform-owned JDT state.
+
+### Agent 响应状态展示
+
+- 状态与已观察到的 ACP 进度一致：准备会话、等待响应、收到推理、收到回复、本轮工具执行、等待授权、明确重试和正在停止。静默时长不能证明正在推理或重试，已回放的历史工具不属于当前轮次。
+- 固定 codex-acp 的 `session_info_update._meta.codex.error.willRetry == true` 和非空 `turnId` 是 macOS 重试显示的证据；该通知可能没有 `title`。共享样例 `codexRetry` 由官方 ACP SDK 往返验证，Host 继续透传元数据，不新增请求/事件种类或网络重试策略。
+- 状态隔离到会话，新进度清除重试显示，完成/失败/断连清理本轮状态，正在停止时不因迟到进度回退；不得显示未经脱敏的原始错误或从文本猜测重试次数。请求仍等待上游完成/取消确认，既有十分钟 prompt 上限和十秒取消上限不变。
+- 这次交付 macOS 展示；Windows 对话 UI 的消费与真实验收仍待完成。展示状态只在内存中，不写入 bundle、安装目录或上游历史。

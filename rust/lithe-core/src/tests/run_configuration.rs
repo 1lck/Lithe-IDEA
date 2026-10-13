@@ -154,7 +154,7 @@ fn run_configuration_commands_generate_merge_and_plan() {
     fs::create_dir_all(root.join("src/main/java/com/example"))
         .expect("source directory should be creatable");
     fs::write(root.join("src/main/java/com/example/App.java"), "package com.example; @SpringBootApplication class App { public static void main(String[] args) {} }").expect("source should be writable");
-    fs::write(root.join("pom.xml"), "<project><artifactId>demo</artifactId><properties><maven.compiler.release>21</maven.compiler.release></properties><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>").expect("pom should be writable");
+    fs::write(root.join("pom.xml"), "<project><artifactId>demo</artifactId><properties><maven.compiler.release>21</maven.compiler.release></properties><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>").expect("pom should be writable");
 
     let request = serde_json::json!({"id":"generate","command":"runConfig.generate","payload":{"root":root,"paths":["src/main/java/com/example/App.java"],"modulePaths":[]}});
     let generated: Value = serde_json::from_str(&execute_json(&request.to_string()))
@@ -300,7 +300,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     .unwrap();
     fs::write(
         root.join("projects/demo/service/pom.xml"),
-        r#"<project><artifactId>service</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
+        r#"<project><artifactId>service</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
     )
     .unwrap();
     fs::write(root.join("projects/demo/mvnw"), "#!/bin/sh\n").unwrap();
@@ -426,8 +426,22 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         .iter()
         .filter_map(Value::as_str)
         .any(|argument| argument == "-am" || argument == "spring-boot:run"));
+    let reactor_pom = root
+        .join("projects/demo")
+        .join("pom.xml")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        plan["data"]["preLaunchSteps"],
+        serde_json::json!([{
+            "executable": {"toolchain": "project-maven"},
+            "arguments": ["-B", "-ntp", "-P", "dev,qa", "-s", "/local/settings.xml",
+                "-pl", "service", "-am", "-DskipTests", "-f", reactor_pom, "resources:resources"],
+            "workingDirectory": "projects/demo"
+        }])
+    );
 
-    fs::create_dir_all(root.join("custom-run/service")).unwrap();
+    fs::create_dir_all(root.join("custom-run")).unwrap();
     fs::write(
         root.join(".lithe/run/configurations.json"),
         serde_json::json!({
@@ -470,6 +484,27 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     assert_eq!(overridden_plan["ok"], true, "{overridden_plan}");
     assert_eq!(overridden_plan["data"]["workingDirectory"], "custom-run");
     assert_eq!(
+        overridden_plan["data"]["preLaunchSteps"][0]["arguments"],
+        serde_json::json!([
+            "-B",
+            "-ntp",
+            "-P",
+            "release",
+            "-pl",
+            "service",
+            "-am",
+            "-f",
+            reactor_pom,
+            "resources:resources"
+        ])
+    );
+    // An overridden application working directory must not move the step's own
+    // Maven wrapper/POM resolution root off the reactor.
+    assert_eq!(
+        overridden_plan["data"]["preLaunchSteps"][0]["workingDirectory"],
+        "projects/demo"
+    );
+    assert_eq!(
         overridden_plan["data"]["arguments"],
         serde_json::json!(["com.example.App"])
     );
@@ -486,6 +521,13 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
             "payload": {
                 "root": root,
                 "configurationId": java_main["id"],
+                "mavenContext": {
+                    "version": 1,
+                    "reactorPath": "not-the-owner",
+                    "profiles": [],
+                    "localRepositoryPath": "/local/repository",
+                    "skipTests": false
+                },
                 "javaLaunch": {
                     "mainClass": "com.example.App",
                     "classPaths": ["/workspace/projects/demo/service/target/classes"],
@@ -498,6 +540,24 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     .unwrap();
     assert_eq!(java_plan["ok"], true, "{java_plan}");
     assert_eq!(java_plan["data"]["executable"]["toolchain"], "project-jdk");
+    assert_eq!(
+        java_plan["data"]["preLaunchSteps"][0]["arguments"],
+        serde_json::json!([
+            "-B",
+            "-ntp",
+            "-Dmaven.repo.local=/local/repository",
+            "-pl",
+            "service",
+            "-am",
+            "-f",
+            reactor_pom,
+            "resources:resources"
+        ])
+    );
+    assert_eq!(
+        java_plan["data"]["preLaunchSteps"][0]["workingDirectory"],
+        "projects/demo"
+    );
     assert_eq!(
         java_plan["data"]["arguments"],
         serde_json::json!(["com.example.App"])
@@ -877,6 +937,15 @@ fn run_configuration_generation_disambiguates_same_main_class_across_modules() {
         );
         assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
         assert_eq!(plan["data"]["classpath"], case["classPaths"]);
+        let resource_arguments = plan["data"]["preLaunchSteps"][0]["arguments"]
+            .as_array()
+            .unwrap();
+        assert!(!resource_arguments.iter().any(|argument| argument == "-pl"));
+        assert!(resource_arguments.contains(&serde_json::json!("resources:resources")));
+        assert_eq!(
+            resource_arguments.contains(&serde_json::json!("resources:testResources")),
+            case["sourceSet"] == "test"
+        );
         if !case["modulePaths"].as_array().unwrap().is_empty() {
             assert_eq!(plan["data"]["modulepath"], case["modulePaths"]);
         }
@@ -1029,6 +1098,15 @@ fn maven_test_source_main_uses_the_test_classpath() {
     assert_eq!(
         plan["data"]["classpath"],
         serde_json::json!(["/workspace/target/test-classes"])
+    );
+    assert_eq!(
+        plan["data"]["preLaunchSteps"],
+        serde_json::json!([{
+            "executable": {"toolchain": "project-maven"},
+            "arguments": ["-B", "-ntp", "-f", root.join(".").join("pom.xml"),
+                "resources:resources", "resources:testResources"],
+            "workingDirectory": "."
+        }])
     );
 
     fs::remove_dir_all(root).unwrap();
@@ -2064,6 +2142,33 @@ fn run_configuration_generation_detects_maven_compiler_target() {
 }
 
 #[test]
+fn run_configuration_generation_reads_legacy_java_8_compiler_versions() {
+    // Java 8 projects usually write `1.8`; the requirement must be the feature
+    // version `8`, not the legacy `1` prefix that any JDK would satisfy.
+    let root = temporary_root("run-config-legacy-java-version");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><properties><java.version>1.8</java.version></properties></project>",
+    )
+    .unwrap();
+    let generated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-legacy-java",
+            "command": "runConfig.generate",
+            "payload": {"root": root, "paths": [], "modulePaths": []}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        generated["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
+        "8"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn run_configuration_inspection_invalidates_an_older_generator_revision() {
     let root = temporary_root("run-config-generator-revision");
     let test_source = "module-a/src/test/java/com/example/App.java";
@@ -2143,6 +2248,232 @@ fn run_configuration_inspection_invalidates_an_older_generator_revision() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A workspace generated under revision 9 still carries the old classification:
+/// the loose match put `fake-b` into the document as a Spring Boot service.
+/// Upgrading must revert it -- the surviving service keeps its id and override,
+/// and the override of the removed fake service becomes an orphan diagnosis
+/// instead of disappearing silently.
+#[test]
+fn run_configuration_regeneration_keeps_surviving_ids_and_orphans_removed_overrides() {
+    let root = temporary_root("run-config-regenerate-orphans");
+    fs::create_dir_all(root.join("service-a")).unwrap();
+    fs::create_dir_all(root.join("fake-b")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>service-a</module><module>fake-b</module></modules></project>",
+    )
+    .unwrap();
+    // The platform coordinate is the modern official one and keeps working.
+    fs::write(
+        root.join("service-a/pom.xml"),
+        "<project><artifactId>service-a</artifactId><build><plugins><plugin><groupId>io.quarkus.platform</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    // A same-named plugin under a custom group: revision 9 called this a Spring
+    // Boot service, the coordinate fix does not.
+    fs::write(
+        root.join("fake-b/pom.xml"),
+        "<project><artifactId>fake-b</artifactId><build><plugins><plugin><groupId>com.example</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+
+    let call = |id: &str, command: &str, payload: Value| -> Value {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({ "id": id, "command": command, "payload": payload }).to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+
+    let generated = call(
+        "generate-before-upgrade",
+        "runConfig.generate",
+        serde_json::json!({"root": root}),
+    );
+    let mut document = generated["generated"].clone();
+    {
+        let configurations = document["configurations"].as_array().unwrap();
+        assert!(configurations
+            .iter()
+            .any(|value| value["id"] == "quarkus.maven:service-a"));
+        assert!(!configurations
+            .iter()
+            .any(|value| value["id"] == "spring-boot.maven:fake-b"));
+    }
+    // Put back what revision 9 would have written: the loose match called fake-b
+    // a Spring Boot service, so the old document contains it whole.
+    let mut fake = document["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "quarkus.maven:service-a")
+        .expect("generated service should exist")
+        .clone();
+    fake["id"] = serde_json::json!("spring-boot.maven:fake-b");
+    fake["name"] = serde_json::json!("fake-b");
+    fake["provider"] = serde_json::json!("spring-boot.maven");
+    fake["source"] = serde_json::json!("fake-b/pom.xml");
+    fake["extensions"]["maven"]["module"] = serde_json::json!("fake-b");
+    document["configurations"]
+        .as_array_mut()
+        .unwrap()
+        .push(fake);
+    document["generator"]["fingerprint"] = serde_json::json!(generator_fingerprint_for_revision(
+        &document["generator"]["inputs"],
+        "9",
+    ));
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&document).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        r#"{"version":2,"configurations":[{"id":"quarkus.maven:service-a","extensions":{"maven":{"jvmArguments":["-Xmx2g"]}}},{"id":"spring-boot.maven:fake-b","extensions":{"maven":{"jvmArguments":["-Xmx1g"]}}}]}"#,
+    )
+    .unwrap();
+
+    // Before upgrading, both services resolve and both overrides apply -- the
+    // fake service is not an orphan yet.
+    let before = call(
+        "resolve-before-upgrade",
+        "runConfig.resolve",
+        serde_json::json!({"root": root}),
+    );
+    let fake_before = before["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "spring-boot.maven:fake-b")
+        .unwrap_or_else(|| panic!("old fake service missing: {before}"));
+    assert_eq!(
+        fake_before["extensions"]["maven"]["jvmArguments"],
+        serde_json::json!(["-Xmx1g"])
+    );
+    assert!(
+        !before["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["code"] == "orphanedOverride"),
+        "{before}"
+    );
+
+    let inspected = call(
+        "inspect-after-upgrade",
+        "runConfig.inspect",
+        serde_json::json!({"root": root}),
+    );
+    assert!(
+        inspected["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["code"] == "staleFingerprint"),
+        "{inspected}"
+    );
+
+    // Regeneration keeps the surviving id and drops the fake service.
+    let regenerated = call(
+        "generate-after-upgrade",
+        "runConfig.generate",
+        serde_json::json!({"root": root}),
+    );
+    let document = regenerated["generated"].clone();
+    assert!(document["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value["id"] == "quarkus.maven:service-a"));
+    assert!(!document["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value["id"] == "spring-boot.maven:fake-b"));
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&document).unwrap(),
+    )
+    .unwrap();
+
+    // The surviving override still applies; the removed service override is
+    // reported as an orphan rather than dropped.
+    let resolved = call(
+        "resolve-after-upgrade",
+        "runConfig.resolve",
+        serde_json::json!({"root": root}),
+    );
+    let service = resolved["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "quarkus.maven:service-a")
+        .unwrap_or_else(|| panic!("surviving service missing: {resolved}"));
+    assert_eq!(
+        service["extensions"]["maven"]["jvmArguments"],
+        serde_json::json!(["-Xmx2g"])
+    );
+    assert!(
+        resolved["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["code"] == "orphanedOverride"
+                && value["id"] == "spring-boot.maven:fake-b"),
+        "{resolved}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A `java.main` configuration whose recorded main class is missing cannot
+/// launch and cannot be rebuilt from local sources, so inspection must report
+/// it as stale -- while a complete entry and a `spring-boot.maven`
+/// compatibility entry (which carries no main class by design) stay silent.
+#[test]
+fn run_configuration_inspection_reports_java_entries_missing_their_main_class() {
+    let root = temporary_root("run-config-stale-java-entry");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[
+            {"id":"java-main:demo.App","name":"App","provider":"java.main","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"maven":{"module":"."},"java":{"source":"src/App.java"}}},
+            {"id":"java-main:demo.Blank","name":"Blank","provider":"java.main","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"maven":{"module":".","mainClass":""},"java":{"source":"src/Blank.java"}}},
+            {"id":"java-main:demo.Whole","name":"Whole","provider":"java.main","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"maven":{"module":".","mainClass":"demo.Whole"},"java":{"source":"src/Whole.java"}}},
+            {"id":"spring-boot.maven:legacy","name":"Legacy","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}
+        ]}"#,
+    )
+    .unwrap();
+
+    let inspected: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "inspect-stale-java-entry",
+            "command": "runConfig.inspect",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(inspected["ok"], true, "{inspected}");
+    let diagnostics = inspected["data"]["diagnostics"].as_array().unwrap();
+    let stale = diagnostics
+        .iter()
+        .filter(|value| value["code"] == "staleJavaEntrypoint")
+        .collect::<Vec<_>>();
+    assert_eq!(stale.len(), 1, "{inspected}");
+    assert!(
+        stale[0]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("(2)"),
+        "{inspected}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn generator_fingerprint_for_revision(inputs: &Value, revision: &str) -> String {
     let inputs = serde_json::from_value::<BTreeMap<String, String>>(inputs.clone()).unwrap();
     let mut digest = Sha256::new();
@@ -2162,49 +2493,194 @@ fn run_configuration_inspection_summarizes_changed_inputs() {
     let root = temporary_root("run-config-input-summary");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("src/App.java"), "class App {}").unwrap();
-    let generated: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "generate-summary",
-            "command": "runConfig.generate",
-            "payload": {"root": root, "paths": ["src/App.java"], "modulePaths": []}
-        })
-        .to_string(),
-    ))
-    .unwrap();
-    let generated_again: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "generate-summary-again",
-            "command": "runConfig.generate",
-            "payload": {"root": root, "paths": ["src/App.java"], "modulePaths": []}
-        })
-        .to_string(),
-    ))
-    .unwrap();
-    assert_eq!(generated["data"], generated_again["data"]);
-    fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&generated["data"]["generated"]).unwrap(),
-    )
-    .unwrap();
-    fs::write(root.join("src/App.java"), "class App { int changed; }").unwrap();
+    fs::write(root.join("package.json"), r#"{"name":"demo"}"#).unwrap();
+    let generated = generate_run_configuration(&root, &["src/App.java"], None);
+    let generated_again = generate_run_configuration(&root, &["src/App.java"], None);
+    assert_eq!(generated, generated_again);
+    write_generated_run_document(&root, &generated);
+    fs::write(root.join("package.json"), r#"{"name":"renamed"}"#).unwrap();
 
-    let inspected: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "inspect-summary",
-            "command": "runConfig.inspect",
-            "payload": {"root": root}
-        })
-        .to_string(),
-    ))
-    .unwrap();
-    assert_eq!(inspected["ok"], true);
+    let inspected = inspect_run_configuration(&root, None);
     assert_eq!(
-        inspected["data"]["diagnostics"][0]["message"],
+        inspected["diagnostics"][0]["message"],
         "Project inputs changed: 0 added, 0 removed, 1 modified"
     );
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn fingerprint_reads_only_java_sources_that_generation_reads() {
+    // Issue #507: hashing every Java source made each inspection read the whole
+    // project. Generation reads only the entry-point sources it labels; other
+    // Java files matter by path (has-Java, Maven module inference) alone.
+    let root = temporary_root("run-config-fingerprint-scope");
+    let entry = "src/main/java/demo/App.java";
+    let helper = "src/main/java/demo/Helper.java";
+    fs::create_dir_all(root.join("src/main/java/demo")).unwrap();
+    fs::write(
+        root.join(entry),
+        "package demo; class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    fs::write(root.join(helper), "package demo; class Helper {}").unwrap();
+    let generated = generate_run_configuration(
+        &root,
+        &[entry, helper],
+        Some(jdt_entrypoints(&[(entry, "demo.App")])),
+    );
+    let inputs = &generated["generator"]["inputs"];
+    assert!(
+        inputs[entry].as_str().unwrap().starts_with("sha256:"),
+        "{inputs}"
+    );
+    assert_eq!(inputs[helper], "path", "{inputs}");
+    write_generated_run_document(&root, &generated);
+
+    // Editing a class body changes nothing generation depends on.
+    fs::write(root.join(helper), "package demo; class Helper { int x; }").unwrap();
+    assert_eq!(
+        inspect_run_configuration(&root, None)["diagnostics"],
+        serde_json::json!([])
+    );
+
+    // The entry source is still read: a Spring Boot label can change there.
+    fs::write(
+        root.join(entry),
+        "package demo; @SpringBootApplication class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    assert_eq!(
+        inspect_run_configuration(&root, None)["diagnostics"][0]["message"],
+        "Project inputs changed: 0 added, 0 removed, 1 modified"
+    );
+    write_generated_run_document(
+        &root,
+        &generate_run_configuration(
+            &root,
+            &[entry, helper],
+            Some(jdt_entrypoints(&[(entry, "demo.App")])),
+        ),
+    );
+
+    // Adding or removing a Java file still changes the path set.
+    fs::write(
+        root.join("src/main/java/demo/Added.java"),
+        "package demo; class Added {}",
+    )
+    .unwrap();
+    assert_eq!(
+        inspect_run_configuration(&root, None)["diagnostics"][0]["message"],
+        "Project inputs changed: 1 added, 0 removed, 0 modified"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn inspection_compares_generated_java_entries_with_jdt() {
+    // Without whole-source hashing, a main method added to an existing class is
+    // found by comparing JDT's current answer with the generated entries.
+    let root = temporary_root("run-config-jdt-entry-staleness");
+    let app = "src/main/java/demo/App.java";
+    let tool = "src/main/java/demo/Tool.java";
+    fs::create_dir_all(root.join("src/main/java/demo")).unwrap();
+    fs::write(
+        root.join(app),
+        "package demo; class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    fs::write(root.join(tool), "package demo; class Tool {}").unwrap();
+    write_generated_run_document(
+        &root,
+        &generate_run_configuration(
+            &root,
+            &[app, tool],
+            Some(jdt_entrypoints(&[(app, "demo.App")])),
+        ),
+    );
+
+    let unchanged = inspect_run_configuration(&root, Some(jdt_entrypoints(&[(app, "demo.App")])));
+    assert_eq!(unchanged["diagnostics"], serde_json::json!([]));
+    // JDT prefixes classes in named modules; generated entries store the class.
+    let modular = inspect_run_configuration(
+        &root,
+        Some(jdt_entrypoints(&[(app, "demo.module/demo.App")])),
+    );
+    assert_eq!(modular["diagnostics"], serde_json::json!([]));
+
+    let added = inspect_run_configuration(
+        &root,
+        Some(jdt_entrypoints(&[(app, "demo.App"), (tool, "demo.Tool")])),
+    );
+    assert_eq!(added["diagnostics"][0]["code"], "staleFingerprint");
+    assert_eq!(
+        added["diagnostics"][0]["message"],
+        "Java entry points changed: 1 added, 0 removed"
+    );
+    let removed = inspect_run_configuration(&root, Some(jdt_entrypoints(&[])));
+    assert_eq!(
+        removed["diagnostics"][0]["message"],
+        "Java entry points changed: 0 added, 1 removed"
+    );
+    // Settings reads skip hashing but still honor an explicit JDT answer.
+    let settings: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "inspect-settings-jdt",
+            "command": "runConfig.inspect",
+            "payload": {
+                "root": root,
+                "checkFingerprint": false,
+                "javaEntrypoints": jdt_entrypoints(&[(app, "demo.App")])
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(settings["data"]["diagnostics"], serde_json::json!([]));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn generate_run_configuration(
+    root: &std::path::Path,
+    paths: &[&str],
+    java_entrypoints: Option<Value>,
+) -> Value {
+    let mut payload = serde_json::json!({ "root": root, "paths": paths, "modulePaths": [] });
+    if let Some(entrypoints) = java_entrypoints {
+        payload["javaEntrypoints"] = entrypoints;
+    }
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({ "id": "generate", "command": "runConfig.generate", "payload": payload })
+            .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    response["data"]["generated"].clone()
+}
+
+fn write_generated_run_document(root: &std::path::Path, generated: &Value) {
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(generated).unwrap(),
+    )
+    .unwrap();
+}
+
+fn inspect_run_configuration(root: &std::path::Path, java_entrypoints: Option<Value>) -> Value {
+    let mut payload = serde_json::json!({ "root": root });
+    if let Some(entrypoints) = java_entrypoints {
+        payload["javaEntrypoints"] = entrypoints;
+    }
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({ "id": "inspect", "command": "runConfig.inspect", "payload": payload })
+            .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    response["data"].clone()
 }
 
 #[test]
@@ -2334,6 +2810,62 @@ fn run_configuration_resolve_matches_toolchains_and_rejects_unsafe_paths() {
 }
 
 #[test]
+fn run_configuration_resolve_accepts_legacy_java_8_runtime_versions() {
+    // Regression for #826: JDK 8 reports `1.8.0_504`, which must satisfy a
+    // requirement of `8` (or `1.8`) instead of blocking every launch.
+    let root = temporary_root("run-config-legacy-java-runtime");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file","toolchains":{"java":"project-jdk"}}]}"#,
+    )
+    .unwrap();
+
+    let resolve = |requirement: &str, version: &str| -> bool {
+        fs::write(
+            root.join(".lithe/toolchains/requirements.json"),
+            format!(
+                r#"{{"version":1,"toolchains":{{"project-jdk":{{"type":"java",{requirement}}}}}}}"#
+            ),
+        )
+        .unwrap();
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "resolve-legacy-java",
+                "command": "runConfig.resolve",
+                "payload": {
+                    "root": root,
+                    "toolchainCandidates": [{
+                        "id": "project-jdk",
+                        "type": "java",
+                        "version": version,
+                        "vendor": "Azul Zulu"
+                    }]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        response["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["code"] == "toolchainVersionMismatch")
+    };
+
+    assert!(!resolve(r#""minimumVersion":"8""#, "1.8.0_504"));
+    assert!(!resolve(r#""minimumVersion":"1.8""#, "1.8.0_131"));
+    assert!(!resolve(r#""version":"8""#, "1.8.0_504"));
+    assert!(!resolve(r#""minimumVersion":"8""#, "21.0.5"));
+    assert!(resolve(r#""minimumVersion":"8""#, "1.7.0_80"));
+    assert!(resolve(r#""version":"8""#, "17.0.12"));
+    assert!(resolve(r#""minimumVersion":"17""#, "1.8.0_504"));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn hybrid_project_scopes_node_diagnostics_to_npm_configurations() {
     let root = temporary_root("run-config-hybrid-toolchains");
     let java_source = "src/main/java/com/example/DemoApplication.java";
@@ -2346,7 +2878,7 @@ fn hybrid_project_scopes_node_diagnostics_to_npm_configurations() {
     .unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><artifactId>demo</artifactId><properties><java.version>21</java.version></properties><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><artifactId>demo</artifactId><properties><java.version>21</java.version></properties><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -3397,6 +3929,305 @@ fn an_unknown_java_entrypoint_schema_is_rejected() {
     fs::remove_dir_all(root).unwrap();
 }
 
+fn run_config_command(command: &str, payload: Value) -> Value {
+    serde_json::from_str(&execute_json(
+        &serde_json::json!({ "id": command, "command": command, "payload": payload }).to_string(),
+    ))
+    .unwrap()
+}
+
+/// Issue #861: a multi-module Spring Boot service whose working directory is
+/// set to its own module must stay in the run list. `maven.module` is relative
+/// to the owning reactor, so resolving it against the overridden `cwd` looked
+/// for `shop-web/shop-web` and silently dropped the entry.
+#[test]
+fn working_directory_override_keeps_reactor_module_configurations() {
+    let root = temporary_root("run-config-module-cwd");
+    // The guard also removes the workspace when an assertion fails.
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let source = "shop-web/src/main/java/com/example/WebApp.java";
+    fs::create_dir_all(root.join("shop-web/src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join("shop-api")).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><artifactId>shop</artifactId><packaging>pom</packaging><modules><module>shop-web</module><module>shop-api</module></modules></project>"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("shop-web/pom.xml"),
+        r#"<project><artifactId>shop-web</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("shop-api/pom.xml"),
+        r#"<project><artifactId>shop-api</artifactId></project>"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join(source),
+        "package com.example; @SpringBootApplication class WebApp { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+
+    let generated = generate_with(
+        &root,
+        &[source],
+        Some(jdt_entrypoints(&[(source, "com.example.WebApp")])),
+    );
+    assert_eq!(generated["ok"], true, "{generated}");
+    let service = generated["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["provider"] == "spring-boot.maven")
+        .cloned()
+        .unwrap_or_else(|| panic!("missing Spring Boot service in {generated}"));
+    assert_eq!(service["cwd"], ".");
+    assert_eq!(service["extensions"]["maven"]["module"], "shop-web");
+    write_generated_run_document(&root, &generated["data"]["generated"]);
+
+    // A user-authored Maven Module entry has no detected reactor; its module was
+    // validated against the project root when it was created.
+    let created = run_config_command(
+        "runConfig.createUserConfiguration",
+        serde_json::json!({
+            "root": root, "scope": "project", "name": "API", "type": "mavenModule",
+            "module": "shop-api"
+        }),
+    );
+    assert_eq!(created["ok"], true, "{created}");
+    fs::write(
+        root.join(".lithe/run/configurations.json"),
+        created["data"]["document"].as_str().unwrap(),
+    )
+    .unwrap();
+    let user_module_id = created["data"]["id"].as_str().unwrap().to_string();
+
+    for (scope, id, directory) in [
+        ("local", service["id"].as_str().unwrap(), "shop-web"),
+        ("project", user_module_id.as_str(), "shop-api"),
+    ] {
+        let updated = run_config_command(
+            "runConfig.updateOptions",
+            serde_json::json!({
+                "root": root, "scope": scope, "configurationId": id,
+                "workingDirectory": directory
+            }),
+        );
+        assert_eq!(updated["ok"], true, "{updated}");
+        let file = if scope == "local" {
+            "local.json"
+        } else {
+            "configurations.json"
+        };
+        fs::write(
+            root.join(".lithe/run").join(file),
+            updated["data"]["document"].as_str().unwrap(),
+        )
+        .unwrap();
+    }
+
+    let resolved = run_config_command("runConfig.resolve", serde_json::json!({ "root": root }));
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    let configurations = resolved["data"]["configurations"].as_array().unwrap();
+    for (id, directory) in [
+        (service["id"].as_str().unwrap(), "shop-web"),
+        (user_module_id.as_str(), "shop-api"),
+    ] {
+        let configuration = configurations
+            .iter()
+            .find(|value| value["id"] == id)
+            .unwrap_or_else(|| panic!("{id} was dropped: {resolved}"));
+        assert_eq!(configuration["cwd"], directory);
+        assert!(
+            !resolved["data"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value["id"] == id),
+            "{resolved}"
+        );
+    }
+    let service_configuration = configurations
+        .iter()
+        .find(|value| value["id"] == service["id"])
+        .unwrap();
+    assert_eq!(
+        service_configuration["extensions"]["maven"]["reactorPath"],
+        "."
+    );
+
+    let plan = run_config_command(
+        "runConfig.createLaunchPlan",
+        serde_json::json!({
+            "root": root,
+            "configurationId": service["id"],
+            "javaLaunch": {
+                "mainClass": "com.example.WebApp",
+                "classPaths": ["/workspace/shop-web/target/classes"],
+                "modulePaths": []
+            },
+            "mavenContext": {"version": 1, "reactorPath": ".", "profiles": [], "skipTests": false}
+        }),
+    );
+    assert_eq!(plan["ok"], true, "{plan}");
+    assert_eq!(plan["data"]["workingDirectory"], "shop-web");
+    assert_eq!(
+        plan["data"]["arguments"],
+        serde_json::json!(["com.example.WebApp"])
+    );
+}
+
+/// Issue #861: resolution hides a configuration whose `cwd` is missing, so a
+/// value that cannot name a project directory is rejected when saved, where
+/// the editor shows the error, instead of making the entry vanish. Editor
+/// variables are not expanded even when the directory they point at exists.
+#[test]
+fn working_directory_override_must_name_an_existing_project_directory() {
+    let root = temporary_root("run-config-invalid-cwd");
+    // The guard also removes the workspace when an assertion fails.
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join("backend")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{
+            "id":"python:api","name":"API","provider":"python.script",
+            "command":"python3","args":["app.py"],"cwd":".","toolchains":{}
+        }]}"#,
+    )
+    .unwrap();
+
+    for (directory, message) in [
+        (
+            "${workspaceFolder}/backend",
+            "Working directory variables are not supported; use a path relative to the project",
+        ),
+        (
+            "$PROJECT_DIR$/backend",
+            "Working directory variables are not supported; use a path relative to the project",
+        ),
+        ("frontend", "Project configuration directory does not exist"),
+        (
+            "../outside",
+            "Project configuration paths must stay inside the project",
+        ),
+    ] {
+        for scope in ["local", "project"] {
+            let updated = run_config_command(
+                "runConfig.updateOptions",
+                serde_json::json!({
+                    "root": root, "scope": scope, "configurationId": "python:api",
+                    "workingDirectory": directory
+                }),
+            );
+            assert_eq!(updated["ok"], false, "{directory}: {updated}");
+            assert_eq!(updated["error"]["code"], "invalid_request");
+            assert_eq!(updated["error"]["message"], message, "{directory}");
+        }
+    }
+
+    let absolute = root.join("backend").canonicalize().unwrap();
+    let updated = run_config_command(
+        "runConfig.updateOptions",
+        serde_json::json!({
+            "root": root, "scope": "local", "configurationId": "python:api",
+            "workingDirectory": absolute
+        }),
+    );
+    assert_eq!(updated["ok"], true, "{updated}");
+    let document: Value =
+        serde_json::from_str(updated["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(document["configurations"][0]["cwd"], "backend");
+}
+
+#[test]
+fn automatic_java_selection_uses_shared_fixture_and_current_requirements() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/automatic-java-selection.json"
+    ))
+    .unwrap();
+    let root = temporary_root("automatic-java-selection");
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).expect("remove selection fixture");
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let requirements = root.join(".lithe/toolchains/requirements.json");
+    for case in fixture["cases"].as_array().unwrap() {
+        let document = serde_json::json!({"version":1,"toolchains":{"project-jdk":{
+            "type":"java", "minimumVersion":case["minimum"]
+        }}});
+        fs::write(&requirements, document.to_string()).unwrap();
+        // Reverse enumeration order too: tie-breaking is not filesystem order.
+        for reverse in [false, true] {
+            let mut candidates = case["candidates"].as_array().unwrap().clone();
+            if reverse {
+                candidates.reverse();
+            }
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::json!({
+                    "id":"selection", "command":"runConfig.selectJava", "payload":{
+                        "root":root, "candidates":candidates, "fallbackId":case["fallbackId"]
+                    }
+                })
+                .to_string(),
+            ))
+            .unwrap();
+            assert_eq!(response["ok"], true, "{response}");
+            assert_eq!(
+                response["data"]["id"],
+                fixture["expected"][case["name"].as_str().unwrap()]["id"],
+                "{}",
+                case["name"]
+            );
+            assert_eq!(
+                !response["data"]["warning"].is_null(),
+                fixture["expected"][case["name"].as_str().unwrap()]["warning"]
+                    .as_bool()
+                    .unwrap()
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(&requirements).unwrap(),
+            document.to_string()
+        );
+    }
+    // Missing documents preserve fallback; malformed or future documents must
+    // not silently launch a potentially incompatible JDK.
+    for contents in [None, Some("{"), Some(r#"{"version":999,"toolchains":{}}"#)] {
+        if let Some(contents) = contents {
+            fs::write(&requirements, contents).unwrap();
+        } else {
+            fs::remove_file(&requirements).unwrap();
+        }
+        let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+            "id":"selection", "command":"runConfig.selectJava", "payload":{
+                "root":root, "candidates":[{"id":"env","version":"1.8.0_402","priority":0}], "fallbackId":"env"
+            }
+        }).to_string())).unwrap();
+        assert_eq!(response["ok"], contents.is_none(), "{response}");
+        if contents.is_none() {
+            assert_eq!(response["data"]["id"], "env");
+        }
+    }
+}
+
 /// A `tomcat.external` configuration launches via the host's catalina
 /// launcher after Maven produces the exploded web application directory. The
 /// plan carries the context descriptor, connector ports, and CATALINA_BASE so
@@ -3404,11 +4235,20 @@ fn an_unknown_java_entrypoint_schema_is_rejected() {
 #[test]
 fn tomcat_external_provider_returns_context_descriptor_and_catalina_path() {
     let root = temporary_root("run-config-tomcat-external");
+    let tomcat_home = temporary_root("run-config-tomcat-external-install");
+    // Both fixture trees belong to this test, including assertion-failure paths.
+    struct Cleanup(PathBuf, PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+            let _ = fs::remove_dir_all(&self.1);
+        }
+    }
+    let _cleanup = Cleanup(root.clone(), tomcat_home.clone());
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join("src/main/webapp")).unwrap();
     fs::write(root.join("pom.xml"), "<project/>").unwrap();
     // Simulate a Tomcat install with the launcher and conf/web.xml.
-    let tomcat_home = temporary_root("run-config-tomcat-external-install");
     fs::create_dir_all(tomcat_home.join("bin")).unwrap();
     fs::create_dir_all(tomcat_home.join("conf")).unwrap();
     fs::write(tomcat_home.join("bin/catalina.bat"), "@echo off\n").unwrap();
@@ -3509,7 +4349,4 @@ fn tomcat_external_provider_returns_context_descriptor_and_catalina_path() {
         plan["data"]["environment"]["CATALINA_BASE"]["value"],
         tomcat_home_str
     );
-
-    fs::remove_dir_all(root).unwrap();
-    fs::remove_dir_all(tomcat_home).unwrap();
 }

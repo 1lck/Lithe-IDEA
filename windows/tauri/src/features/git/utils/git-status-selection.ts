@@ -33,7 +33,7 @@ export function resolveGitFilesForStagedState(
   const resolvedFiles = new Map<string, GitFile>();
 
   for (const file of files) {
-    if (file.staged === staged) continue;
+    if (file.staged === staged && !(staged && file.worktree)) continue;
     const repositoryPath = getGitFileRepositoryPath(file) ?? "";
     const filePath = getGitFileRepositoryRelativePath(file);
     resolvedFiles.set(`${repositoryPath}\0${filePath}`, file);

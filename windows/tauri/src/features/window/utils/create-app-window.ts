@@ -19,6 +19,8 @@ export async function createAppWindow(request?: WindowOpenRequest | null) {
   traceWindowOpen("createAppWindow:invoke:start", { requestKind });
 
   try {
+    const { projectWindowRouting } = await import("../services/project-window-routing");
+    await projectWindowRouting.initialize();
     const label = await invoke<string>("create_app_window", {
       request: request ?? null,
     } satisfies CreateAppWindowPayload);

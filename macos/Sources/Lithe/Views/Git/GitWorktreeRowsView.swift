@@ -342,10 +342,10 @@ final class GitWorktreeRowsNSView: NSView {
     }
 
     private struct DrawingStyle {
-        let bodyFont = NSFont.systemFont(ofSize: 13)
-        let bodyMediumFont = NSFont.systemFont(ofSize: 13, weight: .medium)
-        let metadataFont = NSFont.systemFont(ofSize: 12.5)
-        let monospacedFont = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        let bodyFont = LitheTheme.uiNSFont(size: 13)
+        let bodyMediumFont = LitheTheme.uiNSFont(size: 13, weight: .medium)
+        let metadataFont = LitheTheme.uiNSFont(size: 12.5)
+        let monospacedFont = LitheTheme.uiNSFont(size: 12.5, weight: .regular)
         let primaryText: NSColor
         let secondaryText: NSColor
         let accent: NSColor

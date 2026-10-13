@@ -12,7 +12,11 @@
 //! deletes it after that execution exits. The returned text is Unicode; the
 //! host must encode it losslessly with the launcher's native platform encoding.
 //! JEP 400 does not make Windows launcher argument files UTF-8.
+//!
+//! JDK 8 has no argument files; [`super::plan_classpath_jar_launch`] covers
+//! that release with a manifest-only class-path JAR under the same budget.
 
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Maximum command line `CreateProcessW` accepts, including its terminating
@@ -22,7 +26,7 @@ pub const WINDOWS_COMMAND_LINE_LIMIT: usize = 32_767;
 /// Headroom for the null terminator and for host quoting that this estimate
 /// does not model exactly. Shortening early costs nothing; shortening too late
 /// fails the launch.
-const COMMAND_LINE_MARGIN: usize = 2_048;
+pub(super) const COMMAND_LINE_MARGIN: usize = 2_048;
 
 /// Options whose value is a joined list of absolute paths. These carry
 /// practically all of an oversized command line, so moving them into the
@@ -42,6 +46,65 @@ pub enum LaunchCommandPlan {
         /// Complete argument-file text, already quoted and newline terminated.
         argfile_contents: String,
     },
+}
+
+/// JSON request used by hosts that cannot call the Rust planner directly.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchCommandPlanRequest {
+    /// Java executable path used for launcher detection.
+    pub executable: String,
+    /// Complete argument vector before shortening.
+    pub arguments: Vec<String>,
+    /// Host-owned path that may be referenced by an argument-file plan.
+    pub argfile_path: String,
+    /// Optional host-specific command-line cap; null uses the Windows cap.
+    pub limit: Option<usize>,
+    /// JDK feature version read by the host from its `release` file.
+    pub java_feature_version: Option<u32>,
+}
+
+/// JSON response for [`LaunchCommandPlanRequest`].
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum LaunchCommandPlanResponse {
+    /// The original argument vector is safe to spawn directly.
+    Direct,
+    /// The host must write `argfileContents` before spawning `arguments`.
+    Argfile {
+        /// Arguments with path-list options replaced by an `@file` reference.
+        arguments: Vec<String>,
+        /// Newline-terminated JDK argument-file contents.
+        #[serde(rename = "argfileContents")]
+        argfile_contents: String,
+    },
+}
+
+impl From<LaunchCommandPlan> for LaunchCommandPlanResponse {
+    fn from(plan: LaunchCommandPlan) -> Self {
+        match plan {
+            LaunchCommandPlan::Direct => Self::Direct,
+            LaunchCommandPlan::Argfile {
+                arguments,
+                argfile_contents,
+            } => Self::Argfile {
+                arguments,
+                argfile_contents,
+            },
+        }
+    }
+}
+
+/// Plans a launch through the shared JSON command dispatcher.
+pub fn plan_launch_command_request(request: LaunchCommandPlanRequest) -> LaunchCommandPlanResponse {
+    plan_launch_command(
+        &request.executable,
+        &request.arguments,
+        Path::new(&request.argfile_path),
+        request.limit,
+        request.java_feature_version,
+    )
+    .into()
 }
 
 /// First JDK release that accepts `@file` argument files.
@@ -166,7 +229,7 @@ pub fn plan_launch_command(
 /// Windows counts UTF-16 code units, and each argument containing whitespace or
 /// a quote is wrapped in quotes. The estimate never has to be exact because
 /// [`COMMAND_LINE_MARGIN`] absorbs the difference.
-fn command_line_length(executable: &str, arguments: &[String]) -> usize {
+pub(super) fn command_line_length(executable: &str, arguments: &[String]) -> usize {
     let mut length = quoted_length(executable);
     for argument in arguments {
         length += 1 + quoted_length(argument);

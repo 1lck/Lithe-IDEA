@@ -20,6 +20,16 @@ struct WorkbenchModuleUIRegistryTests {
         try registry.validate(contributions: contributions)
     }
 
+    @Test func agentConversationIsDockedInTheRightSidebar() throws {
+        let contributions = BuiltInModuleCatalog.contributions(for: .agentConversation)
+        let agent = try #require(contributions.first { $0.id == "agent.conversation" })
+        let registry = WorkbenchModuleUIComposition.builtIn
+
+        #expect(agent.placement == .rightSidebar)
+        #expect(registry.renderer(for: agent)?.rightSidebarBehavior == .docked)
+        try registry.validate(contributions: contributions)
+    }
+
     @Test func duplicateActionIDsAreRejected() {
         let first = WorkbenchModuleUIRegistry.Registration(actions: [
             .init(id: "test.action", perform: { _ in })

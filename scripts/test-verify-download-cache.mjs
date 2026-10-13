@@ -221,6 +221,11 @@ try {
   const jdtlsCache = path.join(testRoot, "jdtls-cache");
   const jdtlsManifest = path.join(testRoot, "manifest.json");
   const jdtlsArchive = path.join(jdtlsCache, `jdtls-1.0.0-${emptySha256}.tar.gz`);
+  const javaDebugArchive = path.join(jdtlsCache, `vscode-java-debug-1.0.0-${emptySha256}.vsix`);
+  const windowsJavaDebugArchive = path.join(jdtlsCache, `vscode-java-debug-1.0.0-${emptySha256}.zip`);
+  const javaDebugLicense = path.join(jdtlsCache, `java-debug-EPL-1.0-1.0.0-${emptySha256}.txt`);
+  const javaTestArchive = path.join(jdtlsCache, `vscode-java-test-1.0.0-${emptySha256}.vsix`);
+  const javaTestLicense = path.join(jdtlsCache, `java-test-MIT-1.0.0-${emptySha256}.txt`);
   const unexpected = path.join(jdtlsCache, "unexpected.download");
   await fs.mkdir(jdtlsCache, { recursive: true });
   await fs.writeFile(
@@ -232,9 +237,26 @@ try {
       lombokVersion: "1.0.0",
       lombokSHA256: emptySha256,
       lombokLicenseSHA256: emptySha256,
+      javaDebugExtensionVersion: "1.0.0",
+      javaDebugServerVersion: "1.0.0",
+      javaDebugArchiveSHA256: emptySha256,
+      javaDebugLicenseSHA256: emptySha256,
+      javaTestExtensionVersion: "1.0.0",
+      javaTestArchiveSHA256: emptySha256,
+      javaTestLicenseSHA256: emptySha256,
     }),
   );
-  await fs.writeFile(jdtlsArchive, "");
+  const jdtlsArtifacts = [
+    jdtlsArchive,
+    javaDebugArchive,
+    windowsJavaDebugArchive,
+    javaDebugLicense,
+    javaTestArchive,
+    javaTestLicense,
+  ];
+  for (const artifact of jdtlsArtifacts) {
+    await fs.writeFile(artifact, "");
+  }
   await fs.writeFile(unexpected, "unexpected");
 
   result = verify([
@@ -248,9 +270,12 @@ try {
     jdtlsManifest,
   ]);
   assertSucceeded(result);
-  assert.equal(await fs.readFile(jdtlsArchive, "utf8"), "");
+  for (const artifact of jdtlsArtifacts) {
+    assert.equal(await fs.readFile(artifact, "utf8"), "");
+  }
   await assert.rejects(fs.access(unexpected));
   assert.match(diagnostics(result), /not referenced by the JDTLS manifest/);
+  assert.match(result.stdout, /JDTLS download cache verified: 6 artifact/);
 
   const jdkCache = path.join(testRoot, "jdk-cache");
   const jdkManifest = path.join(testRoot, "jdk-manifest.json");

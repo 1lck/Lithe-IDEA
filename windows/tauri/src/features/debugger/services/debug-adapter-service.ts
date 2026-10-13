@@ -27,10 +27,7 @@ export async function sendDebugAdapterRequest(
   operationId?: string,
 ): Promise<DebugCommandResult> {
   return await invoke<DebugCommandResult>("debug_send_request", {
-    sessionId,
-    command,
-    arguments: argumentsPayload,
-    operationId,
+    request: { sessionId, command, arguments: argumentsPayload, operationId },
   });
 }
 
@@ -90,8 +87,10 @@ async function initializeDebugLaunchSession(
 ): Promise<DebugAdapterSessionInfo> {
   try {
     onSessionStarted?.(session);
-    // Rust Core owns DAP initialization and the configurationDone handshake;
-    // the host facade only queues the launch and breakpoint sets.
+    // Queue breakpoints before launch/attach can emit initialized and Core sends
+    // configurationDone. Otherwise a fast JVM can pass its first breakpoint.
+    await syncDebugBreakpoints(session.id, breakpoints);
+    // Rust Core owns initialization and configurationDone, not the frontend.
     await sendDebugAdapterRequest(session.id, config.request ?? "launch", {
       ...config.launchArguments,
       name: config.name,
@@ -103,7 +102,6 @@ async function initializeDebugLaunchSession(
       env: config.env ?? {},
     });
     await markDebugSessionReady(session.id);
-    await syncDebugBreakpoints(session.id, breakpoints);
   } catch (error) {
     await stopDebugAdapterSession(session.id).catch(() => {});
     throw error;
@@ -161,4 +159,61 @@ export async function subscribeDebuggerEvents(
       unlisten();
     }
   };
+}
+
+/** Waits for the normalized Core result, not merely the transport acknowledgement. */
+export async function applyJavaCodeChanges(sessionId: string): Promise<string[]> {
+  const operationId = createDebugOperationId();
+  let settle: (value: string[] | Error) => void = () => {};
+  const outcome = new Promise<string[] | Error>((resolve) => {
+    settle = resolve;
+  });
+  const unlisten = await subscribeDebuggerEvents({
+    onMessage: (payload) => {
+      if (payload.sessionId !== sessionId) return;
+      const event = payload.message as {
+        type?: string;
+        operationId?: string;
+        message?: string;
+        result?: { kind?: string; changedClasses?: string[] };
+      };
+      if (event.type === "terminated") settle(new Error("The debug session ended."));
+      if (event.operationId !== operationId) return;
+      if (event.type === "operationFailed")
+        settle(
+          new Error(
+            event.message ??
+              "Hot code replacement failed. Restart the service if this change is unsupported.",
+          ),
+        );
+      if (event.type === "operationCompleted") {
+        settle(
+          event.result?.kind === "redefineClasses" && Array.isArray(event.result.changedClasses)
+            ? event.result.changedClasses
+            : new Error("Invalid hot code replacement result."),
+        );
+      }
+    },
+    onSessionEnded: (event) => {
+      if (event.sessionId === sessionId) settle(new Error("The debug session ended."));
+    },
+  });
+  const timer = setTimeout(() => {
+    settle(new Error("Hot code replacement timed out. Its result is unknown."));
+    void sendDebugAdapterRequest(sessionId, "cancelOperation", { operationId }).catch((error) => {
+      console.error("Could not retire timed-out hot code replacement", error);
+    });
+  }, 30_000);
+  try {
+    // Sending is observed separately: the deadline also bounds a stalled host call.
+    void sendDebugAdapterRequest(sessionId, "redefineClasses", {}, operationId).catch((error) =>
+      settle(error instanceof Error ? error : new Error(String(error))),
+    );
+    const result = await outcome;
+    if (result instanceof Error) throw result;
+    return result;
+  } finally {
+    clearTimeout(timer);
+    unlisten();
+  }
 }

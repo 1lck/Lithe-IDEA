@@ -1,4 +1,5 @@
 import { Spinner } from "@/ui/spinner";
+import { CaretRightIcon, CheckCircleIcon, WarningIcon } from "@/ui/icons";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -28,21 +29,29 @@ export function ProjectPreparationStatus({ compact = false }: { compact?: boolea
   return (
     <details
       className={
-        compact ? "relative shrink-0 ui-text-sm" : "border-border border-b px-3 py-2 ui-text-sm"
+        compact
+          ? "group relative shrink-0 ui-text-sm"
+          : "group border-border border-b px-3 py-2 ui-text-sm"
       }
     >
-      <summary className="cursor-pointer" aria-live="polite">
+      <summary
+        className="flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden"
+        aria-live="polite"
+      >
+        <CaretRightIcon className="size-3 shrink-0 text-subtle-foreground group-open:rotate-90" />
         <span
           className={
-            preparation.status === "failed" ? "text-destructive" : "text-subtle-foreground"
+            preparation.status === "failed"
+              ? "flex items-center gap-1 text-destructive"
+              : "flex items-center gap-1 text-subtle-foreground"
           }
         >
           {preparation.status === "loading" ? (
-            <Spinner compact className="mr-1" />
+            <Spinner compact />
           ) : preparation.status === "failed" ? (
-            "! "
+            <WarningIcon className="size-3.5 shrink-0" aria-hidden />
           ) : (
-            "✓ "
+            <CheckCircleIcon className="size-3.5 shrink-0" aria-hidden />
           )}
           {label}
         </span>
@@ -58,9 +67,16 @@ export function ProjectPreparationStatus({ compact = false }: { compact?: boolea
           {(["starting", "importing", "configuring", "building"] as const).map((phase) => (
             <li
               key={phase}
-              className={preparation.phase === phase ? "font-medium" : "text-subtle-foreground"}
+              className={
+                preparation.phase === phase
+                  ? "flex items-center gap-1 font-medium"
+                  : "flex items-center gap-1 text-subtle-foreground"
+              }
             >
-              {preparation.phase === phase ? "› " : "· "}
+              <CaretRightIcon
+                className={`size-3 shrink-0 ${preparation.phase === phase ? "" : "invisible"}`}
+                aria-hidden
+              />
               {t(`preparation.${phase}`)}
             </li>
           ))}

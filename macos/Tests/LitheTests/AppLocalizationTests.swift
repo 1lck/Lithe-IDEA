@@ -89,6 +89,15 @@ struct AppLocalizationTests {
     }
 
     @Test
+    func simplifiedChineseResourcesCoverSoftwareUpdateWindow() throws {
+        let translations = try simplifiedChineseTranslations()
+        #expect(translations["Software Update"] == "软件更新")
+        #expect(translations["Skip Version"] == "跳过此版本")
+        #expect(translations["Install"] == "安装")
+        #expect(translations["Later"] == "稍后")
+    }
+
+    @Test
     func simplifiedChineseResourcesCoverGitHubPullRequests() throws {
         let translations = try simplifiedChineseTranslations()
 
@@ -151,6 +160,13 @@ struct AppLocalizationTests {
         #expect(translations["Cherry-pick Commit…"] == "拣选提交…")
         #expect(translations["Revert Commit…"] == "反向提交（保留历史）…")
         #expect(translations["Reset Current Branch to Here…"] == "将当前分支重置到这里…")
+        #expect(translations["Copy Branch Name"] == "复制分支名称")
+        #expect(translations["Tracking Branch"] == "跟踪的分支")
+        #expect(translations["Stop Tracking Branch"] == "停止跟踪分支")
+        #expect(translations["No Remote Branches"] == "没有远程分支")
+        #expect(translations["Soft Reset (Keep Changes Staged)"] == "软重置（保留暂存更改）")
+        #expect(translations["Mixed Reset (Keep Changes Unstaged)"] == "混合重置（保留未暂存更改）")
+        #expect(translations["Hard Reset (Discard Changes)"] == "硬重置（丢弃更改）")
         #expect(translations["Undo Commit…"] == "撤销最近一次提交（保留更改）…")
         #expect(translations["Edit Commit Message…"] == "编辑提交消息…")
         #expect(translations["Squash Commits…"] == "合并所选提交…")
@@ -187,16 +203,14 @@ struct AppLocalizationTests {
     }
 
     @Test
-    func simplifiedChineseResourcesCoverPluginLanguageGrouping() throws {
+    func simplifiedChineseResourcesCoverPHPPluginManagement() throws {
         let translations = try simplifiedChineseTranslations()
 
-        #expect(translations["More Language Support"] == "扩展更多语言")
-        #expect(
-            translations["%lld languages · %lld enabled"]
-                == "%lld 种语言 · 已启用 %lld 个"
-        )
-        #expect(translations["Expanded"] == "已展开")
-        #expect(translations["Collapsed"] == "已收起")
+        #expect(translations["PHP Support"] == "PHP 支持")
+        #expect(translations["Installed (%lld of %lld enabled)"] == "已安装（%lld / %lld 个已启用）")
+        #expect(translations["Download and Install"] == "下载并安装")
+        #expect(translations["Reinstall"] == "重新安装")
+        #expect(translations["Open Plugin Management"] == "打开插件管理")
     }
 
     @Test
@@ -283,8 +297,10 @@ struct GitLocalizationTests {
         let keys = [
             "Revert this commit?", "Revert", "Create a new commit that reverses %@.",
             "Cherry-pick this commit?", "Apply %@ to the current branch.",
-            "Reset current branch?", "Reset (Mixed)",
+            "Reset current branch?", "Reset (Soft)", "Reset (Mixed)", "Reset (Hard)",
+            "Move the current branch to %@ and keep changes staged.",
             "Move the current branch to %@ and keep changes unstaged.",
+            "Move the current branch to %@ and discard all working-tree changes.",
             "Delete branch?", "Merge branch?", "Rebase branch?",
             "Checkout and rebase branch?", "Pull remote branch with rebase?",
             "Pull remote branch with merge?", "New Tag", "Tag name",
@@ -293,7 +309,41 @@ struct GitLocalizationTests {
             "Text, me, author:, branch:, path:", "Any Time", "Today", "Yesterday",
             "Last 7 Days", "Last 30 Days", "Loading commits…", "Load more commits",
             "Clear Git console", "Git exited with code %d", "%lld files",
-            "%lld worktrees", "Worktree action unavailable", "Invalid Git tag name."
+            "%lld worktrees", "Worktree action unavailable", "Invalid Git tag name.",
+            "Show worktree repositories", "Hide worktree repositories",
+            "Copy Branch Name", "Tracking Branch", "Stop Tracking Branch", "No Remote Branches",
+            "Soft Reset (Keep Changes Staged)", "Mixed Reset (Keep Changes Unstaged)",
+            "Hard Reset (Discard Changes)",
+            "Review remaining steps",
+            "Review repository commits",
+            "Each repository has its own commit. Completed steps are kept if another repository fails.",
+            "Review and Retry Unfinished Steps…",
+            "Dismiss Results",
+            "Update parent repository references",
+            "Each submodule is pushed before its parent.",
+            "Uncommitted submodule changes",
+            "Commit changed files in the submodule first",
+            "Amend applies to repositories with selected files.",
+            "Commit message: %@",
+            "Push only",
+            "Commit and push",
+            "Committed; push pending",
+            "Committed and pushed",
+            "Waiting for submodule",
+            "Pending",
+            "Not included in the updated plan",
+            "Committed; push failed",
+            "HEAD advanced; review before continuing.",
+            "Could not verify the commit outcome. Review before retrying.",
+            "Repository needs attention",
+
+            "Update %@/%@ after %@",
+            "Repository changed; review and retry",
+            "Committed",
+            "Collapse repository",
+            "Expand repository",
+            "Unstage all files in repository",
+            "Stage all files in repository"
         ]
         let pattern = try NSRegularExpression(pattern: #"%(?:\d+\$)?(?:lld|ld|d|@)"#)
         for key in keys {

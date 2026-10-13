@@ -1,3 +1,4 @@
+import { MAX_PLUGIN_PACKAGE_BYTES } from "@/extensions/packages/local-extension-package";
 import {
   ArrowClockwiseIcon as RefreshCw,
   ArrowCounterClockwiseIcon as Reset,
@@ -546,6 +547,8 @@ export const ExtensionsSidebar = () => {
     })),
   );
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
+  const packageInputRef = useRef<HTMLInputElement>(null);
+  const [importingPackage, setImportingPackage] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [extensions, setExtensions] = useState<UnifiedExtension[]>([]);
@@ -830,7 +833,8 @@ export const ExtensionsSidebar = () => {
         id: theme.id,
         name: theme.name,
         description:
-          theme.description || t("extensions.themeFallbackDescription", { category: theme.category }),
+          theme.description ||
+          t("extensions.themeFallbackDescription", { category: theme.category }),
         category: "theme",
         isInstalled: true,
         isEnabled: true,
@@ -1448,6 +1452,20 @@ export const ExtensionsSidebar = () => {
     const isAppearance = isAppearanceExtension(extension);
     const primaryActionLabel = getPrimaryActionLabel(extension, t);
 
+    if (isInstalling && extension.category === "language") {
+      items.push({
+        id: "cancel-install",
+        label: t("ui.cancel"),
+        icon: <XCircle className="size-3.5" />,
+        onClick: () => {
+          void disableExtension(extension.id).catch((error) =>
+            showToast({ message: String(error), type: "error" }),
+          );
+        },
+      });
+      return items;
+    }
+
     if (extension.isBundled) {
       items.push({
         id: "built-in",
@@ -1603,7 +1621,13 @@ export const ExtensionsSidebar = () => {
     }
 
     return items;
-  }, [availableExtensions, extensionContextMenu.data, extensionsWithUpdates, installingAgentIds, t]);
+  }, [
+    availableExtensions,
+    extensionContextMenu.data,
+    extensionsWithUpdates,
+    installingAgentIds,
+    t,
+  ]);
 
   return (
     <div className="font-sans flex h-full min-h-0 flex-col bg-background">
@@ -1612,9 +1636,7 @@ export const ExtensionsSidebar = () => {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Package className="size-5 text-subtle-foreground" weight="duotone" />
-              <h1 className="font-semibold text-foreground ui-text-lg">
-                {t("extensions.title")}
-              </h1>
+              <h1 className="font-semibold text-foreground ui-text-lg">{t("extensions.title")}</h1>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2 ui-text-sm text-subtle-foreground">
               <span>{t("extensions.availableCount", { count: extensions.length })}</span>
@@ -1643,6 +1665,34 @@ export const ExtensionsSidebar = () => {
               containerClassName="min-w-0 flex-1 sm:w-80 sm:flex-none"
               className="h-9 bg-surface/45"
             />
+            <input
+              ref={packageInputRef}
+              type="file"
+              accept=".lithe-extension"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                setImportingPackage(true);
+                void (async () => {
+                  if (file.size > MAX_PLUGIN_PACKAGE_BYTES)
+                    throw new Error(t("extensions.packageTooLarge"));
+                  await useExtensionStore.getState().actions.importLocalPackage(await file.text());
+                })()
+                  .catch((error) => showToast({ message: String(error), type: "error" }))
+                  .finally(() => setImportingPackage(false));
+              }}
+            />
+            <Button
+              variant="default"
+              size="xs"
+              disabled={importingPackage}
+              onClick={() => packageInputRef.current?.click()}
+            >
+              <Plus />
+              {t("extensions.importPackage")}
+            </Button>
             {settings.extensionsActiveTab === "skill" ? (
               <Button variant="default" size="xs" onClick={() => setIsSkillsCommandOpen(true)}>
                 <Plus />

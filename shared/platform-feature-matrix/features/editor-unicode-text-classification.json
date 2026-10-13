@@ -1,0 +1,26 @@
+{
+  "id": "editor-unicode-text-classification",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "中文 properties 与未知扩展名文本的一致打开和恢复",
+  "owner": "Editor",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Core/Rust/RustTextContentPolicy.swift",
+      "macos/Tests/LitheTests/TextContentPolicyTests.swift",
+      "frontend/editor/src/language-contributions.ts"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/file-system/controllers/workspace-session-restore.ts",
+      "windows/tauri/src/features/file-system/controllers/workspace-session-restore.test.ts",
+      "frontend/editor/src/language-contributions.ts"
+    ]
+  },
+  "verification": "双端打开高中文比例的 .properties 和未知扩展名 UTF-8 文件，编辑保存后恢复会话并验证内容及编码；验证 properties 高亮、emoji 跨边界、NUL 和控制字符拒绝、读取错误独立报告，并执行 text-content-v1.json 共享规则样例。"
+}

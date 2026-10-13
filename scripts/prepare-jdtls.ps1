@@ -134,6 +134,7 @@ function Assert-JdtlsOutput {
     $declaredBundles = @(Get-Content -LiteralPath $bundleListPath | Where-Object { $_ -ne "" })
     foreach ($declaredBundle in $declaredBundles) {
         if (-not (Test-Path -LiteralPath (Join-Path $javaTestExtensions $declaredBundle) -PathType Leaf)) { throw "Java Test bundle $declaredBundle is missing: $javaTestExtensions" }
+        if (Test-Path -LiteralPath (Join-Path $output "plugins/$declaredBundle")) { throw "Java Test bundle $declaredBundle duplicates a JDTLS plugin: $(Join-Path $output 'plugins')" }
     }
     $presentBundles = @(Get-ChildItem -LiteralPath $javaTestExtensions -File -Filter "*.jar")
     if ($presentBundles.Count -ne $declaredBundles.Count) { throw "Java Test extension bundles do not match ${javaTestBundleList}: $javaTestExtensions" }
@@ -203,14 +204,18 @@ try {
     Expand-Archive -LiteralPath $javaTestArchive -DestinationPath $javaTestExtraction -Force
     $javaTestPackage = Get-Content -Raw -LiteralPath (Join-Path $javaTestExtraction "extension/package.json") | ConvertFrom-Json
     # The extension's `contributes.javaExtensions` is the upstream list of
-    # bundles JDT LS must load; copying exactly that list keeps the runner and
-    # coverage agent out of OSGi and follows upstream when the set changes.
+    # bundles JDT LS must load; copying that list keeps the runner and coverage
+    # agent out of OSGi and follows upstream when the set changes. Bundles JDT LS
+    # already ships (Eclipse names them `<symbolic-name>_<version>.jar`) are
+    # skipped: JDT LS cannot replace its own copy, so loading them only fails
+    # with "A bundle is already installed" at every start.
     $declaredBundles = @($javaTestPackage.contributes.javaExtensions)
     if ($declaredBundles.Count -eq 0) { throw "Java Test extension declares no JDT LS bundles" }
     $bundleNames = [System.Collections.Generic.List[string]]::new()
     foreach ($declaredBundle in $declaredBundles) {
         $bundleSource = Join-Path (Join-Path $javaTestExtraction "extension") ([string]$declaredBundle).TrimStart(".", "/")
         $bundleName = Split-Path -Leaf $bundleSource
+        if (Test-Path -LiteralPath (Join-Path $output "plugins/$bundleName")) { continue }
         Copy-Item -LiteralPath $bundleSource -Destination (Join-Path $javaTestExtensionsOutput $bundleName) -Force
         $bundleNames.Add($bundleName)
     }

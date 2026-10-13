@@ -3,7 +3,7 @@
 // Swift adaptation: Lithe contributors. See macos/Resources/GitGraph/NOTICE.txt.
 import Foundation
 
-enum GitGraphHeadOrdering {
+package enum GitGraphHeadOrdering {
     static func sortedHeads(labels: [[GitGraphLabel]], children: [[Int]]) -> [Int] {
         let best = labels.map(bestReference)
         // A referenced branch may already have children. It still seeds DFS
@@ -51,7 +51,7 @@ enum GitGraphHeadOrdering {
     /// The upstream natural-name comparator compares digit runs without an
     /// integer conversion, including leading-zero length and a case tie-break.
     /// UTF-16 preserves Java's ordering for supplementary characters as well.
-    static func naturalCompare(_ a: [UInt16], _ b: [UInt16], ignoreCase: Bool = true) -> Int {
+    package static func naturalCompare(_ a: [UInt16], _ b: [UInt16], ignoreCase: Bool = true) -> Int {
         var i = 0, j = 0
         func digit(_ c: UInt16) -> Bool { (48...57).contains(c) }
         func numberRange(_ value: [UInt16], _ offset: Int) -> Range<Int> {

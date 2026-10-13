@@ -7,8 +7,17 @@ import {
   workspaceScopeMatchesRoot,
   type WorkspaceLaunchScope,
 } from "@/features/workspace/types/workspace-launch-scope";
-import type { MavenProject } from "../types/maven.types";
-import { useMavenStore, type MavenReloadSnapshot } from "../stores/maven.store";
+import type { MavenLaunchContext, MavenProject } from "../types/maven.types";
+import {
+  currentMavenLaunchContext,
+  useMavenStore,
+  type MavenReloadSnapshot,
+} from "../stores/maven.store";
+import {
+  updateJavaMavenConfiguration,
+  type JavaMavenConfigurationUpdate,
+} from "./java-maven-configuration";
+import { frontendTrace } from "@/utils/frontend-trace";
 
 interface MavenReloadState {
   root: string | null;
@@ -55,8 +64,15 @@ interface JavaWorkspaceReloadOwner {
 export interface MavenWorkspaceReloadDependencies {
   hasWorkspace(workspaceId: string): boolean;
   getMavenState(workspaceId: string): MavenReloadState;
+  getMavenContext(scope: WorkspaceLaunchScope): MavenLaunchContext | null;
   getFileSystemState(workspaceId: string): FileSystemReloadState;
   getJavaOwner(): JavaWorkspaceReloadOwner;
+  updateJavaMavenConfiguration(
+    root: string,
+    context: MavenLaunchContext,
+    reloadProjects: boolean,
+  ): Promise<JavaMavenConfigurationUpdate>;
+  trace: typeof frontendTrace;
 }
 
 export type MavenWorkspaceReloadOutcome = "completed" | "failed" | "noProject" | "stale";
@@ -73,8 +89,11 @@ function reloadKey(scope: WorkspaceLaunchScope): string {
 const defaultDependencies: MavenWorkspaceReloadDependencies = {
   hasWorkspace: (workspaceId) => workspaceRuntimeRegistry.hasWorkspace(workspaceId),
   getMavenState: (workspaceId) => useMavenStore.getStore(workspaceId).getState(),
+  getMavenContext: (scope) => currentMavenLaunchContext(scope.root, scope.workspaceId),
   getFileSystemState: (workspaceId) => useFileSystemStore.getStore(workspaceId).getState(),
   getJavaOwner: getJavaWorkspaceLanguageServerOwner,
+  updateJavaMavenConfiguration,
+  trace: frontendTrace,
 };
 
 function scopedStates(
@@ -98,6 +117,31 @@ export async function reloadJavaForMavenWorkspace(
   let states = scopedStates(scope, dependencies);
   if (!states) return "stale";
   const targetReloadRevision = reloadRevision ?? states.maven.reloadRevision;
+
+  // A running session re-resolves in place through JDT LS's forced project
+  // update. Restarting it would reuse the workspace state and skip every
+  // project whose pom.xml did not change, keeping artifacts that failed to
+  // resolve missing (#970). A restart remains the recovery for a session that
+  // cannot take the update, and the way to start one that is not running.
+  const context = dependencies.getMavenContext(scope);
+  if (context) {
+    try {
+      const update = await dependencies.updateJavaMavenConfiguration(scope.root, context, true);
+      states = scopedStates(scope, dependencies);
+      if (!states) return "stale";
+      if (update.kind === "updated") {
+        states.maven.actions.acknowledgeReload(targetReloadRevision);
+        return "completed";
+      }
+    } catch (error) {
+      dependencies.trace("warn", "maven.java", "Java language session could not reload Maven projects; restarting it", {
+        workspaceId: scope.workspaceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      states = scopedStates(scope, dependencies);
+      if (!states) return "stale";
+    }
+  }
 
   const files = await states.fileSystem.getAllProjectFiles();
   states = scopedStates(scope, dependencies);

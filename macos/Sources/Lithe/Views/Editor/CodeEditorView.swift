@@ -2933,7 +2933,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         for range in collapsedRanges.ranges {
             layoutManager.addTemporaryAttribute(
                 .font,
-                value: NSFont.monospacedSystemFont(ofSize: 0.1, weight: .regular),
+                value: LitheTheme.editorFont(size: 0.1, weight: .regular),
                 forCharacterRange: range
             )
             let collapsedParagraph = NSMutableParagraphStyle()
@@ -3013,7 +3013,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
               layoutManager.numberOfGlyphs > 0 else { return }
 
         let source = string as NSString
-        let font = self.font ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let font = self.font ?? LitheTheme.editorFont(size: 12, weight: .regular)
         let spaceWidth = (" " as NSString).size(withAttributes: [.font: font]).width
         let width = max(1, indentationWidth)
         guard spaceWidth > 0 else { return }
@@ -3287,7 +3287,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             path.fill()
             let label = "..." as NSString
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+                .font: LitheTheme.uiNSFont(size: 11, weight: .semibold),
                 .foregroundColor: NSColor(
                     white: isHovered ? 0.90 : 0.68,
                     alpha: isHovered ? 1 : 0.62
@@ -3319,7 +3319,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         let sourceLength = string.utf16.count
         let location = min(selectedRange().location, sourceLength)
         let fallbackLineHeight = layoutManager.defaultLineHeight(
-            for: font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
+            for: font ?? LitheTheme.editorFont(size: 13, weight: .regular)
         )
         let containerRect = EditorCaretGeometry.rect(
             at: location,
@@ -3768,7 +3768,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         anchor.origin.x += textContainerOrigin.x
         anchor.origin.y += textContainerOrigin.y
         let label = NSTextField(wrappingLabelWithString: value)
-        label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        label.font = LitheTheme.uiNSFont(size: 12, weight: .regular)
         label.textColor = NSColor(white: 0.9, alpha: 1)
         label.maximumNumberOfLines = 6
         label.preferredMaxLayoutWidth = 420
@@ -4065,7 +4065,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.font = LitheTheme.editorFont(size: 12, weight: .regular)
         textView.textContainerInset = NSSize(width: 10, height: 9)
         let scrollView = NSScrollView(frame: textView.frame)
         scrollView.documentView = textView
@@ -4126,7 +4126,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         let length = string.utf16.count
         let location = min(selectedRange().location, length)
         let fallbackLineHeight = layoutManager.defaultLineHeight(
-            for: font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
+            for: font ?? LitheTheme.editorFont(size: 13, weight: .regular)
         )
         var rect = EditorCaretGeometry.rect(
             at: location,
@@ -4704,7 +4704,7 @@ final class LineNumberGutterView: NSView {
         guard layoutManager.numberOfGlyphs > 0 else {
             let lineHeight = max(
                 18,
-                layoutManager.defaultLineHeight(for: textView.font ?? .systemFont(ofSize: 13))
+                layoutManager.defaultLineHeight(for: textView.font ?? LitheTheme.editorFont(size: 13))
             )
             drawLineNumber(1, y: textView.textContainerInset.height, height: lineHeight)
             drawEditorDivider(in: dirtyRect)
@@ -5552,7 +5552,7 @@ final class CodeVisionOverlayController {
                 height: Self.buttonHeight
             )
             alignmentButton.layoutSubtreeIfNeeded()
-            let overlayFont = alignmentButton.font ?? .systemFont(ofSize: 10.5, weight: .medium)
+            let overlayFont = alignmentButton.font ?? LitheTheme.uiNSFont(size: 10.5, weight: .medium)
             let y = EditorOverlayLayout.centeredFontOriginY(
                 textContainerOriginY: textView.textContainerOrigin.y,
                 lineOriginY: lineRect.minY,
@@ -5597,12 +5597,12 @@ final class CodeVisionOverlayController {
             title: title,
             systemImage: systemImage,
             hoverUnderlineStyle: hoverUnderlineStyle,
-            font: .systemFont(ofSize: 10.5, weight: .medium),
+            font: LitheTheme.uiNSFont(size: 10.5, weight: .medium),
             textColor: NSColor(white: 0.52, alpha: 1),
             action: action
         )
         button.isBordered = false
-        button.font = .systemFont(ofSize: 10.5, weight: .medium)
+        button.font = LitheTheme.uiNSFont(size: 10.5, weight: .medium)
         button.contentTintColor = NSColor(white: 0.52, alpha: 1)
         button.alignment = .center
         button.setAccessibilityElement(true)
@@ -5672,7 +5672,7 @@ final class DebugInlineValueOverlayController {
         )
         let text = values.map { "\($0.name) = \($0.value)" }.joined(separator: "   ")
         let label = DebugInlineValueLabel(labelWithString: text)
-        label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        label.font = LitheTheme.uiNSFont(size: 11, weight: .regular)
         label.textColor = NSColor.secondaryLabelColor.withAlphaComponent(0.82)
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1

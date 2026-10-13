@@ -1,3 +1,5 @@
+import type { RunIconKey } from "../utils/run-configuration-presentation";
+
 export type RunConfigurationStatus = "missing" | "ready" | "invalid";
 export type RunRecoveryAction =
   | "none"
@@ -24,6 +26,7 @@ export interface RunConfiguration {
   name: string;
   provider: string;
   kindTitle: string;
+  iconKey?: RunIconKey;
   execution: RunExecution;
   category: RunCategory;
   modulePath?: string;
@@ -57,7 +60,17 @@ export interface RunOptions {
   environment: Record<string, string>;
 }
 
+export interface JavaServiceUpdateContext {
+  sourcePath: string;
+  target: JavaLaunchTarget;
+  debugPort?: number;
+}
+
 export interface RunSession {
+  /** Identity of this execution, preserved after exit and replaced on restart. */
+  executionId?: string;
+  /** True while Java preparation is waiting before the native launch. */
+  isPreparing?: boolean;
   id: string;
   configurationId: string;
   title: string;
@@ -123,6 +136,12 @@ export interface PreLaunchStep {
   arguments: string[];
   /** Entries joined with `;` (Windows) and prepended as `-cp` before args. */
   classpath?: string[];
+  /**
+   * Project-relative directory for this step, and the root the host resolves
+   * its toolchain from. Absent inherits the plan's `workingDirectory`, which
+   * may be a user override the step must not run from.
+   */
+  workingDirectory?: string;
 }
 
 export interface LaunchPlan {
@@ -204,6 +223,9 @@ export interface CoreResolvedConfiguration {
     adapter?: string;
   };
   extensions?: {
+    npm?: { manager?: string; framework?: string; server?: string };
+    gradle?: { plugin?: string };
+    python?: { framework?: string };
     maven?: {
       module?: string;
       reactorPath?: string;

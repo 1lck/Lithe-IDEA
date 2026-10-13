@@ -1,0 +1,23 @@
+{
+  "id": "wsl-paths",
+  "area": "Windows 专属",
+  "group": "WSL",
+  "capability": "WSL 文件与工作区路径",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe"
+    ],
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/wsl",
+      "windows/tauri/src/features/file-system"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Windows Platform",
+  "verification": "Windows 验证本地文件、WSL 文件、发行版识别和工作区打开。"
+}

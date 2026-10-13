@@ -1,0 +1,23 @@
+{
+  "id": "editor-git-gutter-setting",
+  "area": "编辑器",
+  "group": "Git 变更",
+  "capability": "设置中开关编辑器 Git 变更标记",
+  "macos": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Editor/CodeEditorView.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/settings/components/tabs/git-settings.tsx",
+      "windows/tauri/src/features/settings/config/default-settings.ts"
+    ]
+  },
+  "owner": "Editor / Git",
+  "verification": "Windows 默认显示 Git 变更标记；在 Git 设置中关闭时清除标记和预览，重新启用后恢复，重启后保留选择。此项记录 Windows 新增的独立开关。"
+}

@@ -35,7 +35,7 @@ windows_lithe_theme="windows/tauri/src/extensions/themes/builtin/lithe.json"
   expected_fields = %w[builderFailedEarlier elapsedMilliseconds markerScope recovery]
   abort "Java build report fields differ from v1" unless reports.all? { |report| report.keys.sort == expected_fields }
   abort "Java build report fixture must cover both marker scopes" unless reports.map { |report| report.fetch("markerScope") }.sort == %w[launchTarget workspace]
-  abort "Java build report fixture must cover index recovery" unless reports.any? { |report| report.fetch("recovery") == "rebuildJavaIndex" }
+  abort "Java build report fixture must give every code verdict the index rebuild" unless reports.all? { |report| report.fetch("recovery") == "rebuildJavaIndex" }
   non_continuable = fixture.fetch("nonContinuableCodes")
   abort "Java build report fixture must keep cancellation and timeout non-continuable" unless %w[javaBuildCancelled requestCancelled requestTimeout].all? { |code| non_continuable.include?(code) }
 ' "$java_build_report_fixture"
@@ -91,6 +91,8 @@ fi
   abort "module IDs must be sorted" unless modules.map { |m| m.fetch("id") } == modules.map { |m| m.fetch("id") }.sort
   abort "workspace must be the only required module" unless modules.select { |m| m.fetch("required") }.map { |m| m.fetch("id") } == ["dev.lithe.workspace"]
   abort "AI must be disabled by default" unless modules.find { |m| m.fetch("id") == "dev.lithe.ai-assistance" }.fetch("defaultState") == "disabled"
+  agent = modules.find { |m| m.fetch("id") == "dev.lithe.agent-conversation" }
+  abort "Agent must be disabled and on demand" unless agent.fetch("defaultState") == "disabled" && agent.fetch("activationPolicy") == "onDemand"
   abort "Database must be disabled by default" unless modules.find { |m| m.fetch("id") == "dev.lithe.database" }.fetch("defaultState") == "disabled"
   allowed_states = ["enabled", "disabled"]
   allowed_scopes = ["application", "workspace"]
@@ -141,7 +143,7 @@ fi
   abort "plugin module IDs must be unique" unless owned_modules.uniq.length == owned_modules.length
   entries.each do |plugin|
     abort "plugin API mismatch" unless plugin.fetch("apiVersion") == plugins.fetch("pluginAPIVersion")
-    abort "official plugin signature policy mismatch" unless plugin.fetch("vendor").fetch("signatureRequirement") == "sameTeamAsHost"
+    abort "official plugin signature policy mismatch" unless %w[publisherPackage sameTeamAsHost].include?(plugin.fetch("vendor").fetch("signatureRequirement"))
     abort "plugin module IDs must be sorted" unless plugin.fetch("moduleIDs") == plugin.fetch("moduleIDs").sort
   end
 ' "$plugin_fixture"

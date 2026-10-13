@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { RecentFolder } from "@/features/file-system/types/recent-folders.types";
 import type { ProjectTab } from "@/features/window/stores/workspace-tabs.store";
 import {
-  getTitleProjectBadge,
   getTitleProjectMenuItemAriaCurrent,
   getTitleProjectMenuProjects,
 } from "./title-project-menu-model";
@@ -70,13 +69,5 @@ describe("title project menu model", () => {
   test("marks only the active project as current for assistive technology", () => {
     expect(getTitleProjectMenuItemAriaCurrent(true)).toBe("true");
     expect(getTitleProjectMenuItemAriaCurrent(false)).toBeUndefined();
-  });
-
-  test("creates deterministic project initials and badge tones", () => {
-    const badge = getTitleProjectBadge("Lithe-IDEA-issue-35-ci");
-
-    expect(badge.initials).toBe("LI");
-    expect(getTitleProjectBadge("Lithe-IDEA-issue-35-ci")).toEqual(badge);
-    expect(getTitleProjectBadge("文档项目").initials).toBe("文");
   });
 });

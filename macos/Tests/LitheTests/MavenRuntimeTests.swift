@@ -6,6 +6,47 @@ import Testing
 @Suite("Maven and runtime integration")
 struct MavenRuntimeTests {
     @Test
+    @MainActor
+    func automaticJavaUsesProjectMinimumAndPreservesExplicitSelections() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".lithe/toolchains"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let requirements = root.appendingPathComponent(".lithe/toolchains/requirements.json")
+        let old = JavaRuntimeCandidate(homePath: "/jdk/env", version: "1.8.0_402", vendor: "fixture")
+        let current = JavaRuntimeCandidate(homePath: "/jdk/current", version: "21.0.4", vendor: "fixture")
+        let locator = ChoiceRuntimeLocator(environmentValues: ["JAVA_HOME": old.homePath], validJavaHomes: [old.homePath, current.homePath], runtimeCandidates: [old, current])
+        let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
+        service.openProject(at: root)
+        func require(_ version: String) throws {
+            try Data("{\"version\":1,\"toolchains\":{\"project-jdk\":{\"type\":\"java\",\"minimumVersion\":\"\(version)\"}}}".utf8).write(to: requirements)
+        }
+        try require("17")
+        let choice = service.chooseJavaHome(overridePath: nil) { [old, current] }
+        #expect(choice?.url?.path == current.homePath)
+        #expect(service.javaHomeURL()?.path == current.homePath)
+        #expect(service.mavenJavaHomeURL()?.path == current.homePath)
+        #expect(locator.discoverCalls == 1)
+        #expect(service.chooseMavenJavaHome(overridePath: nil) { [old, current] }?.url == choice?.url)
+        #expect(service.chooseJavaHome(overridePath: old.homePath) { [old, current] }?.url?.path == old.homePath)
+        #expect(service.chooseJavaHome(overridePath: "/missing") { [old, current] } == .invalid("/missing"))
+        try require("25")
+        if case .warning(let url, _, let message)? = service.chooseJavaHome(overridePath: nil, detected: { [old, current] }) {
+            #expect(url.path == old.homePath)
+            #expect(message.contains("25"))
+        } else { Issue.record("Expected an actionable fallback warning") }
+        try FileManager.default.removeItem(at: requirements)
+        #expect(service.chooseJavaHome(overridePath: nil) { [current, old] }?.url?.path == old.homePath)
+        try Data("{".utf8).write(to: requirements)
+        if case .unavailable(_)? = service.chooseJavaHome(overridePath: nil, detected: { [old, current] }) {} else {
+            Issue.record("Invalid requirements must be visible")
+        }
+        // Project switching cannot retain the previous workspace's requirement.
+        service.closeProject()
+        #expect(service.chooseJavaHome(overridePath: nil) { [current, old] }?.url?.path == old.homePath)
+        #expect(locator.discoverCalls == 1)
+    }
+
+    @Test
     func mavenLifecyclePhasesMatchTheSharedPlatformContract() throws {
         let fixture = try Self.platformContractFixture()
         #expect(MavenLifecyclePhase.allCases.map(\.rawValue) == fixture.lifecyclePhases)
@@ -146,19 +187,69 @@ struct MavenRuntimeTests {
         let fixture = try Self.dependencyTreeFixture()
         let tree = try fixture.expected.makeModel()
 
-        #expect(fixture.version == 1)
+        #expect(fixture.version == 2)
         #expect(tree.modulePath == fixture.modulePath)
-        #expect(fixture.output.contains("omitted for conflict with 2.0"))
+        #expect(fixture.treeFile.contains("omitted for conflict with 2.0"))
         #expect(tree.dependencies.map(\.artifactID) == [
-            "compile-lib", "provided-lib", "runtime-lib", "test-lib"
+            "compile-lib", "managed-lib", "provided-lib", "runtime-lib", "test-lib"
         ])
         let compileDependency = try #require(tree.dependencies.first)
         let conflict = try #require(compileDependency.children.first)
         #expect(conflict.resolution == .omittedConflict)
         #expect(conflict.selectedVersion == "2.0")
+        #expect(conflict.premanagedVersion == "1.1")
+        let managed = try #require(tree.dependencies.first { $0.artifactID == "managed-lib" })
+        #expect(managed.premanagedVersion == "0.9.0")
+        #expect(managed.ignoredScope == "compile")
+        let provided = try #require(tree.dependencies.first { $0.artifactID == "provided-lib" })
+        #expect(provided.premanagedScope == "compile")
+        let runtime = try #require(tree.dependencies.first { $0.artifactID == "runtime-lib" })
+        #expect(runtime.children.first?.originalScope == "test")
         let testDependency = try #require(tree.dependencies.last)
         #expect(testDependency.classifier == "tests")
         #expect(testDependency.scope == "test")
+    }
+
+    @Test
+    func dependencyOutputStoreKeepsFilesPerProcessAndRemovesAbandonedOnes() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-maven-outputs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let running = root.appendingPathComponent("200", isDirectory: true)
+        let exited = root.appendingPathComponent("300", isDirectory: true)
+        let unrelated = root.appendingPathComponent("notes", isDirectory: true)
+        for directory in [running, exited, unrelated] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        let store = MacMavenDependencyOutputStore(
+            rootURL: root,
+            processIdentifier: 100,
+            isProcessRunning: { $0 == 200 }
+        )
+
+        // Another running Lithe keeps its files; an exited one's are removed.
+        #expect(FileManager.default.fileExists(atPath: running.path))
+        #expect(!FileManager.default.fileExists(atPath: exited.path))
+        #expect(FileManager.default.fileExists(atPath: unrelated.path))
+
+        let operationID = UUID().uuidString
+        let file = try store.makeDependencyOutputFile(operationID: operationID)
+        #expect(file.deletingLastPathComponent().lastPathComponent == "100")
+        try Data("stale".utf8).write(to: file)
+        #expect(try store.makeDependencyOutputFile(operationID: operationID) == file)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+
+        try Data("tree".utf8).write(to: file)
+        store.removeDependencyOutputFile(file)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        store.removeDependencyOutputFile(file)
+
+        for operationID in ["", "../escape", "a/b", "a b"] {
+            #expect(throws: MavenOperationError.self) {
+                try store.makeDependencyOutputFile(operationID: operationID)
+            }
+        }
     }
 
     @Test
@@ -236,6 +327,8 @@ struct MavenRuntimeTests {
         service.openProject(at: URL(fileURLWithPath: "/workspace", isDirectory: true))
 
         #expect(describe(service.chooseJavaHome(overridePath: nil) { nil }) == "found /jdk/env javaHomeEnvironment")
+        #expect(service.javaHomeURL()?.path == "/jdk/env")
+        #expect(locator.discoverCalls == 0)
         #expect(describe(service.chooseJavaHome(overridePath: "/missing") { nil }) == "invalid /missing")
         #expect(describe(service.chooseJavaHome(overridePath: "/jdk/detected") { nil }) == "found /jdk/detected configured")
 
@@ -279,6 +372,14 @@ struct MavenRuntimeTests {
         // One discovery in total: the environment report must reuse its result
         // instead of probing every JDK again on the main actor.
         #expect(locator.discoverCalls == 1)
+        #expect(service.javaHomeURL() == nil)
+        #expect(service.mavenJavaHomeURL() == nil)
+        #expect(locator.discoverCalls == 1)
+        service.closeProject()
+        service.openProject(at: URL(fileURLWithPath: "/another-fixture-workspace", isDirectory: true))
+        #expect(service.javaHomeURL() == nil)
+        #expect(service.mavenJavaHomeURL() == nil)
+        #expect(locator.discoverCalls == 2)
     }
 
     @Test
@@ -291,19 +392,19 @@ struct MavenRuntimeTests {
         let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
         service.openProject(at: URL(fileURLWithPath: "/workspace", isDirectory: true))
 
-        #expect(describe(service.chooseMavenJavaHome(overridePath: nil) { nil }) == "found /jdk/env projectJDK")
+        #expect(describe(service.chooseMavenJavaHome(overridePath: nil) { [] }) == "found /jdk/env projectJDK")
 
         var settings = service.settings
         settings.mavenJavaHomePath = "/missing-maven-jdk"
         service.updateSettings(settings)
         // Launches keep falling back to the project JDK; Settings now says so.
-        #expect(describe(service.chooseMavenJavaHome(overridePath: nil) { nil })
+        #expect(describe(service.chooseMavenJavaHome(overridePath: nil) { [] })
             == "fallback /missing-maven-jdk -> found /jdk/env javaHomeEnvironment")
         #expect(service.mavenJavaHomeURL()?.path == "/jdk/env")
 
         settings.mavenJavaHomePath = "/jdk/maven"
         service.updateSettings(settings)
-        #expect(describe(service.chooseMavenJavaHome(overridePath: nil) { nil }) == "found /jdk/maven projectSetting")
+        #expect(describe(service.chooseMavenJavaHome(overridePath: nil) { [] }) == "found /jdk/maven projectSetting")
         // A usable Maven JDK never walks the project chain, which may probe every JDK.
         #expect(locator.discoverCalls == 0)
     }
@@ -478,18 +579,7 @@ struct MavenRuntimeTests {
     }
 
     private static func dependencyTreeFixture() throws -> MavenDependencyTreeFixture {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let url = repositoryRoot.appendingPathComponent(
-            "shared/fixtures/maven/dependency-tree-v1.json"
-        )
-        return try JSONDecoder().decode(
-            MavenDependencyTreeFixture.self,
-            from: Data(contentsOf: url)
-        )
+        try MavenDependencyTreeFixture.load()
     }
 }
 
@@ -505,11 +595,27 @@ private struct MavenPlatformContractFixture: Decodable {
     let storageIdentityCases: [StorageIdentityCase]
 }
 
-private struct MavenDependencyTreeFixture: Decodable {
+/// The shared `maven.dependencies` compatibility fixture.
+struct MavenDependencyTreeFixture: Decodable {
     let version: Int
     let modulePath: String
-    let output: String
+    let treeFile: String
     let expected: RustCoreBridge.MavenDependenciesPayload
+
+    static func load() throws -> MavenDependencyTreeFixture {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = repositoryRoot.appendingPathComponent(
+            "shared/fixtures/maven/dependency-tree-v2.json"
+        )
+        return try JSONDecoder().decode(
+            MavenDependencyTreeFixture.self,
+            from: Data(contentsOf: url)
+        )
+    }
 }
 
 private struct MavenTestFileStorage: FileStorage {
@@ -644,6 +750,8 @@ private func describe(_ choice: RuntimeChoice?) -> String {
     case .found(let url, let source)?: "found \(url.path) \(source)"
     case .invalid(let path)?: "invalid \(path)"
     case .fallback(let path, let replacement)?: "fallback \(path) -> \(describe(replacement))"
+    case .warning(let url, _, let message)?: "warning \(url.path) \(message)"
+    case .unavailable(let message)?: "unavailable \(message)"
     case .notFound?: "notFound"
     }
 }
@@ -654,24 +762,27 @@ private final class ChoiceRuntimeLocator: RuntimeLocator, @unchecked Sendable {
     private let validJavaHomes: Set<String>
     private let executables: Set<String>
     private let systemMaven: URL?
+    private let runtimeCandidates: [JavaRuntimeCandidate]
     private(set) var discoverCalls = 0
 
     init(
         environmentValues: [String: String] = [:],
         validJavaHomes: Set<String> = [],
         executables: Set<String> = [],
-        systemMaven: URL? = nil
+        systemMaven: URL? = nil,
+        runtimeCandidates: [JavaRuntimeCandidate] = []
     ) {
         self.environmentValues = environmentValues
         self.validJavaHomes = validJavaHomes
         self.executables = executables
         self.systemMaven = systemMaven
+        self.runtimeCandidates = runtimeCandidates
     }
 
     func environment() -> [String: String] { environmentValues }
     func discover() -> RuntimeDiscoveryResult {
         discoverCalls += 1
-        return RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
+        return RuntimeDiscoveryResult(javaRuntimes: runtimeCandidates, mavenRuntimes: [])
     }
     func validJavaHome(path: String) -> URL? {
         validJavaHomes.contains(path) ? URL(fileURLWithPath: path, isDirectory: true) : nil

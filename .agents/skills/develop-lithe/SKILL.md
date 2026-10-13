@@ -130,6 +130,59 @@ implementation and must not import Swift source or depend on macOS types.
 - Treat command names, JSON fields, error codes, and the C ABI as compatibility
   surfaces. Update contract documentation and every consumer when they change.
 
+## Keep the platform feature matrix current
+
+For every new user-visible capability or cross-platform behavior change, update
+the relevant `shared/platform-feature-matrix/features/<id>.json` in the same pull
+request. Each file is one
+independently verifiable user capability and must include both platforms'
+`implementationStatus`, `verificationStatus`, evidence paths, owner, and a
+concrete verification action. Platform-only capabilities still get a row with
+`implementationStatus: platform-specific` on the other side.
+
+`implementationStatus` and `verificationStatus` are independent dimensions.
+Code presence without runtime evidence keeps its implementation status and uses
+`verificationStatus: pending`; only the verification procedure completing on the
+target platform permits `verified`. The status labels, icons, and descriptions in
+the JSON are the generator's only status source of truth.
+
+Run `node scripts/generate-platform-feature-matrix.mjs` after changing the source.
+Review the generated HTML/Markdown/CSV/JSON under `.artifacts/platform-feature-matrix/`;
+do not commit generated views. Public views are deployed alongside the Agent Notes
+board, and PR CI uploads revision-specific artifacts. Keep common status definitions
+in `shared/platform-feature-matrix/metadata.json`; dates or metadata-only changes
+do not satisfy the capability update gate. Run
+`./scripts/verify-platform-feature-matrix.sh` before handoff. Pull requests that
+change platform implementation paths are required by CI to update the JSON. A
+reviewer may add the `matrix-exempt` label only for a reviewed refactor with no
+user-observable change; explain that exception in the pull request.
+
+### Mandatory pre-PR matrix gate
+
+Do not declare a platform change complete, commit it as ready for review, push
+it, or create/update a pull request until the local equivalent of the CI change
+gate has passed. First inspect the actual platform paths changed relative to the
+PR base:
+
+```bash
+git diff --name-only origin/preview...HEAD
+```
+
+When any platform implementation path listed above changed, run both checks:
+
+```bash
+./scripts/verify-platform-feature-matrix-change.sh origin/preview HEAD
+./scripts/verify-platform-feature-matrix.sh
+```
+
+Use the exact pull-request base and head SHA instead of `origin/preview` and
+`HEAD` when those SHAs are available. If the change gate reports platform paths
+without a substantive capability record change, stop and update the relevant
+`shared/platform-feature-matrix/features/<id>.json` before proceeding. Do not use
+`matrix-exempt` to bypass a user-visible behavior change. A user request to skip
+optional tests does not waive this contract gate when the work is being prepared
+for a pull request.
+
 ## Follow the codebase's language conventions
 
 Apply the style used by surrounding files. Prefer descriptive names, focused
@@ -147,6 +200,132 @@ the existing stack can reasonably avoid.
 - Use the existing Swift Testing patterns under `macos/Tests/LitheTests/`.
 - Keep platform-specific types from leaking through shared or application
   interfaces.
+
+### macOS shared frontend controls
+
+- The approved visual baseline is the shared style already used by the Git Log
+  Branch/User/Date/Paths dropdowns, the settings-window dropdowns, and the
+  Project/Dependencies dropdown in the Project sidebar. The top-bar project
+  switcher is a consumer of that style, never its visual reference.
+- Use exactly these entry points and owners:
+
+  | Purpose | Entry point | Owning source |
+  | --- | --- | --- |
+  | Action dropdowns, checked actions, toggles and submenus | `LitheMenu` | `macos/Sources/Lithe/Views/Components/LitheDropdown.swift` |
+  | Native product right-click menus | `litheContextMenu` / `LitheContextMenuPresenter` | `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift` |
+  | Searchable selectors and custom popup content | `litheDropdown(isPresented:opensUpward:content:)` / `LitheDropdownPopover` | `macos/Sources/Lithe/Views/Components/LitheDropdown.swift` |
+  | Value selection, including settings forms | `LitheSettingsSelect` | `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift` |
+  | Action/custom dropdown windows, placement and dismissal | `LitheContextMenuPresenter` | `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift` |
+  | Value-select popup window and keyboard selection | `LitheSettingsSelectPopupPresenter` (private, through `LitheSettingsSelect`) | `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift` |
+  | Monaco/WebKit editor context menus (existing resolved actions only) | `installNativeContextMenu` → `MonacoEditorContextMenu` → `LitheContextMenuPresenter` | `macos/EditorFrontend/context-menu.ts` / `macos/Sources/Lithe/Views/Editor/MonacoEditorContextMenu.swift` |
+  | Shared row metrics and highlight | `LitheDropdownMetrics` / `LitheDropdownRowStyle` | `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift` |
+  | Shared outer background, 8pt radius, border and clipping | `litheContextMenuSurface` | `macos/Sources/Lithe/Theme/LitheTheme.swift` |
+
+  These are interaction entry points into one visual system. Callers supply
+  content, selection and actions; they must not define another dropdown
+  background, border, corner radius, row metrics or opening animation.
+- Apply these constraints only where an existing shared owner covers the control.
+  Check the corresponding IDEA Community action/control/theme source before
+  changing that owner; record the source path and revision in its owning Note.
+  Screenshots help verify the result, but do not justify guessing geometry or
+  adding IDEA functionality that Lithe does not have. A missing shared control
+  is not permission to introduce another visual system as part of a style fix.
+- When adding or changing a product dropdown, do not use SwiftUI `Menu`,
+  `Picker` with `.menu` style, SwiftUI `.popover`, `NSPopover`, or `NSPopUpButton`
+  as its presentation. Shared dropdown panels use `animationBehavior = .none`:
+  open directly without the system popup/bounce animation or a spring/scale transition.
+- Anchor toolbar dropdowns to the triggering control's bottom-left edge, not
+  the pointer position. Preserve screen-edge clamping, keyboard navigation,
+  selected state, outside-click dismissal and focus behavior.
+  The main-toolbar Project/Branch switches anchor their full toolbar slot,
+  leaving its existing margin below the painted button. Use the shared width
+  bounds in `LitheDropdownMetrics`; Project measures content width and Branch
+  uses the Community New UI 375pt baseline. Do not copy the top-bar Project
+  switcher's previous fixed width or create another search-field style:
+  searchable popup inputs use `LitheSearchTextField` + `litheSearchField` in
+  `macos/Sources/Lithe/Theme/LitheTheme.swift`, as Git Log does.
+  Width is role-specific, not globally equal: action menus measure localized
+  titles, icons, shortcuts and checks through the presenter; settings selectors
+  retain their shared trigger/content measurement. Do not add per-caller magic
+  widths or offsets. Submenus follow their visible trigger row, including scroll
+  and separators; only the shared presenter handles screen-edge adjustments.
+  Main-toolbar Project/Branch triggers retain their normal hover background
+  while their popup is open, using `litheRowHover` with
+  `activeBackground: LitheTheme.hoverBackground`. Opening does not apply a blue
+  selection or a new pressed color; closing releases this retained hover state.
+  This trigger rule does not change menu-row selection or checked-value state.
+- Monaco editor context menus must also use the native shared presenter.
+  Preserve Monaco's resolved actions, order, context keys, disabled states,
+  shortcuts and action runner; do not invent IDEA-only functionality or duplicate
+  the shared style in web CSS. Use only mapped IDEA SVG icons at their original
+  16pt size, with original colors and dark/light variants; an unassigned action
+  keeps an empty icon slot. The macOS adapter hooks the pinned Monaco 0.55.1
+  context-menu renderer after upstream menu resolution; verify the real WebKit
+  probe whenever changing this hook or upgrading Monaco.
+- Product menu/dropdown entry points use the shared routes. Native
+  SwiftUI `Picker` is allowed only for explicit `.segmented` controls, which
+  have no dropdown. `ContextMenuCoverageTests` enforces these restrictions.
+  System dialogs, the macOS application menu, editor completion/caret popups
+  and hover documentation are separate interactions; this rule does not
+  replace them with product dropdowns.
+- For search inputs use `LitheSearchTextField` and `litheSearchField`; preserve
+  native IME composition and the I-beam cursor before focus. Do not patch each
+  feature's placeholder, border or hover cursor separately.
+  Their owner is `macos/Sources/Lithe/Theme/LitheTheme.swift`; read its metrics
+  rather than copying height, inset, radius, font, placeholder or focus colors.
+  A binding that is still empty during marked text must not restore the prompt.
+  Multiline commit text keeps `CommitMessageEditor` in
+  `macos/Sources/Lithe/Views/Git/CommitMessageEditor.swift`; do not substitute a
+  search field or duplicate its native composition/undo logic.
+- Toolbar icons use `LitheIDEAIcon` in
+  `macos/Sources/Lithe/Theme/LitheIcons.swift` and the already approved SVGs in
+  `macos/Resources/IDEAIcons`. Preserve original geometry, stroke/fill and
+  dark/light variants; use an action's source-assigned icon, not a guessed
+  SF Symbol or a newly drawn replacement. Do not scale or overlay glyphs to
+  simulate heavier strokes. An unassigned menu action retains an empty slot.
+  Standard tool-window toolbar buttons use `litheToolbarIconButton` /
+  `LitheIconButtonStyle` in `LitheTheme.swift`, including its disabled and hover
+  feedback and default arrow cursor. Its 22pt hit area is not a rule for every
+  button: main-toolbar switches and other existing controls retain their own
+  shared metrics. Pointer and I-beam behavior are explicit control semantics.
+- Tree rows use `litheTreeRow` and `LitheTheme.Tree` in `LitheTheme.swift` for
+  the existing single-line tree style: font, row height, hover and focused versus
+  inactive selection. Read shared indentation/icon metrics; do not add local
+  row padding, selection colors or per-row separator lines. Preserve disclosure,
+  multiselect, context actions and accessibility. Native trees keep their
+  existing renderer and consume the same tokens; do not replace them with
+  SwiftUI rows. Multiline project-menu entries, tables and commit graph rows
+  keep their own existing shared renderer/metrics rather than using tree rows.
+- Typography uses `uiFont` / `uiNSFont` for ordinary UI and `editorFont` /
+  `codeFont` / monospaced `uiFont` for code and existing monospaced presentations,
+  all owned by `macos/Sources/Lithe/Theme/LitheTheme.swift`. Select the existing
+  bundled real face (Inter or JetBrains Mono); do not hardcode a new font family,
+  use synthetic weight on an already selected face, or force every label to the
+  same size/weight. Control metrics own size and emphasis. Project initials use
+  `ProjectAvatarBadge` in
+  `macos/Sources/Lithe/Views/Workspace/ProjectIdentityAppearance.swift`, following
+  IDEA `AvatarUtils` New UI's Mono DemiBold rather than ordinary UI Bold.
+  System window decorations/dialogs retain platform fonts. Monaco loads its
+  existing bundled code font and remeasures after loading; no runtime download
+  or write into bundled resources is allowed.
+
+- Native product scrollbars use `litheScrollViewChrome` → `LitheScrollBarStyle`
+  in `macos/Sources/Lithe/Views/Components/LitheScrollViewChrome.swift`.
+  Diff uses its editor role through `DiffStripeScroller` / `LitheScrollBarPaint`;
+  callers retain scroll actions and proportions, not local thumb/rail colors.
+  Read `.agents/notes/implemented/feature/2026-10-02-macos-shared-scrollbar.md`
+  before changing that owner; editor overrides and ordinary product colors are distinct.
+
+When changing these shared owners, check their existing callers and run the
+affected native appearance/behavior tests in dark and light themes. Relevant
+checks are `ContextMenuCoverageTests`, `SettingsSelectPopupGeometryTests`,
+`LitheSearchFieldStyleTests`, `LitheTreeRowStyleTests`, `BundledUIFontTests` and
+`WorkbenchRenderingSafetyTests`; choose the affected suites, not unrelated
+full-platform work. Do not add exceptions to coverage checks or mark full
+workbench visual validation complete merely because a component test passes.
+
+The decision and owning components are recorded in
+`.agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md`.
 
 ### Rust
 
@@ -211,6 +390,27 @@ Windows/Tauri Rust crates, generated code, or third-party sources.
   strings or numbers across platforms.
 - Test fixtures may use clearly fake values, but must not contain real secrets
   or machine-specific paths.
+
+## Keep installed packages read-only
+
+The installed macOS app bundle and the Windows installation directory are the
+release baseline: Sparkle builds differential updates against their exact
+bytes, and a runtime write turns the next update into a full download.
+
+- Runtime state (caches, indexes, Eclipse/OSGi state, downloads, extracted
+  archives, logs, and locks) goes to the platform cache, Application Support,
+  temporary storage, or the workspace, resolved through the platform storage
+  adapter. Never derive a write destination from `Bundle.main.resourceURL`,
+  `resource_dir()`, or the installation directory.
+- A packaged tool that writes next to its own files, as Equinox does with
+  `-configuration`, receives a writable copy of its inputs in the cache
+  instead; see `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`.
+- Cover a new packaged runtime with a test that compares the installation's
+  file listing before and after a typical workflow, and keep
+  `scripts/verify-runtime-bundle-immutability.sh` passing.
+
+The decision record is
+`.agents/notes/implemented/bug-fix/2026-09-25-runtime-bundle-immutability-and-update-delta.md`.
 
 ## Handle failures explicitly
 

@@ -10,22 +10,22 @@ struct OpenProjectLocationDialog: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 13) {
                 Image(systemName: "questionmark.circle.fill")
-                    .font(.system(size: 24))
+                    .font(LitheTheme.uiFont(size: 24))
                     .foregroundStyle(LitheTheme.accent)
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Open Project")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
 
                     Text("Where would you like to open the project ‘\(request.projectName)’?")
-                        .font(.system(size: 12.5))
+                        .font(LitheTheme.uiFont(size: 12.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
 
                     Toggle("Don't ask again", isOn: $doNotAskAgain)
                         .toggleStyle(.checkbox)
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lithePointer()
                         .padding(.top, 4)

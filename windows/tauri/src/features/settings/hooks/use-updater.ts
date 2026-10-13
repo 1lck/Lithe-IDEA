@@ -32,5 +32,7 @@ export const useUpdater = (checkOnMount = true) => {
     remindLater: actions.remindLater,
     skipVersion: actions.skipVersion,
     viewReleaseNotes: actions.viewReleaseNotes,
+    openDetails: actions.openDetails,
+    closeDetails: actions.closeDetails,
   };
 };

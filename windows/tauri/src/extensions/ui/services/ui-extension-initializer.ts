@@ -1,4 +1,5 @@
 import { useExtensionStore } from "@/extensions/registry/extension-store";
+import { extensionRegistry } from "@/extensions/registry/extension-registry";
 import { initializeGeneratedUIExtensions } from "./generated-ui-extension-installer";
 import { uiExtensionHost } from "./ui-extension-host";
 
@@ -6,7 +7,12 @@ export async function initializeUIExtensions(): Promise<void> {
   const { availableExtensions, installedExtensions } = useExtensionStore.getState();
 
   const uiExtensions = Array.from(availableExtensions.values()).filter(
-    (ext) => Boolean(ext.manifest.main) && installedExtensions.has(ext.manifest.id),
+    (ext) =>
+      Boolean(ext.manifest.main) &&
+      ext.isEnabled &&
+      extensionRegistry.getExtension(ext.manifest.id)?.isEnabled === true &&
+      installedExtensions.get(ext.manifest.id)?.enabled !== false &&
+      installedExtensions.has(ext.manifest.id),
   );
 
   const loadPromises = uiExtensions.map((ext) =>

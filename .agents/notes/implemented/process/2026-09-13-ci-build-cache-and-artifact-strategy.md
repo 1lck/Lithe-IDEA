@@ -50,6 +50,16 @@ Git 性能测试增加等待时间。推送到 `main` 或手动运行时，再�
 组装通用 DMG。Windows PR 把前端验证与 Rust 测试放在两个独立 job 中并行
 执行；Windows x64 NSIS 安装包只由 preview 和稳定版发布工作流生成。
 
+Git 图形的离屏帧采样保留完整 1,000 行历史，但每次只绘制 40 行的可见区域，
+分别覆盖开头、中间和末尾。绘制前把该区域的坐标映射到小位图，绘制后检查
+实际有图形像素，避免中段被裁剪为空时得到虚假的快速结果。完整 1,000/5,000
+行图结构、顺序和签名仍由独立用例与 Release 验证器检查；单帧中位数和整个
+测试的时间上限保持不变。
+
+正确做法：模拟滚动窗口的一帧，把可见区域作为绘制输入。不要把全部历史
+重复绘制 220 次当作单帧采样：这会把画面之外的工作混进测试总耗时，在共享
+runner 上可能出现断言都通过、计时工具仍因超过十秒而失败的情况。
+
 CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓存
 最终可执行文件。缓存覆盖 `rust/target/macos` 的 Rust Core 和 `rust/target`
 的数据库辅助 crate；缓存键必须包含运行器架构、编译器、Xcode/SDK/macOS
@@ -69,6 +79,22 @@ PR 的测试合并提交必须在构建摘要中可追溯。被分类器选中�
 并发缓存主要缩短串行等待和反馈时间，不承诺减少总 runner 分钟；队列等待
 和可用 runner 数量属于 CI 基础设施因素，不能与编译优化混为一谈。
 
+Windows 安装器失败时，Bun 可能已经退出，但并行的生命周期脚本仍在运行，
+继续占用依赖目录；直接删除目录会让原本可以重试的下载故障变成文件锁错误。
+每次安装现在由独立 PowerShell worker 拥有：启动 Bun 前把 worker 加入
+Job Object（Windows 用于管理整棵子进程树的对象），设置最后一个句柄关闭时
+终止成员进程。句柄不继承给子进程，由 worker 的进程生命周期持有；worker
+正常结束、失败或被取消时，系统释放句柄并终止残留脚本；每次安装还有默认
+300 秒的 worker 内部期限，超时退出码为 124，不能只依赖 CI 总超时。父安装器再清理
+部分缓存和依赖。文件系统释放锁可能稍晚，删除重试有单调计时的 10 秒期限，
+超时明确失败，不无限等待。缓存清理后撤销旧 verified 标记，冷安装成功才
+重新生成完整性清单。只重试一次，不把永久安装错误隐藏成成功。
+
+正确做法：worker 拥有 Bun 及其脚本，结束后再清理当前工作树生成目录；
+不要按进程名结束所有 Node/Bun，因为用户其他工作树或应用可能正在使用它们。
+这些句柄和安装目录属于本次安装，不新增可复用资源；只有经过锁文件、Bun
+版本与完整性清单校验的下载缓存可以跨工作树复制，安装包仍只读。
+
 ## 考虑过的备选方案
 
 ### 在旧 runner 上用 Swiftly 安装独立编译器
@@ -87,6 +113,13 @@ PR 的测试合并提交必须在构建摘要中可追溯。被分类器选中�
 
 能减少网络等待，但无法覆盖 Rust Core 和数据库辅助 crate 的主要编译成本，
 因此扩展为缓存 Cargo 的中间输出和 build script 结果。
+
+### 失败后仅限制安装并发或等待固定时间
+
+不采用。相同 Bun 版本的本地生命周期探针表明，串行选项也不能保证失败后
+没有残留脚本；固定等待则无法证明进程结束。直接结束全部 Node 还会影响
+其他任务。Windows Job Object 提供系统级所有权和取消清理，代价是每次安装
+多启动一个 PowerShell worker，安装路径的回归测试需要在 Windows 上运行。
 
 ### 只构建一个 macOS 架构
 
@@ -110,11 +143,19 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 任务结束。双架构验证因此保留给真正影响包内容和构建边界的改动；开发者需要
 临时安装包时使用手动工作流。
 
+### 提高 Git 帧采样的总时间上限
+
+这能容纳重复绘制完整历史的耗时，却保留了与可见窗口不符的工作量，也削弱
+其他测试的时间门禁。因此修正采样范围与位图坐标，继续使用原有上限；完整
+图的正确性检查不减少，批量绘制不能替代可见区域的帧成本测量。
+
 ## 后果
 
 - 普通 macOS Swift PR 更快得到必需检查结果；被选中的打包改动仍获得两个架构
   的真实安装物。
 - Git 专项验证不会再延长无关 Swift 改动的反馈时间。
+- 帧采样只绘制可见区域，减少与屏幕无关的测试工作；它不衡量完整历史的一次
+  批量导出，也不等同于需要显式开启的真实窗口帧率采样。
 - Windows 前端失败与 Rust 失败可以独立、并行反馈，不再等待 NSIS 安装包。
 - 缓存命中时可减少 Rust 相关重复编译，同时通过完整缓存键避免跨环境误复用。
 - artifact、校验和、合并提交与 gate 结果共同提供可追溯的测试交付物。
@@ -126,12 +167,14 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml`
 - `./scripts/test-macos.sh`
+- `./scripts/test-git-performance-baseline.sh`
 - `./scripts/build-macos.sh --configuration debug --triple arm64-apple-macosx`
 - `./scripts/build-macos.sh --configuration debug --triple x86_64-apple-macosx`
 - `./scripts/build-official-plugins.sh --configuration debug --triple arm64-apple-macosx`
 - `./scripts/build-official-plugins.sh --configuration debug --triple x86_64-apple-macosx`
 - `./scripts/verify-rust-core.sh`
 - `./scripts/verify-windows-boundaries.sh`
+- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts`：Windows 无网络夹具用 IPC 确认子进程占用目录，再让安装失败，验证清理后冷重试成功、永久失败仍报错、成功退出也不留子进程、超时触发本地期限，且不清除有效缓存。
 - `gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'`
 - `gh workflow run release-preview-windows.yml -f source_branch=<branch>`
 
@@ -144,6 +187,9 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `.github/workflows/ci-macos.yml`
 - `.github/workflows/ci-windows.yml`
 - `scripts/classify-ci-changes.sh`
+- `scripts/install-windows-frontend-dependencies.ps1`
+- `scripts/invoke-windows-bun-install.ps1`
+- `scripts/windows-frontend-install.test.ts`
 - `scripts/test-classify-ci-changes.sh`
 - `scripts/build-macos.sh`
 - `scripts/build-official-plugins.sh`

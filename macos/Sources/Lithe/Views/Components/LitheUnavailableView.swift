@@ -18,12 +18,12 @@ struct LitheUnavailableView: View {
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: systemImage)
-                .font(.system(size: 28, weight: .light))
+                .font(LitheTheme.uiFont(size: 28, weight: .light))
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold))
             if let description {
                 description
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .opacity(0.72)
                     .fixedSize(horizontal: false, vertical: true)
             }

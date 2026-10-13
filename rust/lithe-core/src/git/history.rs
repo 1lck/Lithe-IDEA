@@ -2,7 +2,8 @@
 
 use super::{
     command_value, execute_git_readonly_with_environment, git_process, parse_commit,
-    parse_reference, readonly_command, validate_root, GitCommandRequest, INTERNAL_REF_PREFIX,
+    parse_reference, readonly_command, validate_root, GitCommandRequest, GIT_COMMIT_DATE_ARGUMENT,
+    INTERNAL_REF_PREFIX,
 };
 use crate::protocol::{
     cancellation, CoreError, ErrorCode, GitCommitResponse, GitHistoryCursorCloseResponse,
@@ -187,6 +188,61 @@ pub fn references(request: GitReferencesRequest) -> Result<GitReferencesResponse
             .lines()
             .filter_map(parse_reference),
     );
+    if references
+        .iter()
+        .any(|reference| reference.kind == "local" && reference.upstream_short_name.is_none())
+    {
+        let remotes = readonly_command(GitCommandRequest {
+            root: root.clone(),
+            arguments: vec!["remote".to_string()],
+            input: None,
+        })?;
+        if remotes.exit_code != 0 {
+            return Err(
+                CoreError::new(ErrorCode::ProcessFailed, "Git remotes failed")
+                    .with_details(remotes.output),
+            );
+        }
+        let mut tracking_arguments = Vec::new();
+        for remote in remotes.output.lines().filter(|remote| !remote.is_empty()) {
+            // A narrow fetch refspec can leave %(upstream) empty even when
+            // branch.remote/merge and the tracking ref exist. Let Git resolve
+            // that configuration with a conventional mapping for this read only.
+            tracking_arguments.extend([
+                "-c".to_string(),
+                format!("remote.{remote}.fetch=+refs/heads/*:refs/remotes/{remote}/*"),
+            ]);
+        }
+        if !tracking_arguments.is_empty() {
+            tracking_arguments.extend(reference_arguments);
+            let tracking = execute_git_readonly_with_environment(
+                &root,
+                &tracking_arguments,
+                None,
+                &[("LC_ALL".to_string(), "C".to_string())],
+            )?;
+            if tracking.exit_code != 0 {
+                return Err(CoreError::new(
+                    ErrorCode::ProcessFailed,
+                    "Git tracking references failed",
+                )
+                .with_details(tracking.output));
+            }
+            let mut tracked: std::collections::HashMap<_, _> = tracking
+                .output
+                .lines()
+                .filter_map(parse_reference)
+                .map(|reference| (reference.full_name.clone(), reference))
+                .collect();
+            for reference in references.iter_mut().filter(|reference| {
+                reference.kind == "local" && reference.upstream_short_name.is_none()
+            }) {
+                if let Some(tracking) = tracked.remove(&reference.full_name) {
+                    *reference = tracking;
+                }
+            }
+        }
+    }
     let recent_references = recent_local_references(&root, &references, RECENT_BRANCH_LIMIT);
     Ok(GitReferencesResponse {
         references,
@@ -215,6 +271,29 @@ pub fn history_page(request: GitHistoryPageRequest) -> Result<GitHistoryPageResp
     }
     let root = validate_root(&request.root)?;
     validate_reference(request.reference.as_deref())?;
+    // An unborn repository has a valid branch name but no commit object. Git
+    // exits non-zero for `git log HEAD` in that state; expose it as an empty
+    // history instead of repeatedly surfacing a console error while the user
+    // is preparing the first commit.
+    if request.cursor.is_none() && request.reference.as_deref() == Some("HEAD") {
+        let head_probe = readonly_command(GitCommandRequest {
+            root: root.clone(),
+            arguments: vec![
+                "rev-parse".to_string(),
+                "--verify".to_string(),
+                "HEAD^{commit}".to_string(),
+            ],
+            input: None,
+        })?;
+        if head_probe.exit_code != 0 && super::commit_state::is_unborn(&root)? {
+            return Ok(GitHistoryPageResponse {
+                commits: Vec::new(),
+                next_cursor: None,
+                next_offset: None,
+                has_more: false,
+            });
+        }
+    }
     cleanup_expired_history_sessions();
 
     let (mut session, lease) = if let Some(cursor) = request.cursor.as_deref() {
@@ -280,6 +359,25 @@ fn offset_history_page(
     }
     validate_reference(reference.as_deref())?;
     let root = validate_root(&root)?;
+    if reference.as_deref() == Some("HEAD") {
+        let head_probe = readonly_command(GitCommandRequest {
+            root: root.clone(),
+            arguments: vec![
+                "rev-parse".to_string(),
+                "--verify".to_string(),
+                "HEAD^{commit}".to_string(),
+            ],
+            input: None,
+        })?;
+        if head_probe.exit_code != 0 && super::commit_state::is_unborn(&root)? {
+            return Ok(GitHistoryPageResponse {
+                commits: Vec::new(),
+                next_cursor: None,
+                next_offset: None,
+                has_more: false,
+            });
+        }
+    }
     let limit = requested_limit.clamp(1, MAX_HISTORY_COMMITS - offset);
     let mut arguments = vec!["log".to_string()];
     if let Some(reference) = reference {
@@ -298,7 +396,7 @@ fn offset_history_page(
         offset.to_string(),
         "-n".to_string(),
         limit.saturating_add(1).to_string(),
-        "--date=format:%Y/%m/%d %H:%M".to_string(),
+        GIT_COMMIT_DATE_ARGUMENT.to_string(),
         "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
     ]);
     let output = readonly_command(GitCommandRequest {
@@ -437,7 +535,7 @@ impl HistorySession {
             format!("--decorate-refs-exclude={INTERNAL_REF_PREFIX}*"),
             "-n".to_string(),
             MAX_HISTORY_COMMITS.to_string(),
-            "--date=format:%Y/%m/%d %H:%M".to_string(),
+            GIT_COMMIT_DATE_ARGUMENT.to_string(),
             "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
         ]);
         let mut process = git_process();

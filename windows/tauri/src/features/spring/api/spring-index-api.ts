@@ -1,5 +1,6 @@
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
 import type { SpringIndex } from "../types/spring.types";
+import { SpringIndexRequestError } from "../utils/spring-index-error";
 
 interface CoreSpringIndex {
   properties: Array<{
@@ -46,11 +47,25 @@ interface CoreSpringIndex {
     qualifier?: string | null;
     beanIds: string[];
   }>;
+  endpoints: Array<{
+    id: string;
+    httpMethods: string[];
+    route: string;
+    controller: string;
+    method: string;
+    path: string;
+    line: number;
+    column: number;
+  }>;
 }
 
 function coreData<T>(response: CoreResponse<T>): T {
   if (response.ok) return response.data;
-  throw new Error(`${response.error.code}: ${response.error.message}`);
+  throw new SpringIndexRequestError(
+    response.error.code,
+    response.error.message,
+    response.error.details,
+  );
 }
 
 export async function requestSpringIndex(args: {
@@ -59,8 +74,8 @@ export async function requestSpringIndex(args: {
   metadataRepositories?: string[];
   textOverrides?: Record<string, string>;
   refreshDependencyMetadata: boolean;
-}): Promise<SpringIndex> {
-  const response = await executeCore<CoreSpringIndex>({
+}, execute = executeCore): Promise<SpringIndex> {
+  const response = await execute<CoreSpringIndex>({
     id: crypto.randomUUID(),
     timeoutMilliseconds: args.refreshDependencyMetadata ? 60_000 : 30_000,
     command: "spring.index",
@@ -79,5 +94,6 @@ export async function requestSpringIndex(args: {
     propertyReferences: data.propertyReferences ?? [],
     beans: data.beans ?? [],
     injections: data.injections ?? [],
+    endpoints: Array.isArray(data.endpoints) ? data.endpoints : [],
   };
 }

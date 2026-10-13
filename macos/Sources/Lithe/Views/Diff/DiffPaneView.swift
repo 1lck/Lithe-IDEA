@@ -3,7 +3,7 @@ import LitheGitModule
 
 /// Shared side-by-side diff surface.
 ///
-/// `DiffReviewView`, `LocalHistoryView`, `ProjectLocalHistoryView` and
+/// `LocalHistoryView`, `ProjectLocalHistoryView` and
 /// `BranchComparisonView` all needed the same four things: measure the widest
 /// line, size the canvas past the viewport so long lines stay reachable, draw
 /// the connector ribbons underneath, and lay the rows out in a `LazyVStack`.
@@ -16,65 +16,41 @@ struct DiffPaneView: View {
     var highlightsWords: Bool = true
     var collapsesUnchangedRegions: Bool = true
     var showsDiffMap: Bool = true
+    var fontFamily: String = EditorFontDefaults.monospacedFamily
 
     @State private var expandedRegionIDs: Set<String> = []
-    @State private var pinnedRowIDs: Set<DiffRowID> = []
-
     var body: some View {
-        HStack(spacing: 0) {
-            diffSurface
-            if showsDiffMap, !rows.isEmpty {
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                DiffMapView(rows: rows) { rowID in
-                    // A tick can point into a fold, so force that region open
-                    // before asking the list to scroll there.
-                    pinnedRowIDs = [rowID]
-                    scrollTarget = rowID
-                }
-            }
-        }
-        .onChange(of: rows.map(\.id)) { _ in
-            expandedRegionIDs.removeAll()
-            pinnedRowIDs.removeAll()
-            scrollTarget = nil
-        }
+        diffSurface
+            .onChange(of: rows.map(\.id)) { _ in expandedRegionIDs.removeAll() }
     }
 
-    @State private var scrollTarget: DiffRowID?
-
     private var diffSurface: some View {
-        GeometryReader { geometry in
-            let displayRows = displayRows()
-            let contentWidth = DiffLayoutMetrics.contentWidth(
-                rows: rows,
-                viewportWidth: geometry.size.width,
-                minimumWidth: minimumWidth,
-                paneCount: 2
-            )
-            let kinds = displayRows.map { displayRow in
-                switch displayRow {
-                case let .row(row, _): row.kind
-                case .collapsed: DiffRowKind.information
-                }
+        let displayRows = displayRows()
+        let measuredWidth = DiffLayoutMetrics.contentWidth(
+            rows: rows, viewportWidth: 0, minimumWidth: minimumWidth, paneCount: 2, family: fontFamily)
+        let kinds = displayRows.map { displayRow in
+            switch displayRow {
+            case let .row(row, _): row.kind
+            case .collapsed: DiffRowKind.information
             }
+        }
+        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows, family: fontFamily))
+        return GeometryReader { geometry in
+            let contentWidth = max(geometry.size.width, measuredWidth)
 
-            ScrollViewReader { proxy in
+            ScrollViewReader { _ in
                 DiffSplitPaneView(
                     displayRows: displayRows,
                     kinds: kinds,
+                    layout: layout,
                     fileExtension: fileExtension,
                     contentWidth: contentWidth,
                     viewportWidth: geometry.size.width,
-                    minimumHeight: geometry.size.height,
-                    highlightsWords: highlightsWords
+                    highlightsWords: highlightsWords,
+                    showsChangeMarkers: showsDiffMap,
+                    fontFamily: fontFamily
                 ) { region in
                     expandedRegionIDs.insert(region.id)
-                }
-                .onChange(of: scrollTarget) { target in
-                    guard let target else { return }
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        proxy.scrollTo(target, anchor: .center)
-                    }
                 }
             }
         }
@@ -86,8 +62,7 @@ struct DiffPaneView: View {
         }
         return DiffCollapse.plan(
             rows: rows,
-            expandedRegionIDs: expandedRegionIDs,
-            pinnedRowIDs: pinnedRowIDs
+            expandedRegionIDs: expandedRegionIDs
         )
     }
 }

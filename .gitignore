@@ -15,4 +15,8 @@ docs/visual-qa/
 .reasonix/
 reasonix.toml
 .codex/
+.planning/
 /node_modules/
+
+# Built MCP helper, packaged read-only by Tauri.
+/windows/tauri/src-tauri/helpers/*.exe

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { tabChromeBuffersEqual, toTabChromeBuffer } from "./tab-chrome-buffer";
-import type { EditorContent } from "@/features/panes/types/pane-content.types";
+import type { DiffContent, EditorContent } from "@/features/panes/types/pane-content.types";
 
 function editorBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
   return {
@@ -47,4 +47,39 @@ describe("toTabChromeBuffer", () => {
   test("does not throw when comparing against a missing previous snapshot", () => {
     expect(tabChromeBuffersEqual(undefined, [toTabChromeBuffer(editorBuffer())])).toBe(false);
   });
+
+  test("rerenders the reused working-tree diff tab when its title source changes", () => {
+    // The commit preview reuses one tab whose title is "Commit: <selected file>".
+    const before = [toTabChromeBuffer(workingTreeDiffBuffer("unstaged:src/a.ts"))];
+    const sameFile = [toTabChromeBuffer(workingTreeDiffBuffer("unstaged:src/a.ts"))];
+    const otherFile = [toTabChromeBuffer(workingTreeDiffBuffer("unstaged:src/b.ts"))];
+    const fromGutter = [toTabChromeBuffer(workingTreeDiffBuffer("unstaged:src/a.ts", false))];
+
+    expect(tabChromeBuffersEqual(before, sameFile)).toBe(true);
+    expect(tabChromeBuffersEqual(before, otherFile)).toBe(false);
+    expect(tabChromeBuffersEqual(before, fromGutter)).toBe(false);
+  });
 });
+
+function workingTreeDiffBuffer(selectedFileKey: string, commitPreview = true): DiffContent {
+  return {
+    id: "diff-1",
+    type: "diff",
+    path: "diff://working-tree/all-files",
+    name: "Uncommitted Changes",
+    isPinned: false,
+    isPreview: false,
+    isActive: true,
+    content: "",
+    savedContent: "",
+    diffData: {
+      commitHash: "working-tree",
+      files: [],
+      totalFiles: 0,
+      totalAdditions: 0,
+      totalDeletions: 0,
+      initiallySelectedFileKey: selectedFileKey,
+      commitPreview,
+    },
+  };
+}

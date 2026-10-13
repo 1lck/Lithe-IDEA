@@ -161,7 +161,7 @@ struct WorkbenchModuleUIRegistry {
         VStack(spacing: 8) {
             ProgressView()
             Text("Starting module...")
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

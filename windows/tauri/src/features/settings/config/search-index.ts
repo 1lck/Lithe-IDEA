@@ -18,6 +18,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     description: "Configure project Java SDK, Maven home, Maven JDK and local repository",
     keywords: ["java", "jdk", "sdk", "maven", "settings.xml", "项目", "环境", "仓库"],
   },
+  {
+    id: "mcp-configuration",
+    tab: "mcp",
+    section: "MCP Configuration",
+    label: "MCP agent connections",
+    description: "Authorize project access and copy MCP configuration for agents",
+    keywords: ["mcp", "agent", "permissions", "MCP 配置", "授权", "权限", "连接"],
+  },
   // Editor Settings
   {
     id: "editor-auto-save",
@@ -195,6 +203,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     description: "Maximum number of tabs before oldest closes",
     keywords: ["tabs", "limit", "maximum", "open"],
   },
+  {
+    id: "editor-tab-layout-mode",
+    tab: "editor",
+    section: "Tabs",
+    label: "Editor Tab Layout",
+    description: "Show editor tabs in a single scrolling row or wrap them into multiple rows",
+    keywords: ["tabs", "layout", "single row", "multiple rows", "wrap", "rows"],
+  },
 
   // File Tree Settings
   {
@@ -314,7 +330,7 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     tab: "git",
     section: "Integration",
     label: "Confirm Before Discard",
-    description: "Show a confirmation before discarding Git changes",
+    description: "Confirm file or repository discard; Diff block rollback arrows apply immediately",
     keywords: ["git", "discard", "confirm", "danger", "revert"],
   },
   {
@@ -394,7 +410,7 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     tab: "git",
     section: "Editor",
     label: "Enable Git Gutter",
-    description: "Show Git gutter indicators in the editor",
+    description: "Mark changed lines in the editor gutter and review a change inline",
     keywords: ["git", "gutter", "editor", "modified", "added", "deleted"],
   },
 
@@ -564,10 +580,22 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     id: "appearance-open-folders-new-window",
     tab: "appearance",
     section: "Layout",
-    label: "Open Projects In New Window",
+    label: "Open Projects",
     description:
-      "Open each new project in a separate window and disable activity-bar project switching",
-    keywords: ["open", "folder", "project", "new", "window", "separate", "activity", "switch"],
+      "Choose whether opening another project asks first, replaces the current project, attaches it to this window, or opens a new window",
+    keywords: [
+      "open",
+      "folder",
+      "project",
+      "new",
+      "window",
+      "attach",
+      "replace",
+      "ask",
+      "separate",
+      "activity",
+      "switch",
+    ],
   },
 
   // AI Settings
@@ -634,6 +662,40 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     label: "Clear Agent History",
     description: "Permanently delete all agent history",
     keywords: ["ai", "agent", "chat", "clear", "delete", "history"],
+  },
+
+  // Maven Settings
+  {
+    id: "maven-settings-xml",
+    tab: "maven",
+    section: "Maven",
+    label: "settings.xml",
+    description: "Custom Maven settings.xml used for builds and language tooling",
+    keywords: ["maven", "settings", "xml", "repository", "mirror", "build"],
+  },
+  {
+    id: "maven-local-repository",
+    tab: "maven",
+    section: "Maven",
+    label: "Maven Local Repository",
+    description: "Local Maven repository directory used to cache build artifacts",
+    keywords: ["maven", "local", "repository", "cache", "artifacts", "repo", "build"],
+  },
+  {
+    id: "maven-executable",
+    tab: "maven",
+    section: "Maven",
+    label: "Maven Home",
+    description: "Maven installation directory or executable used to launch builds",
+    keywords: ["maven", "mvn", "home", "executable", "installation", "build"],
+  },
+  {
+    id: "maven-jdk-home",
+    tab: "maven",
+    section: "Maven",
+    label: "Maven JDK Home",
+    description: "JDK used to run Maven builds",
+    keywords: ["maven", "jdk", "java", "home", "runtime", "build"],
   },
 
   // Keyboard Settings
@@ -1042,14 +1104,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ["terminal", "cursor", "inactive", "unfocused", "outline", "hidden"],
   },
 
-  {
-    id: "editor-horizontal-tab-scroll",
-    tab: "editor",
-    section: "Tabs",
-    label: "Buffer Carousel",
-    description: "Show open buffers as a horizontally scrollable carousel in the main view",
-    keywords: ["tabs", "buffers", "carousel", "scroll", "horizontal", "trackpad", "main view"],
-  },
   // Advanced Settings
   {
     id: "advanced-export-settings",

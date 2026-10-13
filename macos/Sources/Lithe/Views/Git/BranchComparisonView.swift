@@ -5,6 +5,9 @@ struct BranchComparisonView: View {
     @ObservedObject var feature: GitFeatureModel
     let comparison: GitBranchComparison
     let onRefresh: () async -> Void
+    /// Family for the comparison text. Defaults to the bundled monospaced family;
+    /// the editor area passes the configured family from its own settings.
+    var fontFamily: String = EditorFontDefaults.monospacedFamily
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,15 +29,15 @@ struct BranchComparisonView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.accent)
             Text("Diff: \(comparison.reference.shortName) with \(targetTitle)")
-                .font(.system(size: 12.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             Spacer()
             Text("\(comparison.files.count) files")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             Button("Close") {
                 feature.closeBranchComparison()
@@ -89,11 +92,11 @@ struct BranchComparisonView: View {
 
             if let selectedFileIndex {
                 Text("File \(selectedFileIndex + 1) of \(comparison.files.count)")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             } else {
                 Text(LocalizedStringKey(comparison.files.isEmpty ? "No changed files" : "Select a file"))
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
         }
@@ -106,7 +109,7 @@ struct BranchComparisonView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Changed Files")
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
                 if feature.isLoadingBranchComparison {
@@ -122,7 +125,7 @@ struct BranchComparisonView: View {
             if comparison.files.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "checkmark.circle")
-                        .font(.system(size: 24, weight: .light))
+                        .font(LitheTheme.uiFont(size: 24, weight: .light))
                         .foregroundStyle(LitheTheme.success)
                     Text("No differences")
                         .font(LitheTheme.uiFont)
@@ -138,21 +141,21 @@ struct BranchComparisonView: View {
                             } label: {
                                 HStack(spacing: 7) {
                                     Text(file.status)
-                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 10, weight: .bold, design: .monospaced))
                                         .foregroundStyle(statusColor(file.status))
                                         .frame(width: 20)
                                     LitheSystemIcon(systemImage: "doc.text")
-                                        .font(.system(size: 11))
+                                        .font(LitheTheme.uiFont(size: 11))
                                         .foregroundStyle(LitheTheme.accent)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text((file.path as NSString).lastPathComponent)
-                                            .font(.system(size: 12, weight: .medium))
+                                            .font(LitheTheme.uiFont(size: 12, weight: .medium))
                                             .foregroundStyle(LitheTheme.primaryText)
                                             .lineLimit(1)
                                         let directory = (file.path as NSString).deletingLastPathComponent
                                         if !directory.isEmpty {
                                             Text(directory)
-                                                .font(.system(size: 9.5))
+                                                .font(LitheTheme.uiFont(size: 9.5))
                                                 .foregroundStyle(LitheTheme.secondaryText)
                                                 .lineLimit(1)
                                         }
@@ -169,7 +172,7 @@ struct BranchComparisonView: View {
                                 )
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .lithePointer()
                         }
                     }
@@ -206,7 +209,8 @@ struct BranchComparisonView: View {
             } else {
                 DiffPaneView(
                     rows: feature.branchComparisonRows,
-                    fileExtension: selectedFileExtension
+                    fileExtension: selectedFileExtension,
+                    fontFamily: fontFamily
                 )
             }
         }
@@ -240,14 +244,14 @@ struct BranchComparisonView: View {
     private func versionTitle(_ title: Text, icon: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: icon)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             title
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             if let file = feature.selectedBranchComparisonFile {
                 Text(file.path)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
             }

@@ -8,7 +8,7 @@
         "markerScope": "launchTarget",
         "builderFailedEarlier": false,
         "elapsedMilliseconds": 506,
-        "recovery": "none"
+        "recovery": "rebuildJavaIndex"
       }
     },
     {

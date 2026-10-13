@@ -4,10 +4,10 @@ import { getSymlinkInfo } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useFileSystemFolderDrop } from "@/features/file-system/hooks/use-file-system-folder-drop";
 import { openDroppedWorkspacePaths } from "@/features/file-system/utils/open-dropped-workspace-paths";
-import { useGitStore } from "@/features/git/stores/git.store";
-import { isGitChangeRelevant, subscribeToGitChanges } from "@/features/git/events/git-events";
+import { GitStatusRefreshHost } from "@/features/git/runtime/git-status-refresh-host";
 import { closeMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
+import { useMavenResolutionNotifications } from "@/features/maven/hooks/use-maven-resolution-problems";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
 import { CachedWorkspaceSplitViews } from "@/features/panes/components/split-view-root";
@@ -37,12 +37,13 @@ import Footer from "./footer/footer";
 import { WorkbenchErrorBoundary } from "./workbench-error-boundary";
 import { ResizablePane } from "./resizable-pane";
 import {
-  COLLAPSED_ACTIVITY_RAIL_WIDTH,
   MainSidebar,
   SidebarActivityRail,
 } from "./sidebar/main-sidebar";
+import { COLLAPSED_ACTIVITY_RAIL_WIDTH } from "@/features/layout/constants/activity-rail";
 import { PluginActivityRail } from "./plugin-activity-rail";
 import { WelcomeScreen } from "./welcome-screen";
+import { AppUpdateDetailsDialog } from "./app-update-details-dialog";
 import { getUpdateControlVisibility } from "../utils/update-control-visibility";
 
 const CommandPalette = lazy(() => import("@/features/command-palette/components/command-palette"));
@@ -81,6 +82,7 @@ const MavenPane = lazy(() => import("@/features/maven/components/maven-pane"));
 export function MainLayout() {
   const { t } = useTranslation();
   useAutoUpdate();
+  useMavenResolutionNotifications();
   const [deferredSurfacesReady, setDeferredSurfacesReady] = useState(false);
 
   usePaneKeyboard();
@@ -113,8 +115,6 @@ export function MainLayout() {
     getUpdateControlVisibility(rootFolderPath);
   const switchToProject = useFileSystemStore.use.switchToProject?.();
   const setIsSwitchingProject = useFileSystemStore.use.setIsSwitchingProject?.();
-  const refreshWorkspaceGitStatus = useGitStore((state) => state.actions.refreshWorkspaceGitStatus);
-  const setWorkspaceGitStatus = useGitStore((state) => state.actions.setWorkspaceGitStatus);
   const onboardingOpen = useOnboardingStore((state) => state.isOpen);
   const onboardingContext = useOnboardingStore((state) => state.context);
   const consumeOnboardingOpenRequest = useOnboardingStore(
@@ -204,6 +204,8 @@ export function MainLayout() {
           console.warn("Persisted workspace no longer exists:", activeTab.path, error);
         }
 
+        const { projectWindowRouting } = await import("@/features/window/services/project-window-routing");
+        await projectWindowRouting.release(activeTab.id);
         useWorkspaceTabsStore.getState().actions.removeProjectTab(activeTab.id);
         toast.warning(
           t("fileSystem.removedMissingProject", { name: getProjectDisplayLabel(activeTab) }),
@@ -253,31 +255,9 @@ export function MainLayout() {
     restoreWorkspace();
   }, [switchToProject, setIsSwitchingProject]);
 
-  useEffect(() => {
-    if (!rootFolderPath) {
-      setWorkspaceGitStatus(null, null);
-      return;
-    }
-
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-    const unsubscribe = subscribeToGitChanges((change) => {
-      if (!isGitChangeRelevant(change, rootFolderPath)) return;
-
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        void refreshWorkspaceGitStatus(rootFolderPath);
-      }, 300);
-    });
-
-    return () => {
-      unsubscribe();
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [rootFolderPath, refreshWorkspaceGitStatus, setWorkspaceGitStatus]);
-
   return (
     <div className="lithe-layout-shell relative flex size-full flex-col overflow-hidden bg-surface">
+      <GitStatusRefreshHost />
       {/* Drag-and-drop overlay */}
       {isDraggingOver && !getInternalTabDragData() && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm">
@@ -296,59 +276,68 @@ export function MainLayout() {
         <>
           <div className="lithe-workbench-glass relative z-10 flex flex-1 flex-col overflow-hidden">
             <div
-              className="flex flex-1 flex-row overflow-hidden pr-(--lithe-workbench-gap)"
+              className="flex flex-1 flex-row overflow-hidden"
               style={{ minHeight: 0 }}
             >
+              {/* Both activity rails stay outside the middle column so they span the full
+                  workbench height; the full-width bottom pane only stretches between them. */}
               <SidebarActivityRail expanded={false} />
-              <ResizablePane
-                position="left"
-                widthKey="sidebarWidth"
-                hidden={!isSidebarVisible}
-                reservedWidth={leftPaneReservedWidth}
-              >
-                <MainSidebar />
-              </ResizablePane>
 
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <div className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-xl border-border border-l bg-background">
-                  <WorkbenchErrorBoundary>
-                    <CachedWorkspaceSplitViews />
-                  </WorkbenchErrorBoundary>
+                <div
+                  className="flex flex-1 flex-row overflow-hidden"
+                  style={{ minHeight: 0 }}
+                >
+                  <ResizablePane
+                    position="left"
+                    widthKey="sidebarWidth"
+                    hidden={!isSidebarVisible}
+                    reservedWidth={leftPaneReservedWidth}
+                  >
+                    <MainSidebar />
+                  </ResizablePane>
+
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <div className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-(--lithe-island-radius) bg-background">
+                      <WorkbenchErrorBoundary>
+                        <CachedWorkspaceSplitViews />
+                      </WorkbenchErrorBoundary>
+                    </div>
+                    {terminalWidthMode === "editor" && deferredSurfacesReady && (
+                      <Suspense fallback={null}>
+                        <BottomPane />
+                      </Suspense>
+                    )}
+                  </div>
+
+                  <ResizablePane
+                    position="right"
+                    widthKey="rightToolWindowWidth"
+                    hidden={!isRightToolWindowVisible}
+                    outerEdge={false}
+                    reservedWidth={leftPaneReservedWidth + COLLAPSED_ACTIVITY_RAIL_WIDTH}
+                  >
+                    <NotificationsToolWindow
+                      isVisible={isNotificationsVisible}
+                      onClose={closeNotificationsToolWindow}
+                    />
+                    {isMavenSelected ? (
+                      <Suspense fallback={null}>
+                        <MavenPane onClose={closeMavenToolWindow} />
+                      </Suspense>
+                    ) : null}
+                  </ResizablePane>
                 </div>
-                {terminalWidthMode === "editor" && deferredSurfacesReady && (
+
+                {terminalWidthMode === "full" && deferredSurfacesReady && (
                   <Suspense fallback={null}>
                     <BottomPane />
                   </Suspense>
                 )}
               </div>
 
-              <ResizablePane
-                position="right"
-                widthKey="rightToolWindowWidth"
-                hidden={!isRightToolWindowVisible}
-                outerEdge={false}
-                reservedWidth={leftPaneReservedWidth + COLLAPSED_ACTIVITY_RAIL_WIDTH}
-              >
-                <NotificationsToolWindow
-                  isVisible={isNotificationsVisible}
-                  onClose={closeNotificationsToolWindow}
-                />
-                {isMavenSelected ? (
-                  <Suspense fallback={null}>
-                    <MavenPane onClose={closeMavenToolWindow} />
-                  </Suspense>
-                ) : null}
-              </ResizablePane>
               <PluginActivityRail />
             </div>
-
-            {terminalWidthMode === "full" && deferredSurfacesReady && (
-              <div className="px-(--lithe-workbench-gap)">
-                <Suspense fallback={null}>
-                  <BottomPane />
-                </Suspense>
-              </div>
-            )}
           </div>
 
           {showStatusBar ? <Footer /> : null}
@@ -358,6 +347,7 @@ export function MainLayout() {
       )}
 
       <PendingBufferCloseDialog />
+      <AppUpdateDetailsDialog />
 
       {/* Global modals and overlays */}
       {deferredSurfacesReady ? (

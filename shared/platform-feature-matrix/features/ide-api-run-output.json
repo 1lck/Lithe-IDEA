@@ -1,0 +1,28 @@
+{
+  "id": "ide-api-run-output",
+  "area": "AI",
+  "group": "IDE MCP",
+  "capability": "插件与 MCP 列举运行配置、启动重启，按执行 ID 读取增量输出和停止",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+      "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+      "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+      "rust/lithe-ide-host/src/lib.rs"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/host-api/ide-capabilities.ts",
+      "windows/tauri/src/features/host-api/mcp-settings.tsx",
+      "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+      "rust/lithe-ide-host/src/lib.rs"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "运行服务、读增量输出、清空日志验证 reset、重启后拒绝旧 ID，停止正确进程，检查退出码及资源清理。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+}

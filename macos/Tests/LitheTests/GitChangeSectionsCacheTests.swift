@@ -13,11 +13,12 @@ struct GitChangeSectionsCacheTests {
 
     private func change(
         _ path: String,
+        at repositoryRoot: URL? = nil,
         indexStatus: Character = " ",
         workTreeStatus: Character = "M"
     ) -> GitChange {
         GitChange(
-            repositoryRoot: root,
+            repositoryRoot: repositoryRoot ?? root,
             path: path,
             originalPath: nil,
             indexStatus: indexStatus,
@@ -94,4 +95,66 @@ struct GitChangeSectionsCacheTests {
 
         #expect(filtered.displayed.map(\.path) == ["a.swift"])
     }
+    @Test
+    func groupsDisplayedChangesByRepositoryInStableInputOrder() {
+        let secondRoot = URL(fileURLWithPath: "/tmp/second-repo")
+        let firstTracked = change("src/Main.swift")
+        let secondAdded = change(
+            "README.md",
+            at: secondRoot,
+            indexStatus: "?",
+            workTreeStatus: "?"
+        )
+        let firstAdded = change(
+            "notes.md",
+            indexStatus: "?",
+            workTreeStatus: "?"
+        )
+        let cache = GitChangeSectionsCache()
+
+        let sections = cache.sections(
+            changes: [firstTracked, secondAdded, firstAdded],
+            conflictFilterPaths: []
+        )
+
+        #expect(sections.repositories.map(\.root) == [root, secondRoot])
+        #expect(sections.repositories[0].changes.map(\.path) == ["src/Main.swift", "notes.md"])
+        #expect(sections.repositories[0].tracked.map(\.path) == ["src/Main.swift"])
+        #expect(sections.repositories[0].added.map(\.path) == ["notes.md"])
+        #expect(sections.repositories[1].changes.map(\.path) == ["README.md"])
+    }
+
+    @Test
+    func movingFilesRegroupsTheCacheWithoutChangingStatusOrHidingOtherLists() {
+        let config = change("application.yaml")
+        let code = change("feature.swift")
+        let changes = [config, code]
+        let cache = GitChangeSectionsCache()
+        var lists = GitLocalChangelists()
+        _ = cache.sections(changes: changes, conflictFilterPaths: [], changelists: lists)
+        lists.lists.append(GitLocalChangelist(id: "local", name: "Local"))
+        lists.move([config], to: "local")
+        let sections = cache.sections(changes: changes, conflictFilterPaths: [], changelists: lists)
+        #expect(sections.displayed == changes)
+        #expect(sections.changelists.map(\.id) == ["default", "local"])
+        #expect(sections.changelists[0].changes == [code])
+        #expect(sections.repositories[0].changelists[1].changes == [config])
+    }
+
+    @Test
+    func conflictFilterRemovesEmptyRepositories() {
+        let secondRoot = URL(fileURLWithPath: "/tmp/second-repo")
+        let first = change("first.swift")
+        let second = change("second.swift", at: secondRoot)
+        let cache = GitChangeSectionsCache()
+
+        let sections = cache.sections(
+            changes: [first, second],
+            conflictFilterPaths: [second.path]
+        )
+
+        #expect(sections.repositories.map(\.root) == [secondRoot])
+        #expect(sections.repositories[0].changes.map(\.path) == ["second.swift"])
+    }
+
 }

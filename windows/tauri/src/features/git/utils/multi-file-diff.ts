@@ -1,4 +1,4 @@
-import type { MultiFileDiff } from "../types/git-diff.types";
+import type { DiffRevisionPair, MultiFileDiff } from "../types/git-diff.types";
 import type { GitCommit, GitDiff } from "../types/git.types";
 import { countDiffStats } from "./git-diff-helpers";
 
@@ -84,6 +84,62 @@ export function createCommitDiffBuffer({
   return {
     virtualPath: `diff://commit/${commitHash}/all-files`,
     displayName: `${title} (${diffs.length} files)`,
+    diffData,
+  };
+}
+
+/** Stable path so every commit-file preview reuses one editor tab instead of opening a new one. */
+export const COMMIT_FILE_PREVIEW_PATH = "diff://commit-file-preview";
+
+/**
+ * Builds a single-file diff for the commit-files preview. Unlike the commit diff buffer it carries
+ * no commit message metadata: the preview shows only the selected file's changes.
+ */
+export function createCommitFileDiffPreview({
+  repoPath,
+  commitHash,
+  diffs,
+  filePath,
+  fileKeys,
+  fileLabels,
+  fileRevisions,
+  label,
+}: {
+  repoPath: string;
+  commitHash: string;
+  diffs: readonly GitDiff[];
+  filePath: string;
+  fileKeys?: string[];
+  fileLabels?: string[];
+  fileRevisions?: DiffRevisionPair[];
+  /** Revision identity shown in the page, never appended to the repository preview tab. */
+  label: string;
+}) {
+  const selected = diffs.find((diff) =>
+    [diff.new_path, diff.file_path, diff.old_path].includes(filePath),
+  );
+  if (!selected) return null;
+  const fileName = (selected.new_path || selected.file_path || selected.old_path || filePath)
+    .split(/[\\/]/)
+    .pop()!;
+  const diffData = createMultiFileDiff({
+    title: fileName,
+    repoPath,
+    commitHash,
+    // Retain every revision and its key, including repeated paths. Only the selected
+    // entry is rendered; file navigation must not refetch or lose revision identity.
+    diffs: [...diffs],
+    initialFilePath: filePath,
+    fileKeys,
+    fileLabels: fileLabels ?? diffs.map(() => label),
+  });
+  diffData.hideFileList = true;
+  diffData.commitFilePreview = true;
+  diffData.fileRevisions = fileRevisions;
+
+  return {
+    virtualPath: COMMIT_FILE_PREVIEW_PATH,
+    displayName: `Repository Diff: ${fileName}`,
     diffData,
   };
 }

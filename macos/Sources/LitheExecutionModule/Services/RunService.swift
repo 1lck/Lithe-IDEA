@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
@@ -19,6 +20,7 @@ package final class RunService: ObservableObject {
     @Published package private(set) var isRunning = false
     @Published package private(set) var runningTitle: String?
     @Published package private(set) var output = ""
+    package private(set) var primaryExecutionID: String?
     @Published package private(set) var lastExitCode: Int32?
     @Published package private(set) var optionsByConfigurationID: [String: RunOptions] = [:]
     @Published package private(set) var projectToolchain = ProjectToolchainSelection()
@@ -36,6 +38,8 @@ package final class RunService: ObservableObject {
     @Published package private(set) var recoveryAction: RunConfigurationRecoveryAction = .regenerate
     @Published package private(set) var recoveryPath: String?
     @Published package private(set) var configurationSaveError: String?
+    @Published package private(set) var dependencyRevision = 0
+    @Published package private(set) var dependencyConfigurationSaveError: String?
 
     private let process: any StreamingProcess
     private let processFactory: () -> any StreamingProcess
@@ -46,28 +50,54 @@ package final class RunService: ObservableObject {
     private let languageProviderCatalog: LanguageProviderCatalog
     private let languageRunProviders: LanguageRunProviderRegistry
     private let extensionRequiredLanguageIDs: Set<String>
+    private let dependencyDeclarations: [String: LanguageDependencyDeclaration]
+    private let dependencyProvider = RunServiceDependencyProvider()
+    private let dependencyWriter: WorkspaceDependencyWriter
     private var languageRunExtensions: [String: RegisteredLanguageRunExtension] = [:]
     private var activeLanguageExecutionSession: (any LanguageExecutionSession)?
     private var projectURL: URL?
     private var projectFiles: [URL] = []
     private var mavenProject: MavenProject?
+    private var dependencyWorkspaceURL: URL?
+    private var dependencyConfiguration = WorkspaceDependencyConfiguration()
+    private var dependencyIndexes = WorkspaceDependencyIndexes()
+    private var languageSnapshots: [String: LanguageDependencySnapshot] = [:]
+    private var dependencySources: [String: DependencyServiceDescriptor] = [:]
     private var mavenModelRevision = 0
     private var projectLoadID = UUID()
+    /// Advances on every regeneration so a JDT freshness answer computed against
+    /// the previous document cannot be attached to the new one.
+    private var generationRevision = 0
     private var selectedConfigurationIDsByProject: [String: String] = [:]
     private var lastRunConfiguration: RunConfiguration?
     private var lastCurrentFileURL: URL?
     private var moduleProcesses: [String: any StreamingProcess] = [:]
     private var moduleLanguageExecutionSessions: [String: any LanguageExecutionSession] = [:]
+    private var activeLaunchArgumentLease: (any JavaLaunchArgumentLease)?
+    private var moduleLaunchArgumentLeases: [String: any JavaLaunchArgumentLease] = [:]
     private var activeOperationID: String?
     private var activePreLaunchProcess: (any StreamingProcess)?
+    /// Pre-launch steps of a running module session, keyed like
+    /// `moduleProcesses`, so Stop and reconciliation cancel them before the JVM
+    /// exists and a stopped session cannot still start one.
+    private var modulePreLaunchProcesses: [String: any StreamingProcess] = [:]
     private var moduleOperationIDs: [String: String] = [:]
     private let maximumOutputCharacters = 500_000
+    /// The same bound the Windows pre-launch runner applies (`PRE_LAUNCH_TIMEOUT`
+    /// in `windows/tauri/src-tauri/src/run.rs`). A resource step is a Maven
+    /// build, so a step that never finishes must fail the run on both platforms
+    /// instead of leaving it "running" until a manual Stop.
+    private static let preLaunchStepTimeoutMilliseconds = 600_000
     private let runtime: any RunRuntimePort
     private let executableResolver: any RunExecutableResolving
+    private let javaLaunchArgumentPreparer: (any JavaLaunchArgumentPreparing)?
     private var mavenContextProvider: @MainActor () -> MavenLaunchContext? = { nil }
     /// Context XML path written for the active `tomcat.external` run, deleted
     /// when the process stops so the Tomcat install stays clean.
     private var activeTomcatContextXmlPath: String?
+    private var languageDependencyProvider: @MainActor (String, URL, String) -> LanguageDependencySnapshot? = {
+        _, _, _ in nil
+    }
 
     package init(
         runtime: any RunRuntimePort,
@@ -80,7 +110,10 @@ package final class RunService: ObservableObject {
         executableResolver: any RunExecutableResolving,
         languageProviderCatalog: LanguageProviderCatalog,
         languageRunProviders: LanguageRunProviderRegistry,
-        extensionRequiredLanguageIDs: Set<String> = []
+        extensionRequiredLanguageIDs: Set<String> = [],
+        languageSupports: [LanguageSupportDeclaration] = [],
+        dependencyStore: (any WorkspaceDependencyStoring)? = nil,
+        javaLaunchArgumentPreparer: (any JavaLaunchArgumentPreparing)? = nil
     ) {
         self.runtime = runtime
         self.process = process
@@ -92,6 +125,11 @@ package final class RunService: ObservableObject {
         self.languageProviderCatalog = languageProviderCatalog
         self.languageRunProviders = languageRunProviders
         self.extensionRequiredLanguageIDs = extensionRequiredLanguageIDs
+        self.javaLaunchArgumentPreparer = javaLaunchArgumentPreparer
+        dependencyDeclarations = Dictionary(uniqueKeysWithValues: languageSupports.compactMap { support in
+            support.dependencies.map { (support.id, $0) }
+        })
+        dependencyWriter = WorkspaceDependencyWriter(store: dependencyStore)
         self.executableResolver = executableResolver
         process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
@@ -147,6 +185,14 @@ package final class RunService: ObservableObject {
         mavenContextProvider = provider
     }
 
+    /// Looks up only an already active plugin capability; opening the tree must
+    /// never activate a language server or launch a dependency resolver.
+    package func configureLanguageDependencyProvider(
+        _ provider: @escaping @MainActor (String, URL, String) -> LanguageDependencySnapshot?
+    ) {
+        languageDependencyProvider = provider
+    }
+
     @discardableResult
     package func registerLanguageRunExtension(
         _ provider: any LanguageRunExtensionProviding,
@@ -172,6 +218,162 @@ package final class RunService: ObservableObject {
             roots.append(contentsOf: mavenProject.allModules.map(\.url))
         }
         return roots
+    }
+
+    /// A language capability explicitly opts into the dependency browser.
+    /// This registration is independent of the run configuration inventory.
+    package func registerDependencySource(languageID: String, displayName: String) {
+        guard !languageID.isEmpty, !displayName.isEmpty else { return }
+        let descriptor = DependencyServiceDescriptor(
+            id: "language:\(languageID)",
+            displayName: displayName,
+            providerID: languageID,
+            providerDisplayName: displayName,
+            systemImage: "shippingbox"
+        )
+        guard dependencySources[languageID] != descriptor else { return }
+        dependencySources[languageID] = descriptor
+        dependencyRevision &+= 1
+    }
+
+    package func unregisterDependencySource(languageID: String) {
+        guard let source = dependencySources.removeValue(forKey: languageID) else { return }
+        languageSnapshots[source.id] = nil
+        dependencyRevision &+= 1
+    }
+
+    package var dependencyServices: [DependencyServiceDescriptor] {
+        dependencySources.values.sorted { $0.providerID < $1.providerID }
+    }
+
+    package func dependencyPaths(for serviceID: String) -> DependencyPathConfiguration {
+        dependencyConfiguration.services[serviceID] ?? DependencyPathConfiguration()
+    }
+
+    package func resolveDependencies(serviceID: String) async throws -> DependencyGraph? {
+        guard let baseContext = dependencyContext(serviceID: serviceID, snapshot: nil) else { return nil }
+        let snapshot = projectURL.flatMap {
+            languageDependencyProvider(baseContext.providerID, $0, serviceID)
+        }
+        let revision = dependencyRevision
+        let input = DependencyServiceIndexInput(
+            context: baseContext,
+            managementFiles: dependencyProvider.managementFiles(
+                providerID: baseContext.providerID,
+                files: projectFiles,
+                declaredFileNames: dependencyDeclarations[baseContext.providerID]?.managementFileNames
+            ).filter { managementFile($0, affects: serviceID) }
+        )
+        let fileAccess = self.fileAccess
+        let signature = await Task.detached(priority: .utility) {
+            Self.dependencySignature(input: input, fileAccess: fileAccess)
+        }.value
+        if let index = dependencyIndexes.services[serviceID],
+           index.version == DependencyIndex.currentVersion,
+           index.inputSignature == signature,
+           (snapshot == nil || index.languageSnapshot == snapshot) {
+            languageSnapshots[serviceID] = index.languageSnapshot
+            return index.graph
+        }
+
+        guard let context = dependencyContext(serviceID: serviceID, snapshot: snapshot) else { return nil }
+        let graph = try await dependencyProvider.resolve(context: context)
+        guard revision == dependencyRevision else { throw CancellationError() }
+        dependencyIndexes.services[serviceID] = DependencyIndex(
+            inputSignature: signature,
+            graph: graph,
+            languageSnapshot: snapshot
+        )
+        languageSnapshots[serviceID] = snapshot
+        if let dependencyWorkspaceURL {
+            await dependencyWriter.saveIndexes(
+                dependencyIndexes,
+                workspaceURL: dependencyWorkspaceURL
+            )
+        }
+        return graph
+    }
+
+    package func updateDependencyPaths(
+        _ paths: DependencyPathConfiguration,
+        serviceID: String
+    ) {
+        let normalized = DependencyPathConfiguration(
+            sourcePaths: normalizedDependencyPaths(paths.sourcePaths),
+            binaryPaths: normalizedDependencyPaths(paths.binaryPaths),
+            dependencyPaths: normalizedDependencyPaths(paths.dependencyPaths),
+            additionalSearchPaths: normalizedDependencyPaths(paths.additionalSearchPaths),
+            excludedPaths: normalizedDependencyPaths(paths.excludedPaths)
+        )
+        guard dependencyConfiguration.services[serviceID] != normalized else { return }
+        dependencyConfiguration.services[serviceID] = normalized
+        dependencyIndexes.services[serviceID] = nil
+        dependencyRevision &+= 1
+        persistDependencyConfiguration()
+    }
+
+    package func excludeDependencyPath(_ path: String, serviceID: String) {
+        var configuration = dependencyPaths(for: serviceID)
+        let stored = storedDependencyPath(path)
+        guard !stored.isEmpty, !configuration.excludedPaths.contains(stored) else { return }
+        configuration.excludedPaths.append(stored)
+        updateDependencyPaths(configuration, serviceID: serviceID)
+    }
+
+    package func restoreDependencyPath(_ path: String, serviceID: String) {
+        var configuration = dependencyPaths(for: serviceID)
+        let stored = storedDependencyPath(path)
+        guard configuration.excludedPaths.contains(stored) else { return }
+        configuration.excludedPaths.removeAll { $0 == stored }
+        updateDependencyPaths(configuration, serviceID: serviceID)
+    }
+
+    /// File watchers forward changed paths and their kind. The provider's dependency descriptor
+    /// decides whether a service index is affected; no directory walk is started.
+    package func markDependencyFilesChanged(_ changes: [WorkspaceFileChange]) {
+        let files = changes.map(\.fileURL)
+        let invalidated = dependencyServices.compactMap { service -> String? in
+            files.contains {
+                dependencyProvider.manages(
+                    $0,
+                    providerID: service.providerID,
+                    declaredFileNames: dependencyDeclarations[service.providerID]?.managementFileNames
+                ) && managementFile($0, affects: service.id)
+            }
+                ? service.id
+                : nil
+        }
+        guard !invalidated.isEmpty else { return }
+        for change in changes where invalidated.contains(where: { serviceID in
+            guard let providerID = dependencyServices.first(where: { $0.id == serviceID })?.providerID else {
+                return false
+            }
+            return dependencyProvider.manages(
+                change.fileURL,
+                providerID: providerID,
+                declaredFileNames: dependencyDeclarations[providerID]?.managementFileNames
+            ) && managementFile(change.fileURL, affects: serviceID)
+        }) {
+            projectFiles.removeAll { $0.standardizedFileURL == change.fileURL.standardizedFileURL }
+            if change.kind != .deleted { projectFiles.append(change.fileURL.standardizedFileURL) }
+        }
+        for serviceID in invalidated {
+            dependencyIndexes.services[serviceID] = nil
+        }
+        dependencyRevision &+= 1
+    }
+
+    package func syncLanguageDependencyPaths(languageID: String) {
+        guard let workspace = projectURL else { return }
+        for service in dependencyServices where service.providerID == languageID {
+            guard let snapshot = languageDependencyProvider(languageID, workspace, service.id) else {
+                continue
+            }
+            guard languageSnapshots[service.id] != snapshot else { continue }
+            languageSnapshots[service.id] = snapshot
+            dependencyIndexes.services[service.id] = nil
+            dependencyRevision &+= 1
+        }
     }
 
     /// Applies an accepted Maven model without replacing the file snapshot or
@@ -220,6 +422,20 @@ package final class RunService: ObservableObject {
             selectedConfigurationIDsByProject[currentProject.path] = selectedConfigurationID
         }
         self.projectURL = workspace
+        let storedDependencies = await dependencyWriter.load(workspaceURL: workspace)
+        guard !Task.isCancelled, projectLoadID == loadID else { return }
+        let dependenciesChanged = dependencyWorkspaceURL != workspace
+            || dependencyConfiguration != storedDependencies.configuration
+            || dependencyIndexes != storedDependencies.indexes
+            || dependencyConfigurationSaveError != storedDependencies.errorMessage
+        if dependencyWorkspaceURL != workspace { languageSnapshots = [:] }
+        dependencyWorkspaceURL = workspace
+        dependencyConfiguration = storedDependencies.configuration
+        dependencyIndexes = storedDependencies.indexes
+        dependencyConfigurationSaveError = storedDependencies.errorMessage
+        if dependenciesChanged {
+            dependencyRevision &+= 1
+        }
         // Whether the existing configuration parses is `configurationStatus`, not
         // this state. Keeping them apart is what lets a broken generated.json be
         // regenerated: folding a parse failure in here would block generation,
@@ -246,12 +462,14 @@ package final class RunService: ObservableObject {
                 guard !Task.isCancelled, projectLoadID == loadID else { return }
                 let preferredID = selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
                     ?? preferences.string(forKey: selectionPreferenceKey(for: projectURL.standardizedFileURL))
-                let resolution = try resolveWithServiceToolchains(
+                let resolution = try await resolveLoadedProjectToolchains(
                     operations: operations,
                     projectURL: projectURL,
                     mavenProject: self.mavenProject,
-                    preferredConfigurationID: preferredID
+                    preferredConfigurationID: preferredID,
+                    loadID: loadID
                 )
+                guard !Task.isCancelled, projectLoadID == loadID else { return }
                 configurationDiagnostics += resolution.diagnostics
                 defaultConfigurationID = resolution.defaultConfigurationID
                 apply(
@@ -260,6 +478,7 @@ package final class RunService: ObservableObject {
                     preferredConfigurationID: preferredID ?? resolution.defaultConfigurationID
                 )
             } catch {
+                guard !Task.isCancelled, projectLoadID == loadID, !(error is CancellationError) else { return }
                 configurationStatus = .invalid(error.localizedDescription)
                 recoveryAction = .editConfiguration
                 configurations = []
@@ -273,6 +492,50 @@ package final class RunService: ObservableObject {
             reconcileModuleSessions(validConfigurationIDs: [])
             refreshPortConflicts()
         }
+    }
+
+    /// Adds what JDT reports about the generated Java entries.
+    ///
+    /// `entrypoints` is JDT's current answer. Inspection runs off the main actor,
+    /// and an answer that arrives after a reload or regeneration is dropped.
+    package func reportJavaEntrypointFreshness(_ entrypoints: JavaEntrypoints) async {
+        guard configurationStatus == .ready, let projectURL else { return }
+        let loadID = projectLoadID
+        let revision = generationRevision
+        let operations = runConfigurationOperations
+        let inspection = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: operations.inspect(
+                    at: projectURL,
+                    checkFingerprint: false,
+                    javaEntrypoints: entrypoints
+                ))
+            }
+        }
+        guard !Task.isCancelled, projectLoadID == loadID, generationRevision == revision,
+              self.projectURL == projectURL else { return }
+        let shown = configurationDiagnostics
+        configurationDiagnostics += inspection.diagnostics.filter { !shown.contains($0) }
+    }
+
+    /// Diagnostics after a run document edit. Editing `.lithe` changes no
+    /// project input, so the freshness already reported still holds and the
+    /// inputs are not read again on the main actor.
+    private func diagnosticsAfterDocumentEdit(
+        at projectURL: URL,
+        resolution: [RunConfigurationDiagnostic]
+    ) -> [RunConfigurationDiagnostic] {
+        let freshness = configurationDiagnostics.filter { $0.code == "staleFingerprint" }
+        let inspected = runConfigurationOperations.inspect(
+            at: projectURL,
+            checkFingerprint: false,
+            javaEntrypoints: nil
+        ).diagnostics
+        var diagnostics = freshness
+        for diagnostic in inspected + resolution where !diagnostics.contains(diagnostic) {
+            diagnostics.append(diagnostic)
+        }
+        return diagnostics
     }
 
     private static func javaDiscoveryStatus(
@@ -308,6 +571,7 @@ package final class RunService: ObservableObject {
             return
         }
         let loadID = projectLoadID
+        generationRevision &+= 1
         isLoadingProject = true
         defer {
             if projectLoadID == loadID {
@@ -356,7 +620,13 @@ package final class RunService: ObservableObject {
                 defaultConfigurationID = resolution.defaultConfigurationID
                 recoveryAction = .none
                 recoveryPath = nil
-                configurationDiagnostics = operations.inspect(at: projectURL).diagnostics + resolution.diagnostics
+                // Generation just recorded the fingerprint; re-reading every input
+                // here would only repeat that scan on the main actor.
+                configurationDiagnostics = operations.inspect(
+                    at: projectURL,
+                    checkFingerprint: false,
+                    javaEntrypoints: nil
+                ).diagnostics + resolution.diagnostics
                 generationState = result.entryCount == 0 ? .noEntries : .succeeded(entryCount: result.entryCount)
                 javaDiscoveryStatus = Self.javaDiscoveryStatus(
                     javaDiscovery,
@@ -493,8 +763,10 @@ package final class RunService: ObservableObject {
                 mavenProject: mavenProject,
                 preferredConfigurationID: configuration.id
             )
-            configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
-                + resolution.diagnostics
+            configurationDiagnostics = diagnosticsAfterDocumentEdit(
+                at: projectURL,
+                resolution: resolution.diagnostics
+            )
             apply(
                 resolution.configurations,
                 projectToolchain: resolution.projectToolchain,
@@ -537,8 +809,10 @@ package final class RunService: ObservableObject {
                     message: "The new configuration did not pass project validation. Check its module and main class."
                 )
             }
-            configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
-                + resolution.diagnostics
+            configurationDiagnostics = diagnosticsAfterDocumentEdit(
+                at: projectURL,
+                resolution: resolution.diagnostics
+            )
             apply(
                 resolution.configurations,
                 projectToolchain: resolution.projectToolchain,
@@ -577,6 +851,7 @@ package final class RunService: ObservableObject {
         stop()
         output = ""
         lastExitCode = nil
+        primaryExecutionID = UUID().uuidString
         lastRunConfiguration = configuration
         lastCurrentFileURL = currentFileURL
         let mavenContext = mavenContext(for: configuration)
@@ -667,14 +942,18 @@ package final class RunService: ObservableObject {
                     executablePath: stepResolved.executableURL.path,
                     arguments: Self.launchArguments(step.arguments, classpath: step.classpath),
                     environment: stepResolved.environment,
-                    displayName: stepResolved.executableURL.lastPathComponent
+                    displayName: stepResolved.executableURL.lastPathComponent,
+                    workingDirectory: resolvedWorkingDirectory(
+                        step.workingDirectory ?? plan.workingDirectory,
+                        fallback: projectURL
+                    ).path
                 )
             }
         } catch {
             fail(error.localizedDescription)
             return
         }
-        let arguments = Self.launchArguments(
+        let requestedArguments = Self.launchArguments(
             plan.arguments,
             classpath: plan.classpath,
             modulepath: plan.modulepath
@@ -684,8 +963,8 @@ package final class RunService: ObservableObject {
         runningTitle = configuration.name
         isRunning = true
         let displayedArguments = configuration.kind.isMavenBacked
-            ? redactedMavenArgumentsForDisplay(arguments)
-            : arguments
+            ? redactedMavenArgumentsForDisplay(requestedArguments)
+            : requestedArguments
         append(
             "$ " + resolved.executableURL.lastPathComponent + " "
                 + displayedArguments.joined(separator: " ") + "\n\n"
@@ -698,13 +977,18 @@ package final class RunService: ObservableObject {
         let startMain: @MainActor () -> Void = { [weak self] in
             guard let self, self.activeOperationID == operationID else { return }
             do {
+                let preparation = try self.prepareJavaLaunch(
+                    executablePath: resolved.executableURL.path,
+                    arguments: requestedArguments
+                )
+                self.activeLaunchArgumentLease = preparation.lease
                 if let extensionSession {
                     self.activeLanguageExecutionSession = extensionSession
                     self.configureLanguageExecutionSession(extensionSession)
                     try extensionSession.start(LanguageExecutionProcessRequest(
                         operationID: operationID,
                         executablePath: resolved.executableURL.path,
-                        arguments: arguments,
+                        arguments: preparation.arguments,
                         workingDirectory: workingDirectory.path,
                         environment: resolved.environment
                     ))
@@ -712,12 +996,13 @@ package final class RunService: ObservableObject {
                     try self.process.start(ProcessRequest(
                         operationID: operationID,
                         executablePath: resolved.executableURL.path,
-                        arguments: arguments,
+                        arguments: preparation.arguments,
                         workingDirectory: workingDirectory.path,
                         environment: resolved.environment
                     ))
                 }
             } catch {
+                self.activeLaunchArgumentLease = nil
                 self.activeLanguageExecutionSession = nil
                 self.fail("Unable to start " + configuration.name + ": " + error.localizedDescription)
             }
@@ -728,8 +1013,7 @@ package final class RunService: ObservableObject {
             runPreLaunchStep(
                 at: 0,
                 steps: preparedSteps,
-                workingDirectory: workingDirectory.path,
-                operationID: operationID,
+                owner: applicationPreLaunchOwner(operationID: operationID),
                 onSuccess: startMain
             )
         }
@@ -771,7 +1055,9 @@ package final class RunService: ObservableObject {
     }
 
     package func stopAllServices() {
-        let sessionIDs = Set(moduleProcesses.keys).union(moduleLanguageExecutionSessions.keys)
+        let sessionIDs = Set(moduleProcesses.keys)
+            .union(moduleLanguageExecutionSessions.keys)
+            .union(modulePreLaunchProcesses.keys)
         for sessionID in sessionIDs {
             stopModule(sessionID: sessionID)
         }
@@ -794,6 +1080,7 @@ package final class RunService: ObservableObject {
         activePreLaunchProcess?.stop()
         activePreLaunchProcess = nil
         process.stop()
+        activeLaunchArgumentLease = nil
         isRunning = false
         runningTitle = nil
         activeOperationID = nil
@@ -808,6 +1095,13 @@ package final class RunService: ObservableObject {
         selectedConfigurationIDsByProject = [:]
         projectFiles = []
         mavenProject = nil
+        dependencyWorkspaceURL = nil
+        dependencyConfiguration = WorkspaceDependencyConfiguration()
+        dependencyIndexes = WorkspaceDependencyIndexes()
+        languageSnapshots = [:]
+        dependencySources = [:]
+        dependencyRevision &+= 1
+        dependencyConfigurationSaveError = nil
         configurations = [.currentFile]
         defaultConfigurationID = nil
         selectedConfigurationID = RunConfiguration.currentFileID
@@ -828,12 +1122,121 @@ package final class RunService: ObservableObject {
         output = ""
         lastExitCode = nil
         lastRunConfiguration = nil
+        primaryExecutionID = nil
         lastCurrentFileURL = nil
     }
 
     package func clearOutput() {
         output = ""
         lastExitCode = nil
+    }
+
+    private func dependencyContext(
+        serviceID: String,
+        snapshot: LanguageDependencySnapshot?
+    ) -> DependencyResolutionContext? {
+        guard let workspace = projectURL,
+              let source = dependencySources.values.first(where: { $0.id == serviceID }) else { return nil }
+        return DependencyResolutionContext(
+            serviceID: source.id,
+            serviceDisplayName: source.displayName,
+            providerID: source.providerID,
+            providerDisplayName: source.providerDisplayName,
+            workspaceURL: workspace,
+            sourceRoots: externalRoots(snapshot?.sourceRoots ?? [], workspace: workspace),
+            dependencyRoots: externalRoots(snapshot?.dependencyRoots ?? [], workspace: workspace),
+            binaryRoots: externalRoots(snapshot?.binaryRoots ?? [], workspace: workspace),
+            virtualDocuments: snapshot?.virtualDocuments ?? [],
+            dependencyPaths: dependencyPaths(for: source.id)
+        )
+    }
+
+    private func externalRoots(_ roots: [URL], workspace: URL) -> [URL] {
+        let workspacePath = workspace.standardizedFileURL.path
+        var seen: Set<String> = []
+        return roots.filter(\.isFileURL).map(\.standardizedFileURL).filter { root in
+            root.path != workspacePath && !root.path.hasPrefix(workspacePath + "/")
+                && seen.insert(root.path).inserted
+        }
+    }
+
+    private func managementFile(_ file: URL, affects serviceID: String) -> Bool {
+        guard let workspace = projectURL,
+              let source = dependencyServices.first(where: { $0.id == serviceID }) else { return false }
+        let rootPath = workspace.standardizedFileURL.path
+        let filePath = file.standardizedFileURL.path
+        guard filePath.hasPrefix(rootPath + "/") else { return false }
+        return dependencyProvider.manages(
+            file,
+            providerID: source.providerID,
+            declaredFileNames: dependencyDeclarations[source.providerID]?.managementFileNames
+        )
+    }
+
+    private func normalizedDependencyPaths(_ values: [String]) -> [String] {
+        Array(Set(values.compactMap { value -> String? in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        })).sorted()
+    }
+
+    private func storedDependencyPath(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let workspace = dependencyWorkspaceURL else { return trimmed }
+        let path = URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath)
+            .standardizedFileURL.path
+        let root = workspace.standardizedFileURL.path
+        if path == root { return "." }
+        if path.hasPrefix(root + "/") {
+            return String(path.dropFirst(root.count + 1))
+        }
+        return trimmed
+    }
+
+    private func persistDependencyConfiguration() {
+        guard let workspace = dependencyWorkspaceURL else { return }
+        let configuration = dependencyConfiguration
+        Task { [weak self] in
+            guard let self else { return }
+            let error = await dependencyWriter.saveConfiguration(
+                configuration,
+                workspaceURL: workspace
+            )
+            guard dependencyWorkspaceURL == workspace else { return }
+            dependencyConfigurationSaveError = error
+        }
+    }
+
+    nonisolated private static func dependencySignature(
+        input: DependencyServiceIndexInput,
+        fileAccess: any RunFileAccess
+    ) -> String {
+        var fileDigests: [DependencyServiceFileInput] = []
+        for file in input.managementFiles {
+            let digest: String
+            if let data = try? fileAccess.readData(from: file) {
+                digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            } else {
+                digest = "unavailable"
+            }
+            fileDigests.append(DependencyServiceFileInput(path: file.path, digest: digest))
+        }
+        let payload = DependencyServiceSignatureInput(
+            serviceID: input.context.serviceID,
+            providerID: input.context.providerID,
+            sourceRoots: input.context.sourceRoots.map(\.path),
+            resourceRoots: input.context.resourceRoots.map(\.path),
+            classpath: input.context.classpath.map(\.path),
+            dependencyRoots: input.context.dependencyRoots.map(\.path),
+            binaryRoots: input.context.binaryRoots.map(\.path),
+            virtualDocuments: input.context.virtualDocuments.map { $0.uri.absoluteString },
+            dependencyPaths: input.context.dependencyPaths,
+            files: fileDigests
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(payload) else { return UUID().uuidString }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func fail(_ message: String) {
@@ -889,12 +1292,44 @@ package final class RunService: ObservableObject {
             javaHomeOverride: options?.javaHomePath,
             mavenExecutableOverride: options?.mavenExecutablePath
         )
+        return mergingExecutableCandidates(runtimeCandidates, projectURL: projectURL)
+    }
+
+    private func mergingExecutableCandidates(_ runtimeCandidates: [ProjectToolchainCandidate], projectURL: URL) -> [ProjectToolchainCandidate] {
         var candidatesByID = Dictionary(uniqueKeysWithValues: runtimeCandidates.map { ($0.id, $0) })
         for candidate in executableResolver.candidates(projectURL: projectURL)
             where candidatesByID[candidate.id] == nil {
             candidatesByID[candidate.id] = candidate
         }
         return candidatesByID.values.sorted { $0.id < $1.id }
+    }
+
+    private func resolveLoadedProjectToolchains(
+        operations: any RunConfigurationOperations,
+        projectURL: URL,
+        mavenProject: MavenProject?,
+        preferredConfigurationID: String?,
+        loadID: UUID
+    ) async throws -> RunConfigurationResolution {
+        func candidates(options: RunOptions? = nil) async throws -> [ProjectToolchainCandidate] {
+            let runtimeCandidates = try await runtime.loadRunConfigurationToolchainCandidates(
+                for: mavenProject, projectRoot: projectURL,
+                javaHomeOverride: options?.javaHomePath,
+                mavenExecutableOverride: options?.mavenExecutablePath
+            )
+            guard !Task.isCancelled, projectLoadID == loadID else { throw CancellationError() }
+            return mergingExecutableCandidates(runtimeCandidates, projectURL: projectURL)
+        }
+        let initial = try operations.resolve(at: projectURL, toolchainCandidates: await candidates())
+        guard let options = javaServiceOptions(in: initial, preferredID: preferredConfigurationID) else { return initial }
+        return try operations.resolve(at: projectURL, toolchainCandidates: await candidates(options: options))
+    }
+
+    private func javaServiceOptions(in resolution: RunConfigurationResolution, preferredID: String?) -> RunOptions? {
+        let preferred = resolution.configurations.first { $0.configuration.id == preferredID }
+        return (preferred ?? resolution.configurations.first {
+            $0.configuration.kind.capabilities.contains(.javaRuntime) && !$0.options.javaHomePath.isEmpty
+        })?.options
     }
 
     private func resolveWithServiceToolchains(
@@ -907,16 +1342,11 @@ package final class RunService: ObservableObject {
             at: projectURL,
             toolchainCandidates: toolchainCandidates(projectURL: projectURL, mavenProject: mavenProject)
         )
-        let preferred = initial.configurations.first { $0.configuration.id == preferredConfigurationID }
-        let javaService = preferred ?? initial.configurations.first {
-            $0.configuration.kind.capabilities.contains(.javaRuntime)
-                && !$0.options.javaHomePath.isEmpty
-        }
-        guard let javaService else { return initial }
+        guard let options = javaServiceOptions(in: initial, preferredID: preferredConfigurationID) else { return initial }
         let candidates = toolchainCandidates(
             projectURL: projectURL,
             mavenProject: mavenProject,
-            options: javaService.options
+            options: options
         )
         return try operations.resolve(at: projectURL, toolchainCandidates: candidates)
     }
@@ -957,6 +1387,7 @@ package final class RunService: ObservableObject {
         effectiveSourcesByConfigurationID = Dictionary(uniqueKeysWithValues: resolved.map {
             ($0.configuration.id, $0.source)
         })
+        dependencyRevision &+= 1
         reconcileModuleSessions(validConfigurationIDs: Set(configurations.map(\.id)))
         refreshPortConflicts()
         if let preferredConfigurationID,
@@ -978,6 +1409,7 @@ package final class RunService: ObservableObject {
 
     private func finishProcess(exitCode: Int32) {
         activeLanguageExecutionSession = nil
+        activeLaunchArgumentLease = nil
         isRunning = false
         runningTitle = nil
         lastExitCode = exitCode
@@ -986,6 +1418,19 @@ package final class RunService: ObservableObject {
             try? FileManager.default.removeItem(atPath: xmlPath)
             activeTomcatContextXmlPath = nil
         }
+    }
+
+    private func prepareJavaLaunch(
+        executablePath: String,
+        arguments: [String]
+    ) throws -> JavaLaunchArgumentPreparation {
+        guard let javaLaunchArgumentPreparer else {
+            return JavaLaunchArgumentPreparation(arguments: arguments)
+        }
+        return try javaLaunchArgumentPreparer.prepareJavaLaunch(
+            executablePath: executablePath,
+            arguments: arguments
+        )
     }
 
     private func consumeLifecycle(_ event: ProcessLifecycleEvent) {
@@ -1081,13 +1526,29 @@ package final class RunService: ObservableObject {
         }
     }
 
-    /// A pre-launch compile step whose executable and arguments are already
-    /// resolved to an absolute path and a joined classpath.
+    /// A pre-launch compile step whose executable, arguments, and working
+    /// directory are already resolved to absolute values.
     private struct PreparedLaunchStep {
         let executablePath: String
         let arguments: [String]
         let environment: [String: String]
         let displayName: String
+        /// The step's own run directory: a Maven resource step has to run from
+        /// the reactor that holds its wrapper, not from an overridden app cwd.
+        let workingDirectory: String
+    }
+
+    /// The per-run bookkeeping a pre-launch chain reads and writes. The
+    /// application run and each module session supply their own, so a step is
+    /// cancelled with its owner and a superseded run cannot resume the chain.
+    private struct PreLaunchOwner: Sendable {
+        let operationID: String
+        let isActive: @MainActor @Sendable () -> Bool
+        let setStepProcess: @MainActor @Sendable ((any StreamingProcess)?) -> Void
+        let append: @MainActor @Sendable (String) -> Void
+        /// Marks the owning run failed and releases its operation so a later
+        /// step, or the process the chain guards, cannot start.
+        let fail: @MainActor @Sendable (Int32) -> Void
     }
 
     /// Merges the plan's structured classpath into the launch arguments. The
@@ -1130,66 +1591,115 @@ package final class RunService: ObservableObject {
     }
 
     /// Runs one pre-launch step, then chains to the next on a zero exit or aborts
-    /// the run and surfaces the compiler's diagnostics on a non-zero exit. Uses a
-    /// fresh process per step so the main run process wiring stays untouched.
+    /// the run and surfaces the step's output on a non-zero exit. Uses a fresh
+    /// process per step so the owning run's process wiring stays untouched.
     private func runPreLaunchStep(
         at index: Int,
         steps: [PreparedLaunchStep],
-        workingDirectory: String,
-        operationID: String,
+        owner: PreLaunchOwner,
         onSuccess: @escaping @MainActor () -> Void
     ) {
-        guard activeOperationID == operationID else { return }
+        guard owner.isActive() else { return }
         guard index < steps.count else {
             onSuccess()
             return
         }
         let step = steps[index]
-        append("$ " + step.displayName + " " + step.arguments.joined(separator: " ") + "\n")
+        owner.append("$ " + step.displayName + " " + step.arguments.joined(separator: " ") + "\n")
         let stepProcess = processFactory()
-        activePreLaunchProcess = stepProcess
-        stepProcess.onOutput = { [weak self] chunk in
-            Task { @MainActor [weak self] in self?.append(chunk) }
+        owner.setStepProcess(stepProcess)
+        stepProcess.onOutput = { chunk in
+            Task { @MainActor in owner.append(chunk) }
         }
-        stepProcess.onTermination = { [weak self] exitCode in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.activePreLaunchProcess = nil
-                guard self.activeOperationID == operationID else { return }
+        // The platform stops a step that passes its deadline with this message.
+        // Name the deadline in the Run's own wording, as the test service and
+        // the Windows runner do; a user Stop uses another message and stays
+        // silent, because the Stop itself is already visible.
+        let timedOutNotice =
+            "\nPre-launch step timed out after \(Self.preLaunchStepTimeoutMilliseconds / 1_000) seconds.\n"
+        stepProcess.onStateChange = { event in
+            guard event.state == .stopping, event.message == "Process timed out" else { return }
+            Task { @MainActor in owner.append(timedOutNotice) }
+        }
+        stepProcess.onTermination = { exitCode in
+            Task { @MainActor in
+                owner.setStepProcess(nil)
+                guard owner.isActive() else { return }
                 if exitCode == 0 {
                     self.runPreLaunchStep(
                         at: index + 1,
                         steps: steps,
-                        workingDirectory: workingDirectory,
-                        operationID: operationID,
+                        owner: owner,
                         onSuccess: onSuccess
                     )
                 } else {
-                    self.append("\nCompilation failed (exit code \(exitCode)).\n")
-                    self.isRunning = false
-                    self.runningTitle = nil
-                    self.activeOperationID = nil
-                    self.lastExitCode = exitCode
+                    owner.append("\nPre-launch step failed (exit code \(exitCode)).\n")
+                    owner.fail(exitCode)
                 }
             }
         }
         do {
             try stepProcess.start(ProcessRequest(
-                operationID: operationID,
+                operationID: owner.operationID,
                 executablePath: step.executablePath,
                 arguments: step.arguments,
-                workingDirectory: workingDirectory,
-                environment: step.environment
+                workingDirectory: step.workingDirectory,
+                environment: step.environment,
+                timeoutMilliseconds: Self.preLaunchStepTimeoutMilliseconds
             ))
         } catch {
-            activePreLaunchProcess = nil
-            guard activeOperationID == operationID else { return }
-            append("\nUnable to start " + step.displayName + ": " + error.localizedDescription + "\n")
-            isRunning = false
-            runningTitle = nil
-            activeOperationID = nil
-            lastExitCode = 1
+            owner.setStepProcess(nil)
+            guard owner.isActive() else { return }
+            owner.append(
+                "\nUnable to start " + step.displayName + ": " + error.localizedDescription + "\n"
+            )
+            owner.fail(1)
         }
+    }
+
+    /// Pre-launch bookkeeping for the application run: the chain stops as soon
+    /// as the run is stopped or replaced, and a failed step leaves the same
+    /// state a failed main process would.
+    private func applicationPreLaunchOwner(operationID: String) -> PreLaunchOwner {
+        PreLaunchOwner(
+            operationID: operationID,
+            isActive: { [weak self] in self?.activeOperationID == operationID },
+            setStepProcess: { [weak self] process in self?.activePreLaunchProcess = process },
+            append: { [weak self] value in self?.append(value) },
+            fail: { [weak self] exitCode in
+                guard let self else { return }
+                self.isRunning = false
+                self.runningTitle = nil
+                self.activeOperationID = nil
+                self.lastExitCode = exitCode
+            }
+        )
+    }
+
+    /// Pre-launch bookkeeping for a module session: the chain owns the session's
+    /// pre-launch process so Stop, restart, and reconciliation cancel it before
+    /// the JVM exists, and a failed step makes the session fail instead of
+    /// launching against stale resources.
+    private func modulePreLaunchOwner(sessionID: String, operationID: String) -> PreLaunchOwner {
+        PreLaunchOwner(
+            operationID: operationID,
+            isActive: { [weak self] in self?.moduleOperationIDs[sessionID] == operationID },
+            setStepProcess: { [weak self] process in
+                self?.modulePreLaunchProcesses[sessionID] = process
+            },
+            append: { [weak self] value in
+                self?.appendModuleOutput(value, sessionID: sessionID)
+            },
+            fail: { [weak self] exitCode in
+                guard let self else { return }
+                self.modulePreLaunchProcesses[sessionID] = nil
+                self.moduleOperationIDs[sessionID] = nil
+                if let index = self.moduleSessions.firstIndex(where: { $0.id == sessionID }) {
+                    self.moduleSessions[index].isRunning = false
+                    self.moduleSessions[index].exitCode = exitCode
+                }
+            }
+        )
     }
 
     private func classPath(for fileURL: URL) -> String? {
@@ -1290,8 +1800,24 @@ package final class RunService: ObservableObject {
         }
 
         let resolved: ResolvedRunExecutable
+        let preparedSteps: [PreparedLaunchStep]
         do {
             resolved = try executableResolver.resolve(plan, projectURL: projectURL, options: options)
+            preparedSteps = try plan.preLaunchSteps.map { step in
+                let stepResolved = try executableResolver.resolve(
+                    step: step, plan: plan, projectURL: projectURL, options: options
+                )
+                return PreparedLaunchStep(
+                    executablePath: stepResolved.executableURL.path,
+                    arguments: Self.launchArguments(step.arguments, classpath: step.classpath),
+                    environment: stepResolved.environment,
+                    displayName: stepResolved.executableURL.lastPathComponent,
+                    workingDirectory: resolvedWorkingDirectory(
+                        step.workingDirectory ?? plan.workingDirectory,
+                        fallback: projectURL
+                    ).path
+                )
+            }
         } catch {
             // A service that cannot start still becomes a session so the panel
             // shows which one failed and why, rather than silently omitting it.
@@ -1305,75 +1831,111 @@ package final class RunService: ObservableObject {
             ))
             return
         }
-        let arguments = Self.launchArguments(
+        let requestedArguments = Self.launchArguments(
             plan.arguments,
             classpath: plan.classpath,
             modulepath: plan.modulepath
         )
         let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
 
-        let session = RunSession(
+        var session = RunSession(
             id: configuration.id,
             configurationID: configuration.id,
             title: configuration.name,
             output: "$ " + resolved.executableURL.lastPathComponent + " "
                 + (configuration.kind.isMavenBacked
-                    ? redactedMavenArgumentsForDisplay(arguments)
-                    : arguments).joined(separator: " ") + "\n\n",
+                    ? redactedMavenArgumentsForDisplay(requestedArguments)
+                    : requestedArguments).joined(separator: " ") + "\n\n",
             isRunning: true,
             exitCode: nil
         )
+        session.javaUpdateTarget = javaLaunch
+        if let sourcePath = configuration.sourcePath {
+            session.javaUpdateSource = projectURL.appendingPathComponent(sourcePath)
+        }
         moduleSessions.append(session)
 
         let operationID = UUID().uuidString
         moduleOperationIDs[configuration.id] = operationID
-        do {
-            if let provider = languageRunExtension(providerID: configuration.kind.providerID) {
-                let extensionSession = provider.makeExecutionSession()
-                configureModuleLanguageExecutionSession(
-                    extensionSession,
-                    sessionID: configuration.id
-                )
-                moduleLanguageExecutionSessions[configuration.id] = extensionSession
-                try extensionSession.start(LanguageExecutionProcessRequest(
-                    operationID: operationID,
-                    executablePath: resolved.executableURL.path,
-                    arguments: arguments,
-                    workingDirectory: workingDirectory.path,
-                    environment: resolved.environment
-                ))
-            } else {
-                let process = processFactory()
-                configureModuleProcess(process, sessionID: configuration.id)
-                moduleProcesses[configuration.id] = process
-                try process.start(ProcessRequest(
-                    operationID: operationID,
-                    executablePath: resolved.executableURL.path,
-                    arguments: arguments,
-                    workingDirectory: workingDirectory.path,
-                    environment: resolved.environment
-                ))
+        // The JVM waits for every pre-launch step, so an entry source with a
+        // Maven resource step starts against the resources the step just wrote.
+        let startMainProcess: @MainActor () -> Void = { [weak self] in
+            guard let self, self.moduleOperationIDs[configuration.id] == operationID else {
+                return
             }
-        } catch {
-            moduleProcesses[configuration.id] = nil
-            moduleLanguageExecutionSessions[configuration.id] = nil
-            moduleOperationIDs[configuration.id] = nil
-            if let index = moduleSessions.firstIndex(where: { $0.id == configuration.id }) {
-                moduleSessions[index].isRunning = false
-                moduleSessions[index].exitCode = 1
-                appendModuleOutput(
-                    "Unable to start " + configuration.name + ": " + error.localizedDescription + "\n",
-                    sessionID: configuration.id
+            do {
+                let preparation = try self.prepareJavaLaunch(
+                    executablePath: resolved.executableURL.path,
+                    arguments: requestedArguments
                 )
+                self.moduleLaunchArgumentLeases[configuration.id] = preparation.lease
+                if let provider = self.languageRunExtension(
+                    providerID: configuration.kind.providerID
+                ) {
+                    let extensionSession = provider.makeExecutionSession()
+                    self.configureModuleLanguageExecutionSession(
+                        extensionSession,
+                        sessionID: configuration.id
+                    )
+                    self.moduleLanguageExecutionSessions[configuration.id] = extensionSession
+                    try extensionSession.start(LanguageExecutionProcessRequest(
+                        operationID: operationID,
+                        executablePath: resolved.executableURL.path,
+                        arguments: preparation.arguments,
+                        workingDirectory: workingDirectory.path,
+                        environment: resolved.environment
+                    ))
+                } else {
+                    let process = self.processFactory()
+                    self.configureModuleProcess(process, sessionID: configuration.id)
+                    self.moduleProcesses[configuration.id] = process
+                    try process.start(ProcessRequest(
+                        operationID: operationID,
+                        executablePath: resolved.executableURL.path,
+                        arguments: preparation.arguments,
+                        workingDirectory: workingDirectory.path,
+                        environment: resolved.environment
+                    ))
+                }
+            } catch {
+                self.moduleLaunchArgumentLeases[configuration.id] = nil
+                self.moduleProcesses[configuration.id] = nil
+                self.moduleLanguageExecutionSessions[configuration.id] = nil
+                self.moduleOperationIDs[configuration.id] = nil
+                if let index = self.moduleSessions.firstIndex(where: { $0.id == configuration.id }) {
+                    self.moduleSessions[index].isRunning = false
+                    self.moduleSessions[index].exitCode = 1
+                    self.appendModuleOutput(
+                        "Unable to start " + configuration.name + ": "
+                            + error.localizedDescription + "\n",
+                        sessionID: configuration.id
+                    )
+                }
             }
+        }
+        if preparedSteps.isEmpty {
+            startMainProcess()
+        } else {
+            runPreLaunchStep(
+                at: 0,
+                steps: preparedSteps,
+                owner: modulePreLaunchOwner(
+                    sessionID: configuration.id,
+                    operationID: operationID
+                ),
+                onSuccess: startMainProcess
+            )
         }
     }
 
     private func stopModule(sessionID: String) {
+        modulePreLaunchProcesses[sessionID]?.stop()
+        modulePreLaunchProcesses[sessionID] = nil
         moduleProcesses[sessionID]?.stop()
         moduleProcesses[sessionID] = nil
         moduleLanguageExecutionSessions[sessionID]?.stop()
         moduleLanguageExecutionSessions[sessionID] = nil
+        moduleLaunchArgumentLeases[sessionID] = nil
         moduleOperationIDs[sessionID] = nil
         if let index = moduleSessions.firstIndex(where: { $0.id == sessionID }) {
             moduleSessions[index].isRunning = false
@@ -1389,6 +1951,7 @@ package final class RunService: ObservableObject {
         }
         moduleProcesses[sessionID] = nil
         moduleLanguageExecutionSessions[sessionID] = nil
+        moduleLaunchArgumentLeases[sessionID] = nil
         moduleOperationIDs[sessionID] = nil
     }
 
@@ -1415,7 +1978,9 @@ package final class RunService: ObservableObject {
     }
 
     private func reconcileModuleSessions(validConfigurationIDs: Set<String>) {
-        let activeSessionIDs = Set(moduleProcesses.keys).union(moduleLanguageExecutionSessions.keys)
+        let activeSessionIDs = Set(moduleProcesses.keys)
+            .union(moduleLanguageExecutionSessions.keys)
+            .union(modulePreLaunchProcesses.keys)
         let staleSessionIDs = activeSessionIDs.filter { !validConfigurationIDs.contains($0) }
         for sessionID in staleSessionIDs {
             stopModule(sessionID: sessionID)
@@ -1632,6 +2197,77 @@ package final class RunService: ObservableObject {
         guard let key = optionsKey(for: configurationID),
               let data = try? JSONEncoder().encode(options) else { return }
         preferences.setData(data, forKey: key)
+    }
+}
+
+private struct DependencyServiceIndexInput: Sendable {
+    let context: DependencyResolutionContext
+    let managementFiles: [URL]
+}
+
+private struct DependencyServiceFileInput: Codable, Sendable {
+    let path: String
+    let digest: String
+}
+
+private struct DependencyServiceSignatureInput: Codable, Sendable {
+    let serviceID: String
+    let providerID: String
+    let sourceRoots: [String]
+    let resourceRoots: [String]
+    let classpath: [String]
+    let dependencyRoots: [String]
+    let binaryRoots: [String]
+    let virtualDocuments: [String]
+    let dependencyPaths: DependencyPathConfiguration
+    let files: [DependencyServiceFileInput]
+}
+
+private struct WorkspaceDependencySnapshot: Sendable {
+    let configuration: WorkspaceDependencyConfiguration
+    let indexes: WorkspaceDependencyIndexes
+    let errorMessage: String?
+}
+
+private actor WorkspaceDependencyWriter {
+    private let store: (any WorkspaceDependencyStoring)?
+
+    init(store: (any WorkspaceDependencyStoring)?) {
+        self.store = store
+    }
+
+    func load(workspaceURL: URL) -> WorkspaceDependencySnapshot {
+        do {
+            return WorkspaceDependencySnapshot(
+                configuration: try store?.loadDependencyConfiguration(workspaceURL: workspaceURL)
+                    ?? WorkspaceDependencyConfiguration(),
+                indexes: try store?.loadDependencyIndexes(workspaceURL: workspaceURL)
+                    ?? WorkspaceDependencyIndexes(),
+                errorMessage: nil
+            )
+        } catch {
+            return WorkspaceDependencySnapshot(
+                configuration: WorkspaceDependencyConfiguration(),
+                indexes: WorkspaceDependencyIndexes(),
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func saveConfiguration(
+        _ configuration: WorkspaceDependencyConfiguration,
+        workspaceURL: URL
+    ) -> String? {
+        do {
+            try store?.saveDependencyConfiguration(configuration, workspaceURL: workspaceURL)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func saveIndexes(_ indexes: WorkspaceDependencyIndexes, workspaceURL: URL) {
+        try? store?.saveDependencyIndexes(indexes, workspaceURL: workspaceURL)
     }
 }
 

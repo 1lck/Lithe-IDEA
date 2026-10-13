@@ -9,9 +9,31 @@ enum ProjectFileRowActivation {
         openFile()
     }
 
-    static func performDoubleClick(isExecutableBinary: Bool, runExecutable: () -> Void) {
+    static func performDoubleClick(
+        isDirectory: Bool = false,
+        isExecutableBinary: Bool,
+        toggleDirectory: () -> Void = {},
+        runExecutable: () -> Void
+    ) {
+        if isDirectory {
+            toggleDirectory()
+            return
+        }
         guard isExecutableBinary else { return }
         runExecutable()
+    }
+}
+
+private enum ProjectSidebarContent: String, CaseIterable, Identifiable {
+    case project
+    case dependencies
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .project: "Project"
+        case .dependencies: "Dependencies"
+        }
     }
 }
 
@@ -21,12 +43,27 @@ struct ProjectSidebarView: View {
     @State private var expandedDirectoryPaths: Set<String> = []
     @State private var expandedTreeRootPath: String?
     @State private var contextMenuPath: String?
+    @State private var selection = ProjectTreeSelection()
+    @State private var selectedContent: ProjectSidebarContent = .project
+    @State private var dependencyRefreshRevision = 0
+    @State private var isHeaderHovered = false
+    private enum HeaderAction: Hashable { case reveal, refresh }
+    @FocusState private var focusedHeaderAction: HeaderAction?
+    @AccessibilityFocusState private var accessibleHeaderAction: HeaderAction?
+
+    private func selectedURLs(in root: FileNode) -> [URL] {
+        ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths)
+            .filter { selection.paths.contains($0.url.path) && $0.url != root.url }
+            .map(\.url)
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             sidebarHeader
 
-            if model.isLoadingWorkspace {
+            if selectedContent == .dependencies {
+                DependencySidebarView(refreshRevision: dependencyRefreshRevision)
+            } else if model.isLoadingWorkspace {
                 VStack(spacing: 10) {
                     ProgressView().controlSize(.small)
                     Text("Reading project…")
@@ -38,35 +75,57 @@ struct ProjectSidebarView: View {
                 GeometryReader { geometry in
                     ScrollViewReader { proxy in
                         ScrollView([.vertical, .horizontal]) {
-                            // The recursive tree is one scroll-content child. An eager stack
-                            // must measure its full height so AppKit receives a real scroll range.
-                            VStack(
-                                alignment: .leading,
-                                spacing: LitheTheme.Metrics.projectTreeRowSpacing
-                            ) {
-                                ProjectFileTreeContent(
-                                    root: root,
-                                    availableWidth: geometry.size.width,
-                                    rowHeight: rowHeight,
-                                    activeDocumentURL: model.activeDocument?.url,
-                                    gitStatus: ProjectGitStatusSnapshot(
-                                        repositoryRoot: model.gitRepositoryRoot,
-                                        projection: model.gitTreeStatusProjection
-                                    ),
-                                    directoryMarks: model.projectDirectoryMarks,
-                                    actions: ProjectTreeActions(model: model),
-                                    expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
-                                    expandedDirectoryPaths: $expandedDirectoryPaths,
-                                    contextMenuPath: $contextMenuPath
-                                )
-                                .equatable()
-                            }
+                            ProjectFileTreeContent(
+                                root: root,
+                                availableWidth: geometry.size.width,
+                                rowHeight: rowHeight,
+                                activeDocumentURL: model.activeDocument?.url,
+                                gitStatus: ProjectGitStatusSnapshot(
+                                    repositoryRoot: model.gitRepositoryRoot,
+                                    projection: model.gitTreeStatusProjection
+                                ),
+                                directoryMarks: model.projectDirectoryMarks,
+                                actions: ProjectTreeActions(model: model),
+                                selectionSnapshot: selection,
+                                selection: $selection,
+                                visibleRows: ProjectTreeSelection.visibleRows(in: root, expandedPaths: expandedDirectoryPaths),
+                                expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
+                                expandedDirectoryPaths: $expandedDirectoryPaths,
+                                contextMenuPath: $contextMenuPath
+                            )
+                            .equatable()
                             .padding(.vertical, LitheTheme.Metrics.projectTreeContentVerticalInset)
                             .frame(
                                 minWidth: geometry.size.width,
                                 minHeight: geometry.size.height,
                                 alignment: .topLeading
                             )
+                        }
+                        .background(ProjectTreeKeyboardCommands(
+                            copy: { model.copyProjectItems(selectedURLs(in: root)) },
+                            paste: {
+                                let nodes = ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths)
+                                let focused = nodes.first { $0.url.path == selection.focusedPath }
+                                let destination = focused.map { $0.isDirectory ? $0.url : $0.url.deletingLastPathComponent() } ?? root.url
+                                Task { await model.pasteProjectItems(in: destination) }
+                            },
+                            selectAll: {
+                                selection.selectAll(in: root)
+                            },
+                            navigate: { key, extending in
+                                contextMenuPath = nil
+                                selection.navigate(key, in: root, expandedPaths: &expandedDirectoryPaths, extending: extending)
+                                if let path = selection.focusedPath { proxy.scrollTo(path) }
+                            }
+                        ).frame(maxWidth: .infinity, maxHeight: .infinity))
+                        .onChange(of: ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths).map { $0.url.path }) { paths in
+                            selection.retain(visiblePaths: paths)
+                        }
+                        .onChange(of: model.activeDocument?.url.standardizedFileURL.path) { path in
+                            // A single selection follows the editor, as it did before
+                            // multi-selection; an explicit group stays until changed.
+                            guard let path, selection.paths.count <= 1 else { return }
+                            selection.select(path, visiblePaths: [], extending: false, toggling: false)
                         }
                         .scrollContentBackground(.hidden)
                         .litheScrollViewChrome(usesCompactScrollers: true)
@@ -80,6 +139,7 @@ struct ProjectSidebarView: View {
                             let revealRequest = model.projectTreeRevealRequest
                             let shouldRefreshGit = expandedTreeRootPath != rootPath
                             if shouldRefreshGit {
+                                selection = ProjectTreeSelection()
                                 expandedTreeRootPath = rootPath
                                 expandedDirectoryPaths = [rootPath]
                             }
@@ -109,10 +169,10 @@ struct ProjectSidebarView: View {
             } else if let error = model.workspaceLoadErrorMessage {
                 VStack(spacing: 10) {
                     Image(systemName: "folder.badge.questionmark")
-                        .font(.system(size: 22, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 22, weight: .medium))
                         .foregroundStyle(LitheTheme.warning)
                     Text("Could not load project")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                     Text(LocalizedStringKey(error))
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
@@ -140,12 +200,29 @@ struct ProjectSidebarView: View {
             }
         }
         .overlay {
-            ProjectItemNameDialogPresenter()
+            if let request = model.projectItemEditRequest, request.kind != .rename {
+                LitheCenteredPopup(isPresented: Binding(
+                    get: { model.projectItemEditRequest?.id == request.id },
+                    set: { if !$0, model.projectItemEditRequest?.id == request.id { model.cancelProjectItemEdit() } }
+                )) {
+                    ProjectItemNameDialogContent(request: request, onSubmit: { name in
+                        Task {
+                            guard model.projectItemEditRequest?.id == request.id else { return }
+                            await model.performProjectItemEdit(named: name)
+                        }
+                    }, onCancel: { model.cancelProjectItemEdit() })
+                    .id(request.id)
+                }
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
+            }
         }
         .confirmationDialog(
-            "Move '\(model.pendingProjectItemDeletion?.url.lastPathComponent ?? "")' to Trash?",
+            model.pendingProjectItemDeletion.map { request -> LocalizedStringKey in
+                request.additionalItems.isEmpty
+                    ? "Move '\(request.url.lastPathComponent)' to Trash?"
+                    : "Move \(request.additionalItems.count + 1) items to Trash?"
+            } ?? "Move to Trash?",
             isPresented: Binding(
                 get: { model.pendingProjectItemDeletion != nil },
                 set: { if !$0 { model.cancelProjectItemDeletion() } }
@@ -168,24 +245,61 @@ struct ProjectSidebarView: View {
 
     private var sidebarHeader: some View {
         HStack(spacing: 8) {
-            Text("Project")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
+            LitheMenu {
+                ProjectSidebarContent.allCases.map { content in
+                    LitheContextMenuItem.action(content.title) { selectedContent = content }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(LocalizedStringKey(selectedContent.title))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
+                        .foregroundStyle(LitheTheme.primaryText)
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/chevronDown.svg",
+                        size: 14,
+                        fallbackSystemImage: "chevron.down",
+                        preservesOriginalColors: true
+                    )
+                }
+                .frame(height: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help("Switch project view")
+            .accessibilityIdentifier("project-sidebar-view-selector")
             Spacer()
-            if let activeURL = model.activeDocument?.url,
+            if selectedContent == .project,
+               let activeURL = model.activeDocument?.url,
                model.canRevealInProjectTree(activeURL) {
                 Button {
                     model.revealInProjectTree(activeURL)
                 } label: {
-                    LitheSystemIcon(systemImage: "scope")
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/locate.svg",
+                        size: LitheTheme.Metrics.toolbarIconSize,
+                        fallbackSystemImage: "scope",
+                        preservesOriginalColors: true
+                    )
+                    .opacity(isHeaderHovered || focusedHeaderAction == .reveal
+                             || accessibleHeaderAction == .reveal ? 1 : 0)
                 }
-                .litheIconButton()
+                .litheToolbarIconButton()
+                .focused($focusedHeaderAction, equals: .reveal)
+                .accessibilityFocused($accessibleHeaderAction, equals: .reveal)
+                .accessibilityHidden(false)
+                .accessibilityLabel("Reveal Active File in Project Tree")
                 .help("Reveal Active File in Project Tree")
             }
-            if model.isRefreshingWorkspace {
+            if selectedContent == .dependencies {
+                Button {
+                    dependencyRefreshRevision &+= 1
+                } label: {
+                    LitheSystemIcon(systemImage: "arrow.clockwise")
+                }
+                .litheIconButton()
+                .help("Refresh dependencies")
+            } else if model.isRefreshingWorkspace {
                 ProgressView()
                     .controlSize(.small)
                     .frame(width: 28, height: 28)
@@ -194,14 +308,32 @@ struct ProjectSidebarView: View {
                 Button {
                     Task { await model.refreshWorkspace() }
                 } label: {
-                    LitheSystemIcon(systemImage: "arrow.clockwise")
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/refresh.svg",
+                        size: LitheTheme.Metrics.toolbarIconSize,
+                        fallbackSystemImage: "arrow.clockwise",
+                        preservesOriginalColors: true
+                    )
+                    .opacity(isHeaderHovered || focusedHeaderAction == .refresh
+                             || accessibleHeaderAction == .refresh ? 1 : 0)
                 }
-                .litheIconButton()
+                .litheToolbarIconButton()
+                .focused($focusedHeaderAction, equals: .refresh)
+                .accessibilityFocused($accessibleHeaderAction, equals: .refresh)
+                .accessibilityHidden(false)
+                .accessibilityLabel("Refresh")
                 .help("Refresh")
             }
+            LitheSidebarHideButton(title: selectedContent.title) {
+                model.workbenchFeature.hideSidebar()
+            }
         }
-        .padding(.horizontal, 12)
+        .padding(.leading, LitheTheme.Metrics.projectTreeContentHorizontalInset)
+        .padding(.trailing, 12)
         .frame(height: 39)
+        .contentShape(Rectangle())
+        .onHover { isHeaderHovered = $0 }
+        .animation(.easeInOut(duration: 0.18), value: isHeaderHovered)
     }
 
     private var renameRequest: Binding<ProjectItemEditRequest?> {
@@ -259,6 +391,12 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func runExecutable(_ url: URL) {
         Task { @MainActor in self.model.runExecutable(url) }
     }
+    nonisolated func findInFiles() {
+        Task { @MainActor in self.model.openProjectSearch() }
+    }
+    nonisolated func replaceInFiles() {
+        Task { @MainActor in self.model.openProjectReplace() }
+    }
     nonisolated func requestCreateFile(_ url: URL) {
         Task { @MainActor in self.model.requestCreateFile(in: url) }
     }
@@ -270,6 +408,21 @@ private final class ProjectTreeActions: @unchecked Sendable {
     }
     nonisolated func copyPath(_ url: URL, relative: Bool) {
         Task { @MainActor in self.model.copyProjectItemPath(url, relative: relative) }
+    }
+    nonisolated func copyFiles(_ urls: [URL]) {
+        Task { @MainActor in self.model.copyProjectItems(urls) }
+    }
+    nonisolated func moveFiles(_ urls: [URL], to directory: URL) {
+        Task { await self.model.moveProjectItems(urls, to: directory) }
+    }
+    nonisolated func duplicateFiles(_ urls: [URL]) {
+        Task { await self.model.duplicateProjectItems(urls) }
+    }
+    nonisolated func deleteFiles(_ urls: [URL]) {
+        Task { @MainActor in self.model.requestDeleteProjectItems(urls) }
+    }
+    nonisolated func pasteFiles(in directory: URL) {
+        Task { await self.model.pasteProjectItems(in: directory) }
     }
     nonisolated func duplicate(_ url: URL) {
         Task { await self.model.duplicateProjectItem(at: url) }
@@ -293,6 +446,15 @@ private final class ProjectTreeActions: @unchecked Sendable {
     }
     nonisolated func selectChange(_ change: GitChange) {
         Task { @MainActor in self.model.selectChange(change) }
+    }
+    nonisolated func stageChange(_ change: GitChange) {
+        Task { @MainActor in self.model.setStaging([change], staged: true, includeWorkingTreeChanges: true) }
+    }
+    nonisolated func stageAndOpenCommit(_ change: GitChange) {
+        Task { @MainActor in
+            self.model.setStaging([change], staged: true, includeWorkingTreeChanges: true)
+            self.model.selectedSidebar = .changes
+        }
     }
     nonisolated func showLocalHistory(_ url: URL) {
         Task { @MainActor in self.model.showLocalHistory(for: url) }
@@ -320,12 +482,16 @@ private struct ProjectFileTreeContent: View, Equatable {
     let gitStatus: ProjectGitStatusSnapshot
     let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
+    let selectionSnapshot: ProjectTreeSelection
+    @Binding var selection: ProjectTreeSelection
+    let visibleRows: [ProjectTreeSelection.VisibleRow]
     let expandedDirectoryPathsSnapshot: Set<String>
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
 
     static func == (lhs: ProjectFileTreeContent, rhs: ProjectFileTreeContent) -> Bool {
-        lhs.root == rhs.root
+        lhs.selectionSnapshot == rhs.selectionSnapshot
+            && lhs.root == rhs.root
             && lhs.availableWidth == rhs.availableWidth
             && lhs.rowHeight == rhs.rowHeight
             && lhs.activeDocumentURL == rhs.activeDocumentURL
@@ -336,20 +502,28 @@ private struct ProjectFileTreeContent: View, Equatable {
     }
 
     var body: some View {
-        FileNodeRow(
-            node: root,
-            depth: 0,
-            availableWidth: availableWidth,
-            rowHeight: rowHeight,
-            activeDocumentURL: activeDocumentURL,
-            gitStatus: gitStatus,
-            projectRootURL: root.url,
-            directoryMarks: directoryMarks,
-            actions: actions,
-            expandedDirectoryPaths: $expandedDirectoryPaths,
-            contextMenuPath: $contextMenuPath
-        )
-        .id(root.url.standardizedFileURL.path)
+        // Each visible row is a direct lazy child: recursive stacks instantiate
+        // every descendant and cannot virtualize a large expanded directory.
+        LazyVStack(alignment: .leading, spacing: LitheTheme.Metrics.projectTreeRowSpacing) {
+            ForEach(visibleRows) { row in
+                FileNodeRow(
+                    node: row.node,
+                    depth: row.depth,
+                    availableWidth: availableWidth,
+                    rowHeight: rowHeight,
+                    activeDocumentURL: activeDocumentURL,
+                    gitStatus: gitStatus,
+                    projectRootURL: root.url,
+                    directoryMarks: directoryMarks,
+                    actions: actions,
+                    selection: $selection,
+                    visibleRows: visibleRows,
+                    expandedDirectoryPaths: $expandedDirectoryPaths,
+                    contextMenuPath: $contextMenuPath
+                )
+                .id(row.id)
+            }
+        }
     }
 }
 
@@ -363,6 +537,8 @@ private struct FileNodeRow: View {
     let projectRootURL: URL
     let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
+    @Binding var selection: ProjectTreeSelection
+    let visibleRows: [ProjectTreeSelection.VisibleRow]
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
     @State private var resolvedJavaIconKind: LitheIconKind?
@@ -381,57 +557,77 @@ private struct FileNodeRow: View {
     }
 
     var body: some View {
-        if node.isDirectory {
-            VStack(
-                alignment: .leading,
-                spacing: LitheTheme.Metrics.projectTreeRowSpacing
-            ) {
-                directoryRow
-                if isExpanded {
-                    ForEach(node.children ?? []) { child in
-                        FileNodeRow(
-                            node: child,
-                            depth: depth + 1,
-                            availableWidth: availableWidth,
-                            rowHeight: rowHeight,
-                            activeDocumentURL: activeDocumentURL,
-                            gitStatus: gitStatus,
-                            projectRootURL: projectRootURL,
-                            directoryMarks: directoryMarks,
-                            actions: actions,
-                            expandedDirectoryPaths: $expandedDirectoryPaths,
-                            contextMenuPath: $contextMenuPath
-                        )
-                        .id(child.url.standardizedFileURL.path)
-                    }
-                }
-            }
+        if node.isDirectory { directoryRow } else { fileRow }
+    }
+
+    private func toggleExpanded() {
+        if isExpanded {
+            expandedDirectoryPaths.remove(node.url.path)
+            node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.remove($0) }
         } else {
-            fileRow
+            expandedDirectoryPaths.insert(node.url.path)
+            node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.insert($0) }
         }
+    }
+
+    private func activateRow() {
+        contextMenuPath = nil
+        selectRow()
+        if !node.isDirectory {
+            ProjectFileRowActivation.performPrimary(isExecutableBinary: isExecutableFile) {
+                actions.openFile(node.url)
+            }
+        }
+    }
+
+    private var rowInteraction: some View {
+        ProjectTreeRowInteraction(
+            workspaceURL: projectRootURL,
+            destinationURL: node.isDirectory ? node.url : nil,
+            disclosureInset: node.isDirectory
+                ? CGFloat(depth * 14 + 8 + 16) + LitheTheme.Metrics.projectTreeContentHorizontalInset : 0,
+            select: { flags in
+                contextMenuPath = nil
+                selectRow(flags: flags)
+            },
+            activate: { activateRow() },
+            doubleClick: {
+                ProjectFileRowActivation.performDoubleClick(
+                    isDirectory: node.isDirectory,
+                    isExecutableBinary: isExecutableFile,
+                    toggleDirectory: { toggleExpanded() }
+                ) {
+                    actions.runExecutable(node.url)
+                }
+            },
+            dragURLs: {
+                guard node.url != projectRootURL else { return [] }
+                contextMenuPath = nil
+                selection.selectForDragging(node.url.path)
+                return selection.draggedURLs(excluding: projectRootURL)
+            },
+            move: { urls, destination in actions.moveFiles(urls, to: destination) }
+        )
     }
 
     private var directoryRow: some View {
         Button {
-            contextMenuPath = nil
-            if isExpanded {
-                expandedDirectoryPaths.remove(node.url.path)
-                node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.remove($0) }
-            } else {
-                expandedDirectoryPaths.insert(node.url.path)
-                // 被压缩掉的中间包也要标记为展开，否则再次折叠时状态残留。
-                node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.insert($0) }
-            }
+            toggleExpanded()
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
-                    .frame(width: 10)
-                    .foregroundStyle(LitheTheme.secondaryText)
+                LitheIDEAIcon(
+                    resourcePath: isExpanded
+                        ? "expui/general/chevronDown.svg"
+                        : "expui/general/chevronRight.svg",
+                    size: 16,
+                    fallbackSystemImage: isExpanded ? "chevron.down" : "chevron.right",
+                    preservesOriginalColors: true
+                )
+                .frame(width: 10)
                 LitheIcon(kind: directoryIconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
-                    .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
+                    .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
                     .foregroundStyle(gitStatusColor ?? LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -444,34 +640,35 @@ private struct FileNodeRow: View {
             .frame(height: rowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
-                isActive: contextMenuPath == node.url.standardizedFileURL.path,
+                isActive: selection.covers(node.url.path) || contextMenuPath == node.url.standardizedFileURL.path,
                 cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
                 activeBackground: LitheTheme.subtleSelection,
                 animation: nil
             )
         }
-        .buttonStyle(LitheTreeRowButtonStyle())
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
+        .overlay { rowInteraction }
         .litheContextMenu(
-            items: { directoryContextMenuItems },
-            onRightClick: { contextMenuPath = node.url.standardizedFileURL.path }
+            items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + directoryContextMenuItems },
+            onRightClick: {
+                selection.selectForContextMenu(node.url.path)
+                contextMenuPath = node.url.standardizedFileURL.path
+            }
         )
     }
 
     private var fileRow: some View {
         Button {
-            contextMenuPath = nil
-            ProjectFileRowActivation.performPrimary(isExecutableBinary: isExecutableFile) {
-                actions.openFile(node.url)
-            }
+            activateRow()
         } label: {
             HStack(spacing: 6) {
                 Color.clear.frame(width: 10)
                 LitheIcon(kind: resolvedJavaIconKind ?? resolvedFileIconKind ?? node.iconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
-                    .font(.system(size: LitheTheme.Metrics.treeFontSize))
+                    .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize))
                     .foregroundStyle(gitStatusColor ?? LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -479,7 +676,7 @@ private struct FileNodeRow: View {
                 Spacer(minLength: 4)
                 if let status = gitStatus.change(for: node.url) {
                     Text(status.displayStatus)
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 9, weight: .bold, design: .monospaced))
                         .foregroundStyle(gitStatusColor ?? LitheTheme.secondaryText)
                         .accessibilityLabel(status.kind.title)
                 }
@@ -490,26 +687,23 @@ private struct FileNodeRow: View {
             .frame(height: rowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
-                isActive: activeDocumentURL?.standardizedFileURL.path
-                    == node.url.standardizedFileURL.path
+                isActive: selection.covers(node.url.path)
+                    || (selection.paths.isEmpty && activeDocumentURL?.standardizedFileURL.path == node.url.standardizedFileURL.path)
                     || contextMenuPath == node.url.standardizedFileURL.path,
                 cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
                 activeBackground: LitheTheme.subtleSelection,
                 animation: nil
             )
         }
-        .buttonStyle(LitheTreeRowButtonStyle())
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
+        .overlay { rowInteraction }
         .litheContextMenu(
-            items: { fileContextMenuItems },
-            onRightClick: { contextMenuPath = node.url.standardizedFileURL.path }
-        )
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded {
-                ProjectFileRowActivation.performDoubleClick(isExecutableBinary: isExecutableFile) {
-                    actions.runExecutable(node.url)
-                }
+            items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + fileContextMenuItems },
+            onRightClick: {
+                selection.selectForContextMenu(node.url.path)
+                contextMenuPath = node.url.standardizedFileURL.path
             }
         )
         .task(id: node.url.standardizedFileURL.path) {
@@ -522,8 +716,52 @@ private struct FileNodeRow: View {
         }
     }
 
+    /// Modified clicks update selection without opening files or folding directories.
+    /// Control-click stays the macOS secondary click and opens the context menu.
+    private func selectRow(flags: NSEvent.ModifierFlags = []) {
+        selection.select(
+            node.url.path,
+            visiblePaths: visibleRows.map { $0.node.url.path },
+            extending: flags.contains(.shift),
+            toggling: flags.contains(.command)
+        )
+    }
+
+    private var selectedItemURLs: [URL] {
+        selection.draggedURLs(excluding: projectRootURL)
+    }
+
+    private var batchMenuItems: [LitheContextMenuItem] {
+        let urls = selectedItemURLs
+        return clipboardMenuItems + [.separator] + projectSearchMenuItems + [
+            .separator,
+            .action("Duplicate", isEnabled: !urls.isEmpty) { actions.duplicateFiles(urls) },
+            .action("Move to Trash", systemImage: "trash", role: .destructive, isEnabled: !urls.isEmpty) {
+                actions.deleteFiles(urls)
+            }
+        ]
+    }
+
+    private var clipboardMenuItems: [LitheContextMenuItem] {
+        let urls = selectedItemURLs
+        let destination = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
+        return [
+            .action("Copy Files", systemImage: "doc.on.doc", shortcut: "⌘C", isEnabled: !urls.isEmpty) {
+                actions.copyFiles(urls)
+            },
+            .action("Paste", shortcut: "⌘V") { actions.pasteFiles(in: destination) }
+        ]
+    }
+
+    private var projectSearchMenuItems: [LitheContextMenuItem] {
+        [
+            .action("Find in Files…") { actions.findInFiles() },
+            .action("Replace in Files…") { actions.replaceInFiles() }
+        ]
+    }
+
     private var directoryContextMenuItems: [LitheContextMenuItem] {
-        var items: [LitheContextMenuItem] = []
+        var items = projectSearchMenuItems + [.separator]
 
         items += [
             .submenu("New", items: [
@@ -657,7 +895,7 @@ private struct FileNodeRow: View {
             .action("Open") {
                 actions.openFile(node.url)
             }
-        ]
+        ] + [.separator] + projectSearchMenuItems
 
         if let change = gitStatus.change(for: node.url) {
             items += [
@@ -665,6 +903,32 @@ private struct FileNodeRow: View {
                     actions.selectChange(change)
                 }
             ]
+        }
+
+        // Windows parity: a Git submenu with the remaining single-file actions.
+        // Show Diff stays as the standalone item above, so it is not repeated.
+        if let change = gitStatus.change(for: node.url) {
+            let plan = GitFileContextMenuPlan(change: change)
+            var gitItems: [LitheContextMenuItem] = []
+            if plan.showsAdd {
+                gitItems.append(
+                    .action("Add", systemImage: "plus") {
+                        actions.stageChange(change)
+                    }
+                )
+            }
+            if plan.showsStageAndOpenCommit {
+                gitItems.append(
+                    .action("Stage and Open Commit…", systemImage: "checkmark.circle") {
+                        actions.stageAndOpenCommit(change)
+                    }
+                )
+            }
+            if !gitItems.isEmpty {
+                items += [
+                    .submenu("Git", systemImage: "arrow.triangle.branch", items: gitItems)
+                ]
+            }
         }
 
         items += [
@@ -710,159 +974,27 @@ private struct FileNodeRow: View {
 
 }
 
-private struct ProjectItemNameDialogPresenter: NSViewRepresentable {
-    @EnvironmentObject private var model: AppModel
-
-    func makeCoordinator() -> ProjectItemNameDialogPanelCoordinator {
-        ProjectItemNameDialogPanelCoordinator(model: model)
-    }
-
-    func makeNSView(context: Context) -> NSView { NSView() }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        // Wait for the anchor to join its owning window, without nesting AppKit's event loop.
-        DispatchQueue.main.async { [weak view, weak coordinator = context.coordinator] in
-            guard let view else { return }
-            coordinator?.update(parent: view.window)
-        }
-    }
-
-    static func dismantleNSView(_ view: NSView, coordinator: ProjectItemNameDialogPanelCoordinator) {
-        coordinator.close()
-    }
-}
-
-private final class ProjectItemNameDialogPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-}
-
-@MainActor
-private final class ProjectItemNameDialogPanelCoordinator: NSObject, NSWindowDelegate {
-    private let model: AppModel
-    private var panel: NSPanel?
-    private var requestID: UUID?
-    private var parentObservers: [NSObjectProtocol] = []
-
-    init(model: AppModel) {
-        self.model = model
-    }
-
-    func update(parent: NSWindow?) {
-        guard let request = model.projectItemEditRequest, request.kind != .rename,
-              let parent else {
-            close()
-            return
-        }
-        guard requestID != request.id else { return }
-        close()
-        requestID = request.id
-        let panel = ProjectItemNameDialogPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 78),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        self.panel = panel
-        panel.isReleasedWhenClosed = false
-        panel.level = .modalPanel
-        panel.appearance = model.settings.themePreference.windowAppearance
-        panel.animationBehavior = .none
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
-        panel.delegate = self
-        panel.contentViewController = NSHostingController(
-            rootView: ProjectItemNameDialogContent(request: request, coordinator: self)
-        )
-        parent.addChildWindow(panel, ordered: .above)
-        center()
-        for notification in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
-            parentObservers.append(NotificationCenter.default.addObserver(
-                forName: notification, object: parent, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.center() }
-            })
-        }
-        parentObservers.append(NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification, object: parent, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.cancel() }
-        })
-        panel.makeKeyAndOrderFront(nil)
-        center()
-    }
-
-    private func center() {
-        guard let panel, let parent = panel.parent else { return }
-        panel.setFrameOrigin(NSPoint(
-            x: parent.frame.midX - panel.frame.width / 2,
-            y: parent.frame.midY - panel.frame.height / 2
-        ))
-    }
-
-    func close() {
-        parentObservers.forEach(NotificationCenter.default.removeObserver)
-        parentObservers.removeAll()
-        let previousPanel = panel
-        panel = nil
-        requestID = nil
-        previousPanel?.delegate = nil
-        if let previousPanel {
-            previousPanel.parent?.removeChildWindow(previousPanel)
-            previousPanel.close()
-        }
-    }
-
-    func windowDidResignKey(_ notification: Notification) {
-        cancel()
-    }
-
-    func windowDidResize(_ notification: Notification) {
-        // Hosting content can settle its size after the first placement.
-        // Keep the final panel frame centered on the whole owning window.
-        center()
-    }
-
-    func submit(_ name: String) {
-        guard let requestID, model.projectItemEditRequest?.id == requestID,
-              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        Task { @MainActor in
-            guard model.projectItemEditRequest?.id == requestID else { return }
-            await model.performProjectItemEdit(named: name)
-            update(parent: panel?.parent)
-        }
-    }
-
-    func cancel() {
-        if model.projectItemEditRequest?.id == requestID {
-            model.cancelProjectItemEdit()
-        }
-        close()
-    }
-}
-
-private struct ProjectItemNameDialogContent: View {
+struct ProjectItemNameDialogContent: View {
     let request: ProjectItemEditRequest
-    let coordinator: ProjectItemNameDialogPanelCoordinator
+    let onSubmit: (String) -> Void
+    let onCancel: () -> Void
     @State private var name = ""
     @FocusState private var nameFocused: Bool
 
     var body: some View {
         VStack(spacing: 8) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
 
             TextField("Name", text: $name)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .padding(.horizontal, 8)
-                .frame(height: 30)
-                .foregroundStyle(LitheTheme.primaryText)
+                .lithePopupNameField()
                 .focused($nameFocused)
-                .onSubmit { coordinator.submit(name) }
+                .onSubmit {
+                    guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    onSubmit(name)
+                }
         }
-        .padding(.horizontal, 12)
         .padding(.vertical, 11)
         .frame(width: 340, height: 78)
         .litheContextMenuSurface()
@@ -870,7 +1002,7 @@ private struct ProjectItemNameDialogContent: View {
             await Task.yield()
             nameFocused = true
         }
-        .onExitCommand { coordinator.cancel() }
+        .onExitCommand(perform: onCancel)
     }
 
     private var title: String {
@@ -906,15 +1038,15 @@ private struct ProjectItemNameDialog: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(LocalizedStringKey(title))
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text(LocalizedStringKey(message))
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
             TextField(LocalizedStringKey(placeholder), text: $name)
-                .textFieldStyle(.roundedBorder)
+                .litheSettingsTextField()
                 .focused($nameFieldFocused)
                 .onSubmit(submit)
 

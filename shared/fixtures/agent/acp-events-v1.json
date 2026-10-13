@@ -1,0 +1,251 @@
+{
+  "version": 1,
+  "commands": {
+    "authenticate": { "kind": "authenticate" },
+    "refreshQuota": { "kind": "refreshQuota" },
+    "newSession": { "kind": "newSession", "token": "token-1" },
+    "loadSession": { "kind": "loadSession", "token": "token-2", "sessionId": "session-1" },
+    "listSessions": { "kind": "listSessions", "token": "token-3" },
+    "prompt": { "kind": "prompt", "sessionId": "session-1", "text": "Explain this project" },
+    "promptWithFiles": { "kind": "prompt", "sessionId": "session-1", "text": "Explain these files", "files": [{ "uri": "file:///example/project/Hello%20World.swift", "name": "Hello World.swift" }, { "uri": "file:///example/project/README.md", "name": "README.md" }] },
+    "fileOnlyPrompt": { "kind": "prompt", "sessionId": "session-1", "text": "", "files": [{ "uri": "file:///example/project/README.md", "name": "README.md" }] },
+    "cancel": { "kind": "cancel", "sessionId": "session-1" },
+    "setConfigOption": { "kind": "setConfigOption", "token": "config-1", "sessionId": "session-1", "configId": "model", "value": "example-model" },
+    "allowPermission": { "kind": "permission", "requestId": "permission-1", "optionId": "allow_once" },
+    "denyPermission": { "kind": "permission", "requestId": "permission-1", "optionId": null }
+  },
+  "events": {
+    "authenticationRequired": {"kind": "authenticationRequired"},
+    "authenticating": {"kind": "authenticating"},
+    "account": {"kind": "account", "account": {"email": "person@example.test", "plan": "plus"}},
+    "quota": {"kind": "quota", "snapshot": {"windows": [{"id": "codex:primary", "name": "codex", "limitSeconds": 18000, "usedPercent": 68, "resetsAt": 1800003600}], "fetchedAt": 1800000000}},
+    "quotaFailed": {"kind": "quotaFailed", "code": "timeout"},
+    "ready": {
+      "kind": "ready",
+      "agentName": "example-agent",
+      "agentVersion": "1.0.0",
+      "canLoadSessions": true,
+      "canListSessions": true
+    },
+    "sessionCreated": { "kind": "sessionCreated", "token": "token-1", "sessionId": "session-1" },
+    "sessionLoaded": { "kind": "sessionLoaded", "token": "token-2", "sessionId": "session-1" },
+    "sessionConfigured": {
+      "kind": "sessionConfigured", "token": "config-1", "sessionId": "session-1",
+      "configOptions": [
+        { "id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "example-model", "options": [{ "value": "example-model", "name": "Example Model" }] },
+        { "id": "mode", "name": "Permissions", "category": "mode", "type": "select", "currentValue": "read-only", "options": [{ "value": "read-only", "name": "Read Only" }, { "value": "auto", "name": "Auto" }] },
+        { "id": "reasoning_effort", "name": "Reasoning", "category": "thought_level", "type": "select", "currentValue": "medium", "options": [{ "value": "medium", "name": "Medium" }, { "value": "high", "name": "High" }] }
+      ]
+    },
+    "turnCancelling": { "kind": "turnCancelling", "sessionId": "session-1" },
+    "turnActivityQuiet": { "kind": "turnActivity", "sessionId": "session-1", "quiet": true },
+    "turnActivityResumed": { "kind": "turnActivity", "sessionId": "session-1", "quiet": false },
+    "turnRetrying": { "kind": "turnRetrying", "sessionId": "session-1", "turnId": "host-turn-1", "attempt": 2, "maxAttempts": 5 },
+    "turnRecovering": { "kind": "turnRetrying", "sessionId": "session-1", "turnId": "native-turn-1", "attempt": 6 },
+    "claudeSessionFailure": {
+      "kind": "update", "sessionId": "session-1",
+      "update": { "sessionUpdate": "session_info_update", "_meta": { "jetbrains": { "air": { "version": 1, "sessionFailure": { "id": "upstream-turn-1:error", "revision": 1, "category": "access", "severity": "error", "title": "Sign in to continue using Claude.", "details": "API Error: 401 Invalid API key", "actions": ["login"] } } } } }
+    },
+    "sessions": {
+      "kind": "sessions",
+      "token": "token-3",
+      "sessions": [
+        { "sessionId": "session-1", "title": "Explain this project", "updatedAt": "2026-09-25T10:00:00Z" },
+        { "sessionId": "session-2", "title": null, "updatedAt": null }
+      ]
+    },
+    "userMessageChunk": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "user_message_chunk", "content": { "type": "text", "text": "Explain this project" } }
+    },
+    "agentMessageChunk": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "This project **builds** an IDE." } }
+    },
+    "agentThoughtChunk": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "agent_thought_chunk", "content": { "type": "text", "text": "Read the manifest first." } }
+    },
+    "plan": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "plan", "entries": [{ "content": "Read the manifest", "priority": "high", "status": "completed" }, { "content": "Run the tests", "priority": "medium", "status": "in_progress" }, { "content": "Summarize the results", "priority": "low", "status": "pending" }] }
+    },
+    "availableCommands": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "available_commands_update", "availableCommands": [{ "name": "review", "description": "Review the current changes", "input": { "hint": "optional focus" } }, { "name": "compact", "description": "Summarize the conversation to free context" }] }
+    },
+    "currentModeUpdate": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "current_mode_update", "currentModeId": "auto" }
+    },
+    "toolCall": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Run tests", "kind": "execute", "rawInput": { "command": "node --test" }, "locations": [{ "path": "src/main.js", "line": 1 }] }
+    },
+    "toolCallUpdate": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed", "content": [{ "type": "content", "content": { "type": "text", "text": "1 test passed" } }], "rawOutput": { "exitCode": 0 } }
+    },
+    "fileEdit": {
+      "kind": "update", "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call", "toolCallId": "edit-1", "title": "Edit sample.txt", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "sample.txt", "oldText": "before\n", "newText": "after\n", "_meta": { "kind": "update", "jetbrains": { "air": { "version": 1, "diffStats": { "version": 1, "added": 1, "removed": 1 } } } } }] }
+    },
+    "claudeFileCreated": {
+      "kind": "update", "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "write-create", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "created.txt", "newText": "created" }], "_meta": { "claudeCode": { "toolName": "Write", "toolResponse": { "type": "create", "filePath": "created.txt", "content": "created\n", "originalFile": null, "structuredPatch": [] } } } }
+    },
+    "claudeFileWriteUpdated": {
+      "kind": "update", "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "write-update", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "updated.txt", "oldText": "before", "newText": "after" }], "_meta": { "claudeCode": { "toolName": "Write", "toolResponse": { "type": "update", "filePath": "updated.txt", "content": "after\n", "originalFile": "before\n", "structuredPatch": [] } } } }
+    },
+    "codexRetry": {
+      "kind": "update", "sessionId": "session-1",
+      "update": { "sessionUpdate": "session_info_update", "_meta": { "codex": { "error": { "message": "Stream closed before completion; reconnecting.", "codexErrorInfo": null, "additionalDetails": null, "turnId": "upstream-turn-1", "willRetry": true } } } }
+    },
+    "codexNativeRetry": {
+      "kind": "update", "sessionId": "session-1",
+      "update": {"sessionUpdate": "session_info_update", "_meta": {"jetbrains": {"air": {"version": 1, "sessionFailure": {"id": "upstream-turn-1:error", "revision": 1, "category": "connection", "severity": "warning", "title": "{\"litheCodexFailure\":{\"message\":\"Local Codex fixture failure\",\"codexErrorInfo\":{\"responseStreamDisconnected\":{\"httpStatusCode\":503}},\"turnId\":\"upstream-turn-1\",\"willRetry\":true,\"activeTurn\":true,\"sequence\":1}}", "actions": []}}}}}
+    },
+    "sessionInfo": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "session_info_update", "title": "Project overview" }
+    },
+    "usageUpdate": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "usage_update", "used": 18700, "size": 258400 }
+    },
+    "permission": {
+      "kind": "permission",
+      "sessionId": "session-1",
+      "requestId": "permission-1",
+      "request": {
+        "sessionId": "session-1",
+        "toolCall": { "toolCallId": "call-1", "title": "Run tests", "rawInput": { "command": "node --test" } },
+        "options": [
+          { "optionId": "allow_once", "name": "Allow Once", "kind": "allow_once" },
+          { "optionId": "reject_once", "name": "Reject", "kind": "reject_once" }
+        ]
+      }
+    },
+    "turnFinished": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn" },
+    "turnFinishedWithUsage": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn", "usage": { "totalTokens": 25000, "inputTokens": 18000, "outputTokens": 2000, "thoughtTokens": 1000, "cachedReadTokens": 3000, "cachedWriteTokens": 1000 } },
+    "turnCancelled": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "cancelled" },
+    "requestFailed": {
+      "kind": "requestFailed",
+      "token": null,
+      "sessionId": "session-1",
+      "message": "The Agent is still responding in this conversation"
+    },
+    "stopped": { "kind": "stopped", "message": "The Agent connection closed unexpectedly" }
+  },
+  "upstream": {
+    "codexFailureResponse": {
+      "stopReason": "end_turn", "_meta": {"jetbrains": {"air": {"version": 1, "sessionFailure": {"id": "upstream-turn-1:error", "revision": 5, "category": "connection", "severity": "error", "title": "{\"litheCodexFailure\":{\"message\":\"Local Codex fixture failure\",\"codexErrorInfo\":{\"httpConnectionFailed\":{\"httpStatusCode\":503}},\"turnId\":\"upstream-turn-1\",\"willRetry\":false,\"activeTurn\":true,\"sequence\":5}}", "actions": ["retry", "new_session"]}}}}
+    },
+    "claudeTemporaryFailureResponse": {
+      "stopReason": "end_turn", "_meta": { "jetbrains": { "air": { "version": 1, "sessionFailure": { "id": "upstream-turn-1:error", "revision": 1, "category": "service", "severity": "error", "title": "API Error: 503 No available channel", "actions": ["retry"] } } } }
+    },
+    "claudeSessionRouting": {
+      "provider": {"protocol": "anthropicMessages", "baseUrl": "https://gateway.example.com/v1/messages", "apiKey": "test-key-123", "name": "Example Claude", "model": "model-configured"},
+      "meta": {
+        "claudeCode": {
+          "options": {
+            "model": "model-configured",
+            "env": {"ANTHROPIC_BASE_URL": "https://gateway.example.com", "ANTHROPIC_API_KEY": "test-key-123", "ANTHROPIC_AUTH_TOKEN": "", "ANTHROPIC_CUSTOM_HEADERS": "", "CLAUDE_CODE_OAUTH_TOKEN": "", "CLAUDE_CODE_MAX_RETRIES": "0", "CLAUDE_CODE_RETRY_WATCHDOG": "0", "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1", "CLAUDE_CODE_USE_BEDROCK": "0", "CLAUDE_CODE_USE_VERTEX": "0", "CLAUDE_CODE_USE_FOUNDRY": "0", "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0", "ANTHROPIC_BEDROCK_BASE_URL": "", "ANTHROPIC_VERTEX_BASE_URL": ""},
+            "settings": {
+              "apiKeyHelper": "",
+              "env": {"ANTHROPIC_BASE_URL": "https://gateway.example.com", "ANTHROPIC_API_KEY": "test-key-123", "ANTHROPIC_AUTH_TOKEN": "", "ANTHROPIC_CUSTOM_HEADERS": "", "CLAUDE_CODE_OAUTH_TOKEN": "", "CLAUDE_CODE_MAX_RETRIES": "0", "CLAUDE_CODE_RETRY_WATCHDOG": "0", "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1", "CLAUDE_CODE_USE_BEDROCK": "0", "CLAUDE_CODE_USE_VERTEX": "0", "CLAUDE_CODE_USE_FOUNDRY": "0", "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0", "ANTHROPIC_BEDROCK_BASE_URL": "", "ANTHROPIC_VERTEX_BASE_URL": ""}
+            }
+          }
+        }
+      }
+    },
+    "promptResponseWithUsage": { "stopReason": "end_turn", "usage": { "totalTokens": 25000, "inputTokens": 18000, "outputTokens": 2000, "thoughtTokens": 1000, "cachedReadTokens": 3000, "cachedWriteTokens": 1000 } },
+    "staleModelSession": {
+      "sessionId": "session-repaired",
+      "models": {
+        "currentModelId": "model-retired[max]",
+        "availableModels": [
+          {
+            "modelId": "model-current[max]",
+            "name": "Current Max"
+          },
+          {
+            "modelId": "model-other[medium]",
+            "name": "Other Medium"
+          }
+        ]
+      },
+      "configOptions": [
+        {
+          "id": "model",
+          "name": "Model",
+          "category": "model",
+          "type": "select",
+          "currentValue": "model-retired",
+          "options": [
+            {
+              "value": "model-retired",
+              "name": "model-retired"
+            },
+            {
+              "value": "model-current",
+              "name": "model-current"
+            },
+            {
+              "value": "model-other",
+              "name": "model-other"
+            }
+          ],
+          "_meta": {
+            "jetbrains": {
+              "air": {
+                "version": 1,
+                "recommendedValue": "model-current"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "repairedModelConfiguration": {
+      "configOptions": [
+        {
+          "id": "model",
+          "name": "Model",
+          "category": "model",
+          "type": "select",
+          "currentValue": "model-current",
+          "options": [
+            {
+              "value": "model-current",
+              "name": "model-current"
+            },
+            {
+              "value": "model-other",
+              "name": "model-other"
+            }
+          ],
+          "_meta": {
+            "jetbrains": {
+              "air": {
+                "version": 1,
+                "recommendedValue": "model-current"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

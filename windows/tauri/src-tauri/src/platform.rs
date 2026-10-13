@@ -9,10 +9,17 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 pub async fn platform_invoke(
     webview: tauri::Webview,
     command: String,
-    args: Value,
+    mut args: Value,
     git_events: Option<tauri::ipc::JavaScriptChannelId>,
     git_execution: Option<Value>,
 ) -> Result<Value, String> {
+    let ide_owner = if command == "ideHost.control" && args["action"] == "open" {
+        let owner = webview.window().label().to_owned();
+        args["arguments"]["ownerID"] = json!(owner);
+        Some((webview.app_handle().clone(), owner))
+    } else {
+        None
+    };
     if command.starts_with("ai_commit_") {
         return crate::ai_commit::dispatch(webview.app_handle().clone(), &command, args).await;
     }
@@ -30,21 +37,7 @@ pub async fn platform_invoke(
         .map(ToString::to_string)
         .unwrap_or_else(|| format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)));
     let (core_command, payload) = translate(&command, args)?;
-    let interactive_git = matches!(
-        core_command.as_str(),
-        "git.write"
-            | "git.commit"
-            | "git.apply"
-            | "git.patchApply"
-            | "git.rebaseStart"
-            | "git.rebaseControl"
-            | "git.executionConfigure"
-            | "git.initialize"
-            | "git.configureIdentity"
-    ) || matches!(
-        command.as_str(),
-        "git_add_remote" | "git_remove_remote" | "git_create_tag" | "git_delete_tag" | "git.command"
-    );
+    let interactive_git = is_interactive_git(&core_command, &command);
     // Observe every Git request at the shared boundary. Core suppresses its
     // parser-only probes, so new operation entry points cannot miss the console.
     let observe_git = observes_git_execution(&core_command);
@@ -86,18 +79,72 @@ pub async fn platform_invoke(
                 );
             }
         }
-        lithe_core::execute_json(&request)
+        let response = lithe_core::execute_json(&request);
+        if let Some((app, owner)) = ide_owner {
+            // Destruction can run before a blocking open registers its host. Clean
+            // up here as well, even if the WebView's awaiting IPC future is gone.
+            if app.get_webview_window(&owner).is_none() {
+                crate::core::close_ide_hosts(&owner);
+                return json!({"ok":false,"error":{"message":"The authorized project window was closed"}}).to_string();
+            }
+        }
+        response
     })
     .await
     .map_err(|error| format!("Shared core task failed: {error}"))?;
     let envelope: Value = serde_json::from_str(&response)
         .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
 
-    core_response(&envelope, preserve_history_rewrite, preserve_stash_restore)
+    platform_response(
+        &command,
+        &envelope,
+        preserve_history_rewrite,
+        preserve_stash_restore,
+    )
+}
+
+/// IDE operation output may describe a failed process while the inspection itself
+/// succeeded. Preserve its exit code and output instead of applying Git's legacy
+/// conversion of nonzero exit codes into rejected IPC calls.
+fn platform_response(
+    command: &str,
+    envelope: &Value,
+    preserve_history_rewrite: bool,
+    preserve_stash_restore: bool,
+) -> Result<Value, String> {
+    if command == "ideHost.control" && envelope.get("ok").and_then(Value::as_bool) == Some(true) {
+        return Ok(envelope.get("data").cloned().unwrap_or(Value::Null));
+    }
+    core_response(envelope, preserve_history_rewrite, preserve_stash_restore)
+}
+
+fn is_interactive_git(core_command: &str, command: &str) -> bool {
+    matches!(
+        core_command,
+        "git.write"
+            | "git.workspaceCommitStep"
+            | "git.commit"
+            | "git.apply"
+            | "git.patchApply"
+            | "git.rebaseStart"
+            | "git.rebaseControl"
+            | "git.executionConfigure"
+            | "git.initialize"
+            | "git.configureIdentity"
+    ) || matches!(
+        command,
+        "git_add_remote"
+            | "git_remove_remote"
+            | "git_create_tag"
+            | "git_delete_tag"
+            | "git.command"
+    )
 }
 
 fn observes_git_execution(command: &str) -> bool {
-    command.starts_with("git.") && command != "git.authRespond" && command != "git.consolePresentation"
+    command.starts_with("git.")
+        && command != "git.authRespond"
+        && command != "git.consolePresentation"
 }
 
 fn core_response(
@@ -417,8 +464,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         }
         "git_discover_repo" => {
             move_field(&mut payload, "path", "root");
-            payload.insert("arguments".into(), json!(["rev-parse", "--show-toplevel"]));
-            "git.command"
+            "git.repositoryRoot"
         }
         "git_discover_workspace_repos" => {
             move_field(&mut payload, "workspacePath", "root");
@@ -464,6 +510,23 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         "git_create_tag" => {
             let name = take_text(&mut payload, "name")?;
             let mut arguments = vec!["tag".to_string()];
+            let lightweight = payload
+                .remove("lightweight")
+                .and_then(|value| value.as_bool())
+                == Some(true);
+            if lightweight {
+                // This explicit mode must override tag.gpgSign without changing
+                // the default signing policy of existing tag-manager callers.
+                if payload.get("signed").and_then(Value::as_bool) == Some(true)
+                    || payload
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .is_some_and(|message| !message.trim().is_empty())
+                {
+                    return Err("Lightweight tags cannot include a message or signature".into());
+                }
+                arguments.push("--no-sign".into());
+            }
             if payload.remove("signed").and_then(|value| value.as_bool()) == Some(true) {
                 arguments.push("-s".into());
             }
@@ -581,17 +644,19 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             payload.insert("arguments".into(), json!(["reset", "HEAD"]));
             "git.command"
         }
-        "git_stage_hunk" | "git_unstage_hunk" => {
+        "git_stage_hunk" | "git_unstage_hunk" | "git_discard_hunk" => {
             let hunk = payload
                 .remove("hunk")
                 .ok_or_else(|| "Hunk payload is required".to_string())?;
             payload.insert("patch".into(), json!(hunk_patch(&hunk)?));
             payload.insert(
                 "mode".into(),
-                json!(if command == "git_stage_hunk" {
-                    "stage"
-                } else {
-                    "unstage"
+                // `discard` reverse-applies the worktree hunk without touching
+                // the index, so staged content for the file survives.
+                json!(match command {
+                    "git_stage_hunk" => "stage",
+                    "git_unstage_hunk" => "unstage",
+                    _ => "discard",
                 }),
             );
             "git.apply"
@@ -747,6 +812,8 @@ mod tests {
             "git.executionConfigure",
             "git.snapshot",
             "git.futureOperation",
+            "git.workspaceCommitPrepare",
+            "git.workspaceCommitStep",
         ] {
             assert!(super::observes_git_execution(command), "{command}");
         }
@@ -755,11 +822,64 @@ mod tests {
         assert!(!super::observes_git_execution("workspace.scan"));
     }
 
+    #[test]
+    fn workspace_commit_steps_use_interactive_authentication_and_write_timeout() {
+        assert!(super::is_interactive_git(
+            "git.workspaceCommitStep",
+            "git.workspaceCommitStep"
+        ));
+        assert!(!super::is_interactive_git(
+            "git.workspaceCommitPrepare",
+            "git.workspaceCommitPrepare"
+        ));
+    }
+
+    #[test]
+    fn workspace_commit_continuations_and_partial_outcomes_cross_the_native_boundary_unchanged() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/git/workspace-commit-workflow-v1.json"
+        ))
+        .unwrap();
+        let mut session = fixture["preparation"]["session"].clone();
+        session["commandFailed"] = serde_json::json!(true);
+        let (command, payload) = super::translate(
+            "git.workspaceCommitStep",
+            serde_json::json!({
+                "operationId": "step", "session": session
+            }),
+        )
+        .unwrap();
+        assert_eq!(command, "git.workspaceCommitStep");
+        assert_eq!(payload, serde_json::json!({ "session": session }));
+        assert_eq!(
+            super::core_response(
+                &serde_json::json!({ "ok": true, "data": session }),
+                false,
+                false
+            )
+            .unwrap(),
+            session
+        );
+    }
+
     use super::{
         command_data_error, core_response, is_reviewed_history_rewrite, local_branch_reference,
         translate,
     };
     use serde_json::json;
+
+    #[test]
+    fn ide_output_preserves_failed_process_details_without_weakening_git_errors() {
+        let data = json!({"operationID":"run:fixture","exitCode":1,"output":"Compilation failed"});
+        let envelope = json!({"ok":true,"data":data});
+        assert_eq!(
+            super::platform_response("ideHost.control", &envelope, false, false).unwrap(),
+            data
+        );
+        assert!(super::platform_response("git.command", &envelope, false, false).is_err());
+        let failure = json!({"ok":false,"error":{"message":"IDE broker unavailable"}});
+        assert!(super::platform_response("ideHost.control", &failure, false, false).is_err());
+    }
 
     #[test]
     fn core_failure_preserves_repository_access_diagnostics() {
@@ -854,6 +974,15 @@ mod tests {
 
         assert_eq!(command, "workspace.repositories");
         assert_eq!(payload, json!({ "root": "C:/work" }));
+    }
+
+    #[test]
+    fn translates_git_repository_root_discovery_to_read_only_core_command() {
+        let (command, payload) =
+            translate("git_discover_repo", json!({ "path": "C:/work/src" })).unwrap();
+
+        assert_eq!(command, "git.repositoryRoot");
+        assert_eq!(payload, json!({ "root": "C:/work/src" }));
     }
 
     #[test]
@@ -1219,6 +1348,33 @@ mod tests {
     }
 
     #[test]
+    fn preserves_full_file_context_for_single_file_review() {
+        // #557: the review reveals folded lines locally, so Core must receive
+        // the whole-file context request unchanged.
+        let (command, payload) = translate(
+            "git_diff_file",
+            json!({
+                "repoPath": "C:/work",
+                "filePath": "src/main.rs",
+                "worktreeSnapshot": true,
+                "contextLines": 1_073_741_823u32
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "pathspecs": ["src/main.rs"],
+                "worktreeSnapshot": true,
+                "contextLines": 1_073_741_823u32
+            })
+        );
+    }
+
+    #[test]
     fn translates_untracked_diff_file_pathspec() {
         let (command, payload) = translate(
             "git_diff_file",
@@ -1462,5 +1618,151 @@ mod tests {
             payload["patch"],
             "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+new\n"
         );
+    }
+
+    #[test]
+    fn translates_hunk_discard_to_reverse_worktree_apply() {
+        let hunk = json!({
+            "file_path": "src/main.rs",
+            "lines": [
+                { "line_type": "header", "content": "@@ -1,2 +1,2 @@" },
+                { "line_type": "context", "content": "keep" },
+                { "line_type": "removed", "content": "old" },
+                { "line_type": "added", "content": "new" }
+            ]
+        });
+        let (command, payload) = translate(
+            "git_discard_hunk",
+            json!({ "repoPath": "C:/work", "hunk": hunk.clone() }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.apply");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "mode": "discard",
+                "patch": "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n"
+            })
+        );
+
+        // Stage and unstage keep their modes when the discard arm is shared.
+        for (name, mode) in [("git_stage_hunk", "stage"), ("git_unstage_hunk", "unstage")] {
+            let (_, payload) =
+                translate(name, json!({ "repoPath": "C:/work", "hunk": hunk.clone() })).unwrap();
+            assert_eq!(payload["mode"], mode);
+        }
+        assert!(translate("git_discard_hunk", json!({ "repoPath": "C:/work" })).is_err());
+    }
+
+    // All fixture commands use Core's bounded process runner. Drop removes the
+    // owned directory even when a signing-policy assertion fails.
+    struct TagFixture(std::path::PathBuf);
+    impl TagFixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "lithe-tag-policy-{}-{}",
+                std::process::id(),
+                super::REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            let fixture = Self(root);
+            fixture.call("git.initialize", serde_json::json!({}));
+            fixture.git(&[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "--allow-empty",
+                "--no-gpg-sign",
+                "-m",
+                "initial",
+            ]);
+            fixture
+        }
+        fn call(&self, command: &str, mut payload: serde_json::Value) -> serde_json::Value {
+            payload["root"] = serde_json::json!(self.0);
+            let response: serde_json::Value = serde_json::from_str(&lithe_core::execute_json(&serde_json::json!({
+                "id": "tag-policy", "command": command, "timeoutMilliseconds": 5000, "payload": payload
+            }).to_string())).unwrap();
+            assert_eq!(response["ok"], true, "{response}");
+            response["data"].clone()
+        }
+        fn git(&self, args: &[&str]) -> String {
+            let result = self.call("git.command", serde_json::json!({"arguments": args}));
+            assert_eq!(result["exitCode"], 0, "{result}");
+            result["stdout"].as_str().unwrap().trim().to_owned()
+        }
+    }
+    impl Drop for TagFixture {
+        fn drop(&mut self) {
+            if let Err(error) = std::fs::remove_dir_all(&self.0) {
+                eprintln!("Could not remove tag-policy fixture: {error}");
+            }
+        }
+    }
+
+    #[test]
+    fn lightweight_tag_overrides_default_signing_without_running_signer_or_editor() {
+        let fixture = TagFixture::new();
+        fixture.git(&["config", "tag.gpgSign", "true"]);
+        fixture.git(&["config", "gpg.program", "lithe-signer-must-not-run"]);
+        fixture.git(&["config", "core.editor", "lithe-editor-must-not-run"]);
+        let head = fixture.git(&["rev-parse", "HEAD"]);
+        let (command, payload) = super::translate(
+            "git_create_tag",
+            serde_json::json!({
+                "repoPath": fixture.0, "name": "review/lightweight", "commit": head,
+                "signed": false, "lightweight": true
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            payload["arguments"],
+            serde_json::json!(["tag", "--no-sign", "--", "review/lightweight", head])
+        );
+        let result = fixture.call(&command, payload);
+        assert_eq!(result["exitCode"], 0, "{result}");
+        assert_eq!(
+            fixture.git(&["cat-file", "-t", "refs/tags/review/lightweight"]),
+            "commit"
+        );
+        assert_eq!(
+            fixture.git(&["rev-parse", "refs/tags/review/lightweight"]),
+            head
+        );
+        assert_eq!(fixture.git(&["config", "tag.gpgSign"]), "true");
+    }
+
+    #[test]
+    fn explicit_lightweight_mode_does_not_change_existing_tag_manager_policy() {
+        for signed in [false, true] {
+            let (_, payload) = super::translate(
+                "git_create_tag",
+                serde_json::json!({
+                    "repoPath": "C:/fixture", "name": "review/tag", "signed": signed
+                }),
+            )
+            .unwrap();
+            let expected = if signed {
+                serde_json::json!(["tag", "-s", "--", "review/tag"])
+            } else {
+                serde_json::json!(["tag", "--", "review/tag"])
+            };
+            assert_eq!(payload["arguments"], expected);
+        }
+        for extra in [
+            serde_json::json!({"signed": true}),
+            serde_json::json!({"message": "annotation"}),
+        ] {
+            let mut payload = serde_json::json!({"repoPath": "C:/fixture", "name": "review/tag", "lightweight": true});
+            payload
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            assert!(super::translate("git_create_tag", payload).is_err());
+        }
     }
 }

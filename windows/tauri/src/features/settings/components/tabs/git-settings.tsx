@@ -22,10 +22,10 @@ export const GitSettings = () => {
       confirmBeforeDiscard: state.settings.confirmBeforeDiscard,
       coreFeatures: state.settings.coreFeatures,
       enableInlineGitBlame: state.settings.enableInlineGitBlame,
+      enableGitGutter: state.settings.enableGitGutter,
       gitChangesFolderView: state.settings.gitChangesFolderView,
       gitDefaultDiffView: state.settings.gitDefaultDiffView,
       openDiffOnClick: state.settings.openDiffOnClick,
-      rememberLastGitPanelMode: state.settings.rememberLastGitPanelMode,
       showStagedFirst: state.settings.showStagedFirst,
       showUntrackedFiles: state.settings.showUntrackedFiles,
     })),
@@ -196,23 +196,6 @@ export const GitSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label={t("settings.git.rememberPanel")}
-          description={t("settings.git.rememberPanelDescription")}
-          onReset={() =>
-            updateSetting("rememberLastGitPanelMode", getDefaultSetting("rememberLastGitPanelMode"))
-          }
-          canReset={
-            settings.rememberLastGitPanelMode !== getDefaultSetting("rememberLastGitPanelMode")
-          }
-        >
-          <Switch
-            checked={settings.rememberLastGitPanelMode}
-            onChange={(checked) => updateSetting("rememberLastGitPanelMode", checked)}
-            size="sm"
-          />
-        </SettingRow>
-
-        <SettingRow
           label={t("settings.git.defaultDiff")}
           description={t("settings.git.defaultDiffDescription")}
           onReset={() =>
@@ -248,6 +231,18 @@ export const GitSettings = () => {
           <Switch
             checked={settings.enableInlineGitBlame}
             onChange={(checked) => updateSetting("enableInlineGitBlame", checked)}
+            size="sm"
+          />
+        </SettingRow>
+        <SettingRow
+          label={t("settings.git.gutter")}
+          description={t("settings.git.gutterDescription")}
+          onReset={() => updateSetting("enableGitGutter", getDefaultSetting("enableGitGutter"))}
+          canReset={settings.enableGitGutter !== getDefaultSetting("enableGitGutter")}
+        >
+          <Switch
+            checked={settings.enableGitGutter}
+            onChange={(checked) => updateSetting("enableGitGutter", checked)}
             size="sm"
           />
         </SettingRow>

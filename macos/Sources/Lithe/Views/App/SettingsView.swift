@@ -10,27 +10,56 @@ final class SettingsViewState: ObservableObject {
     @Published var hiddenDirectoriesDraft = ""
     @Published var hiddenFilePatternsDraft = ""
     @Published var aiAPIKeyDraft = ""
+    /// Provider shown in Settings › AI Providers; independent of the one
+    /// commit messages use.
+    @Published var editingProviderID: UUID?
     @Published var isFormatPickerPresented = false
     @Published var detectedTerminalShells: [String] = []
     @Published var knownTerminalShells: [String] = []
+    /// Monospaced families offered by Settings › Editor › Font. Discovered once
+    /// per settings window because enumerating and measuring system fonts is
+    /// expensive; the catalog itself caches the result for the process.
+    @Published var editorFontFamilies: [String] = []
+    @Published var pendingPluginEnabledStates: [PluginID: Bool] = [:]
+    @Published private(set) var isApplyingPluginChanges = false
 
     init(initialCategory: SettingsCategory) {
         selection = initialCategory
     }
+
+    func applyPluginChanges(
+        _ apply: ([PluginID: Bool]) async -> Set<PluginID>
+    ) async -> Bool {
+        guard !isApplyingPluginChanges else { return false }
+        guard !pendingPluginEnabledStates.isEmpty else { return true }
+        isApplyingPluginChanges = true
+        let applied = await apply(pendingPluginEnabledStates)
+        for pluginID in applied {
+            pendingPluginEnabledStates.removeValue(forKey: pluginID)
+        }
+        isApplyingPluginChanges = false
+        return pendingPluginEnabledStates.isEmpty
+    }
 }
 
 struct SettingsView: View {
+    @FocusState private var isSearchFocused: Bool
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
     @ObservedObject var viewState: SettingsViewState
+    @AppStorage("lithe.settings.categorySidebarWidth") private var categorySidebarWidth = 234.0
     @State private var missingTerminalShellPath: String?
+    @State private var expandedSidebarGroups: Set<String> = []
     let initialCategory: SettingsCategory
     /// Changes with every category request; see `WorkbenchFeatureModel.settingsCategoryRequest`.
     let categoryRequest: Int
     private let onDismiss: (() -> Void)?
+    static let categoryMinimumWidth: CGFloat = 234
+    static let contentMinimumWidth: CGFloat = 500
     private static let footerActionLabelWidth: CGFloat = 52
 
     init(
@@ -49,20 +78,32 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                categories
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                content
+            GeometryReader { geometry in
+                LitheSplitPaneView(
+                    axis: .horizontal,
+                    placement: .leading,
+                    defaultSize: CGFloat(categorySidebarWidth),
+                    minimum: Self.categoryMinimumWidth,
+                    maximum: max(Self.categoryMinimumWidth, geometry.size.width - SplitHandleView.thickness - Self.contentMinimumWidth),
+                    flexibleMinimum: Self.contentMinimumWidth,
+                    highlightsOnHover: false,
+                    onCommit: { categorySidebarWidth = Double($0) },
+                    sized: { categories },
+                    flexible: {
+                        content.simultaneousGesture(TapGesture().onEnded { isSearchFocused = false })
+                    }
+                )
             }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             footer
         }
-        .frame(minWidth: 820, minHeight: 620)
+        .frame(minWidth: 900, minHeight: 668)
         .background {
             LitheTheme.settingsSurface
                 .ignoresSafeArea()
         }
         .onAppear {
+            expandGroup(containing: viewState.selection)
             syncVisibilityDrafts()
             model.refreshAIConfigurations()
             syncAIProviderDraft()
@@ -70,6 +111,7 @@ struct SettingsView: View {
         .onChange(of: settings.hiddenDirectoryNames) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
+        .onChange(of: viewState.editingProviderID) { _ in syncAIProviderDraft() }
         .onChange(of: initialCategory) { category in
             viewState.searchQuery = ""
             viewState.selection = category
@@ -77,6 +119,10 @@ struct SettingsView: View {
         .onChange(of: categoryRequest) { _ in
             viewState.searchQuery = ""
             viewState.selection = initialCategory
+            expandGroup(containing: initialCategory)
+        }
+        .onChange(of: viewState.selection) { category in
+            expandGroup(containing: category)
         }
         .onChange(of: viewState.searchQuery) { _ in
             guard !filteredCategories.contains(viewState.selection),
@@ -84,6 +130,7 @@ struct SettingsView: View {
             viewState.selection = firstMatch
         }
         .environment(\.locale, settings.language.locale)
+        .font(LitheTheme.settingsFont)
         .alert("Shell not found", isPresented: Binding(
             get: { missingTerminalShellPath != nil },
             set: { if !$0 { missingTerminalShellPath = nil } }
@@ -103,101 +150,128 @@ struct SettingsView: View {
     private var categories: some View {
         VStack(spacing: 0) {
             settingsSearchField
-                .padding(12)
-
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                .padding(.horizontal, 8)
+                .padding(.top, 11)
+                .padding(.bottom, 8)
 
             ScrollView {
-                VStack(spacing: 1) {
-                    ForEach(filteredCategories) { category in
-                        categoryButton(category)
-                    }
+                VStack(spacing: 0) {
+                    categoryGroup("Appearance & Behavior", categories: [.general, .updates])
+                    categoryButton(.keymap)
+                    categoryButton(.editor)
+                    categoryButton(.plugins)
+                    categoryButton(.mcp)
+                    categoryGroup("Version Control", categories: [.git])
+                    categoryGroup("Build, Execution, Deployment", categories: [.project, .run])
+                    categoryGroup("Languages & Frameworks", categories: [.lsp])
+                    categoryGroup("Tools", categories: [.terminal, .ai, .providers, .diagnostics])
 
                     if filteredCategories.isEmpty {
                         VStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
-                                .font(.system(size: 18, weight: .light))
+                                .font(LitheTheme.uiFont(size: 18, weight: .light))
                             Text("No settings found")
-                                .font(.system(size: 12))
+                                .font(LitheTheme.uiFont(size: 12))
                         }
                         .foregroundStyle(LitheTheme.tertiaryText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 28)
                     }
                 }
-                .padding(8)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
-        .frame(width: 244)
+        .frame(maxWidth: .infinity)
         .frame(maxHeight: .infinity)
         .background(LitheTheme.settingsSurface)
     }
 
     private var settingsSearchField: some View {
-        LitheSettingsSearchField("Search settings", text: $viewState.searchQuery)
+        LitheSettingsSearchField("", text: $viewState.searchQuery, focus: $isSearchFocused)
+            .accessibilityLabel("Search settings")
     }
 
-    private func categoryButton(_ category: SettingsCategory) -> some View {
-        let isSelected = viewState.selection == category
-        return Button {
-            viewState.selection = category
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: category.icon)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .frame(width: 18)
-                Text(LocalizedStringKey(category.title))
-                    .font(.system(size: 12.5, weight: .regular))
-                Spacer(minLength: 8)
+    @ViewBuilder
+    private func categoryGroup(_ title: String, categories: [SettingsCategory]) -> some View {
+        let visible = categories.filter { filteredCategories.contains($0) }
+        if !visible.isEmpty {
+            let expanded = expandedSidebarGroups.contains(title) || !viewState.searchQuery.isEmpty
+            Button {
+                isSearchFocused = false
+                if expandedSidebarGroups.contains(title) {
+                    expandedSidebarGroups.remove(title)
+                } else {
+                    expandedSidebarGroups.insert(title)
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
+                        .frame(width: 10)
+                    Text(LocalizedStringKey(title))
+                        .font(LitheTheme.settingsStrongFont)
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 8)
+                .frame(height: 24)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: LitheTheme.Metrics.treeRowHeight)
-            .background(isSelected ? LitheTheme.settingsSelection : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
-            .contentShape(Rectangle())
+            .buttonStyle(.litheNoPress)
+            .foregroundStyle(LitheTheme.primaryText)
+            if expanded {
+                ForEach(visible) { category in
+                    categoryButton(category, nested: true)
+                }
+            }
         }
-        .buttonStyle(LitheTreeRowButtonStyle())
-        .foregroundStyle(isSelected ? Color.white : LitheTheme.primaryText)
+    }
+
+    @ViewBuilder
+    private func categoryButton(_ category: SettingsCategory, nested: Bool = false) -> some View {
+        if filteredCategories.contains(category) {
+            let isSelected = viewState.selection == category
+            Button {
+                isSearchFocused = false
+                viewState.selection = category
+            } label: {
+                HStack(spacing: 8) {
+                    Color.clear.frame(width: 10)
+                    Text(LocalizedStringKey(category.title))
+                        .font(nested ? LitheTheme.settingsFont : LitheTheme.settingsStrongFont)
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, nested ? 30 : 16)
+                .padding(.trailing, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 24)
+                .background(isSelected ? LitheTheme.settingsSelection : .clear)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.litheNoPress)
+            .foregroundStyle(LitheTheme.primaryText)
+        }
+    }
+
+    private func expandGroup(containing category: SettingsCategory) {
+        switch category {
+        case .general, .updates: expandedSidebarGroups.insert("Appearance & Behavior")
+        case .git: expandedSidebarGroups.insert("Version Control")
+        case .project, .run: expandedSidebarGroups.insert("Build, Execution, Deployment")
+        case .lsp: expandedSidebarGroups.insert("Languages & Frameworks")
+        case .terminal, .ai, .providers, .diagnostics: expandedSidebarGroups.insert("Tools")
+        case .keymap, .editor, .plugins, .mcp: break
+        }
     }
 
     private var filteredCategories: [SettingsCategory] {
-        let query = viewState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return SettingsCategory.allCases }
+        let query = viewState.searchQuery
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return SettingsCategory.allCases
+        }
 
         return SettingsCategory.allCases.filter { category in
-            searchTerms(for: category).contains { term in
-                localizedSearchValue(term).localizedCaseInsensitiveContains(query)
-                    || term.localizedCaseInsensitiveContains(query)
-            }
-        }
-    }
-
-    private func searchTerms(for category: SettingsCategory) -> [String] {
-        switch category {
-        case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths", "LSP generated", "recommended rules"]
-        case .editor:
-            ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width"]
-        case .keymap:
-            ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
-        case .project:
-            ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
-        case .run:
-            ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
-        case .terminal:
-            ["Terminal", "Shell", "Default shell"]
-        case .lsp:
-            ["LSP", "Language server"]
-        case .ai:
-            ["AI & Commit", "AI provider", "Model", "API key", "Commit message"]
-        case .git:
-            ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
-        case .updates:
-            ["Updates", "Application version", "Update status", "Check for Updates"]
-        case .diagnostics:
-            ["Diagnostics", "Diagnostics bundle", "Export logs", "Bug report"]
+            SettingsSearchVocabulary.matches(query: query, category: category) { localizedSearchValue($0) }
         }
     }
 
@@ -209,14 +283,58 @@ struct SettingsView: View {
         )
     }
 
-    @ViewBuilder
     private var content: some View {
+        VStack(spacing: 0) {
+            if viewState.selection != .plugins {
+                HStack(spacing: 8) {
+                    ForEach(Array(settingsBreadcrumb.enumerated()), id: \.offset) { index, title in
+                        if index > 0 {
+                            Image(systemName: "chevron.right")
+                                .font(LitheTheme.uiFont(size: 9, weight: .medium))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                        }
+                        Text(LocalizedStringKey(title))
+                            .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
+                            .foregroundStyle(LitheTheme.primaryText)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 48)
+            }
+
+            settingsContent
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var settingsBreadcrumb: [String] {
+        switch viewState.selection {
+        case .general: ["Appearance & Behavior", "General"]
+        case .editor: ["Editor"]
+        case .keymap: ["Keymap"]
+        case .project: ["Build, Execution, Deployment", "Project · JDK & Maven"]
+        case .run: ["Build, Execution, Deployment", "Run configurations"]
+        case .terminal: ["Tools", "Terminal"]
+        case .lsp: ["Languages & Frameworks", "LSP"]
+        case .ai: ["Tools", "AI & Commit"]
+        case .providers: ["Tools", "AI Providers"]
+        case .git: ["Version Control", "Git"]
+        case .updates: ["Appearance & Behavior", "Updates"]
+        case .diagnostics: ["Tools", "Diagnostics"]
+        case .plugins: ["Plugins"]
+        case .mcp: ["MCP Configuration"]
+        }
+    }
+
+    @ViewBuilder
+    private var settingsContent: some View {
         if filteredCategories.isEmpty {
             VStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 28, weight: .light))
+                    .font(LitheTheme.uiFont(size: 28, weight: .light))
                 Text("No settings found")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 15, weight: .medium))
                 Text("Try a different search term.")
                     .font(LitheTheme.smallFont)
             }
@@ -237,15 +355,24 @@ struct SettingsView: View {
                 language: settings.language
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .plugins {
+            PluginManagementView(settingsState: viewState)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(LocalizedStringKey(viewState.selection.title))
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .padding(.bottom, 8)
-
+                VStack(alignment: .leading, spacing: 12) {
                     switch viewState.selection {
+                    case .mcp:
+                        if let workspaceURL = model.workspaceURL {
+                            Text(workspaceURL.path)
+                                .font(LitheTheme.smallFont)
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .textSelection(.enabled)
+                            McpSettingsView(feature: model.ideCapabilities)
+                        } else {
+                            Text("Open a project to configure MCP access for agents.")
+                                .foregroundStyle(LitheTheme.secondaryText)
+                        }
                     case .general: generalSettings
                     case .editor: editorSettings
                     case .keymap: EmptyView()
@@ -254,6 +381,7 @@ struct SettingsView: View {
                     case .project: EmptyView()
                     case .run: EmptyView()
                     case .ai: aiSettings
+                    case .providers: providersSettings
                     case .git:
                         VStack(alignment: .leading, spacing: 14) {
                             GitExecutionSettingsView(settings: settings)
@@ -263,10 +391,11 @@ struct SettingsView: View {
                         .frame(maxWidth: 760, alignment: .leading)
                     case .updates: updatesSettings
                     case .diagnostics: diagnosticsSettings
+                    case .plugins: EmptyView()
                     }
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 22)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
@@ -280,7 +409,7 @@ struct SettingsView: View {
                     LitheSettingsSelect(
                         selection: $settings.colorTheme,
                         options: AppColorTheme.allCases,
-                        width: 180,
+                        width: 190,
                         accessibilityLabel: "Color theme",
                         title: \AppColorTheme.title
                     )
@@ -302,7 +431,7 @@ struct SettingsView: View {
                 Divider().padding(.vertical, 2)
 
                 Text("Workbench background")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
 
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -324,7 +453,7 @@ struct SettingsView: View {
                         Button("Remove") {
                             model.workbenchBackgroundFeature.clear()
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .foregroundStyle(LitheTheme.accent)
                         .lithePointer()
                     }
@@ -343,7 +472,7 @@ struct SettingsView: View {
                     Button("Retry") {
                         model.workbenchBackgroundFeature.retry()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.accent)
                     .lithePointer()
                 }
@@ -364,7 +493,7 @@ struct SettingsView: View {
                     LitheSettingsSelect(
                         selection: $settings.language,
                         options: AppLanguage.allCases,
-                        width: 180,
+                        width: 190,
                         accessibilityLabel: "Language",
                         title: \AppLanguage.title
                     )
@@ -380,7 +509,7 @@ struct SettingsView: View {
                     LitheSettingsSelect(
                         selection: $settings.projectOpenBehavior,
                         options: ProjectOpenBehavior.allCases,
-                        width: 180,
+                        width: 190,
                         accessibilityLabel: "Open projects in",
                         title: \ProjectOpenBehavior.title
                     )
@@ -432,56 +561,16 @@ struct SettingsView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
 
                 Text("Directories")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 TextEditor(text: $viewState.hiddenDirectoriesDraft)
-                    .font(.system(size: 12, design: .monospaced))
-                    .frame(height: 66)
-                    .padding(5)
-                    .litheRoundedControlBackground(LitheTheme.inputBackground)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                    }
+                    .litheSettingsTextEditor(height: 66)
 
                 Text("File patterns")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 TextEditor(text: $viewState.hiddenFilePatternsDraft)
-                    .font(.system(size: 12, design: .monospaced))
-                    .frame(height: 52)
-                    .padding(5)
-                    .litheRoundedControlBackground(LitheTheme.inputBackground)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                    }
-
-                Text("LSP generated artifacts")
-                    .font(.system(size: 11.5, weight: .medium))
-                Text("Adds or removes the recommended LSP generated artifact rules from Hidden paths. When the current workspace is a Git repository, the same rules are also written to the Git local exclude list. Lithe does not keep managing those rules afterward.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if hasUnappliedHiddenPathsDraft {
-                    Text("Apply Hidden paths changes before adding or removing recommended rules.")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.warning)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                    .litheSettingsTextEditor(height: 52)
 
                 HStack(spacing: 8) {
-                    Button("Add recommended rules") {
-                        applyLSPGeneratedArtifactRules(adding: true)
-                    }
-                    .buttonStyle(LitheSecondaryButtonStyle())
-                    .disabled(!canApplyLSPGeneratedArtifactRules)
-
-                    Button("Remove recommended rules") {
-                        applyLSPGeneratedArtifactRules(adding: false)
-                    }
-                    .buttonStyle(LitheSecondaryButtonStyle())
-                    .disabled(!canApplyLSPGeneratedArtifactRules)
-
                     Spacer()
                     Button("Apply") { applyVisibilityDrafts() }
                         .buttonStyle(LithePrimaryButtonStyle(
@@ -493,11 +582,11 @@ struct SettingsView: View {
 
             group("Logs") {
                 Text("Log directory")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
 
                 HStack(spacing: 10) {
                     Text(settings.logDirectory.path)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 13, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
@@ -513,10 +602,10 @@ struct SettingsView: View {
                         settings.setCustomLogDirectory(directory)
                     } label: {
                         Image(systemName: "folder")
-                            .font(.system(size: 16, weight: .regular))
+                            .font(LitheTheme.uiFont(size: 16, weight: .regular))
                             .frame(width: 26, height: 26)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .contentShape(Rectangle())
                     .lithePointer()
@@ -524,12 +613,7 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
-                .background(LitheTheme.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                }
+                .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
 
                 HStack(spacing: 6) {
                     Text("Default directory")
@@ -549,7 +633,7 @@ struct SettingsView: View {
                         } label: {
                             Text("Restore Default")
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .foregroundStyle(LitheTheme.accent)
                         .lithePointer()
                     }
@@ -570,6 +654,28 @@ struct SettingsView: View {
     private var editorSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
             group("Display") {
+                row("Font") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        LitheSettingsSelect(
+                            selection: $settings.editorFontFamily,
+                            options: editorFontOptions,
+                            width: 240,
+                            accessibilityLabel: "Font",
+                            title: { $0 },
+                            localizesTitles: false,
+                            isAvailable: { MacEditorFontCatalog.isAvailable(family: $0) },
+                            searchPrompt: "Search fonts",
+                            searchText: { $0 }
+                        )
+                        if let coverageNotice = editorFontCoverageNotice {
+                            Text(coverageNotice)
+                                .font(LitheTheme.smallFont)
+                                .foregroundStyle(LitheTheme.warning)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: 420, alignment: .leading)
+                        }
+                    }
+                }
                 row("Font size") {
                     LitheSettingsStepper(
                         value: $settings.editorFontSize,
@@ -622,6 +728,49 @@ struct SettingsView: View {
                 }
             }
         }
+        .task {
+            guard viewState.editorFontFamilies.isEmpty else { return }
+            viewState.editorFontFamilies = MacEditorFontCatalog.editorFamilies()
+        }
+    }
+
+    /// Monospaced families plus the stored selection. The stored family is kept
+    /// in the list even when it is no longer installed, so the user can see what
+    /// is configured instead of the control silently snapping to the default.
+    private var editorFontOptions: [String] {
+        var options = viewState.editorFontFamilies
+        if options.isEmpty { options = [settings.editorFontFamily] }
+        if !options.contains(settings.editorFontFamily) { options.append(settings.editorFontFamily) }
+        return options
+    }
+
+    /// Warns when the chosen family cannot render character groups the product
+    /// needs, because those glyphs then come from the fallback chain instead of
+    /// the font the user picked.
+    ///
+    /// The bundled default is deliberately exempt: it is the baseline and the
+    /// fallback target itself, so warning about the shipped font would be noise
+    /// the user cannot act on. An uninstalled family is reported by the control's
+    /// own unavailable styling rather than twice.
+    private var editorFontCoverageNotice: String? {
+        let family = settings.editorFontFamily
+        guard !EditorFontResolution.usesBundledMonospacedFamily(family),
+              MacEditorFontCatalog.isAvailable(family: family) else { return nil }
+
+        let coverage = MacEditorFontCatalog.coverage(
+            family: family,
+            requirements: .forLanguage(settings.language)
+        )
+        guard let description = coverage.missingDescription else { return nil }
+
+        return String(
+            format: String(
+                localized: "%@ does not include %@; Lithe renders those characters with %@ and the system font."
+            ),
+            coverage.family,
+            description,
+            EditorFontDefaults.monospacedFamily
+        )
     }
 
     private var terminalSettings: some View {
@@ -700,67 +849,73 @@ struct SettingsView: View {
         URL(fileURLWithPath: path).lastPathComponent
     }
 
-    private var aiSettings: some View {
+    private var providersSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
-            group("AI provider") {
+            group("AI providers") {
                 if settings.commitMessageAI.providers.isEmpty {
                     Text("No AI provider is configured yet.")
                         .foregroundStyle(LitheTheme.secondaryText)
                 } else {
-                    row("Profile") {
+                    row("Provider") {
                         LitheSettingsSelect(
                             selection: Binding(
-                                get: { settings.commitMessageAI.activeProviderID ?? settings.commitMessageAI.providers[0].id },
-                                set: { settings.selectCommitMessageProvider($0) }
+                                get: { editingProvider?.id ?? settings.commitMessageAI.providers[0].id },
+                                set: { viewState.editingProviderID = $0 }
                             ),
                             options: settings.commitMessageAI.providers.map(\.id),
                             width: 240,
-                            accessibilityLabel: "Profile",
+                            accessibilityLabel: "Provider",
                             title: providerTitle
                         )
+                    }
+                    if let editingProvider {
+                        Text(providerUsage(editingProvider))
+                            .font(LitheTheme.smallFont)
+                            .foregroundStyle(LitheTheme.secondaryText)
                     }
 
                     HStack(spacing: 8) {
                         Button("Add Provider") {
-                            settings.addCommitMessageProvider()
+                            viewState.editingProviderID = settings.addAIProvider()
                             syncAIProviderDraft()
                         }
                         .buttonStyle(LitheSecondaryButtonStyle())
 
                         Button("Remove") {
-                            settings.removeActiveCommitMessageProvider()
+                            if let id = editingProvider?.id { settings.removeAIProvider(id) }
+                            viewState.editingProviderID = nil
                             syncAIProviderDraft()
                         }
                         .buttonStyle(LitheSecondaryButtonStyle())
-                        .disabled(settings.activeCommitMessageProvider == nil)
+                        .disabled(editingProvider == nil)
                     }
                 }
 
-                if settings.activeCommitMessageProvider != nil {
-                    TextField("Provider name", text: activeProviderTextBinding(\.name))
+                if editingProvider != nil {
+                    TextField("Provider name", text: editingProviderTextBinding(\.name))
                         .litheSettingsTextField()
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
                     row("API protocol") {
                         LitheSettingsSelect(
-                            selection: activeProviderProtocolBinding(),
+                            selection: editingProviderProtocolBinding(),
                             options: CommitMessageAPIProtocol.allCases,
                             width: 240,
                             accessibilityLabel: "API protocol",
                             title: \CommitMessageAPIProtocol.title
                         )
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
                     }
-                    TextField("API URL", text: activeProviderTextBinding(\.endpoint))
+                    TextField("API URL", text: editingProviderTextBinding(\.endpoint))
                         .litheSettingsTextField()
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
-                    if settings.activeCommitMessageProvider?.usesInsecureHTTP == true {
+                        .disabled(editingProviderIsConfigurationManaged)
+                    if editingProvider?.usesInsecureHTTP == true {
                         LitheSettingsCheckbox(
-                            isOn: activeProviderBoolBinding(\.allowsInsecureHTTP),
+                            isOn: editingProviderBoolBinding(\.allowsInsecureHTTP),
                             title: "Allow insecure HTTP"
                         )
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
                         Label(
-                            settings.activeCommitMessageProvider?.allowsInsecureHTTP == true
+                            editingProvider?.allowsInsecureHTTP == true
                                 ? "HTTP sends the API credential without encryption. Use only a trusted endpoint."
                                 : "HTTP is blocked until you explicitly allow it for this provider.",
                             systemImage: "exclamationmark.triangle"
@@ -768,29 +923,29 @@ struct SettingsView: View {
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.warning)
                     }
-                    TextField("Model", text: activeProviderTextBinding(\.model))
+                    TextField("Model", text: editingProviderTextBinding(\.model))
                         .litheSettingsTextField()
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
 
                     HStack(spacing: 8) {
                         SecureField("API key or token", text: $viewState.aiAPIKeyDraft)
                             .litheSettingsTextField()
-                            .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                            .disabled(editingProviderIsConfigurationManaged)
                         Button("Save Key") {
-                            model.saveActiveCommitMessageAPIKey(viewState.aiAPIKeyDraft)
+                            if let editingProvider { model.saveAPIKey(viewState.aiAPIKeyDraft, for: editingProvider) }
                         }
                         .buttonStyle(LitheSecondaryButtonStyle())
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
                     }
 
                     LitheSettingsCheckbox(
-                        isOn: activeProviderBoolBinding(\.requiresAPIKey),
+                        isOn: editingProviderBoolBinding(\.requiresAPIKey),
                         title: "Provider requires an API key"
                     )
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
 
-                    if model.activeCommitMessageCredentialIsConfigurationManaged,
-                       let description = model.activeCommitMessageConfigurationSourceDescription {
+                    if editingProviderIsConfigurationManaged,
+                       let description = editingProvider.flatMap(model.configurationSourceDescription(for:)) {
                         Text(LocalizedStringKey(description))
                             .font(LitheTheme.smallFont)
                             .foregroundStyle(LitheTheme.secondaryText)
@@ -805,9 +960,9 @@ struct SettingsView: View {
                                     .foregroundStyle(LitheTheme.success)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(LocalizedStringKey(configuration.source.detectedTitle))
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                                     Text("\(configuration.model) · \(configuration.endpoint)")
-                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                         .lineLimit(2)
                                     Text(LocalizedStringKey(
@@ -858,11 +1013,64 @@ struct SettingsView: View {
                     }
                 }
 
-                if !model.activeCommitMessageCredentialIsConfigurationManaged {
+                if !editingProviderIsConfigurationManaged {
                     Text("API keys are stored in Lithe's local application data and are never written to Lithe settings.")
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
+            }
+
+        }
+        .frame(maxWidth: 760, alignment: .leading)
+    }
+
+    /// Provider being edited, falling back to the commit message provider.
+    private var editingProvider: AIProviderProfile? {
+        let providers = settings.commitMessageAI.providers
+        return providers.first { $0.id == viewState.editingProviderID }
+            ?? settings.activeCommitMessageProvider
+            ?? providers.first
+    }
+
+    private var editingProviderIsConfigurationManaged: Bool {
+        editingProvider.map(model.credentialIsConfigurationManaged(_:)) ?? false
+    }
+
+    /// Which features use `provider`, e.g. "Used by: commit messages, Codex".
+    private func providerUsage(_ provider: AIProviderProfile) -> String {
+        var users: [String] = []
+        if settings.commitMessageAI.activeProviderID == provider.id { users.append(String(localized: "commit messages")) }
+        users += settings.agentConfigurations.values
+            .filter { $0.providerID == provider.id }
+            .map(\.name)
+            .sorted()
+        return users.isEmpty
+            ? String(localized: "Not used yet.")
+            : String(format: String(localized: "Used by: %@"), users.joined(separator: ", "))
+    }
+
+    private var aiSettings: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            group("Provider") {
+                if settings.commitMessageAI.providers.isEmpty {
+                    Text("Add an AI provider in AI Providers first.")
+                        .foregroundStyle(LitheTheme.secondaryText)
+                } else {
+                    row("Commit messages use") {
+                        LitheSettingsSelect(
+                            selection: Binding(
+                                get: { settings.commitMessageAI.activeProviderID ?? settings.commitMessageAI.providers[0].id },
+                                set: { settings.selectCommitMessageProvider($0) }
+                            ),
+                            options: settings.commitMessageAI.providers.map(\.id),
+                            width: 240,
+                            accessibilityLabel: "Commit message provider",
+                            title: providerTitle
+                        )
+                    }
+                }
+                Button("Manage AI Providers…") { viewState.selection = .providers }
+                    .buttonStyle(LitheSecondaryButtonStyle())
             }
 
             group("Commit message generation") {
@@ -917,16 +1125,9 @@ struct SettingsView: View {
 
                 if settings.commitMessageAI.format == .custom {
                     Text("Custom instructions")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     TextEditor(text: $settings.commitMessageAI.customInstructions)
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(height: 92)
-                        .padding(5)
-                        .litheRoundedControlBackground(LitheTheme.inputBackground)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                        }
+                        .litheSettingsTextEditor(height: 92)
                 }
 
                 Text("Low effort and a small output limit are recommended for fast commit-message generation.")
@@ -935,18 +1136,20 @@ struct SettingsView: View {
             }
 
             group("Pull request description generation") {
-                Picker("Description format", selection: $settings.commitMessageAI.pullRequestFormat) {
-                    ForEach(PullRequestDescriptionFormat.allCases) { format in
-                        Text(LocalizedStringKey(format.title)).tag(format)
-                    }
+                row("Description format") {
+                    LitheSettingsSelect(
+                        selection: $settings.commitMessageAI.pullRequestFormat,
+                        options: PullRequestDescriptionFormat.allCases,
+                        width: 220,
+                        accessibilityLabel: "Description format",
+                        title: \PullRequestDescriptionFormat.title
+                    )
                 }
-                .frame(maxWidth: 260, alignment: .leading)
-                .lithePointer()
 
                 if settings.commitMessageAI.pullRequestFormat == .custom {
                     HStack {
                         Text("Markdown template")
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         Spacer()
                         Button("Restore Default Template") {
                             settings.commitMessageAI.pullRequestCustomTemplate =
@@ -958,15 +1161,7 @@ struct SettingsView: View {
                     }
 
                     TextEditor(text: $settings.commitMessageAI.pullRequestCustomTemplate)
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(height: 150)
-                        .padding(5)
-                        .background(LitheTheme.inputBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                        }
+                        .litheSettingsTextEditor(height: 150)
 
                     Text("Supported placeholders: {summary}, {changes}, {testing}, {risks}.")
                         .font(LitheTheme.smallFont)
@@ -999,13 +1194,13 @@ struct SettingsView: View {
                 } label: {
                     HStack(spacing: 9) {
                         Image(systemName: settings.commitMessageAI.format.icon)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                             .foregroundStyle(LitheTheme.accent)
                             .frame(width: 18)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(LocalizedStringKey(settings.commitMessageAI.format.title))
-                                .font(.system(size: 12.5, weight: .medium))
+                                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                                 .foregroundStyle(LitheTheme.primaryText)
                             Text(LocalizedStringKey(settings.commitMessageAI.format.description))
                                 .font(LitheTheme.smallFont)
@@ -1016,26 +1211,21 @@ struct SettingsView: View {
                         Spacer(minLength: 8)
 
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .rotationEffect(.degrees(viewState.isFormatPickerPresented ? 180 : 0))
                             .animation(formatPickerAnimation, value: viewState.isFormatPickerPresented)
                     }
                     .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                    .background(viewState.isFormatPickerPresented ? LitheTheme.inputBackground.opacity(0.9) : LitheTheme.inputBackground)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .stroke(
-                                viewState.isFormatPickerPresented ? LitheTheme.inputFocusBorder : LitheTheme.inputBorder,
-                                lineWidth: 1
-                            )
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                    .litheSettingsControlChrome(
+                        background: LitheTheme.settingsTextFieldBackground,
+                        border: viewState.isFormatPickerPresented ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
+                    )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
-                .popover(isPresented: $viewState.isFormatPickerPresented, arrowEdge: .bottom) {
+                .litheDropdown(isPresented: $viewState.isFormatPickerPresented) {
                     formatPickerPopover
                 }
 
@@ -1050,7 +1240,7 @@ struct SettingsView: View {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Choose a commit format")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                     Text("Each built-in preset includes a preview of the generated message.")
                         .font(LitheTheme.smallFont)
@@ -1063,7 +1253,7 @@ struct SettingsView: View {
                     viewState.isFormatPickerPresented = false
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                 }
                 .litheIconButton()
                 .help("Close")
@@ -1105,19 +1295,19 @@ struct SettingsView: View {
         } label: {
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: format.icon)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                     .foregroundStyle(isSelected ? LitheTheme.accent : LitheTheme.secondaryText)
                     .frame(width: 18, height: 18)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text(LocalizedStringKey(format.title))
-                            .font(.system(size: 12, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 12, weight: .medium))
                             .foregroundStyle(LitheTheme.primaryText)
                         Spacer(minLength: 0)
                         if isSelected {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(LitheTheme.uiFont(size: 10, weight: .bold))
                                 .foregroundStyle(LitheTheme.accent)
                         }
                     }
@@ -1128,7 +1318,7 @@ struct SettingsView: View {
 
                     if format != .custom {
                         Text(LocalizedStringKey(format.example))
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                             .foregroundStyle(LitheTheme.tertiaryText)
                             .lineLimit(format == .descriptive ? 3 : 2)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1142,7 +1332,7 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .litheRowHover(
             isActive: isSelected,
             cornerRadius: 5,
@@ -1156,11 +1346,11 @@ struct SettingsView: View {
         if settings.commitMessageAI.format != .custom {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Example")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
 
                 Text(LocalizedStringKey(settings.commitMessageAI.format.example))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(settings.commitMessageAI.format == .descriptive ? 4 : 2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1168,12 +1358,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 9)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(LitheTheme.inputBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                    }
+                    .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
                     .id(settings.commitMessageAI.format)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                     .animation(formatPickerAnimation, value: settings.commitMessageAI.format)
@@ -1216,7 +1401,9 @@ struct SettingsView: View {
                 StableRollbackControl()
 
                 HStack(spacing: 10) {
-                    Button {
+                    // An update found here is installed from the button beside
+                    // this one, so the check does not open the update window.
+                    let checkButton = Button {
                         Task { await updateChecker.checkForUpdates(manual: true) }
                     } label: {
                         Label(
@@ -1224,11 +1411,15 @@ struct SettingsView: View {
                             systemImage: "arrow.clockwise"
                         )
                     }
-                    .buttonStyle(LithePrimaryButtonStyle(
-                        backgroundColor: LitheTheme.settingsPrimaryAction,
-                        restingOpacity: 1
-                    ))
                     .disabled(updateChecker.isBusy)
+                    if case .available = updateChecker.status {
+                        checkButton.buttonStyle(LitheSecondaryButtonStyle())
+                    } else {
+                        checkButton.buttonStyle(LithePrimaryButtonStyle(
+                            backgroundColor: LitheTheme.settingsPrimaryAction,
+                            restingOpacity: 1
+                        ))
+                    }
 
                     if case .waitingForTermination = updateChecker.status {
                         Button {
@@ -1248,7 +1439,10 @@ struct SettingsView: View {
                                 Label("Update \(version)", systemImage: "arrow.down.circle.fill")
                             }
                         }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LithePrimaryButtonStyle(
+                            backgroundColor: LitheTheme.settingsPrimaryAction,
+                            restingOpacity: 1
+                        ))
                         .disabled(updateChecker.isBusy)
                     }
                 }
@@ -1344,32 +1538,34 @@ struct SettingsView: View {
     }
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            Text(LocalizedStringKey(title))
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(LocalizedStringKey(title))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize()
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
             content()
         }
-        .font(.system(size: 12.5))
+        .font(LitheTheme.uiFont(size: 12.5))
         .foregroundStyle(LitheTheme.primaryText)
-        .padding(.vertical, 16)
+        .padding(.top, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-        }
     }
 
     private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             Text(LocalizedStringKey(title))
-            Spacer()
+                .fixedSize(horizontal: true, vertical: false)
             content()
+            Spacer(minLength: 0)
         }
         .frame(minHeight: 28)
     }
 
     private func syncAIProviderDraft() {
-        viewState.aiAPIKeyDraft = model.activeCommitMessageAPIKey
+        viewState.aiAPIKeyDraft = editingProvider.map(model.apiKey(for:)) ?? ""
     }
 
     private func providerTitle(_ id: UUID) -> String {
@@ -1384,65 +1580,71 @@ struct SettingsView: View {
         syncAIProviderDraft()
     }
 
-    private func activeProviderTextBinding(
+    private func editingProviderTextBinding(
         _ keyPath: WritableKeyPath<AIProviderProfile, String>
     ) -> Binding<String> {
         Binding(
-            get: { settings.activeCommitMessageProvider?[keyPath: keyPath] ?? "" },
+            get: { editingProvider?[keyPath: keyPath] ?? "" },
             set: { value in
-                settings.updateActiveCommitMessageProvider { provider in
-                    provider[keyPath: keyPath] = value
-                }
+                guard let id = editingProvider?.id else { return }
+                settings.updateAIProvider(id) { provider in provider[keyPath: keyPath] = value }
             }
         )
     }
 
-    private func activeProviderProtocolBinding() -> Binding<CommitMessageAPIProtocol> {
+    private func editingProviderProtocolBinding() -> Binding<CommitMessageAPIProtocol> {
         Binding(
-            get: { settings.activeCommitMessageProvider?.apiProtocol ?? .responses },
+            get: { editingProvider?.apiProtocol ?? .responses },
             set: { value in
-                settings.updateActiveCommitMessageProvider { provider in
-                    provider.apiProtocol = value
-                }
+                guard let id = editingProvider?.id else { return }
+                settings.updateAIProvider(id) { provider in provider.apiProtocol = value }
             }
         )
     }
 
-    private func activeProviderBoolBinding(
+    private func editingProviderBoolBinding(
         _ keyPath: WritableKeyPath<AIProviderProfile, Bool>
     ) -> Binding<Bool> {
         Binding(
-            get: { settings.activeCommitMessageProvider?[keyPath: keyPath] ?? true },
+            get: { editingProvider?[keyPath: keyPath] ?? true },
             set: { value in
-                settings.updateActiveCommitMessageProvider { provider in
-                    provider[keyPath: keyPath] = value
-                }
+                guard let id = editingProvider?.id else { return }
+                settings.updateAIProvider(id) { provider in provider[keyPath: keyPath] = value }
             }
         )
     }
-
 
     private var footer: some View {
         HStack {
             Button("Restore Defaults") { settings.restoreDefaults() }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 28))
             Spacer()
             HStack(spacing: 10) {
                 Button { closeSettings() } label: {
                     Text("Cancel")
                         .frame(minWidth: Self.footerActionLabelWidth)
                 }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 28))
                     .keyboardShortcut(.cancelAction)
-                Button { closeSettings() } label: {
+                    .disabled(viewState.isApplyingPluginChanges)
+                Button {
+                    Task { @MainActor in
+                        if await viewState.applyPluginChanges(model.applyPluginEnabledChanges) {
+                            closeSettings()
+                        }
+                    }
+                } label: {
                     Text("OK")
                         .frame(minWidth: Self.footerActionLabelWidth)
                 }
                     .buttonStyle(LithePrimaryButtonStyle(
                         backgroundColor: LitheTheme.settingsPrimaryAction,
-                        restingOpacity: 1
+                        restingOpacity: 1,
+                        horizontalPadding: 10,
+                        height: 28
                     ))
                     .keyboardShortcut(.defaultAction)
+                    .disabled(viewState.isApplyingPluginChanges)
             }
         }
         .padding(.horizontal, 16)
@@ -1458,26 +1660,6 @@ struct SettingsView: View {
     private func applyVisibilityDrafts() {
         settings.hiddenDirectoryNames = entries(from: viewState.hiddenDirectoriesDraft)
         settings.hiddenFilePatterns = entries(from: viewState.hiddenFilePatternsDraft)
-    }
-
-    private var hasUnappliedHiddenPathsDraft: Bool {
-        entries(from: viewState.hiddenDirectoriesDraft) != settings.hiddenDirectoryNames
-            || entries(from: viewState.hiddenFilePatternsDraft) != settings.hiddenFilePatterns
-    }
-
-    private var canApplyLSPGeneratedArtifactRules: Bool {
-        !hasUnappliedHiddenPathsDraft && !model.isApplyingLSPGeneratedArtifactRules
-    }
-
-    /// One-shot shortcut against persisted Hidden paths only; requires a clean draft.
-    private func applyLSPGeneratedArtifactRules(adding: Bool) {
-        guard canApplyLSPGeneratedArtifactRules else { return }
-        let updated = adding
-            ? LSPGeneratedArtifactVisibility.inserting(into: settings.hiddenFilePatterns)
-            : LSPGeneratedArtifactVisibility.removing(from: settings.hiddenFilePatterns)
-        settings.hiddenFilePatterns = updated
-        viewState.hiddenFilePatternsDraft = updated.joined(separator: "\n")
-        model.applyLSPGeneratedArtifactGitExcludeRules(adding: adding)
     }
 
     private func entries(from text: String) -> [String] {

@@ -26,6 +26,28 @@ struct GitReferenceRow: Identifiable, Equatable {
 
 /// Flattens references into the visible rows of one section, in render order.
 enum GitReferenceRowsBuilder {
+    static func filter(_ rows: [GitReferenceRow], matching query: String) -> [GitReferenceRow] {
+        guard !query.isEmpty else { return rows }
+        let matches = Set(rows.compactMap { row -> String? in
+            guard case .reference(let reference) = row.content,
+                  reference.shortName.localizedCaseInsensitiveContains(query) else { return nil }
+            return reference.shortName
+        })
+        let ancestorPaths = Set(matches.flatMap { name in
+            let parts = name.split(separator: "/")
+            guard parts.count > 1 else { return [String]() }
+            return (1..<parts.count).map { parts.prefix($0).joined(separator: "/") }
+        })
+        return rows.filter { row in
+            switch row.content {
+            case .reference(let reference):
+                return matches.contains(reference.shortName)
+            case .group(let key, _):
+                return ancestorPaths.contains(String(key.split(separator: ":", maxSplits: 1).last ?? ""))
+            }
+        }
+    }
+
     /// - Parameters:
     ///   - references: Already filtered to a single `kind` by the caller.
     ///   - collapsedGroups: Keys of groups whose children are hidden.
@@ -88,6 +110,140 @@ enum GitReferenceRowsBuilder {
                 into: &rows
             )
         }
+    }
+}
+
+/// Values that decide whether a rendered reference row must be rebuilt.
+///
+/// `GitReferenceRowView` compares itself with `==` so a `LazyVStack` row is
+/// only re-evaluated when something it displays changes. Everything the row —
+/// or its context menu — reads therefore has to be part of this key. The row's
+/// `actions` struct is deliberately absent: its closures are rebuilt on every
+/// body pass and are stable in behavior.
+struct GitReferenceRowRenderKey: Equatable {
+    let row: GitReferenceRow
+    let isSelected: Bool
+    let isPerformingBranchOperation: Bool
+    let currentReferenceID: String?
+    let comparisonSourceID: String?
+    let isReadOnly: Bool
+    let isFocused: Bool
+    let baseDepth: Int
+    /// Remote branches backing the "Tracking Branch" submenu. A `refs` refresh
+    /// can add or remove remote branches while every other field of a local row
+    /// stays identical; without this the row keeps the menu it built earlier
+    /// and offers a stale — or still empty — remote branch list.
+    let remoteBranches: [GitReference]
+}
+
+/// HEAD and the current branch filter the same Git ref but are distinct tree nodes.
+enum GitReferenceTreeSelection {
+    static func isSelected(
+        isHead: Bool, headSelected: Bool, reference: GitReference,
+        selectedReferenceID: String?, showingAll: Bool
+    ) -> Bool {
+        guard !showingAll, isHead == headSelected else { return false }
+        return selectedReferenceID == reference.id || (selectedReferenceID == nil && reference.isCurrent)
+    }
+}
+
+/// One entry of a reference row's context menu, stripped of closures and
+/// localization so the menu's *policy* is testable without a SwiftUI host. The
+/// view maps every entry to a `LitheContextMenuItem` and supplies the closure.
+enum GitReferenceMenuEntry: Equatable {
+    case action(GitReferenceMenuAction, isEnabled: Bool, isDestructive: Bool)
+    case separator
+}
+
+/// Actions a reference row can offer through its context menu.
+enum GitReferenceMenuAction: Equatable {
+    case newBranch
+    case showDiffWithWorkingTree
+    case compareWithCurrent
+    case compareWithSelectedSource
+    case selectForCompare
+    case checkout
+    case checkoutAndRebase
+    case merge
+    case rebase
+    case pullRebase
+    case pullMerge
+    case update
+    case push
+    case delete
+    case rename
+    case copyBranchName
+    case trackingBranch
+}
+
+/// Builds the context menu a reference row shows.
+///
+/// The Git Log groups references by repository, but history and every branch
+/// workflow still run against the single active repository. A row of a
+/// repository the user has not selected therefore gets no context menu at all:
+/// selecting the row switches the active repository first, while any checkout,
+/// merge, rebase, push, update, rename, delete, or compare entry would silently
+/// target the wrong repository. Extracted from the view so that read-only rule
+/// is directly testable.
+enum GitReferenceRowMenu {
+    static func entries(
+        kind: GitReferenceKind,
+        isCurrent: Bool,
+        showsCompareWithCurrent: Bool,
+        showsCompareWithSource: Bool,
+        isPerformingBranchOperation: Bool,
+        isReadOnly: Bool
+    ) -> [GitReferenceMenuEntry] {
+        guard !isReadOnly else { return [] }
+
+        var entries: [GitReferenceMenuEntry] = []
+        entries.append(.action(.newBranch, isEnabled: true, isDestructive: false))
+        entries.append(.action(.showDiffWithWorkingTree, isEnabled: true, isDestructive: false))
+        if showsCompareWithCurrent {
+            entries.append(.action(.compareWithCurrent, isEnabled: true, isDestructive: false))
+        }
+        if showsCompareWithSource {
+            entries.append(.action(.compareWithSelectedSource, isEnabled: true, isDestructive: false))
+        } else {
+            entries.append(.action(.selectForCompare, isEnabled: true, isDestructive: false))
+        }
+
+        if !isCurrent {
+            entries.append(.separator)
+            entries.append(.action(.checkout, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+
+            if kind != .tag {
+                entries.append(.action(.checkoutAndRebase, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+                entries.append(.action(.merge, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+                entries.append(.action(.rebase, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            }
+        }
+
+        if kind == .remote {
+            entries.append(.separator)
+            entries.append(.action(.pullRebase, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.action(.pullMerge, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.separator)
+            entries.append(.action(.copyBranchName, isEnabled: true, isDestructive: false))
+        }
+
+        if kind == .local {
+            entries.append(.separator)
+            entries.append(.action(.update, isEnabled: isCurrent && !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.action(.push, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+
+            if !isCurrent {
+                entries.append(.action(.delete, isEnabled: !isPerformingBranchOperation, isDestructive: true))
+            }
+
+            entries.append(.separator)
+            entries.append(.action(.rename, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.action(.trackingBranch, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.separator)
+            entries.append(.action(.copyBranchName, isEnabled: true, isDestructive: false))
+        }
+
+        return entries
     }
 }
 

@@ -42,6 +42,8 @@ export function useResolvedToolchains(
   mavenExecutablePath: string,
   mavenJavaHomePath: string,
   dependencies: ResolvedToolchainDependencies = defaultDependencies,
+  /** Changes when project discovery/requirements are refreshed, even if paths stay automatic. */
+  projectRevision: unknown = undefined,
 ): ResolvedToolchainStates {
   const [state, setState] = useState<ResolvedToolchainStates>(DETECTING);
   useEffect(() => {
@@ -64,6 +66,6 @@ export function useResolvedToolchains(
       current = false;
       cancel();
     };
-  }, [root, javaHomePath, mavenExecutablePath, mavenJavaHomePath, dependencies]);
+  }, [root, javaHomePath, mavenExecutablePath, mavenJavaHomePath, dependencies, projectRevision]);
   return state;
 }

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import LitheLocalHistoryModule
 import SwiftUI
 
@@ -6,6 +7,7 @@ enum LitheWindowID {
     static let welcome = "welcome"
     static let settings = "settings"
     static let project = "project"
+    static let softwareUpdate = "software-update"
 }
 
 private struct ProjectWindowScopeKey: EnvironmentKey {
@@ -23,6 +25,7 @@ extension EnvironmentValues {
 /// they are not tied to the primary window's lifetime alone.
 private struct ProjectWindowSceneBridge: View {
     @EnvironmentObject private var projectWindowLauncher: ProjectWindowLauncher
+    @EnvironmentObject private var updateChecker: UpdateChecker
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -41,6 +44,9 @@ private struct ProjectWindowSceneBridge: View {
         }
         projectWindowLauncher.presentPrimaryWindow = {
             openWindow(id: LitheWindowID.welcome)
+        }
+        updateChecker.presentDetailsWindow = {
+            openWindow(id: LitheWindowID.softwareUpdate)
         }
     }
 }
@@ -85,6 +91,7 @@ struct RootView: View {
             minHeight: windowLayout.minimumContentSize.height
         )
         .background(LitheTheme.window)
+        .tint(LitheTheme.accent)
         .sheet(item: scopedPendingProjectOpen) { request in
             OpenProjectLocationDialog(request: request) { placement, doNotAskAgain in
                 projectSessions.resolvePendingOpen(
@@ -201,8 +208,18 @@ private struct ActiveSessionChrome: View {
                     title: windowTitle
                 )
             )
-            .onReceive(session.workbenchFeature.$isSettingsPresented) { isPresented in
-                guard isPresented else { return }
+            .onReceive(session.workbenchFeature.$settingsCategoryRequest.dropFirst()) { _ in
+                SettingsWindowChrome.ownerWindow = NSApp.orderedWindows.first {
+                    ($0.delegate as? LitheWindowCoordinator)?.projectSessions.windowScope == scope
+                }
+                projectSessions.bindSettings(to: session.id)
+                if let settingsWindow = SettingsWindowChrome.settingsWindow {
+                    SettingsWindowChrome.configure(
+                        settingsWindow,
+                        title: settingsWindow.title,
+                        themePreference: session.settings.themePreference
+                    )
+                }
                 openWindow(id: LitheWindowID.settings)
             }
             .sheet(isPresented: Binding(
@@ -219,27 +236,14 @@ private struct ActiveSessionChrome: View {
                 DiagnosticsExportSheet(feature: session.diagnosticsFeature)
             }
             .sheet(item: scopedLocalHistoryRequest) { request in
-                LocalHistoryView(request: request)
+                LocalHistoryView(request: request, fontFamily: session.settings.editorFontFamily)
                     .environmentObject(session)
             }
             .sheet(item: scopedProjectLocalHistoryRequest) { request in
-                ProjectLocalHistoryView(request: request)
+                ProjectLocalHistoryView(request: request, fontFamily: session.settings.editorFontFamily)
                     .environmentObject(session)
             }
-            .confirmationDialog(
-                "Close Running Terminal?",
-                isPresented: terminalCloseConfirmationPresented,
-                titleVisibility: .visible
-            ) {
-                Button("Close Terminal", role: .destructive) {
-                    session.confirmTerminalClose()
-                }
-                Button("Cancel", role: .cancel) {
-                    session.cancelTerminalClose()
-                }
-            } message: {
-                Text("Closing this terminal will stop its shell and any running command.")
-            }
+
     }
 
     private var windowHandler: any ProjectWindowSessionHandling {
@@ -267,17 +271,6 @@ private struct ActiveSessionChrome: View {
         Binding(
             get: { session.projectLocalHistoryRequest },
             set: { session.projectLocalHistoryRequest = $0 }
-        )
-    }
-
-    private var terminalCloseConfirmationPresented: Binding<Bool> {
-        Binding(
-            get: { session.pendingTerminalCloseSessionID != nil },
-            set: { isPresented in
-                if !isPresented {
-                    session.cancelTerminalClose()
-                }
-            }
         )
     }
 
@@ -330,7 +323,7 @@ enum LitheWindowLayout: Equatable {
     case workspace
     case standalone
 
-    static let welcomeContentSize = NSSize(width: 900, height: 620)
+    static let welcomeContentSize = NSSize(width: 800, height: 650)
     static let workspaceContentSize = NSSize(width: 1440, height: 900)
     static let standaloneContentSize = NSSize(width: 1200, height: 760)
     static let standaloneMinimumContentSize = NSSize(width: 760, height: 480)
@@ -347,8 +340,8 @@ enum LitheWindowLayout: Equatable {
 
     var minimumContentSize: NSSize {
         switch self {
-        case .welcome: NSSize(width: 820, height: 560)
-        case .workspace: NSSize(width: 980, height: 640)
+        case .welcome: Self.welcomeContentSize
+        case .workspace: .zero
         case .standalone: Self.standaloneMinimumContentSize
         }
     }
@@ -473,6 +466,16 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         projectSessions.noteWindowBecameKey()
     }
 
+    func windowDidResize(_ notification: Notification) {
+        guard let window, notification.object as? NSWindow === window, let layout else { return }
+        alignWindowButtons(in: window, for: layout)
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        guard let window, notification.object as? NSWindow === window, let layout else { return }
+        alignWindowButtons(in: window, for: layout)
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if case .projectCleanupCompleted? = pendingNativeWindowCloseIntent {
             pendingNativeWindowCloseIntent = nil
@@ -588,7 +591,10 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             window.title = ""
             window.titleVisibility = .hidden
         }
-        guard self.layout != layout else { return }
+        guard self.layout != layout else {
+            alignWindowButtons(in: window, for: layout)
+            return
+        }
 
         let shouldAnimate = self.layout != nil && window.isVisible
         self.layout = layout
@@ -612,6 +618,20 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             targetFrame = LitheWindowLayout.frame(targetFrame, fitting: visibleFrame)
         }
         window.setFrame(targetFrame, display: true, animate: shouldAnimate)
+        alignWindowButtons(in: window, for: layout)
+    }
+
+    private func alignWindowButtons(in window: NSWindow, for layout: LitheWindowLayout) {
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        // AppKit centers these buttons in its native titlebar; the workspace
+        // draws a taller toolbar underneath them.
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(type), let host = button.superview else { continue }
+            let headerHeight = layout == .workspace ? LitheTheme.Metrics.toolbarHeight : host.bounds.height
+            let centeredY = host.bounds.maxY - headerHeight / 2 - button.frame.height / 2
+            guard abs(button.frame.minY - centeredY) > 0.5 else { continue }
+            button.setFrameOrigin(NSPoint(x: button.frame.minX, y: centeredY))
+        }
     }
 
     private func defaultWorkspaceFrame(for window: NSWindow, fitting visibleFrame: NSRect) -> NSRect {

@@ -61,6 +61,7 @@ function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): 
     saveWorkspaceBeforeLaunch: mock(async () => undefined),
     startRunProcess,
     stopRunProcess: mock(async () => undefined),
+    seedMavenLocalConfiguration: () => undefined,
     prepareJavaRunLaunch: mock(async () => null),
     javaBuildFailurePolicyForWorkspace: () => "ask",
     setJavaBuildFailurePolicy: mock(() => undefined),
@@ -72,6 +73,173 @@ function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): 
 }
 
 describe("Standalone Java compile-then-run", () => {
+  test("stopping resource processing invalidates the execution before JVM launch", async () => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached = () => {};
+    const started = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const stopRunProcess = mock(async () => undefined);
+    const { dependencies, startRunProcess } = standaloneDependencies({
+      executePreLaunchStep: async () => {
+        reached();
+        await gate;
+        return { exitCode: 0, output: "" };
+      },
+      stopRunProcess,
+    });
+    const store = createRunStore("resource-stop", dependencies);
+    store.setState({ root: "D:/work", configurations: [configuration], diagnostics: [] });
+    const launch = store.getState().actions.runConfiguration(configuration.id);
+    try {
+      await started;
+      const executionId = store.getState().sessions[0].executionId;
+      await store.getState().actions.stop(configuration.id);
+      expect(stopRunProcess).toHaveBeenCalledWith(configuration.id, executionId);
+    } finally {
+      release();
+      await launch;
+      await store.getState().actions.stop(configuration.id);
+    }
+    expect(startRunProcess).not.toHaveBeenCalled();
+  });
+  for (const provider of ["java.main", "spring-boot.maven"] as const) {
+    for (const exitCode of [0, 1]) {
+      test(`${provider} synchronizes Maven resources before launch (exit ${exitCode})`, async () => {
+        const events: string[] = [];
+        const resourceArguments = ["-B", "-ntp", "-pl", "app", "-am", "resources:resources"];
+        const { dependencies } = standaloneDependencies({
+          saveWorkspaceBeforeLaunch: async () => {
+            events.push("save");
+          },
+          prepareJavaRunLaunch: async () => {
+            events.push("build");
+            return {
+              kind: "ready",
+              target: {
+                mainClass: "example.Main",
+                projectName: "app",
+                modulePaths: [],
+                classPaths: ["D:/work/app/target/classes"],
+              },
+            };
+          },
+          createLaunchPlan: async () => ({
+            executable: { toolchain: "project-jdk" },
+            arguments: ["example.Main"],
+            workingDirectory: "custom-run",
+            classpath: ["D:/work/app/target/classes"],
+            preLaunchSteps: [
+              {
+                executable: { toolchain: "project-maven" },
+                arguments: resourceArguments,
+                workingDirectory: "app",
+              },
+            ],
+          }),
+          resolveRunLaunch: async (request) => {
+            if (request.executable.toolchain === "project-maven") {
+              // The resource step resolves Maven from the reactor (and finds a
+              // project wrapper there) instead of the overridden cwd.
+              expect(request.workingDirectory).toBe("app");
+              return { executable: "mvn.cmd", workingDirectory: "D:/work/app", environment: {} };
+            }
+            expect(request.workingDirectory).toBe("custom-run");
+            return {
+              executable: "java.exe",
+              workingDirectory: "D:/work/custom-run",
+              environment: {},
+            };
+          },
+          executePreLaunchStep: async (request) => {
+            expect(request.executable).toBe("mvn.cmd");
+            expect(request.arguments).toEqual(resourceArguments);
+            expect(request.workingDirectory).toBe("D:/work/app");
+            events.push("resources");
+            return { exitCode, output: "resource processing output\n" };
+          },
+          startRunProcess: async () => {
+            events.push("launch");
+          },
+        });
+        const store = createRunStore(`resource-sync-${provider}-${exitCode}`, dependencies);
+        store.setState({
+          root: "D:/work",
+          configurations: [{ ...configuration, provider }],
+          diagnostics: [],
+        });
+        try {
+          const result = await store.getState().actions.runConfiguration(configuration.id);
+          expect(result).toBe(exitCode === 0 ? configuration.id : null);
+          expect(events).toEqual(
+            exitCode === 0
+              ? ["save", "build", "resources", "launch"]
+              : ["save", "build", "resources"],
+          );
+          expect(store.getState().sessions[0].output).toContain("resource processing output");
+          if (exitCode !== 0) {
+            expect(store.getState().sessions[0].output).toContain(
+              "Pre-launch step failed (exit code 1).",
+            );
+            expect(store.getState().sessions[0].isRunning).toBe(false);
+          }
+        } finally {
+          await store.getState().actions.stop(configuration.id);
+        }
+      });
+    }
+  }
+  test("service update keeps its launch target and blocks duplicate updates", async () => {
+    const target = {
+      mainClass: "example.Main",
+      projectName: "app",
+      modulePaths: [],
+      classPaths: ["D:/work/classes", "D:/repo/spring-boot-devtools-3.5.0.jar"],
+    };
+    let release: () => void = () => {};
+    const buildGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const build = mock(async () => {
+      await buildGate;
+    });
+    const { dependencies } = standaloneDependencies({
+      prepareJavaRunLaunch: async () => ({ kind: "ready", target }),
+      buildJavaServiceUpdate: build,
+    });
+    const store = createRunStore("workspace-hcr", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [{ ...configuration, sourcePath: "src/Main.java" }],
+      diagnostics: [],
+    });
+    await store.getState().actions.runConfiguration(configuration.id);
+    const update = store.getState().actions.updateService(configuration.id);
+    try {
+      // save() resolves in one known microtask; compilation then waits on our gate.
+      await Promise.resolve();
+      store.setState({ configurations: [{ ...configuration, sourcePath: "src/Other.java" }] });
+      await store.getState().actions.updateService(configuration.id);
+      expect(build).toHaveBeenCalledTimes(1);
+      expect(build).toHaveBeenCalledWith(
+        "D:/work",
+        expect.objectContaining({ sourcePath: "src/Main.java", target }),
+      );
+      // A stop releases the visible session without waiting for the compiler.
+      await store.getState().actions.stop(configuration.id);
+    } finally {
+      release();
+      await update;
+      await store.getState().actions.stop(configuration.id);
+    }
+    expect(store.getState().serviceUpdates[configuration.id].message).not.toContain(
+      "Compilation finished",
+    );
+    expect(store.getState().serviceUpdates[configuration.id].pending).toBe(false);
+  });
   test("passes JDT launch metadata to Core and joins classpath and module-path", async () => {
     const javaLaunch = {
       mainClass: "example.Main",
@@ -116,6 +284,7 @@ describe("Standalone Java compile-then-run", () => {
     );
     expect(startRunProcess).toHaveBeenCalledWith(
       expect.objectContaining({
+        executionId: store.getState().sessions[0].executionId,
         arguments: [
           "--module-path",
           "D:/work/app/target/modules",
@@ -125,6 +294,7 @@ describe("Standalone Java compile-then-run", () => {
         ],
       }),
     );
+    expect(store.getState().sessions[0].executionId).toEqual(expect.any(String));
   });
 
   test("compiles with javac, then launches by class name with -cp", async () => {
@@ -140,6 +310,8 @@ describe("Standalone Java compile-then-run", () => {
     await store.getState().actions.runConfiguration(configuration.id);
 
     expect(executePreLaunchStep).toHaveBeenCalledWith({
+      sessionId: configuration.id,
+      executionId: store.getState().sessions[0].executionId,
       executable: "C:/jdk8/bin/javac.exe",
       arguments: ["-d", ".lithe/run/classes/standalone", "Standalone.java"],
       workingDirectory: "D:/work",
@@ -228,7 +400,7 @@ describe("Standalone Java compile-then-run", () => {
         id: configuration.id,
         isRunning: false,
         exitCode: 1,
-        output: expect.stringContaining("Compilation failed (exit code 1)."),
+        output: expect.stringContaining("Pre-launch step failed (exit code 1)."),
       }),
     ]);
   });
@@ -273,10 +445,7 @@ describe("Java project launch preparation feedback", () => {
     },
   };
 
-  function storeWith(
-    runConfiguration: RunConfiguration,
-    overrides: Partial<RunStoreDependencies>,
-  ) {
+  function storeWith(runConfiguration: RunConfiguration, overrides: Partial<RunStoreDependencies>) {
     const { dependencies } = standaloneDependencies({
       createLaunchPlan: mock(async () => projectPlan),
       ...overrides,
@@ -341,6 +510,9 @@ describe("Java project launch preparation feedback", () => {
 
     await store.getState().actions.runConfiguration(application.id);
 
+    expect(store.getState().primaryExecutionId).toEqual(expect.any(String));
+    expect(store.getState().primaryConfigurationId).toBe(application.id);
+    expect(store.getState().primaryPreparing).toBe(false);
     expect(primaryWhilePreparing?.title).toBe("ruoyi-admin");
     expect(primaryWhilePreparing?.output).toContain("waiting for the Java language service");
     expect(store.getState().primaryOutput).toStartWith("$ java.exe");
@@ -498,6 +670,7 @@ describe("Java project launch preparation feedback", () => {
 
     expect(startRunProcess).not.toHaveBeenCalled();
     expect(store.getState().sessions[0].isRunning).toBe(false);
+    expect(store.getState().sessions[0].isPreparing).toBe(false);
   });
 
   test("rebuild index cancels the pending launch and clears only this workspace", async () => {
@@ -567,8 +740,6 @@ describe("Java launch failure reporting", () => {
 
     await store.getState().actions.runConfiguration(configuration.id);
 
-    expect(store.getState().sessions[0].output).toContain(
-      "Unable to start the run configuration.",
-    );
+    expect(store.getState().sessions[0].output).toContain("Unable to start the run configuration.");
   });
 });

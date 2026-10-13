@@ -3,8 +3,8 @@ use serde_json::Value;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
@@ -19,14 +19,6 @@ pub fn apply_window_taskbar_icon(window: &WebviewWindow) {
     if let Err(error) = window.set_icon(WINDOW_TASKBAR_ICON.clone()) {
         eprintln!("[host] failed to set window icon: {error}");
     }
-}
-
-#[derive(Debug, Serialize)]
-pub struct FontInfo {
-    name: String,
-    family: String,
-    style: String,
-    is_monospace: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -258,6 +250,43 @@ fn copy_path(source: &std::path::Path, destination: &std::path::Path) -> Result<
 #[tauri::command]
 pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result<String, String> {
     let label = format!("workspace-{}", WINDOW_ID.fetch_add(1, Ordering::Relaxed));
+    let project_path = request
+        .as_ref()
+        .filter(|request| {
+            request.get("remoteConnectionId").is_none()
+                && (request.get("isDirectory").and_then(Value::as_bool) == Some(true)
+                    || request.get("type").and_then(Value::as_str) == Some("directory"))
+        })
+        .and_then(|request| request.get("path").and_then(Value::as_str))
+        .filter(|path| !path.contains("://"));
+    let identity = project_path
+        .map(|path| {
+            crate::project_window_registry::ProjectWindowRegistry::identity(Path::new(path))
+        })
+        .transpose()?;
+    let state = app.state::<crate::project_windows::ProjectWindows>();
+    // Serialize lookup + reservation + build, including concurrent IPC callers.
+    // The async mutex never blocks the UI event loop during Webview construction.
+    let mut registry = state.0.lock().await;
+    registry.retain_windows(|owner| app.get_webview_window(owner).is_some());
+    if let Some(identity) = identity {
+        let owner = registry.claim(identity, &label, None);
+        if owner.label != label {
+            crate::project_windows::focus_project(&app, &owner)?;
+            return Ok(owner.label);
+        }
+    }
+    let initial_path = request
+        .as_ref()
+        .filter(|request| request.get("remoteConnectionId").is_none())
+        .and_then(|request| request.get("path").and_then(Value::as_str));
+    let initial_title = crate::window_title::prepare_initial_title(
+        &app,
+        &label,
+        initial_path,
+        project_path.is_some(),
+        &registry.title_snapshot(),
+    );
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     if let Some(request) = request.and_then(|value| value.as_object().cloned()) {
         query.append_pair("target", "open");
@@ -292,24 +321,36 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
     } else {
         format!("index.html?{query}")
     };
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(path.into()))
-        .title("Lithe")
-        .decorations(false)
-        .inner_size(1280.0, 800.0)
-        .min_inner_size(720.0, 480.0)
-        .icon(WINDOW_TASKBAR_ICON)
-        .map_err(|error| error.to_string())?
-        .build()
-        .map_err(|error| error.to_string())?;
-    apply_window_taskbar_icon(&window);
-    Ok(label)
+    let result = (|| {
+        WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(path.into()))
+            .title(&initial_title)
+            .decorations(false)
+            .inner_size(1280.0, 800.0)
+            .min_inner_size(720.0, 480.0)
+            .icon(WINDOW_TASKBAR_ICON)
+            .map_err(|error| error.to_string())?
+            .build()
+            .map_err(|error| error.to_string())
+    })();
+    match result {
+        Ok(window) => {
+            apply_window_taskbar_icon(&window);
+            crate::window_title::window_created(&app);
+            Ok(label)
+        }
+        Err(error) => {
+            registry.release(&label, None);
+            crate::window_title::remove_window(&app, &label);
+            Err(error)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        WINDOW_TASKBAR_ICON, cli_payloads, copy_path, create_app_window, read_bounded,
-        read_local_file_bounded, unique_destination,
+        cli_payloads, copy_path, create_app_window, read_bounded, read_local_file_bounded,
+        unique_destination, WINDOW_TASKBAR_ICON,
     };
     use std::fs;
     use std::future::Future;
@@ -495,12 +536,6 @@ mod tests {
         assert!(visible_width >= 26, "visible width: {visible_width}");
         assert!(visible_height >= 26, "visible height: {visible_height}");
     }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn background_font_queries_do_not_create_windows_console() {
-        assert_eq!(super::font_query_process_creation_flags(), 0x0800_0000);
-    }
 }
 
 #[tauri::command]
@@ -524,101 +559,6 @@ pub fn set_native_window_appearance(
     window
         .set_theme(Some(theme))
         .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub fn get_system_fonts() -> Vec<FontInfo> {
-    platform_fonts()
-}
-
-#[tauri::command]
-pub fn get_monospace_fonts() -> Vec<FontInfo> {
-    platform_fonts()
-        .into_iter()
-        .filter(|font| font.is_monospace)
-        .collect()
-}
-
-#[tauri::command]
-pub fn validate_font(font_family: String) -> bool {
-    platform_fonts()
-        .iter()
-        .any(|font| font.family.eq_ignore_ascii_case(font_family.trim()))
-}
-
-#[cfg(target_os = "windows")]
-fn platform_fonts() -> Vec<FontInfo> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    let mut command = Command::new("reg.exe");
-    command
-        .args([
-            "query",
-            r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
-        ])
-        .creation_flags(font_query_process_creation_flags());
-    let output = command.output();
-    let text = output
-        .ok()
-        .filter(|value| value.status.success())
-        .map(|value| String::from_utf8_lossy(&value.stdout).into_owned())
-        .unwrap_or_default();
-    let mut families = text
-        .lines()
-        .filter_map(|line| line.split("    REG_").next())
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with("HKEY_"))
-        .map(|name| {
-            name.trim_end_matches(" (TrueType)")
-                .trim_end_matches(" (OpenType)")
-        })
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    families.extend(["Geist Sans".into(), "Geist Mono".into()]);
-    families.sort_by_key(|name| name.to_lowercase());
-    families.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
-    families
-        .into_iter()
-        .map(|family| FontInfo {
-            is_monospace: is_probably_monospace(&family),
-            name: family.clone(),
-            family,
-            style: "Regular".into(),
-        })
-        .collect()
-}
-
-#[cfg(target_os = "windows")]
-fn font_query_process_creation_flags() -> u32 {
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    CREATE_NO_WINDOW
-}
-
-#[cfg(not(target_os = "windows"))]
-fn platform_fonts() -> Vec<FontInfo> {
-    [
-        ("Geist Sans", false),
-        ("Geist Mono", true),
-        ("Menlo", true),
-        ("SF Mono", true),
-    ]
-    .into_iter()
-    .map(|(family, is_monospace)| FontInfo {
-        name: family.into(),
-        family: family.into(),
-        style: "Regular".into(),
-        is_monospace,
-    })
-    .collect()
-}
-
-#[cfg(target_os = "windows")]
-fn is_probably_monospace(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    ["mono", "code", "console", "courier", "fixed", "terminal"]
-        .iter()
-        .any(|token| lower.contains(token))
 }
 
 #[tauri::command]
@@ -760,4 +700,12 @@ pub fn open_file_external(app: AppHandle, path: String) -> Result<(), String> {
     app.opener()
         .open_path(path, None::<&str>)
         .map_err(|error| error.to_string())
+}
+
+/// Open saved HTML with the default HTTP browser, independent of file associations.
+#[tauri::command]
+pub async fn open_html_in_browser(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::html_browser::open(&path))
+        .await
+        .map_err(|_| "The browser launch task failed.".to_string())?
 }

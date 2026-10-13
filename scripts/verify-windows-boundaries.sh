@@ -10,9 +10,12 @@ if find windows \
   exit 1
 fi
 
+# The exemption pattern accepts backslash separators (ripgrep emits them on
+# Windows) and starts with a character class so Git Bash does not rewrite a
+# leading-slash argument into a Windows path.
 direct_imports=$(rg -l 'from "@tauri-apps/api/core"' windows/tauri/src \
   --glob '*.ts' --glob '*.tsx' | \
-  rg -v '/(core/lithe-core-client|platform/tauri-core)\.ts$' || true)
+  rg -v '[/\\](core[/\\]lithe-core-client|platform[/\\]tauri-core)\.ts$' || true)
 if [[ -n "$direct_imports" ]]; then
   echo "Frontend modules must use @/platform/tauri-core:" >&2
   echo "$direct_imports" >&2

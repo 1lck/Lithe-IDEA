@@ -30,9 +30,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Test dependency cache verification
+      - name: Test dependency cache tooling
         shell: bash
-        run: node scripts/test-verify-download-cache.mjs
+        run: |
+          node scripts/test-verify-download-cache.mjs
+          node scripts/test-reuse-worktree-resources.mjs
+          node --test --test-timeout=15000 scripts/test-codex-config-relay.mjs
 
       - name: Resolve comparison base
         id: base
@@ -121,6 +124,10 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory frontend/editor --report .artifacts/test-stability/shared-editor.json
 
+      - name: Test Windows dependency install recovery
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts
+
       - name: Configure isolated dependency caches
         shell: pwsh
         run: |
@@ -171,6 +178,32 @@ jobs:
         shell: pwsh
         run: bun run typecheck
 
+      - name: Build and verify optional PHP worker plugin
+        shell: pwsh
+        run: |
+          bun scripts/build-windows-php-plugin.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-windows-plugin-isolation.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-optional-plugins.json -- src/extensions/registry/extension-package-bootstrap.test.ts src/extensions/packages/local-extension-package.test.ts src/extensions/run src/extensions/ui/services/ui-extension-worker-runtime.test.ts src/extensions/registry/extension-store-lifecycle.test.ts src/features/run-actions/utils/run-action-discovery.test.ts
+
+      - name: Verify PHP is absent from the application bundle
+        shell: pwsh
+        run: |
+          Push-Location windows/tauri
+          try {
+            bun run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Pop-Location }
+          node scripts/verify-windows-plugin-isolation.mjs --dist
+
+      - name: Upload optional PHP plugin package
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-php-plugin
+          path: .artifacts/windows-plugins/*.lithe-extension
+          if-no-files-found: error
+
       - name: Verify Windows boundaries
         shell: pwsh
         run: ./scripts/verify-windows-boundaries.ps1
@@ -182,17 +215,86 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-documents.json -- src/features/editor/stores/editor-app.store.test.ts src/features/editor/services/document-external-change-workflow.test.ts src/features/editor/services/document-save-lifecycle.test.ts src/features/editor/services/document-watch-controller.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/features/editor/lsp/language-server-navigation.test.ts src/features/editor/lsp/java-navigation-marker-loader.test.ts src/features/editor/engines/monaco/definition-link-scheduler.test.ts src/features/editor/engines/monaco/java-implementation-markers.test.ts src/features/editor/engines/monaco/java-run-markers.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-definition-link.json -- src/features/editor/engines/monaco/definition-link.test.ts src/features/editor/engines/monaco/definition-link-scheduler.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-semantic-tokens.json -- src/platform/lsp-core-adapter.test.ts src/features/editor/lsp/lsp-client-semantic-tokens.test.ts src/features/editor/lsp/lsp-client-navigation-context.test.ts src/features/editor/engines/monaco/semantic-token-provider.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-ownership.json -- src/features/editor/extensions/api.owner-navigation.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-workspace.json -- src/features/editor/lsp/java-workspace-language-server.test.ts src/features/editor/lsp/java-workspace-change-scheduler.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          bun test src/features/debugger/services/debug-adapter-events.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-events.json -- src/features/debugger/services/debug-adapter-events.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The event bridge mocks the adapter module; run the real adapter tests in a separate process.
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-service.json -- src/features/debugger/services/debug-adapter-service.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-maven-run-markers.json -- --preload ./src/test-utils/vite-assets.ts src/features/maven/stores/maven.store.test.ts src/features/maven/services/java-test-discovery.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-run.json -- --preload ./src/test-utils/vite-assets.ts src/features/run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-watcher.json -- src/features/file-system/services/file-watcher-listener.test.ts src/features/file-system/stores/file-watcher.store.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Merged notification counts rely on toast identity, so the resend path
+          # stays covered instead of only its formatter.
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-notifications.json -- src/features/notifications
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test Java debug session ownership and cleanup
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          # Isolate adapter spies and Monaco/native mocks from other debug suites.
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-session-actions.json -- src/features/debugger/services/debug-session-actions.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-session-resources.json -- src/features/debugger/services/debug-session-resources.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-monaco-debug-decorations.json -- src/features/debugger/services/monaco-debug-decorations.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-maven-module-debug.json -- src/features/maven/services/maven-module-debug.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debugger-breakpoint-paths.json -- src/features/debugger/stores/debugger-breakpoints.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test Java file and package creation
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-source-template.json -- src/features/file-explorer/lib/java-source-template.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tree-dom-event.json -- src/features/file-explorer/lib/tree-dom-event.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-create-java-entry.json -- src/features/file-explorer/services/create-java-entry.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The entry store mocks native filesystem ownership; keep it in its own process.
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-new-entry-store.json -- src/features/file-explorer/stores/new-entry.store.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-name-validation.json -- src/utils/java-name-validation.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test workspace open, replace, and close lifecycle
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-lifecycle.json -- src/features/workspace/services/workspace-lifecycle.test.ts src/features/window/services/project-window-router.test.ts
+
+      - name: Test native window title context and lifecycle
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-title-context.json -- src/features/window/utils/window-title-context.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-title-source.json -- src/features/window/services/window-title-source.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-title-sync.json -- src/features/window/services/window-title-sync.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-title-focus.json -- src/features/window/services/window-title-focus.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test Git gutter changes and inline review lifecycle
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-gutter.json -- src/features/git/utils/git-gutter-changes.test.ts src/features/editor/engines/monaco/git-gutter-peek-session.test.ts
 
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
@@ -216,6 +318,14 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      - name: Test Windows Git path identity
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-paths.json -- src/features/git/api/git-repo-api.test.ts src/utils/path-helpers.test.ts
+
+      - name: Test Git commit messages and asynchronous diff ownership
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-commit-messages.json -- src/features/git/api/git-commits-api.test.ts src/features/git/components/log/git-commit-details.test.tsx src/features/git/hooks/use-git-diff-actions.test.tsx
+
       - name: Test Git query recovery and isolation
         shell: pwsh
         timeout-minutes: 5
@@ -226,12 +336,14 @@ jobs:
             "src/features/git/hooks/use-git-data-controller.integration.test.tsx",
             "src/features/git/stores/git-repository.store.test.ts",
             "src/features/git/stores/git.store.test.ts",
+            "src/features/git/runtime/git-status-refresh-host.test.tsx",
             "src/features/workspace/services/workspace-startup-priority.test.ts",
             "src/features/workspace/services/workspace-git-bootstrap.test.ts",
             "src/features/file-system/controllers/project-file-scan-coordinator.test.ts",
             "src/features/editor/lsp/resolve-editor-lsp-launch.test.ts",
             "src/features/git/utils/monaco-diff-rows.test.ts",
             "src/features/git/utils/git-diff-parser.test.ts",
+            "src/features/git/utils/git-graph-layout.test.ts",
             "src/features/git/utils/monaco-diff-hunk-actions.test.ts"
           )
           foreach ($seed in @(1, 3, 7)) {
@@ -241,9 +353,109 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-execution-journal.json -- src/features/git/services/git-execution-journal.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Test terminal discovery and profile selection
+      - name: Test Git Log previews, dates, columns, and workbench layout
         shell: pwsh
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/terminal/stores/shells.store.test.ts,src/features/terminal/utils/terminal-profiles.test.ts,src/features/terminal/utils/terminal-keyboard.test.ts
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          $previewTests = @(
+            "src/features/git/utils/monaco-diff-rows.test.ts",
+            "src/features/git/utils/commit-diff-chrome-geometry.test.ts",
+            "src/features/git/utils/independent-commit-diff.test.ts",
+            "src/features/git/components/diff/independent-commit-diff-surface.test.ts",
+            "src/features/git/hooks/use-commit-file-preview.test.tsx",
+            "src/features/git/utils/commit-file-diff-navigation.test.ts",
+            "src/features/git/components/diff/commit-file-diff-toolbar.test.tsx",
+            "src/features/git/utils/commit-file-diff-appearance.test.ts",
+            "src/features/git/utils/commit-diff-blocks.test.ts",
+            "src/features/git/utils/commit-diff-blocks.integration.test.ts",
+            "src/features/git/services/commit-diff-review.test.ts",
+            "src/features/git/components/diff/monaco-commit-block-controls.test.ts",
+            "src/features/git/hooks/use-commit-diff-review.test.tsx",
+            "src/features/git/utils/diff-buffer-label.test.ts"
+          )
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-log-preview.json -- @previewTests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-log-layout.json -- src/features/git/hooks/use-git-log-column-resize.test.tsx src/features/git/components/log/git-log-date-cell.test.tsx src/features/git/components/log/git-commit-file-tree.test.ts src/features/git/utils/git-log-columns.test.ts src/features/git/utils/git-log-date.test.ts src/features/git/utils/multi-file-diff.test.ts src/utils/document-resize-session.test.ts src/features/layout/components/plugin-activity-rail.test.ts src/features/layout/components/workbench-panel-frame.test.ts src/features/layout/config/item-order.test.ts src/features/keymaps/defaults/default-keymaps.git-log.test.ts src/features/terminal/stores/terminal.store.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test Git graph layout, rendering, navigation, and commit inspector
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          $graphTests = @(
+            "src/features/git/components/log/git-commit-inspector.test.tsx",
+            "src/features/git/components/log/git-commit-table.filter.test.tsx",
+            "src/features/git/components/log/git-commit-table.navigation.test.tsx",
+            "src/features/git/components/log/git-commit-table.presentation.test.tsx",
+            "src/features/git/components/log/git-commit-table-keyboard-menu.test.tsx",
+            "src/features/git/components/log/git-commit-table-tag.test.tsx",
+            "src/features/git/components/log/git-graph-row.test.ts",
+            "src/features/git/components/log/git-graph-row.theme.test.tsx",
+            "src/features/git/components/log/git-log-branch-actions.test.tsx",
+            "src/features/git/hooks/use-git-graph-paint.test.tsx",
+            "src/features/git/hooks/use-git-log-controller.integration.test.tsx",
+            "src/features/git/stores/git-log-preferences.store.test.ts",
+            "src/features/git/utils/git-graph-colors.test.ts",
+            "src/features/git/utils/git-graph-geometry.test.ts",
+            "src/features/git/utils/git-graph-highlights.test.ts",
+            "src/features/git/utils/git-graph-reference-group.test.ts"
+          )
+          # These files mock shared Git modules; random orders keep one file's mock from hiding in another.
+          foreach ($seed in @(1, 3, 7)) {
+            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-git-graph-$seed.json" -- --randomize "--seed=$seed" @graphTests
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Test Commit panel layout and history picker
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-commit-panel.json -- src/features/git/hooks/use-git-commit-picker.test.tsx src/features/git/hooks/use-git-commit-area-resize.test.tsx src/features/git/components/git-commit-panel.test.tsx
+
+      - name: Test workspace Git commit adapters and staging
+        shell: pwsh
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-commit.json -- git-workspace-commit git-status-api.test.ts git-status-model.test.ts ai-commit-context.test.ts working-tree-diff-refresh.test.ts file-context-menu-git-file-items.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-status.json -- git-workspace-status-panel.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-changelists.json -- git-changelists.store.test.ts git-changelist-bar.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test terminal discovery, default shell, profiles, and tab layout
+        shell: pwsh
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/terminal/stores/shells.store.test.ts,src/features/terminal/utils/terminal-profiles.test.ts,src/features/terminal/utils/terminal-keyboard.test.ts,src/features/settings/lib/default-shell-options.test.ts,src/features/terminal/components/terminal-tab-strip.test.tsx
+
+      - name: Test quick-open file search, number input steppers and editor settings route
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-quick-open-number-input.json -- src/features/quick-open/hooks/use-file-loader.test.tsx src/features/quick-open/hooks/use-file-search.test.tsx src/ui/number-input.test.tsx src/features/settings/components/editor-settings-routing.test.tsx
+
+      - name: Test wheel scroll animation and container wheel ownership
+        shell: pwsh
+        timeout-minutes: 3
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-wheel-scroll.json -- src/ui/wheel-scroll-animation.test.ts src/ui/scroll-container-wheel.integration.test.ts
+
+      - name: Test system font settings and search matching
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-font-settings.json -- src/features/settings/components/editor-font-settings.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-font-size.json -- src/features/settings/lib/editor-font-size.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-search-match.json -- src/utils/search-match.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test Spring dependency readiness and properties completion
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-spring-property-completion.json -- src/features/spring/utils/spring-property-completion.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-spring-index-readiness.json -- src/features/spring/hooks/use-spring-index.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows frontend test reports
         if: always()
@@ -416,9 +628,12 @@ jobs:
             --max-ms 15000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
+            --test-budget tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote=30000 `
             --test-budget tests::git::git_write_squashes_=30000 `
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
             --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `
+            --test-budget tests::git::git_write_updates_a_noncurrent_branch_without_switching_head=30000 `
+            --test-budget tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset=30000 `
             --build-timeout-ms 600000 `
             --suite-timeout-ms 1200000 `
             --report .artifacts/test-stability/windows-real-jdt.json

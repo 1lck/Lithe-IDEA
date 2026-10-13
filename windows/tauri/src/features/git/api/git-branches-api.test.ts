@@ -7,7 +7,8 @@ const invoke = mock(async (command: string): Promise<unknown> =>
 let gitWriteResult: { output?: string; exitCode?: number } | null = null;
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 
 const {
   checkoutGitReference,

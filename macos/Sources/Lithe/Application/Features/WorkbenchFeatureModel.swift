@@ -1,7 +1,8 @@
 import Combine
 import Foundation
 
-/// Owns the independent Maven dock and the mutually exclusive bottom tool window.
+/// Owns the right dock and the bottom tool window. Each area shows at most one
+/// tool window, and the two areas open and close independently of each other.
 ///
 /// AppModel keeps compatibility accessors for existing callers while new
 /// workbench code can depend on this focused state model directly.
@@ -10,6 +11,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     enum ToolWindow: Equatable {
         case gitLog
         case terminal
+        case agent
         case references
         case problems
         case maven
@@ -22,10 +24,12 @@ final class WorkbenchFeatureModel: ObservableObject {
 
     @Published var selectedSidebar: SidebarDestination = .project {
         didSet {
+            isSidebarVisible = true
             guard oldValue != selectedSidebar else { return }
             sidebarSelectionHandler?(selectedSidebar)
         }
     }
+    @Published private(set) var isSidebarVisible = true
     @Published var isSettingsPresented = false
     @Published private(set) var requestedSettingsCategory: SettingsCategory = .general
     /// Increments with every request, so an open Settings window moves to the
@@ -34,7 +38,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     @Published private(set) var settingsCategoryRequest = 0
     @Published var isCloneRepositoryPresented = false
     @Published private(set) var activeToolWindow: ToolWindow?
-    @Published private(set) var isMavenDockVisible = false
+    @Published private(set) var activeRightToolWindow: ToolWindow?
 
     private let layoutStore: WorkbenchLayoutStore?
     private var sidebarSelectionHandler: ((SidebarDestination) -> Void)?
@@ -49,14 +53,30 @@ final class WorkbenchFeatureModel: ObservableObject {
         sidebarSelectionHandler = handler
     }
 
+    /// Tool windows docked beside the editor instead of below it. Maven's
+    /// navigation tree and the Agent conversation both need the editor to stay
+    /// visible while they are open.
+    static func isRightDocked(_ toolWindow: ToolWindow) -> Bool {
+        switch toolWindow {
+        case .maven, .agent: true
+        default: false
+        }
+    }
+
     func isVisible(_ toolWindow: ToolWindow) -> Bool {
-        toolWindow == .maven ? isMavenDockVisible : activeToolWindow == toolWindow
+        Self.isRightDocked(toolWindow)
+            ? activeRightToolWindow == toolWindow
+            : activeToolWindow == toolWindow
     }
 
     func setVisibility(_ toolWindow: ToolWindow, isVisible: Bool) {
-        if toolWindow == .maven {
-            guard isMavenDockVisible != isVisible else { return }
-            isMavenDockVisible = isVisible
+        if Self.isRightDocked(toolWindow) {
+            if isVisible {
+                guard activeRightToolWindow != toolWindow else { return }
+                activeRightToolWindow = toolWindow
+            } else if activeRightToolWindow == toolWindow {
+                activeRightToolWindow = nil
+            }
             return
         }
         if isVisible {
@@ -77,7 +97,7 @@ final class WorkbenchFeatureModel: ObservableObject {
 
     func hideAllToolWindows() {
         hideBottomToolWindow()
-        isMavenDockVisible = false
+        activeRightToolWindow = nil
     }
 
     func presentSettings(category: SettingsCategory) {
@@ -105,5 +125,9 @@ final class WorkbenchFeatureModel: ObservableObject {
 
     func setSelectedSidebar(_ destination: SidebarDestination) {
         selectedSidebar = destination
+    }
+
+    func hideSidebar() {
+        isSidebarVisible = false
     }
 }

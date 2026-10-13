@@ -18,6 +18,11 @@
   --color-subtle-foreground: var(--subtle-foreground);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  /* IntelliJ-style form controls; themes that omit them reuse the generic borders. */
+  --color-control-border: var(--control-border, var(--border-strong));
+  --color-checkbox-border: var(--checkbox-border, var(--border-strong));
+  --color-checkbox-background: var(--checkbox-background, var(--background));
+  --color-tree-chevron: var(--tree-chevron, var(--subtle-foreground));
   --color-accent: var(--accent);
   --color-selected: var(--selected);
   --color-selection: var(--selection);
@@ -52,6 +57,9 @@
   --color-git-modified-staged: var(--git-modified-staged);
   --color-git-added: var(--git-added);
   --color-git-deleted: var(--git-deleted);
+  /* Deleted-file text (IntelliJ FileStatus.DELETED gray); git-deleted stays the
+     red used for removed diff lines. Themes without it fall back to git-deleted. */
+  --color-git-file-deleted: var(--git-file-deleted, var(--git-deleted));
   --color-git-untracked: var(--git-untracked);
   --color-git-renamed: var(--git-renamed);
 
@@ -120,9 +128,14 @@
     --lithe-pane-header-height: 2.25rem;
     --lithe-tab-bar-height: var(--lithe-pane-header-height);
     --lithe-tab-height: 1.75rem;
-    --lithe-tab-max-width: 12.5rem;
+    /* IntelliJ editor tabs show the whole title; only the tab count is limited. */
+    --lithe-tab-max-width: none;
     --lithe-sidebar-header-height: 2rem;
     --lithe-workbench-gap: 4px;
+    /* Wider seam between the left sidebar and the editor than between other panels. */
+    --lithe-sidebar-gap: 6px;
+    /* Editor-to-bottom-pane seam matches the sidebar seam so both axes read equally wide. */
+    --lithe-bottom-pane-gap: 6px;
     --lithe-chrome-control-height: 1.5rem;
     --lithe-chrome-hit-target: 1.75rem;
     --lithe-chrome-line-height: 1rem;
@@ -131,6 +144,8 @@
     --lithe-chrome-gap-loose: 6px;
     --lithe-chrome-padding-inline: 8px;
     --lithe-chrome-radius: 4px;
+    /* IntelliJ Islands panel cards: Island.arc = 20 (a 10px corner radius). */
+    --lithe-island-radius: 10px;
     --radius: 8px;
     --app-duration-fast: 150ms;
     --app-duration-normal: 200ms;
@@ -155,6 +170,14 @@
     --tab-bar-bg: var(--background);
     --tab-active-bg: var(--background);
     --tab-hover-bg: color-mix(in srgb, var(--accent) 72%, transparent);
+    /* IntelliJ Islands editor tabs: the selected tab is a bordered tinted chip, grey while
+       its group is unfocused. Derived from each theme's own colors; the Lithe themes set
+       the exact Islands tab-selected-* / tab-bg-hovered values. */
+    --editor-tab-selected-bg: color-mix(in srgb, var(--primary) 18%, var(--background));
+    --editor-tab-selected-border: color-mix(in srgb, var(--primary) 55%, var(--background));
+    --editor-tab-selected-inactive-bg: color-mix(in srgb, var(--foreground) 8%, var(--background));
+    --editor-tab-selected-inactive-border: var(--border-strong);
+    --editor-tab-hover-bg: color-mix(in srgb, var(--foreground) 8%, transparent);
     --shadow-card:
       0 1px 2px rgb(0 0 0 / 0.05), 0 2px 4px rgb(0 0 0 / 0.02), 0 0 0 0.5px rgb(0 0 0 / 0.08);
     --shadow-popover:

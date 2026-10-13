@@ -1,3 +1,7 @@
+import { FontSelector } from "./font-selector";
+import { MIN_EDITOR_FONT_SIZE, MAX_EDITOR_FONT_SIZE } from "../lib/editor-font-size";
+import { buildFontFamilyStack } from "../lib/font-family-resolution";
+import { DEFAULT_MONO_FONT_FAMILY } from "../config/typography-defaults";
 import { AiCommitSettingsPanel } from "./ai-commit-settings-panel";
 import { AISettings } from "./tabs/ai-settings";
 import { getVersion } from "@tauri-apps/api/app";
@@ -6,16 +10,27 @@ import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useUpdater } from "@/features/settings/hooks/use-updater";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import type { EditorTabLayoutMode } from "@/features/settings/types/settings.types";
 import {
   getProjectOpenPreference,
   getProjectOpenPreferencePatch,
   type ProjectOpenPreference,
 } from "@/features/settings/lib/project-open-preference";
+import {
+  SYSTEM_DEFAULT_SHELL_VALUE,
+  getDefaultShellOptions,
+} from "@/features/settings/lib/default-shell-options";
+import { useTerminalShellsStore } from "@/features/terminal/stores/shells.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
+import NumberInput from "@/ui/number-input";
 import Switch from "@/ui/switch";
+import { SETTINGS_CONTROL_WIDTHS } from "./settings-section";
 import { LogSettingsPanel } from "./log-settings-panel";
+import { MavenSettingsPanel } from "./tabs/maven-settings-panel";
 import { GitSettings } from "./tabs/git-settings";
+import { KeyboardSettings } from "./tabs/keyboard-settings";
+import { McpConfigurationSettings } from "./mcp-configuration-settings";
 import { ProjectEnvironmentSettings } from "./project-environment-settings";
 
 import { RunConfigurationSettings } from "./run-configuration-settings";
@@ -23,12 +38,14 @@ import { RunConfigurationSettings } from "./run-configuration-settings";
 export type MacSettingsCategory =
   | "run"
   | "project"
+  | "mcp"
   | "git"
   | "general"
   | "editor"
   | "keyboard"
   | "terminal"
   | "lsp"
+  | "maven"
   | "ai"
   | "ai-commit"
   | "logs"
@@ -202,8 +219,11 @@ function GeneralPanel() {
               const patch = getProjectOpenPreferencePatch(
                 event.target.value as ProjectOpenPreference,
               );
-              if (patch.openFoldersInNewWindow !== undefined) {
-                void updateSetting("openFoldersInNewWindow", patch.openFoldersInNewWindow);
+              if (patch.projectOpenDefaultDestination !== undefined) {
+                void updateSetting(
+                  "projectOpenDefaultDestination",
+                  patch.projectOpenDefaultDestination,
+                );
               }
               void updateSetting("askWhereToOpenProjects", patch.askWhereToOpenProjects ?? true);
             }}
@@ -211,6 +231,7 @@ function GeneralPanel() {
             <option value="ask">{t("settings.mac.askEveryTime")}</option>
             <option value="this-window">{t("settings.mac.thisWindow")}</option>
             <option value="new-window">{t("settings.mac.newWindow")}</option>
+            <option value="attach">{t("settings.mac.attach")}</option>
           </select>
         </SettingsRow>
       </SettingsGroup>
@@ -280,16 +301,58 @@ function EditorPanel() {
   return (
     <div className="flex flex-col gap-4">
       <SettingsGroup title={t("settings.mac.display")}>
-        <SettingsRow label={t("settings.mac.fontSize")}>
-          <input
-            type="number"
-            min={10}
-            max={22}
-            className={`${controlClassName} w-20 text-right`}
-            value={settings.fontSize}
-            onChange={(event) => void updateSetting("fontSize", Number(event.target.value))}
+        <SettingsRow
+          label={t("settings.editor.fontFamily")}
+          description={t("settings.editor.fontFamilyDescription")}
+        >
+          <FontSelector
+            value={settings.fontFamily}
+            onChange={(family) => void updateSetting("fontFamily", family)}
+            monospaceOnly={false}
+            aria-label={t("settings.editor.fontFamily")}
+            className="w-64 max-w-full"
           />
         </SettingsRow>
+        <SettingsRow
+          label={t("settings.mac.fontSize")}
+          description={t("settings.editor.fontSizeDescription")}
+        >
+          <NumberInput
+            min={MIN_EDITOR_FONT_SIZE}
+            max={MAX_EDITOR_FONT_SIZE}
+            step={1}
+            size="md"
+            className={SETTINGS_CONTROL_WIDTHS.numberCompact}
+            aria-label={t("settings.mac.fontSize")}
+            value={settings.fontSize}
+            onChange={(value) => void updateSetting("fontSize", value)}
+          />
+        </SettingsRow>
+        <SettingsRow
+          label={t("settings.editor.fontLigatures")}
+          description={t("settings.editor.fontLigaturesDescription")}
+        >
+          <Switch
+            checked={settings.editorFontLigatures}
+            onChange={(enabled) => void updateSetting("editorFontLigatures", enabled)}
+            aria-label={t("settings.editor.fontLigatures")}
+            size="sm"
+          />
+        </SettingsRow>
+        <pre
+          aria-label={t("settings.editor.fontPreview")}
+          className="mx-3 overflow-x-auto rounded-lg bg-secondary/40 p-3"
+          style={{
+            fontFamily: buildFontFamilyStack(settings.fontFamily, DEFAULT_MONO_FONT_FAMILY),
+            fontSize: settings.fontSize,
+            fontVariantLigatures: settings.editorFontLigatures ? "normal" : "none",
+            fontFeatureSettings: settings.editorFontLigatures
+              ? '\"liga\" 1, \"calt\" 1'
+              : '\"liga\" 0, \"calt\" 0',
+          }}
+        >
+          {"const ready = a != b && count <= 10;\n(a, b) => a === b   中文字体预览 0123456789"}
+        </pre>
         <SettingsRow label={t("settings.mac.showCodeVision")}>
           <Switch
             checked={settings.codeLens}
@@ -297,17 +360,26 @@ function EditorPanel() {
             size="sm"
           />
         </SettingsRow>
-      </SettingsGroup>
-      <SettingsGroup title={t("settings.mac.editorTabs")}>
-        <SettingsRow
-          label={t("settings.editor.bufferCarousel")}
-          description={t("settings.editor.bufferCarouselDescription")}
-        >
+        <SettingsRow label={t("settings.editor.showMinimap")}>
           <Switch
-            checked={settings.horizontalTabScroll}
-            onChange={(checked) => void updateSetting("horizontalTabScroll", checked)}
+            checked={settings.showMinimap}
+            onChange={(checked) => void updateSetting("showMinimap", checked)}
             size="sm"
           />
+        </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.mac.editorTabs")}>
+        <SettingsRow label={t("settings.mac.layout")}>
+          <select
+            className={`${controlClassName} w-40`}
+            value={settings.editorTabLayoutMode}
+            onChange={(event) =>
+              void updateSetting("editorTabLayoutMode", event.target.value as EditorTabLayoutMode)
+            }
+          >
+            <option value="singleLine">{t("settings.mac.singleRow")}</option>
+            <option value="multipleRows">{t("settings.mac.wrapRows")}</option>
+          </select>
         </SettingsRow>
       </SettingsGroup>
       <SettingsGroup title={t("settings.mac.indentation")}>
@@ -327,52 +399,23 @@ function EditorPanel() {
   );
 }
 
-function KeyboardPanel() {
-  const { t } = useTranslation();
-  const settings = useSettingsStore((state) => state.settings);
-  const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-
-  return (
-    <div className="flex flex-col gap-4">
-      <SettingsGroup title={t("settings.mac.keymapPreset")}>
-        <SettingsRow label={t("settings.mac.preset")}>
-          <select
-            className={`${controlClassName} w-44`}
-            value={settings.keybindingPreset}
-            onChange={(event) =>
-              void updateSetting(
-                "keybindingPreset",
-                event.target.value as typeof settings.keybindingPreset,
-              )
-            }
-          >
-            <option value="none">{t("settings.mac.keymapLithe")}</option>
-            <option value="vscode">{t("settings.mac.keymapVisualStudioCode")}</option>
-            <option value="jetbrains">{t("settings.mac.keymapJetBrains")}</option>
-            <option value="xcode">{t("settings.mac.keymapXcode")}</option>
-          </select>
-        </SettingsRow>
-      </SettingsGroup>
-      <SettingsGroup title={t("settings.mac.shortcuts")}>
-        <label className="flex h-8 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-subtle-foreground">
-          <span aria-hidden="true">⌕</span>
-          <input
-            className="min-w-0 flex-1 bg-transparent text-foreground outline-none"
-            placeholder={t("settings.mac.searchShortcuts")}
-          />
-        </label>
-        <p className="ui-text-sm leading-relaxed text-subtle-foreground">
-          {t("settings.mac.shortcutsDescription")}
-        </p>
-      </SettingsGroup>
-    </div>
-  );
-}
-
 function TerminalPanel() {
   const { t } = useTranslation();
   const settings = useSettingsStore((state) => state.settings);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
+  const shells = useTerminalShellsStore.use.shells();
+  const hasLoadedShells = useTerminalShellsStore.use.hasLoaded();
+  const isDetectingShells = useTerminalShellsStore.use.isLoading();
+  const shellDetectionError = useTerminalShellsStore.use.error();
+  const shellOptions = getDefaultShellOptions({
+    shells,
+    selectedShellId: settings.terminalDefaultShellId,
+    hasLoaded: hasLoadedShells,
+  });
+
+  useEffect(() => {
+    void useTerminalShellsStore.getState().actions.loadShells();
+  }, []);
 
   return (
     <SettingsGroup title={t("settings.mac.shell")}>
@@ -381,16 +424,36 @@ function TerminalPanel() {
         description={t("settings.mac.defaultShellDescription")}
       >
         <select
-          className={`${controlClassName} w-44`}
+          className={`${controlClassName} w-64`}
           value={settings.terminalDefaultShellId}
           onChange={(event) => void updateSetting("terminalDefaultShellId", event.target.value)}
         >
-          <option value="">{t("settings.mac.systemDefault")}</option>
-          <option value="powershell">{t("settings.mac.shellPowerShell")}</option>
-          <option value="cmd">{t("settings.mac.shellCommandPrompt")}</option>
-          <option value="wsl">{t("settings.mac.shellWsl")}</option>
+          {shellOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.value === SYSTEM_DEFAULT_SHELL_VALUE
+                ? t("settings.mac.systemDefault")
+                : option.isAvailable
+                  ? (option.shellName ?? option.value)
+                  : `${option.value} (${t("terminal.shellUnavailable")})`}
+            </option>
+          ))}
         </select>
       </SettingsRow>
+      <div className="flex items-center gap-3">
+        <Button
+          variant="default"
+          size="sm"
+          disabled={isDetectingShells}
+          onClick={() => void useTerminalShellsStore.getState().actions.loadShells({ force: true })}
+        >
+          {t(isDetectingShells ? "terminal.detectingShells" : "terminal.detectShells")}
+        </Button>
+        {shellDetectionError ? (
+          <p role="alert" className="ui-text-caption text-destructive">
+            {t("terminal.detectShellsFailed")}
+          </p>
+        ) : null}
+      </div>
     </SettingsGroup>
   );
 }
@@ -440,14 +503,43 @@ function LspPanel() {
 function UpdatesPanel() {
   const { t } = useTranslation();
   const [appVersion, setAppVersion] = useState("");
-  const [hasCheckedForUpdates, setHasCheckedForUpdates] = useState(false);
-  const { checking, available, updateInfo, error, checkForUpdates } = useUpdater(false);
+  const {
+    status,
+    checking,
+    available,
+    downloading,
+    installing,
+    updateInfo,
+    error,
+    downloadProgress,
+    checkForUpdates,
+    downloadAndInstall,
+  } = useUpdater(false);
+  const busy = checking || downloading || installing;
+  // An update found here is installed from this panel: the check and the
+  // install action sit side by side, so no dialog opens over Settings.
+  const installFailed = status === "failed" && updateInfo !== null;
+  const installable = updateInfo !== null && (available || installFailed);
 
   useEffect(() => {
     void getVersion()
       .then(setAppVersion)
       .catch(() => setAppVersion(""));
   }, []);
+
+  const statusMessage = () => {
+    if (checking) return t("settings.mac.checking");
+    if (downloading) {
+      return t("update.updatingProgress", { percentage: downloadProgress?.percentage ?? 0 });
+    }
+    if (installing) return t("settings.general.installing");
+    if (installFailed) return error;
+    if (error) return t("settings.mac.updateFailed");
+    if (available) {
+      return t("settings.mac.updateAvailable", { version: updateInfo?.targetVersion ?? "" });
+    }
+    return status === "upToDate" ? t("settings.mac.upToDate") : t("settings.mac.updateHint");
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -456,26 +548,33 @@ function UpdatesPanel() {
           label="Lithe"
           description={t("settings.mac.currentVersion", { version: appVersion || "…" })}
         >
-          <Button
-            variant="accent"
-            size="sm"
-            disabled={checking}
-            onClick={() => {
-              setHasCheckedForUpdates(true);
-              void checkForUpdates({ ignoreSuppression: true });
-            }}
-          >
-            {checking ? t("settings.mac.checking") : t("settings.mac.checkForUpdates")}
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              variant={installable ? "ghost" : "accent"}
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                void checkForUpdates({ ignoreSuppression: true });
+              }}
+            >
+              {checking ? t("settings.mac.checking") : t("settings.mac.checkForUpdates")}
+            </Button>
+            {installable && updateInfo ? (
+              <Button
+                variant="accent"
+                size="sm"
+                disabled={busy}
+                onClick={() => void downloadAndInstall()}
+              >
+                {installFailed
+                  ? t("ui.retry")
+                  : t("settings.general.installUpdate", { version: updateInfo.targetVersion })}
+              </Button>
+            ) : null}
+          </div>
         </SettingsRow>
         <p className="ui-text-sm text-subtle-foreground" role="status">
-          {error
-            ? t("settings.mac.updateFailed")
-            : available
-              ? t("settings.mac.updateAvailable", { version: updateInfo?.targetVersion ?? "" })
-              : hasCheckedForUpdates
-                ? t("settings.mac.upToDate")
-                : t("settings.mac.updateHint")}
+          {statusMessage()}
         </p>
       </SettingsGroup>
     </div>
@@ -492,6 +591,8 @@ export function MacSettingsPanel({
   switch (category) {
     case "run":
       return <RunConfigurationSettings />;
+    case "mcp":
+      return <McpConfigurationSettings />;
     case "project":
       return <ProjectEnvironmentSettings />;
     case "git":
@@ -501,11 +602,13 @@ export function MacSettingsPanel({
     case "editor":
       return <EditorPanel />;
     case "keyboard":
-      return <KeyboardPanel />;
+      return <KeyboardSettings />;
     case "terminal":
       return <TerminalPanel />;
     case "lsp":
       return <LspPanel />;
+    case "maven":
+      return <MavenSettingsPanel />;
     case "ai":
       return <AISettings />;
     case "ai-commit":

@@ -1,14 +1,10 @@
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
 import { cva } from "class-variance-authority";
 import type React from "react";
-import { MinusIcon as Minus, PlusIcon as Plus } from "@/ui/icons";
+import { CaretDownIcon, CaretUpIcon } from "@/ui/icons";
 import { Button } from "@/ui/button";
 import { useTranslation } from "@/i18n/locale-provider";
-import {
-  controlIconSizes,
-  controlSizeVariants,
-  controlSurfaceVariants,
-} from "@/utils/control-variants";
+import { controlSizeVariants, controlSurfaceVariants } from "@/utils/control-variants";
 import { cn } from "@/utils/cn";
 
 interface InputProps extends Omit<
@@ -36,7 +32,10 @@ const numberInputTextSize = {
   md: "ui-text-base",
 } as const;
 
-const numberInputGroupVariants = cva("flex min-w-0 items-center gap-1", {
+const numberInputButtonSize = { xs: "icon-xs", sm: "icon-sm", md: "icon" } as const;
+const numberInputIconSize = { xs: "size-3", sm: "size-3.5", md: "size-4" } as const;
+
+const numberInputGroupVariants = cva("flex min-w-0 items-center gap-2", {
   variants: {
     disabled: {
       true: "opacity-50",
@@ -93,13 +92,6 @@ export default function NumberInput({
       }}
       className={cn(numberInputGroupVariants({ disabled }), className)}
     >
-      <NumberFieldPrimitive.Decrement
-        render={<Button type="button" variant="ghost" size="icon-xs" className="shrink-0" />}
-        aria-label={t("ui.decreaseValue")}
-      >
-        <Minus size={controlIconSizes[size]} />
-      </NumberFieldPrimitive.Decrement>
-
       <NumberFieldPrimitive.Input
         data-setting-primary-control="true"
         {...props}
@@ -108,16 +100,24 @@ export default function NumberInput({
           controlSizeVariants({ size }),
           numberInputTextSize[size],
           numberInputFieldPadding[size],
-          "min-w-[5ch] flex-1 bg-transparent text-center tabular-nums text-foreground outline-none placeholder:text-subtle-foreground",
+          "w-0 min-w-[5ch] flex-1 appearance-none text-center tabular-nums leading-normal text-foreground outline-none placeholder:text-subtle-foreground [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none",
         )}
       />
 
-      <NumberFieldPrimitive.Increment
-        render={<Button type="button" variant="ghost" size="icon-xs" className="shrink-0" />}
-        aria-label={t("ui.increaseValue")}
-      >
-        <Plus size={controlIconSizes[size]} />
-      </NumberFieldPrimitive.Increment>
+      <div className="flex shrink-0 items-center gap-1">
+        <NumberFieldPrimitive.Increment
+          render={<Button type="button" variant="default" size={numberInputButtonSize[size]} />}
+          aria-label={t("ui.increaseValue")}
+        >
+          <CaretUpIcon className={numberInputIconSize[size]} />
+        </NumberFieldPrimitive.Increment>
+        <NumberFieldPrimitive.Decrement
+          render={<Button type="button" variant="default" size={numberInputButtonSize[size]} />}
+          aria-label={t("ui.decreaseValue")}
+        >
+          <CaretDownIcon className={numberInputIconSize[size]} />
+        </NumberFieldPrimitive.Decrement>
+      </div>
     </NumberFieldPrimitive.Root>
   );
 }

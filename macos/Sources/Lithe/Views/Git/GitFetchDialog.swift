@@ -19,9 +19,9 @@ struct GitFetchDialog: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Fetch Options").font(.headline)
+            Text("Fetch Options").font(LitheTheme.uiFont(.headline))
             if let root = feature.gitRepositoryRoot {
-                Text(verbatim: root.path).font(.caption).foregroundStyle(.secondary)
+                Text(verbatim: root.path).font(LitheTheme.uiFont(.caption)).foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
             Toggle("Fetch all remotes", isOn: Binding(
@@ -36,12 +36,12 @@ struct GitFetchDialog: View {
             }
             GitFetchPolicyControls(options: $options)
             Text("These choices apply to this Fetch only. Git configuration and credentials remain unchanged.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(LitheTheme.uiFont(.caption)).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 8) {
                 Text("Planned command").font(.subheadline.weight(.medium))
                 if let plan, plan.options == options {
                     Text(verbatim: plan.commandLine)
-                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                        .font(LitheTheme.uiFont(.caption, design: .monospaced)).textSelection(.enabled)
                 } else if let errorMessage {
                     Text(verbatim: errorMessage).foregroundStyle(LitheTheme.error)
                 } else {

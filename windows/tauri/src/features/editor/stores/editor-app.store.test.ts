@@ -96,7 +96,7 @@ describe("workspace-scoped editor actions", () => {
       caseSensitive: true, wholeWord: false, useRegex: false,
     })).toBe(1);
     const actions = useBufferStore.getStore(WORKSPACE_A).getState().actions;
-    actions.replaceRestoredBufferContent(a.id, "stale content", "plaintext");
+    actions.replaceRestoredBufferContent(a.id, "stale content", "plaintext", undefined, undefined);
     expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("new name");
     expect(getEditorBuffer(WORKSPACE_A, a.id).savedContent).toBe("old name");
     expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(true);

@@ -51,6 +51,12 @@ workflows. They identify the latest published preview, rather than an arbitrary
 PR. macOS preview jobs additionally expose their own artifact links before the
 combined rolling Release publishes.
 
+Git 路径往返集成测试 `rust/lithe-core/tests/git_path_roundtrip.rs` 需要 Git 和
+Node.js 22.6+（用于直接加载实际前端 TypeScript 路径规范化函数），不需要安装
+Bun 或前端依赖。CI 复用计时脚本已使用的 runner Node.js，本地运行时需满足
+上述最低版本；该测试随 SharedRust 计时测试执行，结果写入现有
+`.artifacts/test-stability/` 报告。
+
 ## Build time and caches
 
 The September 12, 2026 investigation found two separate sources of delay:
@@ -87,7 +93,175 @@ GitHub queue delays remain outside these build steps. Compare warm-cache runs
 with these baselines before claiming a measured improvement. A runner pool
 change should be evaluated separately if queueing continues to dominate.
 
+### macOS Git 真实窗口性能采样
+
+普通 `./scripts/test-macos.sh` 和 `./scripts/test-git-performance-baseline.sh`
+默认跳过两个 WindowServer/display-link 真实窗口采样用例，继续运行 Git 图布局、
+离屏绘制和其他性能回归验证。图形离屏帧采样保留完整 1,000 行历史，分别在
+开头、中间、末尾采样 40 行可见区域，并检查位图确实绘制了图形。完整图的
+结构和 Release 基线仍覆盖 1,000/5,000 行；单帧与测试总耗时上限保持不变。
+真实窗口采样需要 macOS 14+ 和可用的桌面显示；
+只在专门测量滚动帧率时显式开启：
+
+```bash
+LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
+  ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+  -- --filter 'GitGraphPerformanceBaselineTests.*[wW]indowCompositorFrameSample'
+```
+
+此命令会短暂显示两个有标题、不透明的普通层级测试窗口，不强制激活程序或抢占
+焦点。用例在成功、跳过或超时后关闭窗口、停止显示链接，并恢复原激活策略。
+没有可用显示或没有收到显示链接回调时，用例输出未采样原因，不能将其计为真实
+帧率验证。不要在普通开发验证或无人值守 CI 中默认设置该环境变量。
+
+Swift 文本文件策略直接调用 Rust Core，因此 `scripts/test-macos.sh` 会先构建并链接
+当前工作树的 Core 静态库。它复用现有 `rust/target/macos` 构建路径；这是可变编译状态，
+不允许跨工作树复制或共享，也没有新增可复用资源目录。依赖下载仍按下文清单复用。
+Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先通过
+`./scripts/test-macos.sh list` 构建并发现测试，独立步骤上限为 20 分钟；随后计时工具
+传入 `--skip-build`，测试阶段保留 960 秒总时限及 17 分钟外层步骤时限，给超时清理
+与报告留出一分钟。冷构建不再消耗测试执行预算；单测试预算和无输出看门狗保持不变。
+
+### 独立工作树的本地编译
+
+功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
+`<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。
+它依赖当前 checkout 的能力记录、证据路径及提交信息，没有可靠的版本、平台、
+架构或工具链 identity stamp；任何复制阶段都应排除。资源清单的
+`excludedResources.platform-feature-matrix` 由复用脚本直接拒绝。目标工作树运行
+`node scripts/generate-platform-feature-matrix.mjs`，校验源数据后重新生成。
+
+IDE MCP helper 由 `scripts/build-ide-mcp.sh`（macOS）和
+`scripts/build-windows-ide-mcp.mjs`（Windows Tauri 构建前）从当前源码与
+`rust/Cargo.lock` 构建。`dist/ide-mcp/`、`rust/target/windows-ide-mcp/` 和
+`windows/tauri/src-tauri/helpers/` 没有可靠 identity stamp，不允许跨工作树复用；
+目标架构、Rust 工具链及签名由各自打包流程验证，复制只发生在本次构建的打包阶段。
+`<platform-app-data>/mcp/` 保存项目连接凭据和实例锁，属于运行时私有状态，
+不能进入安装包、缓存复用或版本控制；运行时不修改打包的 helper。
+
+Git worktree 只共享 Git 对象，不共享各自的 `.artifacts` 目录。如果从一个
+工作树单独创建另一个工作树进行编译，优先复用原工作树已经下载或构建完成的
+资源，避免重复等待网络下载和资源准备。
+
+在新工作树根目录运行资源复用脚本，并通过 `--source` 指向已有缓存的同仓库
+工作树：
+
+```bash
+node scripts/reuse-worktree-resources.mjs --source /path/to/existing-worktree
+```
+
+脚本默认处理注册表中的全部资源，也可以重复传入 `--resource` 只处理指定资源：
+
+```bash
+node scripts/reuse-worktree-resources.mjs \
+  --source /path/to/existing-worktree \
+  --resource cargo \
+  --resource jdtls \
+  --resource jdk
+```
+
+`node scripts/reuse-worktree-resources.mjs --list` 可以查看当前注册资源。脚本只允许
+同一 Git 仓库的 linked worktree 互相复用资源，不修改源工作树。它先把源资源
+复制到目标工作树的临时目录，按照对应的 manifest、lockfile 或完整性清单校验，
+再原子替换目标目录并进行第二次校验。目标已有不少于源缓存的有效文件时会保留
+目标，不重复复制；校验失败的文件不会发布到目标缓存。
+
+JDTLS 和 JDK 使用
+[`third_party/jdtls/manifest.json`](../third_party/jdtls/manifest.json) 与
+[`third_party/jdk/manifest.json`](../third_party/jdk/manifest.json) 中的
+SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性清单。当前
+自动复用的资源由 [`scripts/worktree-resources.json`](../scripts/worktree-resources.json)
+统一注册：
+
+- `.artifacts/cargo-home/registry/cache/`：Cargo crate 下载归档；按所有相关
+  `Cargo.lock` 中的 checksum 校验。
+- `.artifacts/swiftpm-cache/`：SwiftPM 依赖仓库；按 `Package.resolved`、
+  `.swift-version` 和 `.lithe-integrity.json` 校验。
+- `.artifacts/bun-cache/`：Bun 下载缓存；按 `bun.lock`、Bun 版本和缓存完整性
+  清单校验。
+  Windows 的每次依赖安装在独立 worker 中执行；worker 在启动 Bun 前加入
+  Job Object（Windows 用于管理整棵子进程树的对象），退出时终止残留安装脚本。
+  每次安装默认有 300 秒本地期限，超时终止 worker 及其子进程；
+  安装失败后先释放子进程，再清理部分依赖与缓存，并只进行一次冷安装重试；
+  文件锁释放有 10 秒本地期限。`node_modules`、两个 workspace 的依赖目录和
+  `.artifacts/bun-tmp` 是安装过程的可变状态，不跨 worktree 复制；进程句柄只在
+  worker 内存中存活，不增加下载目录，不写发行资源，也不影响签名或增量更新。
+- `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
+- `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
+- `.artifacts/php-language-server-downloads/`：按
+  `Plugins/mac/Official/PhpSupport/language-server.json` 下载并校验的
+  Intelephense tarball；它只服务当前工作树的插件打包，不能复制解压结果。
+
+Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息位于 Git 跟踪的
+`macos/Resources/Fonts`。同目录增加 Nerd Fonts v3.5.1 的 JetBrains Mono Nerd Font Mono 四个完整 TTF（常规、粗体、斜体、粗斜体）及 OFL 许可，终端可直接选择这些字型而不依赖用户安装；来源、版本和固定 SHA-256 记录于 `NOTICE.txt`。它们与平台架构和工具链无关，随工作树检出，不从另一个
+工作树的产物或已签名 app 复用；注册表将 `bundled-ui-fonts` 排除，复用脚本拒绝
+复制。打包脚本在签名前复制到 `Contents/Resources/Fonts`，资源门禁检查全部字型；
+`BundledUIFontTests` 检查版本、CoreText process 注册、字号/字重、SwiftUI 字体及
+注册前后的文件清单与 SHA-256。运行时仅只读注册和 WebKit 加载，不修改 bundle，
+不影响 Sparkle delta 的发布基线。
+
+以下目录不应直接复制或跨工作树共享：
+
+- Sparkle 差分基线的单次发布临时目录：
+  `<system-temp>/<sparkle-run>/archives/.baseline-<attempt>/` 保存每次 `gh`
+  下载尝试，只有命令成功且文件非空才移入同次发布的 `archives/<selected-baseline>.zip`。
+  输入由 GitHub Release 中选定的仓库、tag、stable/preview 渠道和 macOS 架构决定；
+  成功下载不是可复用的版本、平台、架构或工具链 identity stamp，也不替代后续
+  Sparkle 归档、签名与 appcast 校验。失败或取消时先结束所属下载进程，再删除
+  该次 staging；发布脚本退出时删除整个系统临时目录，不写已安装 app。
+  `excludedResources.sparkle-baseline-staging` 经排除路由直接拒绝，任何复制阶段
+  都不得跨工作树复用；每次发布仍从选定的 GitHub Release 下载基线。
+
+- Java 启动临时文件：`<system-temp>/lithe-run/launch-<pid>-<counter>.argfile`
+  和同目录的 `.classpath.jar` 由平台启动 adapter 为单次执行独占创建，包含该次
+  执行的绝对类路径、工作目录、JDK 版本及编码语义，没有可复用的版本、平台、架构
+  或工具链 identity stamp。准备失败、准备完成前已取消、启动失败或进程退出后由
+  所有者删除；系统临时目录由平台解析，不写安装包或 JDK，不影响签名或增量更新。
+  `excludedResources.java-launch-temporaries` 经复用脚本的排除路由直接拒绝，任何
+  复制阶段都不得共享；内容哈希相同也不能转移进程所有权。
+
+- Agent CLI 的用户级安装与下载缓存：npm 的 global prefix/cache、Homebrew 的
+  Cellar/Caskroom/cache、用户目录下 `.local/share/claude/versions`。它们由运行时
+  `PATH` 和原安装器决定，不属于工作树；包版本、平台与架构由原安装器校验，
+  没有工作树构建身份 stamp，任何复制阶段都禁止复用。注册表的
+  `excludedResources.agent-cli-runtime` 记录此边界，脚本显式拒绝选择它。
+
+- Codex 短重连配置 helper：`<system-temp>/lithe-codex-retry-<UUID>/` 由单次
+  Agent 连接独占，内容来自当前 Rust Host 内嵌的一方源码，原生 CLI 路径和预算
+  经非敏感环境字段传递，密钥仍只走标准输入。系统临时目录由平台解析；准备、
+  启动失败、取消或进程树结束后删除。它没有可复用的版本、平台、架构、工具链
+  stamp，任何复制阶段都不得共享；`excludedResources.codex-retry-relay` 走脚本
+  的排除路由。helper 不修改已安装适配器、用户配置、app bundle 或 Windows 安装
+  目录，因此不改变代码签名和 Sparkle delta 的发布基线。
+
+- Agent 历史注释：平台偏好设置键 `lithe.agent-history.v1.<workspace-agent-digest>` 保存收藏、自定义标题和隐藏状态，按标准化工作区与 Agent ID 隔离。它是用户可变状态，不受版本、平台、架构或工具链构建身份约束，不存在可验证的构建 stamp；Markdown 导出写到用户选择的位置。两者都禁止在任何复制阶段跨工作树复用，`excludedResources.agent-history-metadata` 由资源脚本显式拒绝。
+
+- `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；
+- `.artifacts/jdtls/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出；
+- `.artifacts/editor/macos/` 和官方插件等尚未写入构建身份 stamp 的生成资源；
+- `.build` 中的 SwiftPM 构建状态；
+- `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；
+- LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。
+- 平台缓存中 JDT `-data/.lithe/maven/` 的 settings 副本：按工作区隔离，可能含凭据，
+  在缓存过期或重建索引时清理；文件内容哈希不是版本、平台、架构或工具链构建
+  identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
+  复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
+
+PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 PHP 包，指定 PHP 包 ID 的构建会失败，不会留下缺少签名文档的目录。无可靠 identity stamp，不跨工作树复制。插件安装后的 Intelephense 位于
+`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/PhpSupport.bundle/Contents/Resources/LanguageServers/php`，由插件版本目录拥有，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
+
+如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
+生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity
+stamp 后才能加入注册表，不能仅凭目录存在就跨 worktree 复制。
+
 The artifact behavior and compression setting follow
 [actions/upload-artifact](https://github.com/actions/upload-artifact), and cache
 reuse follows GitHub's
 [branch access restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching).
+
+Windows PHP Worker 插件使用 `bun scripts/build-windows-php-plugin.ts` 单独构建到
+`.artifacts/windows-plugins/`，通过 `node scripts/verify-windows-plugin-isolation.mjs`
+检查入口独立性。它绑定包格式、宿主 SDK 和当前 Bun 构建版本，没有 identity stamp，
+在资源清单中注册为不可复用；不随 Windows 应用构建复制。用户导入后的源码与状态
+位于 WebView 用户配置的 `lithe.worker-package:<id>`，也禁止跨 worktree 复用。
+CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker 协议和生命周期测试。

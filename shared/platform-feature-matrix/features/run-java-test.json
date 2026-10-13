@@ -1,0 +1,26 @@
+{
+  "id": "run-java-test",
+  "area": "运行与调试",
+  "group": "运行配置",
+  "capability": "Java main 与测试运行",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Run",
+      "shared/fixtures/debug"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/run",
+      "shared/fixtures/debug",
+      "windows/tauri/src/features/run/components/run-pane.tsx",
+      "windows/tauri/src/features/run/components/run-output-text.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Run",
+  "verification": "运行 main、单测试和测试类，验证参数、输出、失败状态和终端策略。 Windows Run 运行输出使用 Geist Mono 显示 ====、==>、=>、!=、>=，确认禁用连字后逐字符显示且复制文本与原始输出一致；检查有输出与空态、ANSI 颜色、自动换行切换及横向滚动。"
+}

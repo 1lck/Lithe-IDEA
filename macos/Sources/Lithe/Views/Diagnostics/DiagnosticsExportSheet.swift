@@ -7,10 +7,10 @@ struct DiagnosticsExportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Export Diagnostics Bundle")
-                .font(.system(size: 17, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 17, weight: .semibold))
 
             Text("Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included.")
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -70,7 +70,7 @@ struct DiagnosticsExportSheet: View {
                     Text(ByteCountFormatter.string(fromByteCount: file.sizeBytes, countStyle: .file))
                         .foregroundStyle(.secondary)
                 }
-                .font(.system(size: 12, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 12, design: .monospaced))
             }
         }
     }

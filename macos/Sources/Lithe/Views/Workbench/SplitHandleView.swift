@@ -12,11 +12,13 @@ struct SplitHandleView: View {
     // depend on landing on a single pixel row or column.
     static let thickness: CGFloat = 5
     static let hitThickness: CGFloat = 10
+    static let visibleTrackThickness: CGFloat = 2
 
     let axis: LitheSplitAxis
-    let leadingBackground: Color
-    let trailingBackground: Color
+    let trackBackground: Color
+    let dividerColor: Color
     let showsIdleDivider: Bool
+    let highlightsOnHover: Bool
     let onDragStarted: () -> Void
     let onDragChanged: (CGFloat) -> Void
     let onDragEnded: (CGFloat) -> Void
@@ -28,17 +30,19 @@ struct SplitHandleView: View {
 
     init(
         axis: LitheSplitAxis,
-        leadingBackground: Color = .clear,
-        trailingBackground: Color = .clear,
+        trackBackground: Color = .clear,
+        dividerColor: Color = LitheTheme.divider,
         showsIdleDivider: Bool = true,
+        highlightsOnHover: Bool = true,
         onDragStarted: @escaping () -> Void,
         onDragChanged: @escaping (CGFloat) -> Void,
         onDragEnded: @escaping (CGFloat) -> Void
     ) {
         self.axis = axis
-        self.leadingBackground = leadingBackground
-        self.trailingBackground = trailingBackground
+        self.trackBackground = trackBackground
+        self.dividerColor = dividerColor
         self.showsIdleDivider = showsIdleDivider
+        self.highlightsOnHover = highlightsOnHover
         self.onDragStarted = onDragStarted
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
@@ -47,6 +51,10 @@ struct SplitHandleView: View {
     var body: some View {
         ZStack {
             trackBackground
+                .frame(
+                    width: axis == .horizontal ? Self.visibleTrackThickness : nil,
+                    height: axis == .vertical ? Self.visibleTrackThickness : nil
+                )
             Color.clear
             dividerLine
         }
@@ -62,6 +70,7 @@ struct SplitHandleView: View {
             SplitHandleInteraction(
                 axis: axis,
                 onHoverChanged: { isInside in
+                    guard highlightsOnHover else { return }
                     guard isInside != isHovering else { return }
                     isHovering = isInside
                 },
@@ -110,29 +119,10 @@ struct SplitHandleView: View {
     }
 
     @ViewBuilder
-    private var trackBackground: some View {
-        if axis == .horizontal {
-            HStack(spacing: 0) {
-                leadingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                trailingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        } else {
-            VStack(spacing: 0) {
-                leadingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                trailingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-    }
-
-    @ViewBuilder
     private var dividerLine: some View {
         if showsIdleDivider {
-            let color = isDragging ? LitheTheme.primaryText
-                : (isHovering ? LitheTheme.secondaryText : LitheTheme.divider)
+            let color = isDragging && highlightsOnHover ? LitheTheme.primaryText
+                : (isHovering && highlightsOnHover ? LitheTheme.secondaryText : dividerColor)
             if axis == .horizontal {
                 Rectangle()
                     .fill(color)

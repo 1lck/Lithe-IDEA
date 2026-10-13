@@ -78,7 +78,7 @@ enum GoToLineDialog {
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 96))
 
         let label = NSTextField(labelWithString: String(localized: "[Line] [:column]:"))
-        label.font = .systemFont(ofSize: 13)
+        label.font = LitheTheme.uiNSFont(size: 13)
         label.sizeToFit()
         label.frame.origin = NSPoint(x: 16, y: 50)
         content.addSubview(label)
@@ -90,7 +90,7 @@ enum GoToLineDialog {
             height: 24
         ))
         field.stringValue = initialValue
-        field.font = .systemFont(ofSize: 13)
+        field.font = LitheTheme.uiNSFont(size: 13)
         field.delegate = coordinator
         field.target = coordinator
         field.action = #selector(DialogCoordinator.confirmFromField)

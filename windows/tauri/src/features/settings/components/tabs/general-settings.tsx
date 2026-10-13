@@ -37,6 +37,7 @@ export const GeneralSettings = () => {
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const { t } = useTranslation();
   const {
+    status,
     available,
     checking,
     downloading,
@@ -212,7 +213,9 @@ export const GeneralSettings = () => {
                 })
               : error
                 ? t("settings.general.updateCheckFailed", { version: appVersion || "..." })
-                : t("settings.general.upToDate", { version: appVersion || "..." })}
+                : status === "upToDate"
+                  ? t("settings.general.upToDate", { version: appVersion || "..." })
+                  : t("settings.mac.updateHint")}
       </div>
 
       {downloading && downloadProgress ? (

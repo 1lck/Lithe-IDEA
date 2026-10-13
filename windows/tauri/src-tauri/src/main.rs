@@ -2,25 +2,32 @@
 
 mod ai_commit;
 mod core;
+mod date_time;
 mod debug;
 mod diagnostics;
 mod document;
 mod file_events;
+mod fonts;
 mod host;
+mod html_browser;
+mod language_tools;
 mod logging;
 mod lsp;
 mod maven;
 mod memory;
 mod platform;
+mod project_window_registry;
+mod project_windows;
 mod run;
 mod secure_storage;
 mod terminal;
 mod watcher;
+mod window_title;
 
 use file_events::TauriFileChangeEmitter;
-use lithe_project::FileWatcher;
 use lithe_project::document_watcher::DocumentWatcher;
 use lithe_project::git_watcher::GitMetadataWatcher;
+use lithe_project::FileWatcher;
 use lithe_terminal::TerminalManager;
 use std::sync::Arc;
 use tauri::Manager;
@@ -33,8 +40,7 @@ fn main() {
             &arguments.next().unwrap_or_default(),
         ));
     }
-    if std::env::var("LITHE_GIT_ASKPASS_MODE").as_deref() == Ok("1")
-        && std::env::args().len() == 2
+    if std::env::var("LITHE_GIT_ASKPASS_MODE").as_deref() == Ok("1") && std::env::args().len() == 2
     {
         std::process::exit(lithe_core::git_askpass_main(
             &std::env::args().nth(1).unwrap_or_default(),
@@ -87,9 +93,12 @@ fn main() {
                 std::env::args().skip(1),
             ));
             app.manage(host::FileClipboard::default());
+            app.manage(project_windows::ProjectWindows::default());
+            app.manage(window_title::WindowTitles::default());
             app.manage(run::RunProcessManager::default());
             app.manage(debug::DebugAdapterManager::default());
             run::cleanup_legacy_appdata(app.handle());
+            maven::clear_dependency_outputs(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 host::apply_window_taskbar_icon(&window);
             }
@@ -97,6 +106,10 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                run::cancel_window_prelaunches(window.label());
+                core::close_ide_hosts(window.label());
+                project_windows::release_window(window.app_handle(), window.label().to_owned());
+                window_title::remove_window(window.app_handle(), window.label());
                 if let Some(watcher) = window.try_state::<Arc<DocumentWatcher>>() {
                     if let Err(error) = watcher.remove_owner(window.label()) {
                         eprintln!("Could not release document watches: {error}");
@@ -110,11 +123,15 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            date_time::format_system_date_time,
             document::read_document_file,
+            document::read_document_file_details,
+            document::read_document_file_change,
             document::save_document_file,
             document::set_document_watches,
             core::core_execute,
             core::core_cancel,
+            core::ide_host_paths,
             diagnostics::preview_diagnostic_bundle,
             diagnostics::export_diagnostic_bundle,
             debug::debug_start_session,
@@ -154,9 +171,9 @@ fn main() {
             logging::record_startup_milestone,
             host::get_system_theme,
             host::set_native_window_appearance,
-            host::get_system_fonts,
-            host::get_monospace_fonts,
-            host::validate_font,
+            fonts::get_system_fonts,
+            fonts::get_monospace_fonts,
+            fonts::validate_font,
             host::get_bundled_extensions_path,
             host::read_local_file,
             host::read_local_file_bounded,
@@ -167,16 +184,29 @@ fn main() {
             host::rename_file,
             host::get_symlink_info,
             host::open_file_external,
+            host::open_html_in_browser,
             host::take_pending_cli_open_requests,
             host::clipboard_set,
             host::clipboard_get,
             host::clipboard_paste,
             host::clipboard_clear,
             host::create_app_window,
+            project_windows::claim_project_window,
+            project_windows::release_project_window,
+            project_windows::release_pending_project_window,
+            window_title::update_window_title_context,
             lsp::lsp_resolve_java_launch,
             lsp::lsp_rebuild_java_index,
+            language_tools::get_tool_path,
+            language_tools::install_language_tools,
+            language_tools::check_language_tool_requirements,
+            language_tools::cancel_language_tool_install,
+            language_tools::uninstall_language_tools,
             maven::maven_load_configuration,
+            maven::maven_resolve_effective_configuration,
             maven::maven_write_configuration,
+            maven::maven_create_dependency_output,
+            maven::maven_remove_dependency_output,
             run::run_list_java_sources,
             run::run_write_generated,
             run::run_write_documents,
@@ -194,6 +224,7 @@ fn main() {
 
     application.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
+            language_tools::shutdown();
             debug::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {
                 manager.shutdown();

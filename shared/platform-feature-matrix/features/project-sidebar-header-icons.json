@@ -1,0 +1,25 @@
+{
+  "id": "project-sidebar-header-icons",
+  "area": "工作台",
+  "group": "项目侧边栏",
+  "capability": "项目侧边栏标题与项目树行块左缘对齐，只显示右侧 IDEA Community 下拉箭头；定位当前文件与刷新按钮使用 16pt 明暗 SVG",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Resources/IDEAIcons/expui/general/chevronDown.svg",
+      "macos/Resources/IDEAIcons/expui/general/locate.svg",
+      "macos/Resources/IDEAIcons/expui/general/refresh.svg"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/panes"
+    ]
+  },
+  "owner": "Workbench",
+  "verification": "macOS 深浅主题下打开项目并核对 Project 文字与下方项目树行块左缘对齐、标题只有右侧下拉箭头；点击 Project 切换视图，确认弹层操作正常；核对两个按钮的 16pt 图标及 22pt 悬停块与 IDEA SVG 一致，鼠标进入标题行时渐显、离开时隐藏，悬停保持箭头光标，定位当前文件和刷新操作正常。 不悬停时 Reveal/Refresh 仍能通过无障碍树访问，键盘或 VoiceOver 焦点进入按钮时显示；hover 不决定无障碍可达性。"
+}

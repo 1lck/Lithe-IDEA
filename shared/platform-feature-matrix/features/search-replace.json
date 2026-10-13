@@ -1,0 +1,25 @@
+{
+  "id": "search-replace",
+  "area": "搜索",
+  "group": "搜索与导航",
+  "capability": "项目替换与取消",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Search",
+      "macos/Sources/Lithe/Services/Language",
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+SearchModule.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/file-search"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Search",
+  "verification": "执行替换预览、确认替换和取消操作，确认未保存文件与异常文件不会被静默覆盖。 macOS 项目树文件、目录、项目根和多选右键菜单均显示 Replace in Files，打开已有项目范围替换面板；验证查询预填、预览、确认与取消流程，菜单点击本身不写入文件。该菜单入口沿用整个项目范围。"
+}

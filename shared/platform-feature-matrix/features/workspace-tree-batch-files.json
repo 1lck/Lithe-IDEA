@@ -1,0 +1,30 @@
+{
+  "id": "workspace-tree-batch-files",
+  "area": "工作区",
+  "group": "工作区生命周期",
+  "capability": "项目树独立多选、范围选择及批量拖动移动、复制、重复和移到废纸篓",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/Lithe/Views/Workspace/ProjectTreeSelection.swift",
+      "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
+      "macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeKeyboardCommands.swift",
+      "macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeRowInteraction.swift",
+      "macos/Tests/LitheTests/ProjectTreeSelectionTests.swift",
+      "macos/Tests/LitheTests/ProjectTreeBatchFileWorkflowTests.swift",
+      "macos/Tests/LitheTests/LitheCoreLogicTests.swift",
+      ".agents/notes/implemented/bug-fix/2026-10-05-project-tree-selection-and-moves.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/file-system"
+    ]
+  },
+  "owner": "Workspace",
+  "verification": "macOS：单击目录名称只选中本行，箭头展开/折叠，子项不继承高亮；⌘ 点击增减独立选择，Shift 正反向选择，Control 点击右键、右键未选中子项只作用于该行；⌘A 仍选择焦点项同级。拖动已选项携带整组，拖动未选项只携带该项，目录整体移动，父子去重；同窗口项目目录接收拖放，项目根不能移动，同目录无操作，同名整批拒绝，目录移入自身/后代和符号链接越界拒绝；中途失败报告已完成数量、保留剩余源项，切换工作区停止后续项。确认未保存文件保护、成功移动后打开文档路径/历史/目录标记更新；外部拖放仍提供文件 URL。大目录分别测量选择、展开和滚动，懒加载行应能滚动到末尾，折叠与定位保持正确。保留复制/粘贴/副本/废纸篓、快捷键焦点和双击可执行文件回归。Windows 尚无该多选入口；macOS 实机事件、性能及 Swift 测试需在目标平台验证。"
+}

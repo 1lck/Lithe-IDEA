@@ -92,6 +92,13 @@ package final class GitRepositorySetupFeatureModel: ObservableObject {
         }
     }
 
+    /// Read project-picker metadata without replacing this workspace's identity drafts.
+    package func branch(at root: URL) async -> String? {
+        guard case let .success(setup) = await service.repositorySetup(at: root, scope: .local),
+              setup.isRepository else { return nil }
+        return setup.branch
+    }
+
     private func receive(_ result: Result<GitRepositorySetup, GitSetupFailure>) {
         switch result {
         case .success(let state): self.state = state

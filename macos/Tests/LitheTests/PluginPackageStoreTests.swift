@@ -155,6 +155,55 @@ struct PluginPackageStoreTests {
     }
 
     @Test
+    func retiredLinuxDoPackageCannotBeLoadedOrReinstalled() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let retiredID = PluginID("dev.lithe.plugin.linux-do-support")
+        let version = PluginVersion(major: 0, minor: 3, patch: 0)
+        let source = try makePackage(
+            root: root,
+            name: "retired-linux-do",
+            version: version,
+            pluginID: retiredID
+        )
+        let installedRoot = root.appendingPathComponent("installed", isDirectory: true)
+        let store = MacPluginPackageStore(
+            rootURL: installedRoot,
+            verifier: TestPluginSignatureVerifier()
+        )
+
+        #expect(throws: PluginPackageStoreError.retiredPlugin(retiredID)) {
+            try store.installPackage(from: source)
+        }
+
+        // Simulate a package installed by an older Lithe release.
+        let installedDirectory = installedRoot.appendingPathComponent(
+            retiredID.rawValue, isDirectory: true
+        )
+        let activeVersionDirectory = installedDirectory
+            .appendingPathComponent("versions", isDirectory: true)
+            .appendingPathComponent(version.description, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: activeVersionDirectory.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: source, to: activeVersionDirectory)
+        let record = PluginInstallationRecord(
+            pluginID: retiredID,
+            activeVersion: version,
+            origin: .marketplace
+        )
+        try JSONEncoder().encode(record).write(
+            to: installedDirectory.appendingPathComponent("installation.json")
+        )
+
+        let scan = try store.scanInstalledPlugins()
+        #expect(scan.packages.isEmpty)
+        #expect(scan.issues.map(\.pluginID) == [retiredID])
+    }
+
+    @Test
     func rejectedUpdateLeavesCurrentVersionActive() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
@@ -177,6 +226,81 @@ struct PluginPackageStoreTests {
         let installed = try #require(try store.installedPlugins().first)
         #expect(installed.manifest.version == versionOne)
         #expect(installed.installation.previousVersion == nil)
+    }
+
+    @Test
+    func reinstallCanReplaceTheActiveVersionOnlyAfterValidation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let version = PluginVersion(major: 0, minor: 3, patch: 0)
+        let store = MacPluginPackageStore(
+            rootURL: root.appendingPathComponent("installed", isDirectory: true),
+            verifier: TestPluginSignatureVerifier()
+        )
+        _ = try store.installPackage(from: makePackage(root: root, name: "first", version: version))
+        let replacement = try makePackage(root: root, name: "replacement", version: version)
+
+        #expect(throws: PluginPackageStoreError.versionAlreadyInstalled(version)) {
+            _ = try store.installPackage(from: replacement)
+        }
+        let reinstalled = try store.installPackage(
+            from: replacement,
+            deferActivationUntilRestart: true,
+            replaceExisting: true
+        )
+
+        #expect(reinstalled.installation.activeVersion == version)
+        #expect(reinstalled.installation.previousVersion == nil)
+        #expect(reinstalled.installation.status == .updateStaged)
+        #expect(try store.installedPlugins().first?.manifest.version == version)
+    }
+
+    @Test
+    func officialPublisherPackageCannotDowngradeSignatureRequirement() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-php-plugin-policy-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let verifier = TestPluginSignatureVerifier()
+        let store = MacPluginPackageStore(
+            rootURL: root.appendingPathComponent("installed", isDirectory: true),
+            verifier: verifier
+        )
+        let package = try makePHPPluginPackage(
+            root: root,
+            name: "downgraded-policy",
+            version: BuiltInPluginCatalog.hostVersion
+        )
+        let manifestURL = package.appendingPathComponent("plugin.json")
+        let decoder = JSONDecoder()
+        let manifest = try decoder.decode(
+            PluginManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+        let downgradedManifest = PluginManifest(
+            id: manifest.id,
+            displayName: manifest.displayName,
+            version: manifest.version,
+            hostCompatibility: manifest.hostCompatibility,
+            vendor: PluginVendor(
+                id: manifest.vendor.id,
+                displayName: manifest.vendor.displayName,
+                signatureRequirement: .sameTeamAsHost
+            ),
+            entrypoint: manifest.entrypoint,
+            modules: manifest.modules,
+            languageSupports: manifest.languageSupports ?? []
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(downgradedManifest).write(to: manifestURL, options: .atomic)
+
+        #expect(throws: PluginPackageStoreError.officialSignatureRequirementMismatch(
+            OfficialPluginCatalog.phpPluginID
+        )) {
+            _ = try store.installPackage(from: package)
+        }
+        #expect(verifier.verifiedVersions.isEmpty)
     }
 
     @Test
@@ -232,6 +356,90 @@ struct PluginPackageStoreTests {
         #expect(pending.installation.status == .uninstallPending)
         try store.prepareForLaunch()
         #expect(try store.installedPlugins().isEmpty)
+    }
+
+    @Test
+    func uninstallRemovesThePHPPluginLanguageServerWithItsOwner() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-php-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MacPluginPackageStore(
+            rootURL: root.appendingPathComponent("installed", isDirectory: true),
+            verifier: TestPluginSignatureVerifier()
+        )
+        let package = try makePHPPluginPackage(
+            root: root,
+            name: "php",
+            version: BuiltInPluginCatalog.hostVersion
+        )
+
+        let installed = try store.installPackage(from: package)
+        let launcher = installed.packageURL
+            .appendingPathComponent("PhpSupport.bundle/Contents/Resources/LanguageServers/php/bin/intelephense")
+        #expect(FileManager.default.fileExists(atPath: launcher.path))
+
+        try store.stageUninstall(installed.manifest.id)
+        try store.prepareForLaunch()
+
+        #expect(!FileManager.default.fileExists(atPath: installed.packageURL.path))
+        #expect(try store.installedPlugins().isEmpty)
+    }
+
+    @Test
+    func replacementRepairsALegacyPHPPackageWithoutItsLanguageServer() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-php-plugin-repair-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let installedRoot = root.appendingPathComponent("installed", isDirectory: true)
+        let store = MacPluginPackageStore(
+            rootURL: installedRoot,
+            verifier: TestPluginSignatureVerifier()
+        )
+        let version = BuiltInPluginCatalog.hostVersion
+        let legacy = try makePHPPluginPackage(root: root, name: "legacy", version: version)
+        try FileManager.default.removeItem(at: legacy.appendingPathComponent("language-server.json"))
+        try FileManager.default.removeItem(
+            at: legacy.appendingPathComponent(
+                "PhpSupport.bundle/Contents/Resources/LanguageServers/php"
+            )
+        )
+        let legacyDestination = installedRoot
+            .appendingPathComponent(OfficialPluginCatalog.phpPluginID.rawValue, isDirectory: true)
+            .appendingPathComponent("versions", isDirectory: true)
+            .appendingPathComponent(version.description, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: legacyDestination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: legacy, to: legacyDestination)
+        let installationDirectory = legacyDestination
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let record = PluginInstallationRecord(
+            pluginID: OfficialPluginCatalog.phpPluginID,
+            activeVersion: version,
+            origin: .marketplace
+        )
+        try JSONEncoder().encode(record).write(
+            to: installationDirectory.appendingPathComponent("installation.json")
+        )
+
+        let replacement = try makePHPPluginPackage(root: root, name: "replacement", version: version)
+        let installed = try store.installPackage(
+            from: replacement,
+            deferActivationUntilRestart: true,
+            replaceExisting: true
+        )
+
+        #expect(installed.installation.status == .updateStaged)
+        #expect(FileManager.default.fileExists(
+            atPath: installed.packageURL.appendingPathComponent("language-server.json").path
+        ))
+        #expect(FileManager.default.fileExists(
+            atPath: installed.packageURL.appendingPathComponent(
+                "PhpSupport.bundle/Contents/Resources/LanguageServers/php/bin/intelephense"
+            ).path
+        ))
     }
 
     @MainActor
@@ -352,6 +560,7 @@ struct PluginPackageStoreTests {
         root: URL,
         name: String,
         version: PluginVersion,
+        pluginID: PluginID = PluginID("dev.example.plugin"),
         required: Bool = false,
         languageSupport: LanguageSupportDeclaration? = nil
     ) throws -> URL {
@@ -362,7 +571,7 @@ struct PluginPackageStoreTests {
         )
         let moduleID = ModuleID("dev.example.feature")
         let manifest = PluginManifest(
-            id: PluginID("dev.example.plugin"),
+            id: pluginID,
             displayName: "Example Plugin",
             version: version,
             hostCompatibility: PluginHostCompatibility(
@@ -395,6 +604,64 @@ struct PluginPackageStoreTests {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(manifest).write(
             to: packageURL.appendingPathComponent("plugin.json"),
+            options: .atomic
+        )
+        return packageURL
+    }
+
+    private func makePHPPluginPackage(
+        root: URL,
+        name: String,
+        version: PluginVersion
+    ) throws -> URL {
+        let packageURL = root.appendingPathComponent("sources/\(name)", isDirectory: true)
+        let manifest = try #require(OfficialPluginCatalog.manifests.first {
+            $0.id == OfficialPluginCatalog.phpPluginID
+        })
+        let bundleRoot = packageURL.appendingPathComponent(
+            "PhpSupport.bundle/Contents/Resources/LanguageServers/php/bin",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
+        let launcher = bundleRoot.appendingPathComponent("intelephense")
+        #expect(FileManager.default.createFile(atPath: launcher.path, contents: Data()))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: launcher.path
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        var versionedManifest = manifest
+        versionedManifest = PluginManifest(
+            id: manifest.id,
+            displayName: manifest.displayName,
+            version: version,
+            hostCompatibility: manifest.hostCompatibility,
+            vendor: manifest.vendor,
+            entrypoint: manifest.entrypoint,
+            modules: manifest.modules,
+            languageSupports: manifest.languageSupports ?? []
+        )
+        try encoder.encode(versionedManifest).write(
+            to: packageURL.appendingPathComponent("plugin.json"),
+            options: .atomic
+        )
+        let languageServerManifest = """
+        {
+          "schemaVersion": 1,
+          "pluginID": "dev.lithe.plugin.php-support",
+          "toolID": "intelephense",
+          "version": "1.15.1",
+          "archiveURL": "https://registry.npmjs.org/intelephense/-/intelephense-1.15.1.tgz",
+          "archiveSHA256": "24a33fe3cd7a2382f44285e2ae553a7e1c898cbc208ee20cee0693497ee9ebe2",
+          "archiveFormat": "tarGzip",
+          "archiveRoot": "package",
+          "entrypoint": "lib/intelephense.js",
+          "license": "LICENSE.txt"
+        }
+        """
+        try Data(languageServerManifest.utf8).write(
+            to: packageURL.appendingPathComponent("language-server.json"),
             options: .atomic
         )
         return packageURL

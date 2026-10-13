@@ -10,6 +10,7 @@ interface DefinitionHoverSchedulerOptions<Request, Result> {
   scheduleTimer?: (callback: () => void, delayMilliseconds: number) => TimerHandle;
   cancelTimer?: (handle: TimerHandle) => void;
   cacheLimit?: number;
+  shouldCache?: (result: Result) => boolean;
 }
 
 interface QueuedRequest<Request, Result> {
@@ -57,6 +58,7 @@ export class DefinitionHoverScheduler<Request, Result> {
   private readonly scheduleTimer: (callback: () => void, delayMilliseconds: number) => TimerHandle;
   private readonly cancelTimer: (handle: TimerHandle) => void;
   private readonly cacheLimit: number;
+  private readonly shouldCache: (result: Result) => boolean;
   private readonly cache = new Map<string, Result>();
 
   private generation = 0;
@@ -78,6 +80,7 @@ export class DefinitionHoverScheduler<Request, Result> {
     this.cancelTimer =
       options.cancelTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
     this.cacheLimit = Math.max(1, options.cacheLimit ?? 32);
+    this.shouldCache = options.shouldCache ?? (() => true);
   }
 
   activate(request: Request): void {
@@ -217,7 +220,7 @@ export class DefinitionHoverScheduler<Request, Result> {
         if (this.lifecycle.phase === "disposed" || queued.generation !== this.generation) {
           return undefined;
         }
-        this.writeCache(queued.key, result);
+        if (this.shouldCache(result)) this.writeCache(queued.key, result);
         if (this.active?.key === queued.key) this.onActiveResult(queued.request, result);
         return result;
       })

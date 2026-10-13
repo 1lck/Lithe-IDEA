@@ -1,3 +1,4 @@
+import { extensionProcessOwner } from "@/extensions/run/extension-process-owner";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { releaseRunSessionWorkspace, runStoreForSession } from "../stores/run.store";
@@ -15,7 +16,18 @@ interface RunExitEvent {
 let outputUnlisten: UnlistenFn | undefined;
 let exitUnlisten: UnlistenFn | undefined;
 
-export async function ensureRunProcessListeners(): Promise<void> {
+let installing: Promise<void> | undefined;
+
+/** Toolbar and Run pane can mount together; both share the same in-flight setup. */
+export function ensureRunProcessListeners(): Promise<void> {
+  if (!installing)
+    installing = installRunProcessListeners().finally(() => {
+      installing = undefined;
+    });
+  return installing;
+}
+
+async function installRunProcessListeners(): Promise<void> {
   const currentWindow = getCurrentWebviewWindow();
   if (!outputUnlisten) {
     outputUnlisten = await currentWindow.listen<RunOutputEvent>("run-output", (event) => {
@@ -27,8 +39,11 @@ export async function ensureRunProcessListeners(): Promise<void> {
   if (!exitUnlisten) {
     exitUnlisten = await currentWindow.listen<RunExitEvent>("run-exit", (event) => {
       const sessionId = event.payload.sessionId;
-      runStoreForSession(sessionId).getState().actions.finishProcess(sessionId, event.payload.exitCode);
+      runStoreForSession(sessionId)
+        .getState()
+        .actions.finishProcess(sessionId, event.payload.exitCode);
       releaseRunSessionWorkspace(sessionId);
+      extensionProcessOwner.finished(sessionId);
     });
   }
 }

@@ -1,0 +1,26 @@
+{
+  "id": "ide-api-plugins",
+  "area": "插件与扩展",
+  "group": "IDE API / MCP",
+  "capability": "插件调用已授权项目的环境、Maven 与运行 API",
+  "owner": "IDE API",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift",
+      "macos/Sources/Lithe/Application/Composition/IdeCapabilityRegistry.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "Plugins/win/SDK/ide-capabilities.ts",
+      "windows/tauri/src/extensions/ui/services/ide-extension-host.ts",
+      "windows/tauri/src/extensions/ui/services/ide-extension-host.test.ts"
+    ]
+  },
+  "verification": "双端插件枚举显式授权的项目，读取环境并调用已允许的操作；撤销项目权限后拒绝调用，Windows 未声明 permissions.ide 的 Worker 无法访问。",
+  "notes": "复用 MCP 的同一应用功能和参数校验，不扩张语言包权限；原生运行验收待完成。"
+}

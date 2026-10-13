@@ -1,3 +1,5 @@
+import { runExtensionAction } from "@/extensions/run/extension-run-actions";
+import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BACKEND_UNAVAILABLE_TOOLTIP,
@@ -17,7 +19,7 @@ import { Button } from "@/ui/button";
 import { showConfirmDialog } from "@/ui/dialog";
 import { Dropdown } from "@/ui/dropdown";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
-import { ArrowClockwiseIcon as RefreshIcon, PlayIcon, PlusIcon } from "@/ui/icons";
+import { PlayIcon, PlusIcon } from "@/ui/icons";
 import { SearchField } from "@/ui/search";
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
@@ -114,7 +116,11 @@ export default function RunActionsButton() {
     useRunActionsStore.getState().actions;
   const activeProject = projectTabs.find((tab) => tab.isActive);
   const workspacePath = activeProject?.path || rootFolderPath || undefined;
-  const workspaceLabel = getWorkspaceLabel(workspacePath, activeProject?.name, t("workbench.project"));
+  const workspaceLabel = getWorkspaceLabel(
+    workspacePath,
+    activeProject?.name,
+    t("workbench.project"),
+  );
   const customActions = useMemo(
     () => getActionsForWorkspace(workspacePath),
     [allCustomActions, getActionsForWorkspace, workspacePath],
@@ -179,13 +185,24 @@ export default function RunActionsButton() {
   };
 
   const runAction = (action: RunActionItem) => {
+    if (action.source === "extension") {
+      if (workspacePath)
+        void runExtensionAction(action, workspaceId, workspacePath).catch((error) =>
+          toast.error(String(error)),
+        );
+      closeMenu();
+      return;
+    }
     if (action.mavenTest && workspacePath) {
       openMavenRunPane();
-      void runMavenTestAction(action.mavenTest.filePath, action.mavenTest.method, workspaceId)
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : t("maven.testRunFailed");
-          toast.error(message);
-        });
+      void runMavenTestAction(
+        action.mavenTest.filePath,
+        action.mavenTest.method,
+        workspaceId,
+      ).catch((error) => {
+        const message = error instanceof Error ? error.message : t("maven.testRunFailed");
+        toast.error(message);
+      });
       closeMenu();
       return;
     }
@@ -308,7 +325,7 @@ export default function RunActionsButton() {
                 disabled={isDiscovering || !workspacePath}
                 aria-label={t("run.rescanProjectActions")}
               >
-                {isDiscovering ? <Spinner label={t("run.scanning")} compact /> : <RefreshIcon />}
+                {isDiscovering ? <Spinner label={t("run.scanning")} compact /> : <RefreshCw />}
               </Button>
             </Tooltip>
           </div>
@@ -330,7 +347,11 @@ export default function RunActionsButton() {
 
         <div className="max-h-[min(420px,60vh)] overflow-y-auto overscroll-contain">
           <div className="py-1">
-            <RunActionSection label={t("run.currentFile")} actions={visibleLspActions} onRun={runAction} />
+            <RunActionSection
+              label={t("run.currentFile")}
+              actions={visibleLspActions}
+              onRun={runAction}
+            />
             <RunActionSection
               label={t("run.detectedInProject")}
               actions={visibleProjectActions}
@@ -363,8 +384,7 @@ export default function RunActionsButton() {
                   <EmptyDescription>
                     {query
                       ? t("run.tryAnotherActionSearch")
-                      : (discoveryError ??
-                        t("run.addCustomCommandHint"))}
+                      : (discoveryError ?? t("run.addCustomCommandHint"))}
                   </EmptyDescription>
                 </EmptyHeader>
               </Empty>

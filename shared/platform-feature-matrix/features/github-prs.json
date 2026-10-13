@@ -1,0 +1,24 @@
+{
+  "id": "github-prs",
+  "area": "协作",
+  "group": "GitHub",
+  "capability": "Pull Request 列表与详情",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/GitHub",
+      "macos/Sources/Lithe/Services/GitHub"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/github",
+      "shared/contracts/application-boundary.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "GitHub",
+  "verification": "使用测试仓库验证 PR 列表、筛选、详情、分支比较和浏览器跳转。"
+}

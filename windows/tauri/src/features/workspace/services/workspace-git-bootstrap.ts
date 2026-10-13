@@ -1,6 +1,6 @@
 import { normalizeWorkspaceFolders } from "@/features/file-system/controllers/workspace-session";
 import { discoverWorkspaceRepositories } from "@/features/git/api/git-repo-api";
-import { getWorkspaceRootGitStatus } from "@/features/git/api/git-status-api";
+import { getRepositoryGitStatuses } from "@/features/git/api/git-status-api";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { workspaceRuntimeRegistry } from "../runtime/workspace-runtime-registry";
@@ -48,6 +48,9 @@ export async function ensureWorkspaceGitBootstrap(
   }
 
   const gitStore = useGitStore.getStore(scope.workspaceId);
+  gitStore.getState().actions.setWorkspaceRepository(scope.root);
+  const workingTreeVersion = gitStore.getState().actions.beginWorkingTreeRefresh();
+  let repositoryPaths: readonly string[] = [];
   const bootstrap: WorkspaceGitBootstrap = {
     rootsKey,
     settled: false,
@@ -68,9 +71,14 @@ export async function ensureWorkspaceGitBootstrap(
   bootstrap.task = bootstrapWorkspaceGit({
     workspaceRootPaths: rootPaths,
     discoverRepositories: discoverWorkspaceRepositories,
-    loadStatus: (repoPaths) => getWorkspaceRootGitStatus(scope.root, repoPaths),
+    loadStatus: (repoPaths) => {
+      repositoryPaths = repoPaths;
+      return getRepositoryGitStatuses([...repoPaths, scope.root], "background", repoPaths);
+    },
     isCurrent,
-    publishStatus: (status) => gitStore.getState().actions.setWorkspaceGitStatus(status, scope.root),
+    publishStatus: (statuses) => gitStore.getState().actions.publishRepositoryStatuses(
+      statuses ?? { [scope.root]: null }, workingTreeVersion, repositoryPaths,
+    ),
   }).then((outcome) => {
     frontendTrace("info", "workspace-open", `gitBootstrap:${outcome}`, {
       ...traceContext, durationMs: Math.round(performance.now() - startedAt),
@@ -78,7 +86,6 @@ export async function ensureWorkspaceGitBootstrap(
     return outcome;
   }).catch((error: unknown): BootstrapOutcome => {
     if (!isCurrent()) return "superseded";
-    gitStore.getState().actions.setWorkspaceGitStatus(null, scope.root);
     frontendTrace("error", "workspace-open", "gitBootstrap:failed", {
       ...traceContext, durationMs: Math.round(performance.now() - startedAt),
     });

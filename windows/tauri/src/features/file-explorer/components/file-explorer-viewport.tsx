@@ -84,7 +84,7 @@ export const FileExplorerViewport = forwardRef<
     const resizeObserver = new ResizeObserver(updateLayout);
     resizeObserver.observe(element);
     element.addEventListener("scroll", scheduleLayoutUpdate, { passive: true });
-    const unbindWheel = bindScrollContainerWheel(element);
+    const unbindWheel = bindScrollContainerWheel(element, { smooth: true });
     updateLayout();
 
     return () => {

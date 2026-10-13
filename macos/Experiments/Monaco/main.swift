@@ -45,6 +45,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     var text = ""
     var revision = 0
     var actionCommandCount = 0
+    var lastContextMenu: [String: Any] = [:]
     var codeVisionActions: [String] = []
     var gitLineActions: [String] = []
     var blameCommits: [String] = []
@@ -63,6 +64,9 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     var markdownScrollRequests: [[String: Any]] = []
     var markdownScrollWaiter: ((Any?, String?) -> Void)?
     var fixtureDocuments: [String: (text: String, revision: Int)] = [:]
+    var closedFixtureDocuments: Set<String> = []
+    var closedDocumentNotificationReceived = false
+    var closedDocumentNotificationWaiter: ((Any?, String?) -> Void)?
     var semanticCount = 0
     var holdImagePaste = false
     var heldImagePaste: ((Any?, String?) -> Void)?
@@ -127,7 +131,29 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                   let body = message.body as? [String: Any], let type = body["type"] as? String else {
                 throw ProbeError.invalid("Invalid bridge source or message")
             }
+            if let id = body["id"] as? String, closedFixtureDocuments.contains(id), type != "open" {
+                MonacoDocumentMessage.replyToClosedDocument(type: type, reply: replyHandler)
+                if type == "focus" || type == "cursor" {
+                    closedDocumentNotificationReceived = true
+                    closedDocumentNotificationWaiter?(["ok": true], nil)
+                    closedDocumentNotificationWaiter = nil
+                }
+                return
+            }
             switch type {
+            case "closeFixtureDocument":
+                guard let id = body["documentID"] as? String else { throw ProbeError.invalid("Missing fixture ID") }
+                fixtureDocuments[id] = nil
+                closedFixtureDocuments.insert(id)
+                closedDocumentNotificationReceived = false
+                replyHandler(["ok": true], nil)
+            case "awaitClosedDocumentNotification":
+                if closedDocumentNotificationReceived { replyHandler(["ok": true], nil) }
+                else { closedDocumentNotificationWaiter = replyHandler }
+            case "contextMenu":
+                lastContextMenu = body
+                replyHandler(["selected": NSNull()], nil)
+            case "lastContextMenu": replyHandler(lastContextMenu, nil)
             case "javaNavigation":
                 if holdNavigation {
                     holdNavigation = false
@@ -304,6 +330,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
             case "open":
                 guard let incoming = body["text"] as? String else { throw ProbeError.invalid("Missing text") }
                 if let id = body["id"] as? String {
+                    closedFixtureDocuments.remove(id)
                     fixtureDocuments[id] = (incoming, 0)
                     replyHandler(["revision": 0], nil); return
                 }
@@ -371,7 +398,9 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 }
             case "failure":
                 replyHandler(["ok": true], nil)
-                finish(error: body["message"] as? String ?? "Unknown JavaScript failure")
+                let message = body["message"] as? String ?? "Unknown JavaScript failure"
+                let stack = body["stack"] as? String
+                finish(error: stack.map { "\(message)\n\($0)" } ?? message)
             default: throw ProbeError.invalid("Unknown bridge message")
             }
         } catch { replyHandler(nil, error.localizedDescription) }
@@ -409,6 +438,8 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     func windowWillClose(_ notification: Notification) { finish(error: automated && !completed ? "Closed before completion" : nil) }
 
     func finish(error: String?) {
+        closedDocumentNotificationWaiter?(nil, "Probe finished"); closedDocumentNotificationWaiter = nil
+        closedFixtureDocuments.removeAll()
         markdownScrollWaiter?(nil, "Probe finished"); markdownScrollWaiter = nil
         heldResolve?(nil, "Probe finished"); heldResolve = nil
         resolveWaiter?(nil, "Probe finished"); resolveWaiter = nil

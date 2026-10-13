@@ -4,6 +4,21 @@ import Testing
 
 @Suite("IntelliJ Git graph parity")
 struct GitGraphLayoutTests {
+    @Test("Current branch background follows every merge parent, not lane or row adjacency")
+    func currentBranchMembership() {
+        let refs = [GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+                                  isCurrent: true, upstreamShortName: nil)]
+        let commits = [commit("head", ["left", "merged"], "HEAD -> main"),
+                       commit("other", ["base"], "other"), commit("left", ["base"])]
+        let repository = [commit("merged", ["base"]), commit("base", ["missing"])]
+        let hashes = GitGraphLayoutService.currentBranchHashes(commits: commits, repositoryCommits: repository, references: refs)
+        #expect(hashes == ["head", "left", "merged", "base", "missing"])
+        #expect(!hashes.contains("other"))
+        #expect(GitGraphLayoutService.currentBranchHashes(commits: commits, repositoryCommits: repository, references: []).isEmpty)
+        #expect(GitGraphLayoutService.currentBranchHashes(commits: [commit("detached", [], "HEAD")],
+            repositoryCommits: [], references: refs).isEmpty)
+    }
+
     @Test("DFS indices match pinned IntelliJ fixtures", arguments: ["manyNodes", "oneNode", "notFullGraph", "oneNodeNotFullGraph"])
     func upstreamLayout(_ name: String) throws {
         let input = try fixture("layoutBuilder", name, "in")

@@ -1,16 +1,49 @@
 import AppKit
 import SwiftUI
 
-private enum LitheContextMenuMetrics {
-    static let minimumRootWidth: CGFloat = 230
-    static let minimumSubmenuWidth: CGFloat = 220
+enum LitheDropdownMetrics {
+    static let minimumRootWidth: CGFloat = 156
+    // GitBranchesPopupBase New UI minimum; Project uses measured content width.
+    static let branchMinimumWidth: CGFloat = 375
+    static let iconSize: CGFloat = 16
+    static let projectAvatarSize: CGFloat = 20
     static let maximumWidth: CGFloat = 360
-    static let itemFont = NSFont.menuFont(ofSize: 12)
-    static let shortcutFont = NSFont.menuFont(ofSize: 11)
-    static let rowHeight: CGFloat = 26
+    static let fontSize: CGFloat = 12.5
+    static let itemHorizontalPadding: CGFloat = 8
+    static let popupPadding: CGFloat = 6
+    static let rowCornerRadius: CGFloat = 4
+    static let shortcutFont = LitheTheme.uiNSFont(size: 11)
+    static let rowHeight: CGFloat = 24
     static let separatorHeight: CGFloat = 11
-    static let verticalPadding: CGFloat = 12
+    static let verticalPadding: CGFloat = 2 * popupPadding
     static let submenuSpacing: CGFloat = 1
+    static let descriptionFontSize: CGFloat = 11
+    static let descriptionSpacing: CGFloat = 2
+    static let descriptionVerticalPadding: CGFloat = 4
+}
+
+/// The Project dropdown row chrome, also used by searchable filter lists.
+struct LitheDropdownRowStyle: ButtonStyle {
+    var isSelected = false
+    var tracksHover = true
+    @State private var isHovered = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let highlighted = isEnabled && (isSelected || isHovered)
+        return configuration.label
+            .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
+            .foregroundStyle(highlighted ? LitheTheme.settingsSelectionText : LitheTheme.primaryText,
+                             highlighted ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
+            .padding(.horizontal, LitheDropdownMetrics.itemHorizontalPadding)
+            .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.rowHeight, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: LitheDropdownMetrics.rowCornerRadius)
+                    .fill(highlighted ? LitheTheme.settingsSelection : .clear)
+            }
+            .contentShape(Rectangle())
+            .onHover { if tracksHover, isHovered != $0 { isHovered = $0 } }
+    }
 }
 
 struct LitheContextMenuItem: Identifiable {
@@ -28,17 +61,25 @@ struct LitheContextMenuItem: Identifiable {
     let id = UUID()
     let kind: Kind
     let title: String
+    var localizesTitle = true
+    var description: String? = nil
     let systemImage: String?
     let iconKind: LitheIconKind?
+    var icon: AnyView? = nil
+    var isChecked = false
     let shortcut: String?
     let role: Role
-    let isEnabled: Bool
+    var isEnabled: Bool
     let action: () -> Void
 
     static func action(
         _ title: String,
+        localizesTitle: Bool = true,
+        description: String? = nil,
         systemImage: String? = nil,
         iconKind: LitheIconKind? = nil,
+        icon: AnyView? = nil,
+        checked: Bool = false,
         shortcut: String? = nil,
         role: Role = .standard,
         isEnabled: Bool = true,
@@ -47,8 +88,12 @@ struct LitheContextMenuItem: Identifiable {
         Self(
             kind: .action,
             title: title,
+            localizesTitle: localizesTitle,
+            description: description,
             systemImage: systemImage,
             iconKind: iconKind,
+            icon: icon,
+            isChecked: checked,
             shortcut: shortcut,
             role: role,
             isEnabled: isEnabled,
@@ -93,9 +138,13 @@ private final class LitheContextMenuSelection: ObservableObject {
     @Published var openSubmenuID: UUID?
     @Published var childID: UUID?
     var inSubmenu = false
+    var usesKeyboardNavigation = false
     let items: [LitheContextMenuItem]
     let dismiss: () -> Void
-    var submenuChanged: ((Bool) -> Void)?
+    @Published var submenuOffset: CGFloat = 0
+    private var rowFrames: [UUID: CGRect] = [:]
+    private var pointerFrames: [UUID: CGRect] = [:]
+    var layoutSubmenu: ((CGFloat?) -> CGFloat)?
 
     init(items: [LitheContextMenuItem], dismiss: @escaping () -> Void) {
         self.items = items
@@ -112,7 +161,47 @@ private final class LitheContextMenuSelection: ObservableObject {
         openSubmenuID = id
         childID = nil
         inSubmenu = false
-        submenuChanged?(id != nil)
+        updateSubmenuPlacement()
+    }
+
+    func updateRowFrames(_ frames: [UUID: CGRect]) {
+        guard rowFrames != frames else { return }
+        rowFrames = frames
+        if children != nil { updateSubmenuPlacement() }
+    }
+
+    func updatePointerFrames(_ frames: [UUID: CGRect]) {
+        if pointerFrames != frames { pointerFrames = frames }
+    }
+
+    func pointerMoved(to point: CGPoint) {
+        usesKeyboardNavigation = false
+        if let item = children?.first(where: { pointerFrames[$0.id]?.contains(point) == true }) {
+            hover(item, isChild: true)
+        } else if let item = items.first(where: { pointerFrames[$0.id]?.contains(point) == true }) {
+            hover(item, isChild: false)
+        }
+    }
+
+    func hover(_ item: LitheContextMenuItem, isChild: Bool) {
+        guard !usesKeyboardNavigation, item.isEnabled else { return }
+        if case .separator = item.kind { return }
+        inSubmenu = isChild
+        if isChild {
+            if childID != item.id { childID = item.id }
+        } else {
+            if selectedID != item.id { selectedID = item.id }
+            if case .submenu = item.kind { open(item.id) }
+            else { open(nil) }
+        }
+    }
+
+    private func updateSubmenuPlacement() {
+        let offset = openSubmenuID.flatMap { rowFrames[$0] }.map {
+            $0.minY - LitheDropdownMetrics.popupPadding
+        }
+        let next = layoutSubmenu?(children == nil ? nil : offset ?? 0) ?? 0
+        if submenuOffset != next { submenuOffset = next }
     }
 
     func handle(_ event: NSEvent) -> Bool {
@@ -121,6 +210,7 @@ private final class LitheContextMenuSelection: ObservableObject {
         let current = inSubmenu ? childID : selectedID
         switch event.keyCode {
         case 125, 126: // Down / Up
+            usesKeyboardNavigation = true
             guard !enabled.isEmpty else { return true }
             let index = enabled.firstIndex { $0.id == current }
             let next = index.map { ($0 + (event.keyCode == 125 ? 1 : enabled.count - 1)) % enabled.count }
@@ -128,6 +218,7 @@ private final class LitheContextMenuSelection: ObservableObject {
             if inSubmenu { childID = enabled[next].id }
             else { open(nil); selectedID = enabled[next].id }
         case 124, 36, 76: // Right / Return / keypad Enter
+            usesKeyboardNavigation = true
             guard let item = activeItems.first(where: { $0.id == current }), item.isEnabled else { return true }
             if case .submenu = item.kind {
                 open(item.id)
@@ -138,6 +229,7 @@ private final class LitheContextMenuSelection: ObservableObject {
                 item.action()
             }
         case 123: // Left
+            usesKeyboardNavigation = true
             open(nil)
         case 53:
             if openSubmenuID != nil { open(nil) } else { dismiss() }
@@ -147,7 +239,22 @@ private final class LitheContextMenuSelection: ObservableObject {
     }
 }
 
+private struct LitheContextMenuRowFrames: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+private struct LitheContextMenuPointerFrames: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
 private struct LitheContextMenuContent: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var selection: LitheContextMenuSelection
     let width: CGFloat
     let submenuWidth: CGFloat
@@ -155,19 +262,28 @@ private struct LitheContextMenuContent: View {
     let maximumHeight: CGFloat
 
     var body: some View {
-        HStack(alignment: .top, spacing: LitheContextMenuMetrics.submenuSpacing) {
+        let topInset = max(0, -selection.submenuOffset)
+        return HStack(alignment: .top, spacing: LitheDropdownMetrics.submenuSpacing) {
             if submenuOnLeft, let children = selection.children {
                 menuColumn(children, width: submenuWidth, isChild: true)
+                    .padding(.top, selection.submenuOffset + topInset)
             }
             menuColumn(selection.items, width: width, isChild: false)
+                .coordinateSpace(name: "LitheRootMenu")
+                .padding(.top, topInset)
             if !submenuOnLeft, let children = selection.children {
                 menuColumn(children, width: submenuWidth, isChild: true)
+                    .padding(.top, selection.submenuOffset + topInset)
             }
         }
+        .coordinateSpace(name: "LithePointerMenu")
+        .onPreferenceChange(LitheContextMenuRowFrames.self) { selection.updateRowFrames($0) }
+        .onPreferenceChange(LitheContextMenuPointerFrames.self) { selection.updatePointerFrames($0) }
     }
 
     private func menuColumn(_ items: [LitheContextMenuItem], width: CGFloat, isChild: Bool) -> some View {
-        ScrollViewReader { proxy in
+        let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
+        return ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
                     ForEach(items) { item in
@@ -178,32 +294,37 @@ private struct LitheContextMenuContent: View {
                             LitheContextMenuRow(
                                 item: item,
                                 isSelected: (isChild ? selection.childID : selection.selectedID) == item.id,
+                                showsIcons: showsIcons,
                                 action: {
                                     if case .submenu = item.kind { selection.open(item.id) }
                                     else { selection.dismiss(); item.action() }
                                 },
                                 onHover: { hovering in
-                                    guard hovering, item.isEnabled else { return }
-                                    selection.inSubmenu = isChild
-                                    if isChild { selection.childID = item.id }
-                                    else {
-                                        selection.selectedID = item.id
-                                        if case .submenu = item.kind { selection.open(item.id) }
-                                        else { selection.open(nil) }
-                                    }
+                                    // Scrolling under a stationary pointer synthesizes hover.
+                                    // Keep the keyboard's choice until the pointer actually moves.
+                                    if hovering { selection.hover(item, isChild: isChild) }
                                 }
                             )
                             .id(item.id)
+                            .background {
+                                GeometryReader { geometry in
+                                    Color.clear
+                                        .preference(key: LitheContextMenuRowFrames.self,
+                                            value: isChild ? [:] : [item.id: geometry.frame(in: .named("LitheRootMenu"))])
+                                        .preference(key: LitheContextMenuPointerFrames.self,
+                                            value: [item.id: geometry.frame(in: .named("LithePointerMenu"))])
+                                }
+                            }
                         }
                     }
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, LitheDropdownMetrics.popupPadding)
             }
             .onChange(of: isChild ? selection.childID : selection.selectedID) { id in
                 if let id { proxy.scrollTo(id) }
             }
         }
-        .frame(width: width, height: min(LitheContextMenuPresenter.menuHeight(for: items), maximumHeight))
+        .frame(width: width, height: min(LitheContextMenuPresenter.menuHeight(for: items, width: width, locale: locale), maximumHeight))
         .litheContextMenuSurface()
     }
 }
@@ -213,16 +334,19 @@ private struct LitheContextMenuRow: View {
     let action: (() -> Void)?
     let onSubmenuHover: ((Bool) -> Void)?
     let isSelected: Bool
+    let showsIcons: Bool
     private var isHovering: Bool { isSelected }
 
     init(
         item: LitheContextMenuItem,
         isSelected: Bool,
+        showsIcons: Bool,
         action: @escaping () -> Void,
         onHover: ((Bool) -> Void)? = nil
     ) {
         self.item = item
         self.isSelected = isSelected
+        self.showsIcons = showsIcons
         self.action = action
         self.onSubmenuHover = onHover
     }
@@ -236,64 +360,100 @@ private struct LitheContextMenuRow: View {
         Button {
             action?()
         } label: {
-            HStack(spacing: 9) {
-                Group {
-                    if let iconKind = item.iconKind {
-                        LitheIcon(kind: iconKind, size: 16)
-                    } else if let systemImage = item.systemImage {
-                        Image(systemName: systemImage)
-                            .font(.system(size: 13, weight: .regular))
-                    } else {
-                        Color.clear
+            HStack(spacing: 0) {
+                if showsIcons {
+                    Group {
+                        if let icon = item.icon {
+                            icon
+                        } else if let iconKind = item.iconKind {
+                            LitheIcon(kind: iconKind, size: 16)
+                        } else if let systemImage = item.systemImage {
+                            Image(systemName: systemImage)
+                                .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                        } else {
+                            Color.clear
+                        }
+                    }
+                    .frame(width: 16, height: 16)
+                    .padding(.trailing, 9)
+                    .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
+                }
+
+                VStack(alignment: .leading, spacing: LitheDropdownMetrics.descriptionSpacing) {
+                    title
+                        .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
+                        .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
+                        .lineLimit(1)
+                    if let description = item.description, !description.isEmpty {
+                        Text(verbatim: description)
+                            .font(LitheTheme.uiFont(size: LitheDropdownMetrics.descriptionFontSize))
+                            .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText.opacity(0.78) : LitheTheme.secondaryText)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .frame(width: 16, height: 16)
-                .foregroundStyle(
-                    isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText
-                )
-
-                Text(LocalizedStringKey(item.title))
-                    .font(Font(LitheContextMenuMetrics.itemFont))
-                    .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.primaryText)
-                    .lineLimit(1)
+                .padding(.trailing, 9)
+                .padding(.vertical, item.description?.isEmpty == false ? LitheDropdownMetrics.descriptionVerticalPadding : 0)
 
                 Spacer(minLength: 14)
 
                 if submenuItems != nil {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText)
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                        .frame(width: 16)
+                        .padding(.leading, 9)
+                        .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
                 } else if let shortcut = item.shortcut {
                     Text(shortcut)
-                        .font(Font(LitheContextMenuMetrics.shortcutFont))
-                        .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText.opacity(0.78) : LitheTheme.tertiaryText)
+                        .font(Font(LitheDropdownMetrics.shortcutFont))
+                        .padding(.leading, 9)
+                        .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText.opacity(0.78) : LitheTheme.tertiaryText)
+                } else if item.isChecked {
+                    Image(systemName: "checkmark")
+                        .font(LitheTheme.uiFont(size: 11))
+                        .frame(width: 16)
+                        .padding(.leading, 9)
+                        .foregroundStyle(LitheTheme.accent)
                 }
             }
-            .padding(.horizontal, 9)
-            .frame(height: LitheContextMenuMetrics.rowHeight)
-            .contentShape(Rectangle())
-            .background {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isHovering ? LitheTheme.selection : .clear)
-            }
-            .padding(.horizontal, 5)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LitheDropdownRowStyle(isSelected: isSelected, tracksHover: false))
+        .padding(.horizontal, LitheDropdownMetrics.popupPadding)
         .disabled(!item.isEnabled)
         .opacity(item.isEnabled ? 1 : 0.45)
-        .onHover { hovering in
-            onSubmenuHover?(hovering)
+        .onContinuousHover { phase in
+            switch phase {
+            case .active: onSubmenuHover?(true)
+            case .ended: onSubmenuHover?(false)
+            }
         }
+    }
+
+    private var title: Text {
+        item.localizesTitle ? Text(LocalizedStringKey(item.title)) : Text(verbatim: item.title)
     }
 }
 
 @MainActor
 private final class LitheContextMenuPanel: NSPanel {
     var handleKey: ((NSEvent) -> Bool)?
+    var handleMouseMoved: ((NSEvent) -> Void)?
+    var handleResizeCursor: ((NSEvent) -> Void)?
     override var canBecomeKey: Bool { true }
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, handleKey?(event) == true { return }
+        if event.type == .mouseMoved { handleMouseMoved?(event) }
         super.sendEvent(event)
+        if event.type == .mouseMoved { handleResizeCursor?(event) }
+    }
+}
+
+/// Keep searchable dropdowns sized when their SwiftUI content opens a flyout.
+@MainActor
+final class LitheDropdownHostingController: NSHostingController<AnyView> {
+    var sizeChanged: (() -> Void)?
+    override var preferredContentSize: NSSize {
+        didSet { if preferredContentSize != oldValue { sizeChanged?() } }
     }
 }
 
@@ -305,52 +465,90 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
     private var visibleFrame: NSRect = .zero
+    private weak var customContentController: NSViewController?
+    private var contentDismissed: (() -> Void)?
+    private var contentAnchor: NSPoint?
+    private var contentOpensUpward = false
+    private var contentIsAboveAnchor = false
+    private var contentIsAnchored = false
+    private var contentWidthConstraint: NSLayoutConstraint?
+    private var contentWidth: CGFloat?
+    private var contentMinimumWidth: CGFloat = 0
+    private var contentResizeHandle: SplitHandleInteractionView?
+    private var contentResizeStartWidth: CGFloat?
+    private let contentResizeScheduler: LitheDragUpdateScheduler
+    private var contentSizeChanged: ((CGSize) -> Void)?
+    private var contentHeight: CGFloat?
+    private var contentMinimumHeight: CGFloat = 0
+    private var contentHeightConstraint: NSLayoutConstraint?
+    private var contentCornerHandles: [ProjectReplaceCornerHandleView] = []
+    private var contentResizeCorner = ProjectReplacePanelGeometry.Corner.bottomTrailing
+    private var contentResizeStartFrame: NSRect?
+    private var pendingCornerTranslation = CGSize.zero
+    private weak var triggerView: NSView?
+
+    init(resizeScheduler: LitheDragUpdateScheduler = LitheDragUpdateScheduler()) {
+        contentResizeScheduler = resizeScheduler
+        super.init()
+    }
 
     func show(
         items: [LitheContextMenuItem],
         at screenPoint: NSPoint,
         appearance: NSAppearance?,
-        locale: Locale
+        locale: Locale,
+        opensUpward: Bool = false,
+        anchored: Bool = false,
+        adjacentTo row: NSRect? = nil,
+        parentWindow: NSWindow? = nil,
+        trigger: NSView? = nil,
+        onDismiss: (() -> Void)? = nil
     ) {
         dismiss()
         guard !items.isEmpty else { return }
 
-        let menuWidth = Self.menuWidth(
-            for: items,
-            minimumWidth: LitheContextMenuMetrics.minimumRootWidth
-        )
+        let menuWidth = Self.menuWidth(for: items, locale: locale)
         let visibleFrame = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) })?.visibleFrame
             ?? NSScreen.main?.visibleFrame ?? .zero
         self.visibleFrame = visibleFrame.insetBy(dx: 6, dy: 6)
         let maximumHeight = max(1, visibleFrame.height - 12)
-        let menuHeight = min(Self.menuHeight(for: items), maximumHeight)
+        let menuHeight = min(Self.menuHeight(for: items, width: menuWidth, locale: locale), maximumHeight)
         let submenuWidths = items.compactMap { item -> CGFloat? in
             guard case .submenu(let submenuItems) = item.kind else { return nil }
-            return Self.menuWidth(
-                for: submenuItems,
-                minimumWidth: LitheContextMenuMetrics.minimumSubmenuWidth
-            )
-        }
-        let submenuHeights = items.compactMap { item -> CGFloat? in
-            guard case .submenu(let submenuItems) = item.kind else { return nil }
-            return Self.menuHeight(for: submenuItems)
+            return Self.menuWidth(for: submenuItems, locale: locale)
         }
         let submenuWidth = submenuWidths.max() ?? 0
-        let submenuHeight = min(submenuHeights.max() ?? 0, maximumHeight)
-        let preferredOrigin = NSPoint(x: screenPoint.x - 6, y: screenPoint.y - menuHeight + 6)
+        let preferredOrigin: NSPoint
+        if let row {
+            // IDEA's branch tree opens actions beside its parent popup, with the
+            // first action aligned to the triggering row. Flip only at a screen edge.
+            let right = row.maxX + LitheDropdownMetrics.submenuSpacing
+            let left = row.minX - menuWidth - LitheDropdownMetrics.submenuSpacing
+            preferredOrigin = NSPoint(
+                x: right + menuWidth > visibleFrame.maxX - 6 && left >= visibleFrame.minX + 6 ? left : right,
+                y: row.maxY + LitheDropdownMetrics.popupPadding - menuHeight
+            )
+        } else {
+            preferredOrigin = NSPoint(
+                x: screenPoint.x - (anchored ? 0 : 6),
+                y: opensUpward ? screenPoint.y + (anchored ? 0 : 6) : screenPoint.y - menuHeight + (anchored ? 0 : 6)
+            )
+        }
         let origin = NSPoint(
             x: min(max(preferredOrigin.x, visibleFrame.minX + 6), visibleFrame.maxX - menuWidth - 6),
             y: min(max(preferredOrigin.y, visibleFrame.minY + 6), visibleFrame.maxY - menuHeight - 6)
         )
         let submenuOnLeft = submenuWidth > 0
-            && origin.x + menuWidth + submenuWidth + LitheContextMenuMetrics.submenuSpacing > visibleFrame.maxX - 6
-            && origin.x - submenuWidth - LitheContextMenuMetrics.submenuSpacing >= visibleFrame.minX + 6
+            && origin.x + menuWidth + submenuWidth + LitheDropdownMetrics.submenuSpacing > visibleFrame.maxX - 6
+            && origin.x - submenuWidth - LitheDropdownMetrics.submenuSpacing >= visibleFrame.minX + 6
         let selection = LitheContextMenuSelection(items: items, dismiss: { [weak self] in self?.dismiss() })
-        selection.submenuChanged = { [weak self] isVisible in
+        selection.layoutSubmenu = { [weak self, weak selection] offset in
             self?.resizeMenu(
-                isSubmenuVisible: isVisible, rootWidth: menuWidth, rootHeight: menuHeight,
-                submenuWidth: submenuWidth, submenuHeight: submenuHeight, submenuOnLeft: submenuOnLeft
-            )
+                offset: offset, rootFrame: NSRect(origin: origin, size: NSSize(width: menuWidth, height: menuHeight)),
+                submenuWidth: submenuWidth,
+                submenuHeight: min(Self.menuHeight(for: selection?.children ?? [], width: submenuWidth, locale: locale), maximumHeight),
+                submenuOnLeft: submenuOnLeft
+            ) ?? 0
         }
         let content = LitheContextMenuContent(
             selection: selection, width: menuWidth, submenuWidth: submenuWidth,
@@ -358,14 +556,34 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         )
         .environment(\.locale, locale)
 
-        let panel = LitheContextMenuPanel(
-            contentRect: NSRect(x: 0, y: 0, width: menuWidth, height: menuHeight),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
+        let panel = makePanel(contentController: NSHostingController(rootView: content), appearance: appearance)
         panel.handleKey = { selection.handle($0) }
-        panel.contentViewController = NSHostingController(rootView: content)
+        panel.acceptsMouseMovedEvents = true
+        panel.handleMouseMoved = { [weak panel] event in
+            guard let content = panel?.contentView else { return }
+            // Complete pointer handoff in this event, without depending on a
+            // later SwiftUI hover callback after keyboard scrolling.
+            selection.pointerMoved(to: content.convert(event.locationInWindow, from: nil))
+        }
+
+        // Installing the hosting controller can reset the initial content size.
+        panel.setFrame(NSRect(origin: origin, size: NSSize(width: menuWidth, height: menuHeight)), display: true)
+
+        self.panel = panel
+        triggerView = trigger
+        parentWindow?.addChildWindow(panel, ordered: .above)
+        contentDismissed = onDismiss
+        installEventMonitors()
+        panel.orderFrontRegardless()
+        panel.makeKey()
+    }
+
+    private func makePanel(contentController: NSViewController, appearance: NSAppearance?) -> LitheContextMenuPanel {
+        let panel = LitheContextMenuPanel(
+            contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered, defer: false
+        )
+        panel.contentViewController = contentController
         panel.appearance = appearance
         panel.animationBehavior = .none
         panel.backgroundColor = .clear
@@ -376,95 +594,383 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         panel.hidesOnDeactivate = true
         panel.collectionBehavior = [.transient, .fullScreenAuxiliary]
         panel.delegate = self
+        return panel
+    }
 
-        panel.setFrameOrigin(origin)
+    /// Searchable filters share the action-menu window and dismissal lifecycle.
+    func show(contentController: NSViewController, at screenPoint: NSPoint,
+              appearance: NSAppearance?, opensUpward: Bool = false, searchOnTyping: Bool = false,
+              parentWindow: NSWindow? = nil,
+              trigger: NSView? = nil,
+              resizableWidth: CGFloat? = nil, minimumWidth: CGFloat = 0,
+              resizableHeight: CGFloat? = nil, minimumHeight: CGFloat = 0,
+              onSizeChanged: ((CGSize) -> Void)? = nil,
+              onDismiss: @escaping () -> Void) {
+        dismiss()
+        // Opted-in dropdowns keep native ownership of user dimensions and hit targets.
+        let container: NSViewController
+        if resizableWidth != nil {
+            container = NSViewController()
+            container.view = NSView(frame: contentController.view.frame)
+            container.view.autoresizingMask = [.width, .height]
+            container.addChild(contentController)
+            contentController.view.autoresizingMask = [.width, .height]
+            container.view.addSubview(contentController.view)
+        } else {
+            container = contentController
+        }
+        let panel = makePanel(contentController: container, appearance: appearance)
+        customContentController = contentController
+        contentWidth = resizableWidth.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        contentMinimumWidth = minimumWidth
+        contentSizeChanged = onSizeChanged
+        contentHeight = resizableHeight.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        contentMinimumHeight = minimumHeight
+        if let contentWidth {
+            panel.styleMask.insert(.resizable)
+            // Hosting's preferredContentSize installs a 501-priority ideal
+            // size. Required constraints preserve the dimensions the user owns.
+            contentWidthConstraint = container.view.widthAnchor.constraint(equalToConstant: contentWidth)
+            contentWidthConstraint?.isActive = true
+            if let contentHeight {
+                contentHeightConstraint = container.view.heightAnchor.constraint(equalToConstant: contentHeight)
+                contentHeightConstraint?.isActive = true
+            }
+        }
 
+        panel.handleKey = { [weak self, weak panel] event in
+            if event.keyCode == 53 {
+                self?.dismiss()
+                return true
+            }
+            guard searchOnTyping, let panel else { return false }
+            let find = event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "f"
+            let typing = event.modifierFlags.intersection([.command, .control, .function]).isEmpty
+                && event.characters?.unicodeScalars.contains { !CharacterSet.controlCharacters.contains($0) } == true
+            guard find || (panel.firstResponder === panel && typing) else { return false }
+            func searchField(in view: NSView) -> NSTextField? {
+                if let field = view as? NSTextField, field.isEditable, field.isEnabled { return field }
+                return view.subviews.lazy.compactMap { searchField(in: $0) }.first
+            }
+            if let content = panel.contentView, let field = searchField(in: content) {
+                panel.makeFirstResponder(field)
+            }
+            // Forward the original event to the field editor, preserving native IME.
+            return find
+        }
         self.panel = panel
+        triggerView = trigger
+        if let hosting = contentController as? LitheDropdownHostingController {
+            hosting.sizingOptions = [.preferredContentSize]
+            hosting.sizeChanged = { [weak self, weak hosting] in
+                guard let hosting else { return }
+                self?.resize(contentController: hosting)
+            }
+        }
+        contentDismissed = onDismiss
+        contentAnchor = screenPoint
+        contentOpensUpward = opensUpward
+        contentIsAnchored = parentWindow != nil
+        parentWindow?.addChildWindow(panel, ordered: .above)
+        resize(contentController: contentController)
+        if contentWidth != nil, let view = panel.contentView {
+            panel.acceptsMouseMovedEvents = true
+            panel.handleResizeCursor = { [weak self, weak panel] event in
+                guard let self, let view = panel?.contentView else { return }
+                let point = view.convert(event.locationInWindow, from: nil)
+                if let corner = self.contentCornerHandles.first(where: { $0.frame.contains(point) }) {
+                    corner.resizeCursor.set()
+                } else if self.contentResizeHandle?.frame.contains(point) == true {
+                    NSCursor.resizeLeftRight.set()
+                }
+            }
+            // Reuse the splitter's native hit target: borderless NSPanel does not
+            // provide an edge cursor/drag region merely from its resizable flag.
+            let handle = SplitHandleInteractionView(frame: NSRect(
+                x: view.bounds.width - SplitHandleView.hitThickness, y: 0,
+                width: SplitHandleView.hitThickness, height: view.bounds.height))
+            handle.autoresizingMask = [.minXMargin, .height]
+            handle.setAccessibilityElement(true)
+            handle.setAccessibilityRole(.splitter)
+            handle.setAccessibilityLabel(NSLocalizedString("Drag left or right to resize", comment: ""))
+            handle.onDragStarted = { [weak self, weak panel] in
+                self?.contentResizeStartWidth = panel?.frame.width
+            }
+            handle.onDragChanged = { [weak self] translation in
+                self?.contentResizeScheduler.submit(translation) { [weak self] value in self?.resizeContentWidth(by: value) }
+            }
+            handle.onDragEnded = { [weak self] translation in
+                guard let self else { return }
+                self.contentResizeScheduler.cancel()
+                self.resizeContentWidth(by: translation)
+                self.contentResizeStartWidth = nil
+                if let panel = self.panel {
+                    self.contentSizeChanged?(panel.frame.size)
+                }
+            }
+            view.addSubview(handle)
+            contentResizeHandle = handle
+            if minimumHeight > 0 {
+                for position in [ProjectReplacePanelGeometry.Corner.topTrailing, .bottomTrailing] {
+                    let corner = ProjectReplaceCornerHandleView(frame: NSRect(
+                        x: view.bounds.width - SplitHandleView.hitThickness,
+                        y: position.isTop ? view.bounds.height - SplitHandleView.hitThickness : 0,
+                        width: SplitHandleView.hitThickness, height: SplitHandleView.hitThickness))
+                    corner.corner = position
+                    corner.tracksInactiveWindows = true
+                    if #available(macOS 15.0, *) {
+                        corner.cursorOverride = NSCursor.frameResize(position: position.isTop ? .topRight : .bottomRight, directions: .all)
+                    }
+                    corner.autoresizingMask = position.isTop ? [.minXMargin, .minYMargin] : [.minXMargin, .maxYMargin]
+                    corner.setAccessibilityElement(true)
+                    corner.setAccessibilityRole(.splitter)
+                    corner.setAccessibilityLabel(NSLocalizedString("Drag corner to resize", comment: ""))
+                    corner.onStart = { [weak self, weak panel] in
+                        self?.contentResizeCorner = position
+                        self?.contentResizeStartFrame = panel?.frame
+                    }
+                    corner.onChange = { [weak self] translation in
+                        guard let self else { return }
+                        self.pendingCornerTranslation = translation
+                        // One queued delivery applies both axes using the latest screen delta.
+                        self.contentResizeScheduler.submit(0, minimumChange: 0) { [weak self] _ in
+                            guard let self else { return }
+                            self.resizeContentCorner(by: self.pendingCornerTranslation)
+                        }
+                    }
+                    corner.onEnd = { [weak self] translation in
+                        guard let self else { return }
+                        self.contentResizeScheduler.cancel()
+                        self.resizeContentCorner(by: translation)
+                        if position.isTop != self.contentIsAboveAnchor,
+                           let start = self.contentResizeStartFrame, let panel = self.panel {
+                            // Keep the released anchored edge when binding refresh lays out the popup again.
+                            self.contentAnchor?.y += self.contentIsAboveAnchor
+                                ? panel.frame.minY - start.minY : panel.frame.maxY - start.maxY
+                        }
+                        self.contentResizeStartFrame = nil
+                        if let panel = self.panel { self.contentSizeChanged?(panel.frame.size) }
+                    }
+                    view.addSubview(corner) // Above the right edge, so diagonal dragging wins here.
+                    contentCornerHandles.append(corner)
+                }
+            }
+        }
         installEventMonitors()
         panel.orderFrontRegardless()
         panel.makeKey()
+        if searchOnTyping { panel.makeFirstResponder(panel) }
     }
 
+    func resize(contentController: NSViewController) {
+        guard let panel, contentResizeStartWidth == nil, contentResizeStartFrame == nil, customContentController === contentController,
+              let point = contentAnchor else { return }
+        let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
+        let bounds = (screen?.visibleFrame ?? panel.frame).insetBy(dx: 6, dy: 6)
+        contentController.view.layoutSubtreeIfNeeded()
+        let preferred = contentController.preferredContentSize
+        let fitting = preferred.width > 0 && preferred.height > 0
+            ? preferred : contentController.view.fittingSize
+        let size = NSSize(width: min(contentWidth.map { max($0, contentMinimumWidth) } ?? fitting.width, bounds.width),
+                          height: min(max(contentHeight ?? fitting.height, contentMinimumHeight), bounds.height))
+        if contentWidth != nil {
+            panel.contentMinSize = NSSize(width: min(contentMinimumWidth, bounds.width), height: contentMinimumHeight > 0 ? min(contentMinimumHeight, bounds.height) : size.height)
+            panel.contentMaxSize = NSSize(width: bounds.width, height: contentMinimumHeight > 0 ? bounds.height : size.height)
+        }
+        // Keep app-owned dropdowns attached while there is room, then flip to
+        // the other side before finally clamping an oversized panel on screen.
+        let spaceBelow = point.y - bounds.minY
+        let spaceAbove = bounds.maxY - point.y
+        let fitsBelow = size.height <= spaceBelow
+        let fitsAbove = size.height <= spaceAbove
+        let opensAbove = contentIsAnchored
+            ? (contentOpensUpward ? (!fitsAbove && fitsBelow ? false : true)
+                                   : (!fitsBelow && fitsAbove))
+            : contentOpensUpward
+        contentIsAboveAnchor = opensAbove
+        let y = opensAbove ? point.y : point.y - size.height
+        let yOrigin = min(max(y, bounds.minY), bounds.maxY - size.height)
+        let origin = NSPoint(x: min(max(point.x, bounds.minX), bounds.maxX - size.width),
+                             y: yOrigin)
+        let frame = NSRect(origin: origin, size: size)
+        contentWidthConstraint?.constant = size.width
+        contentHeightConstraint?.constant = size.height
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
+    }
+
+    func dismiss(contentController: NSViewController) {
+        guard customContentController === contentController else { return }
+        dismiss()
+    }
+
+    /// Keep the root fixed. Clamp only the flyout's row-relative offset when
+    /// the screen edge prevents alignment, including tall scrollable submenus.
     private func resizeMenu(
-        isSubmenuVisible: Bool,
-        rootWidth: CGFloat,
-        rootHeight: CGFloat,
+        offset: CGFloat?,
+        rootFrame: NSRect,
         submenuWidth: CGFloat,
         submenuHeight: CGFloat,
         submenuOnLeft: Bool
-    ) {
-        guard let panel else { return }
-        let width = rootWidth + (
-            isSubmenuVisible
-                ? submenuWidth + LitheContextMenuMetrics.submenuSpacing
-                : 0
+    ) -> CGFloat {
+        guard let panel else { return 0 }
+        let childOffset = offset.map {
+            min(max($0, rootFrame.maxY - visibleFrame.maxY),
+                rootFrame.maxY - visibleFrame.minY - submenuHeight)
+        } ?? 0
+        let topInset = max(0, -childOffset)
+        let width = rootFrame.width + (offset == nil ? 0 : submenuWidth + LitheDropdownMetrics.submenuSpacing)
+        let height = max(rootFrame.height, offset == nil ? 0 : childOffset + submenuHeight) + topInset
+        var frame = NSRect(
+            x: rootFrame.minX - (offset != nil && submenuOnLeft ? submenuWidth + LitheDropdownMetrics.submenuSpacing : 0),
+            y: rootFrame.maxY + topInset - height, width: width, height: height
         )
-        let height = max(rootHeight, isSubmenuVisible ? submenuHeight : 0)
-        var frame = panel.frame
-        let wasSubmenuVisible = frame.width > rootWidth
-        if submenuOnLeft, isSubmenuVisible != wasSubmenuVisible {
-            frame.origin.x += isSubmenuVisible
-                ? -(submenuWidth + LitheContextMenuMetrics.submenuSpacing)
-                : submenuWidth + LitheContextMenuMetrics.submenuSpacing
-        }
-        frame.origin.y += frame.height - height
-        frame.size = NSSize(width: width, height: height)
-        frame.origin.y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - frame.height)
+        // When neither side has room, keep the combined panel inside the screen.
         frame.origin.x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - frame.width)
-        panel.setFrame(frame, display: true)
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
+        return childOffset
     }
 
-    fileprivate static func menuWidth(
-        for items: [LitheContextMenuItem],
-        minimumWidth: CGFloat
+    static func menuWidth(
+        for items: [LitheContextMenuItem], locale: Locale
     ) -> CGFloat {
         let widestItem = items.reduce(CGFloat.zero) { width, item in
             guard case .action = item.kind else {
                 guard case .submenu = item.kind else { return width }
-                return max(width, menuItemWidth(item))
+                return max(width, menuItemWidth(item, locale: locale))
             }
-            return max(width, menuItemWidth(item))
+            return max(width, menuItemWidth(item, locale: locale))
         }
-        let contentWidth = widestItem + 67
+        let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
+        let chromeWidth = 2 * (LitheDropdownMetrics.itemHorizontalPadding + LitheDropdownMetrics.popupPadding)
+            + 14 + 9 + (showsIcons ? 16 + 9 : 0)
+        let contentWidth = ceil(widestItem + chromeWidth)
         return min(
-            max(contentWidth, minimumWidth),
-            LitheContextMenuMetrics.maximumWidth
+            max(contentWidth, LitheDropdownMetrics.minimumRootWidth),
+            LitheDropdownMetrics.maximumWidth
         )
     }
 
-    fileprivate static func menuHeight(for items: [LitheContextMenuItem]) -> CGFloat {
-        items.reduce(LitheContextMenuMetrics.verticalPadding) { height, item in
+    fileprivate static func menuHeight(for items: [LitheContextMenuItem], width: CGFloat, locale: Locale) -> CGFloat {
+        let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
+        return items.reduce(LitheDropdownMetrics.verticalPadding) { height, item in
             switch item.kind {
             case .separator:
-                height + LitheContextMenuMetrics.separatorHeight
+                return height + LitheDropdownMetrics.separatorHeight
             case .action, .submenu:
-                height + LitheContextMenuMetrics.rowHeight
+                guard item.description?.isEmpty == false else { return height + LitheDropdownMetrics.rowHeight }
+                // Measure the rendered two-line label at the same bounded width
+                // as its menu, so wrapped descriptions remain inside the panel.
+                let renderer = ImageRenderer(content: LitheContextMenuRow(
+                    item: item, isSelected: false, showsIcons: showsIcons, action: {}
+                ).frame(width: width).environment(\.locale, locale))
+                var rowHeight = LitheDropdownMetrics.rowHeight
+                renderer.render { size, _ in rowHeight = max(rowHeight, ceil(size.height)) }
+                return height + rowHeight
             }
         }
     }
 
-    private static func menuItemWidth(_ item: LitheContextMenuItem) -> CGFloat {
-        let titleWidth = (item.title as NSString).size(
-            withAttributes: [.font: LitheContextMenuMetrics.itemFont]
-        ).width
+    private static func menuItemWidth(_ item: LitheContextMenuItem, locale: Locale) -> CGFloat {
+        // Measure the same localized SwiftUI font that the row renders. Native
+        // font advances differ at fractional sizes and caused ordinary titles
+        // to truncate. render supplies layout size; no bitmap needs drawing.
+        let title = item.localizesTitle ? Text(LocalizedStringKey(item.title)) : Text(verbatim: item.title)
+        let renderer = ImageRenderer(content: title
+            .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
+            .environment(\.locale, locale).fixedSize())
+        var titleWidth: CGFloat = 0
+        renderer.render { size, _ in titleWidth = size.width }
+        if let description = item.description, !description.isEmpty {
+            let renderer = ImageRenderer(content: Text(verbatim: description)
+                .font(LitheTheme.uiFont(size: LitheDropdownMetrics.descriptionFontSize)).fixedSize())
+            renderer.render { size, _ in titleWidth = max(titleWidth, size.width) }
+        }
         let shortcutWidth = item.shortcut.map {
             ($0 as NSString).size(
-                withAttributes: [.font: LitheContextMenuMetrics.shortcutFont]
+                withAttributes: [.font: LitheDropdownMetrics.shortcutFont]
             ).width
         } ?? 0
-        let shortcutSpacing: CGFloat = item.shortcut == nil ? 0 : 18
-        return titleWidth + shortcutWidth + shortcutSpacing
+        let trailingWidth: CGFloat
+        if case .submenu = item.kind { trailingWidth = 16 + 9 }
+        else if item.isChecked { trailingWidth = 16 + 9 }
+        else { trailingWidth = item.shortcut == nil ? 0 : shortcutWidth + 9 }
+        return titleWidth + trailingWidth
     }
 
     func dismiss() {
         removeEventMonitors()
+        contentResizeHandle?.removeFromSuperview()
+        contentResizeHandle = nil
+        contentCornerHandles.forEach { $0.endTracking(); $0.removeFromSuperview() }
+        contentCornerHandles.removeAll()
+        contentHeightConstraint?.isActive = false
+        contentHeightConstraint = nil
+        contentHeight = nil
+        contentMinimumHeight = 0
+        contentResizeStartFrame = nil
+        triggerView = nil
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
+        contentAnchor = nil
+        customContentController = nil
+        contentWidthConstraint?.isActive = false
+        contentWidthConstraint = nil
+        contentWidth = nil
+        contentResizeStartWidth = nil
+        contentResizeScheduler.cancel()
+        contentSizeChanged = nil
+        let dismissed = contentDismissed
+        contentDismissed = nil
+        dismissed?()
+    }
+
+    private func resizeContentWidth(by translation: CGFloat) {
+        guard let panel, let initialWidth = contentResizeStartWidth else { return }
+        let bounds = (panel.screen?.visibleFrame ?? panel.frame).insetBy(dx: 6, dy: 6)
+        let maximum = max(0, bounds.maxX - panel.frame.minX)
+        let width = min(max(initialWidth + translation, contentMinimumWidth), maximum)
+        guard width != panel.frame.width else { return }
+        contentWidth = width
+        var frame = panel.frame
+        frame.size.width = width
+        contentWidthConstraint?.constant = width
+        // AppKit redraws on its next display pass; do not synchronously flush every pointer update.
+        panel.setFrame(frame, display: false)
+    }
+
+    private func resizeContentCorner(by translation: CGSize) {
+        guard let panel, let start = contentResizeStartFrame, let view = panel.contentView else { return }
+        let bounds = (panel.screen?.visibleFrame ?? panel.frame).insetBy(dx: 6, dy: 6)
+        let width = min(max(start.width + translation.width, contentMinimumWidth), max(0, bounds.maxX - start.minX))
+        let isTop = contentResizeCorner.isTop
+        let availableHeight = isTop ? bounds.maxY - start.minY : start.maxY - bounds.minY
+        let height = min(max(start.height + (isTop ? -translation.height : translation.height), contentMinimumHeight),
+                         max(0, availableHeight))
+        let frame = NSRect(x: start.minX, y: isTop ? start.minY : start.maxY - height, width: width, height: height)
+        guard frame != panel.frame else { return }
+        contentWidth = width
+        contentHeight = height
+        contentWidthConstraint?.constant = width
+        if contentHeightConstraint == nil {
+            contentHeightConstraint = view.heightAnchor.constraint(equalToConstant: height)
+            contentHeightConstraint?.isActive = true
+        }
+        contentHeightConstraint?.constant = height
+        // AppKit redraws on its next display pass; do not synchronously flush every pointer update.
+        panel.setFrame(frame, display: false)
     }
 
     func windowDidResignKey(_ notification: Notification) {
+        guard panel?.childWindows?.contains(where: { $0.isVisible }) != true else { return }
+        guard !isTriggerClick(NSApp.currentEvent) else { return }
         dismiss()
+    }
+
+    private func isTriggerClick(_ event: NSEvent?) -> Bool {
+        guard let triggerView, let window = triggerView.window else { return false }
+        return LitheDropdownAnchorGeometry.isAnchorClick(event, anchorWindow: window,
+            anchorFrame: window.convertToScreen(triggerView.convert(triggerView.bounds, to: nil)))
     }
 
     private func installEventMonitors() {
@@ -472,10 +978,18 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             matching: [.leftMouseDown, .rightMouseDown, .keyDown]
         ) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown, self.panel?.handleKey?(event) == true {
+            if event.type == .keyDown, event.window === self.panel, self.panel?.handleKey?(event) == true {
                 return nil
             }
-            if event.type != .keyDown, event.window !== self.panel {
+            var eventWindow = event.window
+            while let window = eventWindow {
+                if window === self.panel { return event }
+                eventWindow = window.parent
+            }
+            if event.type != .keyDown {
+                // The trigger owns its toggle. Dismissing here would reset its
+                // binding before the same click reaches the button and reopen it.
+                if self.isTriggerClick(event) { return event }
                 self.dismiss()
                 // Let the same click reach another menu trigger or the underlying control.
                 return event
@@ -555,13 +1069,25 @@ private final class LitheRightClickCaptureView: NSView {
     }
 }
 
+private struct LitheContextMenuModifier: ViewModifier {
+    @Environment(\.isLithePaneResizing) private var isResizing
+    let items: () -> [LitheContextMenuItem]
+    let onRightClick: () -> Void
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if !isResizing {
+                LitheContextMenuTrigger(items: items, onRightClick: onRightClick)
+            }
+        }
+    }
+}
+
 extension View {
     func litheContextMenu(
         items: @escaping () -> [LitheContextMenuItem],
         onRightClick: @escaping () -> Void = {}
     ) -> some View {
-        overlay {
-            LitheContextMenuTrigger(items: items, onRightClick: onRightClick)
-        }
+        modifier(LitheContextMenuModifier(items: items, onRightClick: onRightClick))
     }
 }

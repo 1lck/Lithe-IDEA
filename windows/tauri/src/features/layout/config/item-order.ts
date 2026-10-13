@@ -1,21 +1,19 @@
+// Settings moved from the activity rail bottom to the title bar (next to the
+// search action), so it is no longer a reorderable or hideable rail item.
 export const SIDEBAR_ACTIVITY_ITEM_IDS = [
   "files",
   "git",
   "search",
-  "maven",
   "run",
   "terminal",
   "diagnostics",
   "gitLog",
-  "settings",
 ] as const;
 export const SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS = [
-  "maven",
   "run",
   "terminal",
   "diagnostics",
   "gitLog",
-  "settings",
 ] as const;
 export const FOOTER_LEADING_ITEM_IDS = ["filePath", "branch"] as const;
 export const FOOTER_TRAILING_ITEM_IDS = [

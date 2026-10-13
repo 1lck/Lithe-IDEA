@@ -6,6 +6,7 @@ const DOM_GLOBALS = [
   "document",
   "navigator",
   "Element",
+  "DOMRect",
   "HTMLElement",
   "HTMLInputElement",
   "HTMLTextAreaElement",

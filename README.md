@@ -17,6 +17,7 @@
   <p>
     <a href="https://hellogithub.com/repository/1lck/Lithe-IDEA" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=633af067f07d4d16af010b9dc16c0b8d&amp;claim_uid=7NYd4yvRlGtqfgr" alt="Featured | HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54"></a>
     <a href="https://atomgit.com/lithe_IDEA/Lithe-IDEA"><img src="https://atomgit.com/lithe_IDEA/Lithe-IDEA/star/new_badge.svg" alt="AtomGit G-Star" style="width: 250px; height: 54px;" width="250" height="54"></a>
+    <a href="https://trendshift.io/repositories/124763?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-124763" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/124763/weekly?language=Swift" alt="Lithe-IDEA | Trendshift weekly" width="250" height="55"></a>
   </p>
 
   <p>
@@ -30,6 +31,8 @@
   </p>
 </div>
 
+https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
+
 ## Join the community
 
 Welcome to join the Lithe community, share your experience, ask questions, and follow the latest updates.
@@ -42,7 +45,7 @@ Welcome to join the Lithe community, share your experience, ask questions, and f
   </tr>
   <tr>
     <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="QR code for the Lithe QQ group"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr-2026-10.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
   </tr>
 </table>
 </div>
@@ -109,20 +112,26 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 
 <p align="center">
   <img src="./docs/assets/screenshots/search-everywhere.png" width="49%" alt="Double-Shift Search Everywhere">
+  <img src="./docs/assets/screenshots/git-diff-review.png" width="49%" alt="Side-by-side Git diff review">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/ai-commit-message.png" width="49%" alt="Generate commit messages with AI">
+  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="49%" alt="Automatic project detection and one-click run configuration">
+</p>
+
+<details>
+<summary>More screenshots</summary>
+<br>
+
+<p align="center">
   <img src="./docs/assets/screenshots/global-search.png" width="49%" alt="Command Shift F project-wide search and replace">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/git-diff-review.png" width="96%" alt="Side-by-side Git diff review">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="Import AI provider settings from local tools">
   <img src="./docs/assets/screenshots/ai-commit-format.png" width="49%" alt="Customize AI commit message formats">
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/ai-commit-message.png" width="96%" alt="Generate commit messages with AI">
+  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="Import AI provider settings from local tools">
+  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="Per-language service settings">
 </p>
 
 <p align="center">
@@ -136,18 +145,15 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="96%" alt="Automatic project detection and one-click run configuration">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="Per-language service settings">
   <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="Multi-line editor tabs">
+  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="Database connection workspace">
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="Database connection workspace">
   <img src="./docs/assets/screenshots/database-sql-operation.png" width="49%" alt="Database SQL operation and table structure">
 </p>
+
+</details>
 
 ## Download and install
 
@@ -169,20 +175,27 @@ macOS is the current reference product. Windows is an independent React/Tauri im
 ```mermaid
 flowchart LR
     subgraph macOS["macOS"]
-        MacUI["SwiftUI / AppKit workbench"] --> MacApp["Application models and services"]
-        MacApp --> MacAdapters["macOS adapters"]
+        MacViews["SwiftUI / AppKit Views"] --> MacModel["AppModel and UI models"]
+        MacModel --> MacFeatures["Application feature models"]
+        MacFeatures --> MacServices["AppServices and Swift services"]
+        MacServices --> MacRust["Typed Rust operations"]
+        MacServices --> MacPorts["Platform ports"]
+        MacPorts --> MacAdapters["macOS adapters"]
     end
 
     subgraph Shared["Shared behavior"]
+        Editor["Shared Monaco editor"]
         Contracts["JSON contracts and fixtures"] --> Core["Rust lithe-core"]
     end
 
     subgraph Windows["Windows"]
-        WinUI["React workbench"] --> WinFeatures["TypeScript features and stores"]
-        WinFeatures --> Tauri["Tauri 2 host and Windows adapters"]
+        WinUI["React workbench and feature state"] --> WinBoundary["src/platform/tauri-core.ts"]
+        WinBoundary --> Tauri["Tauri composition root and Windows adapters"]
     end
 
-    MacApp -->|"JSON C ABI"| Core
+    Editor -.-> MacViews
+    Editor -.-> WinUI
+    MacRust -->|"JSON C ABI"| Core
     Tauri -->|"Rust crate"| Core
 ```
 
@@ -260,6 +273,17 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
   </tr>
   <tr>
     <td width="112" align="center">
+      <a href="https://www.packyapi.ai/register?aff=dWNN">
+        <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
+      </a>
+    </td>
+    <td>
+      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> is a stable, efficient API relay service that connects you to leading large language models. It offers a unified domain, a single API key, intelligent failover, and 97% availability. Top up in RMB at a 1:1 rate with no exchange-rate costs or transaction fees. New users receive a first-top-up discount plus $1 in free trial credit. Discounts across multiple service groups reach up to 80% off, with dedicated high-speed channels for Codex and Claude Code.<br>
+      <a href="https://www.packyapi.ai/register?aff=dWNN">Register to get started!</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
       <a href="https://torchai.ai/sign-up?aff=FdkE">
         <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
       </a>
@@ -299,6 +323,25 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
   </tr>
 </table>
+
+### ☕ Support Lithe
+
+If Lithe is useful to you, you are welcome to buy the project a cup of coffee. Every contribution will be put back into Lithe's continued development and maintenance.
+
+<div align="center">
+<table>
+  <tr>
+    <td align="center">
+      <img src="./docs/assets/donation/wechat.png" width="280" alt="WeChat donation QR code"><br>
+      <strong>WeChat</strong>
+    </td>
+    <td align="center">
+      <img src="./docs/assets/donation/alipay.png" width="280" alt="Alipay donation QR code"><br>
+      <strong>Alipay</strong>
+    </td>
+  </tr>
+</table>
+</div>
 
 ### ⭐ Special thanks
 

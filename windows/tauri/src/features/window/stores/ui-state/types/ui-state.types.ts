@@ -1,6 +1,7 @@
 export type SettingsTab =
   | "run"
   | "project"
+  | "mcp"
   | "general"
   | "editor"
   | "git"
@@ -12,6 +13,7 @@ export type SettingsTab =
   | "logs"
   | "advanced"
   | "terminal"
+  | "maven"
   | "file-explorer";
 
 export type BottomPaneTab =
@@ -23,7 +25,8 @@ export type BottomPaneTab =
   | "run"
   // Maven task output is independent from the right-side Maven navigation tool window.
   | "maven"
-  | "gitLog";
+  | "gitLog"
+  | "springEndpoints";
 
 export interface QuickEditSelection {
   text: string;

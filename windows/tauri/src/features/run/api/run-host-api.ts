@@ -55,7 +55,7 @@ export type ToolchainSource =
   | "projectJdk";
 
 export type ToolchainResolution =
-  | { status: "resolved"; path: string; version: string; vendor: string; source: ToolchainSource }
+  | { status: "resolved"; path: string; version: string; vendor: string; source: ToolchainSource; warning?: string }
   | { status: "notFound"; message: string | null }
   | { status: "invalid"; message: string };
 
@@ -94,18 +94,18 @@ export function resolveRunLaunch(args: {
 }
 
 /**
- * Runs one pre-launch step (e.g. `javac`) to completion and reports its exit
- * code plus combined stdout/stderr, so the store can abort a run on a non-zero
- * exit and surface the compiler's real diagnostic.
+ * Runs an execution-owned compiler or resource step with bounded native cleanup.
  */
 export function executePreLaunchStep(args: {
+  sessionId: string;
+  executionId: string;
   executable: string;
   arguments: string[];
   workingDirectory: string;
   environment: Record<string, string>;
 }) {
   return invoke<{ exitCode: number; output: string }>("run_execute_prelaunch", {
-    args,
+    args: { ...args, windowLabel: getRunWindowLabel() },
   });
 }
 

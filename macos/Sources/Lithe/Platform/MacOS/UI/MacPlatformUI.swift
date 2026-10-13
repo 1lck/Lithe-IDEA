@@ -37,9 +37,21 @@ final class MacPlatformUI: PlatformUI {
         NSWorkspace.shared.open(url)
     }
 
+    func openHTMLInBrowser(_ url: URL) async throws {
+        try await MacHTMLBrowserOpener().open(url)
+    }
+
     func copyToClipboard(_ value: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
+    }
+
+    func copyFilesToClipboard(_ urls: [URL]) -> Bool {
+        MacFileClipboard.write(urls, to: .general)
+    }
+
+    func fileURLsFromClipboard() -> [URL] {
+        MacFileClipboard.read(from: .general)
     }
 
     func markdownImageFromClipboard() -> MarkdownImageSource? {

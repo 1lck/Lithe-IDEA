@@ -1,0 +1,28 @@
+{
+  "id": "git-status-colors-idea-alignment",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/重命名蓝、新增绿、删除灰、未跟踪暖红、gutter 浅色）",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift"
+    ],
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/extensions/themes/builtin/lithe.json",
+      "windows/tauri/src/styles/theme.css",
+      "windows/tauri/src/features/file-explorer/lib/file-tree-git-status.ts",
+      "windows/tauri/src/features/editor/styles/monaco-editor.css",
+      "windows/tauri/src/features/git/components/git-operation-banner.tsx",
+      "windows/tauri/src/features/git/utils/git-file-status-visuals.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Git",
+  "notes": "对齐 IntelliJ IDEA 新 UI 的 FILESTATUS 与 *_LINES_COLOR（来源 intellij-community expUI_lightScheme/expUI_darkScheme）：modified 与 renamed #0033B3/#70AEFF、added #067D17/#73BD79、deleted 文件 #6C707E/#6F737A（新增可选 token git-file-deleted）、untracked #B23247/#E88F89；编辑器 gutter 使用可选 token git-gutter-added/modified/deleted（#7FC784/#88ADF7/#767A8A，暗色 #549159/#375FAD/#868A91）。git-deleted 保持红色，继续用于 diff 删除行与删除计数；git-modified-staged 为蓝色浅化派生。其他主题未定义新 token 时回退到 git-deleted/git-added/git-modified。原误用 text-git-modified 作为警告色的 rebase/patch/历史改写对话框与操作横幅改回 text-warning。变更列表与提交文件树不再使用 text-info/灰色/红色临时映射，统一走 git-* token。macOS 项目树配色体系不同（modified 用 accent），不属于本行对齐范围。",
+  "verification": "在 Windows 打开包含已修改、已暂存修改、新增、删除、重命名、未跟踪文件与 .gitignore 忽略项的仓库，在 Lithe 明暗主题下确认：文件树、Commit 面板变更列表与 Git Log 提交文件树中已修改和重命名为蓝色（暂存修改为浅蓝）、新增为绿色、删除为灰色、未跟踪为暖红、忽略文件仍为置灰半透明；编辑器 gutter 修改/新增/删除标记为 IDEA 浅蓝/浅绿/灰色；diff 删除行与 -N 计数仍为红色；切换到未定义新 token 的其他内置主题时颜色回退正常；rebase/patch/历史改写对话框的警告文案与操作横幅保持琥珀警示色。"
+}

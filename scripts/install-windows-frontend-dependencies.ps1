@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([ValidateRange(1, 1200)][int]$InstallTimeoutSeconds = 300)
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -9,6 +9,27 @@ $expectedVersion = ([string]$package.packageManager) -replace '^bun@', ''
 $bunCache = [System.IO.Path]::GetFullPath((Join-Path $root ".artifacts/bun-cache"))
 $bunTemp = [System.IO.Path]::GetFullPath((Join-Path $root ".artifacts/bun-tmp"))
 $dependencyPaths = @("node_modules", "windows/tauri/node_modules", "frontend/editor/node_modules") | ForEach-Object { Join-Path $root $_ }
+$powerShell = (Get-Process -Id $PID).Path
+$installWorker = Join-Path $PSScriptRoot "invoke-windows-bun-install.ps1"
+
+function Remove-InstallPath {
+    param([string]$Path)
+
+    $deadline = [Diagnostics.Stopwatch]::StartNew()
+    while (Test-Path -LiteralPath $Path) {
+        try {
+            Remove-Item -Recurse -Force -LiteralPath $Path -ErrorAction Stop
+            return
+        } catch {
+            if ($deadline.Elapsed.TotalSeconds -ge 10) {
+                throw "Cannot clean installation data after releasing its process tree: $Path. $($_.Exception.Message)"
+            }
+            # Native termination and Windows filesystem filters can release
+            # locks just after the worker exits. This retry has a local deadline.
+            Start-Sleep -Milliseconds 100
+        }
+    }
+}
 
 function Write-CacheWarning {
     param([string]$Message, [string]$Title = "Bun cache fallback")
@@ -44,7 +65,7 @@ $env:BUN_INSTALL_CACHE_DIR = $bunCache
 $env:BUN_TMPDIR = $bunTemp
 $env:BUN_FEATURE_FLAG_DISABLE_INSTALL_INDEX = "1"
 
-if (Test-Path -LiteralPath $bunTemp) { Remove-Item -Recurse -Force -LiteralPath $bunTemp }
+Remove-InstallPath $bunTemp
 New-Item -ItemType Directory -Force -Path $bunCache, $bunTemp | Out-Null
 
 if ($null -eq (Get-Command bun -ErrorAction SilentlyContinue)) {
@@ -58,20 +79,21 @@ if ($LASTEXITCODE -ne 0 -or $actualVersion -ne $expectedVersion) {
 
 Push-Location $root
 try {
-    & bun install --frozen-lockfile
+    & $powerShell -NoProfile -ExecutionPolicy Bypass -File $installWorker -TimeoutSeconds $InstallTimeoutSeconds
     if ($LASTEXITCODE -ne 0) {
         if ($env:LITHE_BUN_CACHE_VERIFIED -eq "true") {
             Write-CacheWarning "The verified Bun cache could not complete installation. Clearing it and retrying with ordinary downloads."
         } else {
             Write-CacheWarning "The initial Bun install failed. Clearing partial data and retrying with ordinary downloads."
         }
-        if (Test-Path -LiteralPath $bunCache) { Remove-Item -Recurse -Force -LiteralPath $bunCache }
-        if (Test-Path -LiteralPath $bunTemp) { Remove-Item -Recurse -Force -LiteralPath $bunTemp }
+        $env:LITHE_BUN_CACHE_VERIFIED = "false"
+        Remove-InstallPath $bunCache
+        Remove-InstallPath $bunTemp
         foreach ($dependencyPath in $dependencyPaths) {
-            if (Test-Path -LiteralPath $dependencyPath) { Remove-Item -Recurse -Force -LiteralPath $dependencyPath }
+            Remove-InstallPath $dependencyPath
         }
         New-Item -ItemType Directory -Force -Path $bunCache, $bunTemp | Out-Null
-        & bun install --frozen-lockfile --no-cache
+        & $powerShell -NoProfile -ExecutionPolicy Bypass -File $installWorker -NoCache -TimeoutSeconds $InstallTimeoutSeconds
         if ($LASTEXITCODE -ne 0) {
             throw "Windows frontend dependency installation failed after a clean retry."
         }
@@ -95,7 +117,7 @@ try {
         }
         if (-not $cacheSealed) {
             Write-CacheWarning "The Bun download cache could not be sealed safely. Discarding it and continuing with the installed dependencies."
-            if (Test-Path -LiteralPath $bunCache) { Remove-Item -Recurse -Force -LiteralPath $bunCache }
+            Remove-InstallPath $bunCache
             if ($null -ne $env:GITHUB_ENV) { "LITHE_BUN_CACHE_VERIFIED=false" >> $env:GITHUB_ENV }
         }
     }

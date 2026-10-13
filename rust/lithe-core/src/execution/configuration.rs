@@ -14,11 +14,16 @@ const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when generation changes what a workspace should contain: existing
 // workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "6";
+const GENERATOR_REVISION: &str = "10";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
 const SIDECAR_VERSION: u32 = 1;
+/// Recorded in `generator.inputs` instead of a content hash for a Java source
+/// whose bytes generation never reads: only its presence feeds the Java path
+/// set. Launchable classes come from JDT, so hashing every source would scan
+/// the whole project on each inspection without detecting anything more.
+const PATH_ONLY_INPUT: &str = "path";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +36,11 @@ pub struct InspectRequest {
     /// Host-owned local layer. When present, Core validates it instead of `.lithe/run/local.json`.
     #[serde(default)]
     pub local_document: Option<Value>,
+    /// JDT's current launchable classes (`lsp.request` operation
+    /// `javaEntrypoints`). When present, Core reports whether the generated
+    /// Java entries still match them; omitted while JDT is not ready.
+    #[serde(default)]
+    pub java_entrypoints: Option<JavaEntrypointFacts>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -299,6 +309,9 @@ fn migrate_configuration_value(item: &mut Value) {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Fingerprint and inputs used to decide whether generated output is stale.
+///
+/// `inputs` maps each workspace-relative input to `sha256:<hex>` of its bytes,
+/// or to `path` for a Java source that only counts by presence.
 pub struct GeneratorMetadata {
     pub fingerprint: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -455,16 +468,21 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
     }
     let mut diagnostics = Vec::new();
     let local = local_layer_document(&root, request.local_document.clone())?;
-    if let Some(metadata) = generated
+    if let Some((document, metadata)) = generated
         .as_ref()
-        .and_then(|document| document.generator.as_ref())
+        .and_then(|document| Some((document, document.generator.as_ref()?)))
         .filter(|_| request.check_fingerprint != Some(false))
     {
-        let current_inputs = project_inputs(&root)?;
+        let current_inputs = project_inputs(&root, &java_entry_sources(&document.configurations))?;
         if metadata.fingerprint != fingerprint_from_inputs(&current_inputs) {
+            // Stored inputs that no longer reproduce the stored fingerprint were
+            // recorded by another generator revision, whose input rules (such
+            // as which sources are hashed) may differ from today's.
+            let generator_changed =
+                fingerprint_from_inputs(&metadata.inputs) != metadata.fingerprint;
             let message = if metadata.inputs.is_empty() {
                 "Project inputs changed after run configuration generation".to_string()
-            } else if metadata.inputs == current_inputs {
+            } else if generator_changed || metadata.inputs == current_inputs {
                 "Run configuration generator changed; regenerate configurations".to_string()
             } else {
                 input_change_summary(&metadata.inputs, &current_inputs)
@@ -472,6 +490,49 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
             diagnostics.push(json!({
                 "code": "staleFingerprint",
                 "message": message
+            }));
+        }
+    }
+    if let (Some(document), Some(current)) = (generated.as_ref(), request.java_entrypoints.as_ref())
+    {
+        // Source hashing no longer notices a main method added to an existing
+        // class; JDT's answer does, and is cheaper than reading every source.
+        let recorded = java_entrypoint_keys(&java_entrypoints_from_document(&root, document));
+        let current = java_entrypoint_keys(current);
+        if recorded != current {
+            let added = current.difference(&recorded).count();
+            let removed = recorded.difference(&current).count();
+            diagnostics.push(json!({
+                "code": "staleFingerprint",
+                "message": format!(
+                    "Java entry points changed: {added} added, {removed} removed"
+                )
+            }));
+        }
+    }
+    if let Some(document) = generated.as_ref() {
+        // A Java main entry without a recorded main class cannot launch and
+        // cannot be rebuilt from local sources -- JDT owns entry points -- so
+        // hosts must be told to regenerate while the language service can
+        // answer, instead of letting the stale entry surface as something
+        // else. A `spring-boot.maven` compatibility entry carries no main
+        // class by design and is not stale.
+        let stale = document
+            .configurations
+            .iter()
+            .filter(|configuration| configuration.provider == "java.main")
+            .filter(|configuration| {
+                configuration
+                    .main_class()
+                    .is_none_or(|main_class| main_class.trim().is_empty())
+            })
+            .count();
+        if stale > 0 {
+            diagnostics.push(json!({
+                "code": "staleJavaEntrypoint",
+                "message": format!(
+                    "Java run entries are missing their main class ({stale}); regenerate run configurations"
+                )
             }));
         }
     }
@@ -647,7 +708,6 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             source: None,
         });
     }
-    let inputs = project_inputs(&root)?;
     // Detectors run after the Java scan so a Java configuration always keeps its
     // id: `detected_configurations` skips ids the Java pass already claimed
     // rather than overwriting them, which would detach team and local overrides.
@@ -667,6 +727,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let entry_count = java_entry_count + detected.len();
     configurations.extend(detected);
     disambiguate_configuration_names(&mut configurations);
+    let inputs = project_inputs(&root, &java_entry_sources(&configurations))?;
     let requirements = detect_requirements(
         &root,
         maven_root.as_ref().map(|(path, _)| path.as_path()),
@@ -697,21 +758,31 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
 /// was deleted since are dropped, and an unreadable previous document simply
 /// contributes nothing because this generation overwrites it.
 fn previous_java_entrypoints(root: &Path) -> Result<JavaEntrypointFacts, CoreError> {
-    let mut facts = JavaEntrypointFacts {
-        schema_version: 1,
-        entries: Vec::new(),
-    };
     let Ok(Some(document)) = read_document_value(root, "run/generated.json") else {
-        return Ok(facts);
+        return Ok(empty_java_entrypoints());
     };
     let Ok(document) = serde_json::from_value::<RunConfigurationDocument>(document) else {
-        return Ok(facts);
+        return Ok(empty_java_entrypoints());
     };
-    for configuration in document.configurations {
-        if !matches!(
-            configuration.provider.as_str(),
-            "java.main" | "spring-boot.maven"
-        ) {
+    Ok(java_entrypoints_from_document(root, &document))
+}
+
+fn empty_java_entrypoints() -> JavaEntrypointFacts {
+    JavaEntrypointFacts {
+        schema_version: 1,
+        entries: Vec::new(),
+    }
+}
+
+/// Java entry points a generated document was built from, in the shape JDT
+/// reports them. Entries whose source no longer exists are dropped.
+fn java_entrypoints_from_document(
+    root: &Path,
+    document: &RunConfigurationDocument,
+) -> JavaEntrypointFacts {
+    let mut facts = empty_java_entrypoints();
+    for configuration in &document.configurations {
+        if !is_java_entry_configuration(configuration) {
             continue;
         }
         let (Some(source_path), Some(main_class)) = (
@@ -733,7 +804,50 @@ fn previous_java_entrypoints(root: &Path) -> Result<JavaEntrypointFacts, CoreErr
         (&left.source_path, &left.main_class).cmp(&(&right.source_path, &right.main_class))
     });
     facts.entries.dedup();
-    Ok(facts)
+    facts
+}
+
+fn is_java_entry_configuration(configuration: &RunConfiguration) -> bool {
+    matches!(
+        configuration.provider.as_str(),
+        "java.main" | "spring-boot.maven"
+    )
+}
+
+/// Java sources whose bytes generation reads (it labels Spring Boot entries
+/// from them). Derived from the generated entries, so generation and
+/// inspection hash exactly the same files.
+fn java_entry_sources(configurations: &[RunConfiguration]) -> BTreeSet<String> {
+    configurations
+        .iter()
+        .filter(|configuration| is_java_entry_configuration(configuration))
+        .filter_map(|configuration| configuration.extension_string("java", "source"))
+        .collect()
+}
+
+/// Comparable `(source, class)` pairs for entry points. JDT may prefix a
+/// modular class with `module/`; generated entries store the class alone, and
+/// nested checkouts are excluded exactly as generation excludes them.
+fn java_entrypoint_keys(facts: &JavaEntrypointFacts) -> BTreeSet<(String, String)> {
+    facts
+        .entries
+        .iter()
+        .filter(|entry| !is_nested_checkout_path(&entry.source_path))
+        .map(|entry| {
+            let source = entry
+                .source_path
+                .trim()
+                .replace('\\', "/")
+                .trim_matches('/')
+                .to_string();
+            let class = entry
+                .main_class
+                .rsplit_once('/')
+                .map_or(entry.main_class.as_str(), |(_, class)| class)
+                .to_string();
+            (source, class)
+        })
+        .collect()
 }
 
 /// Qualifies display names that repeat across directories or modules.
@@ -1066,7 +1180,14 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
             continue;
         }
         if let Some(module) = configuration.module().filter(|value| value != ".") {
-            let workspace_module = workspace_maven_path(Some(&configuration.cwd), &module);
+            // `maven.module` is relative to the reactor that owns the entry, not
+            // to the effective `cwd`: a user-chosen working directory such as
+            // the module itself must not turn `web` into `web/web`. Entries
+            // without detected ownership were validated against the root.
+            let reactor = configuration
+                .extension_string("maven", "reactorPath")
+                .unwrap_or_else(dot);
+            let workspace_module = workspace_maven_path(Some(&reactor), &module);
             if !project_directory_exists(&root, &workspace_module) {
                 configuration.disabled = true;
                 diagnostics.push(json!({
@@ -1327,10 +1448,9 @@ fn update_configuration_options(
     let working_directory = if request.working_directory.trim().is_empty() {
         None
     } else {
-        Some(normalize_project_directory(
+        Some(normalize_working_directory(
             &root,
             request.working_directory.trim(),
-            false,
         )?)
     };
     let mut document = if request.scope == "local" {
@@ -1538,7 +1658,6 @@ pub fn create_user_configuration(
         } else {
             request.module.trim()
         },
-        true,
     )?;
     let main_class = request.main_class.trim();
     if configuration_kind == "spring-boot.maven" {
@@ -1792,6 +1911,9 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         );
         jvm_arguments.insert(1, json!("-Duser.language=en"));
         jvm_arguments.insert(2, json!("-Duser.country=US"));
+        if is_direct_java_project_launch {
+            jvm_arguments.push(json!(crate::debug::JAVA_DEBUG_DISABLE_DEVTOOLS_RESTART));
+        }
     }
     if is_current {
         let current_file = request.current_file.clone().ok_or_else(|| {
@@ -1877,6 +1999,76 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         }
         arguments.push(json!(java_launch.main_class));
         arguments.extend(program_arguments);
+        // JDT's incremental build is not Maven's resource-processing phase.
+        // Maven owns filtering, custom resource roots and reactor dependencies.
+        let reactor_path = maven["reactorPath"].as_str().unwrap_or(".");
+        let mut context =
+            request
+                .maven_context
+                .clone()
+                .unwrap_or(crate::project::MavenLaunchContextRequest {
+                    version: 1,
+                    reactor_path: reactor_path.to_string(),
+                    profiles: Vec::new(),
+                    settings_path: None,
+                    local_repository_path: None,
+                    skip_tests: false,
+                    maven_executable_path: None,
+                    java_home_path: None,
+                });
+        context.reactor_path = reactor_path.to_string();
+        let mut resource_module = maven["module"].as_str().map(str::to_string);
+        if let Some(module) = resource_module.as_deref().filter(|module| *module != ".") {
+            let reactor_root = workspace_root.join(reactor_path);
+            let declared = crate::project::declared_modules(&reactor_root)?;
+            if !declared
+                .iter()
+                .any(|candidate| candidate.relative_path == module)
+            {
+                // An independently imported child POM is not selectable with -pl.
+                // Let the shared planner validate its own project boundary instead.
+                context.reactor_path = format!("{reactor_path}/{module}");
+                resource_module = None;
+            }
+        }
+        if let Some(profiles) = maven["profiles"]
+            .as_array()
+            .filter(|items| !items.is_empty())
+        {
+            context.profiles = profiles
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
+        }
+        if let Some(skip_tests) = maven.get("skipTests").and_then(Value::as_bool) {
+            context.skip_tests = skip_tests;
+        }
+        let reactor_pom = workspace_root.join(&context.reactor_path).join("pom.xml");
+        let mut resource_arguments = vec![
+            "-f".to_string(),
+            reactor_pom.to_string_lossy().into_owned(),
+            "resources:resources".to_string(),
+        ];
+        if config["extensions"]["java"]["sourceSet"] == "test" {
+            resource_arguments.push("resources:testResources".to_string());
+        }
+        let resource_plan = crate::project::launch_plan_with_arguments(
+            request.root.clone(),
+            context,
+            resource_module,
+            resource_arguments,
+            true,
+        )?;
+        pre_launch_steps.push(json!({
+            "executable": resource_plan.executable,
+            "arguments": resource_plan.arguments,
+            // The reactor directory is the step's own resolution root: the host
+            // finds the project's Maven wrapper there even when the application
+            // working directory is overridden, and the absolute `-f` above keeps
+            // the POM anchored.
+            "workingDirectory": resource_plan.working_directory,
+        }));
     } else if is_java_main {
         let source = config["extensions"]["java"]["source"]
             .as_str()
@@ -2375,7 +2567,7 @@ fn validate_version(version: u32) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn validate_sidecar_version(version: u32) -> Result<(), CoreError> {
+pub(super) fn validate_sidecar_version(version: u32) -> Result<(), CoreError> {
     if version != SIDECAR_VERSION {
         return Err(
             CoreError::new(ErrorCode::NotSupported, "Unsupported document version")
@@ -2631,17 +2823,34 @@ fn normalize_scoped_toolchain_path(
         return Ok(String::new());
     }
     if scope == "project" {
-        normalize_project_directory(root, value, true)
+        normalize_project_directory(root, value)
     } else {
         Ok(value.to_string())
     }
 }
 
-fn normalize_project_directory(
-    root: &Path,
-    value: &str,
-    must_exist: bool,
-) -> Result<String, CoreError> {
+/// Validates the literal value of a `cwd` override before it is persisted.
+///
+/// Resolution disables a configuration whose `cwd` is missing and hides it from
+/// the run list, so a directory that does not exist must fail here, where the
+/// editor can show the error, instead of making the saved entry disappear.
+/// Values are not expanded: `${workspaceFolder}` style variables from other
+/// editors would otherwise be stored as a literal directory name.
+fn normalize_working_directory(root: &Path, value: &str) -> Result<String, CoreError> {
+    normalize_project_directory(root, value).map_err(|error| {
+        if value.contains('$') && !root.join(value).is_dir() {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Working directory variables are not supported; use a path relative to the project",
+            )
+            .with_details(value)
+        } else {
+            error
+        }
+    })
+}
+
+fn normalize_project_directory(root: &Path, value: &str) -> Result<String, CoreError> {
     let candidate = Path::new(value);
     if (!candidate.is_absolute() && invalid_relative_path(value))
         || candidate
@@ -2659,20 +2868,6 @@ fn normalize_project_directory(
     } else {
         root.join(candidate)
     };
-    if !must_exist {
-        let normalized = target.components().collect::<PathBuf>();
-        let relative = normalized.strip_prefix(root).map_err(|_| {
-            CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Project configuration paths must stay inside the project",
-            )
-        })?;
-        return if relative.as_os_str().is_empty() {
-            Ok(".".to_string())
-        } else {
-            Ok(relative.to_string_lossy().replace('\\', "/"))
-        };
-    }
     let canonical_target = fs::canonicalize(&target).map_err(|error| {
         CoreError::new(
             ErrorCode::InvalidRequest,
@@ -2843,7 +3038,9 @@ fn read_document_value(root: &Path, relative: &str) -> Result<Option<Value>, Cor
     Ok(Some(value))
 }
 
-fn read_requirements(root: &Path) -> Result<Option<ToolchainRequirementsDocument>, CoreError> {
+pub(super) fn read_requirements(
+    root: &Path,
+) -> Result<Option<ToolchainRequirementsDocument>, CoreError> {
     let path = root
         .join(".lithe")
         .join("toolchains")
@@ -2910,10 +3107,13 @@ fn detect_requirements(
     let maven_root = maven_root.unwrap_or(root);
     let pom = maven_root.join("pom.xml");
     if let Ok(text) = fs::read_to_string(pom) {
-        let re = regex::Regex::new(r"(?:maven.compiler.release|maven.compiler.source|maven.compiler.target|java.version)\s*>?\s*[:=]?\s*([0-9]+)").unwrap();
+        let re = regex::Regex::new(r"(?:maven.compiler.release|maven.compiler.source|maven.compiler.target|java.version)\s*>?\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)").unwrap();
+        // Java 8 projects commonly declare `1.8`; keep the feature version
+        // instead of the legacy `1` prefix.
         jdk.minimum_version = re
             .captures(&text)
-            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
+            .and_then(|c| c.get(1))
+            .and_then(|m| major_version(m.as_str()));
     }
     if let Some((version, vendor)) =
         declared_java_version(maven_root).or_else(|| declared_java_version(root))
@@ -3014,7 +3214,12 @@ fn toolchain_diagnostics(
             // documents do not block newer system Maven installs.
             let treat_as_minimum = requirement.minimum_version.is_some()
                 || (requirement.kind == "maven" && requirement.version.is_some());
-            if !version_satisfies(&candidate.version, required, treat_as_minimum) {
+            if !version_satisfies(
+                &requirement.kind,
+                &candidate.version,
+                required,
+                treat_as_minimum,
+            ) {
                 append_toolchain_diagnostics(
                     &mut diagnostics,
                     &consumer_ids,
@@ -3065,9 +3270,13 @@ fn append_toolchain_diagnostics(
     }
 }
 
-fn version_satisfies(actual: &str, required: &str, minimum: bool) -> bool {
-    let actual_parts = version_parts(actual);
-    let required_parts = version_parts(required);
+pub(super) fn version_satisfies(kind: &str, actual: &str, required: &str, minimum: bool) -> bool {
+    let mut actual_parts = version_parts(actual);
+    let mut required_parts = version_parts(required);
+    if kind == "java" {
+        actual_parts = java_feature_version_parts(actual_parts);
+        required_parts = java_feature_version_parts(required_parts);
+    }
     if actual_parts.is_empty() || required_parts.is_empty() {
         return false;
     }
@@ -3078,7 +3287,7 @@ fn version_satisfies(actual: &str, required: &str, minimum: bool) -> bool {
     }
 }
 
-fn version_parts(value: &str) -> Vec<u32> {
+pub(super) fn version_parts(value: &str) -> Vec<u32> {
     value
         .split(|character: char| !character.is_ascii_digit())
         .filter(|part| !part.is_empty())
@@ -3086,7 +3295,22 @@ fn version_parts(value: &str) -> Vec<u32> {
         .collect()
 }
 
-fn project_inputs(root: &Path) -> Result<BTreeMap<String, String>, CoreError> {
+/// Drops the legacy `1.` prefix Java 8 and earlier report (`1.8.0_504`), so
+/// those runtimes compare on the same feature-version scale as `8` or `17.0.12`.
+pub(super) fn java_feature_version_parts(parts: Vec<u32>) -> Vec<u32> {
+    if parts.len() > 1 && parts[0] == 1 {
+        parts[1..].to_vec()
+    } else {
+        parts
+    }
+}
+
+/// Collects generation inputs. Java sources count by path unless generation
+/// reads their content (`content_sources`); every other input is hashed.
+fn project_inputs(
+    root: &Path,
+    content_sources: &BTreeSet<String>,
+) -> Result<BTreeMap<String, String>, CoreError> {
     let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -3107,6 +3331,10 @@ fn project_inputs(root: &Path) -> Result<BTreeMap<String, String>, CoreError> {
     files.sort();
     let mut result = BTreeMap::new();
     for relative in files {
+        if relative.ends_with(".java") && !content_sources.contains(&relative) {
+            result.insert(relative, PATH_ONLY_INPUT.to_string());
+            continue;
+        }
         if let Ok(bytes) = fs::read(root.join(&relative)) {
             result.insert(relative, format!("sha256:{:x}", Sha256::digest(bytes)));
         }

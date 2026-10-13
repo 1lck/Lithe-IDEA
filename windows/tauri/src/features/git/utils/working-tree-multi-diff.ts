@@ -1,7 +1,31 @@
 import { loadWorkingTreeFileDiff } from "../services/working-tree-file-diff";
-import type { MultiFileDiff } from "../types/git-diff.types";
+import type { MultiFileDiff, WorkingTreeDiffTarget } from "../types/git-diff.types";
 import type { GitDiff, GitFile, GitStatus } from "../types/git.types";
 import { countDiffStats } from "./git-diff-helpers";
+import {
+  getGitFileRepositoryPath,
+  getGitFileRepositoryRelativePath,
+  getGitFileOriginalRepositoryRelativePath,
+} from "./git-status-selection";
+
+/** Physical files appear once, even when both index and worktree have changes. */
+export function createCommitWorkingTreeFileOrder(
+  repoPath: string, files: readonly GitFile[], staged: boolean,
+): NonNullable<MultiFileDiff["workingTreeFileOrder"]> {
+  const seen = new Set<string>();
+  return files.flatMap(file => {
+    const owner = getGitFileRepositoryPath(file, repoPath)!;
+    const filePath = getGitFileRepositoryRelativePath(file);
+    const identity = `${owner}\0${filePath}`;
+    if (seen.has(identity) || (staged && !file.staged)) return [];
+    seen.add(identity);
+    const originalPath = getGitFileOriginalRepositoryRelativePath(file);
+    return [{ fileKey: `${staged ? "staged" : "unstaged"}:${file.path}`, target: {
+      repoPath: owner, filePath, untracked: file.status === "untracked",
+      ...(originalPath ? { originalPath } : {}), ...(staged ? { staged: true } : {}),
+    } }];
+  });
+}
 
 const WORKING_TREE_TITLE = "Uncommitted Changes";
 const WORKING_TREE_MULTI_DIFF_BATCH_SIZE = 8;
@@ -29,24 +53,38 @@ export const createSingleFileWorkingTreeDiff = ({
   fileKey,
   diff,
   title = WORKING_TREE_TITLE,
+  target,
+  commitPreview = false,
+  workingTreeFileOrder,
+  initialDifference,
 }: {
   repoPath: string;
   fileKey: string;
-  diff: GitDiff;
+  /** A null diff keeps the file identity but renders the empty state. */
+  diff: GitDiff | null;
   title?: string;
+  target?: WorkingTreeDiffTarget;
+  commitPreview?: boolean;
+  workingTreeFileOrder?: MultiFileDiff["workingTreeFileOrder"];
+  initialDifference?: MultiFileDiff["initialDifference"];
 }): MultiFileDiff => {
-  const stats = countDiffStats([diff]);
+  const files = diff ? [diff] : [];
+  const stats = countDiffStats(files);
 
   return {
     title,
     repoPath,
     commitHash: "working-tree",
-    files: [diff],
-    totalFiles: 1,
+    files,
+    totalFiles: files.length,
     totalAdditions: stats.additions,
     totalDeletions: stats.deletions,
-    fileKeys: [fileKey],
+    fileKeys: diff ? [fileKey] : [],
     initiallyExpandedFileKey: fileKey,
+    ...(target ? { workingTreeTargets: { [fileKey]: target } } : {}),
+    ...(commitPreview ? { commitPreview } : {}),
+    ...(workingTreeFileOrder ? { workingTreeFileOrder } : {}),
+    ...(initialDifference ? { initialDifference } : {}),
     isLoading: false,
   };
 };

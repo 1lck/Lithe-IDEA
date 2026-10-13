@@ -1,0 +1,23 @@
+{
+  "id": "markdown-rendering",
+  "area": "编辑器",
+  "group": "Markdown",
+  "capability": "Markdown 预览与富文本渲染",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Editor/MarkdownPreviewView.swift",
+      "macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/editor/markdown"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Editor",
+  "verification": "使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。"
+}

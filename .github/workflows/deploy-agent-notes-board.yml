@@ -44,6 +44,9 @@ jobs:
             "Lithe 工程决策看板"
           touch "$RUNNER_TEMP/lithe-agent-notes-site/.nojekyll"
 
+      - name: Build platform feature matrix
+        run: node scripts/generate-platform-feature-matrix.mjs --output-dir "$RUNNER_TEMP/lithe-agent-notes-site/platform-feature-matrix"
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 

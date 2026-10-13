@@ -1,0 +1,26 @@
+{
+  "id": "agent-context-usage",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Agent 上下文用量：输入框圆环百分比、悬停已用/容量 token，未使用时零占位、会话隔离与压缩后更新",
+  "macos": {
+    "evidence": [
+      "macos/Sources/LitheAgentConversationModule/Application/AgentContextUsage.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentContextUsageView.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-agent-host/src/lib.rs",
+      "shared/fixtures/agent/acp-events-v1.json"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "owner": "Agent",
+  "verification": "macOS：真实 Agent 对话后检查输入框顶部圆环百分比；分别悬停圆环与百分比，立即在上方显示已用/容量 token，移开或切换面板后关闭浮层，窄面板浮层不越界；首次、Agent 未上报或已上报零使用量时显示 0%，悬停仅显示“上下文: 0.0%”，内部缺失状态不伪造 token 或容量；切换会话/Agent、新建会话不串用量，压缩后用量可降低，不累加计费用量；模型确认切换和断连后清除旧容量，重新加载或上报后更新；窄宽面板及深浅主题检查布局和辅助功能。Windows 共享 host 可转发 usage_update，页面待实现。"
+}

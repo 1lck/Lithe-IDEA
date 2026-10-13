@@ -1,5 +1,5 @@
 import { expect, mock, spyOn, test } from "bun:test";
-import { resolveMavenLaunch } from "./maven-host-api";
+import { resolveMavenEffectiveConfiguration, resolveMavenLaunch } from "./maven-host-api";
 
 test("broken Run documents do not prevent independent Maven goals from using host defaults", async () => {
   const warning = spyOn(console, "warn").mockImplementation(() => {});
@@ -74,5 +74,53 @@ test("Maven inherits the saved project JDK without saving a discovered or inheri
     dependencies,
   );
   expect(overridden.environment.JAVA_HOME).toBe("C:/fixture/maven-jdk");
+  expect(dependencies.inspectRunConfiguration).not.toHaveBeenCalled();
+});
+
+test("Maven settings detection and goal launch inherit the same project JDK", async () => {
+  const settings = {
+    settingsPath: "D:/team/settings.xml",
+    localRepositoryPath: "",
+    mavenExecutablePath: "",
+    javaHomePath: "",
+  };
+  const defaults = { java: { homePath: "D:/team/jdk-21" }, maven: { javaHomePath: "" } };
+  const dependencies = {
+    inspectRunConfiguration: mock(async () => ({ status: "missing", toolchain: defaults })),
+    resolveConfiguration: mock(async (args: typeof settings) => ({
+      ...args,
+      detectedSettingsPath: null,
+      detectedLocalRepositoryPath: null,
+      detectedMavenExecutablePath: null,
+      detectedJavaHomePath: null,
+    })),
+    resolveRunLaunch: mock(async (args: { mavenJavaHomePath?: string }) => ({
+      executable: "D:/team/maven/bin/mvn.cmd",
+      workingDirectory: "D:/team/project",
+      environment: { JAVA_HOME: args.mavenJavaHomePath ?? "" },
+    })),
+  };
+  const context = { version: 1 as const, reactorPath: ".", profiles: [], skipTests: false };
+  const plan = {
+    version: 1 as const,
+    executable: { toolchain: "project-maven" as const },
+    arguments: [],
+    workingDirectory: ".",
+    configurationFingerprint: "fixture",
+  };
+  for (const mavenJdk of ["", "D:/team/maven-jdk"]) {
+    defaults.maven.javaHomePath = mavenJdk;
+    const hint = await resolveMavenEffectiveConfiguration("D:/team/project", ".", settings, dependencies);
+    const launch = await resolveMavenLaunch("D:/team/project", context, plan, dependencies);
+    expect(hint.javaHomePath).toBe(mavenJdk || defaults.java.homePath);
+    expect(hint.javaHomePath).toBe(launch.environment.JAVA_HOME);
+    expect(hint.settingsPath).toBe(settings.settingsPath);
+    expect(settings.javaHomePath).toBe("");
+  }
+  dependencies.inspectRunConfiguration.mockClear();
+  const explicit = await resolveMavenEffectiveConfiguration(
+    "D:/team/project", ".", { ...settings, javaHomePath: "D:/explicit-jdk" }, dependencies,
+  );
+  expect(explicit.javaHomePath).toBe("D:/explicit-jdk");
   expect(dependencies.inspectRunConfiguration).not.toHaveBeenCalled();
 });

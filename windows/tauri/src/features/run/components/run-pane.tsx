@@ -1,5 +1,7 @@
+import { supportsDevToolsUpdate } from "../services/java-service-update";
 import { ProjectPreparationStatus } from "./project-preparation-status";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { RefreshCw, WrapText } from "lucide-react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -8,35 +10,58 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
 import {
-  ArrowClockwiseIcon,
   ArrowFatLineDownIcon,
-  GearIcon,
   MinusIcon,
   PlayIcon,
+  RunToolWindowIcon,
   StopIcon,
   TrashIcon,
   WarningIcon,
 } from "@/ui/icons";
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
-import { cn } from "@/utils/cn";
 import { useFollowOutputEnd } from "../hooks/use-follow-output-end";
 import { ensureRunProcessListeners } from "../hooks/use-run-process-events";
 import { useRunStore } from "../stores/run.store";
-import { PRIMARY_SESSION_ID, type RunConfiguration } from "../types/run.types";
 import {
   configurationsForExecution,
-  infrastructureConfigurations,
   blockingToolchainDiagnosticForConfiguration,
   workspaceRelativePath,
 } from "../utils/run-configuration";
 import { RunServicesMenu } from "./run-services-menu";
-import { RunConfigurationListSplit } from "./run-configuration-list-split";
-import { JavaCupIcon, RunIcon } from "./run-icon";
+import { RunConfigurationBrowser } from "./run-configuration-browser";
+import { selectRunOutput } from "../utils/run-output-selection";
+import {
+  runOutputSnapshotName,
+  runOutputSnapshotPath,
+} from "../utils/run-output-snapshot";
 import { RunOutputText } from "./run-output-text";
 import { JavaLaunchDecisionBanner } from "./java-launch-decision";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useRunPreferencesStore } from "../stores/run-preferences.store";
+
+/** Freezes the current run output into a read-only editor tab so the ring
+ *  buffer can keep evicting old lines without losing the lines shown now. */
+function snapshotRunOutput(output: string, tabLabel: string): void {
+  const at = new Date();
+  const bufferStore = useBufferStore.getState();
+  const bufferId = bufferStore.actions.openContent({
+    type: "editor",
+    path: runOutputSnapshotPath(at),
+    name: runOutputSnapshotName(tabLabel, at),
+    content: output,
+    isVirtual: true,
+    readOnly: true,
+    language: "log",
+  });
+  // The snapshot exists only in memory and its source lines may already be
+  // gone from the live ring buffer, so it must survive tab auto-eviction
+  // until the user closes it; pinning is the editor lifecycle's guard.
+  const opened = bufferStore.buffers.find((buffer) => buffer.id === bufferId);
+  if (opened?.type === "editor") {
+    bufferStore.actions.updateBuffer({ ...opened, isPinned: true });
+  }
+}
 
 /** Explains when the Java entries shown are not JDT's current answer. */
 function JavaDiscoveryNotice() {
@@ -89,11 +114,11 @@ export default function RunPane() {
   const configurations = useRunStore((state) => state.configurations);
   const diagnostics = useRunStore((state) => state.diagnostics);
   const selectedConfigurationId = useRunStore((state) => state.selectedConfigurationId);
-  const selectedSessionId = useRunStore((state) => state.selectedSessionId);
+  const serviceUpdates = useRunStore((state) => state.serviceUpdates);
   const sessions = useRunStore((state) => state.sessions);
   const primaryOutput = useRunStore((state) => state.primaryOutput);
+  const primaryConfigurationId = useRunStore((state) => state.primaryConfigurationId);
   const primaryRunning = useRunStore((state) => state.primaryRunning);
-  const primaryTitle = useRunStore((state) => state.primaryTitle);
   const primaryExitCode = useRunStore((state) => state.primaryExitCode);
   const recoveryAction = useRunStore((state) => state.recoveryAction);
   const invalidMessage = useRunStore((state) => state.invalidMessage);
@@ -104,9 +129,9 @@ export default function RunPane() {
   const setSelectedServiceIDs = useRunPreferencesStore((state) => state.actions.setSelectedServiceIDs);
   const scrollOutputToEnd = useRunPreferencesStore((state) => state.scrollOutputToEnd);
   const setScrollOutputToEnd = useRunPreferencesStore((state) => state.actions.setScrollOutputToEnd);
+  const wrapOutputLines = useRunPreferencesStore((state) => state.wrapOutputLines);
+  const setWrapOutputLines = useRunPreferencesStore((state) => state.actions.setWrapOutputLines);
   const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
-  const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
-  const [infrastructureCollapsed, setInfrastructureCollapsed] = useState(true);
   const outputScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -123,25 +148,28 @@ export default function RunPane() {
     () => configurationsForExecution(configurations, "application"),
     [configurations],
   );
-  const tasks = useMemo(() => configurationsForExecution(configurations, "task"), [configurations]);
-  // Compose databases and caches are runnable, but they are not this project's
-  // services: keeping them in their own collapsed section stops nineteen
-  // containers from burying the one Spring Boot service.
-  const infrastructure = useMemo(() => infrastructureConfigurations(configurations), [configurations]);
-  const otherConfigurations = useMemo(() => [...applications, ...tasks], [applications, tasks]);
   const selectedConfiguration =
     configurations.find((configuration) => configuration.id === selectedConfigurationId) ?? null;
-  const selectedSession = sessions.find((session) => session.id === selectedSessionId);
+  const selection = selectRunOutput(selectedConfigurationId, sessions, {
+    configurationId: primaryConfigurationId,
+    output: primaryOutput,
+    isRunning: primaryRunning,
+    exitCode: primaryExitCode,
+  });
   const blockingDiagnostic = blockingToolchainDiagnosticForConfiguration(
     diagnostics,
     selectedConfiguration?.id,
   );
   const freshnessDiagnostic = diagnostics.find((diagnostic) =>
-    diagnostic.code === "staleFingerprint" || diagnostic.code === "fingerprintCheckFailed");
-  const isSelectedRunning = selectedSession ? selectedSession.isRunning : primaryRunning;
-  const output = selectedSession ? selectedSession.output : primaryOutput;
-  const exitCode = selectedSession ? selectedSession.exitCode : primaryExitCode;
-  const decisionSessionId = selectedSession?.id ?? PRIMARY_SESSION_ID;
+    diagnostic.code === "staleFingerprint" ||
+    diagnostic.code === "fingerprintCheckFailed" ||
+    diagnostic.code === "staleJavaEntrypoint");
+  const isSelectedRunning = selection.isRunning;
+  const output = selection.output;
+  const exitCode = selection.exitCode;
+  const decisionSessionId = selection.sessionId;
+  const serviceUpdate = serviceUpdates[decisionSessionId];
+  const canUpdateService = isSelectedRunning && supportsDevToolsUpdate(serviceUpdate?.context);
   const javaLaunchDecision =
     javaLaunchDecisions[decisionSessionId] ?? Object.values(javaLaunchDecisions)[0];
   const projectName =
@@ -178,7 +206,7 @@ export default function RunPane() {
 
   const runSelected = () => {
     if (isSelectedRunning) {
-      void actions.stop(selectedSession?.id);
+      void actions.stop(decisionSessionId);
       return;
     }
     const configuration = selectedConfiguration?.execution === "group"
@@ -192,8 +220,13 @@ export default function RunPane() {
     <div className="flex h-full min-h-0 flex-col bg-background">
       <ProjectPreparationStatus />
       <JavaDiscoveryNotice />
+      {isSelectedRunning && serviceUpdate?.message ? (
+        <div role="status" className="px-3 py-2 ui-text-sm">
+          {serviceUpdate.message}
+        </div>
+      ) : null}
       <div className="flex h-(--lithe-pane-header-height) shrink-0 items-center gap-2 border-border/70 border-b px-3">
-        <RunIcon className="size-4 text-subtle-foreground" />
+        <RunToolWindowIcon className="size-4 text-subtle-foreground" />
         <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">
           {t("run.title")} {projectName}
         </div>
@@ -210,6 +243,17 @@ export default function RunPane() {
             {isSelectedRunning ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
           </Button>
         </Tooltip>
+        {canUpdateService ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={serviceUpdate.pending}
+            tooltip={t("run.updateServiceHelp")}
+            onClick={() => void actions.updateService(decisionSessionId)}
+          >
+            {serviceUpdate.pending ? t("run.updatingService") : t("run.updateService")}
+          </Button>
+        ) : null}
         <RunServicesMenu
           services={services}
           selectedServiceIDs={selectedServiceIDs}
@@ -226,7 +270,7 @@ export default function RunPane() {
             onClick={() => rootFolderPath && void actions.generate(rootFolderPath)}
             aria-label={t("run.rescan")}
           >
-            <ArrowClockwiseIcon />
+            <RefreshCw className="size-3.5" />
           </Button>
         </Tooltip>
         <Tooltip content={t("run.scrollToEnd")} side="bottom">
@@ -241,8 +285,20 @@ export default function RunPane() {
             <ArrowFatLineDownIcon />
           </Button>
         </Tooltip>
+        <Tooltip content={t("run.wrapOutputLines")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            active={wrapOutputLines}
+            onClick={() => setWrapOutputLines(!wrapOutputLines)}
+            aria-label={t("run.wrapOutputLines")}
+            aria-pressed={wrapOutputLines}
+          >
+            <WrapText className="size-3.5" />
+          </Button>
+        </Tooltip>
         <Tooltip content={t("run.clearOutput")} side="bottom">
-          <Button variant="ghost" size="icon-xs" onClick={() => actions.clearOutput()} aria-label={t("run.clearOutput")}>
+          <Button variant="ghost" size="icon-xs" disabled={!selection.hasOutputOwner} onClick={() => actions.clearOutput(decisionSessionId)} aria-label={t("run.clearOutput")}>
             <TrashIcon />
           </Button>
         </Tooltip>
@@ -304,7 +360,7 @@ export default function RunPane() {
 
       {status !== "ready" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <RunIcon className="size-8 text-subtle-foreground" />
+          <RunToolWindowIcon className="size-8 text-subtle-foreground" />
           <div className="font-medium">{status === "missing" ? t("run.missingTitle") : t("run.invalidTitle")}</div>
           <div className="max-w-md text-subtle-foreground ui-text-sm">
             {status === "missing" ? t("run.missingMessage") : invalidMessage}
@@ -319,82 +375,22 @@ export default function RunPane() {
           ) : null}
         </div>
       ) : (
-        <RunConfigurationListSplit
-          list={
-            <>
-              <div className="px-3 py-2 font-medium text-subtle-foreground ui-text-sm">
-                {t("run.configurations")}
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto pb-2">
-                <ConfigurationSection
-                  title={t("run.services")}
-                  configurations={services}
-                  selectedId={selectedConfigurationId}
-                  sessions={sessions}
-                  onSelect={actions.selectConfiguration}
-                  onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                  onEdit={editInSettings}
-                />
-                {infrastructure.length > 0 ? <button
-                  type="button"
-                  aria-expanded={!infrastructureCollapsed}
-                  className="mt-2 flex w-full items-center justify-between px-2 py-1 text-left font-medium text-subtle-foreground ui-text-sm hover:text-foreground"
-                  onClick={() => setInfrastructureCollapsed((collapsed) => !collapsed)}
-                >
-                  {t("run.infrastructure")}
-                  <span aria-hidden>{infrastructureCollapsed ? "▸" : "▾"}</span>
-                </button> : null}
-                {infrastructure.length > 0 && !infrastructureCollapsed ? (
-                  <ConfigurationSection
-                    title={t("run.infrastructure")}
-                    configurations={infrastructure}
-                    selectedId={selectedConfigurationId}
-                    sessions={sessions}
-                    onSelect={actions.selectConfiguration}
-                    onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                    onEdit={editInSettings}
-                  />
-                ) : null}
-                {otherConfigurations.length > 0 ? <button
-                  type="button"
-                  aria-expanded={!otherConfigurationsCollapsed}
-                  className="mt-2 flex w-full items-center justify-between px-2 py-1 text-left font-medium text-subtle-foreground ui-text-sm hover:text-foreground"
-                  onClick={() => setOtherConfigurationsCollapsed((collapsed) => !collapsed)}
-                >
-                  {t("run.otherConfigurations")}
-                  <span aria-hidden>{otherConfigurationsCollapsed ? "▸" : "▾"}</span>
-                </button> : null}
-                {otherConfigurations.length > 0 && !otherConfigurationsCollapsed ? (
-                  <>
-                    <ConfigurationSection
-                      title={t("run.applications")}
-                      configurations={applications}
-                      selectedId={selectedConfigurationId}
-                      sessions={sessions}
-                      onSelect={actions.selectConfiguration}
-                      onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                      onEdit={editInSettings}
-                    />
-                    <ConfigurationSection
-                      title={t("run.tasks")}
-                      configurations={tasks}
-                      selectedId={selectedConfigurationId}
-                      sessions={sessions}
-                      onSelect={actions.selectConfiguration}
-                      onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                      onEdit={editInSettings}
-                    />
-                  </>
-                ) : null}
-              </div>
-            </>
-          }
+        <RunConfigurationBrowser
+          key={rootFolderPath}
+          configurations={configurations}
+          selectedId={selectedConfigurationId}
+          sessions={sessions}
+          onSelect={actions.selectConfiguration}
+          onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+          onStop={(sessionId) => void actions.stop(sessionId)}
+          onEdit={editInSettings}
           content={
             <>
               <div className="border-border/70 border-b px-3 py-2">
                 <div className="font-medium text-subtle-foreground ui-text-sm">{t("run.configurationDetails")}</div>
                 {selectedConfiguration ? (
                   <div className="mt-1 grid grid-cols-[6.5rem_1fr] gap-y-0.5 ui-text-sm">
+                    <span className="col-span-2 truncate font-medium" title={selectedConfiguration.name}>{selectedConfiguration.name}</span>
                     <span className="text-subtle-foreground">{t("run.type")}</span>
                     <span>{selectedConfiguration.kindTitle}</span>
                     {selectedConfiguration.mainClass ? (
@@ -413,12 +409,17 @@ export default function RunPane() {
                   title={t("run.processOutput")}
                   source={output}
                   emptyLabel={t("run.emptyOutput")}
+                  wrapLines={wrapOutputLines}
+                  wrapLabel={t("run.wrapOutputLines")}
+                  onToggleWrapLines={() => setWrapOutputLines(!wrapOutputLines)}
+                  snapshotLabel={t("run.snapshotOutput")}
+                  onSnapshotOutput={() => snapshotRunOutput(output, t("run.snapshotTabName"))}
                 />
               </div>
               {isSelectedRunning ? (
                 <RunStdinInput
-                  sessionId={selectedSessionId ?? PRIMARY_SESSION_ID}
-                  onSend={(input) => void actions.writeStdin(selectedSessionId ?? PRIMARY_SESSION_ID, input)}
+                  sessionId={decisionSessionId}
+                  onSend={(input) => void actions.writeStdin(decisionSessionId, input)}
                 />
               ) : null}
               {generationNotice?.startsWith("generated:") ? (
@@ -466,70 +467,5 @@ function RunStdinInput({
         {t("run.stdinSend")}
       </Button>
     </div>
-  );
-}
-
-function ConfigurationSection({
-  title,
-  configurations,
-  selectedId,
-  sessions,
-  onSelect,
-  onRun,
-  onEdit,
-}: {
-  title: string;
-  configurations: RunConfiguration[];
-  selectedId: string | null;
-  sessions: Array<{ id: string; isRunning: boolean }>;
-  onSelect: (id: string) => void;
-  onRun: (configuration: RunConfiguration) => void;
-  /** Opens Settings → Run configurations on this configuration. */
-  onEdit: (id: string) => void;
-}) {
-  const { t } = useTranslation();
-  if (configurations.length === 0) return null;
-  return (
-    <section className="px-1">
-      <div className="px-2 py-1 font-medium text-subtle-foreground ui-text-sm">{title}</div>
-      {configurations.map((configuration) => {
-        const running = sessions.some((session) => session.id === configuration.id && session.isRunning);
-        return (
-          <div
-            key={configuration.id}
-            className={cn(
-              "group flex items-center gap-1 rounded-md px-1.5 py-1 ui-text-sm",
-              selectedId === configuration.id ? "bg-selected text-foreground" : "hover:bg-accent",
-            )}
-          >
-            <button
-              type="button"
-              className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-              onClick={() => onSelect(configuration.id)}
-            >
-              <JavaCupIcon className="shrink-0 text-subtle-foreground" />
-              <span className="min-w-0 truncate">{configuration.name}</span>
-            </button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-              onClick={() => onEdit(configuration.id)}
-              aria-label={t("run.editService")}
-            >
-              <GearIcon />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => onRun(configuration)}
-              aria-label={t("run.title")}
-            >
-              {running ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
-            </Button>
-          </div>
-        );
-      })}
-    </section>
   );
 }

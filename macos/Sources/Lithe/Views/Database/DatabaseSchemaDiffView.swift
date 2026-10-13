@@ -3,7 +3,7 @@ import SwiftUI
 import LitheDatabaseModule
 
 struct DatabaseSchemaDiffView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @State private var sourceID: UUID?
     @State private var targetID: UUID?
     @State private var diff: DatabaseSchemaDiffResult?
@@ -13,23 +13,13 @@ struct DatabaseSchemaDiffView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Picker("Source", selection: $sourceID) {
-                    Text("Source connection").tag(Optional<UUID>.none)
-                    ForEach(model.databaseFeature.profiles) { profile in
-                        Text(profile.name).tag(Optional(profile.id))
-                    }
-                }
+                LitheSettingsSelect(selection: $sourceID, options: [UUID?.none] + feature.profiles.map { Optional($0.id) }, width: 220, accessibilityLabel: "Source", title: { id in feature.profiles.first { $0.id == id }?.name ?? String(localized: "Source connection") })
                 .frame(maxWidth: 220)
 
                 Image(systemName: "arrow.right")
                     .foregroundStyle(LitheTheme.secondaryText)
 
-                Picker("Target", selection: $targetID) {
-                    Text("Target connection").tag(Optional<UUID>.none)
-                    ForEach(model.databaseFeature.profiles) { profile in
-                        Text(profile.name).tag(Optional(profile.id))
-                    }
-                }
+                LitheSettingsSelect(selection: $targetID, options: [UUID?.none] + feature.profiles.map { Optional($0.id) }, width: 220, accessibilityLabel: "Target", title: { id in feature.profiles.first { $0.id == id }?.name ?? String(localized: "Target connection") })
                 .frame(maxWidth: 220)
 
                 Button { compare() } label: { Image(systemName: "arrow.triangle.2.circlepath") }
@@ -72,9 +62,9 @@ struct DatabaseSchemaDiffView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(diff.source.profileName) -> \(diff.target.profileName)")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                     Text("Changes: \(diff.items.count)")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -85,7 +75,7 @@ struct DatabaseSchemaDiffView: View {
                 Button { requestMigration(diff) } label: { Label("Apply", systemImage: "play.fill") }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .disabled(diff.items.isEmpty || model.databaseFeature.isLoading)
+                    .disabled(diff.items.isEmpty || feature.isLoading)
             }
             .padding(.horizontal, 10)
             .frame(height: 42)
@@ -101,13 +91,13 @@ struct DatabaseSchemaDiffView: View {
                         HStack(spacing: 6) {
                             Image(systemName: item.isDestructive ? "exclamationmark.triangle.fill" : "arrow.right.circle")
                                 .foregroundStyle(item.isDestructive ? LitheTheme.warning : LitheTheme.accent)
-                            Text(LocalizedStringKey(item.kind.title)).font(.system(size: 11.5, weight: .semibold))
-                            Text(item.table).font(.system(size: 11.5, design: .monospaced))
+                            Text(LocalizedStringKey(item.kind.title)).font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
+                            Text(item.table).font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                             Spacer()
-                            DatabaseLocalization.schemaDiffDetail(item).font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
+                            DatabaseLocalization.schemaDiffDetail(item).font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
                         }
                         Text(item.sql)
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .textSelection(.enabled)
                             .lineLimit(4)
@@ -120,17 +110,17 @@ struct DatabaseSchemaDiffView: View {
     }
 
     private func setDefaults() {
-        guard model.databaseFeature.profiles.count >= 2 else { return }
-        if sourceID == nil { sourceID = model.databaseFeature.profiles[0].id }
-        if targetID == nil { targetID = model.databaseFeature.profiles[1].id }
+        guard feature.profiles.count >= 2 else { return }
+        if sourceID == nil { sourceID = feature.profiles[0].id }
+        if targetID == nil { targetID = feature.profiles[1].id }
     }
 
     private func compare() {
         guard let sourceID, let targetID, sourceID != targetID else { return }
         isComparing = true
         Task {
-            let source = await model.databaseFeature.loadSchemaSnapshot(profileID: sourceID)
-            let target = await model.databaseFeature.loadSchemaSnapshot(profileID: targetID)
+            let source = await feature.loadSchemaSnapshot(profileID: sourceID)
+            let target = await feature.loadSchemaSnapshot(profileID: targetID)
             if let source, let target { diff = DatabaseSchemaDiffEngine.compare(source: source, target: target) }
             isComparing = false
         }
@@ -147,9 +137,9 @@ struct DatabaseSchemaDiffView: View {
     private func applyMigration() {
         guard let diff, let targetID else { return }
         Task {
-            if await model.databaseFeature.applySchemaMigration(diff, targetProfileID: targetID, confirmed: true) {
-                let source = await model.databaseFeature.loadSchemaSnapshot(profileID: diff.source.profileID)
-                let target = await model.databaseFeature.loadSchemaSnapshot(profileID: diff.target.profileID)
+            if await feature.applySchemaMigration(diff, targetProfileID: targetID, confirmed: true) {
+                let source = await feature.loadSchemaSnapshot(profileID: diff.source.profileID)
+                let target = await feature.loadSchemaSnapshot(profileID: diff.target.profileID)
                 if let source, let target { self.diff = DatabaseSchemaDiffEngine.compare(source: source, target: target) }
             }
         }

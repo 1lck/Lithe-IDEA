@@ -41,7 +41,7 @@ export async function collectCommitContext(
   const repositories = new Set(
     files.map((file) => getGitFileRepositoryPath(file, repoPath) ?? repoPath),
   );
-  if (repositories.size > 1) throw new Error("AI_COMMIT_MULTIPLE_REPOSITORIES");
+  const repositoryIds = [...repositories].sort();
   const ordered = [...files].sort((a, b) =>
     getGitFileRepositoryRelativePath(a).localeCompare(getGitFileRepositoryRelativePath(b)),
   );
@@ -84,7 +84,10 @@ export async function collectCommitContext(
             ? "\n[Diff truncated; do not infer omitted changes.]"
             : "");
         inputs[index] = {
-          path,
+          path:
+            repositories.size > 1
+              ? `repository-${repositoryIds.indexOf(getGitFileRepositoryPath(file, repoPath) ?? repoPath) + 1}/${path}`
+              : path,
           changeKind: file.status,
           diff: diff.is_binary ? "" : text,
           fingerprint,

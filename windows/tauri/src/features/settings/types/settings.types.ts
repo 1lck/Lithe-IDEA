@@ -1,7 +1,7 @@
 import type { CoreFeaturesState } from "./feature.types";
 import type { CommitAISettings } from "@/features/git/types/ai-commit";
 import type { DisplayLanguage } from "@/i18n/locale";
-import type { V0DesignSystemProfile } from "@/extensions/v0/types/v0-design-system.types";
+import type { V0DesignSystemProfile } from "@/features/settings/lib/v0-design-system-profiles";
 import type { AIChatSkill } from "@/features/ai/types/skills.types";
 import type {
   FooterLeadingItemId,
@@ -21,8 +21,13 @@ type EditorCursorStyle =
 type EditorCursorBlinking = "blink" | "smooth" | "phase" | "expand" | "solid";
 type TerminalCursorInactiveStyle = "outline" | "block" | "bar" | "underline" | "none";
 export type TabCloseButtonVisibility = "active" | "hover" | "always";
+// Matches the macOS EditorTabLayoutMode raw values.
+export type EditorTabLayoutMode = "singleLine" | "multipleRows";
 export type WindowChromeDensity = "focused" | "comfortable";
 export type FileTreeSortOrder = "folders-first" | "name";
+// Where a project opens when the ask-first dialog is disabled. The false branch of the
+// retired openFoldersInNewWindow boolean maps to "attach", which was its old behavior.
+export type ProjectOpenDefaultDestination = "this-window" | "new-window" | "attach";
 export type SettingsSection =
   | "general"
   | "editor"
@@ -85,6 +90,7 @@ export interface Settings {
   showStatusBar: boolean;
   showTabIcons: boolean;
   tabCloseButtonVisibility: TabCloseButtonVisibility;
+  editorTabLayoutMode: EditorTabLayoutMode;
   windowChromeDensity: WindowChromeDensity;
   // Theme
   theme: Theme;
@@ -95,12 +101,14 @@ export interface Settings {
   nativeMenuBar: boolean;
   compactMenuBar: boolean;
   windowTransparency: boolean;
+  /** IntelliJ "Differentiate projects with color": the Islands project-color gradient. */
+  differentiateProjects: boolean;
   sidebarActivityItemsOrder: Array<SidebarActivityItemId | string>;
   hiddenSidebarActivityItems: string[];
   footerLeadingItemsOrder: FooterLeadingItemId[];
   footerTrailingItemsOrder: FooterTrailingItemId[];
   askWhereToOpenProjects: boolean;
-  openFoldersInNewWindow: boolean;
+  projectOpenDefaultDestination: ProjectOpenDefaultDestination;
   // AI
   aiProviderId: string;
   aiModelId: string;
@@ -171,7 +179,6 @@ export interface Settings {
     | "skill"
     | "agent";
   maxOpenTabs: number;
-  horizontalTabScroll: boolean;
   //// File tree
   fileTreeSortOrder: FileTreeSortOrder;
   fileTreeIndentSize: number;
@@ -195,14 +202,13 @@ export interface Settings {
   showGitStatusInFileTree: boolean;
   compactGitStatusBadges: boolean;
   collapseEmptyGitSections: boolean;
-  rememberLastGitPanelMode: boolean;
   gitExecutable: string;
   gitUseCredentialHelper: boolean;
   gitFetchPrune: boolean;
   gitFetchSubmodules: "inherit" | "no" | "onDemand" | "yes";
   gitFetchTags: "inherit" | "all" | "none" | "prune";
-  gitLastPanelMode: "changes" | "history";
-  gitSidebarTabOrder: Array<"changes" | "history">;
   githubSidebarSectionOrder: Array<"pull-requests" | "issues" | "actions">;
   enableInlineGitBlame: boolean;
+  /** Git change markers in the editor gutter; clicking one opens its inline review. */
+  enableGitGutter: boolean;
 }

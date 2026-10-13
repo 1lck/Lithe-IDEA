@@ -39,6 +39,7 @@ export const createTag = async (
   message?: string,
   commit?: string,
   signed = false,
+  options?: { lightweight?: boolean },
 ): Promise<boolean> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
@@ -48,6 +49,7 @@ export const createTag = async (
       message,
       commit,
       signed,
+      ...(options?.lightweight ? { lightweight: true } : {}),
     });
     emitGitChanged({
       repoPath: resolvedRepoPath,

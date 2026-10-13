@@ -41,6 +41,7 @@ package final class GitFeatureModel: ObservableObject {
         gitReferences = snapshot.references
         recentGitReferences = snapshot.recentReferences
         gitIdentity = snapshot.identity
+        await refreshGitRepositoryReferences(generation: gitHistoryGeneration)
     }
     package func remoteURL(named remote: String, at root: URL) async -> String? {
         await service.remoteURL(at: root, remote: remote)
@@ -112,7 +113,7 @@ package final class GitFeatureModel: ObservableObject {
             $0.repositoryRoot.standardizedFileURL == gitRepositoryRoot?.standardizedFileURL
         }
     }
-    @Published private var pendingStagingStates: [GitChange.ID: Bool] = [:]
+    @Published private var pendingStagingStates: [GitChange.ID: (repositoryRoot: URL, staged: Bool)] = [:]
     @Published package private(set) var gitStashes: [GitStash] = []
     @Published package private(set) var gitShelves: [GitShelfEntry] = []
     @Published package private(set) var gitWorktrees: [GitWorktree] = [] {
@@ -184,7 +185,13 @@ package final class GitFeatureModel: ObservableObject {
     /// Set whenever Git is mid-merge, mid-rebase, mid-cherry-pick, or mid-revert.
     @Published package var gitOperationState: GitOperationState?
     @Published package var isResolvingGitOperation = false
-    @Published package private(set) var isCommitting = false
+    @Published package internal(set) var isCommitting = false
+    /// Set when the staged selection spans a real parent/submodule edge. The
+    /// commit UI must explain the child-first order before continuing.
+    @Published package internal(set) var pendingSubmoduleCommitPlan: GitSubmoduleCommitPlan?
+    @Published package internal(set) var workspaceCommitResults: [GitRepositoryCommitResult] = []
+    var workspaceCommitAttempt: GitWorkspaceCommitSession?
+    var workspaceCommitGeneration = UUID()
     @Published package private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published package private(set) var gitLineChangeMarkers: [URL: [GitLineChangeMarker]] = [:]
     @Published package private(set) var gitReferences: [GitReference] = [] {
@@ -193,6 +200,11 @@ package final class GitFeatureModel: ObservableObject {
     /// Constant-time invalidation for graph reference priority and classification.
     package private(set) var gitReferencesVersion = 0
     @Published package private(set) var recentGitReferences: [GitReference] = []
+    /// References for every discovered repository in a multi-repository
+    /// workspace, ordered like `availableRepositoryRoots`. The active
+    /// repository's references stay in `gitReferences` so existing consumers are
+    /// untouched; this list only feeds the reference pane's repository grouping.
+    @Published package private(set) var gitRepositoryReferences: [GitRepositoryReferences] = []
     @Published package private(set) var gitCommits: [GitCommit] = [] {
         didSet { gitCommitsVersion = Self.nextGitCommitsVersion() }
     }
@@ -270,7 +282,7 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isCloningRepository = false
     @Published package private(set) var availableRepositoryRoots: [URL] = []
 
-    private let service: GitService
+    let service: GitService
     private let executionJournal: GitExecutionJournal?
     private var executionJournalSubscription: AnyCancellable?
     private var journalEntryIDs: Set<UUID> = []
@@ -280,16 +292,29 @@ package final class GitFeatureModel: ObservableObject {
     private var selectedGitCommitFilesGeneration: UInt64 = 0
     private var gitLogFilterGeneration = UUID()
     private let shelveService: ShelveService?
-    private let snapshotProvider: @Sendable (URL) async -> GitSnapshot?
+    private let snapshotProvider: @Sendable (URL, [URL]) async -> GitSnapshot?
     private let stashesProvider: @Sendable (URL) async -> [GitStash]
     private let operationStateProvider: @Sendable (URL) async -> GitOperationState?
     private let worktreesProvider: @Sendable (URL) async -> [GitWorktree]?
     private let repositoryRootsProvider: @Sendable (URL) async -> [URL]
+    private var requestedRepositoryReference: GitReference?
     private var requestedRepositoryRoot: URL?
     private let diffDocumentProvider: @Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument
-    private var workspaceURLProvider: (@MainActor () -> URL?)?
+    let changelistStorage: (any GitChangelistStorage)?
+    var changelistWorkspace: URL?
+    package private(set) var changelistSelectionGeneration = UUID()
+    @Published package internal(set) var changelists = GitLocalChangelists() {
+        didSet {
+            if oldValue.activeID != changelists.activeID || oldValue.assignments != changelists.assignments {
+                changelistSelectionGeneration = UUID()
+            }
+        }
+    }
+    @Published package internal(set) var changelistStorageFailed = false
+    @Published package var includeChangelistParentReferences = true
+    var workspaceURLProvider: (@MainActor () -> URL?)?
     private var isGitLogVisibleProvider: (@MainActor () -> Bool)?
-    private var notify: (@MainActor (String) -> Void)?
+    var notify: (@MainActor (String) -> Void)?
     private var onStateRefreshed: (@MainActor () async -> Void)?
     private var saveChangesPolicy: (@MainActor () -> GitSaveChangesPolicy)?
     private var onGitOperationBegan: (@MainActor () -> Void)?
@@ -333,6 +358,7 @@ package final class GitFeatureModel: ObservableObject {
         service: GitService,
         shelveService: ShelveService? = nil,
         executionJournal: GitExecutionJournal? = nil,
+        changelistStorage: (any GitChangelistStorage)? = nil,
         snapshotProvider: (@Sendable (URL) async -> GitSnapshot?)? = nil,
         stashesProvider: (@Sendable (URL) async -> [GitStash])? = nil,
         operationStateProvider: (@Sendable (URL) async -> GitOperationState?)? = nil,
@@ -340,11 +366,16 @@ package final class GitFeatureModel: ObservableObject {
         repositoryRootsProvider: (@Sendable (URL) async -> [URL])? = nil,
         diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil
     ) {
+        self.changelistStorage = changelistStorage
         self.service = service
         self.executionJournal = executionJournal
         commitFilesLoader = GitCommitFilesLoader(service: service)
         self.shelveService = shelveService
-        self.snapshotProvider = snapshotProvider ?? { await service.snapshot(for: $0) }
+        if let snapshotProvider {
+            self.snapshotProvider = { root, _ in await snapshotProvider(root) }
+        } else {
+            self.snapshotProvider = { root, roots in await service.snapshot(for: root, repositoryRoots: roots) }
+        }
         self.stashesProvider = stashesProvider ?? { await service.stashes(at: $0) }
         self.operationStateProvider = operationStateProvider ?? { await service.operationState(at: $0) }
         self.worktreesProvider = worktreesProvider ?? { await service.worktrees(at: $0) }
@@ -369,6 +400,7 @@ package final class GitFeatureModel: ObservableObject {
         onGitOperationEnded: @escaping @MainActor () async -> Void = {}
     ) {
         self.workspaceURLProvider = workspaceURLProvider
+        loadChangelistsIfNeeded()
         self.isGitLogVisibleProvider = isGitLogVisibleProvider
         self.notify = notify
         self.onStateRefreshed = onStateRefreshed
@@ -415,6 +447,10 @@ package final class GitFeatureModel: ObservableObject {
         patchExchange.reset()
         interactiveRebase.reset()
         cancelGitHistoryLoading()
+        changelistWorkspace = nil
+        changelists = GitLocalChangelists()
+        changelistStorageFailed = false
+        includeChangelistParentReferences = true
         gitChanges = []
         pendingStagingStates = [:]
         gitStashes = []
@@ -443,6 +479,7 @@ package final class GitFeatureModel: ObservableObject {
         gitRepositoryRoot = nil
         availableRepositoryRoots = []
         requestedRepositoryRoot = nil
+        requestedRepositoryReference = nil
         currentBranch = "No Git"
         selectedChange = nil
         selectedDiffPatch = ""
@@ -454,12 +491,17 @@ package final class GitFeatureModel: ObservableObject {
         pendingDiscardChange = nil
         pendingDiscardHunk = nil
         isCommitting = false
+        pendingSubmoduleCommitPlan = nil
+        workspaceCommitAttempt = nil
+        workspaceCommitResults = []
+        workspaceCommitGeneration = UUID()
         gitBlameLines = [:]
         gitLineChangeMarkers = [:]
         loadingLineChangeURLs = []
         lineChangeHunks = [:]
         gitReferences = []
         recentGitReferences = []
+        gitRepositoryReferences = []
         gitCommits = []
         gitGraphRepositoryCommits = []
         gitIdentity = nil
@@ -570,17 +612,23 @@ package final class GitFeatureModel: ObservableObject {
         guard !Task.isCancelled else { return }
         var didChange = false
         let repositoryRoots = await repositoryRootsProvider(workspaceURL)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
         if availableRepositoryRoots != repositoryRoots {
             availableRepositoryRoots = repositoryRoots
             didChange = true
         }
-        let snapshot = await workspaceSnapshot(workspaceURL: workspaceURL, repositoryRoots: repositoryRoots)
-        if let snapshot {
-            guard !Task.isCancelled else { return }
+        if let requestedRepositoryRoot, !repositoryRoots.contains(requestedRepositoryRoot) {
+            self.requestedRepositoryRoot = nil
+            requestedRepositoryReference = nil
+        }
+        let observation = await workspaceSnapshot(workspaceURL: workspaceURL, repositoryRoots: repositoryRoots)
+        if let observation {
+            let snapshot = observation.snapshot
+            guard !Task.isCancelled, workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
+            loadChangelistsIfNeeded()
             let changesChanged = gitChanges != snapshot.changes
             if gitRepositoryRoot != snapshot.repositoryRoot {
-                clearGitCommitFilesCache()
+                resetHistoryForRepositoryChange()
                 gitRepositoryRoot = snapshot.repositoryRoot
                 publishGitJournal()
                 gitWorktrees = []
@@ -591,17 +639,26 @@ package final class GitFeatureModel: ObservableObject {
                 hasLoadedInitialGitConsoleEntry = false
                 didChange = true
             }
+            if requestedRepositoryRoot == snapshot.repositoryRoot,
+               let requestedRepositoryReference {
+                selectedGitReference = requestedRepositoryReference
+                isShowingAllGitReferences = false
+                self.requestedRepositoryReference = nil
+                didChange = true
+            }
             if currentBranch != snapshot.branch {
                 currentBranch = snapshot.branch
                 didChange = true
             }
             if changesChanged {
                 gitChanges = snapshot.changes
+                rememberChangelistRenames()
                 gitLineChangeMarkers = [:]
                 lineChangeHunks = [:]
                 didChange = true
             }
-            reconcilePendingStagingStates(with: snapshot.changes)
+            reconcilePendingStagingStates(with: snapshot.changes,
+                successfullyReadRepositoryRoots: observation.successfullyReadRepositoryRoots)
             if !gitConflictFilterPaths.isEmpty {
                 let previousFilter = gitConflictFilterPaths
                 gitConflictFilterPaths.formIntersection(Set(snapshot.changes.map(\.path)))
@@ -662,7 +719,7 @@ package final class GitFeatureModel: ObservableObject {
             }
         } else {
             if gitRepositoryRoot != nil {
-                clearGitCommitFilesCache()
+                resetHistoryForRepositoryChange()
                 gitRepositoryRoot = nil
                 didChange = true
             }
@@ -691,15 +748,16 @@ package final class GitFeatureModel: ObservableObject {
     private func workspaceSnapshot(
         workspaceURL: URL,
         repositoryRoots: [URL]
-    ) async -> GitSnapshot? {
+    ) async -> (snapshot: GitSnapshot, successfullyReadRepositoryRoots: Set<URL>)? {
         if repositoryRoots.isEmpty {
-            return await snapshotProvider(workspaceURL)
+            guard let snapshot = await snapshotProvider(workspaceURL, []) else { return nil }
+            return (snapshot, [snapshot.repositoryRoot.standardizedFileURL])
         }
 
         var snapshots: [GitSnapshot] = []
         for repositoryRoot in repositoryRoots {
             guard !Task.isCancelled else { return nil }
-            if let snapshot = await snapshotProvider(repositoryRoot) {
+            if let snapshot = await snapshotProvider(repositoryRoot, repositoryRoots) {
                 snapshots.append(snapshot)
             }
         }
@@ -708,22 +766,49 @@ package final class GitFeatureModel: ObservableObject {
             $0.repositoryRoot.standardizedFileURL
                 == (requestedRepositoryRoot ?? gitRepositoryRoot)?.standardizedFileURL
         }) ?? snapshots.first else { return nil }
-        if snapshots.count == 1 {
-            return firstSnapshot
-        }
-
-        return GitSnapshot(
+        let snapshot = GitSnapshot(
             repositoryRoot: firstSnapshot.repositoryRoot,
             branch: firstSnapshot.branch,
             changes: snapshots.flatMap(\.changes)
         )
+        // An absent path confirms a clean state only in a repository whose
+        // status was actually read; other repositories may have failed.
+        return (snapshot, Set(snapshots.map { $0.repositoryRoot.standardizedFileURL }))
     }
 
-    package func selectRepository(_ root: URL) async {
-        guard availableRepositoryRoots.contains(root), root != (requestedRepositoryRoot ?? gitRepositoryRoot) else { return }
+    package func selectRepository(_ root: URL, reference: GitReference? = nil) async {
+        guard availableRepositoryRoots.contains(root) else { return }
+        if root == gitRepositoryRoot && root == (requestedRepositoryRoot ?? gitRepositoryRoot) {
+            if let reference { await selectGitReference(reference) }
+            return
+        }
         requestedRepositoryRoot = root
+        requestedRepositoryReference = reference
         selectedChange = nil
         await refreshGit()
+    }
+
+    private func resetHistoryForRepositoryChange() {
+        // Close the old repository's cursor before replacing its root. Neither
+        // its selected ref nor a late history/detail result belongs to the new root.
+        cancelGitHistoryLoading()
+        selectedGitReference = nil
+        isShowingAllGitReferences = false
+        gitReferences = []
+        recentGitReferences = []
+        gitCommits = []
+        gitGraphRepositoryCommits = []
+        gitIdentity = nil
+        canLoadMoreGitHistory = false
+        selectedGitCommit = nil
+        selectedGitCommitFile = nil
+        selectedGitCommitDiffContext = nil
+        clearGitCommitFilesCache()
+        historyEditing.reset()
+        closeBranchComparison()
+        gitLogFilterGeneration = UUID()
+        gitLogMatchedCommitHashes = nil
+        isFilteringGitLog = false
     }
 
     package func selectChange(_ change: GitChange) async {
@@ -734,14 +819,22 @@ package final class GitFeatureModel: ObservableObject {
         diffRows = []
         diffHunks = []
         isLoadingDiff = true
-        let document = await service.diffDocument(
-            for: change,
-            whitespace: gitDiffWhitespaceMode
-        )
+        let document = await diffDocumentProvider(change, gitDiffWhitespaceMode)
         guard selectedChange?.id == change.id else { return }
         selectedDiffPatch = document.patch
         diffRows = document.rows
         diffHunks = document.hunks
+        isLoadingDiff = false
+    }
+
+    package func closeWorkingTreeDiff() {
+        guard selectedChange != nil else { return }
+        // Invalidate the pending preview before clearing its state. A late
+        // result fails the selection guard and cannot leave the module busy.
+        selectedChange = nil
+        selectedDiffPatch = ""
+        diffRows = []
+        diffHunks = []
         isLoadingDiff = false
     }
 
@@ -871,7 +964,7 @@ package final class GitFeatureModel: ObservableObject {
         return saveChangesPolicy?() ?? .stash
     }
 
-    private func withGitOperation<T: Sendable>(
+    func withGitOperation<T: Sendable>(
         title: String? = nil, plannedArguments: [String]? = nil,
         _ operation: () async -> T
     ) async -> T {
@@ -1094,7 +1187,10 @@ package final class GitFeatureModel: ObservableObject {
     /// deliberately bypasses the selected file's working-tree diff so a file
     /// with both staged and unstaged edits is represented correctly.
     package func stagedCommitMessageInput() async -> CommitMessageInput? {
-        let stagedChanges = activeRepositoryChanges.filter(\.isStaged)
+        // `gitChanges` is the workspace aggregate. Keeping this input
+        // aggregate in the same way as the commit operation prevents the AI
+        // button from silently ignoring staged files in child repositories.
+        let stagedChanges = activeChangelistChanges.filter(\.isStaged)
         guard !stagedChanges.isEmpty else { return nil }
 
         var files: [CommitMessageFileInput] = []
@@ -1121,14 +1217,14 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func stageSelectedChange() async {
-        guard let selectedChange else { return }
+        guard !isCommitting, let selectedChange, selectedChange.canToggleStaging else { return }
         let result = await withGitOperation { await service.stage(selectedChange) }
         showResult(result, success: "Staged \(selectedChange.path)")
         await refreshGit()
     }
 
     package func unstageSelectedChange() async {
-        guard let selectedChange else { return }
+        guard !isCommitting, let selectedChange else { return }
         let result = await withGitOperation { await service.unstage(selectedChange) }
         showResult(result, success: "Unstaged \(selectedChange.path)")
         await refreshGit()
@@ -1263,131 +1359,41 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
-    /// Paths still holding conflict markers. Committing during a merge or rebase
-    /// would finish that operation, so an unresolved file has to stop the commit
-    /// rather than be recorded with its `<<<<<<<` markers intact.
-    private var conflictedPaths: [String] {
-        activeRepositoryChanges.filter(\.isConflicted).map(\.path)
-    }
-
-    private func blockCommitWhenConflicted() -> Bool {
-        let paths = conflictedPaths
-        guard !paths.isEmpty else { return false }
-        notify?("Resolve the conflicts first: \(paths.joined(separator: ", "))")
-        return true
-    }
-
-    /// Refuses a commit whose staged content still carries conflict markers.
-    ///
-    /// Separate from `blockCommitWhenConflicted`: Git stops marking a file as
-    /// conflicted the moment it is staged, so a user who stages before deleting the
-    /// `<<<<<<<` lines would otherwise commit them. This reads the staged blobs.
-    private func blockCommitWhenMarkersRemain() async -> Bool {
-        guard let gitRepositoryRoot else { return false }
-        let paths = await service.conflictMarkerPaths(at: gitRepositoryRoot)
-        guard !paths.isEmpty else { return false }
-        notify?("Conflict markers remain in: \(paths.joined(separator: ", "))")
-        return true
-    }
-
-    package func commitStagedChanges(message rawMessage: String, amend: Bool) async -> Bool {
-        guard let gitRepositoryRoot else { return false }
-        let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else {
-            notify?("Enter a commit message")
-            return false
-        }
-        guard !blockCommitWhenConflicted() else { return false }
-        guard await !blockCommitWhenMarkersRemain() else { return false }
-
-        isCommitting = true
-        let result = await withGitOperation {
-            await service.commit(at: gitRepositoryRoot, message: message, amend: amend)
-        }
-        isCommitting = false
-        if result.succeeded {
-            notify?("Changes committed")
-        } else {
-            notify?(trimmedMessage(result))
-        }
-        await refreshGit()
-        return result.succeeded
-    }
-
-    @discardableResult
-    package func commitAndPushStagedChanges(message rawMessage: String, amend: Bool) async -> Bool {
-        guard let gitRepositoryRoot else { return false }
-        let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else {
-            notify?("Enter a commit message")
-            return false
-        }
-        guard activeRepositoryChanges.contains(where: \.isStaged) else {
-            notify?("Stage at least one change before committing")
-            return false
-        }
-        guard !blockCommitWhenConflicted() else { return false }
-        guard await !blockCommitWhenMarkersRemain() else { return false }
-
-        isCommitting = true
-        let commitResult = await withGitOperation {
-            await service.commit(
-                at: gitRepositoryRoot,
-                message: message,
-                amend: amend
-            )
-        }
-        guard commitResult.succeeded else {
-            isCommitting = false
-            notify?(trimmedMessage(commitResult))
-            await refreshGit()
-            return false
-        }
-
-        guard let currentReference = currentGitReference else {
-            isCommitting = false
-            notify?("Committed changes, but detached HEAD cannot be pushed")
-            await refreshGit()
-            return true
-        }
-
-        let pushResult = await withGitOperation {
-            await service.push(currentReference, at: gitRepositoryRoot)
-        }
-        isCommitting = false
-        if pushResult.succeeded {
-            notify?("Committed and pushed \(currentReference.shortName)")
-        } else {
-            notify?("Committed changes, but push failed: \(trimmedMessage(pushResult))")
-        }
-        await refreshGit()
-        return true
-    }
-
-    func reconcilePendingStagingStates(with changes: [GitChange]) {
-        let changesByID = Dictionary(uniqueKeysWithValues: changes.map { ($0.id, $0) })
-        pendingStagingStates = pendingStagingStates.filter { id, staged in
-            changesByID[id]?.isStaged != staged
+    func reconcilePendingStagingStates(with changes: [GitChange], successfullyReadRepositoryRoots: Set<URL>) {
+        // Git can report a staged deletion and an untracked replacement at the
+        // same path. Preserve both records and wait until all of them agree
+        // with the requested staging state before dropping the optimistic value.
+        // A clean path disappears, but a failed repository read is not evidence
+        // of cleanliness. Retain the repository with each pending request.
+        let changesByID = Dictionary(grouping: changes, by: \.id)
+        pendingStagingStates = pendingStagingStates.filter { id, pending in
+            guard successfullyReadRepositoryRoots.contains(pending.repositoryRoot) else { return true }
+            guard let currentChanges = changesByID[id] else { return false }
+            return !currentChanges.allSatisfy { $0.isStaged == pending.staged }
         }
     }
+
+    package var isStagingChanges: Bool { !pendingStagingStates.isEmpty }
 
     package func effectiveStagingState(for change: GitChange) -> Bool {
-        pendingStagingStates[change.id] ?? change.isStaged
+        pendingStagingStates[change.id]?.staged ?? change.isStaged
     }
 
     package func beginToggleStaging(_ change: GitChange) -> Bool? {
-        guard pendingStagingStates[change.id] == nil else { return nil }
+        guard !isCommitting, !changelistStorageFailed, change.canToggleStaging, pendingStagingStates[change.id] == nil else { return nil }
         let staged = !change.isStaged
-        pendingStagingStates[change.id] = staged
+        pendingStagingStates[change.id] = (change.repositoryRoot.standardizedFileURL, staged)
         return staged
     }
 
-    package func beginSetStaging(_ changes: [GitChange], staged: Bool) -> [GitChange] {
+    package func beginSetStaging(_ changes: [GitChange], staged: Bool, includeWorkingTreeChanges: Bool = false) -> [GitChange] {
+        guard !isCommitting, !changelistStorageFailed else { return [] }
         let pendingChanges = changes.filter {
-            pendingStagingStates[$0.id] == nil && $0.isStaged != staged
+            $0.canToggleStaging && pendingStagingStates[$0.id] == nil
+                && ($0.isStaged != staged || (staged && includeWorkingTreeChanges && $0.hasWorkingTreeChange))
         }
         for change in pendingChanges {
-            pendingStagingStates[change.id] = staged
+            pendingStagingStates[change.id] = (change.repositoryRoot.standardizedFileURL, staged)
         }
         return pendingChanges
     }
@@ -1441,7 +1447,8 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func stageAllChanges() async {
-        let pendingChanges = beginSetStaging(gitChanges, staged: true)
+        loadChangelistsIfNeeded()
+        let pendingChanges = beginSetStaging(activeChangelistChanges, staged: true)
         await finishSetStaging(pendingChanges, staged: true)
     }
 
@@ -1747,6 +1754,12 @@ package final class GitFeatureModel: ObservableObject {
         // Enrich the graph independently: the visible page and its cursor must
         // become usable even while a much larger repository walk is pending.
         async let repositoryGraph: Void = refreshGitRepositoryGraph(at: gitRepositoryRoot, generation: generation)
+        // Load the per-repository reference lists alongside the graph, never on
+        // the visible page's critical path. The commit list must render without
+        // waiting for every repository's references, and a slow reference read
+        // must not sit between the stale-result guard and the publish, where it
+        // could let a superseded page through after the guard already passed.
+        async let repositoryReferences: Void = refreshGitRepositoryReferences(generation: generation)
         let (referenceSnapshot, historyPage) = await (references, page)
         activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID])
         guard gitHistoryGeneration == generation,
@@ -1759,7 +1772,11 @@ package final class GitFeatureModel: ObservableObject {
             return
         }
         isLoadingGitHistory = false
-        guard let historyPage else { return }
+        guard let historyPage else {
+            await repositoryGraph
+            await repositoryReferences
+            return
+        }
 
         if let referenceSnapshot {
             gitReferences = referenceSnapshot.references
@@ -1789,6 +1806,7 @@ package final class GitFeatureModel: ObservableObject {
             selectedGitCommitDiffContext = nil
         }
         await repositoryGraph
+        await repositoryReferences
     }
 
     private func refreshGitRepositoryGraph(at root: URL, generation: UUID) async {
@@ -1805,6 +1823,41 @@ package final class GitFeatureModel: ObservableObject {
         if let cursor = page?.nextCursor { service.closeHistoryCursor(at: root, cursor: cursor) }
         guard gitHistoryGeneration == generation, gitRepositoryRoot == root, !Task.isCancelled else { return }
         gitGraphRepositoryCommits = page?.commits ?? []
+    }
+
+    /// Loads the reference list for every discovered repository so the Git Log
+    /// can group by repository. References are read-only (no rewrite lease), so
+    /// the roots are fetched sequentially for deterministic ordering without
+    /// serializing writes. Guarded by `gitHistoryGeneration` like the rest of
+    /// the history refresh, so a workspace switch cannot publish stale roots.
+    private func refreshGitRepositoryReferences(generation: UUID) async {
+        let roots = availableRepositoryRoots
+        guard !roots.isEmpty else {
+            if !gitRepositoryReferences.isEmpty { gitRepositoryReferences = [] }
+            return
+        }
+        var loaded: [GitRepositoryReferences] = []
+        for (index, root) in roots.enumerated() {
+            guard gitHistoryGeneration == generation, !Task.isCancelled else { return }
+            let operationID = gitHistoryOperationID(
+                kind: "repository-references-\(index)",
+                generation: generation
+            )
+            activeGitHistoryOperationIDs.insert(operationID)
+            let snapshot = await service.references(at: root, operationID: operationID)
+            activeGitHistoryOperationIDs.remove(operationID)
+            guard gitHistoryGeneration == generation, !Task.isCancelled else { return }
+            guard let snapshot else { continue }
+            loaded.append(
+                GitRepositoryReferences(
+                    repositoryRoot: root,
+                    references: snapshot.references,
+                    recentReferences: snapshot.recentReferences
+                )
+            )
+        }
+        guard gitHistoryGeneration == generation, !Task.isCancelled else { return }
+        gitRepositoryReferences = loaded
     }
 
     package func applyGitLogFilter(_ rawQuery: String) async {
@@ -2021,6 +2074,31 @@ package final class GitFeatureModel: ObservableObject {
         selectedGitCommitFilesLoadState = selectedGitCommit == nil ? .idle : .loading
     }
 
+    package private(set) var savedDiffSnapshot: GitSavedChangesSnapshot?
+    package private(set) var savedDiffVersion: String?
+
+    package func loadSavedChanges(stash: GitStash?, shelf: GitShelfEntry?) async -> Result<GitSavedChangesSnapshot, GitPatchFailure> {
+        guard let root = gitRepositoryRoot else { return .failure(GitPatchFailure("No repository")) }
+        return await service.savedChangesSnapshot(stash: stash, shelf: shelf, at: root)
+    }
+
+    package func showSavedChangesDiff(_ snapshot: GitSavedChangesSnapshot, version: String, file: GitCommitFile) {
+        guard snapshot.repositoryRoot == gitRepositoryRoot,
+              let saved = snapshot.files.first(where: { $0.version == version && $0.file == file }) else { return }
+        closeBranchComparison()
+        selectedChange = nil
+        savedDiffSnapshot = snapshot
+        savedDiffVersion = version
+        let commit = GitCommit(hash: "saved:\(snapshot.id):\(version)", shortHash: version,
+            parentHashes: [saved.base], authorName: "", authorEmail: "", date: "", subject: version, decorations: "")
+        selectedGitCommitFile = file
+        selectedGitCommitDiffContext = GitCommitDiffContext(repositoryRoot: snapshot.repositoryRoot, commit: commit, file: file)
+        selectedDiffPatch = ""
+        diffRows = saved.document.rows
+        diffHunks = saved.document.hunks
+        isLoadingDiff = false
+    }
+
     package func showGitCommitDiff(for file: GitCommitFile) async {
         guard let gitRepositoryRoot, let commit = selectedGitCommit else { return }
         let context = GitCommitDiffContext(
@@ -2049,8 +2127,13 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func closeGitCommitDiff() {
+        savedDiffSnapshot = nil
+        savedDiffVersion = nil
         selectedGitCommitDiffContext = nil
         selectedGitCommitFile = nil
+        // Working-tree/directory previews reuse these buffers after replacing
+        // the history context. Closing its background tab must preserve them.
+        guard selectedChange == nil, branchComparison == nil else { return }
         selectedDiffPatch = ""
         diffRows = []
         diffHunks = []
@@ -2185,18 +2268,6 @@ package final class GitFeatureModel: ObservableObject {
         } else {
             gitWorktrees = []
             gitWorktreeLoadState = .failed("Could not load Git worktrees")
-        }
-    }
-
-    /// One-shot `info/exclude` mutation used by Settings recommended-rules actions.
-    /// Runs through GitService so the Core write stays off the MainActor.
-    package func mutateLiteralLocalExcludePatterns(
-        _ patterns: [String],
-        adding: Bool,
-        at rootURL: URL
-    ) async -> GitService.CommandResult {
-        await withGitOperation {
-            await service.mutateLiteralLocalExcludePatterns(patterns, adding: adding, at: rootURL)
         }
     }
 
@@ -2568,6 +2639,38 @@ package final class GitFeatureModel: ObservableObject {
             isShowingAllGitReferences = false
             closeBranchComparison()
             notify?("Renamed branch to \(name)")
+            await refreshGit()
+        } else {
+            notify?(trimmedMessage(result))
+        }
+    }
+
+    /// Points a local branch at a remote branch, mirroring the write operation
+    /// IntelliJ IDEA exposes as "Tracking Branch".
+    package func setUpstream(_ reference: GitReference, to upstream: GitReference) async {
+        guard let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.setUpstream(reference, to: upstream, at: gitRepositoryRoot)
+        }
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            notify?("Tracking \(reference.shortName) with \(upstream.shortName)")
+            await refreshGit()
+        } else {
+            notify?(trimmedMessage(result))
+        }
+    }
+
+    package func unsetUpstream(_ reference: GitReference) async {
+        guard let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.unsetUpstream(reference, at: gitRepositoryRoot)
+        }
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            notify?("Stopped tracking \(reference.shortName)")
             await refreshGit()
         } else {
             notify?(trimmedMessage(result))
@@ -3312,14 +3415,12 @@ package final class GitFeatureModel: ObservableObject {
             } else {
                 notify?(trimmedMessage(result))
             }
-            if autoStash {
-                // A smart checkout can switch branches and still fail to restore the stash,
-                // so re-read Git rather than assuming the working tree is unchanged.
-                selectedGitReference = nil
-                isShowingAllGitReferences = false
-                closeBranchComparison()
-                await refreshGit()
-            }
+            // Remote checkout can switch branches before its fast-forward fails;
+            // smart checkout can also fail while restoring the saved changes.
+            selectedGitReference = nil
+            isShowingAllGitReferences = false
+            closeBranchComparison()
+            await refreshGit()
         }
     }
 
@@ -3395,14 +3496,14 @@ package final class GitFeatureModel: ObservableObject {
         await startIntegration(.commit(commit), operation: .revert)
     }
 
-    package func resetCurrentBranch(to commit: GitCommit) async {
+    package func resetCurrentBranch(to commit: GitCommit, mode: GitResetMode = .mixed) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
         let result = await withGitOperation {
             await service.resetCurrentBranch(
                 to: commit.hash,
                 at: gitRepositoryRoot,
-                mode: "--mixed"
+                mode: mode.argument
             )
         }
         isPerformingBranchOperation = false
@@ -3490,7 +3591,7 @@ package final class GitFeatureModel: ObservableObject {
         return "\(fallback): \(warning.message)"
     }
 
-    private func trimmedMessage(_ result: GitService.CommandResult) -> String {
+    func trimmedMessage(_ result: GitService.CommandResult) -> String {
         let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return message.isEmpty ? "Git operation failed" : message
     }

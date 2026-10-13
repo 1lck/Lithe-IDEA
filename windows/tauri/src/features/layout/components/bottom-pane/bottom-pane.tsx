@@ -5,6 +5,7 @@ import DebuggerView from "@/features/debugger/components/debugger-view";
 import DiagnosticsBuffer from "@/features/diagnostics/components/diagnostics-buffer";
 import MavenRunPane from "@/features/maven/components/maven-run-pane";
 import RunPane from "@/features/run/components/run-pane";
+import SpringEndpointsPane from "@/features/spring/components/spring-endpoints-pane";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { GitLogToolWindow } from "@/features/git/components/log/git-log-tool-window";
@@ -124,7 +125,7 @@ const BottomPane = () => {
         if (rafId !== null) cancelAnimationFrame(rafId);
         rafId = requestAnimationFrame(() => {
           if (frameEl) {
-            frameEl.style.height = `calc(${currentHeight}px + var(--lithe-workbench-gap))`;
+            frameEl.style.height = `calc(${currentHeight}px + var(--lithe-bottom-pane-gap))`;
           }
         });
       };
@@ -135,7 +136,7 @@ const BottomPane = () => {
           rafId = null;
         }
         if (frameEl) {
-          frameEl.style.height = `calc(${currentHeight}px + var(--lithe-workbench-gap))`;
+          frameEl.style.height = `calc(${currentHeight}px + var(--lithe-bottom-pane-gap))`;
         }
         setHeight(currentHeight);
         setIsResizing(false);
@@ -222,29 +223,18 @@ const BottomPane = () => {
   const resizeGutter = !isFullScreen ? (
     <div
       onMouseDown={handleMouseDown}
-      className={cn(
-        "group relative flex h-(--lithe-workbench-gap) w-full shrink-0 cursor-ns-resize items-center justify-center",
-        "transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) hover:bg-primary/8",
-        isResizing && "bg-primary/8",
-      )}
+      className="relative flex h-(--lithe-bottom-pane-gap) w-full shrink-0 cursor-ns-resize items-center justify-center"
       role="separator"
       aria-orientation="horizontal"
       aria-label={t("layout.resizeBottomPane")}
-    >
-      <div
-        className={cn(
-          "h-px w-full bg-transparent transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) group-hover:bg-primary",
-          isResizing && "bg-primary",
-        )}
-      />
-    </div>
+    />
   ) : null;
 
   const paneContent = (
     <div
       data-bottom-pane-drop-target
       className={cn(
-        "lithe-glass-island relative flex min-h-0 flex-col overflow-hidden rounded-xl border-border/70 border-t border-l bg-background",
+        "lithe-glass-island relative flex min-h-0 flex-col overflow-hidden rounded-(--lithe-island-radius) bg-background",
         isInternalHoverTarget && "ring-2 ring-primary ring-inset",
         isFullScreen && "size-full rounded-none border-0 shadow-none ring-0",
         !isFullScreen && "flex-1",
@@ -260,6 +250,11 @@ const BottomPane = () => {
             className={cn("h-full", bottomPaneActiveTab === "terminal" ? "block" : "hidden")}
             onFullScreen={() => setIsFullScreen(!isFullScreen)}
             isFullScreen={isFullScreen}
+            onMinimize={() => {
+              // Reopening the terminal should restore the docked panel, not full screen.
+              setIsFullScreen(false);
+              useUIState.getState().setIsBottomPaneVisible(false);
+            }}
           />
         )}
 
@@ -305,6 +300,12 @@ const BottomPane = () => {
             <GitLogToolWindow />
           </div>
         )}
+
+        {bottomPaneActiveTab === "springEndpoints" && (
+          <div className="h-full">
+            <SpringEndpointsPane />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -324,7 +325,7 @@ const BottomPane = () => {
       ref={paneFrameRef}
       className={cn("flex shrink-0 flex-col", !isBottomPaneVisible && "hidden")}
       style={{
-        height: `calc(${height}px + var(--lithe-workbench-gap))`,
+        height: `calc(${height}px + var(--lithe-bottom-pane-gap))`,
       }}
     >
       {resizeGutter}

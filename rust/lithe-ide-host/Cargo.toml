@@ -1,0 +1,28 @@
+[package]
+name = "lithe-ide-host"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[features]
+mcp = ["dep:rmcp", "dep:reqwest"]
+
+[dependencies]
+axum = "0.8"
+fs2 = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "macros", "signal"] }
+rmcp = { version = "=3.5.0", default-features = false, features = ["server", "transport-io"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json"], optional = true }
+
+[[bin]]
+name = "lithe-mcp"
+path = "src/bin/lithe-mcp.rs"
+required-features = ["mcp"]
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json"] }

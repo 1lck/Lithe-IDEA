@@ -253,4 +253,26 @@ describe("definition hover scheduler", () => {
     expect(await scheduler.resolveNow({ key: "second" })).toBe("target:second");
     expect(resolveRequest).toHaveBeenCalledTimes(4);
   });
+
+  test("does not cache transient misses but retains successful hover results", async () => {
+    let locations: string[] = [];
+    const resolveRequest = mock(async () => locations);
+    const scheduler = new DefinitionHoverScheduler<TestRequest, string[]>({
+      delayMilliseconds: 150,
+      keyOf: (request) => request.key,
+      resolve: resolveRequest,
+      onActiveResult: () => undefined,
+      shouldCache: (result) => result.length > 0,
+    });
+    try {
+      expect(await scheduler.resolveNow({ key: "same-word" })).toEqual([]);
+      locations = ["target:recovered"];
+      expect(await scheduler.resolveNow({ key: "same-word" })).toEqual(locations);
+      expect(await scheduler.resolveNow({ key: "same-word" })).toEqual(locations);
+      expect(resolveRequest).toHaveBeenCalledTimes(2);
+    } finally {
+      scheduler.dispose();
+    }
+  });
+
 });

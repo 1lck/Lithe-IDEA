@@ -13,9 +13,9 @@ use crate::git::{
     GitHistoryRewritePreviewRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
     GitPullPreflightRequest, GitPullRequestContextRequest, GitPushPreviewRequest,
     GitRebaseControlRequest, GitRebasePreviewRequest, GitRebaseSessionRequest,
-    GitRebaseStartRequest, GitReferencesRequest, GitStashesRequest, GitStatusRequest,
-    GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest, PatchApplyRequest,
-    PatchExportRequest, PatchPreviewRequest, WorkspaceRepositoriesRequest,
+    GitRebaseStartRequest, GitReferencesRequest, GitRepositoryRootRequest, GitStashesRequest,
+    GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest,
+    PatchApplyRequest, PatchExportRequest, PatchPreviewRequest, WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -48,6 +48,27 @@ pub fn execute_json(request: &str) -> String {
         ))
         .expect("fallback response should encode")
     })
+}
+
+/// Decode an agent management payload and run `operation` on it.
+fn agent_response<T: serde::de::DeserializeOwned>(
+    id: Option<String>,
+    payload: serde_json::Value,
+    operation: fn(T) -> Result<serde_json::Value, CoreError>,
+) -> CoreResponse {
+    match serde_json::from_value::<T>(payload)
+        .map_err(|error| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid agent management request",
+            )
+            .with_details(error.to_string())
+        })
+        .and_then(operation)
+    {
+        Ok(data) => CoreResponse::success(id, data),
+        Err(error) => CoreResponse::failure(id, error),
+    }
 }
 
 fn execute(request: &str) -> CoreResponse {
@@ -84,7 +105,17 @@ fn execute(request: &str) -> CoreResponse {
         );
     };
 
+    let preserve_workspace_outcome = matches!(command, CoreCommand::GitWorkspaceCommitStep);
     let response = match command {
+        CoreCommand::IdeHostControl => {
+            let action = parsed.payload["action"].as_str().unwrap_or("");
+            match lithe_ide_host::execute(action, parsed.payload["arguments"].clone()) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(message) => {
+                    CoreResponse::failure(id, CoreError::new(ErrorCode::InvalidRequest, message))
+                }
+            }
+        }
         CoreCommand::Ping => CoreResponse::success(
             id,
             json!({
@@ -92,6 +123,18 @@ fn execute(request: &str) -> CoreResponse {
                 "coreVersion": env!("CARGO_PKG_VERSION")
             }),
         ),
+        CoreCommand::AgentStatus => agent_response(id, parsed.payload, crate::agent::status),
+        CoreCommand::AgentParseProviderConfiguration => {
+            match crate::ai::parse_provider_configuration(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::AgentInstall => agent_response(id, parsed.payload, crate::agent::install),
+        CoreCommand::AgentUninstall => agent_response(id, parsed.payload, crate::agent::uninstall),
+        CoreCommand::AgentInstallCli => {
+            agent_response(id, parsed.payload, crate::agent::install_cli)
+        }
         CoreCommand::CommunityDiscourseAuthBegin => {
             match serde_json::from_value::<DiscourseAuthorizationBeginRequest>(parsed.payload)
                 .map_err(|error| {
@@ -369,6 +412,27 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::DocumentClassifyText => {
+            match parsed
+                .payload
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+            {
+                Some(text) => CoreResponse::success(
+                    id,
+                    serde_json::json!({
+                        "isPlainText": project::is_plain_text(text)
+                    }),
+                ),
+                None => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Decoded document text is required",
+                    ),
+                ),
+            }
+        }
         CoreCommand::DocumentLifecycle => {
             match serde_json::from_value::<DocumentLifecycleRequest>(parsed.payload)
                 .map_err(|error| {
@@ -498,6 +562,25 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Maven launch plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::ExecutionPlanLaunchCommand => {
+            match serde_json::from_value::<crate::execution::LaunchCommandPlanRequest>(
+                parsed.payload,
+            )
+            .map(crate::execution::plan_launch_command_request)
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid Java launch-command request",
+                )
+                .with_details(error.to_string())
+            }) {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java launch-command plan should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -1160,6 +1243,27 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspUpdateMavenConfiguration => {
+            match serde_json::from_value::<crate::lsp::UpdateMavenConfigurationRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid Maven configuration update request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::lsp::update_maven_configuration)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Maven configuration update response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspSyncDocument => {
             match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1330,6 +1434,21 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("LSP destroy-server response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigSelectJava => {
+            match serde_json::from_value::<crate::execution::JavaSelectionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Java selection request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::execution::select_java)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java selection encodes"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -1549,6 +1668,59 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitWorkspaceCommitPrepare => {
+            let result =
+                serde_json::from_value::<git::workspace_commit::PrepareRequest>(parsed.payload)
+                    .map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid workspace commit request",
+                        )
+                        .with_details(error.to_string())
+                    })
+                    .and_then(git::workspace_commit::prepare);
+            match result {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Workspace commit response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitWorkspaceCommitStep => {
+            let result =
+                serde_json::from_value::<git::workspace_commit::StepRequest>(parsed.payload)
+                    .map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid workspace commit request",
+                        )
+                        .with_details(error.to_string())
+                    })
+                    .and_then(git::workspace_commit::step);
+            match result {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Workspace commit response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitCommitState => {
+            match serde_json::from_value::<GitStatusRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid commit state request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::commit_state)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Commit state should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitStatus => match serde_json::from_value::<GitStatusRequest>(parsed.payload)
             .map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid Git status request")
@@ -1627,6 +1799,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git command response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitRepositoryRoot => {
+            match serde_json::from_value::<GitRepositoryRootRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git repository root request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::discover_repository_root)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git repository root response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -2230,7 +2420,9 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
     };
-    if response.is_success() {
+    // Workspace steps already reconcile cancelled writes under a bounded cleanup
+    // deadline. Preserve that continuation so a retry cannot duplicate a commit.
+    if response.is_success() && !preserve_workspace_outcome {
         match crate::protocol::cancellation::check() {
             Ok(()) => response,
             Err(error) => CoreResponse::failure(response_id, error),

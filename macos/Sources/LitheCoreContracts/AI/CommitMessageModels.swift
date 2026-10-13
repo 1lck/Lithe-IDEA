@@ -187,6 +187,14 @@ public enum AIConfigurationSourceKind: String, CaseIterable, Identifiable, Senda
 
     public var id: String { rawValue }
 
+    /// Initial editor value only; session choices remain owned by the Agent.
+    public var newProviderModel: String {
+        switch self {
+        case .codex: return "gpt-6.1-sol"
+        case .claude: return ""
+        }
+    }
+
     public var title: String {
         switch self {
         case .codex:
@@ -465,6 +473,7 @@ public struct CommitMessageAISettings: Codable, Equatable, Sendable {
     }
 
     public mutating func addProvider() -> AIProviderProfile {
+        // This entry can switch protocols; only source-specific editors seed a model.
         let provider = AIProviderProfile(
             name: "Custom Provider",
             endpoint: "",
@@ -481,6 +490,17 @@ public struct CommitMessageAISettings: Codable, Equatable, Sendable {
         guard let activeProviderID else { return }
         providers.removeAll { $0.id == activeProviderID }
         self.activeProviderID = providers.first?.id
+    }
+}
+
+/// Non-secret CLI model selection, also available without an API configuration.
+public struct AIConfigurationModel: Equatable, Sendable {
+    public let source: AIConfigurationSourceKind
+    public let model: String
+
+    public init(source: AIConfigurationSourceKind, model: String) {
+        self.source = source
+        self.model = model
     }
 }
 

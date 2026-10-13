@@ -14,9 +14,10 @@ export function presentMavenProfileTask(
   if (task.status === "running") {
     effects.clearProjects(task.sessionId);
     effects.toast.loading("Applying Maven configuration", { id, action: undefined });
-  } else if (task.status === "succeeded") {
-    effects.toast.success("Maven configuration applied", { id, duration: 2500, action: undefined });
-  } else if (task.status === "cancelled" || task.status === "idle") {
+  } else if (["succeeded", "cancelled", "idle"].includes(task.status)) {
+    // Profile commands returning says nothing about dependency resolution, so
+    // success is not announced. Resolution failures surface as Maven problems
+    // read from pom.xml diagnostics instead (#970).
     effects.toast.dismiss(id);
   } else if (["failed", "timedOut", "partiallySucceeded"].includes(task.status)) {
     effects.toast.warning("Some Maven modules failed to update; the language service remains available", {

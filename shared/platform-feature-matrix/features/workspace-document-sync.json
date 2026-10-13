@@ -1,0 +1,24 @@
+{
+  "id": "workspace-document-sync",
+  "area": "工作区",
+  "group": "工作区生命周期",
+  "capability": "脏状态、保存与外部修改",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Models/Editor",
+      "macos/Sources/Lithe/Services/Workspace"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/editor",
+      "windows/tauri/src/features/file-system"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workspace",
+  "verification": "编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为。"
+}

@@ -54,8 +54,7 @@ final class RunExecutableResolver: RunExecutableResolving {
         case .path(let path):
             // Core-supplied absolute path for providers whose launcher is neither
             // on PATH nor a registered toolchain (e.g. an external Tomcat install).
-            let url = URL(fileURLWithPath: path)
-            guard FileManager.default.isExecutableFile(atPath: url.path) else {
+            guard let url = runtimeService.executableURL(at: path) else {
                 throw RunExecutableResolutionError(
                     message: "The launch plan executable is not executable: \(path)"
                 )

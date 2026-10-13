@@ -11,9 +11,8 @@ mock.module("../utils/run-window-context", () => ({
   getRunWindowLabel: () => "project-window",
 }));
 
-const { executePreLaunchStep, startRunProcess, stopRunProcess, writeRunStdin } = await import(
-  "../api/run-host-api"
-);
+const { executePreLaunchStep, startRunProcess, stopRunProcess, writeRunStdin } =
+  await import("../api/run-host-api");
 
 describe("run host API window scoping", () => {
   beforeEach(() => {
@@ -76,8 +75,10 @@ describe("run host API window scoping", () => {
     });
   });
 
-  test("executePreLaunchStep forwards the step to the synchronous command", async () => {
+  test("executePreLaunchStep scopes the step to its window and execution", async () => {
     await executePreLaunchStep({
+      sessionId: "standalone",
+      executionId: "execution-1",
       executable: "C:/jdk/bin/javac.exe",
       arguments: ["-d", ".lithe/run/classes/standalone", "Standalone.java"],
       workingDirectory: "D:/demo",
@@ -86,6 +87,9 @@ describe("run host API window scoping", () => {
 
     expect(invoke).toHaveBeenCalledWith("run_execute_prelaunch", {
       args: {
+        sessionId: "standalone",
+        executionId: "execution-1",
+        windowLabel: "project-window",
         executable: "C:/jdk/bin/javac.exe",
         arguments: ["-d", ".lithe/run/classes/standalone", "Standalone.java"],
         workingDirectory: "D:/demo",

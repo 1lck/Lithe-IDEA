@@ -43,6 +43,18 @@ html[data-window-resize-dragging] * {
   font-size: var(--ui-text-base);
 }
 
+/* IDEA ToolWindow.Button selected colors; scope them to the left tool-window stripe. */
+.lithe-left-activity-selected {
+  background-color: var(--stripe-selected-background, var(--primary));
+  color: var(--stripe-selected-foreground, var(--primary-foreground));
+}
+
+/* These tool-window SVGs have no opaque background. Like IDEA's
+   toStrokeIcon, recolor their existing shape for the Islands blue selection. */
+html[data-theme^="lithe-"] .lithe-left-activity-selected .lithe-idea-icon {
+  filter: brightness(0) invert(1);
+}
+
 .themed-file-icon,
 .ui-icon {
   width: 1em;
@@ -90,6 +102,16 @@ svg.themed-file-icon {
   }
 }
 
+@keyframes gitFetchProgress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+
+.lithe-git-fetch-progress [data-slot="progress-indicator"][data-indeterminate] {
+  width: 33.333%;
+  animation: gitFetchProgress 1.5s linear infinite;
+}
+
 .ui-text-shimmer {
   color: transparent;
   background-image: linear-gradient(
@@ -122,6 +144,11 @@ html[data-reduce-motion="true"] .drop-indicator {
   animation: none;
 }
 
+html[data-reduce-motion="true"] .lithe-git-fetch-progress [data-slot="progress-indicator"][data-indeterminate] {
+  animation: none;
+  transform: translateX(100%);
+}
+
 html[data-reduce-motion="true"] .ui-text-shimmer {
   color: var(--subtle-foreground);
   background: none;
@@ -142,6 +169,11 @@ html[data-reduce-motion="true"] .ui-text-shimmer {
 
   .drop-indicator {
     animation: none;
+  }
+
+  .lithe-git-fetch-progress [data-slot="progress-indicator"][data-indeterminate] {
+    animation: none;
+    transform: translateX(100%);
   }
 
   .ui-text-shimmer {

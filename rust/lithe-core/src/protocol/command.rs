@@ -32,8 +32,20 @@ pub struct CoreRequest {
 /// Variants are grouped by domain, but their serialized compatibility names
 /// live only in [`CoreCommand::parse`] so every host uses one mapping.
 pub enum CoreCommand {
+    /// Controls the native IDE capability broker (`ideHost.control`).
+    IdeHostControl,
     /// Reports the Core and protocol versions (`core.ping`).
     Ping,
+    /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
+    AgentStatus,
+    /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
+    AgentInstall,
+    /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
+    AgentUninstall,
+    /// Installs or updates an agent's CLI through its installation owner (`agent.installCli`).
+    AgentInstallCli,
+    /// Parses credential-free Agent provider metadata (`agent.parseProviderConfiguration`).
+    AgentParseProviderConfiguration,
     /// Starts a Discourse user API key authorization (`community.discourse.auth.begin`).
     CommunityDiscourseAuthBegin,
     /// Decrypts and verifies a Discourse authorization callback (`community.discourse.auth.complete`).
@@ -70,6 +82,8 @@ pub enum CoreCommand {
     FileWrite,
     /// Reduces one shared document persistence event (`document.lifecycle`).
     DocumentLifecycle,
+    /// Classifies decoded Unicode text independently of its filename (`document.classifyText`).
+    DocumentClassifyText,
     /// Records one local-history snapshot (`history.record`).
     HistoryRecord,
     /// Lists retained local-history metadata (`history.entries`).
@@ -86,6 +100,8 @@ pub enum CoreCommand {
     MavenScan,
     /// Produces a deterministic Maven invocation (`maven.launchPlan`).
     MavenLaunchPlan,
+    /// Shortens an oversized Java launch using a JDK argument file when needed.
+    ExecutionPlanLaunchCommand,
     /// Produces a bounded Maven dependency-tree invocation (`maven.dependencyPlan`).
     MavenDependencyPlan,
     /// Normalizes Maven dependency-tree output (`maven.dependencies`).
@@ -164,6 +180,9 @@ pub enum CoreCommand {
     LspStopServer,
     /// Retries Maven profile application for an existing Java session.
     LspRetryMavenProfiles,
+    /// Sends a changed Maven configuration to a running Java session
+    /// (`lsp.updateMavenConfiguration`).
+    LspUpdateMavenConfiguration,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
     /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
@@ -186,6 +205,8 @@ pub enum CoreCommand {
     LspDestroyServer,
     /// Validates layered run-configuration documents (`runConfig.inspect`).
     RunConfigInspect,
+    /// Selects an automatic project JDK (`runConfig.selectJava`).
+    RunConfigSelectJava,
     /// Regenerates detected run configurations (`runConfig.generate`).
     RunConfigGenerate,
     /// Merges configuration layers and toolchains (`runConfig.resolve`).
@@ -214,6 +235,12 @@ pub enum CoreCommand {
     MybatisIndex,
     /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
+    /// Reads HEAD and index preconditions for workspace commits (`git.commitState`).
+    GitCommitState,
+    /// Builds a reviewed multi-repository plan (`git.workspaceCommitPrepare`).
+    GitWorkspaceCommitPrepare,
+    /// Executes one guarded workspace commit/push (`git.workspaceCommitStep`).
+    GitWorkspaceCommitStep,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
     /// Lists worktrees registered for the repository (`git.worktrees`).
@@ -222,6 +249,8 @@ pub enum CoreCommand {
     GitPullRequestContext,
     /// Executes a caller-supplied argument vector without a shell (`git.command`).
     GitCommand,
+    /// Resolves the containing repository root without acquiring a write lease (`git.repositoryRoot`).
+    GitRepositoryRoot,
     /// Performs one supported Git mutation (`git.write`).
     GitWrite,
     /// Projects retained Git console records without executing Git (`git.consolePresentation`).
@@ -310,6 +339,12 @@ impl CoreCommand {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "core.ping" => Some(Self::Ping),
+            "ideHost.control" => Some(Self::IdeHostControl),
+            "agent.status" => Some(Self::AgentStatus),
+            "agent.install" => Some(Self::AgentInstall),
+            "agent.uninstall" => Some(Self::AgentUninstall),
+            "agent.installCli" => Some(Self::AgentInstallCli),
+            "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
             "community.discourse.auth.begin" => Some(Self::CommunityDiscourseAuthBegin),
             "community.discourse.auth.complete" => Some(Self::CommunityDiscourseAuthComplete),
             "community.discourse.topics" => Some(Self::CommunityDiscourseTopics),
@@ -328,6 +363,7 @@ impl CoreCommand {
             "file.read" => Some(Self::FileRead),
             "file.write" => Some(Self::FileWrite),
             "document.lifecycle" => Some(Self::DocumentLifecycle),
+            "document.classifyText" => Some(Self::DocumentClassifyText),
             "history.record" => Some(Self::HistoryRecord),
             "history.entries" => Some(Self::HistoryEntries),
             "history.content" => Some(Self::HistoryContent),
@@ -336,6 +372,7 @@ impl CoreCommand {
             "history.delete" => Some(Self::HistoryDelete),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
+            "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "maven.dependencyPlan" => Some(Self::MavenDependencyPlan),
             "maven.dependencies" => Some(Self::MavenDependencies),
             "maven.diagnostics" => Some(Self::MavenDiagnostics),
@@ -374,6 +411,7 @@ impl CoreCommand {
             "java.jdtWorkspaceFingerprint" => Some(Self::JavaJdtWorkspaceFingerprint),
             "lsp.stopServer" => Some(Self::LspStopServer),
             "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
+            "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
@@ -384,6 +422,7 @@ impl CoreCommand {
             "lsp.waitEvents" => Some(Self::LspWaitEvents),
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
+            "runConfig.selectJava" => Some(Self::RunConfigSelectJava),
             "runConfig.generate" => Some(Self::RunConfigGenerate),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
             "runConfig.updateOptions" => Some(Self::RunConfigUpdateOptions),
@@ -399,10 +438,14 @@ impl CoreCommand {
             "spring.index" => Some(Self::SpringIndex),
             "mybatis.index" => Some(Self::MybatisIndex),
             "git.status" => Some(Self::GitStatus),
+            "git.commitState" => Some(Self::GitCommitState),
+            "git.workspaceCommitPrepare" => Some(Self::GitWorkspaceCommitPrepare),
+            "git.workspaceCommitStep" => Some(Self::GitWorkspaceCommitStep),
             "git.watchContext" => Some(Self::GitWatchContext),
             "git.worktrees" => Some(Self::GitWorktrees),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
+            "git.repositoryRoot" => Some(Self::GitRepositoryRoot),
             "git.write" => Some(Self::GitWrite),
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
@@ -458,6 +501,7 @@ mod tests {
             "lsp.startServer",
             "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
+            "lsp.updateMavenConfiguration",
             "lsp.syncDocument",
             "lsp.closeDocument",
             "lsp.request",
@@ -488,6 +532,14 @@ mod tests {
     #[test]
     fn parses_document_lifecycle_command() {
         assert!(CoreCommand::parse("document.lifecycle").is_some());
+    }
+
+    #[test]
+    fn parses_java_launch_command_planner() {
+        assert!(matches!(
+            CoreCommand::parse("execution.planLaunchCommand"),
+            Some(CoreCommand::ExecutionPlanLaunchCommand)
+        ));
     }
 
     #[test]
@@ -537,6 +589,14 @@ mod tests {
         assert!(matches!(
             CoreCommand::parse("workspace.repositories"),
             Some(CoreCommand::WorkspaceRepositories)
+        ));
+    }
+
+    #[test]
+    fn parses_git_repository_root_command() {
+        assert!(matches!(
+            CoreCommand::parse("git.repositoryRoot"),
+            Some(CoreCommand::GitRepositoryRoot)
         ));
     }
 }

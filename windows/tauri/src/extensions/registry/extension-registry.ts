@@ -6,7 +6,6 @@
 
 import { logger } from "@/features/editor/utils/logger";
 import { NODE_PLATFORM } from "@/utils/platform";
-import { bundledExtensionManifests } from "../bundled/bundled-extension-manifests";
 
 import type {
   BundledExtension,
@@ -20,55 +19,20 @@ import {
   matchesLanguageContribution,
 } from "../types/extension-contributions";
 
-class ExtensionRegistry {
+export class ExtensionRegistry {
   private extensions = new Map<string, BundledExtension>();
   private activatedExtensions = new Set<string>();
   private platform: Platform;
-  private initPromise: Promise<void>;
 
   constructor() {
     this.platform = NODE_PLATFORM;
-    this.initPromise = this.loadBundledExtensions().catch((error) => {
-      logger.error("ExtensionRegistry", "Failed to load bundled extensions:", error);
-    });
   }
 
   /**
    * Wait for registry to be fully initialized
    */
   async ensureInitialized(): Promise<void> {
-    await this.initPromise;
-  }
-
-  /**
-   * Load all bundled extensions
-   * Note: Language extensions are fetched from the server, not bundled
-   */
-  private async loadBundledExtensions() {
-    // Get absolute path to bundled extensions
-    let basePath = "";
-
-    try {
-      const { invoke } = await import("@/platform/tauri-core");
-      basePath = await invoke<string>("get_bundled_extensions_path");
-      logger.info("ExtensionRegistry", `Bundled extensions path: ${basePath}`);
-    } catch (error) {
-      logger.error("ExtensionRegistry", "Failed to get bundled extensions path:", error);
-      basePath = "./extensions/bundled";
-    }
-
-    for (const { manifest, relativePath } of bundledExtensionManifests) {
-      const extension: BundledExtension = {
-        manifest,
-        path: `${basePath}/${relativePath}`,
-        isBundled: true,
-        isEnabled: true,
-        state: "installed",
-      };
-
-      this.extensions.set(manifest.id, extension);
-      logger.info("ExtensionRegistry", `Loaded bundled extension: ${manifest.displayName}`);
-    }
+    // Installed language extensions register when the extension store loads.
   }
 
   /**
@@ -122,6 +86,7 @@ class ExtensionRegistry {
    */
   getExtensionByLanguageId(languageId: string): BundledExtension | undefined {
     for (const extension of this.extensions.values()) {
+      if (!extension.isEnabled) continue;
       for (const lang of getManifestLanguageContributions(extension.manifest)) {
         if (lang.id === languageId) {
           return extension;
@@ -139,6 +104,7 @@ class ExtensionRegistry {
     const ext = fileExtension.startsWith(".") ? fileExtension : `.${fileExtension}`;
 
     for (const extension of this.extensions.values()) {
+      if (!extension.isEnabled) continue;
       for (const lang of getManifestLanguageContributions(extension.manifest)) {
         if (lang.extensions.includes(ext)) {
           return extension;
@@ -153,6 +119,7 @@ class ExtensionRegistry {
    */
   getExtensionForFilePath(filePath: string): BundledExtension | undefined {
     for (const extension of this.extensions.values()) {
+      if (!extension.isEnabled) continue;
       for (const language of getManifestLanguageContributions(extension.manifest)) {
         if (matchesLanguageContribution(filePath, language)) {
           return extension;

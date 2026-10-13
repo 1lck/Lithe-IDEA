@@ -39,6 +39,11 @@ function createEmptyDiff(filePath: string): GitDiff {
 }
 
 function parseDiffSection(lines: string[], fallbackFilePath: string): GitDiff {
+  // Display rows omit EOF markers and trailing CR. Retain that fact before
+  // normalization so writable projections cannot mistake these rows for bytes.
+  const hasLossyLineEndings = lines.some(line => line.endsWith("\r")
+    || line.startsWith("\\ No newline at end of file"));
+  lines = lines.map(line => line.replace(/\r$/, ""));
   const diffLines: GitDiffLine[] = [];
   let currentOldLine = 1;
   let currentNewLine = 1;
@@ -186,13 +191,14 @@ function parseDiffSection(lines: string[], fallbackFilePath: string): GitDiff {
     old_blob_base64: undefined,
     new_blob_base64: undefined,
     lines: diffLines,
+    ...(hasLossyLineEndings ? { has_lossy_line_endings: true } : {}),
   };
 }
 
 export function parseRawDiffContent(content: string, filePath: string): GitDiff | MultiFileDiff {
   // Imported patches may use CRLF separators. Normalize them for display
   // without leaving a trailing carriage return in line content or metadata.
-  const lines = content.split(/\r?\n/);
+  const lines = content.split("\n");
   const fallbackFilePath = getFilenameFromPath(filePath).replace(/\.(diff|patch)$/i, "");
   const sections: string[][] = [];
   let currentSection: string[] = [];

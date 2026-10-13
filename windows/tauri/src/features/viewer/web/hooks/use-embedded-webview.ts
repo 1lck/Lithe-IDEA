@@ -23,7 +23,8 @@ interface UseEmbeddedWebviewResult {
 }
 
 function isWebviewNotFoundError(error: unknown) {
-  return typeof error === "string" && error.includes("Webview not found:");
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return message.includes("Webview not found:");
 }
 
 export function useEmbeddedWebview({

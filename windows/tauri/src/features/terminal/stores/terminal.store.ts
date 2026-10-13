@@ -23,10 +23,14 @@ export interface TerminalStore {
   };
 }
 
-const createTerminalStore = () =>
+// Matches the IDEA default: the bottom tool window spans the full workbench width and the
+// sidebar yields vertical space to it, instead of staying full height beside the panel.
+export const DEFAULT_TERMINAL_WIDTH_MODE: TerminalWidthMode = "full";
+
+export const createTerminalStore = () =>
   createStore<TerminalStore>()((set, get) => ({
     sessions: new Map(),
-    widthMode: "editor",
+    widthMode: DEFAULT_TERMINAL_WIDTH_MODE,
     tabLayout: "horizontal",
     tabSidebarWidth: 180,
     tabSidebarPosition: "left",

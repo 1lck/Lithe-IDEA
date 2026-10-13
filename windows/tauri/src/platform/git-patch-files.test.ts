@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let response = { bytes: [] as number[], truncated: false };
 const invoke = mock(async (_command: string, _args?: unknown) => response);
-mock.module("./tauri-core", () => ({ invoke }));
+// Mock the Tauri boundary, not `./tauri-core`: a module mock is process-wide in
+// Bun, and replacing `tauri-core` would hide the real router from every later
+// test file in the same run.
+mock.module("@tauri-apps/api/core", () => ({
+  Channel: class {},
+  convertFileSrc: (path: string) => path,
+  invoke: (command: string, args?: unknown) => invoke(command, args),
+}));
 const { readGitPatchFile, writeGitPatchFile } = await import("./git-patch-files");
 
 beforeEach(() => {

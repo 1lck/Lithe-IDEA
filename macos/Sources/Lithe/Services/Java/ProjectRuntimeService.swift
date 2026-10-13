@@ -39,7 +39,10 @@ final class ProjectRuntimeService: ObservableObject {
     @Published private(set) var isDiscovering = false
     @Published private(set) var settings = ProjectRuntimeSettings()
     private var activeServiceJavaHomePath = ""
+    private var launchJavaRuntimes: [JavaRuntimeCandidate]?
+    private var runtimeSessionID = UUID()
 
+    private let javaSelector: any JavaRuntimeSelecting
     private let runtimeLocator: any RuntimeLocator
     private let store: any KeyValueStore
     private let toolDiscovery: any RuntimeToolDiscovery
@@ -52,8 +55,10 @@ final class ProjectRuntimeService: ObservableObject {
     init(
         runtimeLocator: any RuntimeLocator,
         store: any KeyValueStore,
-        toolDiscovery: (any RuntimeToolDiscovery)? = nil
+        toolDiscovery: (any RuntimeToolDiscovery)? = nil,
+        javaSelector: any JavaRuntimeSelecting = RustCoreBridge()
     ) {
+        self.javaSelector = javaSelector
         self.runtimeLocator = runtimeLocator
         self.store = store
         self.toolDiscovery = toolDiscovery ?? DefaultRuntimeToolDiscovery()
@@ -64,6 +69,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func openProject(at url: URL) {
+        runtimeSessionID = UUID()
         discoveryTask?.cancel()
         activeDiscoveryID = nil
         let normalizedURL = url.standardizedFileURL
@@ -71,6 +77,7 @@ final class ProjectRuntimeService: ObservableObject {
         javaRuntimes = []
         mavenRuntimes = []
         discoveredProjectURL = nil
+        launchJavaRuntimes = nil
         settings = loadSettings(for: normalizedURL)
         javaEnvironmentReport = .checking(for: normalizedURL)
         javaLanguageServerRuntimePreparation = .unprepared
@@ -78,6 +85,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func closeProject() {
+        runtimeSessionID = UUID()
         discoveryTask?.cancel()
         discoveryTask = nil
         activeDiscoveryID = nil
@@ -85,6 +93,7 @@ final class ProjectRuntimeService: ObservableObject {
         javaRuntimes = []
         mavenRuntimes = []
         discoveredProjectURL = nil
+        launchJavaRuntimes = nil
         settings = ProjectRuntimeSettings()
         javaEnvironmentReport = nil
         isDiscovering = false
@@ -101,10 +110,13 @@ final class ProjectRuntimeService: ObservableObject {
     /// value stays "Detecting…" when Settings is entered past the project page.
     func ensureRuntimesDiscovered() async {
         guard projectURL != nil, !hasDiscoveredRuntimes, !isDiscovering else { return }
-        await refreshAvailableRuntimes()
+        await performRuntimeRefresh()
     }
 
     func refreshAvailableRuntimes() async {
+        runtimeSessionID = UUID()
+        runtimeLocator.invalidateProbeCache()
+        launchJavaRuntimes = nil
         discoveryTask?.cancel()
         discoveryTask = nil
         await performRuntimeRefresh()
@@ -137,13 +149,21 @@ final class ProjectRuntimeService: ObservableObject {
         isDiscovering = false
     }
 
+    private func javaRuntimesForLaunch() -> [JavaRuntimeCandidate] {
+        if hasDiscoveredRuntimes { return javaRuntimes }
+        if let launchJavaRuntimes { return launchJavaRuntimes }
+        let runtimes = runtimeLocator.discoverJavaRuntimes()
+        launchJavaRuntimes = runtimes
+        return runtimes
+    }
+
     func javaHomeURL(overridePath: String? = nil) -> URL? {
-        chooseJavaHome(overridePath: overridePath) { self.runtimeLocator.discover().javaRuntimes }?.url
+        chooseJavaHome(overridePath: overridePath) { self.javaRuntimesForLaunch() }?.url
     }
 
     /// The single JDK selection chain behind launches and Settings: an explicit
-    /// override, then the project JDK, then `JAVA_HOME`, then the first detected
-    /// JDK. An invalid explicit path does not fall back, so a launch fails on it.
+    /// override, then the project JDK, then Core's requirement-aware automatic
+    /// selection. An invalid explicit path does not fall back, so a launch fails on it.
     ///
     /// `detected` supplies discovered runtimes and is only called when the chain
     /// reaches detection; returning `nil` reports that detection is pending.
@@ -163,14 +183,44 @@ final class ProjectRuntimeService: ObservableObject {
             let path = normalizedOverridePath(configuredProjectJDK)
             return runtimeLocator.validJavaHome(path: path).map { RuntimeChoice.found($0, .projectSetting) } ?? .invalid(path)
         }
-        let paths = [runtimeLocator.environment()["JAVA_HOME"]]
-        for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
-            if let home = runtimeLocator.validJavaHome(path: path) { return .found(home, .javaHomeEnvironment) }
+        let environmentHome = runtimeLocator.environment()["JAVA_HOME"]
+            .flatMap { runtimeLocator.validJavaHome(path: normalizedPath($0)) }
+        if let environmentHome {
+            // With no project requirement, preserve the old no-probe JAVA_HOME
+            // fast path. Unknown versions never satisfy a real minimum, so only
+            // an unconstrained result may bypass discovery here.
+            let candidate = AutomaticJavaCandidate(id: environmentHome.path, version: "", priority: 0)
+            switch javaSelector.selectJavaRuntime(at: projectURL, candidates: [candidate], fallbackID: candidate.id) {
+            case .failure(let error): return .unavailable(error.message)
+            case .success(let selection) where selection.warning == nil:
+                return .found(environmentHome, .javaHomeEnvironment)
+            case .success: break
+            }
         }
+        // Settings supplies cached probes; pending discovery must not synchronously
+        // launch java -version or temporarily present an incompatible JAVA_HOME.
         guard let runtimes = detected() else { return nil }
-        return runtimes.first
-            .flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
-            .map { RuntimeChoice.found($0, .detected) } ?? .notFound
+        let pathHome = runtimeLocator.javaHomeOnPath(in: runtimes)
+        var candidates = runtimes.compactMap { runtime -> AutomaticJavaCandidate? in
+            guard let home = runtimeLocator.validJavaHome(path: runtime.homePath) else { return nil }
+            let priority: UInt32 = home.path == environmentHome?.path ? 0 : (home.path == pathHome?.path ? 1 : 2)
+            return AutomaticJavaCandidate(id: home.path, version: runtime.version, priority: priority)
+        }
+        // Preserve the old JAVA_HOME fallback even if its version probe failed.
+        // An unknown version cannot satisfy a requirement in the shared policy.
+        if let home = environmentHome, !candidates.contains(where: { $0.id == home.path }) {
+            candidates.append(AutomaticJavaCandidate(id: home.path, version: "", priority: 0))
+        }
+        let fallback = environmentHome?.path ?? candidates.first?.id
+        switch javaSelector.selectJavaRuntime(at: projectURL, candidates: candidates, fallbackID: fallback) {
+        case .failure(let error): return .unavailable(error.message)
+        case .success(let selection):
+            guard let id = selection.id else { return .notFound }
+            let url = URL(fileURLWithPath: id).standardizedFileURL
+            let source: RuntimeChoiceSource = url.path == environmentHome?.path ? .javaHomeEnvironment : .detected
+            if let warning = selection.warning { return .warning(url, source, warning) }
+            return .found(url, source)
+        }
     }
 
     func javaExecutableURL(overridePath: String? = nil) -> URL? {
@@ -246,7 +296,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func mavenJavaHomeURL(overridePath: String? = nil) -> URL? {
-        chooseMavenJavaHome(overridePath: overridePath) { self.runtimeLocator.discover().javaRuntimes }?.url
+        chooseMavenJavaHome(overridePath: overridePath) { self.javaRuntimesForLaunch() }?.url
     }
 
     /// Maven's JDK: an explicit override, then the configured Maven JDK, then
@@ -461,14 +511,77 @@ final class ProjectRuntimeService: ObservableObject {
         return mavenRuntimes.first { $0.executablePath == executable }
     }
 
+    func loadRunConfigurationToolchainCandidates(
+        for project: MavenProject?, projectRoot: URL? = nil,
+        javaHomeOverride: String? = nil, mavenExecutableOverride: String? = nil
+    ) async throws -> [ProjectToolchainCandidate] {
+        let sessionID = runtimeSessionID
+        let capturedSettings = settings
+        let locator = runtimeLocator
+        func checkCurrent() throws {
+            guard !Task.isCancelled, runtimeSessionID == sessionID, settings == capturedSettings else { throw CancellationError() }
+        }
+        try checkCurrent()
+        if chooseJavaHome(overridePath: javaHomeOverride, detected: {
+            self.hasDiscoveredRuntimes ? self.javaRuntimes : self.launchJavaRuntimes
+        }) == nil {
+            let runtimes = await Self.backgroundProbe { cancelled in
+                locator.discoverJavaRuntimes(isCancelled: cancelled)
+            }
+            try checkCurrent()
+            launchJavaRuntimes = runtimes
+        }
+        let javaHome = javaHomeURL(overridePath: javaHomeOverride)
+        let explicitMaven = projectRoot.flatMap { mavenExecutable(at: $0, overridePath: mavenExecutableOverride) }
+        let knownMaven = project.flatMap(activeMavenRuntime)
+        let fallbackMaven = projectRoot.flatMap { mavenExecutable(at: $0) }
+        let probed: (JavaRuntimeCandidate?, MavenRuntimeCandidate?) = await Self.backgroundProbe { cancelled in
+            guard !cancelled() else { return (nil, nil) }
+            let java = javaHome.flatMap(locator.javaRuntime(at:))
+            guard !cancelled() else { return (nil, nil) }
+            let maven = explicitMaven.flatMap(locator.mavenRuntime(at:)) ?? knownMaven
+            guard !cancelled() else { return (nil, nil) }
+            return (java, maven ?? fallbackMaven.flatMap(locator.mavenRuntime(at:)))
+        }
+        try checkCurrent()
+        return Self.toolchainCandidates(java: probed.0, maven: probed.1)
+    }
+
+    /// Blocking platform probes run on a worker queue, never a cooperative executor.
+    private static func backgroundProbe<Value: Sendable>(
+        _ operation: @escaping @Sendable (@Sendable () -> Bool) -> Value
+    ) async -> Value {
+        let cancellation = RuntimeProbeCancellation()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(returning: operation { cancellation.isCancelled })
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
+    }
+
     func runConfigurationToolchainCandidates(
         for project: MavenProject?,
         projectRoot: URL? = nil,
         javaHomeOverride: String? = nil,
         mavenExecutableOverride: String? = nil
     ) -> [ProjectToolchainCandidate] {
-        var result: [ProjectToolchainCandidate] = []
         let java = javaHomeURL(overridePath: javaHomeOverride).flatMap(runtimeLocator.javaRuntime(at:))
+        let maven = projectRoot.flatMap { root in
+            mavenExecutable(at: root, overridePath: mavenExecutableOverride)
+                .flatMap(runtimeLocator.mavenRuntime(at:))
+        } ?? project.flatMap(activeMavenRuntime)
+            ?? projectRoot.flatMap { root in
+                mavenExecutable(at: root).flatMap(runtimeLocator.mavenRuntime(at:))
+            }
+        return Self.toolchainCandidates(java: java, maven: maven)
+    }
+
+    private static func toolchainCandidates(java: JavaRuntimeCandidate?, maven: MavenRuntimeCandidate?) -> [ProjectToolchainCandidate] {
+        var result: [ProjectToolchainCandidate] = []
         if let java {
             result.append(ProjectToolchainCandidate(
                 id: "project-jdk",
@@ -477,13 +590,6 @@ final class ProjectRuntimeService: ObservableObject {
                 vendor: java.vendor
             ))
         }
-        let maven = projectRoot.flatMap { root in
-            mavenExecutable(at: root, overridePath: mavenExecutableOverride)
-                .flatMap(runtimeLocator.mavenRuntime(at:))
-        } ?? project.flatMap(activeMavenRuntime)
-            ?? projectRoot.flatMap { root in
-                mavenExecutable(at: root).flatMap(runtimeLocator.mavenRuntime(at:))
-            }
         if let maven {
             result.append(ProjectToolchainCandidate(
                 id: "project-maven",
@@ -616,4 +722,12 @@ final class ProjectRuntimeService: ObservableObject {
         ((path as NSString).expandingTildeInPath as NSString).standardizingPath
     }
 
+}
+
+/// Shared only with the owned blocking worker; cancellation stops later probes.
+private final class RuntimeProbeCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    func cancel() { lock.lock(); defer { lock.unlock() }; cancelled = true }
 }

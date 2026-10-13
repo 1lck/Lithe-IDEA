@@ -1,28 +1,26 @@
-const BUNDLED_ICON_THEME_ASSETS = import.meta.glob(
-  "../bundled/icon-themes/{idea,material,pierre,symbols}/**/*.svg",
-  {
-    eager: true,
-    import: "default",
-    query: "?url",
-  },
-) as Record<string, string>;
+type BundledIconThemeAssetMap = Record<string, string>;
 
-const BUNDLED_ICON_THEME_DIRECTORIES: Record<string, string> = {
-  "lithe.icon-theme.idea-icons": "idea",
-  "lithe.icon-theme.material": "material",
-  "lithe.icon-theme.pierre": "pierre",
-  "lithe.icon-theme.symbols": "symbols",
+const BUNDLED_ICON_THEME_LOADERS: Record<string, () => Promise<BundledIconThemeAssetMap>> = {
+  "lithe.icon-theme.idea-icons": () =>
+    import("./bundled-assets/idea").then((module) => module.assets),
+  "lithe.icon-theme.material": () =>
+    import("./bundled-assets/material").then((module) => module.assets),
+  "lithe.icon-theme.pierre": () =>
+    import("./bundled-assets/pierre").then((module) => module.assets),
+  "lithe.icon-theme.symbols": () =>
+    import("./bundled-assets/symbols").then((module) => module.assets),
 };
 
-export function resolveBundledIconThemeAsset(
+export async function loadBundledIconThemeAssets(
   extensionId: string,
+): Promise<BundledIconThemeAssetMap | undefined> {
+  return BUNDLED_ICON_THEME_LOADERS[extensionId]?.();
+}
+
+export function resolveBundledIconThemeAsset(
+  assets: BundledIconThemeAssetMap | undefined,
   relativePath: string,
 ): string | undefined {
-  const directory = BUNDLED_ICON_THEME_DIRECTORIES[extensionId];
-  if (!directory) {
-    return undefined;
-  }
-
   const normalizedPath = relativePath.replace(/\\/g, "/").replace(/^\.\//, "");
-  return BUNDLED_ICON_THEME_ASSETS[`../bundled/icon-themes/${directory}/${normalizedPath}`];
+  return assets?.[normalizedPath];
 }

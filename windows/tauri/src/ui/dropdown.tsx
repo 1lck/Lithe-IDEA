@@ -87,6 +87,8 @@ export interface MenuItem {
   separator?: boolean;
   keybinding?: ReactNode;
   className?: string;
+  /** Nested items turn the entry into a submenu opened on hover or click. */
+  children?: MenuItem[];
 }
 
 interface DropdownMenuState<T> {
@@ -133,6 +135,119 @@ interface MenuItemsListProps {
   showIcons?: boolean;
 }
 
+const MENU_SUBMENU_ESTIMATED_WIDTH = 240;
+
+interface MenuSubmenuItemProps {
+  item: MenuItem;
+  itemClassName?: string;
+  density: DropdownDensity;
+  showIcons: boolean;
+  focused: boolean;
+  onItemSelect?: () => void;
+  registerRef?: (element: HTMLButtonElement | null) => void;
+}
+
+function MenuSubmenuItem({
+  item,
+  itemClassName,
+  density,
+  showIcons,
+  focused,
+  onItemSelect,
+  registerRef,
+}: MenuSubmenuItemProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [position, setPosition] = useState({ left: 0, top: 0 });
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  const openSubmenu = useCallback(() => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+    const left =
+      rect.right + MENU_SUBMENU_ESTIMATED_WIDTH > viewportWidth - 8
+        ? Math.max(8, rect.left - MENU_SUBMENU_ESTIMATED_WIDTH)
+        : rect.right;
+    setPosition({ left, top: rect.top });
+    setIsOpen(true);
+  }, []);
+
+  const closeSubmenu = useCallback(() => setIsOpen(false), []);
+
+  return (
+    <>
+      <button
+        ref={(element) => {
+          triggerRef.current = element;
+          registerRef?.(element);
+        }}
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        disabled={item.disabled}
+        onMouseEnter={() => {
+          if (!item.disabled) openSubmenu();
+        }}
+        onFocus={() => {
+          if (!item.disabled) openSubmenu();
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (!item.disabled) openSubmenu();
+        }}
+        className={cn(
+          dropdownItemVariants({
+            density,
+            disabled: item.disabled,
+            focused,
+          }),
+          itemClassName,
+          item.className,
+        )}
+      >
+        {showIcons && item.icon && (
+          <span
+            className={cn(
+              "grid shrink-0 place-items-center [&>svg]:block",
+              density === "compact" ? "size-4 [&>svg]:size-4" : "size-4.5 [&>svg]:size-4.5",
+            )}
+          >
+            {item.icon}
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate whitespace-nowrap">{item.label}</span>
+        <CaretRightIcon
+          className={cn(
+            "shrink-0 text-subtle-foreground",
+            density === "compact" ? "size-3.5" : "size-4",
+          )}
+        />
+      </button>
+      <FloatingPopoverContent
+        isOpen={isOpen && !item.disabled}
+        contentRef={contentRef}
+        className="min-w-44"
+        style={{ left: position.left, top: position.top }}
+      >
+        <div role="menu">
+          <MenuItemsList
+            items={item.children ?? []}
+            density={density}
+            showIcons={showIcons}
+            onItemSelect={() => {
+              closeSubmenu();
+              onItemSelect?.();
+            }}
+          />
+        </div>
+      </FloatingPopoverContent>
+    </>
+  );
+}
+
 export function MenuItemsList({
   items,
   onItemSelect,
@@ -160,14 +275,34 @@ export function MenuItemsList({
         }
 
         selectableIdx++;
-        const isFocused = selectableIdx === focusIndex;
+        const index = selectableIdx;
+        const isFocused = index === focusIndex;
+
+        if (item.children && item.children.length > 0) {
+          return (
+            <MenuSubmenuItem
+              key={item.id}
+              item={item}
+              itemClassName={itemClassName}
+              density={density}
+              showIcons={showIcons}
+              focused={isFocused}
+              onItemSelect={onItemSelect}
+              registerRef={(element) => {
+                if (!item.disabled) {
+                  itemRefs.current[index] = element;
+                }
+              }}
+            />
+          );
+        }
 
         return (
           <button
             key={item.id}
             ref={(el) => {
               if (!item.disabled) {
-                itemRefs.current[selectableIdx] = el;
+                itemRefs.current[index] = el;
               }
             }}
             type="button"

@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import CoreServices
 import Foundation
+import SwiftUI
 import LitheApplicationKernel
 @testable import LitheDatabaseModule
 @testable import LitheGitModule
@@ -234,6 +235,81 @@ struct LitheCoreLogicTests {
         #expect(await window.waitUntilNativeCloseAllowed())
         #expect(sessions.resetForProjectWindowCloseCallCount == 1)
         #expect(sessions.requestCloseActiveSessionCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func settingsStayBoundToOpeningSessionUntilAnotherSessionReopensThem() async throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode,
+                        javaMavenOperations: NoProjectJavaOperations()
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-settings-primary"))
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-settings-dedicated"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        manager.bindSettings(to: primaryID)
+        let firstBindingID = manager.settingsBindingID
+        manager.noteWindowBecameKey(.dedicated(dedicatedWindowID))
+        #expect(manager.activeSessionID == dedicatedID)
+        #expect(manager.settingsModel?.id == primaryID)
+
+        let firstDraft = SettingsViewState(initialCategory: .plugins)
+        let secondDraft = SettingsViewState(initialCategory: .plugins)
+        let pluginID = OfficialPluginCatalog.phpPluginID
+        firstDraft.pendingPluginEnabledStates[pluginID] = true
+        let applied = await firstDraft.applyPluginChanges { _ in
+            await withCheckedContinuation { continuation in
+                manager.bindSettings(to: dedicatedID)
+                secondDraft.pendingPluginEnabledStates[pluginID] = false
+                continuation.resume(returning: [pluginID])
+            }
+        }
+        #expect(applied)
+        var didCloseSettings = false
+        manager.closeSettingsIfCurrent(for: primaryID, bindingID: firstBindingID) {
+            didCloseSettings = true
+        }
+        #expect(!didCloseSettings)
+        #expect(manager.settingsModel?.id == dedicatedID)
+        #expect(secondDraft.pendingPluginEnabledStates[pluginID] == false)
+
+        manager.releaseSettings(for: primaryID)
+        #expect(manager.settingsModel?.id == dedicatedID)
+        let secondBindingID = manager.settingsBindingID
+        manager.closeSettingsIfCurrent(for: dedicatedID, bindingID: secondBindingID) {
+            didCloseSettings = true
+        }
+        #expect(didCloseSettings)
+        didCloseSettings = false
+        manager.bindSettings(to: dedicatedID)
+        manager.closeSettingsIfCurrent(for: dedicatedID, bindingID: secondBindingID) {
+            didCloseSettings = true
+        }
+        #expect(!didCloseSettings)
+        manager.releaseSettings(for: dedicatedID)
+        #expect(manager.settingsModel == nil)
     }
 
     @Test
@@ -726,6 +802,7 @@ struct LitheCoreLogicTests {
 
         coordinator.attach(to: window, layout: .workspace)
         #expect(window.contentMinSize == LitheWindowLayout.workspace.minimumContentSize)
+        #expect(window.contentMinSize == .zero)
     }
 
     @Test
@@ -739,6 +816,73 @@ struct LitheCoreLogicTests {
 
         #expect(window.title == "Lithe-IDEA")
         #expect(window.titleVisibility == .hidden)
+    }
+
+    @Test
+    @MainActor
+    func workspaceTrafficLightsStayCenteredOnTheFortyPointToolbar() throws {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+
+        func buttonCenterFromTop() throws -> CGFloat {
+            let button = try #require(window.standardWindowButton(.closeButton))
+            let host = try #require(button.superview)
+            return host.bounds.maxY - button.frame.midY
+        }
+
+        coordinator.attach(to: window, layout: .workspace, title: "Project")
+        #expect(try abs(buttonCenterFromTop() - LitheTheme.Metrics.toolbarHeight / 2) < 0.5)
+
+        window.setContentSize(NSSize(width: 1000, height: 700))
+        #expect(try abs(buttonCenterFromTop() - LitheTheme.Metrics.toolbarHeight / 2) < 0.5)
+
+        coordinator.attach(to: window, layout: .welcome)
+        let nativeTitlebarHeight = try #require(window.standardWindowButton(.closeButton)?.superview?.bounds.height)
+        #expect(try abs(buttonCenterFromTop() - nativeTitlebarHeight / 2) < 0.5)
+    }
+
+    @Test
+    @MainActor
+    func generatedProjectToolbarColorUsesIDEABlendStrength() throws {
+        let appearance = ProjectIdentityAppearance(colorIndex: 3, isDark: true)
+        let lightAppearance = ProjectIdentityAppearance(colorIndex: 3, isDark: false)
+        let darkBase = Color(nsColor: LitheTheme.nsColor(.titlebar, theme: .lithe, isDark: true))
+        let lightBase = Color(nsColor: LitheTheme.nsColor(.titlebar, theme: .lithe, isDark: false))
+        let darkCorner = try #require(NSColor(ProjectIdentityAppearance.blend(darkBase, with: appearance.toolbarColor, fraction: 0)).usingColorSpace(.sRGB))
+        let lightCorner = try #require(NSColor(ProjectIdentityAppearance.blend(lightBase, with: appearance.toolbarColor, fraction: 0)).usingColorSpace(.sRGB))
+        #expect(darkCorner.redComponent < 0.2)
+        #expect(lightCorner.redComponent > 0.9)
+        let avatar = try #require(NSColor(appearance.avatarStart).usingColorSpace(.sRGB))
+        #expect(abs(avatar.redComponent - (0x3B / 255.0)) < 0.001)
+        #expect(abs(avatar.greenComponent - (0x92 / 255.0)) < 0.001)
+        #expect(abs(avatar.blueComponent - (0xB8 / 255.0)) < 0.001)
+        let lightAvatar = try #require(NSColor(lightAppearance.avatarStart).usingColorSpace(.sRGB))
+        #expect(abs(avatar.redComponent - lightAvatar.redComponent) < 0.001)
+        #expect(abs(avatar.greenComponent - lightAvatar.greenComponent) < 0.001)
+        #expect(abs(avatar.blueComponent - lightAvatar.blueComponent) < 0.001)
+        let color = try #require(NSColor(appearance.toolbarGlow(over: .black)).usingColorSpace(.sRGB))
+        #expect(abs(color.redComponent - (0x33 / 255.0 * 0.85)) < 0.001)
+        #expect(abs(color.greenComponent - (0x56 / 255.0 * 0.85)) < 0.001)
+        #expect(abs(color.blueComponent - (0x61 / 255.0 * 0.85)) < 0.001)
+    }
+
+    @Test
+    func projectAvatarColorsStayStableBeyondPaletteSize() {
+        let project = URL(fileURLWithPath: "/projects/alpha")
+        let equivalentProject = URL(fileURLWithPath: "/projects/tmp/../alpha")
+        #expect(ProjectIdentityAppearance.colorIndex(for: project) == ProjectIdentityAppearance.colorIndex(for: equivalentProject))
+
+        let colors = (0..<20).map {
+            ProjectIdentityAppearance.colorIndex(for: URL(fileURLWithPath: "/projects/project-\($0)"))
+        }
+        #expect(Set(colors.suffix(11)).count > 1)
+        #expect(ProjectIdentityAppearance.initials(for: "Lithe-IDEA") == "LI")
     }
 
     @Test
@@ -2447,7 +2591,7 @@ struct LitheCoreLogicTests {
 
         let expectedText = CGFloat(400) * DiffLayoutMetrics.characterWidth
         let expected = (DiffLayoutMetrics.paneChromeWidth + expectedText) * 2
-            + DiffLayoutMetrics.centerGutterWidth
+            + DiffLayoutMetrics.lineNumberGutterWidth(rows: rows) * 2 + DiffLayoutMetrics.dividerWidth
         #expect(abs(width - expected) < 0.5)
 
         // Short content still fills the viewport rather than collapsing.
@@ -2493,14 +2637,14 @@ struct LitheCoreLogicTests {
 
         // The old side advances directly from `before` to `after`; it does not
         // receive three synthetic blank rows to match the new side.
-        #expect(insertion.leftItems.map(\.top) == [0, 24])
-        #expect(insertion.rightItems.map(\.top) == [0, 24, 48, 72, 96])
-        #expect(insertion.leftHeight == 48)
-        #expect(insertion.rightHeight == 120)
+        #expect(insertion.leftItems.map(\.top) == [0, 22])
+        #expect(insertion.rightItems.map(\.top) == [0, 22, 44, 66, 88])
+        #expect(insertion.leftHeight == 44)
+        #expect(insertion.rightHeight == 110)
         #expect(insertion.transitions.count == 1)
         #expect(insertion.transitions[0].isAddition)
-        #expect(insertion.transitions[0].leftRange == 24...24)
-        #expect(insertion.transitions[0].rightRange == 24...96)
+        #expect(insertion.transitions[0].leftRange == 22...22)
+        #expect(insertion.transitions[0].rightRange == 22...88)
 
         let removalRows = insertionRows.map { row in
             switch row.kind {
@@ -2524,12 +2668,12 @@ struct LitheCoreLogicTests {
             kinds: removalRows.map(\.kind)
         )
 
-        #expect(removal.leftItems.map(\.top) == [0, 24, 48, 72, 96])
-        #expect(removal.rightItems.map(\.top) == [0, 24])
+        #expect(removal.leftItems.map(\.top) == [0, 22, 44, 66, 88])
+        #expect(removal.rightItems.map(\.top) == [0, 22])
         #expect(removal.transitions.count == 1)
         #expect(removal.transitions[0].isRemoval)
-        #expect(removal.transitions[0].leftRange == 24...96)
-        #expect(removal.transitions[0].rightRange == 24...24)
+        #expect(removal.transitions[0].leftRange == 22...88)
+        #expect(removal.transitions[0].rightRange == 22...22)
     }
 
     @Test
@@ -2668,45 +2812,6 @@ struct LitheCoreLogicTests {
         // Reindentation alone is a perfect match; empty against text is none.
         #expect(DiffPairing.similarity("    return value", "\t\treturn value") == 1)
         #expect(DiffPairing.similarity("abc", "") == 0)
-    }
-
-    @Test
-    @MainActor
-    func diffMapGroupsAdjacentChangesAndKeepsSingleLinesVisible() {
-        var rows: [DiffRow] = []
-        func append(_ kind: DiffRowKind, count: Int) {
-            for _ in 0..<count {
-                rows.append(
-                    DiffRow(
-                        oldLine: rows.count + 1,
-                        newLine: rows.count + 1,
-                        left: "l",
-                        right: "r",
-                        kind: kind,
-                        sequence: rows.count
-                    )
-                )
-            }
-        }
-
-        append(.context, count: 40)
-        append(.addition, count: 3)
-        append(.context, count: 50)
-        append(.removal, count: 1)
-        append(.context, count: 6)
-
-        let markers = DiffMapView(rows: rows) { _ in }.markers
-
-        // A three-line run is one band, not three ticks.
-        #expect(markers.count == 2)
-        #expect(markers.map(\.kind) == [.addition, .removal])
-        #expect(abs(markers[0].start - 40.0 / 100.0) < 0.001)
-        #expect(abs(markers[0].extent - 3.0 / 100.0) < 0.001)
-
-        // A single removal is floored so it stays clickable rather than
-        // collapsing to a sub-pixel sliver.
-        #expect(markers[1].extent >= DiffMapView.minimumExtent)
-        #expect(markers[1].id == rows[93].id)
     }
 
     @Test
@@ -3668,12 +3773,13 @@ struct EditorDocumentTests {
             .appendingPathComponent("lithe-editor-document-\(UUID().uuidString).txt")
         defer { try? FileManager.default.removeItem(at: url) }
 
+        try Data("before".utf8).write(to: url)
         let document = EditorDocument(url: url, text: "before", modificationDate: nil)
         #expect(!document.isDirty)
 
         document.text = "after"
         #expect(document.isDirty)
-        try document.save()
+        try document.save(using: MacWorkspaceFileOperations())
 
         #expect(!document.isDirty)
         #expect(try String(contentsOf: url, encoding: .utf8) == "after")
@@ -3784,7 +3890,7 @@ struct EditorDocumentTests {
         )
 
         #expect(throws: EditorDocument.DocumentError.self) {
-            try document.save()
+            try document.save(using: MacWorkspaceFileOperations())
         }
     }
 
@@ -4225,6 +4331,313 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func batchMoveRejectsConflictsBeforeMovingAnyFile() async {
+        let workspace = URL(fileURLWithPath: "/batch-move")
+        let target = workspace.appendingPathComponent("dest")
+        let first = workspace.appendingPathComponent("a.txt")
+        let second = workspace.appendingPathComponent("b.txt")
+        let files = RecordingBatchProjectFileOperations(
+            files: [first, second, target.appendingPathComponent("b.txt")], directories: [workspace, target]
+        )
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: files, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        await model.moveProjectItems([first, second], to: target)
+        #expect(files.movedSources.isEmpty)
+        #expect(files.fileExists(at: first) && files.fileExists(at: second))
+        #expect(!model.isPerformingProjectItemOperation)
+    }
+
+    @Test
+    @MainActor
+    func batchMoveKeepsCompletedItemsAndReportsTheUnprocessedRemainder() async {
+        let workspace = URL(fileURLWithPath: "/batch-move")
+        let target = workspace.appendingPathComponent("dest")
+        let urls = ["a.txt", "b.txt", "c.txt"].map { workspace.appendingPathComponent($0) }
+        let files = RecordingBatchProjectFileOperations(
+            files: urls, directories: [workspace, target], failingMoveURLs: [urls[1]]
+        )
+        let recorder = WorkspaceCallbackRecorder()
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: files, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}, notify: { recorder.messages.append($0) }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        await model.moveProjectItems(urls, to: target)
+        #expect(files.movedSources == [urls[0]])
+        #expect(!files.fileExists(at: urls[0]))
+        #expect(files.fileExists(at: target.appendingPathComponent("a.txt")))
+        #expect(files.fileExists(at: urls[1]) && files.fileExists(at: urls[2]))
+        #expect(recorder.messages.contains { $0.hasPrefix("Moved 1 of 3 items. Remaining items were not moved:") })
+    }
+
+    @Test
+    @MainActor
+    func batchMoveStopsAfterWorkspaceSwitchAndReleasesTheOldOperation() async {
+        let workspace = URL(fileURLWithPath: "/batch-move")
+        let target = workspace.appendingPathComponent("dest")
+        let first = workspace.appendingPathComponent("a.txt")
+        let second = workspace.appendingPathComponent("b.txt")
+        let files = RecordingBatchProjectFileOperations(
+            files: [first, second], directories: [workspace, target], pausesFirstMove: true
+        )
+        defer { files.releaseFirstMove() }
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: files, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let move = Task { await model.moveProjectItems([first, second], to: target) }
+        #expect(await files.waitUntilFirstMoveStarted())
+        #expect(model.isPerformingProjectItemOperation)
+        await model.pasteProjectItems([second], in: target)
+        #expect(files.copiedDestinations.isEmpty)
+        model.beginWorkspace(at: URL(fileURLWithPath: "/another-project"), visibilityRules: .default)
+        files.releaseFirstMove()
+        await move.value
+        #expect(files.movedSources == [first])
+        #expect(files.fileExists(at: second))
+        #expect(!model.isPerformingProjectItemOperation)
+    }
+
+    @Test
+    @MainActor
+    func batchMoveRechecksUnsavedEditsAfterHistorySuspends() async {
+        let workspace = URL(fileURLWithPath: "/batch-move")
+        let target = workspace.appendingPathComponent("dest")
+        let source = workspace.appendingPathComponent("a.txt")
+        let document = EditorDocument(url: source, text: "saved", modificationDate: nil)
+        let files = RecordingBatchProjectFileOperations(files: [source], directories: [workspace, target])
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: files, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {},
+            recordHistory: { _, _ in document.text = "edited while recording history" },
+            documentsProvider: { [document] }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        await model.moveProjectItems([source], to: target)
+        #expect(files.movedSources.isEmpty)
+        #expect(document.isDirty && files.fileExists(at: source))
+    }
+
+    @Test
+    @MainActor
+    func batchPasteKeepsExistingFilesAndAllocatesDistinctNames() async {
+        let workspace = URL(fileURLWithPath: "/batch-copy")
+        let destination = workspace.appendingPathComponent("target")
+        let first = workspace.appendingPathComponent("first/a.txt")
+        let second = workspace.appendingPathComponent("second/a.txt")
+        let operations = RecordingBatchProjectFileOperations(
+            files: [first, second, destination.appendingPathComponent("a.txt"), destination.appendingPathComponent("a copy.txt")],
+            directories: [workspace, destination]
+        )
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        await model.pasteProjectItems([second, first, first], in: destination)
+        #expect(operations.copiedDestinations == [destination.appendingPathComponent("a copy 2.txt"), destination.appendingPathComponent("a copy 3.txt")])
+        #expect(operations.fileExists(at: destination.appendingPathComponent("a.txt")))
+    }
+
+    @Test
+    @MainActor
+    func batchPasteRejectsCopyingDirectoryIntoItsDescendant() async {
+        let workspace = URL(fileURLWithPath: "/batch-copy")
+        let folder = workspace.appendingPathComponent("folder")
+        let destination = folder.appendingPathComponent("child")
+        let operations = RecordingBatchProjectFileOperations(files: [], directories: [workspace, folder, destination])
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        await model.pasteProjectItems([folder], in: destination)
+        #expect(operations.copiedDestinations.isEmpty)
+    }
+
+    @Test
+    @MainActor
+    func batchTrashDeduplicatesParentsAndSupportsCancellingConfirmation() async throws {
+        let workspace = URL(fileURLWithPath: "/batch-trash")
+        let folder = workspace.appendingPathComponent("folder")
+        let child = folder.appendingPathComponent("child.txt")
+        let file = workspace.appendingPathComponent("a.txt")
+        let operations = RecordingBatchProjectFileOperations(files: [child, file], directories: [workspace, folder])
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.requestDeleteProjectItems([folder, child, file, workspace, URL(fileURLWithPath: "/outside")])
+        let request = try #require(model.pendingProjectItemDeletion)
+        #expect(Set(([request] + request.additionalItems).map(\.url)) == [folder, file])
+        model.cancelProjectItemDeletion()
+        #expect(model.pendingProjectItemDeletion == nil)
+        #expect(operations.trashedURLs.isEmpty)
+        await model.confirmProjectItemDeletion(request)
+        #expect(Set(operations.trashedURLs) == [folder, file])
+    }
+
+    @Test
+    @MainActor
+    func batchFileOperationsHoldTheOperationUntilTheWholeBatchFinishes() async throws {
+        let workspace = URL(fileURLWithPath: "/batch-ownership")
+        let first = workspace.appendingPathComponent("a/x.txt")
+        let second = workspace.appendingPathComponent("b/y.txt")
+        let other = workspace.appendingPathComponent("z.txt")
+        let operations = RecordingBatchProjectFileOperations(
+            files: [first, second, other],
+            // Duplicate targets each source's parent URL as returned by Foundation.
+            directories: [workspace, first.deletingLastPathComponent(), second.deletingLastPathComponent()],
+            pausesFirstCopy: true
+        )
+        defer { operations.releaseFirstCopy() }
+        let scans = BatchProgressScanOperations(files: operations)
+        let model = makeWorkspaceObservationUnitModel(
+            operations: scans, fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+
+        let duplicate = Task { await model.duplicateProjectItems([first, second]) }
+        #expect(await operations.waitUntilFirstCopyStarted())
+        // Another file operation cannot start in the middle of the batch.
+        #expect(model.isPerformingProjectItemOperation)
+        await model.pasteProjectItems([other], in: second.deletingLastPathComponent())
+        operations.releaseFirstCopy()
+        await duplicate.value
+        #expect(operations.copiedDestinations == [
+            workspace.appendingPathComponent("a/x copy.txt"), workspace.appendingPathComponent("b/y copy.txt")
+        ])
+        #expect(!model.isPerformingProjectItemOperation)
+
+        // Trash moves both items before the single refresh, too.
+        model.requestDeleteProjectItems([first, second])
+        await model.confirmProjectItemDeletion(try #require(model.pendingProjectItemDeletion))
+        #expect(Set(operations.trashedURLs) == [first, second])
+        // Each batch rescans once, after its last item instead of between items.
+        #expect(scans.progressAtScans == [[2, 0], [2, 2]])
+    }
+
+    @Test
+    @MainActor
+    func batchTrashKeepsLaterItemEditedWhileEarlierItemIsTrashed() async throws {
+        let workspace = URL(fileURLWithPath: "/batch-trash-dirty")
+        let folder = workspace.appendingPathComponent("a-folder")
+        let child = folder.appendingPathComponent("child.txt")
+        let edited = workspace.appendingPathComponent("b.txt")
+        let operations = RecordingBatchProjectFileOperations(
+            files: [child, edited], directories: [workspace, folder], pausesFirstTrash: true
+        )
+        defer { operations.releaseFirstTrash() }
+        let childDocument = EditorDocument(url: child, text: "child", modificationDate: nil)
+        let editedDocument = EditorDocument(url: edited, text: "saved", modificationDate: nil)
+        let recorder = WorkspaceCallbackRecorder()
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {},
+            documentsProvider: { [childDocument, editedDocument] },
+            notify: { recorder.messages.append($0) },
+            closeDocuments: { recorder.closedURLs.append($0) }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.requestDeleteProjectItems([edited, folder])
+        let request = try #require(model.pendingProjectItemDeletion)
+
+        // Order: the folder's Trash call starts, b.txt becomes dirty in the
+        // editor, then the folder finishes and the batch reaches b.txt.
+        let deletion = Task { await model.confirmProjectItemDeletion(request) }
+        #expect(await operations.waitUntilFirstTrashStarted())
+        editedDocument.text = "unsaved edit"
+        operations.releaseFirstTrash()
+        await deletion.value
+
+        #expect(operations.trashedURLs == [folder])
+        #expect(operations.fileExists(at: edited))
+        #expect(recorder.closedURLs == [folder])
+        #expect(editedDocument.text == "unsaved edit")
+        // b.txt is the last item, so only the unsaved-file reason is reported.
+        #expect(recorder.messages.last == "Save or discard unsaved files before deleting this item")
+    }
+
+    @Test
+    @MainActor
+    func trashKeepsDocumentEditedWhileItsTrashOperationRuns() async throws {
+        let workspace = URL(fileURLWithPath: "/trash-edit-race")
+        let folder = workspace.appendingPathComponent("folder")
+        let clean = folder.appendingPathComponent("clean.txt")
+        let edited = folder.appendingPathComponent("edited.txt")
+        let operations = RecordingBatchProjectFileOperations(
+            files: [clean, edited], directories: [workspace, folder], pausesFirstTrash: true
+        )
+        defer { operations.releaseFirstTrash() }
+        let cleanDocument = EditorDocument(url: clean, text: "clean", modificationDate: nil)
+        let editedDocument = EditorDocument(url: edited, text: "saved", modificationDate: nil)
+        let recorder = WorkspaceCallbackRecorder()
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {},
+            documentsProvider: { [cleanDocument, editedDocument] },
+            closeDocuments: { recorder.closedURLs.append($0) }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.requestDeleteProjectItem(at: folder, isDirectory: true)
+        let request = try #require(model.pendingProjectItemDeletion)
+
+        let deletion = Task { await model.confirmProjectItemDeletion(request) }
+        #expect(await operations.waitUntilFirstTrashStarted())
+        editedDocument.text = "unsaved edit"
+        operations.releaseFirstTrash()
+        await deletion.value
+
+        // The edit exists only in memory now, so its tab must stay open.
+        #expect(operations.trashedURLs == [folder])
+        #expect(recorder.closedURLs == [clean])
+    }
+
+    @Test
+    @MainActor
+    func batchTrashReportsSkippedItemsAfterFailure() async throws {
+        let workspace = URL(fileURLWithPath: "/batch-trash-failure")
+        let first = workspace.appendingPathComponent("a.txt")
+        let blocked = workspace.appendingPathComponent("b.txt")
+        let last = workspace.appendingPathComponent("c.txt")
+        let operations = RecordingBatchProjectFileOperations(
+            files: [first, blocked, last], directories: [workspace], failingTrashURLs: [blocked]
+        )
+        let recorder = WorkspaceCallbackRecorder()
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {},
+            notify: { recorder.messages.append($0) }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.requestDeleteProjectItems([last, blocked, first])
+        let request = try #require(model.pendingProjectItemDeletion)
+        await model.confirmProjectItemDeletion(request)
+
+        #expect(operations.trashedURLs == [first])
+        #expect(operations.fileExists(at: last))
+        #expect(recorder.messages.last == "Stopped moving the remaining items to Trash")
+    }
+
+    @Test
+    @MainActor
     func deletingDirectoryRemovesItsMarkAndDescendantMarks() async throws {
         let workspace = URL(fileURLWithPath: "/tmp/directory-mark-delete")
         let target = workspace.appendingPathComponent("generated", isDirectory: true)
@@ -4617,7 +5030,7 @@ struct EditorDocumentTests {
     }
 
     @Test
-    func hidingLSPGeneratedArtifactsIsOptInAndLeavesFilesOnDisk() throws {
+    func hiddenFilePatternsAreOptInAndLeaveFilesOnDisk() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
             .appendingPathComponent("lithe-factorypath-search-\(UUID().uuidString)")
@@ -4650,7 +5063,7 @@ struct EditorDocumentTests {
 
         let hiddenRules = FileVisibilityRules(
             hiddenDirectoryNames: [],
-            hiddenFilePatterns: LSPGeneratedArtifactVisibility.inserting(into: [])
+            hiddenFilePatterns: [".factorypath"]
         )
         let hiddenSnapshot = try #require(
             FileSystemWorkspaceSnapshotBuilder().snapshot(
@@ -5633,6 +6046,42 @@ struct EditorDocumentTests {
         #expect(operations.readACount == (readFails || discarded ? 2 : 1))
     }
 
+    @Test
+    @MainActor
+    func externalBinaryReplacementInvalidatesOpenTabIcon() async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let file = workspace.appendingPathComponent(".swift-version")
+        try Data("6.3.3\n".utf8).write(to: file)
+        let storage = MacFileStorage()
+        let model = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "6.3.3\n"),
+            documentLifecycleDecider: PreviewExternalChangeLifecycleDecider(),
+            fileOperations: MacWorkspaceFileOperations(), fileStorage: storage,
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        defer { model.reset() }
+        model.configure(
+            workspaceURLProvider: { workspace }, autoSaveEnabledProvider: { false }, autoSaveDelayProvider: { 0 },
+            notify: { _ in }, onDocumentOpened: { _ in }, onDocumentChanged: { _ in }, onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in }, onRecordDiscard: { _ in }, onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {}, onProjectCloseReady: {}
+        )
+        await model.openFileAsync(file, isReadOnly: false, displayPath: nil, activateWhenReady: true)
+        let document = try #require(model.activeDocument)
+        let initialRevision = document.iconContentRevision
+        let initialIcon = await WorkspaceFileIconResolver.resolve(for: file, suggested: .generic, storage: storage)
+        #expect(initialIcon.kind == .plainText)
+
+        try Data([0, 0xFF, 0]).write(to: file)
+        await model.reconcileExternalChanges([file])
+
+        let currentIcon = await WorkspaceFileIconResolver.resolve(for: file, suggested: .generic, storage: storage)
+        #expect(document.iconContentRevision > initialRevision)
+        #expect(currentIcon.kind == .binary)
+    }
+
     @Test(arguments: ["watcher", "remoteWatcher", "reopen", "promotion", "save"])
     @MainActor
     func previewExternalChangesNeverSilentlyOverwriteDisk(trigger: String) async throws {
@@ -5982,7 +6431,10 @@ private func makeWorkspaceObservationUnitModel(
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
     recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
     directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
-    observationDelay: (@Sendable (Duration) async throws -> Void)? = nil
+    observationDelay: (@Sendable (Duration) async throws -> Void)? = nil,
+    documentsProvider: @escaping @MainActor @Sendable () -> [EditorDocument] = { [] },
+    notify: @escaping @MainActor @Sendable (String) -> Void = { _ in },
+    closeDocuments: @escaping @MainActor @Sendable (URL) -> Void = { _ in }
 ) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: operations,
@@ -5995,17 +6447,17 @@ private func makeWorkspaceObservationUnitModel(
         observationDelay: observationDelay
     )
     model.configure(
-        documentsProvider: { [] },
+        documentsProvider: documentsProvider,
         activeDocumentProvider: { nil },
         selectedSidebarProvider: { "project" },
         setSelectedSidebar: { _ in },
         restoreSession: { _, _ in },
         openFile: { _ in },
-        notify: { _ in },
+        notify: notify,
         recordHistory: recordHistory,
         relocateHistory: { _, _ in },
         relocateOpenDocuments: { _, _ in },
-        closeDocuments: { _ in },
+        closeDocuments: closeDocuments,
         processExternalChanges: processExternalChanges,
         notifyWorkspaceFileChanges: notifyWorkspaceFileChanges,
         reloadProjectServices: reloadProjectServices,
@@ -7184,4 +7636,125 @@ private struct PreviewExternalChangeLifecycleDecider: DocumentLifecycleDeciding 
             throw CocoaError(.featureUnsupported)
         }
     }
+}
+
+/// Records how many copies and Trash moves had finished each time the tree
+/// was rescanned, to show when a batch refreshes the project tree.
+private final class BatchProgressScanOperations: WorkspaceOperations, @unchecked Sendable {
+    private let files: RecordingBatchProjectFileOperations
+    private let lock = NSLock()
+    private var progress: [[Int]] = []
+
+    init(files: RecordingBatchProjectFileOperations) { self.files = files }
+
+    var progressAtScans: [[Int]] { lock.withLock { progress } }
+
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
+        let current = [files.copiedDestinations.count, files.trashedURLs.count]
+        lock.withLock { progress.append(current) }
+        return nil
+    }
+    func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {}
+    func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: FileVisibilityRules) {}
+    func invalidateSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {}
+    func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
+/// Records workspace callbacks, which always run on the main actor.
+@MainActor
+private final class WorkspaceCallbackRecorder {
+    var messages: [String] = []
+    var closedURLs: [URL] = []
+}
+
+/// Mutable fake filesystem state is shared only under the lock.
+private final class RecordingBatchProjectFileOperations: WorkspaceFileOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private var files: Set<URL>
+    private let directories: Set<URL>
+    private var copies: [URL] = []
+    private var trash: [URL] = []
+    private let firstTrashStarted = TestGate()
+    private let firstTrashRelease: TestGate?
+    private let firstCopyStarted = TestGate()
+    private let firstCopyRelease: TestGate?
+    private let failingTrashURLs: Set<URL>
+    private var moves: [URL] = []
+    private let firstMoveStarted = TestGate()
+    private let firstMoveRelease: TestGate?
+    private let failingMoveURLs: Set<URL>
+
+    /// `pausesFirstTrash` / `pausesFirstCopy` hold the first such call on the
+    /// production worker thread until released so a test can act mid-batch.
+    init(
+        files: [URL], directories: [URL], pausesFirstTrash: Bool = false, pausesFirstCopy: Bool = false,
+        failingTrashURLs: Set<URL> = [], pausesFirstMove: Bool = false, failingMoveURLs: Set<URL> = []
+    ) {
+        self.files = Set(files)
+        self.directories = Set(directories)
+        firstTrashRelease = pausesFirstTrash ? TestGate() : nil
+        firstCopyRelease = pausesFirstCopy ? TestGate() : nil
+        self.failingTrashURLs = failingTrashURLs
+        firstMoveRelease = pausesFirstMove ? TestGate() : nil
+        self.failingMoveURLs = failingMoveURLs
+    }
+
+    func waitUntilFirstTrashStarted() async -> Bool { await firstTrashStarted.waitUntilOpen() }
+    func releaseFirstTrash() { firstTrashRelease?.open() }
+    func waitUntilFirstCopyStarted() async -> Bool { await firstCopyStarted.waitUntilOpen() }
+    func releaseFirstCopy() { firstCopyRelease?.open() }
+
+    func waitUntilFirstMoveStarted() async -> Bool { await firstMoveStarted.waitUntilOpen() }
+    func releaseFirstMove() { firstMoveRelease?.open() }
+    var movedSources: [URL] { lock.withLock { moves } }
+
+    var copiedDestinations: [URL] { lock.withLock { copies } }
+    var trashedURLs: [URL] { lock.withLock { trash } }
+    func fileExists(at url: URL) -> Bool {
+        lock.withLock { (files.contains(url) || directories.contains(url)) && !trash.contains(url) }
+    }
+    func isDirectory(at url: URL) -> Bool { directories.contains(url) }
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {
+        if !firstCopyStarted.isOpen {
+            firstCopyStarted.open()
+            if let firstCopyRelease, !firstCopyRelease.waitSynchronously() { throw CocoaError(.userCancelled) }
+        }
+        try lock.withLock {
+            guard !files.contains(destinationURL), !directories.contains(destinationURL) else { throw CocoaError(.fileWriteFileExists) }
+            guard files.contains(sourceURL) || directories.contains(sourceURL) else { throw CocoaError(.fileReadNoSuchFile) }
+            files.insert(destinationURL)
+            copies.append(destinationURL)
+        }
+    }
+    func trashItem(at url: URL) throws {
+        if !firstTrashStarted.isOpen {
+            firstTrashStarted.open()
+            if let firstTrashRelease, !firstTrashRelease.waitSynchronously() { throw CocoaError(.userCancelled) }
+        }
+        if failingTrashURLs.contains(url) { throw CocoaError(.fileWriteNoPermission) }
+        lock.withLock {
+            files = files.filter { $0 != url && !$0.path.hasPrefix(url.path + "/") }
+            trash.append(url)
+        }
+    }
+    func createFile(at url: URL) throws {}
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        if !firstMoveStarted.isOpen {
+            firstMoveStarted.open()
+            if let firstMoveRelease, !firstMoveRelease.waitSynchronously() { throw CocoaError(.userCancelled) }
+        }
+        if failingMoveURLs.contains(sourceURL) { throw CocoaError(.fileWriteNoPermission) }
+        try lock.withLock {
+            guard files.contains(sourceURL) else { throw CocoaError(.fileReadNoSuchFile) }
+            guard !files.contains(destinationURL) else { throw CocoaError(.fileWriteFileExists) }
+            files.remove(sourceURL)
+            files.insert(destinationURL)
+            moves.append(sourceURL)
+        }
+    }
+    func removeItem(at url: URL) throws {}
+    func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { "" }
 }

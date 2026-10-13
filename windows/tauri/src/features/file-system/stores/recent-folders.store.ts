@@ -138,7 +138,9 @@ const useRecentFoldersStoreBase = create<RecentFoldersStore>()(
                   return true;
                 }
 
-                const opened = await handleOpenFolderByPath(folderPath);
+                const opened = await handleOpenFolderByPath(folderPath, {
+                  mode: destination === "this-window" ? "replace-active" : "attach",
+                });
                 if (opened) {
                   get().actions.addToRecents(folderPath, {
                     missing: false,

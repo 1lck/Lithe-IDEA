@@ -1,0 +1,23 @@
+{
+  "id": "remote-workspace",
+  "area": "工作区",
+  "group": "远程开发",
+  "capability": "远程连接与远程路径工作区",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Services"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/remote",
+      "windows/tauri/src/features/file-system"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Remote",
+  "verification": "Windows 验证连接、密码提示、远程路径、断线和重连；macOS 需要补充产品入口或明确不支持。"
+}
