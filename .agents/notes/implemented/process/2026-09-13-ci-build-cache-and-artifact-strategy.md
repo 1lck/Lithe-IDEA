@@ -105,6 +105,25 @@ CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓�
 版本、构建参数、依赖 manifest 和 build script。最终打包仍然重新运行必要的
 构建步骤，确保产物来自当前验证过的源代码。
 
+Cargo 编译缓存只在准备阶段恢复，保存由
+`.github/actions/save-macos-cargo-build-cache` 以 `if: always()` 单独执行。
+`actions/cache` 的 post 步骤在失败或取消时会被跳过：2026-10-13 一次依赖改动
+让 universal 精确键失效，旧 universal 条目又因仓库缓存超过 10 GB 被淘汰，
+冷构建约 45 分钟，超过 40 分钟上限被取消后什么也没保存，随后每次 preview
+推送都从冷启动开始并继续超时。现在的做法：
+
+- 成功的 job 保存精确键；失败、超时或被新推送取消的 job 保存
+  `<精确键>-partial-<run_id>-<attempt>`，下一次通过精确键的前缀匹配续用，
+  精确键留给第一次完整成功的构建。Cargo 只在单元编译成功后写 fingerprint，
+  被中断的产物会重新编译，不会被当作有效结果。
+- universal 构建找不到 universal 条目时回退到同一工具链身份的 arm64、
+  x86_64 单架构条目（来自 preview 发布工作流），至少复用一半 Rust 编译和
+  宿主侧 build script。单架构构建不回退到另一架构的条目，那份目标产物用不上。
+- PR 只恢复不保存：PR ref 作用域的条目 preview 读不到，却每个约 565 MB，
+  会把 preview 自己的条目挤出配额。
+- macOS CI 的 release-build 超时为 60 分钟，覆盖冷 universal 构建，不需要
+  拆成两个并行 job，也就不多占 macOS runner。
+
 每个安装包同时提供 SHA-256 校验和。artifact 默认保留 14 天；DMG 和 NSIS
 本身已经压缩，因此包裹 artifact 使用压缩级别 0。macOS CI 使用临时 ad-hoc
 签名；Windows preview 与稳定版发布工作流分别执行各自的签名策略。
@@ -147,6 +166,18 @@ Job Object（Windows 用于管理整棵子进程树的对象），设置最后�
 
 可以减少部分打包时间，但容易受到源码、编译器、SDK 和构建参数变化影响，
 也会掩盖当前提交是否真正完成构建，因此不采用。
+
+### 把 universal 包拆成 arm64、x86_64 两个并行 job
+
+单次耗时会变短，但每次 preview 推送多占一个 macOS runner，与组织 5 个
+macOS 并发上限冲突，也会和 PR、Swift 测试互相排队，因此不采用；改为保证
+缓存在任何结局下都能保存，并放宽超时覆盖冷构建。
+
+### 对 preview 推送关闭 cancel-in-progress
+
+能让每次推送都跑完并保存缓存，但连续合并时 runner 分钟数成倍增加，
+后续推送要排队等待前一次完成。always() 保存部分缓存已经让被取消的运行
+留下进度，因此保留取消旧运行。
 
 ### 只缓存下载依赖
 
@@ -222,6 +253,8 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-database.yml .github/workflows/ci-plugins.yml`
 - `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane 的用例。
+- `./scripts/test-classify-ci-changes.sh` 覆盖 `save-macos-cargo-build-cache` 改动触发全部 macOS lane。
+- `actionlint .github/workflows/ci-macos.yml .github/workflows/release-preview-macos.yml`
 - `./scripts/test-macos.sh`
 - `./scripts/test-git-performance-baseline.sh`
 - `./scripts/build-macos.sh --configuration debug --triple arm64-apple-macosx`

@@ -324,7 +324,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.macos_release == 'true'
     runs-on: macos-26
-    timeout-minutes: 40
+    # A universal build without a Cargo compilation cache takes about 45
+    # minutes: Rust and Swift compile once per slice before packaging twice.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -367,6 +369,7 @@ jobs:
           targets: ${{ matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || matrix.architecture == 'x86_64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin,x86_64-apple-darwin' }}
 
       - name: Prepare verified dependency caches
+        id: dependency_cache
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
@@ -466,6 +469,18 @@ jobs:
             echo "Requires GitHub sign-in. Retained for 14 days. Includes the bundled Java tools."
             echo "The app is ad-hoc signed for testing. Check the CI gate for the combined test result."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Preview pushes save even when the job times out or a newer push cancels
+      # it, so the next build resumes instead of starting cold again. Pull
+      # requests restore preview's entries without saving: PR-scoped copies are
+      # unreadable by preview and pushed its own entries past the cache quota.
+      - name: Save Cargo compilation cache
+        if: always() && github.event_name != 'pull_request'
+        uses: ./.github/actions/save-macos-cargo-build-cache
+        with:
+          key: ${{ steps.dependency_cache.outputs.cargo-build-key }}
+          exact-hit: ${{ steps.dependency_cache.outputs.cargo-build-hit }}
+          job-status: ${{ job.status }}
 
   gate:
     name: macOS CI gate

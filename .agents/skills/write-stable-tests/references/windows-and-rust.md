@@ -64,7 +64,13 @@ which also gets 30 seconds in both SharedRust and real-JDT lanes: it builds a
 bare remote and two working repositories, pushes and fetches commits, then
 checks branch updates with an attached and detached HEAD. A Windows real-JDT
 run reached the 15-second process deadline during this case, while the same
-revision passed it in 2.4 seconds in SharedRust. This scoped allowance covers
+revision passed it in 2.4 seconds in SharedRust. The `tests::git_remote_checkout::`
+module also gets 30 seconds in both lanes: each case clones a real remote,
+fetches through Core, and runs about 30 Git subprocesses for setup and
+snapshots. Its cases usually finish in 5 to 7 seconds on Windows, but one
+real-JDT run reached the 15-second process deadline in
+`remote_checkout_force_updates_the_current_branch` without an assertion
+failure. This scoped allowance covers
 native process and filesystem variability without changing assertions; other
 cases retain the normal 15-second budget. The Rust runner's repeatable
 `--test-budget prefix=milliseconds` option uses the most specific matching

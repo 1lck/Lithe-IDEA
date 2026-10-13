@@ -99,8 +99,20 @@ script outputs, and dependency outputs for both `rust/target/macos` (Core) and
 Xcode/SDK/macOS versions, build flags, dependency manifests, and build scripts.
 An architecture-specific job can restore the universal cache from its base
 branch. Final executables are not cached; Cargo still runs before packaging.
-An interrupted cache restore is discarded, leaving the existing verified
-download cache as the fallback. Swift compilation products are not cached.
+A universal build without a universal entry falls back to an arm64 or
+x86_64 entry with the same toolchain identity; single-slice builds do not fall
+back to the other slice. An interrupted cache restore is
+discarded, leaving the existing verified download cache as the fallback. Swift
+compilation products are not cached.
+
+Compilation outputs are restored by `prepare-macos-dependency-cache` and saved
+by `save-macos-cargo-build-cache` with `if: always()`. A successful job saves
+the exact key; a failed, timed-out, or superseded job saves
+`<key>-partial-<run_id>-<attempt>`, which the next build restores through the
+primary-key prefix match. Pull requests restore preview's entries without
+saving, so PR-scoped copies do not push preview's entries past the 10 GB
+repository cache quota. The macOS CI package job allows 60 minutes, enough for
+a cold universal build (about 45 minutes) on a single runner.
 
 The change classifier also keeps Git performance and Git status observation
 tests scoped to Git production code, their dedicated tests, and test-tooling

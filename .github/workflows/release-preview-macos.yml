@@ -85,6 +85,7 @@ jobs:
           targets: ${{ matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
 
       - name: Prepare verified dependency caches
+        id: dependency_cache
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
@@ -189,6 +190,14 @@ jobs:
           if [[ -f "$RUNNER_TEMP/lithe-signing.keychain-db" ]]; then
             security delete-keychain "$RUNNER_TEMP/lithe-signing.keychain-db"
           fi
+
+      - name: Save Cargo compilation cache
+        if: always()
+        uses: ./.github/actions/save-macos-cargo-build-cache
+        with:
+          key: ${{ steps.dependency_cache.outputs.cargo-build-key }}
+          exact-hit: ${{ steps.dependency_cache.outputs.cargo-build-hit }}
+          job-status: ${{ job.status }}
 
   publish:
     name: Publish rolling macOS preview

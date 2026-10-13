@@ -177,6 +177,10 @@ modify_macos_cache_action() {
     mkdir -p .github/actions/prepare-macos-dependency-cache
     printf '%s\n' 'name: updated' > .github/actions/prepare-macos-dependency-cache/action.yml
 }
+modify_macos_cache_save_action() {
+    mkdir -p .github/actions/save-macos-cargo-build-cache
+    printf '%s\n' 'name: updated' > .github/actions/save-macos-cargo-build-cache/action.yml
+}
 modify_metadata() { printf '%s\n' 'cask "lithe" do' '  version "1.0.0"' 'end' > Casks/lithe.rb; }
 modify_classifier() { printf '%s\n' '# classifier test change' >> scripts/classify-ci-changes.sh; }
 modify_java_jdt() { printf '%s\n' 'pub fn normalize() { let _ = 1; }' > rust/lithe-core/src/lsp/languages/java_tests.rs; }
@@ -323,6 +327,9 @@ assert_classification macos-toolchain-action \
 assert_classification macos-cache-action \
     "$(classification true true true true false true false false false false true)" \
     modify_macos_cache_action
+assert_classification macos-cache-save-action \
+    "$(classification true true true true false true false false false false true)" \
+    modify_macos_cache_save_action
 assert_classification metadata \
     "$(classification false false false false false false false false false true)" \
     modify_metadata
