@@ -25,6 +25,13 @@ public struct AgentTurnStatistics: Identifiable, Equatable, Sendable {
     public private(set) var endingMessageID: String?
     public private(set) var duration: TimeInterval?
     public private(set) var usage: AgentTurnUsage?
+    /// Tool calls the Agent reported during this turn.
+    public private(set) var toolCallCount = 0
+    /// Locally observed time with a running tool or a pending permission.
+    public private(set) var toolDuration: TimeInterval = 0
+    /// Provider requests observed by the optional Host proxy.
+    public private(set) var modelCalls = AgentModelCallTotals()
+    private var toolsRunningSince: ContinuousClock.Instant?
 
     public init(id: String, startedAt: ContinuousClock.Instant) {
         self.id = id
@@ -37,9 +44,31 @@ public struct AgentTurnStatistics: Identifiable, Equatable, Sendable {
         return max(0, Double(components.seconds) + Double(components.attoseconds) / 1e18)
     }
 
-    mutating func finish(at instant: ContinuousClock.Instant, endingMessageID: String, usage: AgentTurnUsage?) {
+    mutating func finish(at instant: ContinuousClock.Instant, endingMessageID: String, usage: AgentTurnUsage?,
+                         toolCallCount: Int = 0) {
+        setToolsRunning(false, at: instant)
         duration = elapsed(at: instant)
         self.endingMessageID = endingMessageID
         self.usage = usage
+        self.toolCallCount = toolCallCount
+    }
+
+    /// Open or close the interval in which the Agent waits on tools or the user.
+    /// Overlapping tools and permissions count once.
+    mutating func setToolsRunning(_ running: Bool, at instant: ContinuousClock.Instant) {
+        switch (running, toolsRunningSince) {
+        case (true, nil):
+            toolsRunningSince = instant
+        case (false, let since?):
+            let components = since.duration(to: instant).components
+            toolDuration += max(0, Double(components.seconds) + Double(components.attoseconds) / 1e18)
+            toolsRunningSince = nil
+        default:
+            break
+        }
+    }
+
+    mutating func recordModelCall(_ call: AgentModelCall) {
+        modelCalls.record(call)
     }
 }

@@ -315,6 +315,7 @@ public final class AgentConnectionModel: ObservableObject {
               conversations[sessionID]?.isCancelling != true else { return }
         conversations[sessionID]?.isCancelling = true
         conversations[sessionID]?.pendingPermissions.removeAll()
+        conversations[sessionID]?.refreshTurnClock(at: now())
         updateAttention()
         if !sendCommand(["kind": "cancel", "sessionId": sessionID]) {
             conversations[sessionID]?.isCancelling = false
@@ -331,6 +332,7 @@ public final class AgentConnectionModel: ObservableObject {
         guard let sessionID = selectedSessionID,
               let permission = conversations[sessionID]?.permission else { return }
         conversations[sessionID]?.pendingPermissions.removeFirst()
+        conversations[sessionID]?.refreshTurnClock(at: now())
         updateAttention()
         sendCommand([
             "kind": "permission",
@@ -439,6 +441,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID]?.isCancelling = true
             // Host-initiated cancellation has already rejected these requests.
             conversations[sessionID]?.pendingPermissions.removeAll()
+            conversations[sessionID]?.refreshTurnClock(at: now())
             updateAttention()
         case "update":
             guard let sessionID, let update = event["update"] as? [String: Any] else { return }
@@ -451,7 +454,15 @@ public final class AgentConnectionModel: ObservableObject {
             let prompt = permissionPrompt(requestID, request, sessionID: sessionID)
             markResponseProgress(.waiting, in: sessionID)
             conversations[sessionID, default: AgentConversation()].enqueuePermission(prompt)
+            conversations[sessionID]?.refreshTurnClock(at: now())
             updateAttention()
+        case "modelCall":
+            // Unattributed calls cannot be assigned to a session without guessing.
+            guard let sessionID, conversations[sessionID] != nil,
+                  let call = AgentModelCall.parse(event["call"]) else { return }
+            // A stream that outlived its turn must not count toward the next one.
+            conversations[sessionID]?.recordModelCall(call,
+                countsForActiveTurn: event["afterTurnFinished"] as? Bool != true)
         case "turnFinished":
             refreshQuota()
             guard let sessionID else { return }
@@ -592,6 +603,7 @@ public final class AgentConnectionModel: ObservableObject {
             guard let toolCallID = update["toolCallId"] as? String else { return }
             flushPendingText()
             upsertTool(toolCallID, update: update, in: sessionID)
+            conversations[sessionID]?.refreshTurnClock(at: now())
             markResponseProgress(.waiting, in: sessionID)
         case "session_info_update":
             // codex-acp 1.13.1 forwards retries in metadata without a title.
