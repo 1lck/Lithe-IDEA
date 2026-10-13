@@ -288,26 +288,29 @@ struct PluginUIIconTests {
             window.contentView = nil
             window.close()
         }
-        func color(row: Int) throws -> NSColor {
+        var captured: NSBitmapImageRep?
+        func colors() throws -> (NSColor, NSColor) {
             host.layoutSubtreeIfNeeded()
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)
+            captured = bitmap
             let scale = CGFloat(bitmap.pixelsWide) / 1000
-            return try #require(bitmap.colorAt(x: Int(88 * scale), y: Int((185 + CGFloat(row) * 24) * scale))?.usingColorSpace(.deviceRGB))
+            func color(row: Int) throws -> NSColor {
+                try #require(bitmap.colorAt(x: Int(88 * scale), y: Int((185 + CGFloat(row) * 24) * scale))?.usingColorSpace(.deviceRGB))
+            }
+            return try (color(row: 0), color(row: 1))
         }
         let clock = ContinuousClock(), deadline = ContinuousClock().now.advanced(by: .seconds(2))
-        var first = try color(row: 0), second = try color(row: 1)
+        var (first, second) = try colors()
         repeat {
             await Task.yield()
-            first = try color(row: 0)
-            second = try color(row: 1)
+            (first, second) = try colors()
             if mode == .template ? first.redComponent > 0.9 : max(first.redComponent, first.blueComponent) > 0.9 { break }
         } while clock.now < deadline
         let output = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent(".artifacts/ui-contributions")
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let captured = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: captured)
-        try #require(captured.representation(using: .png, properties: [:])).write(to: output
+        let snapshot = try #require(captured)
+        try #require(snapshot.representation(using: .png, properties: [:])).write(to: output
             .appendingPathComponent("palette-\(mode.rawValue)-\(dark ? "dark" : "light").png"))
         if mode == .template { #expect(first.redComponent > second.redComponent + 0.1) }
         else if dark { #expect(first.blueComponent > first.redComponent + 0.6) }
@@ -317,8 +320,7 @@ struct PluginUIIconTests {
         let changedDeadline = clock.now.advanced(by: .seconds(2))
         repeat {
             await Task.yield()
-            first = try color(row: 0)
-            second = try color(row: 1)
+            (first, second) = try colors()
             if mode == .original || second.redComponent > first.redComponent + 0.1 { break }
         } while clock.now < changedDeadline
         if mode == .template { #expect(second.redComponent > first.redComponent + 0.1) }
