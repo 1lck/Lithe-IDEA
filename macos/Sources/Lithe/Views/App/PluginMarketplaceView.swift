@@ -43,7 +43,6 @@ struct PluginMarketplaceView: View {
                     geometry.size.width - SplitHandleView.thickness - PluginManagementView.detailMinimumWidth
                 ),
                 flexibleMinimum: PluginManagementView.detailMinimumWidth,
-                highlightsOnHover: false,
                 onCommit: { listWidth = Double($0) },
                 sized: { sidebar.background(LitheToolWindowActivityTracker(isActive: $pluginListActive)) },
                 flexible: { detail }

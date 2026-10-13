@@ -197,8 +197,7 @@ struct DatabaseQueryHistoryDialog: View {
             GeometryReader { geometry in
                 LitheSplitPaneView(axis: .horizontal, placement: .leading,
                     defaultSize: geometry.size.width * 0.3, minimum: 120,
-                    maximum: max(120, geometry.size.width - 180), flexibleMinimum: 180,
-                    highlightsOnHover: false) {
+                    maximum: max(120, geometry.size.width - 180), flexibleMinimum: 180) {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(entries) { entry in

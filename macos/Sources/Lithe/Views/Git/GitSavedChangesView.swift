@@ -38,7 +38,7 @@ struct GitSavedChangesView: View {
         GeometryReader { geometry in
             LitheSplitPaneView(axis: .vertical, placement: .leading,
                 defaultSize: geometry.size.height * 0.5, minimum: 80,
-                maximum: max(80, geometry.size.height - 160), flexibleMinimum: 160, highlightsOnHover: false) {
+                maximum: max(80, geometry.size.height - 160), flexibleMinimum: 160) {
                 records
             } flexible: {
                 VStack(spacing: 0) {

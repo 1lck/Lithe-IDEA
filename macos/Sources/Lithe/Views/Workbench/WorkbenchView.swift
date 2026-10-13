@@ -43,6 +43,9 @@ private enum WorkbenchWorkspaceMetrics {
 private enum WorkbenchTopBarMetrics {
     // IDEA reserves 78pt for macOS window controls, then leaves a small widget gap.
     static let leadingInset: CGFloat = 83
+    // ponytail: Reserve the reference's extra right-hand actions without adding them;
+    // replace this space with their actual widths if those actions join the toolbar.
+    static let executionTrailingSpace = 4 * LitheTheme.Metrics.toolbarHeight
     static let projectAvatarSize: CGFloat = 20
     static let projectAvatarLeadingInset: CGFloat = 6
     static let projectAvatarCenterX = leadingInset + projectAvatarLeadingInset + projectAvatarSize / 2
@@ -202,6 +205,7 @@ struct WorkbenchView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.projectWindowScope) private var projectWindowScope
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var toolWindowDrag = ToolWindowDragState()
     @State private var sidebarWidth: CGFloat = 320
     @State private var rightSidebarWidth: CGFloat = 380
     @State private var mavenPaneWidth = CGFloat(WorkbenchLayout.defaultMavenPaneWidth)
@@ -220,6 +224,7 @@ struct WorkbenchView: View {
     @State private var workbenchBackgroundImage: NSImage?
     @State private var isBackgroundPickerPresented = false
     @State private var isRunConfigurationPickerPresented = false
+    @State private var isSettingsMenuPresented = false
 
     var body: some View {
         let encodingRequest = model.pendingEncodingReopen
@@ -300,6 +305,7 @@ struct WorkbenchView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             model.setNotificationsApplicationActive(false)
+            toolWindowDrag.finish()
         }
         .onChange(of: isNotificationCenterPresented) { isPresented in
             if isPresented {
@@ -541,6 +547,13 @@ struct WorkbenchView: View {
         .onAppear {
             restoreLayout()
         }
+        .onChange(of: model.workbenchFeature.toolWindowStates) { _ in
+            saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: topPaneHeight)
+        }
+        .onChange(of: model.workbenchFeature.groupFractions) { _ in
+            saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: topPaneHeight)
+        }
+        .onDisappear { toolWindowDrag.finish() }
         .onChange(of: model.workspaceURL?.standardizedFileURL.path) { _ in
             didRestoreLayout = false
             restoreLayout()
@@ -761,9 +774,11 @@ struct WorkbenchView: View {
                     stopExecutionButton
                 }
             }
+            Spacer(minLength: 0)
+                .frame(maxWidth: WorkbenchTopBarMetrics.executionTrailingSpace)
+            settingsMenuButton
         }
         .padding(.leading, WorkbenchTopBarMetrics.leadingInset)
-        .padding(.trailing, 10)
         .frame(height: LitheTheme.Metrics.toolbarHeight)
         .background {
             frameChromeBackground
@@ -1088,88 +1103,42 @@ struct WorkbenchView: View {
         }
     }
 
-    private var activityBar: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    ForEach(model.availableSidebarDestinations) { destination in
-                        Button {
-                            model.workbenchFeature.selectedSidebar = destination
-                        } label: {
-                            LitheIDEAIcon(
-                                resourcePath: destination.ideaAssetPath,
-                                size: ActivityBarMetrics.iconSize
-                            )
-                                .frame(
-                                    width: ActivityBarMetrics.buttonWidth,
-                                    height: ActivityBarMetrics.buttonHeight
-                                )
-                                .litheRowHover(
-                                    isActive: model.workbenchFeature.isSidebarVisible
-                                        && model.workbenchFeature.selectedSidebar == destination,
-                                    cornerRadius: 6,
-                                    activeBackground: LitheTheme.selection
-                                )
-                                .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.litheNoPress)
-                        .disabled(!destination.isAvailable)
-                        .foregroundStyle(model.workbenchFeature.isSidebarVisible
-                            && model.workbenchFeature.selectedSidebar == destination
-                                ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
-                        .workbenchHoverHelp(
-                            Text(destination.isAvailable
-                                 ? LocalizedStringKey(destination == .changes ? "Commit" : destination.title)
-                                 : LocalizedStringKey("Pull Requests integration is under development")),
-                            placement: .trailing
-                        )
-                        .accessibilityLabel(LocalizedStringKey(destination.title))
-                        .accessibilityHint(
-                            destination.isAvailable
-                                ? LocalizedStringKey("")
-                                : LocalizedStringKey("Pull Requests integration is under development")
-                        )
-                    }
-                }
-                Spacer(minLength: 0)
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        ForEach(model.activityBarContributions) { contribution in
-                            if let renderer = moduleUIRegistry.renderer(for: contribution),
-                               renderer.isVisible(model) {
-                                activityToolButton(
-                                    ideaAssetPath: renderer.ideaAssetPath ?? "expui/toolwindows/toolWindowComponents@20x20.svg",
-                                    help: contribution.title,
-                                    isSelected: renderer.isSelected(model)
-                                ) {
-                                    moduleUIRegistry.perform(contribution, model: model)
-                                }
-                            }
-                        }
-                    }
-                    // Keep short tool lists against the status bar while preserving
-                    // vertical scrolling when modules add more activity buttons.
-                    .frame(
-                        minHeight: ActivityBarMetrics.toolViewportHeight,
-                        alignment: .bottom
-                    )
-                }
-                .frame(height: ActivityBarMetrics.toolViewportHeight)
-
-                activityToolButton(
-                    ideaAssetPath: "expui/general/settings@20x20.svg",
-                    help: "Settings",
-                    isSelected: model.workbenchFeature.isSettingsPresented
-                ) {
+    private var settingsMenuButton: some View {
+        Button { isSettingsMenuPresented.toggle() } label: {
+            LitheIDEAIcon(resourcePath: "expui/general/settings@20x20.svg", size: ActivityBarMetrics.iconSize)
+                .foregroundStyle(LitheTheme.toolWindowButtonText)
+                .frame(width: 30, height: 30)
+                .litheRowHover(isActive: isSettingsMenuPresented, cornerRadius: 6,
+                               activeBackground: LitheTheme.hoverBackground)
+        }
+        .buttonStyle(.litheNoPress)
+        .frame(width: ActivityBarMetrics.rightWidth, height: LitheTheme.Metrics.toolbarHeight)
+        .workbenchHoverHelp(Text(LocalizedStringKey("Settings")), placement: .below)
+        .accessibilityLabel(Text(LocalizedStringKey("Settings")))
+        .accessibilityIdentifier("workbench-settings-menu")
+        .overlay {
+            LitheDropdownPopover(isPresented: $isSettingsMenuPresented, items: [
+                .action("Settings…", icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: 16)),
+                        initiallySelected: true, shortcut: model.keyboardShortcutFeature.displayText(for: "settings")) {
                     model.showSettings()
-                }
-            }
-            .frame(width: ActivityBarMetrics.width, height: geometry.size.height, alignment: .top)
-            .background(frameChromeBackground)
+                },
+                .action("Plugins…") { model.showSettings(category: .plugins) },
+                .separator,
+                .action("Theme…") { model.showSettings(category: .general) },
+                .action("Keymap…") { model.showSettings(category: .keymap) }
+            ]) { EmptyView() }
+        }
+    }
+
+    private var activityBar: some View {
+        VStack(spacing: 0) {
+            dockStripe(DockPosition(anchor: .left, group: .primary))
+            Spacer(minLength: 0)
+            dockStripe(DockPosition(anchor: .left, group: .secondary))
+            dockStripe(DockPosition(anchor: .bottom, group: .primary))
         }
         .frame(width: ActivityBarMetrics.width)
+        .background(frameChromeBackground)
     }
 
     private var pluginActivityBar: some View {
@@ -1213,28 +1182,10 @@ struct WorkbenchView: View {
                     .environmentObject(model)
             }
 
-            activityToolButton(
-                ideaAssetPath: "expui/nodes/plugin.svg",
-                help: "Plugins",
-                tooltipPlacement: .leading,
-                isSelected: model.workbenchFeature.isSettingsPresented
-                    && model.requestedSettingsCategory == .plugins,
-                action: { model.showSettings(category: .plugins) }
-            )
-
-            ForEach(model.rightSidebarContributions) { contribution in
-                if let renderer = moduleUIRegistry.renderer(for: contribution),
-                   renderer.isVisible(model) {
-                    activityToolButton(
-                        ideaAssetPath: renderer.ideaAssetPath ?? "expui/toolwindows/toolWindowComponents@20x20.svg",
-                        help: contribution.title,
-                        tooltipPlacement: .leading,
-                        isSelected: renderer.isSelected(model),
-                        action: { moduleUIRegistry.perform(contribution, model: model) }
-                    )
-                }
-            }
-            Spacer()
+            dockStripe(DockPosition(anchor: .right, group: .primary))
+            Spacer(minLength: 0)
+            dockStripe(DockPosition(anchor: .right, group: .secondary))
+            dockStripe(DockPosition(anchor: .bottom, group: .secondary))
             UpdateControl(compact: true)
             backgroundPickerButton
         }
@@ -1246,16 +1197,138 @@ struct WorkbenchView: View {
         model.notifications.lazy.filter { !$0.isRead }.count
     }
 
-    private var dockedSidebarContributions: [ModuleContribution] {
-        model.rightSidebarContributions.filter {
-            moduleUIRegistry.renderer(for: $0)?.rightSidebarBehavior == .docked
+    private func contribution(for tool: WorkbenchFeatureModel.ToolWindow) -> ModuleContribution? {
+        model.activeModuleContributions.first { $0.rendererID == tool.rendererID && tool.rendererID != nil }
+    }
+
+    private func isToolAvailable(_ tool: WorkbenchFeatureModel.ToolWindow) -> Bool {
+        if let sidebar = tool.sidebar { return model.availableSidebarDestinations.contains(sidebar) && sidebar.isAvailable }
+        if let contribution = contribution(for: tool), let renderer = moduleUIRegistry.renderer(for: contribution) {
+            return renderer.isVisible(model)
+        }
+        return (tool == .references || tool == .spring) && model.workbenchFeature.isVisible(tool)
+    }
+
+    private func isToolEntryVisible(_ tool: WorkbenchFeatureModel.ToolWindow) -> Bool {
+        if let sidebar = tool.sidebar { return model.availableSidebarDestinations.contains(sidebar) }
+        return isToolAvailable(tool)
+    }
+
+    private func openTool(_ tool: WorkbenchFeatureModel.ToolWindow) {
+        guard isToolAvailable(tool) else { return }
+        if model.workbenchFeature.isVisible(tool) {
+            model.workbenchFeature.setVisibility(tool, isVisible: false)
+        } else if let sidebar = tool.sidebar {
+            model.workbenchFeature.selectedSidebar = sidebar
+        } else if let contribution = contribution(for: tool) {
+            moduleUIRegistry.perform(contribution, model: model)
+        } else { model.workbenchFeature.setVisibility(tool, isVisible: true) }
+    }
+
+    private func moveTool(_ tool: WorkbenchFeatureModel.ToolWindow, target: ToolWindowDragState.Target) {
+        guard isToolAvailable(tool) else { return }
+        model.workbenchFeature.move(tool, to: target.position, before: target.before)
+    }
+
+    private func dockStripe(_ position: DockPosition) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 0) {
+                ForEach(model.workbenchFeature.tools(in: position).filter(isToolEntryVisible), id: \.self) { tool in
+                    let entry = contribution(for: tool)
+                    let renderer = entry.flatMap { moduleUIRegistry.renderer(for: $0) }
+                    let title = tool.sidebar.map { $0 == .changes ? "Commit" : $0.title } ?? entry?.title ?? tool.rawValue
+                    let target = ToolWindowDragState.Target(position: position, before: tool)
+                    if toolWindowDrag.source != nil && toolWindowDrag.target == target { toolWindowDropSlot }
+                    activityToolButton(
+                        ideaAssetPath: tool.sidebar?.ideaAssetPath ?? renderer?.ideaAssetPath ?? "expui/toolwindows/toolWindowComponents@20x20.svg",
+                        help: tool.sidebar?.isAvailable == false ? "Pull Requests integration is under development" : title, tooltipPlacement: position.anchor == .right ? .leading : .trailing,
+                        isSelected: model.workbenchFeature.isVisible(tool), action: { openTool(tool) }
+                    )
+                    .disabled(!isToolAvailable(tool))
+                    .overlay(ToolWindowDragSource(tool: tool, position: position, drag: toolWindowDrag, image: {
+                        ImageRenderer(content: LitheIDEAIcon(
+                            resourcePath: tool.sidebar?.ideaAssetPath ?? renderer?.ideaAssetPath ?? "expui/toolwindows/toolWindowComponents@20x20.svg",
+                            size: ActivityBarMetrics.iconSize)
+                            .foregroundStyle(LitheTheme.toolWindowButtonText)
+                            .modifier(LitheToolWindowDragButtonStyle())
+                            .environment(\.colorScheme, colorScheme)).nsImage
+                    }, click: { openTool(tool) }, commit: { moveTool($0, target: $1) }, isEnabled: isToolAvailable(tool)))
+                    .opacity(toolWindowDrag.source == tool ? 0 : 1)
+                    .litheContextMenu {
+                        guard isToolAvailable(tool) else { return [] }
+                        return DockAnchor.allCases.flatMap { anchor in
+                            DockGroup.allCases.map { group in
+                                let destination = DockPosition(anchor: anchor, group: group)
+                                return LitheContextMenuItem.action(dockMoveTitle(destination), action: {
+                                    model.workbenchFeature.move(tool, to: destination)
+                                })
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("tool-window-" + tool.rawValue)
+                }
+                if toolWindowDrag.source != nil && toolWindowDrag.target == .init(position: position, before: nil) {
+                    toolWindowDropSlot
+                }
+            }
+            .frame(width: ActivityBarMetrics.width)
+        }
+        .frame(height: max(1, min(CGFloat(model.workbenchFeature.tools(in: position).filter(isToolEntryVisible).count
+            + (toolWindowDrag.source != nil && toolWindowDrag.target?.position == position ? 1 : 0)) * ActivityBarMetrics.slotHeight,
+                                ActivityBarMetrics.toolViewportHeight)))
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+    }
+
+    private var toolWindowDropSlot: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(LitheTheme.toolWindowDropButton)
+            .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
+            .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
+            .accessibilityHidden(true)
+    }
+
+    private func dockMoveTitle(_ position: DockPosition) -> String {
+        switch (position.anchor, position.group) {
+        case (.left, .primary): "Move to Left Top"
+        case (.left, .secondary): "Move to Left Bottom"
+        case (.right, .primary): "Move to Right Top"
+        case (.right, .secondary): "Move to Right Bottom"
+        case (.bottom, .primary): "Move to Bottom Left"
+        case (.bottom, .secondary): "Move to Bottom Right"
         }
     }
 
-    private var isDockedSidebarVisible: Bool {
-        dockedSidebarContributions.contains { contribution in
-            guard let renderer = moduleUIRegistry.renderer(for: contribution) else { return false }
-            return renderer.isVisible(model) && renderer.isSelected(model)
+    private func hasVisibleTool(on anchor: DockAnchor, group: DockGroup) -> Bool {
+        guard let tool = model.workbenchFeature.activeTool(in: .init(anchor: anchor, group: group)) else { return false }
+        return isToolAvailable(tool)
+    }
+
+    private func hasVisibleTool(on anchor: DockAnchor) -> Bool {
+        DockGroup.allCases.contains { hasVisibleTool(on: anchor, group: $0) }
+    }
+
+    private func dockContent(on anchor: DockAnchor) -> some View {
+        WorkbenchDockGroups(
+            anchor: anchor, primaryVisible: hasVisibleTool(on: anchor, group: .primary),
+            secondaryVisible: hasVisibleTool(on: anchor, group: .secondary),
+            fraction: model.workbenchFeature.groupFractions[anchor.rawValue] ?? 0.5,
+            hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
+            showsFrameGradient: usesIDEAFrameExperiment,
+            commitFraction: { model.workbenchFeature.setGroupFraction($0, for: anchor) },
+            content: { group in
+                toolContent(model.workbenchFeature.activeTool(in: .init(anchor: anchor, group: group)))
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func toolContent(_ tool: WorkbenchFeatureModel.ToolWindow?) -> some View {
+        if let tool, let sidebar = tool.sidebar { activeSidebar(sidebar, projectTreeRowHeight: settings.projectTreeRowHeight) }
+        else if tool == .references { LanguageReferencesView() }
+        else if tool == .spring { SpringEndpointsView() }
+        else if let tool, let entry = contribution(for: tool), let renderer = moduleUIRegistry.renderer(for: entry) {
+            ModuleToolContent(rendererID: renderer.id, contentIdentity: renderer.contentIdentity(model), content: renderer.content(model)).equatable()
         }
     }
 
@@ -1317,14 +1390,18 @@ struct WorkbenchView: View {
     @ViewBuilder
     private var workspaceArea: some View {
         workspaceContent
+            .task(id: didRestoreLayout ? model.workspaceURL?.standardizedFileURL.path : nil) {
+                guard didRestoreLayout else { return }
+                await model.restoreVisibleToolModules()
+            }
     }
 
     private var workspaceContent: some View {
         WorkbenchWorkspaceSplitView(
             sidebarWidth: sidebarWidth,
-            isSidebarVisible: model.workbenchFeature.isSidebarVisible,
+            isSidebarVisible: hasVisibleTool(on: .left),
             rightToolWidth: mavenPaneWidth,
-            isRightToolVisible: isDockedSidebarVisible,
+            isRightToolVisible: hasVisibleTool(on: .right),
             topPaneHeight: topPaneHeight,
             isBottomToolVisible: isBottomToolVisible,
             actions: WorkbenchWorkspaceSplitActions(
@@ -1344,11 +1421,11 @@ struct WorkbenchView: View {
                     saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: topPaneHeight)
                 }
             ),
-            showsBottomToolMinimize: model.workbenchFeature.isVisible(.gitLog),
+            showsBottomToolMinimize: model.workbenchFeature.isVisible(.gitLog) && model.workbenchFeature.state(for: .gitLog).position.anchor == .bottom,
             hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
             showsFrameGradient: usesIDEAFrameExperiment,
             sidebar: {
-                activeSidebar(projectTreeRowHeight: settings.projectTreeRowHeight)
+                dockContent(on: .left)
             },
             editor: {
                 Group {
@@ -1364,32 +1441,45 @@ struct WorkbenchView: View {
                     }
                 }
             },
-            bottomTool: {
-                Group {
-                    if model.workbenchFeature.isVisible(.references) {
-                        LanguageReferencesView()
-                    } else if model.workbenchFeature.isVisible(.spring) {
-                        SpringEndpointsView()
-                    } else {
-                        moduleUIRegistry.selectedToolContent(
-                            from: model.activityBarContributions,
-                            model: model
-                        )
-                        .equatable()
-                    }
-                }
-            },
-            rightTool: {
-                moduleUIRegistry.selectedToolContent(from: dockedSidebarContributions, model: model)
-                    .equatable()
-            }
+            bottomTool: { dockContent(on: .bottom) },
+            rightTool: { dockContent(on: .right) }
         )
+        .background(ToolWindowWorkspaceAnchor(drag: toolWindowDrag))
+        .overlay { toolWindowDropOverlay.allowsHitTesting(false) }
     }
 
     @ViewBuilder
-    private func activeSidebar(projectTreeRowHeight: CGFloat) -> some View {
+    private var toolWindowDropOverlay: some View {
+        if toolWindowDrag.source != nil, let target = toolWindowDrag.target {
+            GeometryReader { geometry in
+                let position = target.position
+                let counterpart: DockGroup = position.group == .primary ? .secondary : .primary
+                let splits = hasVisibleTool(on: position.anchor, group: counterpart)
+                let width = position.anchor == .bottom ? geometry.size.width / (splits ? 2 : 1)
+                    : min(position.anchor == .left ? sidebarWidth : mavenPaneWidth, geometry.size.width)
+                let height = position.anchor == .bottom ? geometry.size.height / 3
+                    : geometry.size.height / (splits ? 2 : 1)
+                let x = position.anchor == .left ? width / 2
+                    : position.anchor == .right ? geometry.size.width - width / 2
+                    : splits && position.group == .secondary ? geometry.size.width - width / 2 : width / 2
+                let y = position.anchor == .bottom || (splits && position.group == .secondary)
+                    ? geometry.size.height - height / 2 : height / 2
+                Rectangle().fill(LitheTheme.toolWindowDropArea)
+                    .overlay {
+                        Text(LocalizedStringKey(dockMoveTitle(position)))
+                            .font(LitheTheme.uiFont(size: 12))
+                            .padding(8).background(LitheTheme.raised).cornerRadius(6)
+                    }
+                    .frame(width: width, height: height)
+                    .position(x: x, y: y)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func activeSidebar(_ destination: SidebarDestination, projectTreeRowHeight: CGFloat) -> some View {
         Group {
-            switch model.workbenchFeature.selectedSidebar {
+            switch destination {
             case .project:
                 ProjectSidebarView(rowHeight: projectTreeRowHeight)
             case .changes:
@@ -1438,7 +1528,7 @@ struct WorkbenchView: View {
     }
 
     private var isBottomToolVisible: Bool {
-        model.workbenchFeature.activeToolWindow != nil
+        hasVisibleTool(on: .bottom)
     }
 
     private var statusBar: some View {
@@ -1869,12 +1959,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     },
                     sized: {
                         sidebar
-                            .workbenchResizablePaneChrome(
-                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
-                                surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                                roundsCorners: !hasWorkbenchBackground,
-                                showsFrameGradient: showsFrameGradient
-                            )
                     },
                     flexible: {
                         editorPane
@@ -1920,12 +2004,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                             bottomTool
                                 .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                                 .clipped()
-                                .workbenchPaneChrome(
-                                    background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
-                                    surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                                    roundsCorners: !hasWorkbenchBackground,
-                                    showsFrameGradient: showsFrameGradient
-                                )
                                 .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
                                 .padding(.bottom, WorkbenchWorkspaceMetrics.paneInset)
                         }

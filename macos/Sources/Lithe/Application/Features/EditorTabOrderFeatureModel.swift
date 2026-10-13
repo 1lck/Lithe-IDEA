@@ -5,7 +5,84 @@ import Foundation
 /// Resource lifecycle and active selection remain with their existing features.
 @MainActor
 final class EditorTabOrderFeatureModel: ObservableObject {
-    @Published private(set) var items: [EditorTabItem] = []
+    @Published private(set) var items: [EditorTabItem] = [] {
+        didSet { reconcileGroups() }
+    }
+    @Published private(set) var groupLayout: EditorGroupLayout = .group(UUID())
+    @Published private(set) var groupSelections: [UUID: EditorTabItem] = [:]
+    private var placements: [EditorTabItem: UUID] = [:]
+    private var focusedGroup: UUID?
+    var groupDropRequestID = UUID()
+
+    func items(in group: UUID) -> [EditorTabItem] {
+        items.filter { placements[$0] == group }
+    }
+
+    /// Close menus operate on visible group order and leave mixed non-document tabs open.
+    func documentCloseTargets(for id: UUID, in group: UUID?) -> (other: [UUID], left: [UUID], right: [UUID]) {
+        let tabs = group.map { items(in: $0) } ?? items
+        let documents = tabs.compactMap { item -> UUID? in
+            guard case .document(let id) = item else { return nil }
+            return id
+        }
+        guard let index = documents.firstIndex(of: id) else { return ([], [], []) }
+        return (documents.filter { $0 != id }, Array(documents.prefix(index)), Array(documents.dropFirst(index + 1)))
+    }
+
+    func selectedItem(in group: UUID) -> EditorTabItem? { groupSelections[group] }
+
+    func focus(_ item: EditorTabItem) {
+        guard let group = placements[item] else { return }
+        focusedGroup = group
+        if groupSelections[group] != item { groupSelections[group] = item }
+    }
+
+    func canDrop(_ item: EditorTabItem, into group: UUID, side: EditorGroupDropSide) -> Bool {
+        guard !item.isDatabaseTab, items.contains(item), groupLayout.groups.contains(group) else { return false }
+        return placements[item] != group || (side != .center && items(in: group).count > 1)
+    }
+
+    /// A drop moves membership only; it never closes or reopens the underlying resource.
+    @discardableResult
+    func drop(_ item: EditorTabItem, into group: UUID, side: EditorGroupDropSide) -> Bool {
+        guard canDrop(item, into: group, side: side) else { return false }
+        if side == .center {
+            placements[item] = group
+            var ordered = items.filter { $0 != item }
+            let last = ordered.lastIndex { placements[$0] == group }
+            ordered.insert(item, at: last.map { $0 + 1 } ?? ordered.count)
+            if ordered != items { items = ordered }
+        } else {
+            let created = UUID()
+            let new = EditorGroupLayout.group(created), old = EditorGroupLayout.group(group)
+            let leading = side == .left || side == .top
+            groupLayout = groupLayout.replacing(group, with: .split(id: UUID(),
+                vertical: side == .top || side == .bottom, first: leading ? new : old, second: leading ? old : new))
+            placements[item] = created
+        }
+        reconcileGroups()
+        focus(item)
+        return true
+    }
+
+    private func reconcileGroups() {
+        let groups = groupLayout.groups
+        let destination = focusedGroup.flatMap { groups.contains($0) ? $0 : nil } ?? groups[0]
+        placements = placements.filter { items.contains($0.key) }
+        let databaseGroup = items.first(where: { $0.isDatabaseTab && placements[$0] != nil }).flatMap { placements[$0] } ?? destination
+        for item in items where placements[item] == nil { placements[item] = item.isDatabaseTab ? databaseGroup : destination }
+        let occupied = Set(placements.values)
+        groupLayout = groupLayout.keeping(occupied) ?? .group(groups[0])
+        let remaining = groupLayout.groups
+        if !remaining.contains(destination) { focusedGroup = remaining[0] }
+        var selections: [UUID: EditorTabItem] = [:]
+        for group in remaining {
+            let tabs = items(in: group)
+            if let selected = groupSelections[group], tabs.contains(selected) { selections[group] = selected }
+            else { selections[group] = tabs.first }
+        }
+        if selections != groupSelections { groupSelections = selections }
+    }
 
     @Published var databaseSelected = false
     @Published var databaseProfileSelected: UUID?
@@ -139,7 +216,9 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         next.removeAll { $0 == item }
         guard let targetIndex = next.firstIndex(of: target) else { return false }
         next.insert(item, at: targetIndex + (insertAfter ? 1 : 0))
-        guard next != items else { return false }
+        guard !item.isDatabaseTab || placements[item] == placements[target] else { return false }
+        guard next != items || placements[item] != placements[target] else { return false }
+        if let destination = placements[target] { placements[item] = destination }
         items = next
         return true
     }

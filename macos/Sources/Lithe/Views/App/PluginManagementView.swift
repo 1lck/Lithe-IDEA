@@ -172,7 +172,6 @@ private struct InstalledPluginsView: View {
                         geometry.size.width - SplitHandleView.thickness - PluginManagementView.detailMinimumWidth
                     ),
                     flexibleMinimum: PluginManagementView.detailMinimumWidth,
-                    highlightsOnHover: false,
                     onCommit: { pluginListWidth = Double($0) },
                     sized: { sidebar },
                     flexible: { detail }

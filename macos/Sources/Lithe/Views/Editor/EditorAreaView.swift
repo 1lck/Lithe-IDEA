@@ -3,7 +3,7 @@ import SwiftUI
 import LitheGitModule
 import LitheTerminalModule
 
-private let editorTabCoordinateSpaceName = "lithe.editor-tab-strip"
+private let editorTabCoordinateSpaceName = editorWorkspaceCoordinateSpaceName
 
 enum EditorDocumentIconResolver {
     static func kind(
@@ -18,6 +18,7 @@ private struct EditorDocumentTabIcon: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var document: EditorDocument
     let size: CGFloat
+    var onResolvedKind: ((LitheIconKind) -> Void)? = nil
     @State private var resolvedKind: LitheIconKind?
 
     private struct ResolutionKey: Hashable {
@@ -35,6 +36,9 @@ private struct EditorDocumentTabIcon: View {
             kind: EditorDocumentIconResolver.kind(for: document.url, resolvedKind: resolvedKind),
             size: size
         )
+        .onChange(of: resolvedKind) { kind in
+            onResolvedKind?(EditorDocumentIconResolver.kind(for: document.url, resolvedKind: kind))
+        }
         .task(id: resolutionKey) {
             let key = resolutionKey
             let url = document.url
@@ -81,8 +85,13 @@ enum DocumentPreviewMode: String, CaseIterable, Identifiable, Equatable {
 }
 
 struct EditorAreaView: View {
+    var groupID: UUID? = nil
+    var groupDrag: EditorGroupDragState? = nil
+    @State private var ownedGroupDrag = EditorGroupDragState()
+    private var drag: EditorGroupDragState { groupDrag ?? ownedGroupDrag }
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.colorScheme) private var colorScheme
     @State private var editorIsActive = true
     @State private var hoveredTabItem: EditorTabItem?
     @State private var tabDragState = EditorTabDragState.idle
@@ -92,7 +101,7 @@ struct EditorAreaView: View {
     @State private var tabDragCancelled = false
     @State private var tabReorderTarget: EditorTabReorderTarget?
     @State private var isTerminalTabBarDropTargeted = false
-    @State private var splitDocumentID: UUID?
+    @State private var resolvedTabIcons: [UUID: LitheIconKind] = [:]
     @State private var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
     @State private var hoveredPreviewMode: DocumentPreviewMode?
@@ -101,7 +110,7 @@ struct EditorAreaView: View {
         let _ = LitheSignpost.bodyEvaluated("EditorAreaView")
         ZStack(alignment: .top) {
             Group {
-                if let feature = model.gitFeatureIfActive,
+                if groupID == nil, let feature = model.gitFeatureIfActive,
                           let comparison = feature.branchComparison {
                     BranchComparisonView(
                         feature: feature,
@@ -115,7 +124,7 @@ struct EditorAreaView: View {
                         },
                         fontFamily: settings.editorFontFamily
                     )
-                } else if let feature = model.gitFeatureIfActive,
+                } else if groupID == nil, let feature = model.gitFeatureIfActive,
                           let selectedChange = feature.selectedChange {
                     RepositoryDiffView(feature: feature, change: selectedChange,
                         onClose: { feature.closeWorkingTreeDiff() },
@@ -126,13 +135,15 @@ struct EditorAreaView: View {
                         if model.editorTabItems.isEmpty {
                             emptyState
                         } else {
-                            editorWorkspace
+                            if groupID == nil {
+                                EditorGroupContainer(feature: model.editorTabOrderFeature, drag: drag)
+                            } else { editorWorkspace }
                         }
                     }
                 }
             }
 
-            if model.isImplementationChooserVisible {
+            if model.isImplementationChooserVisible && groupID == nil {
                 LanguageImplementationChooserView()
                     .padding(.top, 48)
                     .padding(.horizontal, 24)
@@ -140,12 +151,14 @@ struct EditorAreaView: View {
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
-        .background(GoToLineDialogPresenter())
+        .background { if groupID == nil { GoToLineDialogPresenter() } }
         .background(LitheToolWindowActivityTracker(isActive: $editorIsActive))
+        .onAppear { if groupID == nil, let activeItem { model.editorTabOrderFeature.focus(activeItem) } }
+        .onChange(of: activeItem) { item in
+            if groupID == nil, let item { model.editorTabOrderFeature.focus(item) }
+        }
         .onChange(of: model.openDocuments.map(\.id)) { ids in
-            if let splitDocumentID, !ids.contains(splitDocumentID) {
-                self.splitDocumentID = nil
-            }
+            resolvedTabIcons = resolvedTabIcons.filter { ids.contains($0.key) }
             documentPreviewModes = documentPreviewModes.filter { ids.contains($0.key) }
             markdownScrollPositions = markdownScrollPositions.filter { ids.contains($0.key) }
         }
@@ -159,16 +172,50 @@ struct EditorAreaView: View {
         .onDisappear {
             isTerminalTabBarDropTargeted = false
             finishTabDrag()
+            tabDragPreview.stopCapturing()
         }
         .onChange(of: settings.editorTabLayoutMode) { _ in
             finishTabDrag()
         }
     }
 
+
+    private var activeItem: EditorTabItem? {
+        if model.isDatabaseWorkspaceSelected { return model.activeDatabaseEditorTab }
+        if model.isRepositoryDiffSelected { return .repositoryDiff }
+        return model.activeEditorTerminalSession.map { .terminal($0.id) }
+            ?? model.activeMediaDocument.map { .media($0.id) }
+            ?? model.activeDocument.map { .document($0.id) }
+    }
+    private var editorGroupIsActive: Bool { editorIsActive && (groupID == nil || paneItem == activeItem) }
+    private var paneItems: [EditorTabItem] {
+        groupID.map { model.editorTabOrderFeature.items(in: $0) } ?? model.editorTabItems
+    }
+    private var paneItem: EditorTabItem? {
+        groupID.flatMap { model.editorTabOrderFeature.selectedItem(in: $0) } ?? activeItem
+    }
+    private var paneDocument: EditorDocument? {
+        guard case .document(let id) = paneItem else { return nil }
+        return model.openDocuments.first { $0.id == id }
+    }
+    private var paneMedia: MediaDocument? {
+        guard case .media(let id) = paneItem else { return nil }
+        return model.openMediaDocuments.first { $0.id == id }
+    }
+    private var paneTerminal: TerminalSession? {
+        guard case .terminal(let id) = paneItem else { return nil }
+        return model.terminalSessions.first { $0.id == id }
+    }
+    private var paneDiffSelected: Bool { paneItem == .repositoryDiff }
+    private func selectPaneItem(_ item: EditorTabItem) {
+        model.selectEditorTab(item)
+        if case .terminal(let id) = item, let session = model.terminalSessions.first(where: { $0.id == id }) { session.focus() }
+    }
+
     @ViewBuilder
     private var externalConflictBanner: some View {
-        if model.activeEditorTerminalSession == nil,
-           let document = model.activeDocument,
+        if paneTerminal == nil,
+           let document = paneDocument,
            document.hasExternalConflict {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -199,15 +246,17 @@ struct EditorAreaView: View {
         HStack(alignment: .top, spacing: 0) {
             editorTabLayout
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if !model.isDatabaseWorkspaceSelected, !model.isRepositoryDiffSelected, let document = model.activeDocument,
-               model.activeEditorTerminalSession == nil,
-               (isMarkdownFile(document) || isSVGFile(document) || isHTMLFile(document)),
-               splitDocumentID == nil {
+            if !paneDiffSelected, let document = paneDocument,
+               paneTerminal == nil,
+               (isMarkdownFile(document) || isSVGFile(document) || isHTMLFile(document)) {
                 documentPreviewModePicker
             }
         }
         .frame(minHeight: 36, alignment: .top)
         .contentShape(Rectangle())
+        .onContinuousHover { phase in
+            if case .active = phase { NSCursor.arrow.set() }
+        }
         .background {
             EditorTabMiddleClickMonitor(hoveredItem: hoveredTabItem) { item in
                 closeEditorTab(item)
@@ -271,7 +320,6 @@ struct EditorAreaView: View {
                 multipleRowsEditorTabLayout
             }
         }
-        .coordinateSpace(name: editorTabCoordinateSpaceName)
         .onPreferenceChange(EditorTabFramePreferenceKey.self) { frames in
             guard tabDragState.draggedItem == nil else { return }
             tabFrameStore.update(frames)
@@ -332,8 +380,16 @@ struct EditorAreaView: View {
                     }
                 }
             }
-            .id(item)
-            .background(EditorTabDragPreviewAnchor(item: item, store: tabDragPreview))
+            .background(EditorTabDragPreviewAnchor(item: item, store: tabDragPreview,
+                frame: { tabFrameStore[item] }, clicked: { selectPaneItem(item) }, changed: { translation, location in
+                    guard !tabDragCancelled else { return }
+                    if tabDragState.draggedItem != item { beginTabDrag(item) }
+                    updateTabDrag(item, translation: translation, location: location)
+                }, ended: { translation, location in
+                    defer { tabDragCancelled = false }
+                    guard !tabDragCancelled else { return }
+                    finishTabReorder(item, translation: translation, location: location)
+                }))
             .opacity(tabDragState.draggedItem == item ? 0 : 1)
             .overlay {
                 if tabDragState.draggedItem == item {
@@ -347,11 +403,11 @@ struct EditorAreaView: View {
     }
 
     private var displayedTabItems: [EditorTabItem] {
-        var items = model.editorTabItems
+        var items = paneItems
         guard let source = tabDragState.draggedItem, let target = tabReorderTarget,
               source != target.item else { return items }
         items.removeAll { $0 == source }
-        guard let index = items.firstIndex(of: target.item) else { return model.editorTabItems }
+        guard let index = items.firstIndex(of: target.item) else { return paneItems }
         items.insert(source, at: index + (target.side == .after ? 1 : 0))
         return items
     }
@@ -359,7 +415,7 @@ struct EditorAreaView: View {
     private func databaseTab(overview: Bool, profileID: UUID? = nil, queryID: UUID? = nil) -> some View {
         let item: EditorTabItem = queryID.flatMap { id in profileID.map { .databaseQuery(profileID: $0, queryID: id) } }
             ?? (overview ? .databaseOverview : .database(profileID))
-        let selected = model.isDatabaseWorkspaceSelected && model.activeDatabaseEditorTab == item
+        let selected = paneItem == item
         return HStack(spacing: 0) {
             HStack(spacing: 7) {
                 if queryID != nil, let profile = model.databaseFeatureIfActive?.profiles.first(where: { $0.id == profileID }) {
@@ -388,20 +444,19 @@ struct EditorAreaView: View {
                 if overview { model.openDatabaseWorkspace(overview: true) }
                 else { model.selectDatabaseWorkspace(profileID: profileID, queryID: queryID) }
             }
-            .highPriorityGesture(editorTabDragGesture(for: item))
             LitheToolWindowTabCloseButton { model.closeDatabaseTab(item) }
                 .opacity(selected || hoveredTabItem == item ? 1 : 0)
                 .allowsHitTesting(selected || hoveredTabItem == item)
         }
         .foregroundStyle(selected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-        .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorIsActive))
+        .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorGroupIsActive))
         .padding(.horizontal, 4).padding(.vertical, 4)
         .onHover { updateHoveredTab(item, isHovering: $0) }
         .background { editorTabFrameReader(for: item) }
     }
 
     private var repositoryDiffTab: some View {
-        let selected = model.isRepositoryDiffSelected
+        let selected = paneDiffSelected
         let title = model.selectedGitCommitDiffContext.map { "Repository Diff: " + $0.url.lastPathComponent }
             ?? "Repository Diff"
         return HStack(spacing: 0) {
@@ -417,13 +472,12 @@ struct EditorAreaView: View {
             .accessibilityLabel(title)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { model.selectRepositoryDiffTab() }
-            .highPriorityGesture(editorTabDragGesture(for: .repositoryDiff))
             LitheToolWindowTabCloseButton { model.closeGitCommitDiff() }
                 .opacity(selected || hoveredTabItem == .repositoryDiff ? 1 : 0)
                 .allowsHitTesting(selected || hoveredTabItem == .repositoryDiff)
         }
         .foregroundStyle(selected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-        .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorIsActive))
+        .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorGroupIsActive))
         .padding(.horizontal, 4).padding(.vertical, 4)
         .onHover { updateHoveredTab(.repositoryDiff, isHovering: $0) }
         .help(title)
@@ -446,7 +500,7 @@ struct EditorAreaView: View {
         }
         .contentShape(Rectangle())
         .litheContextMenu {
-            editorTabContextMenu(for: document, at: index)
+            editorTabContextMenu(for: document)
         }
         .onHover { isHovering in
             updateHoveredTab(.document(document.id), isHovering: isHovering)
@@ -530,8 +584,8 @@ struct EditorAreaView: View {
     }
 
     private func editorMediaTab(_ media: MediaDocument) -> some View {
-        let isActive = !model.isDatabaseWorkspaceSelected && !model.isRepositoryDiffSelected && model.activeEditorTerminalSession == nil
-            && model.activeMediaDocumentID == media.id
+        let isActive = !paneDiffSelected && paneTerminal == nil
+            && paneMedia?.id == media.id
         let tabItem = EditorTabItem.media(media.id)
 
         return HStack(spacing: 0) {
@@ -552,7 +606,6 @@ struct EditorAreaView: View {
             .accessibilityLabel(media.displayName)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { model.selectMediaDocument(media) }
-            .gesture(editorTabDragGesture(for: tabItem))
 
             LitheToolWindowTabCloseButton { model.closeMediaDocument(media) }
             .opacity(isActive || hoveredTabItem == tabItem ? 1 : 0)
@@ -562,14 +615,14 @@ struct EditorAreaView: View {
         .onHover { isHovering in
             updateHoveredTab(tabItem, isHovering: isHovering)
         }
-        .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorIsActive))
+        .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorGroupIsActive))
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
         .background { editorTabFrameReader(for: tabItem) }
     }
 
     private func editorTerminalTab(_ session: TerminalSession) -> some View {
-        let isActive = !model.isDatabaseWorkspaceSelected && !model.isRepositoryDiffSelected && model.activeEditorTerminalSession?.id == session.id
+        let isActive = !paneDiffSelected && paneTerminal?.id == session.id
         let tabItem = EditorTabItem.terminal(session.id)
 
         return HStack(spacing: 0) {
@@ -614,7 +667,7 @@ struct EditorAreaView: View {
             .allowsHitTesting(isActive || hoveredTabItem == tabItem)
             .padding(.trailing, 4)
         }
-        .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorIsActive))
+        .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorGroupIsActive))
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
         .background {
@@ -678,8 +731,8 @@ struct EditorAreaView: View {
     private func editorTabContent(
         _ document: EditorDocument
     ) -> some View {
-        let isActive = !model.isDatabaseWorkspaceSelected && !model.isRepositoryDiffSelected && model.activeEditorTerminalSession == nil
-            && model.activeDocumentID == document.id
+        let isActive = !paneDiffSelected && paneTerminal == nil
+            && paneDocument?.id == document.id
 
         return HStack(spacing: 0) {
             editorDocumentTabDragSource(document, isActive: isActive)
@@ -689,7 +742,7 @@ struct EditorAreaView: View {
             .allowsHitTesting(isActive || hoveredTabItem == .document(document.id))
             .padding(.trailing, 4)
         }
-        .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorIsActive))
+        .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorGroupIsActive))
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
     }
@@ -700,7 +753,7 @@ struct EditorAreaView: View {
         isActive: Bool
     ) -> some View {
         let label = HStack(spacing: 7) {
-            EditorDocumentTabIcon(document: document, size: 16)
+            EditorDocumentTabIcon(document: document, size: 16, onResolvedKind: { resolvedTabIcons[document.id] = $0 })
             editorTabTitle(document)
             EditorTabDirtyIndicator(document: document)
         }
@@ -720,7 +773,7 @@ struct EditorAreaView: View {
 
         // File, media and Diff tabs share the same gesture in either layout.
         // A native onDrag source here could not drop onto a Diff tab.
-        label.highPriorityGesture(editorTabDragGesture(for: .document(document.id)))
+        label
     }
 
     @ViewBuilder
@@ -777,30 +830,64 @@ struct EditorAreaView: View {
         }
     }
 
-    private func editorTabDragGesture(for item: EditorTabItem) -> some Gesture {
-        DragGesture(
-            minimumDistance: 8,
-            // The strip stays fixed while its tab slots move. Use that same
-            // coordinate space for both the pointer and the recorded tab frames.
-            coordinateSpace: .named(editorTabCoordinateSpaceName)
-        )
-        .onChanged { value in
-            guard !tabDragCancelled else { return }
-            if tabDragState.draggedItem != item {
-                beginTabDrag(item)
-            }
-            updateTabDrag(item, translation: value.translation, location: value.location)
+    private func tabDragImage(_ item: EditorTabItem) -> NSImage? {
+        let renderer = ImageRenderer(content: HStack(spacing: 7) {
+            tabDragLabel(item)
         }
-        .onEnded { value in
-            defer { tabDragCancelled = false }
-            guard !tabDragCancelled else { return }
-            finishTabReorder(item, translation: value.translation, location: value.location)
+        .font(LitheTheme.uiFont(size: 13))
+        .foregroundStyle(LitheTheme.secondaryText)
+        .padding(.horizontal, 8)
+        .modifier(LitheToolWindowTabStyle(isSelected: true, isActive: false))
+        .environment(\.colorScheme, colorScheme)
+        .environment(\.controlActiveState, .inactive))
+        renderer.scale = NSScreen.main?.backingScaleFactor ?? 1
+        return renderer.nsImage
+    }
+
+    @ViewBuilder
+    private func tabDragLabel(_ item: EditorTabItem) -> some View {
+        switch item {
+        case .databaseOverview:
+            LitheIDEAIcon(resourcePath: "database/expui/dbms@20x20.svg", size: 16)
+            Text("Database Overview")
+        case .database(let profileID):
+            LitheIDEAIcon(resourcePath: "database/expui/dbms@20x20.svg", size: 16)
+            if let feature = model.databaseFeatureIfActive {
+                DatabaseWorkspaceTabTitle(feature: feature, profileID: profileID, queryID: nil)
+            }
+        case let .databaseQuery(profileID, queryID):
+            if let feature = model.databaseFeatureIfActive {
+                if let profile = feature.profiles.first(where: { $0.id == profileID }) { DatabaseBrandIcon(kind: profile.kind, size: 16) }
+                DatabaseWorkspaceTabTitle(feature: feature, profileID: profileID, queryID: queryID)
+            }
+        case .document(let id):
+            if let document = model.openDocuments.first(where: { $0.id == id }) {
+                LitheIcon(kind: EditorDocumentIconResolver.kind(for: document.url, resolvedKind: resolvedTabIcons[id]), size: 16)
+                editorTabTitle(document)
+                EditorTabDirtyIndicator(document: document)
+            }
+        case .media(let id):
+            if let media = model.openMediaDocuments.first(where: { $0.id == id }) {
+                Image(systemName: media.kind == .image ? "photo" : "film")
+                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
+                Text(media.displayName)
+            }
+        case .terminal(let id):
+            if let session = model.terminalSessions.first(where: { $0.id == id }) {
+                Image(systemName: "terminal").font(LitheTheme.uiFont(size: 11, weight: .medium))
+                EditorTerminalTabTitle(session: session, fallbackTitle: model.terminalTitle(for: session))
+            }
+        case .repositoryDiff:
+            LitheIDEAIcon(resourcePath: "expui/vcs/diff.svg", size: 16, preservesOriginalColors: true)
+            Text(model.selectedGitCommitDiffContext.map { "Repository Diff: " + $0.url.lastPathComponent } ?? "Repository Diff")
         }
     }
 
     private func beginTabDrag(_ item: EditorTabItem) {
+        selectPaneItem(item)
+        drag.begin()
         tabDragStartFrames = tabFrameStore.frames
-        tabDragPreview.begin(item, onCancel: { cancelTabDrag() })
+        tabDragPreview.begin(item, image: tabDragImage(item), onCancel: { cancelTabDrag() })
         tabReorderTarget = nil
         tabDragState.begin(item: item)
     }
@@ -813,6 +900,10 @@ struct EditorAreaView: View {
         guard tabDragState.draggedItem == item,
               let plan = tabDragPlan(for: item, translation: translation, location: location) else { return }
         tabDragPreview.move(by: translation)
+        if let groupID, !item.isDatabaseTab {
+            let destination = drag.destination(at: location, sourceGroup: groupID)
+            if drag.target != destination { drag.target = destination }
+        }
         guard tabReorderTarget != plan.target else { return }
         tabReorderTarget = plan.target
     }
@@ -826,6 +917,11 @@ struct EditorAreaView: View {
             finishTabDrag()
             return
         }
+        if let groupID, !item.isDatabaseTab, let destination = drag.destination(at: location, sourceGroup: groupID) {
+            finishTabDrag()
+            model.moveEditorTab(item, toGroup: destination.group, side: destination.side)
+            return
+        }
         let target = tabDragPlan(for: item, translation: translation, location: location)?.target
         if let target {
             if target.side == .after {
@@ -834,6 +930,7 @@ struct EditorAreaView: View {
                 model.moveEditorTab(item, before: target.item)
             }
         }
+        drag.finish()
         tabDragPreview.finish()
         tabReorderTarget = nil
         tabDragState.finish()
@@ -992,6 +1089,7 @@ struct EditorAreaView: View {
         guard tabDragState != .idle
             || tabReorderTarget != nil
             || tabDragPreview.panel != nil else { return }
+        drag.finish()
         tabDragPreview.finish()
         tabReorderTarget = nil
         tabDragState.finish()
@@ -1049,12 +1147,12 @@ struct EditorAreaView: View {
     }
 
     private var selectedDocumentPreviewMode: DocumentPreviewMode {
-        guard let document = model.activeDocument else { return .editor }
+        guard let document = paneDocument else { return .editor }
         return documentPreviewModes[document.id] ?? (isSVGFile(document) || isHTMLFile(document) ? .split : .editor)
     }
 
     private func selectDocumentPreviewMode(_ mode: DocumentPreviewMode) {
-        guard let document = model.activeDocument else { return }
+        guard let document = paneDocument else { return }
         documentPreviewModes[document.id] = mode
     }
 
@@ -1073,19 +1171,21 @@ struct EditorAreaView: View {
     private var editorWorkspace: some View {
         VStack(spacing: 0) {
             editorTabs
+                .background(GeometryReader { geometry in
+                    if let groupID {
+                        Color.clear.preference(key: EditorGroupTabFramePreference.self,
+                            value: [groupID: geometry.frame(in: .named(editorWorkspaceCoordinateSpaceName))])
+                    }
+                })
             LitheToolWindowHeaderDivider()
 
-            if model.isDatabaseWorkspaceSelected, let feature = model.databaseFeatureIfActive {
+            if let item = paneItem, item.isDatabaseTab, let feature = model.databaseFeatureIfActive {
                 Group {
-                    if model.editorTabOrderFeature.databaseOverviewSelected {
-                        DatabaseOverviewView()
-                    } else if model.editorTabOrderFeature.databaseQuerySelected != nil {
-                        DatabaseSQLWorkspaceView()
-                    } else {
-                        DatabaseWorkspaceView()
-                    }
+                    if item == .databaseOverview { DatabaseOverviewView() }
+                    else if case .databaseQuery = item { DatabaseSQLWorkspaceView() }
+                    else { DatabaseWorkspaceView() }
                 }.environmentObject(feature)
-            } else if model.isRepositoryDiffSelected {
+            } else if paneDiffSelected {
                 if let feature = model.gitFeatureIfActive, let context = feature.selectedGitCommitDiffContext {
                     RepositoryDiffView(feature: feature, context: context,
                         onClose: { model.closeGitCommitDiff() },
@@ -1104,19 +1204,6 @@ struct EditorAreaView: View {
                         .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.secondaryText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else if model.activeEditorTerminalSession == nil,
-               model.activeMediaDocument == nil,
-               let splitDocumentID,
-               let splitDocument = model.openDocuments.first(where: { $0.id == splitDocumentID }) {
-                VStack(spacing: 0) {
-                    HStack {
-                        Spacer()
-                        Text(splitDocument.displayName).font(LitheTheme.uiFont(size: 11))
-                        Button("Close split") { self.splitDocumentID = nil }.buttonStyle(.litheNoPress)
-                    }
-                    .padding(.horizontal, 10).frame(height: 30)
-                    MonacoWorkbenchEditor(document: model.activeDocument ?? splitDocument, secondaryDocument: splitDocument)
-                }
             } else {
                 externalConflictBanner
                 activeEditor
@@ -1125,42 +1212,47 @@ struct EditorAreaView: View {
     }
 
     private func editorTabContextMenu(
-        for document: EditorDocument,
-        at index: Int
+        for document: EditorDocument
     ) -> [LitheContextMenuItem] {
+        let targets = model.editorTabOrderFeature.documentCloseTargets(for: document.id, in: groupID)
+        func documents(_ ids: [UUID]) -> [EditorDocument] {
+            ids.compactMap { id in model.openDocuments.first { $0.id == id } }
+        }
         var items: [LitheContextMenuItem] = [
             .action("Close", action: { model.requestCloseDocument(document) }),
             .action(
                 "Open in Right Split",
-                isEnabled: model.openDocuments.count >= 2,
-                action: { splitDocumentID = document.id }
+                isEnabled: groupID.map { model.editorTabOrderFeature.canDrop(.document(document.id), into: $0, side: .right) } ?? false,
+                action: {
+                    if let groupID { model.moveEditorTab(.document(document.id), toGroup: groupID, side: .right) }
+                }
             ),
             .action(
                 "Close Other Tabs",
-                isEnabled: model.openDocuments.count > 1,
+                isEnabled: !targets.other.isEmpty,
                 action: {
                     model.requestCloseDocuments(
-                        model.openDocuments.filter { $0.id != document.id },
+                        documents(targets.other),
                         preferredDocumentID: document.id
                     )
                 }
             ),
             .action(
                 "Close Tabs to the Left",
-                isEnabled: index > 0,
+                isEnabled: !targets.left.isEmpty,
                 action: {
                     model.requestCloseDocuments(
-                        Array(model.openDocuments.prefix(index)),
+                        documents(targets.left),
                         preferredDocumentID: document.id
                     )
                 }
             ),
             .action(
                 "Close Tabs to the Right",
-                isEnabled: index < model.openDocuments.count - 1,
+                isEnabled: !targets.right.isEmpty,
                 action: {
                     model.requestCloseDocuments(
-                        Array(model.openDocuments.dropFirst(index + 1)),
+                        documents(targets.right),
                         preferredDocumentID: document.id
                     )
                 }
@@ -1169,12 +1261,12 @@ struct EditorAreaView: View {
                 "Close Unmodified Tabs",
                 action: {
                     model.requestCloseDocuments(
-                        model.openDocuments.filter { !$0.isDirty },
+                        documents(targets.left + [document.id] + targets.right).filter { !$0.isDirty },
                         preferredDocumentID: document.id
                     )
                 }
             ),
-            .action("Close All Tabs", action: { model.requestCloseDocuments(model.openDocuments) }),
+            .action("Close All Tabs", action: { model.requestCloseDocuments(documents(targets.left + [document.id] + targets.right)) }),
             .separator,
             .submenu("Copy Path / Reference", items: [
                 .action("Copy Path", action: { model.copyProjectItemPath(document.url, relative: false) }),
@@ -1201,16 +1293,16 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private var activeEditor: some View {
-        if let session = model.activeEditorTerminalSession {
+        if let session = paneTerminal {
             TerminalSurfaceView(session: session)
                 .id(session.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(8)
                 .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
-        } else if let media = model.activeMediaDocument {
+        } else if let media = paneMedia {
             MediaViewerView(media: media)
                 .id(media.id)
-        } else if let document = model.activeDocument {
+        } else if let document = paneDocument {
             if isSVGFile(document) {
                 switch documentPreviewModes[document.id] ?? .split {
                 case .editor:
@@ -1266,7 +1358,7 @@ struct EditorAreaView: View {
     ) -> some View {
         codeEditor(document, markdownScrollPosition: markdownScrollPosition)
             .overlay(alignment: .top) {
-                FindBarOverlay()
+                if paneItem == activeItem { FindBarOverlay() }
             }
             .overlay(alignment: .topTrailing) {
                 EditorSoftWrapToggle()
@@ -1279,7 +1371,7 @@ struct EditorAreaView: View {
         _ document: EditorDocument,
         markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
     ) -> some View {
-        MonacoWorkbenchEditor(document: document, markdownScrollPosition: markdownScrollPosition)
+        MonacoWorkbenchEditor(document: document, sessionGroupID: groupID, markdownScrollPosition: markdownScrollPosition)
         .clipped()
     }
 
@@ -1291,20 +1383,30 @@ struct EditorAreaView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "doc.text.magnifyingglass")
-                .font(LitheTheme.uiFont(size: 44, weight: .ultraLight))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text("Select a file to review")
-                .font(LitheTheme.uiFont(size: 15, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-            Text("Changes from external tools will appear automatically.")
-                .font(LitheTheme.uiFont)
-                .foregroundStyle(LitheTheme.secondaryText)
+        GeometryReader { geometry in
+            VStack(alignment: .leading, spacing: 0) {
+                emptyHint("Search Everywhere", command: "search-everywhere")
+                emptyHint("Find in Files", command: "search-in-project")
+            }
+            .font(LitheTheme.uiFont(size: 16))
+            .fixedSize()
+            .frame(maxWidth: .infinity, alignment: .center)
+            .offset(y: geometry.size.height * 0.375 - LitheTheme.uiNSFont(size: 16).ascender)
         }
-        .fixedSize()
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         .clipped()
+    }
+
+    @ViewBuilder
+    private func emptyHint(_ title: String, command: String) -> some View {
+        if let shortcut = model.keyboardShortcutFeature.displayText(for: command) {
+            let font = LitheTheme.uiNSFont(size: 16)
+            let space = (" " as NSString).size(withAttributes: [.font: font]).width
+            HStack(spacing: space * (colorScheme == .dark ? 2 : 1)) {
+                Text(LocalizedStringKey(title)).foregroundStyle(LitheTheme.EditorEmptyState.label)
+                Text(shortcut).foregroundStyle(LitheTheme.EditorEmptyState.shortcut)
+            }
+            .frame(height: ceil(font.ascender - font.descender + 2 * font.leading) * 1.8, alignment: .top)
+        }
     }
 
 }

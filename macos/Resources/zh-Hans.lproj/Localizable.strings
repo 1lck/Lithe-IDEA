@@ -2764,6 +2764,16 @@
 
 "Only source files of the current language can be opened from outside the workspace" = "工作区外只能打开当前语言的源码文件";
 
+/* Tool window docking destinations. */
+"Move to Left Top" = "移到左侧上方";
+"Move to Left Bottom" = "移到左侧下方";
+"Move to Right Top" = "移到右侧上方";
+"Move to Right Bottom" = "移到右侧下方";
+"Move to Bottom Left" = "移到底部左侧";
+"Move to Bottom Right" = "移到底部右侧";
+
+"Could not move the editor tab. Its content could not be synchronized." = "无法移动编辑标签，未能同步其内容。";
+
 /* Plugin marketplace */
 "Search plugins" = "搜索插件";
 "Plugin repository" = "插件仓库";
@@ -2834,6 +2844,10 @@
 "Latest Version" = "最新版本";
 "%@ (not available for this Lithe or Mac)" = "%@（当前 Lithe 或这台 Mac 无法使用）";
 
+/* Main toolbar settings menu. */
+"Plugins…" = "插件…";
+"Theme…" = "主题…";
+"Keymap…" = "快捷键…";
 /* Agent session status (issue #22) */
 "Model call statistics" = "模型调用统计";
 "Routes API-key Agent requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and keys are forwarded unchanged and never stored. Applies after reconnecting; subscription sign-in is not observed." = "通过本机本地代理转发 API Key 模式的 Agent 请求，用于显示模型调用次数、首 token 延迟、输出速度和上下文构成。请求与密钥原样转发，不会保存。重新连接后生效；订阅登录不统计。";

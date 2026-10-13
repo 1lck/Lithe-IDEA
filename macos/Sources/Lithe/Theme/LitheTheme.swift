@@ -379,6 +379,34 @@ enum LitheTheme {
         })
     }
     // Community ManyIslands ActionButton tokens; opt in without changing other controls.
+    // ToolWindow.DragAndDrop.buttonFloatingBackground → Islands control-bg-small.
+    static func toolWindowFloatingButtonBackground(for scheme: ColorScheme) -> Color {
+        Color(nsColor: RGBA(scheme == .dark ? 0x40434A : 0xDDDFE4).nsColor)
+    }
+
+    /// ToolWindow.DragAndDrop.areaBackground, Community Islands c7f91397.
+    static var toolWindowDropButton: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            NSColor(srgbRed: 54.0 / 255, green: 113.0 / 255, blue: 229.0 / 255,
+                    alpha: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? 128.0 / 255 : 64.0 / 255)
+        })
+    }
+    static var toolWindowDropArea: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(srgbRed: (dark ? 54.0 : 160.0) / 255, green: (dark ? 106.0 : 189.0) / 255,
+                           blue: (dark ? 207.0 : 248.0) / 255, alpha: 77.0 / 255)
+        })
+    }
+
+    // Community c7f91397 EditorEmptyTextPainter: Label.infoForeground / Shortcut.foreground.
+    enum EditorEmptyState {
+        static let label = Color(nsColor: RGBA(0x73767C).nsColor)
+        static let shortcut = Color(nsColor: NSColor(name: nil) { appearance in
+            RGBA(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? 0x9FA2A8 : 0x5F6269).nsColor
+        })
+    }
+
     static var toolbarHoverBackground: Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua

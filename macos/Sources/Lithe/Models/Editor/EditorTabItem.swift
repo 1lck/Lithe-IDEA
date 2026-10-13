@@ -11,4 +11,11 @@ enum EditorTabItem: Hashable, Identifiable {
     case repositoryDiff
 
     var id: Self { self }
+
+    var isDatabaseTab: Bool {
+        switch self {
+        case .database, .databaseQuery, .databaseOverview: true
+        default: false
+        }
+    }
 }

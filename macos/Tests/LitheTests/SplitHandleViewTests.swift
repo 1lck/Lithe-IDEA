@@ -194,10 +194,14 @@ struct SplitHandleViewTests {
                     hasWorkbenchBackground: false, onCommit: { _ in },
                     workspace: { workspace },
                     tool: {
-                        VStack(spacing: 0) {
-                            Color.green.frame(height: 40)
-                            Color.red.frame(minHeight: 120)
-                        }
+                        WorkbenchDockGroups(anchor: .right, primaryVisible: true,
+                                            secondaryVisible: false, fraction: 0.5,
+                                            commitFraction: { _ in }, content: { _ in
+                            VStack(spacing: 0) {
+                                Color.green.frame(height: 40)
+                                Color.red.frame(minHeight: 120)
+                            }
+                        })
                     }
                 )
             } else {
@@ -328,7 +332,7 @@ struct SplitHandleViewTests {
         let host = NSHostingView(rootView: LitheSplitPaneView(
             axis: .horizontal, placement: .leading,
             defaultSize: 100, minimum: 50, maximum: 200,
-            dividerColor: LitheTheme.toolWindowBorder(for: scheme), highlightsOnHover: false,
+            dividerColor: LitheTheme.toolWindowBorder(for: scheme),
             onCommit: { committed = $0 },
             sized: {
                 VStack(spacing: 0) {

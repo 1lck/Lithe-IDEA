@@ -8,6 +8,165 @@ import Testing
 @Suite("Editor tab order")
 @MainActor
 struct EditorTabOrderFeatureModelTests {
+    @Test func splitMenuEligibilityMatchesDropForSingleAndMixedGroups() throws {
+        let model = EditorTabOrderFeatureModel()
+        let a = EditorTabItem.document(UUID()), b = EditorTabItem.document(UUID())
+        model.moveToEnd(a); model.moveToEnd(b)
+        let left = try #require(model.groupLayout.groups.first)
+        #expect(model.canDrop(b, into: left, side: .right))
+        #expect(model.drop(b, into: left, side: .right))
+        let right = try #require(model.groupLayout.groups.last)
+        #expect(!model.canDrop(b, into: right, side: .right))
+        #expect(!model.drop(b, into: right, side: .right))
+        model.moveToEnd(.terminal(UUID()))
+        #expect(model.canDrop(b, into: right, side: .right))
+        #expect(model.drop(b, into: right, side: .right))
+        #expect(!model.canDrop(a, into: UUID(), side: .right))
+    }
+
+    @Test func closeTargetsRespectGroupsMixedTabsAndReordering() throws {
+        let model = EditorTabOrderFeatureModel()
+        let a = UUID(), b = UUID(), c = UUID(), terminal = UUID()
+        model.reconcileDocuments(orderedIDs: [a, b, c])
+        model.moveToEnd(.terminal(terminal))
+        let left = try #require(model.groupLayout.groups.first)
+        #expect(model.drop(.document(c), into: left, side: .right))
+        let right = try #require(model.groupLayout.groups.last)
+        let isolated = model.documentCloseTargets(for: c, in: right)
+        #expect(isolated.other.isEmpty && isolated.left.isEmpty && isolated.right.isEmpty)
+        #expect(model.move(.document(b), before: .document(a)))
+        let targets = model.documentCloseTargets(for: a, in: left)
+        #expect(targets.other == [b])
+        #expect(targets.left == [b])
+        #expect(targets.right.isEmpty)
+        let first = model.documentCloseTargets(for: b, in: left)
+        #expect(first.left.isEmpty && first.right == [a])
+        #expect(model.items(in: left).contains(.terminal(terminal)))
+        #expect(model.documentCloseTargets(for: c, in: left).other.isEmpty)
+    }
+
+    @Test(arguments: [2, 3])
+    func nativeMultilineRowReleaseReordersWithoutSplitting(row: Int) async throws {
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        settings.editorTabLayoutMode = .multipleRows
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        for index in 1...3 {
+            model.documentFeature.openVirtualDocument(
+                URL(string: "lithe-test://rows/LongDocumentNameForWrapping\(index).swift")!, text: "row", displayPath: nil)
+        }
+        do {
+            let drag = EditorGroupDragState()
+            let original = model.editorTabItems
+            let host = NSHostingView(rootView: EditorGroupContainer(feature: model.editorTabOrderFeature, drag: drag)
+                .environmentObject(model).environmentObject(settings).environmentObject(model.editorChrome))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if let frame = drag.tabFrames.values.first, frame.height > 72 { break }
+                await Task.yield()
+            } while ContinuousClock.now < deadline
+            let frame = try #require(drag.tabFrames.values.first)
+            #expect(frame.height > 72)
+            func send(_ type: NSEvent.EventType, y: CGFloat, x: CGFloat) throws {
+                NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type,
+                    location: host.convert(CGPoint(x: x, y: y), to: nil), modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                    pressure: type == .leftMouseUp ? 0 : 1)))
+            }
+            let rowHeight = frame.height / 3
+            try send(.leftMouseDown, y: rowHeight / 2, x: 60)
+            try send(.leftMouseDragged, y: rowHeight / 2, x: 80)
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            try send(.leftMouseDragged, y: (CGFloat(row) - 0.5) * rowHeight, x: 240)
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            try send(.leftMouseUp, y: (CGFloat(row) - 0.5) * rowHeight, x: 240)
+            host.layoutSubtreeIfNeeded()
+            #expect(model.editorTabOrderFeature.groupLayout.groups.count == 1)
+            #expect(model.editorTabItems != original)
+            #expect(Set(model.editorTabItems) == Set(original))
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
+    @Test func clippedTabsDoNotCaptureAdjacentGroupClicks() throws {
+        let hiddenStore = EditorTabDragPreviewStore(), neighborStore = EditorTabDragPreviewStore()
+        defer { hiddenStore.stopCapturing(); neighborStore.stopCapturing() }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 60),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        let root = try #require(window.contentView)
+        let clip = NSClipView(frame: CGRect(x: 0, y: 0, width: 100, height: 36))
+        let document = NSView(frame: CGRect(x: 0, y: 0, width: 300, height: 36))
+        clip.documentView = document; root.addSubview(clip)
+        let hidden = NSView(frame: CGRect(x: 120, y: 0, width: 80, height: 36))
+        document.addSubview(hidden)
+        let neighbor = NSView(frame: hidden.frame); root.addSubview(neighbor)
+        var hiddenClicks = 0, neighborClicks = 0, hiddenDrags = 0
+        hiddenStore.register(hidden, for: .document(UUID()), frame: { hidden.frame },
+            clicked: { hiddenClicks += 1 }, changed: { _, _ in hiddenDrags += 1 }, ended: { _, _ in })
+        func send(_ type: NSEvent.EventType, x: CGFloat) throws {
+            NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: CGPoint(x: x, y: 18),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)))
+        }
+        #expect(hidden.bounds.intersection(hidden.visibleRect).isEmpty)
+        try send(.leftMouseDown, x: 140); try send(.leftMouseUp, x: 140)
+        #expect(hiddenClicks == 0)
+        neighborStore.register(neighbor, for: .document(UUID()), frame: { neighbor.frame },
+            clicked: { neighborClicks += 1 }, changed: { _, _ in }, ended: { _, _ in })
+        try send(.leftMouseDown, x: 140); try send(.leftMouseUp, x: 140)
+        #expect(hiddenClicks == 0); #expect(neighborClicks == 1)
+        try send(.leftMouseDown, x: 140); try send(.leftMouseDragged, x: 155); try send(.leftMouseUp, x: 155)
+        #expect(hiddenDrags == 0)
+        // A partially visible tab remains clickable only inside the viewport.
+        hidden.frame.origin.x = 80
+        try send(.leftMouseDown, x: 90); try send(.leftMouseUp, x: 90)
+        #expect(hiddenClicks == 1)
+        try send(.leftMouseDown, x: 105); try send(.leftMouseUp, x: 105)
+        #expect(hiddenClicks == 1)
+    }
+
+    @Test(arguments: [CGFloat(58), 94])
+    func multilineTabRowsRemainReorderTargets(y: CGFloat) throws {
+        let feature = EditorTabOrderFeatureModel()
+        let a = EditorTabItem.document(UUID()), b = EditorTabItem.document(UUID())
+        feature.moveToEnd(a); feature.moveToEnd(b)
+        let group = try #require(feature.groupLayout.groups.first)
+        let drag = EditorGroupDragState()
+        drag.frames = [group: CGRect(x: 0, y: 0, width: 300, height: 400)]
+        drag.tabFrames = [group: CGRect(x: 0, y: 0, width: 300, height: 108)]
+        drag.begin(); defer { drag.finish() }
+        #expect(drag.destination(at: CGPoint(x: 150, y: y), sourceGroup: group) == nil)
+        #expect(feature.move(b, before: a))
+        #expect(feature.groupLayout.groups == [group])
+        #expect(feature.items == [b, a])
+        #expect(drag.destination(at: CGPoint(x: 150, y: 120), sourceGroup: group)?.side == .top)
+        #expect(drag.destination(at: CGPoint(x: 290, y: 250), sourceGroup: group)?.side == .right)
+    }
+
+    @Test func databaseTabsKeepTheirSharedWorkspaceWhileDocumentsSplit() throws {
+        let feature = EditorTabOrderFeatureModel()
+        let first = EditorTabItem.document(UUID()), second = EditorTabItem.document(UUID())
+        let database = EditorTabItem.database(UUID()), query = EditorTabItem.databaseQuery(profileID: UUID(), queryID: UUID())
+        feature.moveToEnd(first); feature.moveToEnd(second); feature.moveToEnd(database)
+        let original = try #require(feature.groupLayout.groups.first)
+        #expect(feature.drop(second, into: original, side: .right))
+        let other = try #require(feature.groupLayout.groups.last)
+        feature.moveToEnd(query)
+        #expect(feature.items(in: original).contains(query))
+        #expect(!feature.drop(database, into: other, side: .center))
+        #expect(!feature.move(query, before: second))
+        #expect(feature.move(query, before: database))
+        #expect(feature.items(in: other) == [second])
+    }
+
     @Test(arguments: [true, false], [true, false])
     func sharedTabPaintsActiveBlueAndInactiveGray(dark: Bool, active: Bool) async throws {
         let hosting = NSHostingView(rootView: Text("Example.swift").font(LitheTheme.uiFont(size: 13))
@@ -224,7 +383,7 @@ struct EditorTabOrderFeatureModelTests {
             // Drag the file icon across the Diff tab and another file using window events.
             for (index, x) in [20.0, 40.0, 220.0, 460.0, 460.0].enumerated() {
                 let type: NSEvent.EventType = index == 0 ? .leftMouseDown : index == 4 ? .leftMouseUp : .leftMouseDragged
-                window.sendEvent(try #require(NSEvent.mouseEvent(with: type,
+                NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type,
                     location: hosting.convert(NSPoint(x: x, y: 18), to: nil), modifierFlags: [],
                     timestamp: Double(index), windowNumber: window.windowNumber, context: nil,
                     eventNumber: index, clickCount: 1, pressure: index == 4 ? 0 : 1)))
@@ -235,6 +394,12 @@ struct EditorTabOrderFeatureModelTests {
             model.moveEditorTab(.document(first.id), before: .repositoryDiff)
             model.selectRepositoryDiffTab()
             await Task.yield(); hosting.layoutSubtreeIfNeeded()
+            if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
+                let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+                hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+                try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                    URL(fileURLWithPath: directory).appendingPathComponent("group-diff-menu.png"))
+            }
             // Close through the production settings menu, not only AppModel's tab command.
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 let event = try #require(NSEvent.mouseEvent(with: type,
@@ -309,7 +474,7 @@ struct EditorTabOrderFeatureModelTests {
             func drag(_ points: [NSPoint], cancel: Bool = false) async throws {
                 for (index, point) in points.enumerated() {
                     let type: NSEvent.EventType = index == 0 ? .leftMouseDown : index == points.count - 1 ? .leftMouseUp : .leftMouseDragged
-                    window.sendEvent(try #require(NSEvent.mouseEvent(with: type,
+                    NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type,
                         location: host.convert(point, to: nil), modifierFlags: [],
                         timestamp: Double(eventNumber), windowNumber: window.windowNumber, context: nil,
                         eventNumber: eventNumber, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)))
@@ -586,6 +751,143 @@ struct EditorTabOrderFeatureModelTests {
         #expect(appModel.activeDocumentID == firstDocument.id)
         #expect(appModel.activeEditorTerminalSession == nil)
     }
+    @Test func editorGroupsMoveTabsKeepSelectionAndCollapseEmptySplits() throws {
+        let feature = EditorTabOrderFeatureModel()
+        let a = UUID(), b = UUID(), c = UUID()
+        feature.reconcileDocuments(orderedIDs: [a, b, c])
+        let original = try #require(feature.groupLayout.groups.first)
+        feature.focus(.document(a))
+        #expect(feature.drop(.document(b), into: original, side: .right))
+        let right = try #require(feature.groupLayout.groups.last)
+        #expect(feature.items(in: original) == [.document(a), .document(c)])
+        #expect(feature.selectedItem(in: original) == .document(a))
+        #expect(feature.items(in: right) == [.document(b)])
+        #expect(feature.selectedItem(in: right) == .document(b))
+        #expect(!feature.drop(.document(b), into: right, side: .bottom))
+        #expect(feature.drop(.document(c), into: right, side: .bottom))
+        #expect(feature.groupLayout.groups.count == 3)
+        feature.remove(.document(c))
+        #expect(feature.groupLayout.groups == [original, right])
+        #expect(feature.drop(.document(b), into: original, side: .center))
+        #expect(feature.groupLayout == .group(original))
+        #expect(feature.selectedItem(in: original) == .document(b))
+        #expect(feature.items == [.document(a), .document(b)])
+        // New tabs open in the focused group; closing the final tab leaves one reusable empty group.
+        feature.reconcileDocuments(orderedIDs: [a, b, c])
+        #expect(feature.items(in: original).count == 3)
+        feature.reconcileDocuments(orderedIDs: [])
+        #expect(feature.groupLayout.groups.count == 1)
+        #expect(feature.selectedItem(in: original) == nil)
+    }
+
+    @Test(arguments: [true, false])
+    func editorGroupDropWaitsForBufferedInputAndRejectsFailedSynchronization(succeeds: Bool) throws {
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/First.swift")!, text: "first", displayPath: nil)
+        model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/Second.swift")!, text: "old buffer", displayPath: nil)
+        let document = try #require(model.openDocuments.last)
+        var complete: ((Result<Void, Error>) -> Void)?
+        document.synchronizeEditor = { complete = $0 }
+        defer { document.synchronizeEditor = nil; complete?(.failure(EditorDocument.DocumentError.editorNotSynchronized)) }
+        let layout = model.editorTabOrderFeature.groupLayout
+        let group = try #require(layout.groups.first)
+        // Only the latest pending drop may commit after the editor drain finishes.
+        model.moveEditorTab(.document(document.id), toGroup: group, side: .top)
+        model.moveEditorTab(.document(document.id), toGroup: group, side: .bottom)
+        #expect(model.editorTabOrderFeature.groupLayout == layout)
+        let finish = try #require(complete)
+        document.text = "latest drained buffer"
+        complete = nil
+        finish(succeeds ? .success(()) : .failure(EditorDocument.DocumentError.editorNotSynchronized))
+        if succeeds {
+            let groups = model.editorTabOrderFeature.groupLayout.groups
+            #expect(groups.count == 2)
+            let bottom = try #require(groups.last)
+            #expect(model.editorTabOrderFeature.items(in: bottom) == [.document(document.id)])
+            #expect(model.openDocuments.last === document)
+            #expect(document.text == "latest drained buffer")
+        } else { #expect(model.editorTabOrderFeature.groupLayout == layout) }
+    }
+
+    @Test(arguments: [EditorGroupDropSide.right, .bottom], [true, false])
+    func nativeTabDragSplitsOnReleaseAndEscCancels(side: EditorGroupDropSide, injectedState: Bool) async throws {
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/First.swift")!, text: "first", displayPath: nil)
+        model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/Second.swift")!, text: "second", displayPath: nil)
+        do {
+            let first = try #require(model.openDocuments.first), second = try #require(model.openDocuments.last)
+            let drag: EditorGroupDragState? = injectedState ? EditorGroupDragState() : nil
+            let host = NSHostingView(rootView: EditorAreaView(groupDrag: drag).environmentObject(model)
+                .environmentObject(settings).environmentObject(model.editorChrome))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 400),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+            defer { window.contentView = nil; window.close() }
+            host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
+            // Parent reconstruction with unchanged geometry must retain the root-owned drag registry.
+            host.rootView = EditorAreaView(groupDrag: drag).environmentObject(model)
+                .environmentObject(settings).environmentObject(model.editorChrome)
+            host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
+            func send(_ type: NSEvent.EventType, _ point: NSPoint) throws {
+                NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type,
+                    location: host.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                    pressure: type == .leftMouseUp ? 0 : 1)))
+            }
+            let start = NSPoint(x: 170, y: 18)
+            let destination = side == .right ? NSPoint(x: 760, y: 210) : NSPoint(x: 400, y: 370)
+            let original = model.editorTabOrderFeature.groupLayout
+            try send(.leftMouseDown, start)
+            try send(.leftMouseDragged, NSPoint(x: 185, y: 18))
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            try send(.leftMouseDragged, destination)
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            if let drag { #expect(drag.target?.side == side) }
+            // Crossing the center hides only the split overlay; the same held drag remains alive.
+            try send(.leftMouseDragged, NSPoint(x: 400, y: 210))
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            #expect(drag?.target == nil)
+            #expect(window.childWindows?.contains { $0.identifier?.rawValue == "lithe.editor-tab-drag-preview" } == true)
+            try send(.leftMouseDragged, NSPoint(x: 40, y: 210))
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            if let drag { #expect(drag.target?.side == .left) }
+            #expect(window.childWindows?.contains { $0.identifier?.rawValue == "lithe.editor-tab-drag-preview" } == true)
+            #expect(model.editorTabOrderFeature.groupLayout == original)
+            NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
+            try send(.leftMouseUp, destination)
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            #expect(drag?.target == nil)
+            #expect(model.editorTabOrderFeature.groupLayout == original)
+            try send(.leftMouseDown, start)
+            try send(.leftMouseDragged, NSPoint(x: 185, y: 18))
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            try send(.leftMouseDragged, destination)
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            try send(.leftMouseUp, destination)
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            let groups = model.editorTabOrderFeature.groupLayout.groups
+            #expect(groups.count == 2)
+            let primary = try #require(groups.first), secondary = try #require(groups.last)
+            #expect(model.editorTabOrderFeature.items(in: primary) == [.document(first.id)])
+            #expect(model.editorTabOrderFeature.items(in: secondary) == [.document(second.id)])
+            #expect(model.openDocuments.count == 2)
+            #expect(window.childWindows?.contains { $0.identifier?.rawValue == "lithe.editor-tab-drag-preview" } != true)
+            model.editorDidFocus(first)
+            #expect(model.activeDocumentID == first.id)
+            model.editorDidFocus(second)
+            #expect(model.activeDocumentID == second.id)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
 }
 
 private final class EditorTabOrderTestStore: KeyValueStore, @unchecked Sendable {

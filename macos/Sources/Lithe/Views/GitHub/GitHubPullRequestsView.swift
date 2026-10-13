@@ -80,7 +80,7 @@ struct GitHubPullRequestsSidebarView: View {
                             .help("Refresh pull requests")
                         }
                         LitheSidebarHideButton(title: "Pull Requests") {
-                            model.workbenchFeature.hideSidebar()
+                            model.workbenchFeature.setVisibility(.pullRequests, isVisible: false)
                         }
                     }
                     Rectangle().fill(LitheTheme.divider).frame(height: 1)

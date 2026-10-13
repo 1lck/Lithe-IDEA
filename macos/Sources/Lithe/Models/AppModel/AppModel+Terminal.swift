@@ -245,6 +245,7 @@ extension AppModel {
     }
 
     func selectEditorTerminalSession(_ session: TerminalSession) {
+        editorTabOrderFeature.focus(.terminal(session.id))
         guard terminalPlacementFeature.editorSessionIDs.contains(session.id),
               terminalFeature?.selectSession(session) == true else { return }
         editorTabOrderFeature.repositoryDiffSelected = false

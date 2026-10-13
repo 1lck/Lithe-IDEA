@@ -1455,6 +1455,15 @@
 
 "Collapse All" = "Collapse All";
 
+/* Tool window docking destinations. */
+"Move to Left Top" = "Move to Left Top";
+"Move to Left Bottom" = "Move to Left Bottom";
+"Move to Right Top" = "Move to Right Top";
+"Move to Right Bottom" = "Move to Right Bottom";
+"Move to Bottom Left" = "Move to Bottom Left";
+"Move to Bottom Right" = "Move to Bottom Right";
+
+"Could not move the editor tab. Its content could not be synchronized." = "Could not move the editor tab. Its content could not be synchronized.";
 "Database Overview" = "Database Overview";
 
 "Non-Introspected" = "Non-Introspected";
@@ -1480,3 +1489,8 @@
 "Succeeded, line %d" = "Succeeded, line %d";
 
 "Failed, line %d" = "Failed, line %d";
+
+/* Main toolbar settings menu. */
+"Plugins…" = "Plugins…";
+"Theme…" = "Theme…";
+"Keymap…" = "Keymap…";

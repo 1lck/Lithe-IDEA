@@ -87,7 +87,7 @@ struct SettingsView: View {
                     minimum: Self.categoryMinimumWidth,
                     maximum: max(Self.categoryMinimumWidth, geometry.size.width - SplitHandleView.thickness - Self.contentMinimumWidth),
                     flexibleMinimum: Self.contentMinimumWidth,
-                    highlightsOnHover: false,
+
                     onCommit: { categorySidebarWidth = Double($0) },
                     sized: { categories.background(LitheToolWindowActivityTracker(isActive: $categoryListActive)) },
                     flexible: {
