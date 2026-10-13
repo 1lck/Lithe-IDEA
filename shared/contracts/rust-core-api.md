@@ -1026,7 +1026,19 @@ addition to the compatibility `exitCode`. The shared compatibility fixtures are
 `shared/fixtures/git/command-error-response-v1.json`. Invalid arguments found
 before any Git subprocess use the standard `invalid_request` error envelope.
 `checkout` uses `referenceKind` values
-`local`, `remote`, or `tag`; `clone` uses `remote` as its source and
+`local`, `remote`, or `tag`. A remote checkout creates its tracking local branch
+when missing, or fast-forwards an existing matching tracking branch to the selected
+fetched remote commit. This also updates an already-current local branch and
+succeeds when it is already aligned. It does not Fetch again or create merge
+commits. Local-only commits (ahead or diverged) block the operation before a switch
+or automatic stash; `force` discards working changes, never committed history.
+Blocking working changes and another worktree's branch ownership remain protected.
+The selected remote commit is pinned and branch identity is rechecked before
+integration. A composite checkout may switch successfully before a later integration
+or stash restore fails, so consumers refresh repository state after either outcome.
+Local checkout and `checkoutAndRebase` retain their existing policies. Scenarios are
+in `shared/fixtures/git/remote-checkout-v1.json`.
+`clone` uses `remote` as its source and
 `destination` as its target path. `publishBranch` validates `name`, creates
 and checks out that branch at a detached HEAD when needed, then pushes it with
 an upstream. If the push fails, the local branch is intentionally retained so

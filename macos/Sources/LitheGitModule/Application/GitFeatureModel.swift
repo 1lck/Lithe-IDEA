@@ -3415,14 +3415,12 @@ package final class GitFeatureModel: ObservableObject {
             } else {
                 notify?(trimmedMessage(result))
             }
-            if autoStash {
-                // A smart checkout can switch branches and still fail to restore the stash,
-                // so re-read Git rather than assuming the working tree is unchanged.
-                selectedGitReference = nil
-                isShowingAllGitReferences = false
-                closeBranchComparison()
-                await refreshGit()
-            }
+            // Remote checkout can switch branches before its fast-forward fails;
+            // smart checkout can also fail while restoring the saved changes.
+            selectedGitReference = nil
+            isShowingAllGitReferences = false
+            closeBranchComparison()
+            await refreshGit()
         }
     }
 

@@ -117,75 +117,72 @@ struct AgentTranscriptView: View {
                     .frame(width: 180)
                 }
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 14) {
-                            if conversation?.isLoading == true {
-                                HStack(spacing: 8) {
-                                    ProgressView().controlSize(.small)
-                                    Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        if conversation?.isLoading == true {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
+                            }
+                        }
+                        if !searchText.isEmpty && transcript.isEmpty {
+                            Text("No matching messages")
+                                .foregroundStyle(AgentPanelStyle.secondary)
+                        }
+                        ForEach(transcript) { item in
+                            Group {
+                                switch item {
+                                case .message(let message):
+                                    AgentMessageRow(
+                                        message: message,
+                                        isStreamingThought: liveThoughtID == message.id,
+                                        isSearching: !searchText.isEmpty,
+                                        thoughtExpansion: thoughtExpansion(for: message.id),
+                                        onOpenFile: onOpenFile
+                                    )
+                                case .toolGroup(let tools):
+                                    AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile)
+                                case .turnSummary(let turn):
+                                    AgentTurnStatisticsView(statistics: turn)
                                 }
                             }
-                            if !searchText.isEmpty && transcript.isEmpty {
-                                Text("No matching messages")
-                                    .foregroundStyle(AgentPanelStyle.secondary)
-                            }
-                            ForEach(transcript) { item in
-                                Group {
-                                    switch item {
-                                    case .message(let message):
-                                        AgentMessageRow(
-                                            message: message,
-                                            isStreamingThought: liveThoughtID == message.id,
-                                            isSearching: !searchText.isEmpty,
-                                            thoughtExpansion: thoughtExpansion(for: message.id),
-                                            onOpenFile: onOpenFile
-                                        )
-                                    case .toolGroup(let tools):
-                                        AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile)
-                                    case .turnSummary(let turn):
-                                        AgentTurnStatisticsView(statistics: turn)
-                                    }
-                                }
-                                .id(item.id)
-                            }
-                            if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
-                                AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
-                                    .id("pending")
-                            }
-                            if conversation?.isResponding == true || feature.isCreatingSession {
-                                AgentResponseStatusRow(
-                                    responseStatus: conversation?.responseStatus ?? .preparing,
-                                    startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
-                                    hasStreamingThought: liveThoughtID != nil,
-                                    retryAttempt: conversation?.retryAttempt,
-                                    retryMaxAttempts: conversation?.retryMaxAttempts,
-                                    isQuiet: conversation?.isQuiet == true,
-                                    onContinueWaiting: { feature.continueWaiting() },
-                                    onStop: { feature.cancel() }
-                                ).id("responding")
-                            }
+                            .id(item.id)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
-                    }
-                    .onChange(of: messages.last?.text) { _ in
-                        if searchText.isEmpty, let last = transcript.last {
-                            proxy.scrollTo(conversation?.isResponding == true ? "responding" : last.id, anchor: .bottom)
+                        if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
+                            AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
+                                .id("pending")
+                        }
+                        if conversation?.isResponding == true || feature.isCreatingSession {
+                            AgentResponseStatusRow(
+                                responseStatus: conversation?.responseStatus ?? .preparing,
+                                startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
+                                hasStreamingThought: liveThoughtID != nil,
+                                retryAttempt: conversation?.retryAttempt,
+                                retryMaxAttempts: conversation?.retryMaxAttempts,
+                                isQuiet: conversation?.isQuiet == true,
+                                onContinueWaiting: { feature.continueWaiting() },
+                                onStop: { feature.cancel() }
+                            ).id("responding")
                         }
                     }
-                    .onChange(of: messages.count) { _ in
-                        if searchText.isEmpty, let last = transcript.last {
-                            proxy.scrollTo(conversation?.isResponding == true ? "responding" : last.id, anchor: .bottom)
-                        }
-                    }
-                    .onChange(of: conversation?.completedTurns.count) { _ in
-                        if searchText.isEmpty, let last = transcript.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .background(AgentTranscriptScrollAnchor(
+                        sessionID: sessionID,
+                        enabled: searchText.isEmpty,
+                        revision: .init(lastMessageID: messages.last?.id, lastText: messages.last?.text,
+                            lastUserMessageID: messages.last(where: { $0.role == .user })?.id,
+                            messageCount: messages.count, completedTurns: conversation?.completedTurns.count ?? 0,
+                            permissionID: conversation?.permission?.id, isResponding: conversation?.isResponding == true)
+                    ))
+                }
+                // Keep permission space owned by the scroll container. A sibling
+                // card changes the lazy stack's viewport during bottom positioning.
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if let permission = conversation?.permission {
+                        AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
                     }
                 }
-            }
-            if let permission = conversation?.permission {
-                AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
             }
             AgentActivitySummaryBar(
                 messages: messages, plan: conversation?.plan,

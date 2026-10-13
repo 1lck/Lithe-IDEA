@@ -360,8 +360,14 @@ export function GitLogToolWindow() {
     try {
       if (action === "checkout") {
         const result = await checkoutGitReference(repoPath, reference);
-        if (result.success) toast.success(result.message);
-        else toast.error(result.message);
+        if (result.success) {
+          toast.success(t("git.log.actionSucceeded", {
+            action: t("git.log.action.checkout"),
+            reference: reference.shortName,
+          }));
+        } else {
+          toast.error(result.message);
+        }
       } else {
         const outcome =
           action === "checkoutAndRebase"

@@ -1,0 +1,23 @@
+{
+  "protocolVersion": 1,
+  "reference": {
+    "fullName": "refs/remotes/upstream/preview",
+    "shortName": "upstream/preview",
+    "kind": "remote"
+  },
+  "cases": [
+    { "id": "behind-other", "startingBranch": "other", "expected": "updated" },
+    { "id": "behind-current", "startingBranch": "preview", "expected": "updated" },
+    { "id": "missing-local", "startingBranch": "other", "localHistory": "missing", "expected": "updated" },
+    { "id": "dirty-other", "startingBranch": "other", "dirty": "tracked", "expected": "blocked" },
+    { "id": "dirty-current", "startingBranch": "preview", "dirty": "staged", "expected": "blocked" },
+    { "id": "untracked-other", "startingBranch": "other", "dirty": "untracked", "expected": "blocked" },
+    { "id": "force-other", "startingBranch": "other", "dirty": "tracked", "force": true, "expected": "updated" },
+    { "id": "force-current", "startingBranch": "preview", "dirty": "tracked", "force": true, "expected": "updated" },
+    { "id": "smart-other", "startingBranch": "other", "dirty": "unrelated", "autoStash": true, "expected": "updated" },
+    { "id": "smart-current", "startingBranch": "preview", "dirty": "unrelated", "autoStash": true, "expected": "updated" },
+    { "id": "ahead-local", "startingBranch": "other", "localHistory": "ahead", "force": true, "expected": "blocked" },
+    { "id": "diverged-local", "startingBranch": "other", "localHistory": "diverged", "dirty": "unrelated", "autoStash": true, "expected": "blocked" },
+    { "id": "other-worktree", "startingBranch": "other", "otherWorktree": true, "expected": "blocked" }
+  ]
+}
