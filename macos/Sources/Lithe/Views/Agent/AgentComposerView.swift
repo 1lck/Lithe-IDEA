@@ -78,12 +78,8 @@ struct AgentComposerView: View {
         HStack(spacing: 8) {
             agentMenu
             if let sessionStatistics {
-                // Session facts take width before the attach label, which
-                // collapses to its icon in a normal-width panel.
-                AgentSessionStatusView(statistics: sessionStatistics, contextUsage: contextUsage)
+                AgentSessionStatusView(statistics: sessionStatistics, contextUsage: contextUsage, showsContext: false)
                     .layoutPriority(1)
-            } else {
-                AgentContextUsageView(usage: contextUsage)
             }
             Spacer(minLength: 0)
             if showsSubscriptionQuota {
@@ -133,6 +129,8 @@ struct AgentComposerView: View {
                 .help(model)
             }
             Spacer(minLength: 0)
+            AgentContextUsageView(usage: contextUsage, composition: sessionStatistics?.modelCalls?.latestContext,
+                                  showsPercentage: false)
             Button(action: isResponding ? onCancel : send) {
                 if isResponding {
                     LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: LitheTheme.Metrics.toolbarIconSize,

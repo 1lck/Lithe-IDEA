@@ -25,7 +25,10 @@ struct AgentContextUsageView: View {
     let usage: AgentContextUsage?
     /// Estimated prompt composition from the optional model call proxy.
     var composition: AgentModelCall.Context?
+    var showsPercentage = true
     @Environment(\.locale) private var locale
+    private var ringStroke: CGFloat { showsPercentage ? 1.5 : 2 }
+    private var ringInset: CGFloat { showsPercentage ? 0 : ringStroke / 2 }
 
     private var color: Color {
         guard let usage else { return LitheTheme.HoverTooltip.infoForeground }
@@ -37,20 +40,27 @@ struct AgentContextUsageView: View {
     var body: some View {
         HStack(spacing: 4) {
             ZStack {
-                Circle().stroke(LitheTheme.settingsControlBorder, lineWidth: 1.5)
+                Circle().inset(by: ringInset)
+                    .stroke(showsPercentage ? LitheTheme.settingsControlBorder : LitheTheme.HoverTooltip.infoForeground,
+                            lineWidth: ringStroke)
                 if let usage {
-                    Circle().trim(from: 0, to: min(usage.fraction, 1))
-                        .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    Circle().inset(by: ringInset).trim(from: 0, to: min(usage.fraction, 1))
+                        .stroke(showsPercentage || usage.fraction >= 0.9 ? color : LitheTheme.toolWindowText,
+                                style: StrokeStyle(lineWidth: ringStroke, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                 }
-            }.frame(width: 12, height: 12)
-            Text(AgentContextUsagePresentation.percentage(usage, locale: locale))
-                .monospacedDigit().lineLimit(1)
+            }.frame(width: showsPercentage ? 12 : LitheTheme.Metrics.toolbarIconSize,
+                    height: showsPercentage ? 12 : LitheTheme.Metrics.toolbarIconSize)
+            if showsPercentage {
+                Text(AgentContextUsagePresentation.percentage(usage, locale: locale))
+                    .monospacedDigit().lineLimit(1)
+            }
         }
         .foregroundStyle(color)
         .font(LitheTheme.smallFont)
-        .padding(.horizontal, 4)
-        .frame(height: LitheTheme.Metrics.toolbarIconButtonSize)
+        .padding(.horizontal, showsPercentage ? 4 : 0)
+        .frame(width: showsPercentage ? nil : LitheTheme.Metrics.toolbarIconButtonSize,
+               height: LitheTheme.Metrics.toolbarIconButtonSize)
         .fixedSize()
         .workbenchHoverCard(placement: .above, maximumWidth: AgentStatusCardMetrics.width) {
             AgentContextUsageCard(usage: usage, composition: composition)

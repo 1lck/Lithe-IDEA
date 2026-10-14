@@ -61,6 +61,7 @@ enum AgentSessionStatusPresentation {
 struct AgentSessionStatusView: View {
     let statistics: AgentSessionStatistics
     let contextUsage: AgentContextUsage?
+    var showsContext = true
 
     var body: some View {
         // Narrow panels first drop the speed (kept in the hover card), then the
@@ -81,7 +82,9 @@ struct AgentSessionStatusView: View {
             if showsTokens, let tokens = statistics.tokens {
                 AgentTokenUsageView(tokens: tokens)
             }
-            AgentContextUsageView(usage: contextUsage, composition: statistics.modelCalls?.latestContext)
+            if showsContext {
+                AgentContextUsageView(usage: contextUsage, composition: statistics.modelCalls?.latestContext)
+            }
         }
         .fixedSize()
     }
