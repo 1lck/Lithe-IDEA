@@ -595,7 +595,11 @@ impl DeclarativePluginManifest {
             ]
             .into_iter()
             .find(|(capability, provided)| {
-                *provided && integration.capabilities.iter().any(|name| name == capability)
+                *provided
+                    && integration
+                        .capabilities
+                        .iter()
+                        .any(|name| name == capability)
             });
             if let Some((capability, _)) = declared_twice {
                 return Err(invalid(

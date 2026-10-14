@@ -159,7 +159,10 @@ fn host_integration_capabilities_are_normalized_and_checked_against_the_integrat
 
     let rejected_field = |manifest: Value| {
         let outcome = validate(manifest);
-        assert_eq!(outcome["error"]["code"], "plugin.manifest.invalid", "{outcome}");
+        assert_eq!(
+            outcome["error"]["code"], "plugin.manifest.invalid",
+            "{outcome}"
+        );
         outcome["error"]["field"].as_str().unwrap().to_string()
     };
     let field = "languageServers[0].hostIntegration.capabilities";
