@@ -307,8 +307,9 @@ struct PluginPackageStoreTests {
     }
 
     /// The app bundle is read-only, so removing a bundled plugin is recorded
-    /// outside it. The package stays listed for restoring, its state is
-    /// deleted, and nothing inside the bundle changes.
+    /// outside it. The package stays listed for restoring, nothing inside the
+    /// bundle changes, and its state outlives the running server until the
+    /// next launch.
     @Test
     func aBundledPluginCanBeRemovedAndRestoredWithoutTouchingTheBundle() throws {
         let root = temporaryRoot()
@@ -330,14 +331,42 @@ struct PluginPackageStoreTests {
         let removed = try #require(try store.installedPlugins().first)
         #expect(removed.installation.status == .removed)
         #expect(removed.installation.origin == .bundled)
-        #expect(!FileManager.default.fileExists(atPath: directories.pluginDirectory(pluginID: pluginID.rawValue).path))
+        let stateDirectory = directories.pluginDirectory(pluginID: pluginID.rawValue)
+        // The server is still running until restart, so its state stays.
+        #expect(FileManager.default.fileExists(atPath: stateDirectory.path))
         #expect(try FileManager.default.subpathsOfDirectory(atPath: bundledRoot.path).sorted() == bundleFilesBefore)
-        // The record survives a relaunch, and it is not mistaken for an installation.
+        // The record survives a relaunch, it is not mistaken for an
+        // installation, and the relaunch is when the state is deleted.
         try store.prepareForLaunch()
         #expect(try makeStore(root: root, bundledRoot: bundledRoot).installedPlugins().first?.installation.status == .removed)
+        #expect(!FileManager.default.fileExists(atPath: stateDirectory.path))
 
         try store.setBundledPluginRemoved(pluginID, removed: false)
         #expect(try store.installedPlugins().first?.installation.status == .installed)
+    }
+
+    /// Restoring before the restart that completes a removal must not cost
+    /// the user the index of a server that never stopped.
+    @Test
+    func restoringARemovedBundledPluginBeforeRelaunchKeepsItsState() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundledRoot = root.appendingPathComponent("bundled", isDirectory: true)
+        let pluginID = PluginID("dev.example.plugin")
+        try makePackage(
+            at: bundledRoot.appendingPathComponent(pluginID.rawValue, isDirectory: true),
+            version: PluginVersion(major: 0, minor: 3, patch: 0)
+        )
+        let directories = MacPluginStateDirectories(rootURL: root.appendingPathComponent("state", isDirectory: true))
+        let state = directories.stateDirectory(pluginID: pluginID.rawValue, languageID: "fixture")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let store = makeStore(root: root, bundledRoot: bundledRoot, stateDirectories: directories)
+
+        try store.setBundledPluginRemoved(pluginID, removed: true)
+        try store.setBundledPluginRemoved(pluginID, removed: false)
+        try store.prepareForLaunch()
+
+        #expect(FileManager.default.fileExists(atPath: state.path))
     }
 
     @Test

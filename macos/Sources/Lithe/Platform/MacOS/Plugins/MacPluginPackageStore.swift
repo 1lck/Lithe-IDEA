@@ -173,6 +173,11 @@ final class MacPluginPackageStore {
                 removeState(of: record.pluginID)
             }
         }
+        // The server of a bundled plugin removed last session has stopped by
+        // now, so its state can go without pulling files from under it.
+        for pluginID in removedBundledPluginIDs() {
+            removeState(of: pluginID)
+        }
     }
 
     func installedPlugins() throws -> [InstalledPluginPackage] {
@@ -511,13 +516,15 @@ final class MacPluginPackageStore {
     /// Removes or restores a plugin that ships inside the application. The
     /// app bundle is read-only at runtime, so removal is recorded in the
     /// user's plugin directory instead of deleting the package: the host
-    /// stops registering the plugin, and its language-server state is deleted.
+    /// stops registering the plugin at the next launch. Its language-server
+    /// state is deleted then too (`prepareForLaunch`), because the server
+    /// keeps running, and writing there, until the application restarts. A
+    /// removal restored before that loses nothing.
     func setBundledPluginRemoved(_ pluginID: PluginID, removed: Bool) throws {
         try validatePathComponent(pluginID.rawValue)
         var removedIDs = removedBundledPluginIDs()
         if removed {
             removedIDs.insert(pluginID)
-            removeState(of: pluginID)
         } else {
             removedIDs.remove(pluginID)
         }

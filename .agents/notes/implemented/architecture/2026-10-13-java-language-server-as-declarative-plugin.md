@@ -107,7 +107,7 @@ dev.lithe.plugin.java-support/
 
 - **随应用发行**：Java 是主场景，首次启动必须离线可用，所以包在 `Lithe.app/Contents/Resources/OfficialPlugins/` 下，信任方式是 `sameTeamAsHost`（由应用自身的代码签名封住）。
 - **默认启用**：随应用发行的包替代的是内置功能，它的模块默认开启；下载安装的插件仍然默认关闭。
-- **卸载**：app bundle 运行时只读，包本身删不掉。卸载记录在用户目录的 `<app-support>/Lithe/Plugins/.removed-bundled-plugins.json`，宿主重启后不再注册这个插件，并删除它的语言服务器状态。插件管理里仍然列出它并提供“恢复”。
+- **卸载**：app bundle 运行时只读，包本身删不掉。卸载记录在用户目录的 `<app-support>/Lithe/Plugins/.removed-bundled-plugins.json`，宿主重启后不再注册这个插件，并在那次启动时删除它的语言服务器状态（卸载后到重启前，语言服务器仍在运行并写入该目录，所以不在点击时删除；重启前恢复则不会丢失索引）。插件管理里仍然列出它并提供“恢复”。
 - **卸载后的表现**：插件仍然“拥有”Java 语言，宿主不会退回任何内置路径。打开 Java 文件时提示需要安装或恢复 Java Support；语法高亮、Maven 面板和其他语言不受影响。
 
 ### 正确做法
