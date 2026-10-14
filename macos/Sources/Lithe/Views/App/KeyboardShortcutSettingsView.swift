@@ -3,6 +3,7 @@ import SwiftUI
 struct KeyboardShortcutSettingsView: View {
     @ObservedObject var feature: KeyboardShortcutFeatureModel
     let language: AppLanguage
+    @State private var commandListActive = false
     @State private var query = ""
     @State private var expandedGroups: Set<LitheActionGroup> = []
     @State private var selectedCommandID: String?
@@ -38,6 +39,7 @@ struct KeyboardShortcutSettingsView: View {
                 .padding(.vertical, 4)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
+            .background(LitheToolWindowActivityTracker(isActive: $commandListActive))
         }
         .background(LitheTheme.settingsSurface)
     }
@@ -220,7 +222,7 @@ struct KeyboardShortcutSettingsView: View {
             .padding(.leading, 36)
             .padding(.trailing, 6)
             .frame(height: 24)
-            .background(selectedCommandID == command.id ? LitheTheme.settingsSelection : .clear)
+            .litheSelectionRow(isSelected: selectedCommandID == command.id, isFocused: commandListActive)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .litheContextMenu {
                 var items: [LitheContextMenuItem] = [

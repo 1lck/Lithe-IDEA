@@ -427,12 +427,35 @@ final class DocumentFeatureModel: ObservableObject {
         return .success(text)
     }
 
+    /// Opens a file a language server or debugger points to outside the
+    /// workspace, such as a Go standard-library source or a stub bundled with
+    /// a language server. Such files are never writable from Lithe; normal
+    /// opens keep rejecting paths outside the workspace.
+    func openExternalReadOnlyFile(_ url: URL, displayPath: String? = nil) {
+        let normalizedURL = url.standardizedFileURL
+        if let existing = openDocuments.first(where: {
+            $0.url.standardizedFileURL.path == normalizedURL.path
+        }) {
+            latestFileOpenRequestID = UUID()
+            activeDocumentID = existing.id
+            return
+        }
+        Task { await openFileAsync(
+            normalizedURL,
+            isReadOnly: true,
+            displayPath: displayPath,
+            activateWhenReady: true,
+            allowsOutsideWorkspace: true
+        ) }
+    }
+
     func openFileAsync(
         _ url: URL,
         isReadOnly: Bool,
         displayPath: String?,
         activateWhenReady: Bool,
         asPreview: Bool = false,
+        allowsOutsideWorkspace: Bool = false,
         encoding: DocumentEncoding? = nil,
         saveEncoding: DocumentEncoding? = nil
     ) async {
@@ -474,6 +497,7 @@ final class DocumentFeatureModel: ObservableObject {
         let task = Task { @MainActor in
             await loadFile(normalizedURL, isReadOnly: isReadOnly, displayPath: displayPath,
                            activateWhenReady: activateWhenReady, requestID: requestID,
+                           allowsOutsideWorkspace: allowsOutsideWorkspace && isReadOnly,
                            encoding: encoding, saveEncoding: saveEncoding)
         }
         pendingFileOpenRequests[filePath] = (requestID, task, asPreview)
@@ -482,7 +506,8 @@ final class DocumentFeatureModel: ObservableObject {
 
     private func loadFile(
         _ normalizedURL: URL, isReadOnly: Bool, displayPath: String?,
-        activateWhenReady: Bool, requestID: UUID, encoding: DocumentEncoding?, saveEncoding: DocumentEncoding?
+        activateWhenReady: Bool, requestID: UUID, allowsOutsideWorkspace: Bool,
+        encoding: DocumentEncoding?, saveEncoding: DocumentEncoding?
     ) async {
         let filePath = normalizedURL.path
         defer {
@@ -492,14 +517,25 @@ final class DocumentFeatureModel: ObservableObject {
         }
 
         guard let workspaceURLProvider,
-              let openingWorkspaceURL = workspaceURLProvider(),
-              let relativePath = workspaceRelativePath(for: normalizedURL, root: openingWorkspaceURL) else {
+              let openingWorkspaceURL = workspaceURLProvider() else {
+            notify?("This file is outside the current workspace")
+            return
+        }
+        let relativePath = workspaceRelativePath(for: normalizedURL, root: openingWorkspaceURL)
+        guard relativePath != nil || allowsOutsideWorkspace else {
             notify?("This file is outside the current workspace")
             return
         }
 
         let details: DocumentReadDetails?
-        if fileOperations.supportsDocumentEncoding {
+        if relativePath == nil, !fileOperations.supportsDocumentEncoding {
+            let fileStorage = self.fileStorage
+            details = await Task.detached(priority: .userInitiated) {
+                try? Self.readStandaloneFile(at: normalizedURL, using: fileStorage)
+                    .map { DocumentReadDetails(text: $0, encoding: .utf8) }
+                    .get()
+            }.value
+        } else if fileOperations.supportsDocumentEncoding {
             do { details = try await fileOperations.readDocumentDetailsAsync(from: normalizedURL, encoding: encoding) }
             catch { details = nil }
         } else {
@@ -507,7 +543,9 @@ final class DocumentFeatureModel: ObservableObject {
             let operations = self.operations
             let text: String? = await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
-                    continuation.resume(returning: operations.readFile(at: openingWorkspaceURL, relativePath: relativePath))
+                    continuation.resume(returning: relativePath.flatMap {
+                        operations.readFile(at: openingWorkspaceURL, relativePath: $0)
+                    })
                 }
             }
             details = text.map { DocumentReadDetails(text: $0, encoding: .utf8) }
@@ -547,7 +585,9 @@ final class DocumentFeatureModel: ObservableObject {
             text: details.text,
             modificationDate: EditorDocument.modificationDate(for: normalizedURL),
             isReadOnly: isReadOnly,
-            isFileWritable: fileStorage.metadata(for: normalizedURL)?.isWritable ?? true,
+            // A jump target outside the workspace, including one reached
+            // through a symlink inside it, is never writable from Lithe.
+            isFileWritable: !allowsOutsideWorkspace && (fileStorage.metadata(for: normalizedURL)?.isWritable ?? true),
             displayPath: displayPath,
             encoding: details.encoding, saveEncoding: saveEncoding, diskIdentity: details.identity
         )

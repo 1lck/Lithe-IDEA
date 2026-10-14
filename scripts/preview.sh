@@ -54,6 +54,9 @@ plugin_root=$(scripts/build-official-plugins.sh \
 for plugin_package in "$plugin_root"/*(/N); do
     cp -R "$plugin_package" "$APP_DIR/Contents/Resources/OfficialPlugins/${plugin_package:t}"
 done
+# Read-only official marketplace index; refreshed copies go to Caches.
+mkdir -p "$APP_DIR/Contents/Resources/PluginMarketplace"
+cp "$ROOT_DIR/Plugins/marketplace/index.json" "$APP_DIR/Contents/Resources/PluginMarketplace/index.json"
 case "$TRIPLE" in
     arm64-apple-macosx) RUST_TARGET="aarch64-apple-darwin" ;;
     x86_64-apple-macosx) RUST_TARGET="x86_64-apple-darwin" ;;

@@ -4,6 +4,7 @@ import LitheCoreContracts
 struct ProjectRuntimeSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RuntimeSettingsFeatureModel
+    @State private var subprojectListActive = false
     @State private var selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
     /// Editing waits until the form is seeded from this project's saved defaults.
     /// An earlier edit could not reach `.lithe/run/local.json`, and adopting the
@@ -18,6 +19,7 @@ struct ProjectRuntimeSettingsView: View {
             } else {
                 HStack(spacing: 0) {
                     subprojectList
+                        .background(LitheToolWindowActivityTracker(isActive: $subprojectListActive))
                     Rectangle().fill(LitheTheme.divider).frame(width: 1)
                     detail
                 }
@@ -125,7 +127,7 @@ struct ProjectRuntimeSettingsView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? LitheTheme.settingsSelection : .clear)
+            .litheSelectionRow(isSelected: isSelected, isFocused: subprojectListActive, cornerRadius: LitheTheme.Metrics.cornerRadius)
             .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
             .contentShape(Rectangle())
         }

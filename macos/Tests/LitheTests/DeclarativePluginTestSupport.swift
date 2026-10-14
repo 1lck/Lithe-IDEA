@@ -1,0 +1,133 @@
+import Foundation
+import LitheCoreContracts
+import LitheModuleAPI
+@testable import Lithe
+
+/// Loads official declarative plugins from the repository through the same
+/// Rust Core validation the application uses.
+enum DeclarativePluginTestSupport {
+    static let repositoryRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+
+    static var operations: RustDeclarativePluginOperations {
+        RustDeclarativePluginOperations(core: RustCoreBridge())
+    }
+
+    static func officialManifestData(_ directoryName: String) throws -> Data {
+        try Data(contentsOf: repositoryRoot
+            .appendingPathComponent("Plugins/mac/Official", isDirectory: true)
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent("plugin.json"))
+    }
+
+    static func officialDescriptor(_ directoryName: String) throws -> DeclarativePluginDescriptor {
+        try operations.validate(manifest: officialManifestData(directoryName))
+    }
+
+    /// A minimal valid declarative manifest with one language server.
+    static func manifestObject(
+        id: String = "dev.example.plugin",
+        version: PluginVersion,
+        signatureRequirement: PluginSignatureRequirement = .sameTeamAsHost,
+        languageID: String = "fixture",
+        packagedLauncher: String? = nil
+    ) -> [String: Any] {
+        let launch: [String: Any] = packagedLauncher.map { ["kind": "packaged", "path": $0] }
+            ?? ["kind": "systemCommand", "commands": ["\(languageID)-language-server"]]
+        return [
+            "schemaVersion": 2,
+            "id": id,
+            "displayName": "Example Plugin",
+            "version": version.description,
+            "pluginAPIVersion": 1,
+            "vendor": [
+                "id": "dev.example",
+                "displayName": "Example",
+                "signatureRequirement": signatureRequirement.rawValue
+            ],
+            "permissions": ["languageServer.launch"],
+            "activationEvents": ["onLanguage:\(languageID)"],
+            "languages": [[
+                "id": languageID,
+                "displayName": "Fixture",
+                "fileExtensions": [languageID]
+            ]],
+            "languageServers": [[
+                "languageID": languageID,
+                "launch": launch
+            ]]
+        ]
+    }
+
+    /// Writes a declarative package directory. A packaged launcher path also
+    /// creates that executable inside the package.
+    @discardableResult
+    static func writePackage(
+        at packageURL: URL,
+        manifest: [String: Any]
+    ) throws -> URL {
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+            .write(to: packageURL.appendingPathComponent("plugin.json"), options: .atomic)
+        let servers = manifest["languageServers"] as? [[String: Any]] ?? []
+        for server in servers {
+            guard let launch = server["launch"] as? [String: Any],
+                  launch["kind"] as? String == "packaged",
+                  let path = launch["path"] as? String else { continue }
+            let launcher = packageURL.appendingPathComponent(path)
+            try FileManager.default.createDirectory(
+                at: launcher.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("#!/bin/sh\n".utf8).write(to: launcher, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launcher.path)
+        }
+        return packageURL
+    }
+
+    /// Writes an official plugin's real declaration, optionally edited, with
+    /// placeholder packaged executables.
+    @discardableResult
+    static func writeOfficialPackage(
+        _ directoryName: String,
+        at packageURL: URL,
+        edit: (inout [String: Any]) -> Void = { _ in }
+    ) throws -> URL {
+        var manifest = try JSONSerialization.jsonObject(
+            with: officialManifestData(directoryName)
+        ) as? [String: Any] ?? [:]
+        edit(&manifest)
+        return try writePackage(at: packageURL, manifest: manifest)
+    }
+
+    static func descriptor(_ manifest: [String: Any]) throws -> DeclarativePluginDescriptor {
+        try operations.validate(manifest: JSONSerialization.data(withJSONObject: manifest))
+    }
+
+    /// Host-owned module factories for one official plugin, as the
+    /// composition root registers them.
+    @MainActor
+    static func officialFactories(
+        _ directoryName: String,
+        executionHost: any LanguageExecutionHostProviding
+    ) throws -> [ModuleFactory] {
+        let descriptor = try officialDescriptor(directoryName)
+        let installed = InstalledPluginPackage(
+            descriptor: descriptor,
+            installation: PluginInstallationRecord(
+                pluginID: descriptor.id,
+                activeVersion: descriptor.pluginManifest.version,
+                origin: .bundled
+            ),
+            packageURL: repositoryRoot.appendingPathComponent("Plugins/mac/Official/\(directoryName)")
+        )
+        return MacServiceContainer.declarativePluginFactories(
+            [installed],
+            executionHost: executionHost,
+            planner: operations
+        )
+    }
+}

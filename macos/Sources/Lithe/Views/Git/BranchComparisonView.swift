@@ -2,6 +2,7 @@ import SwiftUI
 import LitheGitModule
 
 struct BranchComparisonView: View {
+    @State private var fileListActive = false
     @ObservedObject var feature: GitFeatureModel
     let comparison: GitBranchComparison
     let onRefresh: () async -> Void
@@ -18,6 +19,7 @@ struct BranchComparisonView: View {
 
             HStack(spacing: 0) {
                 filePane
+                    .background(LitheToolWindowActivityTracker(isActive: $fileListActive))
                     .frame(width: 250)
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 reviewPane
@@ -165,11 +167,8 @@ struct BranchComparisonView: View {
                                 .padding(.horizontal, 8)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .frame(height: 39)
-                                .background(
-                                    feature.selectedBranchComparisonFile?.id == file.id
-                                        ? LitheTheme.subtleSelection
-                                        : .clear
-                                )
+                                .litheSelectionRow(isSelected: feature.selectedBranchComparisonFile?.id == file.id,
+                                                   isFocused: fileListActive)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.litheNoPress)

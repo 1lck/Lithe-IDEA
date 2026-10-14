@@ -14,11 +14,11 @@
 
 ### 下载
 
-- [项目主页](https://github.com/1lck/Lithe-IDEA)
-- [macOS Apple Silicon](https://github.com/1lck/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-arm64.dmg)
-- [macOS Intel](https://github.com/1lck/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-x86_64.dmg)
-- [Windows x64](https://github.com/1lck/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-windows-x64.exe)
-- [全部下载文件](https://github.com/1lck/Lithe-IDEA/releases/tag/v{version})
+- [项目主页](https://github.com/Lithe-IDEA/Lithe-IDEA)
+- [macOS Apple Silicon](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-arm64.dmg)
+- [macOS Intel](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-x86_64.dmg)
+- [Windows x64](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-windows-x64.exe)
+- [全部下载文件](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/tag/v{version})
 
 ### 重点更新
 
@@ -48,7 +48,7 @@
 
 如果 macOS 提示无法打开 Lithe.app，请在“应用程序”中按住 Control 点按应用并选择“打开”；如果仍被阻止，可在终端执行 `xattr -dr com.apple.quarantine /Applications/Lithe.app`。仅对可信来源的应用使用。
 
-[查看完整变更](https://github.com/1lck/Lithe-IDEA/compare/v{previous_version}...v{version})
+[查看完整变更](https://github.com/Lithe-IDEA/Lithe-IDEA/compare/v{previous_version}...v{version})
 
 ---
 
@@ -58,11 +58,11 @@
 
 ### Downloads
 
-- [Project homepage](https://github.com/1lck/Lithe-IDEA)
-- [macOS Apple Silicon](https://github.com/1lck/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-arm64.dmg)
-- [macOS Intel](https://github.com/1lck/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-x86_64.dmg)
-- [Windows x64](https://github.com/1lck/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-windows-x64.exe)
-- [All downloads](https://github.com/1lck/Lithe-IDEA/releases/tag/v{version})
+- [Project homepage](https://github.com/Lithe-IDEA/Lithe-IDEA)
+- [macOS Apple Silicon](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-arm64.dmg)
+- [macOS Intel](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-x86_64.dmg)
+- [Windows x64](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/v{version}/Lithe-{version}-windows-x64.exe)
+- [All downloads](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/tag/v{version})
 
 ### Highlights
 
@@ -92,7 +92,7 @@ Changes are grouped below.
 
 If macOS says it cannot open Lithe.app, Control-click it in Applications and choose Open. If it is still blocked, run `xattr -dr com.apple.quarantine /Applications/Lithe.app` in Terminal. Use this only for an app from a source you trust.
 
-[Full changelog](https://github.com/1lck/Lithe-IDEA/compare/v{previous_version}...v{version})
+[Full changelog](https://github.com/Lithe-IDEA/Lithe-IDEA/compare/v{previous_version}...v{version})
 
 ### 🙌 感谢贡献者
 

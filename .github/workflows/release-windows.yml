@@ -1,3 +1,4 @@
+# Registered by the standalone preview repository.
 name: Release Windows
 
 on:
@@ -10,6 +11,10 @@ on:
         description: "Semantic version to release, for example 0.1.0"
         required: true
         type: string
+      publish:
+        description: "Publish assets after verification (disable for release preflight)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -20,9 +25,10 @@ concurrency:
 
 jobs:
   release:
-    name: Build and publish Lithe for Windows
-    if: github.actor == github.repository_owner
+    name: Build and verify Lithe for Windows
+    if: github.actor == github.repository_owner || contains(format(',{0},', vars.LITHE_RELEASE_ACTOR), format(',{0},', github.actor))
     runs-on: windows-latest
+    timeout-minutes: 90
     outputs:
       tag: ${{ steps.version.outputs.tag }}
     permissions:
@@ -241,13 +247,62 @@ jobs:
           $actual = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
           if ($expected -ne $actual) { throw "Installer checksum mismatch" }
 
-      - name: Create or update GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          LITHE_VERSION: ${{ steps.version.outputs.version }}
+      - name: Verify installation and launch
+        timeout-minutes: 5
         shell: pwsh
         run: |
+          ./scripts/verify-windows-release-install.ps1 `
+            -Installer "dist/Lithe-${{ steps.version.outputs.version }}-windows-x64.exe" `
+            -Version "${{ steps.version.outputs.version }}"
+
+      - name: Upload verified Windows assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-release
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Verify updater signature and publish Windows release
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Download verified Windows assets
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-release
+          path: dist
+
+      - name: Verify Tauri updater signature against the client public key
+        env:
+          UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign
+          export UPDATER_ASSET="dist/Lithe-${RELEASE_TAG#v}-windows-x64-updater.exe"
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          writeFileSync('dist/updater.pub', Buffer.from(process.env.UPDATER_PUBLIC_KEY, 'base64'));
+          writeFileSync('dist/updater.minisig', Buffer.from(readFileSync(process.env.UPDATER_ASSET + '.sig', 'utf8').trim(), 'base64'));
+          JS
+          minisign -Vm "$UPDATER_ASSET" -p dist/updater.pub -x dist/updater.minisig
+          (cd dist && sha256sum -c "Lithe-${RELEASE_TAG#v}-windows-x64.exe.sha256")
+
+      - name: Create or update GitHub Release
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+        shell: pwsh
+        run: |
+          $env:LITHE_VERSION = $env:RELEASE_TAG.Substring(1)
           $notes = "docs/releases/v$env:LITHE_VERSION.md"
           $createArgs = @(
             $env:RELEASE_TAG,
@@ -280,10 +335,12 @@ jobs:
           )
           gh release upload $env:RELEASE_TAG @assets `
             --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not upload Windows release assets" }
 
   sync-atomgit:
     name: Sync Windows release to AtomGit
-    needs: release
+    needs: [release, publish]
+    if: github.event_name != 'workflow_dispatch' || inputs.publish
     uses: ./.github/workflows/sync-atomgit-release.yml
     with:
       tag: ${{ needs.release.outputs.tag }}

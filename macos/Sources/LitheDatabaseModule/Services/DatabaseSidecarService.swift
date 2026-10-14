@@ -278,6 +278,12 @@ package struct DatabaseQueryResult: Codable, Equatable, Sendable {
     package let truncated: Bool
     package var totalRows: Int64?
 
+    package var resolvedColumns: [String] {
+        columns ?? rows.reduce(into: [String]()) { result, row in
+            for key in row.keys.sorted() where !result.contains(key) { result.append(key) }
+        }
+    }
+
     package init(rows: [DatabaseRow], columns: [String]? = nil, truncated: Bool, totalRows: Int64? = nil) {
         self.rows = rows
         self.columns = columns

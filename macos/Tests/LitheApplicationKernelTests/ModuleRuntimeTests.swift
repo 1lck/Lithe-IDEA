@@ -391,7 +391,7 @@ struct ModuleRuntimeTests {
     @Test
     func aiAssistanceIsBuiltInRatherThanAnOfficialDownload() {
         #expect(BuiltInPluginCatalog.manifest(forModule: .aiAssistance) != nil)
-        #expect(OfficialPluginCatalog.manifest(forModule: .aiAssistance) == nil)
+        #expect(OfficialPluginCatalog.entries.allSatisfy { $0.languageID != "ai" })
     }
 
     @Test

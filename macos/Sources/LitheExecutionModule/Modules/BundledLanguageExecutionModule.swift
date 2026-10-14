@@ -2,12 +2,29 @@ import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 
+/// Command templates of one declarative plugin, expanded by Rust Core.
+public struct DeclarativeExecutionTemplates: Sendable {
+    public let manifest: Data
+    public let planner: any DeclarativeExecutionPlanning
+
+    public init(manifest: Data, planner: any DeclarativeExecutionPlanning) {
+        self.manifest = manifest
+        self.planner = planner
+    }
+}
+
+/// Host-owned run/test module. Processes are created through the host's
+/// execution sessions and owned by this module's resource scope, whether the
+/// plans come from a bundled specification or a declarative plugin.
 @MainActor
 public final class BundledLanguageExecutionModule: LitheModule {
+    public typealias Capability = AnyObject & LanguageRunExtensionProviding & LanguageTestExtensionProviding
+
     public let manifest: ModuleManifest
     private let languageID: String
     private let executionHost: (any LanguageExecutionHostProviding)?
-    private var capability: BundledLanguageExecutionCapability?
+    private let templates: DeclarativeExecutionTemplates?
+    private var capability: (any Capability)?
 
     public init(
         languageID: String,
@@ -15,10 +32,23 @@ public final class BundledLanguageExecutionModule: LitheModule {
     ) {
         self.languageID = languageID
         self.executionHost = executionHost
+        templates = nil
         manifest = BundledLanguagePluginCatalog.manifests
             .flatMap(\.modules)
             .first { $0.manifest.id == .languageExecutionExtension(languageID) }!
             .manifest
+    }
+
+    public init(
+        manifest: ModuleManifest,
+        languageID: String,
+        executionHost: (any LanguageExecutionHostProviding)?,
+        templates: DeclarativeExecutionTemplates
+    ) {
+        self.manifest = manifest
+        self.languageID = languageID
+        self.executionHost = executionHost
+        self.templates = templates
     }
 
     public func activate(context: ModuleContext) async throws {
@@ -32,10 +62,18 @@ public final class BundledLanguageExecutionModule: LitheModule {
             events: context.events
         )
         context.resources.register(resource)
-        capability = BundledLanguageExecutionCapability(
-            languageID: languageID,
-            sessionFactory: { resource.makeSession() }
-        )
+        if let templates {
+            capability = DeclarativeLanguageExecutionCapability(
+                languageID: languageID,
+                templates: templates,
+                sessionFactory: { resource.makeSession() }
+            )
+        } else {
+            capability = BundledLanguageExecutionCapability(
+                languageID: languageID,
+                sessionFactory: { resource.makeSession() }
+            )
+        }
     }
 
     public func prepareForSleep() async throws {}
@@ -49,6 +87,66 @@ public final class BundledLanguageExecutionModule: LitheModule {
                 .languageTestingExtension(languageID): $0
             ]
         } ?? [:]
+    }
+}
+
+/// Run/test capability whose plans are expanded from a declarative plugin's
+/// templates by Rust Core; the host never interprets the templates itself.
+@MainActor
+public final class DeclarativeLanguageExecutionCapability: NSObject,
+    LanguageRunExtensionProviding,
+    LanguageTestExtensionProviding {
+    public let languageID: String
+    private let templates: DeclarativeExecutionTemplates
+    private let sessionFactory: @MainActor () -> any LanguageExecutionSession
+
+    init(
+        languageID: String,
+        templates: DeclarativeExecutionTemplates,
+        sessionFactory: @escaping @MainActor () -> any LanguageExecutionSession
+    ) {
+        self.languageID = languageID
+        self.templates = templates
+        self.sessionFactory = sessionFactory
+    }
+
+    public func makeExecutionSession() -> any LanguageExecutionSession { sessionFactory() }
+    public func makeTestExecutionSession() -> any LanguageExecutionSession { sessionFactory() }
+
+    public func launchPlan(for request: LanguageRunExtensionRequest) throws -> LanguageRunExtensionPlan {
+        do {
+            return try templates.planner.runPlan(
+                manifest: templates.manifest,
+                languageID: languageID,
+                request: request
+            )
+        } catch let rejection as DeclarativePluginRejection {
+            throw rejection.runError
+        }
+    }
+
+    public func discoverTests(for request: LanguageTestExtensionDiscoveryRequest) throws -> [LanguageTestExtensionItem] {
+        do {
+            return try templates.planner.discoverTests(
+                manifest: templates.manifest,
+                languageID: languageID,
+                request: request
+            )
+        } catch let rejection as DeclarativePluginRejection {
+            throw rejection.testError(languageID: languageID)
+        }
+    }
+
+    public func testPlan(for request: LanguageTestExtensionRequest) throws -> LanguageTestExtensionPlan {
+        do {
+            return try templates.planner.testPlan(
+                manifest: templates.manifest,
+                languageID: languageID,
+                request: request
+            )
+        } catch let rejection as DeclarativePluginRejection {
+            throw rejection.testError(languageID: languageID)
+        }
     }
 }
 

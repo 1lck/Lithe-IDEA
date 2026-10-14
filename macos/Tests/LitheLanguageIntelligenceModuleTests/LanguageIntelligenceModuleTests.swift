@@ -1266,7 +1266,7 @@ private final class TestLanguageToolRuntime: LanguageToolRuntimePort {
     func executableOnPath(_: String) -> URL? { nil }
     func executableURL(at _: String) -> URL? { nil }
     func executableCandidates(_: String) -> [RuntimeToolCandidate] { [] }
-    func languageToolProcessEnvironment() -> [String: String] { [:] }
+    func languageToolProcessEnvironment(runtimeTools: [String]) -> [String: String] { [:] }
     func missingLanguageToolMessage(_ name: String) -> String { "Missing \(name)." }
 }
 

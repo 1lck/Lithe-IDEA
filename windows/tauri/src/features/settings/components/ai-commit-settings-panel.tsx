@@ -1,7 +1,12 @@
+import Input from "@/ui/input";
+import Textarea from "@/ui/textarea";
+import { Checkbox } from "@/ui/checkbox";
+import SettingsSelect from "@/ui/settings-select";
 import { cloneElement, useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { useSettingsStore } from "../stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
+import Section from "./settings-section";
 import {
   commitAIError,
   commitKey,
@@ -17,12 +22,10 @@ import {
   type CommitProvider,
 } from "@/features/git/types/ai-commit";
 
-const control =
-  "min-w-0 w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-foreground outline-none focus:border-primary disabled:opacity-60";
 function Field({ label, children }: { label: string; children: ReactElement<{ id?: string }> }) {
   const id = useId();
   return (
-    <div className="grid grid-cols-[minmax(110px,1fr)_minmax(0,1.6fr)] items-center gap-3">
+    <div className="grid grid-cols-[minmax(110px,150px)_minmax(0,320px)] items-center gap-2">
       <label htmlFor={id}>{label}</label>
       {cloneElement(children, { id })}
     </div>
@@ -48,12 +51,12 @@ function NumberField({
   useEffect(() => setDraft(String(value)), [value]);
   return (
     <Field label={label}>
-      <input
+      <Input
         type="number"
         min={min}
         max={max}
         step={step}
-        className={control}
+        className="min-w-0 w-full"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
@@ -187,22 +190,21 @@ export function AiCommitSettingsPanel() {
           {message}
         </p>
       )}
-      <section className="flex flex-col gap-3">
-        <h3 className="font-semibold">{t("aiCommit.profiles")}</h3>
+      <Section title={t("aiCommit.profiles")}>
         <Field label={t("aiCommit.profile")}>
-          <select
-            className={control}
+          <SettingsSelect
+            className="w-full"
             disabled={busy}
             value={settings.activeProviderId ?? ""}
-            onChange={(e) => update({ activeProviderId: e.target.value })}
-          >
-            {!settings.providers.length && <option value="">—</option>}
-            {settings.providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name || p.model || t("aiCommit.name")}
-              </option>
-            ))}
-          </select>
+            onChange={(selectedValue) => update({ activeProviderId: selectedValue })}
+            options={[
+              ...(!settings.providers.length ? [{ value: "", label: "—" }] : []),
+              ...settings.providers.map((p) => ({
+                value: p.id,
+                label: p.name || p.model || t("aiCommit.name"),
+              })),
+            ]}
+          />
         </Field>
         <div className="flex gap-2">
           <Button
@@ -221,57 +223,60 @@ export function AiCommitSettingsPanel() {
         {provider && (
           <>
             <Field label={t("aiCommit.name")}>
-              <input
-                className={control}
+              <Input
+                className="min-w-0 w-full"
                 disabled={managed}
                 value={provider.name}
                 onChange={(e) => edit({ name: e.target.value })}
               />
             </Field>
             <Field label={t("aiCommit.protocol")}>
-              <select
-                className={control}
+              <SettingsSelect
+                className="w-full"
                 disabled={managed}
                 value={provider.apiProtocol}
-                onChange={(e) =>
+                onChange={(selectedValue) =>
                   edit({
-                    apiProtocol: e.target.value as CommitProvider["apiProtocol"],
-                    authentication: e.target.value === "anthropicMessages" ? "apiKey" : "bearer",
+                    apiProtocol: selectedValue as CommitProvider["apiProtocol"],
+                    authentication: selectedValue === "anthropicMessages" ? "apiKey" : "bearer",
                   })
                 }
-              >
-                {COMMIT_PROTOCOLS.map((p) => (
-                  <option key={p} value={p}>
-                    {p === "responses"
+                options={COMMIT_PROTOCOLS.map((p) => ({
+                  value: p,
+                  label:
+                    p === "responses"
                       ? "Responses API"
                       : p === "chatCompletions"
                         ? "Chat Completions"
-                        : "Anthropic Messages"}
-                  </option>
-                ))}
-              </select>
+                        : "Anthropic Messages",
+                }))}
+              />
             </Field>
             {provider.apiProtocol === "chatCompletions" && (
               <Field label={t("aiCommit.tokenLimitField")}>
-                <select
-                  className={control}
+                <SettingsSelect
+                  className="w-full"
                   disabled={managed}
                   value={provider.chatTokenLimitField}
-                  onChange={(e) =>
+                  onChange={(selectedValue) =>
                     edit({
-                      chatTokenLimitField: e.target.value as CommitProvider["chatTokenLimitField"],
+                      chatTokenLimitField: selectedValue as CommitProvider["chatTokenLimitField"],
                     })
                   }
-                >
-                  <option value="max_completion_tokens">max_completion_tokens</option>
-                  <option value="max_tokens">max_tokens ({t("aiCommit.legacyGateway")})</option>
-                </select>
+                  options={[
+                    { value: "max_completion_tokens", label: "max_completion_tokens" },
+                    {
+                      value: "max_tokens",
+                      label: `max_tokens (${t("aiCommit.legacyGateway")})`,
+                    },
+                  ]}
+                />
               </Field>
             )}
             <Field label={t("aiCommit.endpoint")}>
-              <input
+              <Input
                 type="url"
-                className={control}
+                className="min-w-0 w-full"
                 disabled={managed}
                 value={provider.endpoint}
                 placeholder="https://api.example.com/v1"
@@ -279,25 +284,26 @@ export function AiCommitSettingsPanel() {
               />
             </Field>
             <Field label={t("aiCommit.model")}>
-              <input
-                className={control}
+              <Input
+                className="min-w-0 w-full"
                 disabled={managed}
                 value={provider.model}
                 onChange={(e) => edit({ model: e.target.value })}
               />
             </Field>
             <Field label={t("aiCommit.authentication")}>
-              <select
-                className={control}
+              <SettingsSelect
+                className="w-full"
                 disabled={managed}
                 value={provider.authentication}
-                onChange={(e) =>
-                  edit({ authentication: e.target.value as CommitProvider["authentication"] })
+                onChange={(selectedValue) =>
+                  edit({ authentication: selectedValue as CommitProvider["authentication"] })
                 }
-              >
-                <option value="bearer">Bearer</option>
-                <option value="apiKey">x-api-key</option>
-              </select>
+                options={[
+                  { value: "bearer", label: "Bearer" },
+                  { value: "apiKey", label: "x-api-key" },
+                ]}
+              />
             </Field>
             {managed ? (
               <p className="text-subtle-foreground">
@@ -308,10 +314,10 @@ export function AiCommitSettingsPanel() {
             ) : (
               <>
                 <Field label={t("aiCommit.key")}>
-                  <input
+                  <Input
                     type="password"
                     autoComplete="off"
-                    className={control}
+                    className="min-w-0 w-full"
                     value={key}
                     disabled={busy}
                     onChange={(e) => setKey(e.target.value)}
@@ -329,20 +335,18 @@ export function AiCommitSettingsPanel() {
               </>
             )}
             <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
+              <Checkbox
                 disabled={managed}
                 checked={provider.requiresApiKey}
-                onChange={(e) => edit({ requiresApiKey: e.target.checked })}
+                onCheckedChange={(checked) => edit({ requiresApiKey: checked })}
               />
               {t("aiCommit.requiresKey")}
             </label>
             {provider.endpoint.trim().startsWith("http:") && (
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={provider.allowsInsecureHttp}
-                  onChange={(e) => edit({ allowsInsecureHttp: e.target.checked })}
+                  onCheckedChange={(checked) => edit({ allowsInsecureHttp: checked })}
                 />
                 {t("aiCommit.allowHttp")}
               </label>
@@ -394,64 +398,63 @@ export function AiCommitSettingsPanel() {
         <Button disabled={loading} onClick={() => void reload()}>
           {t("aiCommit.detect")}
         </Button>
-      </section>
-      <section className="flex flex-col gap-3 border-t border-border pt-4">
-        <h3 className="font-semibold">{t("aiCommit.rules")}</h3>
+      </Section>
+      <Section title={t("aiCommit.rules")}>
         <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={settings.enabled}
-            onChange={(e) => update({ enabled: e.target.checked })}
+            onCheckedChange={(checked) => update({ enabled: checked })}
           />
           {t("aiCommit.enabled")}
         </label>
         <Field label={t("aiCommit.effort")}>
-          <select
-            className={control}
+          <SettingsSelect
+            className="w-full"
             value={settings.reasoningEffort}
             disabled={provider?.apiProtocol === "anthropicMessages"}
-            onChange={(e) =>
-              update({ reasoningEffort: e.target.value as CommitAISettings["reasoningEffort"] })
+            onChange={(selectedValue) =>
+              update({ reasoningEffort: selectedValue as CommitAISettings["reasoningEffort"] })
             }
-          >
-            {COMMIT_EFFORTS.map((e) => (
-              <option key={e} value={e}>
-                {e === "default" ? t("aiCommit.defaultEffort") : e}
-              </option>
-            ))}
-          </select>
+            options={COMMIT_EFFORTS.map((e) => ({
+              value: e,
+              label: e === "default" ? t("aiCommit.defaultEffort") : e,
+            }))}
+          />
         </Field>
         <Field label={t("aiCommit.language")}>
-          <select
-            className={control}
+          <SettingsSelect
+            className="w-full"
             value={settings.language}
-            onChange={(e) => update({ language: e.target.value as CommitAISettings["language"] })}
-          >
-            <option value="english">English</option>
-            <option value="simplifiedChinese">简体中文</option>
-          </select>
+            onChange={(selectedValue) =>
+              update({ language: selectedValue as CommitAISettings["language"] })
+            }
+            options={[
+              { value: "english", label: "English" },
+              { value: "simplifiedChinese", label: "简体中文" },
+            ]}
+          />
         </Field>
         <Field label={t("aiCommit.format")}>
-          <select
-            className={control}
+          <SettingsSelect
+            className="w-full"
             value={settings.format}
-            onChange={(e) => update({ format: e.target.value as CommitAISettings["format"] })}
-          >
-            {COMMIT_FORMATS.map((f) => (
-              <option key={f} value={f}>
-                {t(`aiCommit.${f === "custom" ? "customFormat" : f}`)}
-              </option>
-            ))}
-          </select>
+            onChange={(selectedValue) =>
+              update({ format: selectedValue as CommitAISettings["format"] })
+            }
+            options={COMMIT_FORMATS.map((f) => ({
+              value: f,
+              label: t(`aiCommit.${f === "custom" ? "customFormat" : f}`),
+            }))}
+          />
         </Field>
         {settings.format === "custom" ? (
           <div className="flex flex-col gap-2">
             <label htmlFor={customInstructionsId}>{t("aiCommit.custom")}</label>
-            <textarea
+            <Textarea
               id={customInstructionsId}
               rows={4}
               maxLength={4000}
-              className={`${control} resize-y font-mono`}
+              className="font-mono"
               value={settings.customInstructions}
               onChange={(e) => update({ customInstructions: e.target.value })}
             />
@@ -465,10 +468,9 @@ export function AiCommitSettingsPanel() {
           </p>
         )}
         <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={settings.includeBody}
-            onChange={(e) => update({ includeBody: e.target.checked })}
+            onCheckedChange={(checked) => update({ includeBody: checked })}
           />
           {t("aiCommit.body")}
         </label>
@@ -488,7 +490,7 @@ export function AiCommitSettingsPanel() {
           onCommit={(value) => update({ maximumDiffCharacters: value })}
         />
         <p className="text-subtle-foreground">{t("aiCommit.disclosure")}</p>
-      </section>
+      </Section>
     </div>
   );
 }
