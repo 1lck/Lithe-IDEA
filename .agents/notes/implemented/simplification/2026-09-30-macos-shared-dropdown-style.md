@@ -477,7 +477,41 @@ Agent 输入区底栏的切换菜单向上展开，菜单底边锚定触发控�
 已有 `AgentBrandIcon` 的 16pt 品牌图标并保留独立勾选；此前只提交名称导致图标缺失。
 这些资源是构建时打包的只读输入，不增加运行时写入或下载。
 
+## 原生窗口布局反馈的边界
+
+SwiftUI 更新锚点时，AppKit（macOS 原生界面库）可能还在计算父窗口布局。
+此时直接创建子窗口、替换浮层内容并强制布局，会把新的尺寸计算压入同一个
+调用栈。首选内容尺寸变化后又立即调整窗口，也可能在调整尚未结束时再次进入
+尺寸回调。因此共享呈现器保留原生窗口，但把锚点请求和尺寸通知合并到主队列
+的后续执行机会；同一轮多次更新只读取最后的内容、环境和尺寸。
+
+正确做法是由共享协调器持有一个待执行请求，弱引用锚点和父窗口；卸载、移出
+窗口或关闭时使请求失效。控制器关闭后清除尺寸通知，旧通知不能调整后来打开的
+面板。不要在业务菜单里加延时常数，也不要让排队闭包强持有窗口，使已关闭的
+浮层重新出现。原生尺寸调整仍保留直接入口，防止重入；尺寸和约束相同就不重复
+赋值，变更 frame 时不立即强制显示，由 AppKit 下一次显示处理绘制。
+
+同一窗口角色的模型更新也不重新设置 `contentMinSize`（原生窗口的最小内容
+尺寸）。窗口协调器只在绑定新窗口或切换欢迎页、工作台等角色时应用角色尺寸，
+普通更新保留 SwiftUI 已测量的最小值，同时继续更新窗口标题。
+
+对照 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`platform/platform-impl/src/com/intellij/ui/WindowResizeListener.java`：上游按当前
+最小尺寸限制用户拖动后的 bounds。Lithe 保留已有尺寸限制，排队与重入保护处理
+的是 SwiftUI/AppKit 的原生反馈边界，不照搬 Swing 窗口生命周期，也不改变样式。
+
+这项约束处理 [#1138](https://github.com/1lck/Lithe-IDEA/issues/1138) 排查中发现的
+同步反馈风险。该报告已确认主线程布局递归栈溢出，但未定位具体触发控件；回归
+测试能证明上述反馈和清理边界，不能据此宣称原始会话的致命崩溃已完整复现。
+代价是浮层更新晚于当前视图更新栈；不采用禁用整个窗口自动尺寸测量的方案，以免
+破坏其他 SwiftUI 内容的布局。此改动不增加资源、缓存或 bundle 写入路径。
+
 ## 验证
+
+- `AgentActivityPresentationTests` 的切换场景先完成父视图布局，再有界等待已提交的主队列更新交付，然后检查长列表滚动、最后一个文件回调和面板复用。不能把旧面板仍然 `isVisible` 当作新内容已显示，否则下一次点击可能落到旧内容的可选文本并进入原生鼠标跟踪等待。
+- `preferredSizeChangesCoalesceWithoutReenteringTheCallback` 验证一轮尺寸变化只通知最终值，回调触发的新尺寸在后续执行机会交付，回调深度保持为一；`closingContentCancelsQueuedSizeFeedback` 验证移除回调后排队通知失效。
+- `dropdownPresentationDefersLayoutAndUsesTheLatestContent` 在深浅外观的原生父子窗口中验证延后打开、最新内容与环境、合并为一个子窗口，以及更新或首次打开尚未交付时卸载锚点不会重新出现面板。
+- `workspaceUpdatesPreserveTheHostingWindowsMeasuredMinimum` 验证同角色更新保留宿主测量的窗口最小值、标题继续更新，切换欢迎页角色仍应用声明尺寸。
 
 `ContextMenuCoverageTests.dropdownTriggerClosesItsPopupAndSwitchesToAnother` 用原生
 窗口事件覆盖深浅主题、动作及自定义菜单：重复点击原按钮关闭、另一按钮直接切换、

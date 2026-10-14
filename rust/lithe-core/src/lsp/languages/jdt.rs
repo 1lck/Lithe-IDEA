@@ -34,6 +34,16 @@ const ERROR_STATUS: &str = "Error";
 /// never adds Eclipse files to the user's tree. Files that already exist at a
 /// module root still take precedence; `jdt_project_metadata` removes those.
 const METADATA_AT_PROJECT_ROOT_PROPERTY: &str = "-Djava.import.generatesMetadataFilesAtProjectRoot";
+/// Heap ceiling passed to the JDT LS JVM on both launch paths.
+///
+/// JDT LS switches to a batched, memory-frugal Maven import as soon as its
+/// maximum heap is at most 1.5 GB. That path hands a `null` project to
+/// `IProject.open` when several modules share `groupId` and `artifactId`, which
+/// fails the whole Java service instead of the affected modules. Keep the
+/// ceiling above that threshold, and at the 2 GB upstream documents for the
+/// language server, so a normal multi-module workspace imports through the
+/// regular path.
+const JDTLS_MAX_HEAP_ARGUMENT: &str = "-Xmx2048m";
 
 /// JDT LS readiness transition conveyed through its `language/status`
 /// extension after the standard LSP initialize handshake.
@@ -724,8 +734,12 @@ fn is_java_provider(provider_id: &str) -> bool {
     provider_id.trim().eq_ignore_ascii_case(JAVA_PROVIDER_ID)
 }
 
-/// Maximum heap used when the plugin does not choose one.
-const DEFAULT_MAX_HEAP_ARGUMENT: &str = "-Xmx1024m";
+/// Maximum heap used when the plugin does not choose one, or chooses one the
+/// host cannot accept. See `JDTLS_MAX_HEAP_ARGUMENT` for why it is 2 GB.
+const DEFAULT_MAX_HEAP_ARGUMENT: &str = JDTLS_MAX_HEAP_ARGUMENT;
+/// JDT LS runs its constrained-memory import at or below this heap, so no
+/// plugin choice at or below it is accepted.
+const CONSTRAINED_HEAP_MEBIBYTES: u64 = 1536;
 const MAX_HEAP_PREFIX: &str = "-Xmx";
 /// Language-server log level used when the plugin does not choose one.
 const DEFAULT_LOG_LEVEL_ARGUMENT: &str = "-Dlog.level=ALL";
@@ -753,12 +767,27 @@ fn take_plugin_choice(
     choice
 }
 
-/// A JVM heap size: digits and an optional `k`, `m`, or `g` unit.
+/// A JVM heap size (digits and an optional `k`, `m`, or `g` unit) above the
+/// size at which JDT LS switches to its constrained-memory import. A smaller
+/// choice is dropped so the host default stays in force.
 fn is_heap_size(value: &str) -> bool {
     let digits = value.trim_end_matches(['k', 'K', 'm', 'M', 'g', 'G']);
-    !digits.is_empty()
-        && value.len() - digits.len() <= 1
-        && digits.chars().all(|character| character.is_ascii_digit())
+    if digits.is_empty()
+        || value.len() - digits.len() > 1
+        || !digits.chars().all(|character| character.is_ascii_digit())
+    {
+        return false;
+    }
+    let Ok(amount) = digits.parse::<u64>() else {
+        return false;
+    };
+    let mebibytes = match value[digits.len()..].to_ascii_lowercase().as_str() {
+        "k" => amount / 1024,
+        "m" => amount,
+        "g" => amount.saturating_mul(1024),
+        _ => amount / (1024 * 1024),
+    };
+    mebibytes > CONSTRAINED_HEAP_MEBIBYTES
 }
 
 fn is_log_level(value: &str) -> bool {
@@ -1429,7 +1458,7 @@ mod tests {
                 "--java-executable",
                 "/jdk/bin/java",
                 "--jvm-arg=-Xms256m",
-                "--jvm-arg=-Xmx1024m",
+                "--jvm-arg=-Xmx2048m",
                 "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-data",
                 data_directory.to_string_lossy().as_ref()
@@ -1478,6 +1507,45 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false"]
         );
+    }
+
+    #[test]
+    fn java_start_keeps_the_heap_above_the_jdtls_constrained_memory_threshold() {
+        // JDT LS switches to a batched Maven import whose `updateProjects` path
+        // dereferences a `null` project for modules that share a build
+        // coordinate (eclipse-jdtls/eclipse.jdt.ls#3893). Staying above 1.5 GB
+        // keeps a normal multi-module workspace on the regular import path.
+        const CONSTRAINED_MEMORY_THRESHOLD_MEBIBYTES: u64 = 1536;
+
+        let mut direct_context = java_start_context();
+        direct_context.direct_launch_resources = Some(JdtDirectLaunchResources {
+            launcher_jar_path: PathBuf::from("/jdtls/plugins/equinox.jar"),
+            configuration_directory: PathBuf::from("/jdtls/config_mac"),
+            lombok_agent_path: PathBuf::from("/jdtls/lombok/lombok.jar"),
+            java_debug_bundle_path: None,
+        });
+        let wrapper = adapt_start(&java_start_context());
+        let direct = adapt_start(&direct_context);
+
+        for arguments in [&wrapper.arguments, &direct.arguments] {
+            let heap = arguments
+                .iter()
+                .find_map(|argument| {
+                    argument
+                        .strip_prefix("--jvm-arg=")
+                        .unwrap_or(argument)
+                        .strip_prefix("-Xmx")
+                })
+                .expect("both JDT LS launch paths set a maximum heap");
+            let mebibytes = heap
+                .strip_suffix('m')
+                .and_then(|value| value.parse::<u64>().ok())
+                .expect("the JDT LS maximum heap uses a mebibyte suffix");
+            assert!(
+                mebibytes > CONSTRAINED_MEMORY_THRESHOLD_MEBIBYTES,
+                "JDT LS needs more than {CONSTRAINED_MEMORY_THRESHOLD_MEBIBYTES} MiB of maximum heap, found {heap}"
+            );
+        }
     }
 
     #[test]
@@ -1571,7 +1639,7 @@ mod tests {
         assert_eq!(
             heap_and_level(&[]),
             (
-                vec!["-Xmx1024m".to_string()],
+                vec!["-Xmx2048m".to_string()],
                 vec!["-Dlog.level=ALL".to_string()]
             )
         );
@@ -1592,10 +1660,12 @@ mod tests {
             heap_and_level(&[
                 "--jvm-arg=-Xmx",
                 "--jvm-arg=-Xmxlots",
+                "--jvm-arg=-Xmx1024m",
+                "--jvm-arg=-Xmx1536m",
                 "--jvm-arg=-Dlog.level=",
             ]),
             (
-                vec!["-Xmx1024m".to_string()],
+                vec!["-Xmx2048m".to_string()],
                 vec!["-Dlog.level=ALL".to_string()]
             )
         );

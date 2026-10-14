@@ -25,8 +25,8 @@
       "type": "integer",
       "title": "Maximum memory",
       "description": "Upper bound of the Java language server's heap. Raise it for large multi-module projects.",
-      "default": 1024,
-      "minimum": 512,
+      "default": 2048,
+      "minimum": 2048,
       "maximum": 16384,
       "unit": "MB"
     },

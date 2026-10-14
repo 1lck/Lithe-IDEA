@@ -93,9 +93,12 @@ struct PluginSettingsTests {
 
         #expect(descriptor.settings.map(\.id) == ["heapMaxMB", "logLevel"])
         let heap = try #require(descriptor.settings.first { $0.id == "heapMaxMB" })
-        // The language server has always started with a 1 GB heap and full logging.
-        #expect(heap.defaultValue == .integer(1024))
-        #expect(heap.kind == .integer(minimum: 512, maximum: 16384, unit: "MB"))
+        // The language server starts with a 2 GB heap and full logging. A smaller
+        // heap makes JDT LS import Maven modules in its constrained-memory mode,
+        // which fails the whole Java service for modules that share coordinates,
+        // so the plugin does not offer one.
+        #expect(heap.defaultValue == .integer(2048))
+        #expect(heap.kind == .integer(minimum: 2048, maximum: 16384, unit: "MB"))
         let level = try #require(descriptor.settings.first { $0.id == "logLevel" })
         #expect(level.defaultValue == .string("ALL"))
         #expect(level.accepts(.string("SEVERE")) && !level.accepts(.string("OFF")))
