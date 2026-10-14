@@ -65,6 +65,7 @@ struct PluginManagerTests {
             packageStore: makeStore(root: root),
             moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [],
@@ -87,6 +88,7 @@ struct PluginManagerTests {
             packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [],
@@ -113,6 +115,7 @@ struct PluginManagerTests {
             packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [installed],
@@ -154,6 +157,7 @@ struct PluginManagerTests {
             packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [installed],
@@ -190,6 +194,7 @@ struct PluginManagerTests {
             packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [installed],

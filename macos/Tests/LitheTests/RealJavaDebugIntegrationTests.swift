@@ -871,7 +871,8 @@ private struct RealJavaSupportPackage {
             .appendingPathComponent("lithe-real-java-plugin-state-\(UUID().uuidString)", isDirectory: true)
         resolver = MacPluginLanguageServerLaunchResolver(
             planner: operations,
-            directories: MacPluginStateDirectories(rootURL: stateRootURL)
+            directories: MacPluginStateDirectories(rootURL: stateRootURL),
+            settings: InMemoryPluginSettings()
         )
         javaURL = try #require(try resolver.executableProbe(for: source).packagedRuntimeURL)
         let integration = try #require(try resolver.hostIntegration(for: source))

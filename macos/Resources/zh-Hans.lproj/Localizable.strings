@@ -2896,3 +2896,16 @@
 "%lld non-streaming" = "%lld 次非流式";
 "Model calls observed by the local proxy during this turn. TTFT is the average time to the first generated token." = "本轮由本机代理观测到的模型调用；首字为首个生成 token 的平均等待时间。";
 "%lld requests returned no usage, so these totals are a lower bound." = "有 %lld 次请求未返回用量，以上为最低值。";
+
+/* Declarative plugin settings (Settings › Plugins). */
+"Applies the next time the language server starts." = "下次启动语言服务器时生效。";
+"Restart Language Servers" = "重启语言服务器";
+"Reset to Default" = "恢复默认值";
+"Enter a whole number from %d to %d." = "请输入 %d 到 %d 之间的整数。";
+"Maximum memory" = "最大内存";
+"Upper bound of the Java language server's heap. Raise it for large multi-module projects." = "Java 语言服务器的堆内存上限。大型多模块项目可适当调高。";
+"Language server log level" = "语言服务器日志级别";
+"How much the Java language server writes to its own log. Quieter levels reduce disk writes." = "Java 语言服务器写入自身日志的详细程度；较安静的级别可减少磁盘写入。";
+"All messages" = "全部消息";
+"Warnings" = "警告";
+"Errors only" = "仅错误";

@@ -149,9 +149,11 @@ final class MacServiceContainer {
             fileStorage: fileStorage,
             validator: declarativePluginOperations
         )
+        let pluginSettings = MacPluginSettingsStore(store: store)
         let pluginLaunchResolver = MacPluginLanguageServerLaunchResolver(
             planner: declarativePluginOperations,
-            directories: MacPluginStateDirectories(fileStorage: fileStorage)
+            directories: MacPluginStateDirectories(fileStorage: fileStorage),
+            settings: pluginSettings
         )
         let pluginStartup = MacPluginStartupLoader(packageStore: pluginPackageStore)
             .load(recoveryStore: moduleStore)
@@ -576,6 +578,7 @@ final class MacServiceContainer {
             packageStore: pluginPackageStore,
             moduleRuntime: moduleRuntime,
             configurationStore: moduleStore,
+            settings: pluginSettings,
             launchMode: moduleLaunchMode,
             startup: pluginStartup,
             managedBuiltInPlugins: bundledLanguageManifests

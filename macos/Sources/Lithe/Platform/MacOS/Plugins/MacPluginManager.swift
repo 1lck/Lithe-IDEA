@@ -1,5 +1,6 @@
 import Foundation
 import LitheApplicationKernel
+import LitheCoreContracts
 import LitheModuleAPI
 
 @MainActor
@@ -7,6 +8,7 @@ final class MacPluginManager: PluginManaging {
     private let packageStore: MacPluginPackageStore
     private let moduleRuntime: ModuleRuntime
     private let configurationStore: MacModuleConfigurationStore
+    private let settings: any PluginSettingsStoring
     private let launchMode: ModuleLaunchMode
     private let managedBuiltInPlugins: [PluginManifest]
     /// Plugins whose host-owned modules were registered at launch. Their
@@ -23,6 +25,7 @@ final class MacPluginManager: PluginManaging {
         packageStore: MacPluginPackageStore,
         moduleRuntime: ModuleRuntime,
         configurationStore: MacModuleConfigurationStore,
+        settings: any PluginSettingsStoring,
         launchMode: ModuleLaunchMode,
         startup: MacPluginStartupResult,
         managedBuiltInPlugins: [PluginManifest] = [],
@@ -34,6 +37,7 @@ final class MacPluginManager: PluginManaging {
         self.allowsLocalDevelopmentPackages = allowsLocalDevelopmentPackages
         self.moduleRuntime = moduleRuntime
         self.configurationStore = configurationStore
+        self.settings = settings
         self.launchMode = launchMode
         self.managedBuiltInPlugins = managedBuiltInPlugins.sorted { $0.id < $1.id }
         self.hostVersion = hostVersion
@@ -58,6 +62,7 @@ final class MacPluginManager: PluginManaging {
                     installationStatus: $0.installation.status,
                     previousVersion: $0.installation.previousVersion,
                     marketplace: $0.installation.marketplace,
+                    settings: $0.descriptor.settings,
                     runtimeSnapshots: runtimeSnapshots
                 )
             }
@@ -68,6 +73,7 @@ final class MacPluginManager: PluginManaging {
                 installationStatus: .installed,
                 previousVersion: nil,
                 marketplace: nil,
+                settings: [],
                 runtimeSnapshots: runtimeSnapshots
             )
         }
@@ -223,6 +229,7 @@ final class MacPluginManager: PluginManaging {
         installationStatus: PluginInstallationStatus,
         previousVersion: PluginVersion?,
         marketplace: PluginMarketplaceProvenance?,
+        settings declaredSettings: [DeclarativePluginSetting],
         runtimeSnapshots: [ModuleID: ModuleSnapshot]
     ) -> PluginManagementSnapshot {
         let moduleSnapshots = manifest.modules.compactMap { runtimeSnapshots[$0.manifest.id] }
@@ -278,8 +285,31 @@ final class MacPluginManager: PluginManaging {
             requiresRestart: requiresRestart,
             canRollback: previousVersion != nil,
             statusMessage: statusMessage,
-            marketplace: marketplace
+            marketplace: marketplace,
+            settings: settingStates(declaredSettings, pluginID: manifest.id)
         )
+    }
+
+    private func settingStates(
+        _ declarations: [DeclarativePluginSetting],
+        pluginID: PluginID
+    ) -> [PluginSettingState] {
+        guard !declarations.isEmpty else { return [] }
+        let stored = settings.values(forPlugin: pluginID.rawValue)
+        return declarations.map {
+            PluginSettingState(declaration: $0, value: $0.effectiveValue(stored: stored[$0.id]))
+        }
+    }
+
+    func setSetting(_ value: ToolingJSONValue?, id settingID: String, for pluginID: PluginID) throws {
+        guard let declaration = installedPlugins[pluginID]?.descriptor.settings.first(where: { $0.id == settingID })
+        else { throw PluginManagerError.unknownSetting(pluginID, settingID) }
+        if let value, !declaration.accepts(value) {
+            throw PluginManagerError.settingValueRejected(pluginID, settingID)
+        }
+        // A value equal to the default is forgotten, so a later change of the
+        // declared default reaches users who never picked a value.
+        settings.setValue(value == declaration.defaultValue ? nil : value, forSetting: settingID, plugin: pluginID.rawValue)
     }
 }
 
@@ -288,6 +318,8 @@ enum PluginManagerError: Error, Equatable, LocalizedError {
     case unsupportedInstallationOrigin(PluginInstallationOrigin)
     case requiredPluginCannotBeDisabled(PluginID)
     case requiredPluginCannotBeUninstalled(PluginID)
+    case unknownSetting(PluginID, String)
+    case settingValueRejected(PluginID, String)
 
     var errorDescription: String? {
         switch self {
@@ -295,6 +327,8 @@ enum PluginManagerError: Error, Equatable, LocalizedError {
         case .unsupportedInstallationOrigin(let origin): "Marketplace packages cannot be installed as \(origin.rawValue)."
         case .requiredPluginCannotBeDisabled(let id): "Required plugin \(id) cannot be disabled."
         case .requiredPluginCannotBeUninstalled(let id): "Required plugin \(id) cannot be uninstalled."
+        case .unknownSetting(let id, let setting): "Plugin \(id) has no setting \(setting)."
+        case .settingValueRejected(let id, let setting): "The value is not allowed for setting \(setting) of plugin \(id)."
         }
     }
 }

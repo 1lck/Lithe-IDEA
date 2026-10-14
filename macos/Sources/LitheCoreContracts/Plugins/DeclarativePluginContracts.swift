@@ -135,18 +135,89 @@ public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
     public let workspaceStateDirectory: URL
     /// `arm64` or `x86_64`.
     public let architecture: String
+    /// Values the user stored for the plugin's settings, by setting ID. Rust
+    /// Core falls back to the declared default for a missing or no longer
+    /// acceptable value.
+    public let settings: [String: ToolingJSONValue]
 
     public init(
         pluginDirectory: URL,
         stateDirectory: URL,
         workspaceStateDirectory: URL,
-        architecture: String
+        architecture: String,
+        settings: [String: ToolingJSONValue] = [:]
     ) {
         self.pluginDirectory = pluginDirectory
         self.stateDirectory = stateDirectory
         self.workspaceStateDirectory = workspaceStateDirectory
         self.architecture = architecture
+        self.settings = settings
     }
+}
+
+/// One option a declarative plugin lets the user change (plugin API 2). The
+/// plugin names it in launch templates; the host shows it on the plugin's page
+/// and keeps the value once per plugin.
+public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
+    public struct Option: Equatable, Sendable {
+        public let value: String
+        public let title: String
+
+        public init(value: String, title: String) {
+            self.value = value
+            self.title = title
+        }
+    }
+
+    public enum Kind: Equatable, Sendable {
+        case integer(minimum: Int, maximum: Int, unit: String?)
+        case choice([Option])
+        case toggle
+    }
+
+    public let id: String
+    public let title: String
+    public let summary: String?
+    public let kind: Kind
+    public let defaultValue: ToolingJSONValue
+
+    public init(id: String, title: String, summary: String?, kind: Kind, defaultValue: ToolingJSONValue) {
+        self.id = id
+        self.title = title
+        self.summary = summary
+        self.kind = kind
+        self.defaultValue = defaultValue
+    }
+
+    /// Whether `value` is one this declaration can hold. Mirrors the check Rust
+    /// Core applies when it expands a launch, so the page never offers or
+    /// stores a value the launch would then replace.
+    public func accepts(_ value: ToolingJSONValue) -> Bool {
+        switch (kind, value) {
+        case (.integer(let minimum, let maximum, _), .integer(let number)):
+            number >= minimum && number <= maximum
+        case (.choice(let options), .string(let text)):
+            options.contains { $0.value == text }
+        case (.toggle, .bool):
+            true
+        default:
+            false
+        }
+    }
+
+    /// The stored value when this declaration still accepts it, else the default.
+    public func effectiveValue(stored: ToolingJSONValue?) -> ToolingJSONValue {
+        if let stored, accepts(stored) { return stored }
+        return defaultValue
+    }
+}
+
+/// The user's values for declarative plugin settings, kept once per plugin.
+/// A plugin that is uninstalled and installed again finds its values again.
+public protocol PluginSettingsStoring: Sendable {
+    func values(forPlugin pluginID: String) -> [String: ToolingJSONValue]
+    /// Stores `value`; `nil` forgets it so the declared default applies.
+    func setValue(_ value: ToolingJSONValue?, forSetting settingID: String, plugin pluginID: String)
 }
 
 /// Result of `plugins.declarative.languageServerLaunchPlan`. Rust Core only
@@ -234,6 +305,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let pluginManifest: PluginManifest
     public let languageServers: [DeclarativeLanguageServer]
     public let executionProviders: [DeclarativeExecutionProvider]
+    public let settings: [DeclarativePluginSetting]
     public let permissions: [String]
     public let activationEvents: [String]
     public let normalizedManifest: Data
@@ -272,6 +344,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 providesTest: provider.test != nil
             )
         }
+        settings = try decoded.settings.map { try $0.declaration() }
         permissions = decoded.permissions
         activationEvents = decoded.activationEvents
         self.normalizedManifest = normalizedManifest
@@ -455,6 +528,49 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 case hostIntegration
             }
         }
+        struct Setting: Decodable {
+            struct Option: Decodable {
+                let value: String
+                let title: String
+            }
+
+            let id: String
+            let type: String
+            let title: String
+            let description: String?
+            let `default`: ToolingJSONValue
+            let minimum: Int?
+            let maximum: Int?
+            let unit: String?
+            let options: [Option]?
+
+            /// Rust Core has already checked the declaration, so a shape that
+            /// does not fit comes from a newer contract this host cannot show.
+            func declaration() throws -> DeclarativePluginSetting {
+                let kind: DeclarativePluginSetting.Kind
+                switch (type, minimum, maximum) {
+                case ("integer", let minimum?, let maximum?):
+                    kind = .integer(minimum: minimum, maximum: maximum, unit: unit)
+                case ("enum", _, _):
+                    kind = .choice((options ?? []).map { .init(value: $0.value, title: $0.title) })
+                case ("boolean", _, _):
+                    kind = .toggle
+                default:
+                    throw DeclarativePluginRejection(
+                        code: "plugin.manifest.invalid",
+                        message: "The setting type \(type) is not supported by this version of Lithe.",
+                        field: "settings.\(id)"
+                    )
+                }
+                return DeclarativePluginSetting(
+                    id: id,
+                    title: title,
+                    summary: description,
+                    kind: kind,
+                    defaultValue: `default`
+                )
+            }
+        }
         /// Templates stay opaque to the host; only their presence matters here.
         struct ExecutionProvider: Decodable {
             let languageID: String
@@ -475,6 +591,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let languages: [Language]
         let languageServers: [LanguageServer]
         let executionProviders: [ExecutionProvider]
+        let settings: [Setting]
 
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -488,11 +605,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             languages = try values.decode([Language].self, forKey: .languages)
             languageServers = try values.decodeIfPresent([LanguageServer].self, forKey: .languageServers) ?? []
             executionProviders = try values.decodeIfPresent([ExecutionProvider].self, forKey: .executionProviders) ?? []
+            settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
-            case languages, languageServers, executionProviders
+            case languages, languageServers, executionProviders, settings
         }
     }
 }

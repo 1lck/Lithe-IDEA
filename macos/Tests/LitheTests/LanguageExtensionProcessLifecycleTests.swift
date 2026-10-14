@@ -174,7 +174,8 @@ struct LanguageExtensionProcessLifecycleTests {
             planner: operations,
             launchResolver: MacPluginLanguageServerLaunchResolver(
                 planner: operations,
-                directories: MacPluginStateDirectories(rootURL: root.appendingPathComponent("state", isDirectory: true))
+                directories: MacPluginStateDirectories(rootURL: root.appendingPathComponent("state", isDirectory: true)),
+                settings: InMemoryPluginSettings()
             )
         ) {
             try runtime.register(factory)

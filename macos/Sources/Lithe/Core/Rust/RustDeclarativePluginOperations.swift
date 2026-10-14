@@ -106,7 +106,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                     pluginDirectory: request.pluginDirectory.path,
                     stateDirectory: request.stateDirectory.path,
                     workspaceStateDirectory: request.workspaceStateDirectory.path,
-                    architecture: request.architecture
+                    architecture: request.architecture,
+                    settings: request.settings
                 )
             )
         )
@@ -226,6 +227,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let stateDirectory: String
         let workspaceStateDirectory: String
         let architecture: String
+        let settings: [String: ToolingJSONValue]
     }
 
     private struct LaunchPlan: Decodable {

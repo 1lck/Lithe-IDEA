@@ -171,10 +171,11 @@ contains a machine path, and the host decides where state lives.
 | `${stateDir}` | Writable directory the host keeps for this plugin's server and removes when the plugin is uninstalled. Not available in `validationArguments`. |
 | `${workspaceStateDir}` | Writable directory for the server's state of the current workspace. Not available in `validationArguments`. |
 | `${arch}` | Host CPU architecture: `arm64` or `x86_64`. |
+| `${setting:<id>}` | Current value of a declared [plugin setting](#plugin-settings-api-2). Not available in `validationArguments`, and never inside a package path. |
 
 `plugins.declarative.languageServerLaunchPlan` expands a server's launch. The
 host passes `{pluginDirectory, stateDirectory, workspaceStateDirectory,
-architecture}` and receives:
+architecture, settings?}` and receives:
 
 | Field | Meaning |
 | --- | --- |
@@ -185,9 +186,47 @@ architecture}` and receives:
 | `initializationOptions` | Expanded options; absent when the server declares none. |
 | `requiredDirectories` | `state` and/or `workspaceState`: the directories the host must create before starting the server. |
 | `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
+| `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
 
 Core never creates or reads any of these paths. The command also serves API 1
 manifests, whose arguments are returned unchanged.
+
+#### Plugin settings (API 2)
+
+A plugin may declare options the user can change, one set per plugin and
+shared by every workspace. The host shows them on the plugin's page, stores
+the values, and passes the stored values as `settings` (setting ID to JSON
+value) with each launch plan request. Hosts restart the plugin's language
+servers when a value changes.
+
+```json
+"settings": [
+  { "id": "heapMB", "type": "integer", "title": "Maximum memory",
+    "default": 2048, "minimum": 512, "maximum": 8192, "unit": "MB" },
+  { "id": "logLevel", "type": "enum", "title": "Log level", "default": "info",
+    "options": [{ "value": "info", "title": "Information" }, { "value": "debug", "title": "Debug" }] },
+  { "id": "telemetry", "type": "boolean", "title": "Send usage data", "default": false }
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Starts with a lowercase letter, then letters and digits. Unique within the plugin. |
+| `type` | `integer` (requires `minimum` and `maximum`, optional `unit`), `enum` (requires one to sixteen `options`, each `{value, title}`; values contain only letters, digits, `.`, `_`, `-`), or `boolean`. |
+| `title`, `description` | Text the host shows; the host localizes only its own chrome. |
+| `default` | Value used until the user changes it. Its JSON type follows `type`, and it must be accepted by the declaration. |
+
+Because every value is a number, a boolean, or one of the declared option
+values, a setting can never inject extra arguments or change which package
+file runs. A stored value the declaration no longer accepts (for example after
+an update narrowed a range) is replaced by the default; a launch never fails
+for it. Values for undeclared IDs are ignored. A template that is exactly one
+`${setting:<id>}` keeps the setting's JSON type, so an `initializationOptions`
+value can be a number or boolean; inside longer text the value is substituted
+as text. Declaring settings, or referring to an undeclared one, is refused
+with `plugin.manifest.invalid` or `plugin.template.invalid`. The settings
+declaration is not part of an install review's program list, because no value
+can change what runs beyond what the templates already show.
 
 ### Execution providers
 
@@ -231,7 +270,7 @@ files sorted by path, or an empty list when no project marker is present.
 | Level | Adds |
 | --- | --- |
 | `1` | Languages, `packaged` and `systemCommand` language servers, `node` and `go` runtime dependencies, run and test providers. |
-| `2` | `runtime` launches with a packaged or discovered runtime, host integrations, the `java` runtime, launch templates, and `initializationOptions`. |
+| `2` | `runtime` launches with a packaged or discovered runtime, host integrations, the `java` runtime, launch templates, `initializationOptions`, and plugin settings. |
 
 A level 2 feature in a level 1 manifest is refused with
 `plugin.manifest.invalid` (`plugin.runtime.unsupported` for the `java` tool),

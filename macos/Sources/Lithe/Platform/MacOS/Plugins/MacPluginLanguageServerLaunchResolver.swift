@@ -64,15 +64,18 @@ struct MacPluginLanguageServerLaunchResolver {
 
     private let planner: any DeclarativeLanguageServerLaunchPlanning
     private let directories: MacPluginStateDirectories
+    private let settings: any PluginSettingsStoring
     private let fileManager: FileManager
 
     init(
         planner: any DeclarativeLanguageServerLaunchPlanning,
         directories: MacPluginStateDirectories,
+        settings: any PluginSettingsStoring,
         fileManager: FileManager = .default
     ) {
         self.planner = planner
         self.directories = directories
+        self.settings = settings
         self.fileManager = fileManager
     }
 
@@ -179,7 +182,8 @@ struct MacPluginLanguageServerLaunchResolver {
                 languageID: source.languageID,
                 workspaceRootURL: workspaceRootURL
             ),
-            architecture: Self.hostArchitecture
+            architecture: Self.hostArchitecture,
+            settings: settings.values(forPlugin: source.pluginID)
         )
     }
 

@@ -32,13 +32,14 @@
         "tool": "node",
         "minimumVersion": "18.17",
         "runtimeArguments": [
-          "--max-old-space-size=2048",
+          "--max-old-space-size=${setting:heapMB}",
           "--require=${pluginDir}/language-server/lib/preload.js"
         ],
         "entry": "language-server/lib/server.js"
       },
       "arguments": [
         "--stdio",
+        "--log-level=${setting:logLevel}",
         "--storage",
         "${stateDir}/storage",
         "--workspace-cache",
@@ -48,8 +49,46 @@
         "stubs": [
           "${pluginDir}/language-server/stubs/${arch}"
         ],
-        "telemetry": false
+        "telemetry": "${setting:telemetry}"
       }
+    }
+  ],
+  "settings": [
+    {
+      "id": "heapMB",
+      "type": "integer",
+      "title": "Maximum memory",
+      "description": "Upper bound of the server's heap.",
+      "default": 2048,
+      "minimum": 512,
+      "maximum": 8192,
+      "unit": "MB"
+    },
+    {
+      "id": "logLevel",
+      "type": "enum",
+      "title": "Log level",
+      "default": "info",
+      "options": [
+        {
+          "value": "error",
+          "title": "Errors only"
+        },
+        {
+          "value": "info",
+          "title": "Information"
+        },
+        {
+          "value": "debug",
+          "title": "Debug"
+        }
+      ]
+    },
+    {
+      "id": "telemetry",
+      "type": "boolean",
+      "title": "Send usage data",
+      "default": false
     }
   ]
 }

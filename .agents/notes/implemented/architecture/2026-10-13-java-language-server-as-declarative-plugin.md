@@ -37,6 +37,7 @@ Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全
 
 - `launch.kind: "runtime"`：用运行时启动包内入口文件，不需要启动脚本。运行时有两种来源：插件自带（`packagedRuntime`，宿主只启动包内这一个文件），或由宿主发现并按 `minimumVersion` 检查版本。
 - 启动模板变量 `${pluginDir}`、`${stateDir}`、`${workspaceStateDir}`、`${arch}`，以及 `initializationOptions`。
+- `settings`：用户可调的选项（整数、枚举、布尔），在启动模板里写 `${setting:<id>}` 引用。Java Support 用它暴露 JDT LS 的最大堆内存和日志级别，决策见 [声明式插件设置](../feature/2026-10-14-declarative-plugin-settings.md)。
 - `hostIntegration`：`{ id, capabilities, resources }`。只有 `dev.lithe` 命名空间的插件可以声明，因为它让受信任的宿主代码去读插件的文件。
 - 两个 Core 命令：`plugins.declarative.languageServerLaunchPlan` 展开启动计划，`plugins.declarative.checkRuntimeVersion` 解析并比较运行时版本。
 

@@ -1,3 +1,4 @@
+import LitheCoreContracts
 import SwiftUI
 import LitheModuleAPI
 
@@ -446,6 +447,15 @@ private struct InstalledPluginsView: View {
                 }
             }
             .padding(24)
+            if !plugin.settings.isEmpty {
+                PluginSettingsSection(
+                    settings: plugin.settings,
+                    onChange: { settingID, value in
+                        model.setPluginSetting(value, id: settingID, for: plugin.id)
+                    },
+                    onRestartLanguageServers: { model.restartLanguageServers() }
+                )
+            }
             Spacer()
         }
     }

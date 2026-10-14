@@ -173,6 +173,7 @@ struct PluginLocalDevelopmentTests {
             ),
             moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [],

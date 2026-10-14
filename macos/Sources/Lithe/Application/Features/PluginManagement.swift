@@ -1,5 +1,15 @@
 import Foundation
+import LitheCoreContracts
 import LitheModuleAPI
+
+/// A plugin setting together with the value the next launch will use.
+struct PluginSettingState: Equatable, Sendable, Identifiable {
+    let declaration: DeclarativePluginSetting
+    let value: ToolingJSONValue
+
+    var id: String { declaration.id }
+    var isDefault: Bool { value == declaration.defaultValue }
+}
 
 struct PluginManagementIssue: Equatable, Sendable, Identifiable {
     let pluginID: PluginID?
@@ -22,6 +32,8 @@ struct PluginManagementSnapshot: Equatable, Sendable, Identifiable {
     let statusMessage: String
     /// Marketplace source and approvals of the active version, if any.
     let marketplace: PluginMarketplaceProvenance?
+    /// Options the plugin lets the user change; empty when it declares none.
+    var settings: [PluginSettingState] = []
 
     var id: PluginID { manifest.id }
 }
@@ -32,6 +44,9 @@ protocol PluginManaging: AnyObject {
     var issues: [PluginManagementIssue] { get }
 
     func setEnabled(_ enabled: Bool, for pluginID: PluginID) async throws
+    /// Stores the user's value of one plugin setting; `nil` restores the
+    /// plugin's default. The plugin's language servers read it at their next start.
+    func setSetting(_ value: ToolingJSONValue?, id settingID: String, for pluginID: PluginID) throws
     /// Installs a package that the marketplace already downloaded, verified,
     /// and (for community packages) had the user confirm.
     func installMarketplacePackage(

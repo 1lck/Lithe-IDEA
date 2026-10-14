@@ -307,6 +307,41 @@ fn runtime_version_fixtures_match_golden_outcomes() {
     }
 }
 
+/// The validation probe runs before the host has read the plugin's settings,
+/// so it cannot depend on one.
+#[test]
+fn validation_probe_cannot_use_settings() {
+    let mut manifest = fixture("go-support.plugin.json");
+    manifest["pluginAPIVersion"] = json!(2);
+    manifest["settings"] = json!([
+        { "id": "verbose", "type": "boolean", "title": "Verbose", "default": false }
+    ]);
+    manifest["languageServers"][0]["validationArguments"] =
+        json!(["version", "${setting:verbose}"]);
+    let outcome = validate(manifest.clone());
+    assert_eq!(outcome["status"], "rejected", "{outcome}");
+    assert_eq!(outcome["error"]["code"], "plugin.template.invalid");
+
+    // The same setting is fine where the server starts.
+    manifest["languageServers"][0]["validationArguments"] = json!(["version"]);
+    manifest["languageServers"][0]["arguments"] = json!(["-verbose=${setting:verbose}"]);
+    assert_eq!(validate(manifest)["status"], "ok");
+}
+
+/// A setting declaration is part of the normalized manifest, ordered by ID so
+/// two hosts show and store the same list.
+#[test]
+fn settings_are_normalized_in_identifier_order() {
+    let outcome = validate(fixture("node-runtime.plugin.json"));
+    let ids: Vec<&str> = outcome["plugin"]["settings"]
+        .as_array()
+        .expect("normalized manifest lists the settings")
+        .iter()
+        .map(|setting| setting["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["heapMB", "logLevel", "telemetry"]);
+}
+
 #[test]
 fn malformed_payload_is_a_core_failure_not_a_rejection() {
     assert!(run_plan_command(json!({ "manifest": {} })).is_err());

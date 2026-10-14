@@ -59,6 +59,7 @@ struct PluginLanguageServerLaunchResolverTests {
             "--require=\(packagePath)/language-server/lib/preload.js",
             "\(packagePath)/language-server/lib/server.js",
             "--stdio",
+            "--log-level=info",
             "--storage",
             "\(stateDirectory.path)/storage",
             "--workspace-cache",
@@ -122,6 +123,61 @@ struct PluginLanguageServerLaunchResolverTests {
             ).path
         ])
         #expect(!FileManager.default.fileExists(atPath: fixture.directories.rootURL.path))
+    }
+
+    /// What the user stored for a setting reaches the server command line, and
+    /// a boolean setting stays a boolean in the initialization options.
+    @Test
+    func storedPluginSettingsReachTheLaunchAndUnacceptableOnesFallBackToDefaults() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = InMemoryPluginSettings()
+        let fixture = try makeFixture(
+            root: root,
+            manifest: "node-runtime.plugin.json",
+            languageID: "fixture",
+            settings: settings
+        )
+        let pluginID = fixture.source.pluginID
+        settings.setValue(.integer(4096), forSetting: "heapMB", plugin: pluginID)
+        settings.setValue(.string("debug"), forSetting: "logLevel", plugin: pluginID)
+        settings.setValue(.bool(true), forSetting: "telemetry", plugin: pluginID)
+
+        let resolved = try fixture.resolver.resolve(fixture.source, workspaceRootURL: fixture.workspaceURL)
+
+        #expect(resolved.arguments.first == "--max-old-space-size=4096")
+        #expect(resolved.arguments.contains("--log-level=debug"))
+        guard case .object(let options)? = resolved.initializationOptions else {
+            Issue.record("The launch has no initialization options")
+            return
+        }
+        #expect(options["telemetry"] == .bool(true))
+
+        // A stored value the declaration no longer accepts never fails the launch.
+        settings.setValue(.integer(1), forSetting: "heapMB", plugin: pluginID)
+        settings.setValue(.string("verbose"), forSetting: "logLevel", plugin: pluginID)
+        let fallback = try fixture.resolver.resolve(fixture.source, workspaceRootURL: fixture.workspaceURL)
+        #expect(fallback.arguments.first == "--max-old-space-size=2048")
+        #expect(fallback.arguments.contains("--log-level=info"))
+    }
+
+    @Test
+    func theDescriptorListsTheDeclaredSettingsAndTheirAcceptedValues() throws {
+        let descriptor = try DeclarativePluginTestSupport.operations.validate(
+            manifest: fixtureManifest("node-runtime.plugin.json")
+        )
+
+        #expect(descriptor.settings.map(\.id) == ["heapMB", "logLevel", "telemetry"])
+        let heap = try #require(descriptor.settings.first)
+        #expect(heap.kind == .integer(minimum: 512, maximum: 8192, unit: "MB"))
+        #expect(heap.defaultValue == .integer(2048))
+        #expect(heap.accepts(.integer(512)) && heap.accepts(.integer(8192)))
+        #expect(!heap.accepts(.integer(511)) && !heap.accepts(.string("2048")))
+        #expect(heap.effectiveValue(stored: .integer(99999)) == .integer(2048))
+        #expect(heap.effectiveValue(stored: .integer(1024)) == .integer(1024))
+        let level = descriptor.settings[1]
+        #expect(level.accepts(.string("debug")) && !level.accepts(.string("trace")))
+        #expect(descriptor.settings[2].accepts(.bool(false)) && !descriptor.settings[2].accepts(.integer(0)))
     }
 
     @Test
@@ -347,7 +403,8 @@ struct PluginLanguageServerLaunchResolverTests {
     private func makeFixture(
         root: URL,
         manifest: String = "java-support.plugin.json",
-        languageID: String = "java"
+        languageID: String = "java",
+        settings: any PluginSettingsStoring = InMemoryPluginSettings()
     ) throws -> Fixture {
         let operations = DeclarativePluginTestSupport.operations
         let descriptor = try operations.validate(manifest: fixtureManifest(manifest))
@@ -373,7 +430,11 @@ struct PluginLanguageServerLaunchResolverTests {
                 packageURL: packageURL
             ),
             directories: directories,
-            resolver: MacPluginLanguageServerLaunchResolver(planner: operations, directories: directories),
+            resolver: MacPluginLanguageServerLaunchResolver(
+                planner: operations,
+                directories: directories,
+                settings: settings
+            ),
             workspaceURL: root.appendingPathComponent("workspace", isDirectory: true)
         )
     }

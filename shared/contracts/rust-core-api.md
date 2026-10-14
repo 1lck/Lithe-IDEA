@@ -2439,11 +2439,14 @@ Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 
 `plugins.declarative.languageServerLaunchPlan` uses the same envelope with the
 request `{ pluginDirectory, stateDirectory, workspaceStateDirectory,
-architecture }`. These are absolute host directories used only as
-substitution text; the command does not read or create them. Success returns
+architecture, settings? }`. The directories are absolute host paths used only
+as substitution text; the command does not read or create them. `settings` maps
+setting IDs to the values the user stored; a missing, unknown, or no longer
+acceptable value is ignored in favor of the declared default. Success returns
 `plan` with `launch`, `arguments`, `validationArguments`,
 `runtimeRequirements`, `requiredDirectories`, `requiredPackagePaths`, and
-`initializationOptions` and `hostIntegration` when the server declares them. An unknown
+`initializationOptions`, `hostIntegration`, and `settings` (the effective
+values) when the plugin declares them. An unknown
 architecture or an empty directory is refused with
 `plugin.launch.invalidRequest`, a language without a server with
 `plugin.launch.unavailable`.
