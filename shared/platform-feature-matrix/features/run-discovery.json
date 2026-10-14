@@ -13,7 +13,7 @@
       "windows/tauri/src/features/run",
       "rust/lithe-core/src/project/maven.rs",
       "rust/lithe-core/src/execution/detectors/maven.rs",
-      "rust/lithe-core/src/text.rs",
+      "rust/lithe-core/src/languages/text.rs",
       "rust/lithe-core/src/languages/java.rs",
       "windows/tauri/src/features/run/components/run-configuration-browser.tsx",
       "windows/tauri/src/features/run/components/run-configuration-browser.test.tsx",

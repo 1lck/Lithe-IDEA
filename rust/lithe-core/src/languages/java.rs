@@ -120,7 +120,7 @@ pub(crate) fn run_configurations_from_entrypoints(
         // service. An entry whose source cannot be decoded (missing file or an
         // unknown legacy charset) becomes a plain Java entry instead of failing
         // the whole run list; JDT already confirmed the class is launchable.
-        let source = crate::text::read_text(&root.join(&relative)).unwrap_or_default();
+        let source = crate::languages::read_text(&root.join(&relative)).unwrap_or_default();
         // A modular project reports `module/pkg.Type`; configuration ids and
         // names use the class itself so they stay stable across that change.
         let qualified_name = fact
@@ -192,7 +192,7 @@ pub fn code_vision(request: JavaCodeVisionRequest) -> Result<JavaCodeVisionRespo
             "Java target path must be relative",
         )
     })?;
-    let target_source = crate::text::read_text(&root.join(&target_path)).map_err(|error| {
+    let target_source = crate::languages::read_text(&root.join(&target_path)).map_err(|error| {
         CoreError::new(ErrorCode::ParseFailed, "Could not read Java target source")
             .with_details(error.to_string())
     })?;
@@ -204,7 +204,7 @@ pub fn code_vision(request: JavaCodeVisionRequest) -> Result<JavaCodeVisionRespo
         if !relative.to_lowercase().ends_with(".java") {
             continue;
         }
-        if let Ok(source) = crate::text::read_text(&root.join(relative)) {
+        if let Ok(source) = crate::languages::read_text(&root.join(relative)) {
             sources.push(source);
         }
     }
