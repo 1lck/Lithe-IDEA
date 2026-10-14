@@ -10,43 +10,13 @@ struct GitRepositoryEmptyView: View {
     @State private var confirmsInitialization = false
 
     var body: some View {
-        VStack(spacing: 12) {
-            LitheSystemIcon(systemImage: "point.3.connected.trianglepath.dotted")
-                .font(LitheTheme.uiFont(size: 27, weight: .light))
-            if setup.isBusy {
-                ProgressView().controlSize(.small)
-                Text("Checking Git repository…")
-            } else if let state = setup.state {
-                if !state.isRepository {
-                    Text("This project is not a Git repository")
-                    Text("Initialize Git to track changes and create your first commit.").font(LitheTheme.smallFont)
-                    Button("Initialize Git Repository…") { confirmsInitialization = true }
-                        .buttonStyle(.borderedProminent).lithePointer()
-                } else if !state.hasCommits {
-                    Text("This branch has no commits yet")
-                    if let branch = state.branch { Text("Branch: \(branch)").font(LitheTheme.smallFont) }
-                    Text("Stage your files in Changes, enter a commit message, and create the first commit.")
-                        .font(LitheTheme.smallFont)
-                    Button("Open Changes") { openChanges() }.buttonStyle(.borderedProminent).lithePointer()
-                } else {
-                    Text("No commits match this view")
-                }
-                if let openConsole {
-                    Button("Open Git Console", action: openConsole).lithePointer()
-                }
-                if !state.isRepository {
-                    Button("Open Git Settings") { openSettings() }.lithePointer()
-                }
-            } else if feature.repositorySetupRoot == nil {
-                Text("Open a project to use Git")
-            }
-            if let error = setup.errorMessage {
-                Text(LocalizedStringKey(error)).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error).textSelection(.enabled)
-                Button("Retry") { Task { await setup.load(at: feature.repositorySetupRoot) } }.lithePointer()
-            }
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            content
+            Spacer(minLength: 0)
+            Spacer(minLength: 0)
         }
-        .font(LitheTheme.uiFont).foregroundStyle(LitheTheme.secondaryText)
-        .multilineTextAlignment(.center).padding(24)
+        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: "\(feature.repositorySetupRoot?.path ?? "")|\(feature.gitCommitsVersion)") {
             await setup.load(at: feature.repositorySetupRoot)
@@ -60,5 +30,89 @@ struct GitRepositoryEmptyView: View {
         } message: {
             Text("Files will stay unchanged. Nothing will be staged or committed automatically.")
         }
+    }
+
+    private var content: some View {
+        VStack(spacing: 12) {
+            if setup.isBusy {
+                ProgressView().controlSize(.small)
+                Text("Checking Git repository…")
+            } else if let state = setup.state {
+                if !state.isRepository {
+                    repositoryInstructions
+                } else if !state.hasCommits {
+                    Text("This branch has no commits yet")
+                        .foregroundStyle(LitheTheme.primaryText)
+                    if let branch = state.branch { Text("Branch: \(branch)").font(LitheTheme.smallFont) }
+                    Text("Stage your files in Changes, enter a commit message, and create the first commit.")
+                        .font(LitheTheme.smallFont)
+                    Button("Open Changes") { openChanges() }
+                } else {
+                    Text("No commits match this view")
+                }
+                if let openConsole {
+                    Button("Open Git Console", action: openConsole)
+                }
+            } else if feature.repositorySetupRoot == nil {
+                Text("Open a project to use Git")
+            }
+            if let error = setup.errorMessage {
+                Text(LocalizedStringKey(error)).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error).textSelection(.enabled)
+                Button("Retry") { Task { await setup.load(at: feature.repositorySetupRoot) } }
+            }
+        }
+        .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize))
+        .foregroundStyle(LitheTheme.GitLog.emptyStateText)
+        .buttonStyle(GitRepositoryEmptyLinkStyle())
+        .tint(LitheTheme.GitLog.emptyStateLink)
+    }
+
+    private var repositoryInstructions: some View {
+        // Community VcsToolWindowEmptyState + StatusText: left-aligned lines, 2pt gaps.
+        VStack(alignment: .leading, spacing: LitheTheme.GitLog.emptyStateLineSpacing) {
+            Text("To track changes to code:")
+                .frame(height: LitheTheme.GitLog.emptyStateRowHeight)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(verbatim: "—")
+                Text("Share project on")
+                Link("GitHub", destination: URL(string: "https://github.com")!)
+                Text("or")
+                Link("GitLab", destination: URL(string: "https://gitlab.com")!)
+            }
+            .frame(height: LitheTheme.GitLog.emptyStateRowHeight)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(verbatim: "—")
+                Button("Initialize Git repository…") { confirmsInitialization = true }
+            }
+            .frame(height: LitheTheme.GitLog.emptyStateRowHeight)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(verbatim: "—")
+                Button("Open Git Settings", action: openSettings)
+            }
+            .frame(height: LitheTheme.GitLog.emptyStateRowHeight)
+            Color.clear.frame(width: 0, height: LitheTheme.GitLog.emptyStateRowHeight).accessibilityHidden(true)
+            Link(destination: URL(string: "https://git-scm.com/doc")!) {
+                HStack(spacing: 2) {
+                    LitheIDEAIcon(resourcePath: "general/contextHelp.svg", size: 16, preservesOriginalColors: true)
+                        .accessibilityHidden(true)
+                    Text("Version control integration")
+                }
+            }
+            .foregroundStyle(LitheTheme.GitLog.emptyStateLink)
+            .frame(height: LitheTheme.GitLog.emptyStateRowHeight)
+        }
+    }
+}
+
+private struct GitRepositoryEmptyLinkStyle: ButtonStyle {
+    @State private var isHovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize, weight: .regular))
+            .foregroundStyle(LitheTheme.GitLog.emptyStateLink)
+            .underline(isHovering, color: LitheTheme.accent)
+            .onHover { isHovering = $0 }
+            .lithePointer()
     }
 }

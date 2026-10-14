@@ -1509,3 +1509,9 @@
 "All messages" = "All messages";
 "Warnings" = "Warnings";
 "Errors only" = "Errors only";
+/* Git Log repository empty state */
+"To track changes to code:" = "To track changes to code:";
+"Initialize Git repository…" = "Initialize Git repository…";
+"Version control integration" = "Version control integration";
+"Share project on" = "Share project on";
+"or" = "or";

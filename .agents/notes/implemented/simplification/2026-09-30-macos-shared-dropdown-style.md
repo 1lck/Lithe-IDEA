@@ -651,3 +651,31 @@ SwiftUI State 宿主销毁和主队列清理，不能只靠手写 Binding 的组
 深色新预览已通过真实鼠标验证 Settings 分类：点击分类显示主题色，点击右侧
 内容变灰，重新点击恢复。完整应用全部入口、浅色/非默认主题和跨窗口切换仍
 保留 pending；共享像素与原生焦点回归不替代这些实机验收。
+
+
+### Git Log 非仓库空状态的文字度量
+
+空状态复用 Lithe 的 Inter 字体入口，但不能直接用 SwiftUI 自然行高替代
+Community 的文字行容器，否则相同 13pt 字体看起来会更挤，行首破折号也可能偏离基线。
+字体和链接标签明确使用 13pt Regular，行首 `—` 与链接按首行文字基线对齐，
+保留原始字符和一个空格的宽度，不画替代短线。度量与专用颜色由
+`LitheTheme.GitLog` 管理，不修改其他页面的文字颜色。
+
+依据 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`：
+`platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/VcsToolWindowEmptyState.kt`
+选择普通链接 `LINK_PLAIN_ATTRIBUTES`；
+`platform/platform-api/src/com/intellij/util/ui/StatusText.java` 使用标签字体和 2pt 行间距；
+`platform/platform-api/src/com/intellij/ui/SimpleColoredComponent.java` 的每行高度还包括
+上下各 1pt 内边距和上下各 1pt 边框留白。使用本机 JBR 的标准 AWT 字体度量，
+仓库 Inter-Regular 13pt 的字体高度为 17pt，因此固定基准行高为 21pt，不能遗漏这 4pt。
+`platform/platform-impl/src/com/intellij/ide/ui/laf/LafManagerImpl.kt` 明确使用 Inter 13、Font.PLAIN。
+
+灰字取 `SimpleTextAttributes.GRAYED_ATTRIBUTES` 对应的 `Component.infoForeground`，
+沿 Islands → ExperimentalDark/ExperimentalLightWithLightHeader → Darcula/IntelliJ
+继承到深色 `#787878`、浅色 `#999999`；链接取 Islands 的 `Link.activeForeground`，
+深色 `#71A1FE`、浅色 `#2F5EB9`。其他 Lithe 主题继续使用各自的语义颜色。
+IDEA 此入口默认不画链接下划线；Lithe 按用户要求保留悬停手形和主题强调色下划线，
+这是产品约定，不声称是 IDEA 的默认绘制。
+
+验证需同时查看明暗主题、单个链接悬停、移开恢复、初始化确认与设置入口；
+`BundledUIFontTests` 只确认真实字体资源和字体度量，不替代整个空状态的视觉验收。

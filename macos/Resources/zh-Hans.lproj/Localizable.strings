@@ -2909,3 +2909,9 @@
 "All messages" = "全部消息";
 "Warnings" = "警告";
 "Errors only" = "仅错误";
+/* Git Log repository empty state */
+"To track changes to code:" = "要跟踪代码更改：";
+"Initialize Git repository…" = "初始化 Git 仓库…";
+"Version control integration" = "版本控制集成";
+"Share project on" = "将项目分享至";
+"or" = "或";

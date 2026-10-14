@@ -182,3 +182,9 @@ platform/icons/src/expui/toolwindows/services@20x20{,_dark}.svg,
 platform/icons/src/expui/general/greenCheckmark{,_dark}.svg and
 platform/icons/src/expui/status/error{,_dark}.svg.
 Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Git Log empty-state context help uses the unmodified general/contextHelp.svg
+from Community revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade,
+platform/icons/src/general/contextHelp.svg (one shared light/dark asset).
+Layout follows VcsToolWindowEmptyState.kt and StatusText.java at the same revision.
+Copyright JetBrains s.r.o.; Apache License 2.0.

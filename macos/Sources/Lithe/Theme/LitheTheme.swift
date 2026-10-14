@@ -797,6 +797,16 @@ enum LitheTheme {
     /// VcsLogGraphTable + FilterComponent, IDEA Community c7f91397.
     enum GitLog {
         static let fontSize: CGFloat = 13
+        // StatusText / SimpleColoredComponent: 17pt Inter metrics + 2pt ipad + 2pt border.
+        static let emptyStateRowHeight: CGFloat = 21
+        static let emptyStateLineSpacing: CGFloat = 2
+        // Component.infoForeground inherits Darcula / IntelliJ; Islands overrides Link.activeForeground.
+        static var emptyStateText: Color {
+            activeTheme == .lithe ? controlColor(light: 0x999999, dark: 0x787878) : secondaryText
+        }
+        static var emptyStateLink: Color {
+            activeTheme == .lithe ? controlColor(light: 0x2F5EB9, dark: 0x71A1FE) : link
+        }
         static let toolbarIconSize: CGFloat = 16
         static let toolbarButtonSize: CGFloat = 22
         static var referenceText: Color {

@@ -163,6 +163,7 @@ struct GitLogView: View {
             await feature.applyGitLogFilter(gitLogQuery(now: Date()))
         }
         .onChange(of: feature.gitRepositoryRoot) { _ in
+            if feature.gitRepositoryRoot == nil { selectedGitToolTab = .log }
             headSelected = false
             graphPresentation = .empty
             graphNavigationRequest = nil
@@ -172,7 +173,8 @@ struct GitLogView: View {
             gitLogPathDraft = ""
         }
         .onChange(of: consoleTailState) { tail in
-            guard tail.state == .completed || tail.state == .unconfirmed, tail.succeeded == false else { return }
+            guard feature.gitRepositoryRoot != nil,
+                  tail.state == .completed || tail.state == .unconfirmed, tail.succeeded == false else { return }
             selectedGitToolTab = .console
         }
         .sheet(isPresented: $showsFetchOptions) {
@@ -321,14 +323,23 @@ struct GitLogView: View {
 
     @ViewBuilder
     private var primaryContent: some View {
-        switch selectedGitToolTab {
-        case .log:
-            logTabContent
-        case .worktrees:
-            GitWorktreesView(feature: feature, background: background, actions: worktreeActions)
-        case .console:
-            gitConsolePane
+        if feature.gitRepositoryRoot == nil {
+            repositoryEmptyState
+        } else {
+            switch selectedGitToolTab {
+            case .log:
+                logTabContent
+            case .worktrees:
+                GitWorktreesView(feature: feature, background: background, actions: worktreeActions)
+            case .console:
+                gitConsolePane
+            }
         }
+    }
+
+    private var repositoryEmptyState: some View {
+        GitRepositoryEmptyView(feature: feature, setup: feature.repositorySetup,
+                               openSettings: navigation.openGitSettings, openChanges: navigation.openChanges)
     }
 
     private var logTabContent: some View {
@@ -429,26 +440,28 @@ struct GitLogView: View {
                 .foregroundStyle(LitheTheme.primaryText)
                 .padding(.trailing, 16)
 
-            gitToolTabButton(.log, title: feature.selectedGitReference.map {
-                Text("Log") + Text(verbatim: ": \($0.shortName)")
-            } ?? Text("Log"))
-                .help(feature.isShowingAllGitReferences
-                    ? Text("All References")
-                    : Text(verbatim: feature.selectedGitReference?.shortName ?? feature.currentBranch))
-            gitToolTabButton(.worktrees, title: Text("Worktrees"))
-                .help(Text(verbatim: feature.gitRepositoryRoot?.path ?? ""))
-            gitToolTabButton(.console, title: Text("Console"))
+            if feature.gitRepositoryRoot != nil {
+                gitToolTabButton(.log, title: feature.selectedGitReference.map {
+                    Text("Log") + Text(verbatim: ": \($0.shortName)")
+                } ?? Text("Log"))
+                    .help(feature.isShowingAllGitReferences
+                        ? Text("All References")
+                        : Text(verbatim: feature.selectedGitReference?.shortName ?? feature.currentBranch))
+                gitToolTabButton(.worktrees, title: Text("Worktrees"))
+                    .help(Text(verbatim: feature.gitRepositoryRoot?.path ?? ""))
+                gitToolTabButton(.console, title: Text("Console"))
 
-            if selectedGitToolTab == .log, !feature.isShowingAllGitReferences {
-                Button {
-                    selectedGitToolTab = .log
-                    Task { await feature.showAllGitReferences() }
-                } label: {
-                    LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16, fallbackSystemImage: "plus", preservesOriginalColors: true)
+                if selectedGitToolTab == .log, !feature.isShowingAllGitReferences {
+                    Button {
+                        selectedGitToolTab = .log
+                        Task { await feature.showAllGitReferences() }
+                    } label: {
+                        LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16, fallbackSystemImage: "plus", preservesOriginalColors: true)
+                    }
+                    .litheToolbarIconButton()
+                    .padding(.horizontal, 2)
+                    .help("Show all references")
                 }
-                .litheToolbarIconButton()
-                .padding(.horizontal, 2)
-                .help("Show all references")
             }
 
             Spacer(minLength: 12)
@@ -1297,8 +1310,7 @@ struct GitLogView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if (visibleCommitHashes?.isEmpty == true || (visibleCommitHashes == nil && feature.gitCommits.isEmpty)) && !feature.isLoadingGitHistory {
-                GitRepositoryEmptyView(feature: feature, setup: feature.repositorySetup,
-                                       openSettings: navigation.openGitSettings, openChanges: navigation.openChanges)
+                repositoryEmptyState
             } else {
                 GitHistorySelectionGraphView(
                     editor: feature.historyEditing,
