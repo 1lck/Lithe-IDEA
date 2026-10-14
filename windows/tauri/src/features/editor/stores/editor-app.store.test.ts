@@ -419,7 +419,14 @@ interface PendingWrite {
  * releases them, the debounce runs on a manual timer, and the shared lifecycle
  * reducer is replaced so the tests do not depend on the Rust core.
  */
-async function startAutosaveHarness() {
+async function startAutosaveHarness(options: {
+  /**
+   * Runs while a claim is refused because another write still owns the
+   * document, so a test can settle that write inside the refusal window when
+   * the re-read afterwards no longer sees an owner.
+   */
+  onClaimRefusedWhileSaving?: (writes: PendingWrite[]) => Promise<void>;
+} = {}) {
   const documentFiles = await import("@/platform/document-files");
   const lifecycle = await import("@/platform/document-lifecycle");
   const history = await import("@/features/local-history/api/local-history-api");
@@ -446,6 +453,9 @@ async function startAutosaveHarness() {
     async (state, event): Promise<DocumentLifecycleDecision> => {
       if (event.type === "saveStarted") {
         if (state.status !== "dirty") {
+          if (state.status === "saving") {
+            await options.onClaimRefusedWhileSaving?.(writes);
+          }
           return { state, action: state.status === "conflict" ? "showConflict" : "none" };
         }
         return {
@@ -514,7 +524,10 @@ async function startAutosaveHarness() {
 }
 
 /** Queues one open write plus a newer edit whose debounce must wait for it. */
-async function queueWriteAndNewerEdit(harness: Awaited<ReturnType<typeof startAutosaveHarness>>) {
+async function queueWriteAndNewerEdit(
+  harness: Awaited<ReturnType<typeof startAutosaveHarness>>,
+  options: { expectsContinuation?: boolean } = {},
+) {
   setWorkspaceBuffers(
     WORKSPACE_A,
     [editorBuffer("a", "first line", { path: "C:/workspace/a.txt", isVirtual: false })],
@@ -532,7 +545,14 @@ async function queueWriteAndNewerEdit(harness: Awaited<ReturnType<typeof startAu
   await actions.handleContentChange("a", "first line!!");
   await flushUntil(() => harness.timer.size === 1, "the replacement debounce");
   await harness.timer.fireNext();
-  await flushUntil(() => harness.timer.size === 1, "a debounce that continues the autosave");
+  if (options.expectsContinuation ?? true) {
+    await flushUntil(() => harness.timer.size === 1, "a debounce that continues the autosave");
+  } else {
+    await flushUntil(
+      () => harness.store.getState().autoSaveTasks.a === undefined,
+      "the refused continuation to be dropped",
+    );
+  }
   expect(harness.writes).toHaveLength(1);
   expect(getEditorBuffer(WORKSPACE_A, "a").isDirty).toBe(true);
 }
@@ -644,6 +664,61 @@ describe("editor autosave continuation", () => {
       await expect(manualSave).resolves.toBe("failed");
       expect(harness.store.getState().autoSaveTasks.a).toBeUndefined();
       expect(getEditorBuffer(WORKSPACE_A, "a").isDirty).toBe(true);
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
+  test("continues the newer text when the awaited write settles during the refused claim", async () => {
+    const harness = await startAutosaveHarness({
+      onClaimRefusedWhileSaving: async (writes) => {
+        // The earlier write finishes inside the refusal window, so no owner is
+        // left to wait on and only its persisted revision can hand the document
+        // over to the queued continuation.
+        writes[0]?.resolve();
+        await flushUntil(
+          () => getEditorBuffer(WORKSPACE_A, "a").documentLifecycle?.status === "dirty",
+          "the awaited write to settle during the refused claim",
+        );
+      },
+    });
+    try {
+      await queueWriteAndNewerEdit(harness);
+
+      await harness.timer.fireNext();
+      await flushUntil(() => harness.writes.length === 2, "the continued write request");
+      expect(harness.writes[1]?.content).toBe("first line!!");
+      harness.writes[1]?.resolve();
+      await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "a saved document");
+
+      expect(harness.save).toHaveBeenCalledTimes(2);
+      expect(getEditorBuffer(WORKSPACE_A, "a").savedContent).toBe("first line!!");
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
+  test("drops the continuation when the awaited write fails inside the refused claim", async () => {
+    const harness = await startAutosaveHarness({
+      onClaimRefusedWhileSaving: async (writes) => {
+        // A write failing inside the refusal window must not be retried by the
+        // queued continuation.
+        writes[0]?.reject(new Error("disk full"));
+        await flushUntil(
+          () => getEditorBuffer(WORKSPACE_A, "a").documentLifecycle?.status === "dirty",
+          "the failed write to restore dirty ownership during the refused claim",
+        );
+      },
+    });
+    try {
+      await queueWriteAndNewerEdit(harness, { expectsContinuation: false });
+
+      const buffer = getEditorBuffer(WORKSPACE_A, "a");
+      expect(harness.timer.size).toBe(0);
+      expect(harness.writes).toHaveLength(1);
+      expect(harness.failureToast).toHaveBeenCalledTimes(1);
+      expect(buffer.isDirty).toBe(true);
+      expect(buffer.content).toBe("first line!!");
     } finally {
       harness.restore();
     }

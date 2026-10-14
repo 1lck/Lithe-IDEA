@@ -31,7 +31,10 @@ import {
   traceDocumentSaveFailure,
   type DocumentSaveContext,
 } from "@/features/editor/services/document-save-lifecycle";
-import { restoreDocumentLifecycle } from "@/platform/document-lifecycle";
+import {
+  restoreDocumentLifecycle,
+  type DocumentLifecycleState,
+} from "@/platform/document-lifecycle";
 import type { EditorContentChangeOptions, Position, Range } from "../types/editor.types";
 import { getBufferById } from "../utils/buffer-index";
 import { trackBufferHistoryChange } from "./buffer-history-tracking";
@@ -88,6 +91,17 @@ async function claimDocumentSave(
   }
   bufferStore.getState().actions.applyDocumentLifecycle(buffer.id, saving);
   return { context };
+}
+
+/**
+ * Revision this document has on disk, or -1 while it has no lifecycle record
+ * yet. `savedRevision` only advances when a write is persisted, so comparing it
+ * before and after a refused claim tells a successful awaited write apart from
+ * a failed or conflicted one.
+ */
+function persistedRevision(state: DocumentLifecycleState | undefined): number {
+  if (!state) return -1;
+  return state.status === "clean" ? state.revision : state.savedRevision;
 }
 
 async function persistClaimedDocument(
@@ -641,6 +655,11 @@ export const createEditorAppStore = (
                   traceDocumentSaveCancellation(autoSaveContext, "stale-content");
                   return;
                 }
+                const lifecycleBeforeClaim = restoreDocumentLifecycle(
+                  latestBeforeSave.documentLifecycle,
+                  latestBeforeSave.contentRevision ?? 0,
+                  latestBeforeSave.isDirty,
+                );
                 claim = await claimDocumentSave(
                   workspaceId,
                   latestBeforeSave,
@@ -654,23 +673,37 @@ export const createEditorAppStore = (
                   // the document closes, autosave turns off, or the awaited write
                   // fails or conflicts and drops every continuation of its id.
                   const latest = getBufferById(bufferStore.getState().buffers, bufferId);
-                  const ownerOperationId =
-                    latest &&
-                    isEditorContent(latest) &&
-                    latest.documentLifecycle?.status === "saving"
-                      ? latest.documentLifecycle.operationId
-                      : undefined;
                   if (
-                    latest &&
-                    isEditorContent(latest) &&
-                    latest.isDirty &&
-                    latest.content === text &&
-                    latest.path === target.path &&
-                    ownerOperationId &&
-                    useSettingsStore.getState().settings.autoSave
+                    !latest ||
+                    !isEditorContent(latest) ||
+                    !latest.isDirty ||
+                    latest.content !== text ||
+                    latest.path !== target.path ||
+                    !useSettingsStore.getState().settings.autoSave
                   ) {
-                    armAutoSave({ path: latest.path, name: latest.name }, text, ownerOperationId);
+                    return;
                   }
+                  if (latest.documentLifecycle?.status === "saving") {
+                    armAutoSave(
+                      { path: latest.path, name: latest.name },
+                      text,
+                      latest.documentLifecycle.operationId,
+                    );
+                    return;
+                  }
+                  // The awaited write can also settle between refusing this claim
+                  // and re-reading the buffer, leaving no owner to wait on. Only
+                  // a write that reached disk may hand the document over, so
+                  // require a persisted revision the claim did not already see;
+                  // otherwise a failed or conflicted write would be retried here.
+                  if (
+                    persistedRevision(latest.documentLifecycle) >
+                    persistedRevision(lifecycleBeforeClaim)
+                  ) {
+                    armAutoSave({ path: latest.path, name: latest.name }, text);
+                    return;
+                  }
+                  traceDocumentSaveCancellation(autoSaveContext, "awaited-write-not-persisted");
                   return;
                 }
                 await recordLocalHistoryBeforeWrite(target.path, "auto-save");
