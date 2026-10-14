@@ -105,6 +105,9 @@ passes the output to `plugins.declarative.checkRuntimeVersion`, which returns
 `{satisfied, version?}`. A candidate that does not satisfy the requirement is
 not used, the same as a candidate that fails a validation probe. A `java`
 older than 9 does not accept the probe and is therefore treated as too old.
+The reported version is the first dotted number in the probe output, ignoring
+lines that start with `Picked up ` (a JVM announcing `JAVA_TOOL_OPTIONS`
+before its version); see `fixtures/runtime-versions.json`.
 
 #### Host integrations (API 2)
 

@@ -529,6 +529,7 @@ final class MacPluginPackageStore {
             removedIDs.remove(pluginID)
         }
         try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try setAsideUnreadableRemovalRecord()
         try encoder.encode(removedIDs.map(\.rawValue).sorted())
             .write(to: removedBundledPluginsURL, options: .atomic)
     }
@@ -538,10 +539,31 @@ final class MacPluginPackageStore {
         rootURL.appendingPathComponent(".removed-bundled-plugins.json")
     }
 
+    /// Where an unreadable removal record is kept for inspection.
+    private var unreadableRemovalRecordURL: URL {
+        rootURL.appendingPathComponent(".removed-bundled-plugins.json.unreadable")
+    }
+
+    /// An unreadable record cannot be trusted, so the plugins read as not
+    /// removed and the application stays usable; the user's next removal then
+    /// writes a fresh record (`setAsideUnreadableRemovalRecord`).
     private func removedBundledPluginIDs() -> Set<PluginID> {
         guard let data = try? Data(contentsOf: removedBundledPluginsURL),
               let ids = try? decoder.decode([String].self, from: data) else { return [] }
         return Set(ids.map { PluginID($0) })
+    }
+
+    /// Keeps a record that exists but cannot be decoded instead of silently
+    /// overwriting it, so what the user removed before the damage can still be
+    /// read from the `.unreadable` copy.
+    private func setAsideUnreadableRemovalRecord() throws {
+        guard fileManager.fileExists(atPath: removedBundledPluginsURL.path),
+              (try? decoder.decode([String].self, from: Data(contentsOf: removedBundledPluginsURL))) == nil
+        else { return }
+        if fileManager.fileExists(atPath: unreadableRemovalRecordURL.path) {
+            try fileManager.removeItem(at: unreadableRemovalRecordURL)
+        }
+        try fileManager.moveItem(at: removedBundledPluginsURL, to: unreadableRemovalRecordURL)
     }
 
     /// Best effort: the package is already gone, and leftover state of an

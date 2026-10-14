@@ -345,6 +345,34 @@ struct PluginPackageStoreTests {
         #expect(try store.installedPlugins().first?.installation.status == .installed)
     }
 
+    /// A damaged removal record must not take the application down or be
+    /// silently overwritten: the plugin reads as installed, and the next
+    /// removal keeps the damaged file aside.
+    @Test
+    func anUnreadableRemovalRecordIsKeptAsideAndNeverBlocksRemoval() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundledRoot = root.appendingPathComponent("bundled", isDirectory: true)
+        let pluginID = PluginID("dev.example.plugin")
+        try makePackage(
+            at: bundledRoot.appendingPathComponent(pluginID.rawValue, isDirectory: true),
+            version: PluginVersion(major: 0, minor: 3, patch: 0)
+        )
+        let store = makeStore(root: root, bundledRoot: bundledRoot)
+        let pluginRoot = installedRoot(root)
+        try FileManager.default.createDirectory(at: pluginRoot, withIntermediateDirectories: true)
+        let record = pluginRoot.appendingPathComponent(".removed-bundled-plugins.json")
+        try Data("{ not json".utf8).write(to: record)
+
+        #expect(try store.installedPlugins().first?.installation.status == .installed)
+
+        try store.setBundledPluginRemoved(pluginID, removed: true)
+
+        #expect(try store.installedPlugins().first?.installation.status == .removed)
+        let kept = pluginRoot.appendingPathComponent(".removed-bundled-plugins.json.unreadable")
+        #expect(try String(contentsOf: kept, encoding: .utf8) == "{ not json")
+    }
+
     /// Restoring before the restart that completes a removal must not cost
     /// the user the index of a server that never stopped.
     @Test

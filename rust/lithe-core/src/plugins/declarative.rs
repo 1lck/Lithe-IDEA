@@ -1949,9 +1949,18 @@ fn version_components(value: &str) -> Vec<u64> {
 
 /// First dotted number in a version probe's output: `21.0.12` from
 /// `openjdk 21.0.12 2026-07-15`, `20.11.0` from `v20.11.0`.
+///
+/// Hosts capture stderr with stdout, and a JVM announces options it picked up
+/// from the environment there (`Picked up JAVA_TOOL_OPTIONS: -Xmx512m`) before
+/// the version. Those lines carry no version, so they are skipped rather than
+/// read as one.
 fn reported_version(tool: &str, output: &str) -> Option<Vec<u64>> {
-    let start = output.find(|character: char| character.is_ascii_digit())?;
-    let text: String = output[start..]
+    let line = output
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("Picked up "))
+        .find(|line| line.contains(|character: char| character.is_ascii_digit()))?;
+    let start = line.find(|character: char| character.is_ascii_digit())?;
+    let text: String = line[start..]
         .chars()
         .take_while(|character| character.is_ascii_digit() || *character == '.')
         .collect();
