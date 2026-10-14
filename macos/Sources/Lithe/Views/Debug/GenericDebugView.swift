@@ -988,7 +988,9 @@ struct GenericDebugView: View {
                 )
             }
             .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, disabledOpacity: 1, cornerRadius: 4))
+            .disabled(evaluateExpression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .help("Add watch")
+            .accessibilityLabel("Add watch")
             .litheContextMenu {
                 [
                     .action("Previous console expression", isEnabled: !feature.consoleHistory.isEmpty) {
@@ -2405,6 +2407,7 @@ private struct WatchEditorView: View {
     let watch: GenericDebugWatch?
     let onSave: (String) -> Void
     @State private var expression: String
+    @FocusState private var expressionFocused: Bool
 
     init(watch: GenericDebugWatch?, onSave: @escaping (String) -> Void) {
         self.watch = watch
@@ -2416,16 +2419,17 @@ private struct WatchEditorView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(watch == nil ? "Add Watch" : "Edit Watch")
                 .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-            TextField("Expression", text: $expression)
-                .textFieldStyle(.roundedBorder)
-                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
+            LitheSearchTextField("Expression", text: $expression)
+                .focused($expressionFocused)
+                .litheSearchField(isFocused: expressionFocused)
+                .onSubmit { save() }
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    onSave(expression)
-                    dismiss()
-                }
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") { save() }
+                .buttonStyle(LithePrimaryButtonStyle())
                 .disabled(expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .keyboardShortcut(.defaultAction)
             }
@@ -2433,6 +2437,13 @@ private struct WatchEditorView: View {
         .padding(18)
         .frame(width: 440, height: 150)
         .litheWorkbenchSurface(LitheTheme.editor)
+        .onAppear { expressionFocused = true }
+    }
+
+    private func save() {
+        guard !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        onSave(expression)
+        dismiss()
     }
 }
 

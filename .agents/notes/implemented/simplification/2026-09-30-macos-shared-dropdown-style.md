@@ -1008,3 +1008,13 @@ chevron SVG和Tree的图标槽、19pt层级缩进，保留加载与展开动作�
 位置，原生动作回归验证三处相同源码链接的前进、回绕与后退。
 性能采集的数据所有权与真实进程清理规则见
 [本地JVM性能监控](../feature/2026-10-14-local-jvm-performance-monitoring.md)。
+
+
+### 添加与编辑监视表达式的弹窗
+
+内联 Add to Watch 只提交求值输入框中的非空表达式；空白时禁用，避免模型拒绝空值而按钮看似无响应。
+Watches 标题的＋继续打开新增弹窗，已有监视的编辑菜单复用同一弹窗。
+弹窗输入复用 `LitheSearchTextField` 和 `litheSearchField` 的普通字体、占位色、边框及焦点环，
+取消/保存复用 `LitheSecondaryButtonStyle` / `LithePrimaryButtonStyle`；不保留原生 roundedBorder 或另画输入框。
+打开后聚焦表达式，Enter 仅在非空时保存，Esc 取消；空白保护同时覆盖按钮和键盘提交。
+复验新增与编辑初值、中文输入法、深浅主题、聚焦/失焦及原有去重和暂停求值流程。
