@@ -3,6 +3,7 @@ import SwiftUI
 struct MavenView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: MavenFeatureModel
+    @Environment(\.controlActiveState) private var controlActiveState
     @State private var treeActive = false
     @State private var selectedModuleID: String?
     @State private var selectedPhase: MavenLifecyclePhase?
@@ -67,8 +68,6 @@ struct MavenView: View {
     private var toolWindowHeader: some View {
         LitheToolWindowHeader(
             title: "Maven",
-            systemImage: "shippingbox",
-            ideaAssetPath: "maven/expui/toolwindow/maven.svg",
             subtitle: feature.project?.displayName
         ) {
             LitheSidebarHideButton(title: "Maven") {
@@ -592,7 +591,7 @@ struct MavenView: View {
             }
             .padding(.leading, LitheTheme.Tree.indent)
             .litheTreeRow(isSelected: selectedModuleID == module?.id && selectedPhase == phase,
-                          isFocused: treeActive)
+                          isFocused: treeActive && controlActiveState == .key)
         }
         .buttonStyle(.litheNoPress)
         .simultaneousGesture(TapGesture(count: 2).onEnded {
@@ -651,7 +650,7 @@ struct MavenView: View {
                 }
                 .buttonStyle(.litheNoPress)
             }
-            .litheTreeRow(isSelected: isSelected, isFocused: treeActive)
+            .litheTreeRow(isSelected: isSelected, isFocused: treeActive && controlActiveState == .key)
             .litheContextMenu(items: {
                 hasModuleMenu ? moduleContextMenu(menuModule) : []
             })

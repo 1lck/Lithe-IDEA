@@ -193,6 +193,10 @@ fn respond(stream: &mut TcpStream, status: u16, models: Option<&mut Vec<String>>
 }
 
 fn run_local_api_turn(status: u16) {
+    run_local_api_turn_with(status, false);
+}
+
+fn run_local_api_turn_with(status: u16, observe_model_calls: bool) {
     assert!(
         std::env::var_os("CLAUDE_CONFIG_DIR").is_some(),
         "isolate native CLI state before running this opt-in test"
@@ -221,6 +225,7 @@ fn run_local_api_turn(status: u16) {
             cwd: project.0.clone(),
             data_directory: Some(data_directory),
             authentication: AgentAuthentication::ApiKey,
+            observe_model_calls,
             provider: Some(ProviderCredentials {
                 protocol: ProviderProtocol::AnthropicMessages,
                 base_url: format!("http://{}", listener.local_addr().unwrap()),
@@ -239,6 +244,7 @@ fn run_local_api_turn(status: u16) {
     let mut requests = 0;
     let mut reply = String::new();
     let mut attempts = Vec::new();
+    let mut model_calls = Vec::new();
     let deadline = Instant::now() + DEADLINE;
     loop {
         // Native TCP acceptance and the host's event channel have no shared
@@ -394,11 +400,34 @@ fn run_local_api_turn(status: u16) {
                 );
                 break;
             }
+            AgentEvent::ModelCall {
+                session_id: id,
+                after_turn_finished,
+                call,
+            } => {
+                assert!(!after_turn_finished, "the turn waits for its own calls");
+                model_calls.push((id, call));
+            }
             AgentEvent::Stopped { message } => {
                 panic!("agent stopped before API failure: {message:?}")
             }
             _ => {}
         }
+    }
+    if observe_model_calls {
+        // The host settles a turn's observed calls before `turnFinished`, so
+        // they are already present here without draining later events.
+        let (id, call) = model_calls
+            .iter()
+            .find(|(_, call)| call.usage.is_some())
+            .expect("the proxied message request is observed");
+        assert_eq!(id, &session_id);
+        assert!(call.streaming, "Claude streams through the proxy");
+        assert!(call.first_token_ms.is_some());
+        assert_eq!(call.usage.map(|usage| usage.output_tokens), Some(1));
+        assert!(call.context.is_some_and(|context| context.tool_count > 0));
+    } else {
+        assert!(model_calls.is_empty(), "no observation without the opt-in");
     }
     // AgentHandle owns bounded termination of the entire subprocess tree;
     // dropping it also guarantees cleanup on every assertion-failure path.
@@ -542,6 +571,12 @@ fn claude_restore_uses_the_last_selected_model_in_the_actual_request() {
         restored, original,
         "restarted ACP must preserve the selected model on the wire"
     );
+}
+
+#[test]
+#[ignore = "requires an installed Claude ACP/CLI and an isolated CLAUDE_CONFIG_DIR; uses only local HTTP"]
+fn claude_turn_through_the_model_call_proxy_is_observed() {
+    run_local_api_turn_with(201, true);
 }
 
 #[test]

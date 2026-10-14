@@ -86,6 +86,92 @@ struct PluginPackageSignatureTests {
         }
     }
 
+    @Test
+    func trustedKeysSelectTheKeyNamedByTheDocument() throws {
+        let root = try makePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let currentKey = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 4, count: 32))
+        let nextKey = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 5, count: 32))
+        let trustedKeys = [
+            "example-current": currentKey.publicKey,
+            "example-next": nextKey.publicKey
+        ]
+
+        for (keyID, privateKey) in [("example-current", currentKey), ("example-next", nextKey)] {
+            let document = try PluginPackageSignature.makeDocument(
+                packageAt: root,
+                pluginID: "dev.example.plugin",
+                pluginVersion: "0.3.0",
+                privateKey: privateKey,
+                keyID: keyID
+            )
+            #expect(document.keyID == keyID)
+            try PluginPackageSignature.verify(
+                packageAt: root,
+                pluginID: "dev.example.plugin",
+                pluginVersion: "0.3.0",
+                document: document,
+                trustedKeys: trustedKeys
+            )
+        }
+    }
+
+    @Test
+    func documentRelabelledWithAnotherTrustedKeyIDIsRejected() throws {
+        let root = try makePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let currentKey = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 4, count: 32))
+        let nextKey = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 5, count: 32))
+        let signed = try PluginPackageSignature.makeDocument(
+            packageAt: root,
+            pluginID: "dev.example.plugin",
+            pluginVersion: "0.3.0",
+            privateKey: currentKey,
+            keyID: "example-current"
+        )
+        let relabelled = PluginPackageSignature.Document(
+            keyID: "example-next",
+            pluginID: signed.pluginID,
+            pluginVersion: signed.pluginVersion,
+            files: signed.files,
+            signature: signed.signature
+        )
+
+        #expect(throws: PluginPackageSignature.Error.invalidSignature) {
+            try PluginPackageSignature.verify(
+                packageAt: root,
+                pluginID: "dev.example.plugin",
+                pluginVersion: "0.3.0",
+                document: relabelled,
+                trustedKeys: ["example-current": currentKey.publicKey, "example-next": nextKey.publicKey]
+            )
+        }
+        #expect(throws: PluginPackageSignature.Error.untrustedKey("example-unknown")) {
+            try PluginPackageSignature.verify(
+                packageAt: root,
+                pluginID: "dev.example.plugin",
+                pluginVersion: "0.3.0",
+                document: PluginPackageSignature.Document(
+                    keyID: "example-unknown",
+                    pluginID: signed.pluginID,
+                    pluginVersion: signed.pluginVersion,
+                    files: signed.files,
+                    signature: signed.signature
+                ),
+                trustedKeys: ["example-current": currentKey.publicKey]
+            )
+        }
+    }
+
+    @Test
+    func embeddedTrustedKeysIncludeTheCurrentSigningKey() throws {
+        let trustedKeys = try PluginPackageSignature.trustedPublisherKeys()
+
+        #expect(trustedKeys[PluginPackageSignature.keyID]?.rawRepresentation.base64EncodedString()
+            == PluginPackageSignature.publisherPublicKeyBase64)
+        #expect(trustedKeys.keys.allSatisfy(PluginPackageSignature.isValidKeyID))
+    }
+
     private func makePackage() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-signature-\(UUID().uuidString)", isDirectory: true)

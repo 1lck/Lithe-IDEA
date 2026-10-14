@@ -1,3 +1,4 @@
+# Registered by the standalone preview repository.
 name: Release macOS
 
 on:
@@ -10,6 +11,10 @@ on:
         description: "Semantic version to release, for example 0.1.0"
         required: true
         type: string
+      publish:
+        description: "Publish assets after verification (disable for release preflight)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -21,7 +26,7 @@ concurrency:
 jobs:
   prepare:
     name: Resolve release version
-    if: github.actor == github.repository_owner
+    if: github.actor == github.repository_owner || contains(format(',{0},', vars.LITHE_RELEASE_ACTOR), format(',{0},', github.actor))
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -63,6 +68,16 @@ jobs:
         run: |
           notes_file="docs/releases/v${LITHE_VERSION}.md"
           node scripts/validate-stable-release-notes.mjs "$notes_file"
+
+      - name: Validate repository release contracts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh
+          zsh scripts/verify-runtime-bundle-immutability.sh
+          zsh scripts/verify-agent-notes.sh
+          bash scripts/verify-platform-feature-matrix.sh
+          bash .agents/skills/write-stable-tests/scripts/verify-test-stability.sh
+          node --test scripts/verify-release-signature.test.mjs
 
   build:
     name: Build ${{ matrix.architecture }} release
@@ -124,23 +139,12 @@ jobs:
         timeout-minutes: 35
         env:
           LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
-          LITHE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.LITHE_PLUGIN_PACKAGE_PRIVATE_KEY }}
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
         run: |
           test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before releasing"; exit 1; }
-          test -n "$LITHE_PLUGIN_PACKAGE_PRIVATE_KEY" || { echo "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY before releasing"; exit 1; }
           ./scripts/package-app.sh
-          plugin_root=$(LITHE_CODESIGN_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}" \
-            scripts/build-official-plugins.sh \
-            --configuration release \
-            --triple "${LITHE_ARCH}-apple-macosx" \
-            --plugin-id dev.lithe.plugin.php-support \
-            --output "dist/official-plugins/${LITHE_ARCH}")
-          ditto -c -k --sequesterRsrc --keepParent \
-            "$plugin_root/dev.lithe.plugin.php-support" \
-            "dist/Lithe-PHP-Support-${LITHE_VERSION}-${LITHE_ARCH}.zip"
           ./scripts/create-dmg.sh
           dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
           (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
@@ -168,8 +172,6 @@ jobs:
               -c "Print :${build_key}" \
               "$app_path/Contents/Info.plist"
           done
-          plugin_archive="dist/Lithe-PHP-Support-${LITHE_VERSION}-${LITHE_ARCH}.zip"
-          test -s "$plugin_archive"
           lipo "$app_path/Contents/MacOS/Lithe" -verify_arch "$LITHE_ARCH"
           hdiutil imageinfo "$dmg_path" > /dev/null
           test -s "$dmg_path"
@@ -183,7 +185,19 @@ jobs:
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
           LITHE_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: zsh scripts/create-sparkle-update.sh
+
+      - name: Verify updater key and installed application
+        timeout-minutes: 5
+        env:
+          LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          LITHE_ARCH: ${{ matrix.architecture }}
+          LITHE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          dmg="dist/Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
+          node scripts/verify-release-signature.mjs "$dmg" "$dmg.edsig" "$LITHE_SPARKLE_PUBLIC_KEY"
+          zsh scripts/verify-macos-release-install.sh "$dmg" "$LITHE_VERSION" "$LITHE_SPARKLE_PUBLIC_KEY"
 
       - name: Upload release assets
         uses: actions/upload-artifact@v7
@@ -197,14 +211,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload PHP plugin archive
-        uses: actions/upload-artifact@v7
-        with:
-          name: macos-php-plugin-${{ matrix.architecture }}
-          path: dist/Lithe-PHP-Support-${{ needs.prepare.outputs.version }}-${{ matrix.architecture }}.zip
-          if-no-files-found: error
-          retention-days: 7
-
       - name: Remove signing keychain
         if: always()
         run: |
@@ -214,6 +220,7 @@ jobs:
 
   publish:
     name: Publish macOS release
+    if: github.event_name != 'workflow_dispatch' || inputs.publish
     needs:
       - prepare
       - build
@@ -280,15 +287,14 @@ jobs:
           upload_args=(
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg"
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg.sha256"
+            "dist/Lithe-${LITHE_VERSION}-arm64.dmg.edsig"
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg"
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256"
+            "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.edsig"
             "dist/latest-macos.json"
           )
           for architecture in arm64 x86_64; do
             upload_args+=(dist/sparkle-"$architecture"/*)
-            plugin_archive="dist/Lithe-PHP-Support-${LITHE_VERSION}-${architecture}.zip"
-            test -s "$plugin_archive"
-            upload_args+=("$plugin_archive")
           done
 
           create_args+=(--notes-file "$notes_file")
@@ -314,7 +320,7 @@ jobs:
       - name: Check out the default branch
         uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Download release checksums
         env:
@@ -344,16 +350,20 @@ jobs:
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
-          brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
-          tap_path="$(brew --repository)/Library/Taps/1lck/homebrew-lithe"
+          tap_owner="${GITHUB_REPOSITORY%%/*}"
+          tap_owner="$(printf '%s' "$tap_owner" | tr '[:upper:]' '[:lower:]')"
+          tap="$tap_owner/lithe"
+          brew tap "$tap" "https://github.com/$GITHUB_REPOSITORY.git"
+          tap_path="$(brew --repository)/Library/Taps/$tap_owner/homebrew-lithe"
           cp "$GITHUB_WORKSPACE/Casks/lithe.rb" "$tap_path/Casks/lithe.rb"
-          brew style --cask 1lck/lithe/lithe
-          brew audit --cask --online 1lck/lithe/lithe
+          brew style --cask "$tap/lithe"
+          brew audit --cask --online "$tap/lithe"
 
       - name: Create or update the Cask pull request
         env:
           GH_TOKEN: ${{ github.token }}
           LITHE_VERSION: ${{ needs.publish.outputs.version }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           branch="automation/homebrew-cask-v${LITHE_VERSION}"
           git config user.name "github-actions[bot]"
@@ -369,7 +379,7 @@ jobs:
 
           existing_pr=$(gh pr list \
             --repo "$GITHUB_REPOSITORY" \
-            --base main \
+            --base "$DEFAULT_BRANCH" \
             --head "$branch" \
             --state open \
             --json url \
@@ -381,7 +391,7 @@ jobs:
 
           gh pr create \
             --repo "$GITHUB_REPOSITORY" \
-            --base main \
+            --base "$DEFAULT_BRANCH" \
             --head "$branch" \
             --title "lithe ${LITHE_VERSION}" \
             --body "Automated Homebrew Cask metadata update for Lithe ${LITHE_VERSION}."

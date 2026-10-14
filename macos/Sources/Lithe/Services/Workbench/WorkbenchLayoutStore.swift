@@ -1,10 +1,27 @@
 import Foundation
 
+enum DockAnchor: String, Codable, CaseIterable, Sendable { case left, right, bottom }
+enum DockGroup: String, Codable, CaseIterable, Sendable { case primary, secondary }
+
+struct DockPosition: Codable, Hashable, Sendable {
+    let anchor: DockAnchor
+    let group: DockGroup
+}
+
+struct ToolWindowState: Codable, Equatable, Sendable {
+    let id: String
+    var position: DockPosition
+    var order: Int
+    var isVisible: Bool
+}
+
 struct WorkbenchLayout: Codable, Sendable {
     // IDEA's ide.mainSplitter.min.size applies to each outer pane and the editor.
     static let minimumPaneSize: Double = 30
     static let minimumSidebarWidth = minimumPaneSize
     static let defaultMavenPaneWidth: Double = 360
+    var toolWindows: [ToolWindowState]?
+    var groupFractions: [String: Double]?
     let sidebarWidth: Double
     let topPaneHeight: Double?
     let mavenPaneWidth: Double?

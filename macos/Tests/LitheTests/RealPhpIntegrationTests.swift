@@ -1,5 +1,6 @@
 // Real PHP integration: exercises the shared provider catalog, the language
-// tooling manager, the PhpSupport plugin's run/test plans, and a real
+// tooling manager, the declarative PhpSupport plugin's run/test plans expanded
+// by Rust Core, and a real
 // process-owning Rust Core with real external tools. Disabled by default; run
 // explicitly with:
 //
@@ -28,7 +29,6 @@ import LitheApplicationKernel
 import LitheCoreContracts
 import LitheLanguageIntelligenceModule
 import LitheModuleAPI
-import LithePhpSupportModule
 import Testing
 @testable import Lithe
 
@@ -178,9 +178,12 @@ struct RealPhpIntegrationTests {
         try runtime.register(ModuleFactory(manifest: workspace) {
             PhpIntegrationWorkspaceModule(manifest: workspace)
         })
-        try runtime.register(ModuleFactory(manifest: PhpExecutionModule.moduleManifest) {
-            PhpExecutionModule(executionHost: executionHost)
-        })
+        for factory in try DeclarativePluginTestSupport.officialFactories(
+            "PhpSupport",
+            executionHost: executionHost
+        ) where factory.manifest.id == .languageExecutionExtension("php") {
+            try runtime.register(factory)
+        }
         try await runtime.setEnabled(true, for: .languageExecutionExtension("php"))
 
         let capability = try #require(

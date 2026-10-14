@@ -321,6 +321,34 @@ session delta or billing amount, because the adapters' accounting scopes differ.
 They must not derive these counters from context occupancy or subscription quota.
 `acp-events-v1.json` covers completion both with and without usage.
 
+The launch JSON's optional `observeModelCalls` (default `false`) asks the host to
+start a loopback proxy for API-key gateway connections and hand the Agent
+`http://127.0.0.1:<port>/lithe-<token>` instead of the configured endpoint.
+Requests and responses are forwarded unchanged; requests other than generation
+endpoints stream through without buffering, and generation bodies over 32 MiB
+are forwarded without composition. Same-origin `Location` headers are mapped
+back onto the proxy path; cross-origin targets are left unchanged. Subscription
+connections and a proxy that fails to start keep the configured endpoint. Each generation request
+(`.../messages`, `.../responses`, `.../chat/completions`) then produces one
+`modelCall` event with `call.api`, optional `model`, HTTP `status`, `streaming`,
+optional `firstTokenMs`, `durationMs`, optional provider `usage`
+(`inputTokens` excluding cache reads and writes for every protocol, `cacheReadTokens`, `cacheWriteTokens`,
+`outputTokens`, optional `reasoningTokens`) and optional estimated prompt
+`context` (`systemPromptTokens`, `toolTokens`, `mcpToolTokens`, `messageTokens`,
+`toolCount`, `mcpToolCount`, `scaledToUsage`). `sessionId` is present only when
+exactly one non-cancelling prompt was running when the request started; consumers
+drop unattributed calls instead of guessing. The host waits up to two seconds for
+a turn's attributed calls to report before emitting its `turnFinished`, so they
+arrive first. A call still open after that bound carries `afterTurnFinished: true`
+and counts for the session only, never for a later turn. Redirect (3xx) hops are
+forwarded but are not model calls; only the followed request is reported.
+Calls without `usage` make session token sums a lower bound, which consumers
+must label as such. Unparsable provider data omits the
+optional fields and never affects forwarding. Without these events, consumers do
+not estimate model-call counts, first-token latency, output speed or prompt
+composition. Decision:
+`.agents/notes/implemented/architecture/2026-10-13-agent-model-call-observation.md`.
+
 macOS keeps local turn statistics in memory. Elapsed time uses a monotonic clock
 from user submission (including queued session creation/loading, tools and
 permission waits) until completion, request failure or disconnect. Cancellation
@@ -595,6 +623,13 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
+| `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
+| `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
+| `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
+| `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
+| `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
+| `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
+| `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
 
 ### Maven test results
 
@@ -2386,6 +2421,43 @@ Re-running it over already-redacted text is a no-op.
 confirm a diagnostic export — and the zip's contents — are deterministic
 across runs and across platforms. Hosts gather the environment and file facts
 natively; this command only shapes and sorts them.
+
+### Declarative plugins
+
+The `plugins.declarative.*` commands implement
+[`plugins/v1`](plugins/v1/README.md). They are pure: they never read the
+package or the workspace, so hosts pass the parsed `plugin.json` and the
+relevant facts with every call.
+
+`plugins.declarative.validate` accepts `{ "manifest": object }` and returns
+`{ "status": "ok", "plugin": object }` with the normalized manifest (names
+lowercased and sorted, argument order preserved), or
+`{ "status": "rejected", "error": { "code", "message", "field"? } }` with a
+stable `plugin.*` code.
+
+`plugins.declarative.runPlan`, `plugins.declarative.discoverTests`, and
+`plugins.declarative.testPlan` accept
+`{ "manifest": object, "languageID": string, "request": object }` and
+revalidate the manifest first. Their requests are respectively
+`{ relativeFilePath, arguments? }`, `{ relativeProjectFilePaths }`, and
+`{ scope: { kind: "workspace" } | { kind: "file", relativeFilePath } |
+{ kind: "testCase", identifier, relativeFilePath? }, relativeProjectFilePaths }`.
+Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
+`label` and `frameworkID` for tests) or `items`; refusals use the same
+`rejected` shape. Only a malformed payload is an `invalid_request` failure.
+`shared/contracts/plugins/v1/fixtures/` holds the golden cases.
+
+The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
+archives and pass the parsed JSON. `validateIndex` accepts
+`{ index, sourceKind: "official" | "thirdParty", platform }` and returns
+`{ status: "ok", index: { plugins, rejected } }` with per-entry
+`availability`; `resolveSource` accepts `{ url }` and returns
+`{ status: "ok", source: { indexURL, repository, displayName } }`;
+`installReview` accepts `{ manifest, expectedID?, expectedVersion?,
+approvedPrograms? }` and returns `{ status: "ok", review: { id, version,
+permissions, programs, newPrograms } }`. Content problems use the same
+`rejected` shape; see the Marketplace section of
+[`plugins/v1`](plugins/v1/README.md) and `fixtures/marketplace/`.
 
 ### Git patch discovery and rebase amendment preconditions
 

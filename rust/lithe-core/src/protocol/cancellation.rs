@@ -136,16 +136,98 @@ pub(crate) fn with_cleanup_deadline<T>(timeout: Duration, operation: impl FnOnce
     operation()
 }
 
+/// Inspects a mutation using the request budget, or bounded cleanup if it ended.
+///
+/// Active requests retain their absolute deadline and cancellation token. Only
+/// an already cancelled or timed-out request needs an independent cleanup scope.
+pub(crate) fn with_mutation_inspection<T>(
+    cleanup_timeout: Duration,
+    operation: impl FnOnce() -> T,
+) -> T {
+    if check().is_ok() {
+        operation()
+    } else {
+        with_cleanup_deadline(cleanup_timeout, operation)
+    }
+}
+
 fn registry() -> &'static Mutex<Registrations> {
     OPERATIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{cancel, check, Scope};
+    use super::{cancel, check, with_mutation_inspection, Scope, CURRENT};
     use crate::protocol::ErrorCode;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn mutation_inspection_preserves_active_deadline_and_cancellation() {
+        let _scope = Scope::begin(Some("active-mutation-inspection".into()), Some(20_000));
+        let deadline = CURRENT.with(|current| current.borrow().as_ref().unwrap().deadline);
+        with_mutation_inspection(Duration::from_secs(2), || {
+            // A successful rebase must not lose its remaining request budget or
+            // become immune to cancellation while its session is inspected.
+            assert_eq!(
+                CURRENT.with(|current| current.borrow().as_ref().unwrap().deadline),
+                deadline
+            );
+            assert!(cancel("active-mutation-inspection"));
+            assert!(matches!(check().unwrap_err().code, ErrorCode::Cancelled));
+        });
+    }
+
+    #[test]
+    fn mutation_inspection_after_cancellation_is_bounded_and_restores_request() {
+        let _scope = Scope::begin(Some("cancelled-mutation-inspection".into()), None);
+        assert!(cancel("cancelled-mutation-inspection"));
+        let earliest_cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        let result = with_mutation_inspection(Duration::from_secs(2), || {
+            assert!(check().is_ok());
+            let deadline = CURRENT.with(|current| current.borrow().as_ref().unwrap().deadline);
+            assert!(deadline.is_some_and(|value| {
+                value >= earliest_cleanup_deadline
+                    && value <= Instant::now() + Duration::from_secs(2)
+            }));
+            // Reach the installed cleanup deadline deterministically, with no
+            // sleeping or dependency on Git subprocess speed.
+            CURRENT.with(|current| {
+                current.borrow_mut().as_mut().unwrap().deadline = Some(Instant::now())
+            });
+            check()
+        });
+        assert!(matches!(result.unwrap_err().code, ErrorCode::TimedOut));
+        assert!(matches!(check().unwrap_err().code, ErrorCode::Cancelled));
+        assert!(CURRENT.with(|current| current.borrow().as_ref().unwrap().deadline.is_none()));
+    }
+
+    #[test]
+    fn mutation_inspection_after_deadline_restores_expired_request() {
+        let _scope = Scope::begin(None, None);
+        let expired = Instant::now();
+        CURRENT.with(|current| current.borrow_mut().as_mut().unwrap().deadline = Some(expired));
+        with_mutation_inspection(Duration::from_secs(2), || assert!(check().is_ok()));
+        assert_eq!(
+            CURRENT.with(|current| current.borrow().as_ref().unwrap().deadline),
+            Some(expired)
+        );
+        assert!(check().is_err());
+    }
+
+    #[test]
+    fn mutation_inspection_restores_cancelled_request_during_unwind() {
+        let _scope = Scope::begin(Some("unwinding-mutation-inspection".into()), None);
+        assert!(cancel("unwinding-mutation-inspection"));
+        let result = std::panic::catch_unwind(|| {
+            with_mutation_inspection(Duration::from_secs(2), || {
+                assert!(check().is_ok());
+                panic!("inspection failed");
+            })
+        });
+        assert!(result.is_err());
+        assert!(matches!(check().unwrap_err().code, ErrorCode::Cancelled));
+    }
 
     #[test]
     fn nested_scopes_restore_the_outer_cancellation_registration() {

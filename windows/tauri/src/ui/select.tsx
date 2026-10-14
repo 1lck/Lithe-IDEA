@@ -191,7 +191,7 @@ function PlainSelect({
   iconOnly: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  ariaLabel: string;
+  ariaLabel?: string;
 }) {
   const selectedOption = options.find((option) => option.value === value);
   const popupStyle = menuMinWidth
@@ -200,7 +200,7 @@ function PlainSelect({
   const node = (
     <div className={cn(iconOnly ? "w-fit" : "min-w-0 w-36", className)}>
       <SelectPrimitive.Root
-        value={value || null}
+        value={selectedOption?.value ?? (value || null)}
         onValueChange={(nextValue) => {
           if (nextValue != null) onChange(nextValue);
         }}
@@ -322,7 +322,7 @@ function SearchableSelect({
   iconOnly: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  ariaLabel: string;
+  ariaLabel?: string;
 }) {
   const { t } = useTranslation();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -536,7 +536,7 @@ export default function Select({
     iconOnly,
     open,
     onOpenChange: handleOpenChange,
-    ariaLabel: ariaLabel ?? resolvedPlaceholder,
+    ariaLabel: ariaLabel ?? (props.id ? undefined : resolvedPlaceholder),
   };
 
   return searchable ? <SearchableSelect {...sharedProps} /> : <PlainSelect {...sharedProps} />;

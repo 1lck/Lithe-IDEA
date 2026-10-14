@@ -16,7 +16,7 @@ import { Field, FieldDescription, FieldLabel } from "@/ui/field";
 import Input from "@/ui/input";
 import NumberInput from "@/ui/number-input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import Switch from "@/ui/switch";
 import Textarea from "@/ui/textarea";
 import Tooltip from "@/ui/tooltip";
@@ -127,7 +127,7 @@ export const TerminalSettings = () => {
           }
           canReset={settings.terminalDefaultShellId !== getDefaultSetting("terminalDefaultShellId")}
         >
-          <Select
+          <SettingsSelect
             value={selectedDefaultShellId}
             options={shellOptions}
             onChange={(value) =>
@@ -137,10 +137,7 @@ export const TerminalSettings = () => {
               )
             }
             className={SETTINGS_CONTROL_WIDTHS.xwide}
-            size="md"
-            variant="default"
             searchable
-            searchableTrigger="input"
           />
         </SettingRow>
 
@@ -154,7 +151,7 @@ export const TerminalSettings = () => {
             settings.terminalDefaultProfileId !== getDefaultSetting("terminalDefaultProfileId")
           }
         >
-          <Select
+          <SettingsSelect
             value={selectedDefaultProfileId}
             options={profileOptions}
             onChange={(value) =>
@@ -164,10 +161,7 @@ export const TerminalSettings = () => {
               )
             }
             className={SETTINGS_CONTROL_WIDTHS.xwide}
-            size="md"
-            variant="default"
             searchable
-            searchableTrigger="input"
           />
         </SettingRow>
       </Section>
@@ -249,7 +243,7 @@ export const TerminalSettings = () => {
                     <FieldLabel htmlFor={`terminal-profile-shell-${profile.id}`}>
                       {t("settings.terminal.profileShell")}
                     </FieldLabel>
-                    <Select
+                    <SettingsSelect
                       id={`terminal-profile-shell-${profile.id}`}
                       value={profile.shell || DEFAULT_SHELL_OPTION_VALUE}
                       options={shellOptions}
@@ -259,10 +253,7 @@ export const TerminalSettings = () => {
                         })
                       }
                       className="w-full"
-                      size="md"
-                      variant="default"
                       searchable
-                      searchableTrigger="input"
                     />
                   </Field>
                 </div>
@@ -326,15 +317,12 @@ export const TerminalSettings = () => {
           canReset={settings.terminalFontFamily !== getDefaultSetting("terminalFontFamily")}
         >
           <div className="flex items-center gap-2">
-            <Select
+            <SettingsSelect
               value={settings.terminalFontFamily}
               options={fontOptions}
               onChange={(val) => updateSetting("terminalFontFamily", val)}
               className={SETTINGS_CONTROL_WIDTHS.xwide}
-              size="md"
-              variant="default"
               searchable
-              searchableTrigger="input"
               placeholder={t("settings.terminal.selectFont")}
             />
             <Tooltip content={t("settings.terminal.fontHelp")} side="left">
@@ -487,7 +475,7 @@ export const TerminalSettings = () => {
           }
           canReset={settings.terminalCursorStyle !== getDefaultSetting("terminalCursorStyle")}
         >
-          <Select
+          <SettingsSelect
             value={settings.terminalCursorStyle}
             options={[
               { value: "block", label: t("settings.terminal.block") },
@@ -498,10 +486,7 @@ export const TerminalSettings = () => {
               updateSetting("terminalCursorStyle", val as "block" | "underline" | "bar")
             }
             className={SETTINGS_CONTROL_WIDTHS.default}
-            size="md"
-            variant="default"
             searchable
-            searchableTrigger="input"
           />
         </SettingRow>
 
@@ -552,7 +537,7 @@ export const TerminalSettings = () => {
             getDefaultSetting("terminalCursorInactiveStyle")
           }
         >
-          <Select
+          <SettingsSelect
             value={settings.terminalCursorInactiveStyle}
             options={[
               { value: "outline", label: t("settings.terminal.outline") },
@@ -568,8 +553,6 @@ export const TerminalSettings = () => {
               )
             }
             className={SETTINGS_CONTROL_WIDTHS.default}
-            size="md"
-            variant="default"
           />
         </SettingRow>
       </Section>

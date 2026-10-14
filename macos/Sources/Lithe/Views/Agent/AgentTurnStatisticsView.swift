@@ -22,6 +22,24 @@ enum AgentTurnStatisticsPresentation {
         String(format: String(localized: "Output: %@"), usage.outputTokens.formatted(.number.locale(locale)))
     }
 
+    /// `3 calls · TTFT 0.8s · 120 tok/s · non-streaming`, from proxy observations only.
+    static func modelCalls(_ calls: AgentModelCallTotals, locale: Locale) -> String? {
+        guard calls.callCount > 0 else { return nil }
+        var parts = [String(format: String(localized: "%lld model calls"), calls.callCount)]
+        if let firstToken = calls.averageFirstToken {
+            parts.append(String(format: String(localized: "TTFT %@"), AgentSessionStatusPresentation.latency(firstToken, locale: locale)))
+        }
+        if let rate = calls.outputTokensPerSecond {
+            parts.append(AgentSessionStatusPresentation.rate(rate, locale: locale))
+        }
+        if calls.nonStreamingCount > 0 {
+            parts.append(calls.nonStreamingCount == calls.callCount
+                         ? String(localized: "Non-streaming")
+                         : String(format: String(localized: "%lld non-streaming"), calls.nonStreamingCount))
+        }
+        return parts.joined(separator: " · ")
+    }
+
     static func details(_ usage: AgentTurnUsage, locale: Locale) -> String {
         var lines = [String(localized: "Token counts reported by the Agent. Accounting scope depends on the Agent."),
                      input(usage, locale: locale), output(usage, locale: locale),
@@ -117,10 +135,12 @@ struct AgentTurnStatisticsView: View {
             HStack(spacing: 12) {
                 elapsed
                 if let usage = statistics.usage { tokens(usage) }
+                modelCalls
             }
             VStack(alignment: .leading, spacing: 5) {
                 elapsed
                 if let usage = statistics.usage { tokens(usage) }
+                modelCalls
             }
         }
         .font(LitheTheme.uiFont(size: 11))
@@ -136,6 +156,15 @@ struct AgentTurnStatisticsView: View {
                      AgentTurnStatisticsPresentation.duration(statistics.duration ?? 0)), systemImage: "clock")
             .fixedSize()
             .help("Elapsed since sending, including tools and permission waits.")
+    }
+
+    @ViewBuilder
+    private var modelCalls: some View {
+        if let text = AgentTurnStatisticsPresentation.modelCalls(statistics.modelCalls, locale: locale) {
+            Label(text, systemImage: "bolt.horizontal")
+                .fixedSize()
+                .help("Model calls observed by the local proxy during this turn. TTFT is the average time to the first generated token.")
+        }
     }
 
     private func tokens(_ usage: AgentTurnUsage) -> some View {

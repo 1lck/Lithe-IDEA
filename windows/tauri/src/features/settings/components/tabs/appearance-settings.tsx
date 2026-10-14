@@ -28,7 +28,7 @@ import type {
 import { Button } from "@/ui/button";
 import NumberInput from "@/ui/number-input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import Switch from "@/ui/switch";
 import { cn } from "@/utils/cn";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/utils/platform";
@@ -223,15 +223,12 @@ export const AppearanceSettings = () => {
             onReset={() => updateSetting("theme", getDefaultSetting("theme"))}
             canReset={settings.theme !== getDefaultSetting("theme")}
           >
-            <Select
+            <SettingsSelect
               value={settings.theme}
               options={normalizedThemeOptions}
               onChange={(value) => updateSetting("theme", value)}
               className={SETTINGS_CONTROL_WIDTHS.wide}
-              size="sm"
-              variant="default"
               searchable
-              searchableTrigger="input"
             />
           </SettingRow>
         ) : null}
@@ -244,15 +241,12 @@ export const AppearanceSettings = () => {
               onReset={() => updateSetting("autoThemeLight", getDefaultSetting("autoThemeLight"))}
               canReset={settings.autoThemeLight !== getDefaultSetting("autoThemeLight")}
             >
-              <Select
+              <SettingsSelect
                 value={settings.autoThemeLight}
                 options={lightThemeOptions}
                 onChange={(value) => updateSetting("autoThemeLight", value)}
                 className={SETTINGS_CONTROL_WIDTHS.wide}
-                size="sm"
-                variant="default"
                 searchable
-                searchableTrigger="input"
               />
             </SettingRow>
 
@@ -262,15 +256,12 @@ export const AppearanceSettings = () => {
               onReset={() => updateSetting("autoThemeDark", getDefaultSetting("autoThemeDark"))}
               canReset={settings.autoThemeDark !== getDefaultSetting("autoThemeDark")}
             >
-              <Select
+              <SettingsSelect
                 value={settings.autoThemeDark}
                 options={darkThemeOptions}
                 onChange={(value) => updateSetting("autoThemeDark", value)}
                 className={SETTINGS_CONTROL_WIDTHS.wide}
-                size="sm"
-                variant="default"
                 searchable
-                searchableTrigger="input"
               />
             </SettingRow>
           </>
@@ -282,15 +273,12 @@ export const AppearanceSettings = () => {
           onReset={() => updateSetting("iconTheme", getDefaultSetting("iconTheme"))}
           canReset={settings.iconTheme !== getDefaultSetting("iconTheme")}
         >
-          <Select
+          <SettingsSelect
             value={settings.iconTheme}
             options={normalizedIconThemeOptions}
             onChange={handleIconThemeChange}
             className={SETTINGS_CONTROL_WIDTHS.wide}
-            size="sm"
-            variant="default"
             searchable
-            searchableTrigger="input"
           />
         </SettingRow>
 
@@ -427,7 +415,7 @@ export const AppearanceSettings = () => {
             settings.tabCloseButtonVisibility !== getDefaultSetting("tabCloseButtonVisibility")
           }
         >
-          <Select
+          <SettingsSelect
             value={settings.tabCloseButtonVisibility}
             options={[
               { value: "active", label: t("settings.appearance.activeAndHovered") },
@@ -438,8 +426,6 @@ export const AppearanceSettings = () => {
               updateSetting("tabCloseButtonVisibility", value as TabCloseButtonVisibility)
             }
             className={SETTINGS_CONTROL_WIDTHS.wide}
-            size="sm"
-            variant="default"
           />
         </SettingRow>
       </Section>
@@ -453,7 +439,7 @@ export const AppearanceSettings = () => {
           }
           canReset={settings.windowChromeDensity !== getDefaultSetting("windowChromeDensity")}
         >
-          <Select
+          <SettingsSelect
             value={settings.windowChromeDensity}
             options={[
               { value: "focused", label: t("settings.appearance.focused") },
@@ -461,8 +447,6 @@ export const AppearanceSettings = () => {
             ]}
             onChange={(value) => updateSetting("windowChromeDensity", value as WindowChromeDensity)}
             className={SETTINGS_CONTROL_WIDTHS.wide}
-            size="sm"
-            variant="default"
           />
         </SettingRow>
 
@@ -596,7 +580,7 @@ export const AppearanceSettings = () => {
           }}
           canReset={getProjectOpenPreference(settings) !== "ask"}
         >
-          <Select
+          <SettingsSelect
             value={getProjectOpenPreference(settings)}
             options={[
               { value: "ask", label: t("settings.appearance.openAskEveryTime") },
@@ -615,8 +599,6 @@ export const AppearanceSettings = () => {
               void updateSetting("askWhereToOpenProjects", patch.askWhereToOpenProjects ?? true);
             }}
             className={SETTINGS_CONTROL_WIDTHS.wide}
-            size="sm"
-            variant="default"
           />
         </SettingRow>
       </Section>

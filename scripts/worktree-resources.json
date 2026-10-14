@@ -67,8 +67,8 @@
         ".build/<triple>/<configuration>/OfficialPlugins",
         "<app-support>/Lithe/Plugins/dev.lithe.plugin.php-support/"
       ],
-      "identity": "Native plugin output is tied to the host API, Swift toolchain, platform architecture and signing; no reliable worktree identity stamp",
-      "reason": "Build each official plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees."
+      "identity": "Declarative plugin packages are architecture-neutral but carry a build-time Intelephense download and an optional publisher signature; no reliable worktree identity stamp",
+      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees."
     },
     {
       "id": "php-language-server-downloads",
@@ -84,10 +84,22 @@
       "reusable": false,
       "locations": [
         "<app-cache>/language-tools/<language>/<tool>",
-        "<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/PhpSupport.bundle/Contents/Resources/LanguageServers/php"
+        "<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server"
       ],
-      "identity": "Plugin-owned language tools are mutable runtime state bound to an installed plugin version and signing identity, not a worktree build stamp",
+      "identity": "Plugin-owned language tools are bound to an installed plugin version and its package signature, not a worktree build stamp; installed package contents are read-only at runtime",
       "reason": "Do not reuse plugin-owned language tools across worktrees; plugin lifecycle owns installation, replacement and cleanup."
+    },
+    {
+      "id": "plugin-marketplace-state",
+      "reusable": false,
+      "locations": [
+        "<app-cache>/Lithe/PluginMarketplace/<source-id>/index.json",
+        "<app-support>/Lithe/PluginMarketplace/sources.json",
+        "<system-temp>/lithe-plugin-transfer-<uuid>",
+        "<system-temp>/lithe-plugin-download-<uuid>"
+      ],
+      "identity": "Fetched marketplace indexes, the user's plugin repository list, and downloaded or extracted plugin archives are per-user runtime state verified by Rust Core index validation and the index SHA-256; the official index ships read-only from Git-tracked Plugins/marketplace/index.json and has no worktree build stamp",
+      "reason": "Marketplace caches, repository lists and plugin downloads belong to the running app and its user, never to a worktree build. Do not copy, symlink or bundle them; each run fetches and verifies its own copy. The bundled index is copied from Git at packaging time only."
     },
     {
       "id": "phpunit-fixture",

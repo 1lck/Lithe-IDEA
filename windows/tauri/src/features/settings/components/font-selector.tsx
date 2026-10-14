@@ -3,7 +3,7 @@ import { getPrimaryFontFamily } from "@/features/settings/lib/font-family-resolu
 import { useFontStore } from "@/features/settings/stores/font.store";
 import type { FontInfo } from "@/features/settings/types/font.types";
 import { useTranslation } from "@/i18n/locale-provider";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 
 const BUNDLED_FONTS: FontInfo[] = [
   { name: "Geist Sans", family: "Geist Sans", style: "Regular", is_monospace: false },
@@ -64,17 +64,14 @@ export const FontSelector = ({
 
   return (
     <div className={className}>
-      <Select
+      <SettingsSelect
         value={selected}
         options={fontOptions}
         onChange={onChange}
         placeholder={t("fontSelector.select")}
         aria-label={ariaLabel ?? t("fontSelector.select")}
         className="w-full"
-        size="sm"
-        variant="default"
         searchable
-        searchableTrigger="input"
       />
       {isLoading && (
         <span role="status" className="ui-text-xs text-subtle-foreground">

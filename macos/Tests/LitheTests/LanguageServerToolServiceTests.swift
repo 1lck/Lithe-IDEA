@@ -44,6 +44,58 @@ struct LanguageServerToolServiceTests {
         #expect(restored.executableURL(for: descriptor) == brewURL)
     }
 
+    /// A pinned (plugin-packaged) server is the only candidate: a same-named
+    /// tool on PATH or in another plugin is never substituted, even when the
+    /// pinned file is missing.
+    @Test
+    func pinnedExecutableIsTheOnlyCandidate() {
+        let alpha = URL(fileURLWithPath: "/plugins/alpha/bin/language-server")
+        let beta = URL(fileURLWithPath: "/plugins/beta/bin/language-server")
+        let global = URL(fileURLWithPath: "/opt/homebrew/bin/language-server")
+        let store = LanguageServerToolTestStore()
+        let service = LanguageServerToolService(
+            runtimeService: makeRuntime(
+                executablePaths: [alpha.path, global.path],
+                candidates: ["language-server": [RuntimeToolCandidate(
+                    command: "language-server",
+                    executableURL: global,
+                    source: .homebrew
+                )]],
+                store: store
+            ),
+            commandRunner: LanguageServerToolTestProcessRunner(),
+            settingsStore: store
+        )
+
+        #expect(service.candidates(for: pinnedDescriptor("alpha", executable: alpha)).map(\.executableURL) == [alpha])
+        #expect(service.candidates(for: pinnedDescriptor("beta", executable: beta)).isEmpty)
+        #expect(service.executableURL(for: pinnedDescriptor("beta", executable: beta)) == nil)
+    }
+
+    /// A custom path saved before the server moved into a plugin package must
+    /// not outrank, or stand in for, the package's own validated entry.
+    @Test
+    func staleCustomPathNeverReplacesPinnedExecutable() async throws {
+        let pinned = URL(fileURLWithPath: "/plugins/alpha/bin/language-server")
+        let custom = URL(fileURLWithPath: "/custom/bin/language-server")
+        let store = LanguageServerToolTestStore()
+        let service = LanguageServerToolService(
+            runtimeService: makeRuntime(executablePaths: [pinned.path, custom.path], candidates: [:], store: store),
+            commandRunner: LanguageServerToolTestProcessRunner(),
+            settingsStore: store
+        )
+        let present = pinnedDescriptor("alpha", executable: pinned)
+        try await service.setCustomExecutablePath(custom.path, for: present)
+
+        #expect(service.candidates(for: present).map(\.executableURL) == [pinned])
+        #expect(service.executableURL(for: present) == pinned)
+
+        // With the pinned file gone there is no fallback to the old override.
+        let missing = pinnedDescriptor("gamma", executable: URL(fileURLWithPath: "/plugins/gamma/bin/gone"))
+        try await service.setCustomExecutablePath(custom.path, for: missing)
+        #expect(service.candidates(for: missing).isEmpty)
+    }
+
     @Test
     func rejectsNonExecutableCustomPath() async {
         let store = LanguageServerToolTestStore()
@@ -251,6 +303,22 @@ struct LanguageServerToolServiceTests {
         let plan = LanguageServerInstallPlan.plan(for: descriptor)
         #expect(plan.homebrewFormula == nil)
         #expect(plan.officialDownloadURL == nil)
+    }
+
+    private func pinnedDescriptor(_ id: String, executable: URL) -> LanguageProviderDescriptor {
+        LanguageProviderDescriptor(
+            id: id,
+            displayName: id,
+            fileExtensions: [id],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: id,
+            languageServerLaunch: LanguageServerLaunchDescriptor(
+                executableNames: ["language-server"],
+                executableURL: executable
+            ),
+            languageServerInstallation: nil
+        )
     }
 
     private func goDescriptor() -> LanguageProviderDescriptor {

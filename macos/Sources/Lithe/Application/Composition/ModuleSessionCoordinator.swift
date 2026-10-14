@@ -71,8 +71,8 @@ final class ModuleSessionCoordinator {
 
     private func handle(_ event: ModuleEvent) {
         if event.name == "module.sleeping" || event.name == "module.shutdown" {
-            if event.source == .database, workbench.selectedSidebar == .database {
-                workbench.selectedSidebar = .project
+            if event.source == .database {
+                workbench.setVisibility(.database, isVisible: false)
             }
             clearBindings(for: event.source)
         }

@@ -422,7 +422,7 @@ Recent 也按分支命名空间分组。搜索覆盖全部引用；清空搜索�
 `GitBranchesPopupBase` 给同一 `SearchFieldWithExtension` 显式传入
 `Popup.BACKGROUND`，所以共享样式允许背景参数，分支弹窗使用弹窗底色，
 Git Log 保留原输入底色。打开菜单不强制搜索框获得焦点；点击输入后才显示
-共享蓝色焦点边框。原生面板通过 `searchOnTyping` 保持初始焦点在菜单；
+共享蓝色焦点边框。共享搜索输入沿用原生编辑器，在同窗口点击输入区域外时释放焦点；由既有编辑观察视图处理并在卸载时移除监听，避免各面板重复添加点击手势，也避免其他输入的观察器打断当前编辑。原生面板通过 `searchOnTyping` 保持初始焦点在菜单；
 开始键入或 Cmd+F 时交给原生输入框继续处理同一个事件，保留 IME，
 避免 AppKit 自动把第一个输入框染成蓝色，也避免去掉自动焦点后破坏直接搜索。
 不能仅因为复用了同名组件就忽略上游传入的背景和焦点状态。
@@ -541,3 +541,79 @@ GitFeatureModel 写入及确认流程；只读历史/保存记录模式不提供
 差异块入口锚定该 hunk 的首个差异行；纯删除使用左栏，新版单栏也保留动作。
 分支比较、本地历史与 Agent 的嵌入式预览继续复用 `DiffPaneView` → `DiffSplitPaneView`，
 它们不承载仓库暂存操作，也不是被删除的旧工作区面板。
+
+
+### 普通选中行与窗口焦点
+
+项目树原先固定使用灰色选中底色，其余列表也有只用活动色或只用灰色的入口。
+现在普通树和列表都通过 `litheSelectionRow(isSelected:isFocused:)` 绘制选中与
+悬停表面。单行树由 `litheTreeRow` 转交；多行列表直接调用该入口，保留原行高、
+内边距、字体和圆角参数。只有“区域有焦点”且“窗口接收键盘输入”同时成立才显示
+主题活动色；失去任一条件都显示灰色。窗口是否活动由共享样式读取
+`controlActiveState == .key`，不能让每个新调用方自行决定是否检查。
+
+颜色依据 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json` 与
+`ManyIslandsLight.theme.json`：普通选中行读取 `selection-bg-active` 和
+`selection-bg-inactive`。Lithe 默认主题的深色活动/失焦色为 `#2A4371/#33353B`，
+浅色为 `#D0DFFE/#E9EAEE`；其他主题沿用既有主题定义，不逐页面复制颜色。
+
+区域焦点沿用 `LitheToolWindowActivityTracker`，应安装在列表所在区域，不能
+装在整个工作台后让多个列表同时变蓝。观察器按实际被编辑的输入框判断焦点，
+不能只比较 macOS 共用的 field editor（窗口内多个输入框共用的文本编辑器）；
+鼠标回调、焦点变化和卸载共用事件版本；延迟点击只有版本仍最新、窗口未变且
+当前 focus owner 未变时才能发布点击状态，否则按当前 responder 重算。
+卸载时立即移除观察器并使旧版本失效；清除活动状态和重新挂载同步当前可见焦点
+区域均在下一次主队列回调发布。挂载、卸载及窗口通知不得同步写 SwiftUI Binding，
+否则真实 NSHostingView 销毁期间会与 GraphHost.invalidate 发生独占访问冲突并
+触发 SIGABRT。旧挂载或较早点击的回调不能覆盖新焦点。
+
+项目树是已有键盘路由的特殊消费者：`ProjectTreeKeyboardCommands` 发布
+键盘归属变化，颜色与实际消费方向键的区域一致。通过窗口 didUpdate 及时识别
+新获得焦点的文本框，搜索框尚未输入字符时树就失焦；其他编辑器仍保留首次按键
+建立基线的异步聚焦处理。直接套用普通区域观察器会在
+文件打开后的 WebKit 异步聚焦中误判。惰性树内容的相等判断必须包含焦点，
+否则选择不变时不会刷新颜色。保留原有多选、上下键、右键和文件打开行为。
+
+SwiftUI 消费者包括 Project、Commit、Maven、Git Log 分支/比较/Rebase 计划、Run 的范围和配置
+列表、PR 列表、Redis 键、Nacos 配置、数据库 SQL 历史、本地/项目历史、Debug
+堆栈、Language Tests、Agent 历史多选、Settings 分类/项目运行时/快捷键以及
+插件市场列表。各独立列表分别观察焦点。Git Log 原生提交图谱在宿主更新时结合
+窗口活动状态；原生 Git 文件树保留 `isKeyWindow` 和 first responder（键盘
+输入接收视图）判断，并在宿主窗口状态改变时重绘。Shelf 的原位展开行沿用
+共享树色与窗口判断，不替换其已有展开 renderer（负责行绘制的组件）。
+
+正确做法是给已有多行历史行调用
+`litheSelectionRow(isSelected: selected, isFocused: historyListActive)`，再在
+历史列表区域安装已有观察器。不要写 `.background(selected ?
+LitheTheme.selection : .clear)`；这种写法无法在窗口失焦时切换灰色。
+不要把只读详情或相邻列表的活动状态传给该历史行。
+
+工具窗口标签、菜单高亮、活动栏、数据库单元格、编辑器文本选择、状态徽章、
+复选框包含状态和选定设置值有各自语义与主题，不强制与普通行的 RGB 相同。
+它们继续使用各自共享样式；没有持久选择的 Dependencies、普通 Search 结果
+也不会因此新增选择功能。Windows 本次未修改；其文件树已有
+`data-tree-focused` 在 `--selected` 与 `--border` 之间切换，不能把 macOS
+组件验证当作 Windows 实机验收。
+
+统一入口减少遗漏窗口判断和重复颜色的机会，代价是每个独立列表仍需明确提供
+区域焦点状态。没有把所有页面强制改成 24pt 树行，也没有新增第二套焦点系统。
+
+回归通过 `LitheTreeRowStyleTests` 检查真实绘制的深浅色、区域活动/失焦与
+窗口 key/inactive 状态，以及 24pt 树和 40pt 多行尺寸；
+`ProjectTreeSelectionTests` 检查方向键和多选；
+`EditorTabOrderFeatureModelTests.tabActivityFollowsNativeKeyboardFocusAcrossRegions`
+检查原生区域及共用输入编辑器之间的焦点转移、卸载失效和重新挂载同步；
+`delayedPointerActivityCannotOverrideNewerFocusOrRemount` 用可控回调队列验证
+较早鼠标写入不能覆盖新 responder（包括窗口通知尚未发布）或新挂载；
+`treeYieldsToSearchBeforeTypingButRetainsAsynchronousEditorFocus` 验证搜索框
+尚未输入即失焦，以及真实 WKWebView 异步聚焦仍保留项目树键盘归属。
+`trackerUnmountDefersBindingWritesUntilTheLifecycleCallbackReturns` 检查生命周期内
+没有同步 Binding 写入，`activityTrackerCanDestroyItsSwiftUIStateOwner` 覆盖真实
+SwiftUI State 宿主销毁和主队列清理，不能只靠手写 Binding 的组件测试推断安全。
+完整应用验收与组件回归分别记录，
+不由编译或单一页面截图推断整个产品已验证。
+
+深色新预览已通过真实鼠标验证 Settings 分类：点击分类显示主题色，点击右侧
+内容变灰，重新点击恢复。完整应用全部入口、浅色/非默认主题和跨窗口切换仍
+保留 pending；共享像素与原生焦点回归不替代这些实机验收。

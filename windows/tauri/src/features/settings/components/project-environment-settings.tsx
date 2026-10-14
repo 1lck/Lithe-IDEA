@@ -12,6 +12,7 @@ import type { MavenSettings } from "@/features/maven/types/maven.types";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
+import SettingsPathInput from "@/ui/settings-path-input";
 import Input from "@/ui/input";
 import { FolderIcon } from "@/ui/icons";
 import {
@@ -244,25 +245,20 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
             <label key={key} className="block space-y-1.5">
               <span className="font-medium ui-text-sm">{label}</span>
               <div className="flex gap-2">
-                <Input
+                <SettingsPathInput
                   value={environment.toolchain[key]}
-                  list={`project-${key}`}
+                  candidates={candidates}
+                  label={label}
                   placeholder={automatic}
-                  onChange={(event) => {
+                  disabled={busy}
+                  onChange={(value) => {
                     setEnvironment({
                       ...environment,
-                      toolchain: { ...environment.toolchain, [key]: event.target.value },
+                      toolchain: { ...environment.toolchain, [key]: value },
                     });
                     setSaved(false);
                   }}
                 />
-                <datalist id={`project-${key}`}>
-                  {candidates.map(({ path, version }) => (
-                    <option key={path} value={path}>
-                      {version || path}
-                    </option>
-                  ))}
-                </datalist>
                 <Button
                   variant="ghost"
                   size="icon-sm"

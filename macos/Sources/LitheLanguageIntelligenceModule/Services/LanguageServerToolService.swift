@@ -142,6 +142,23 @@ package final class LanguageServerToolService: ObservableObject {
     private func discoveredCandidates(
         for descriptor: LanguageProviderDescriptor
     ) -> [RuntimeToolCandidate] {
+        // A provider-pinned executable (a server packaged in its plugin) is the
+        // only candidate: it is never looked up by name, and a stale custom
+        // override from a previous install cannot replace the validated entry,
+        // so two plugins shipping the same file name cannot start each other's
+        // server.
+        if let pinned = descriptor.languageServerLaunch?.executableURL {
+            guard let executableURL = runtimeService.executableURL(at: pinned.path) else {
+                return []
+            }
+            return [RuntimeToolCandidate(
+                command: descriptor.languageServerLaunch?.executableNames.first ?? descriptor.id,
+                executableURL: executableURL,
+                source: .bundled,
+                detail: "Packaged with \(descriptor.displayName)"
+            )]
+        }
+
         var result: [RuntimeToolCandidate] = []
         var seen = Set<String>()
 
@@ -164,6 +181,13 @@ package final class LanguageServerToolService: ObservableObject {
             }
         }
         return result
+    }
+
+    /// True while a provider that requires an executable probe has not been
+    /// probed yet, so `candidates(for:)` is empty only because no check ran.
+    package func needsCandidateValidation(for descriptor: LanguageProviderDescriptor) -> Bool {
+        validatedCandidates[descriptor.id] == nil
+            && descriptor.languageServerLaunch?.validationArguments.isEmpty == false
     }
 
     package func executableURL(for descriptor: LanguageProviderDescriptor) -> URL? {
@@ -286,7 +310,9 @@ package final class LanguageServerToolService: ObservableObject {
         let operationID = "lsp-validate-\(descriptor.id)-\(UUID().uuidString)"
         let runner = commandRunner
         let executableURL = candidate.executableURL
-        let environment = runtimeService.languageToolProcessEnvironment()
+        let environment = runtimeService.languageToolProcessEnvironment(
+            runtimeTools: descriptor.languageServerLaunch?.runtimeTools ?? []
+        )
         let result = await Task.detached(priority: .userInitiated) {
             runner.runLanguageToolCommand(
                 operationID: operationID,

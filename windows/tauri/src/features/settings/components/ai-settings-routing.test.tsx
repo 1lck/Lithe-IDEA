@@ -70,7 +70,7 @@ test("general AI and commit settings remain independently reachable", async () =
       (commitTab as HTMLButtonElement).click();
     });
     expect(document.body.textContent).toContain("Commit message generation");
-    expect(document.querySelector('input[value="https://old.example.test/v1"]')).toBeNull();
+    expect(baseUrl!.closest("[hidden]")).not.toBeNull();
     expect(useSettingsStore.getState().settings.aiCustomBaseUrl).toBe(settings.aiCustomBaseUrl);
     expect(useSettingsStore.getState().settings.aiCustomModelId).toBe("company-model");
 
@@ -85,6 +85,7 @@ test("general AI and commit settings remain independently reachable", async () =
         (input) => input.value === settings.aiCustomBaseUrl,
       ),
     ).toBe(true);
+    expect(baseUrl!.closest("[hidden]")).toBeNull();
   } finally {
     try {
       await act(async () => root?.unmount());

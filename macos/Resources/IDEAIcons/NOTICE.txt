@@ -118,3 +118,67 @@ Saved Changes toolbar icons (IntelliJ Community c7f91397daa3a961b4e78bc634fe467a
 - savedChanges/stash{,_dark}.svg: platform/vcs-impl/resources/icons/new/stash{,_dark}.svg
 - savedChanges/shelve{,_dark}.svg: platform/vcs-impl/resources/icons/Shelve{,_dark}.svg
 Copyright JetBrains s.r.o. and contributors, Apache-2.0. Original geometry and colors retained.
+
+The Database right-dock toolbar reuses existing add, refresh, collapseAll,
+filter and history assets. New unmodified light/dark pairs come from Community
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade under platform/icons/src/expui/:
+- actions/newFolder.svg (Actions.NewFolder in PlatformIconMappings)
+- general/import.svg and sortBy.svg (generic import and sort actions)
+- fileTypes/shell.svg (Nodes.Console in PlatformIconMappings, used for New Query)
+These are open-source platform assets, not proprietary Database Tools resources.
+
+Maven dock uses the original expui/toolwindow/maven@20x20{,_dark}.svg pair
+from plugins/maven/src/main/resources/images at Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade (Apache-2.0).
+
+Database dock: database/expui/dbms@20x20{,_dark}.svg are unmodified SVGs
+from IntelliJ IDEA IU-262.9437.185, DatabaseTools intellij.database.jar,
+icons/expui/dbms@20x20{,_dark}.svg. Each SVG explicitly grants Apache-2.0
+under its JetBrains copyright header. DatabaseIconMappings.json maps
+icons/toolWindowDatabase.svg to icons/expui/dbms.svg; New UI selects the
+native 20x20 variants. These assets are not claimed to come from Community.
+
+Database tree/grid: database/expui/schema, objectGroup, table and column SVGs
+(including dark variants) are unmodified 16x16 assets from IDEA
+IU-262.9437.185, DatabaseTools lib/modules/intellij.database.jar. Each
+retains an explicit Apache-2.0 copyright header. These resources are not
+claimed to be Community assets; table metrics and separators reference
+Community c7f91397 JBTable and DarculaTableHeaderUI.
+
+Data grid sort indicators: general/arrowSplitCenterV, arrowUp and arrowDown
+(including dark variants) are unmodified Apache-2.0 SVGs from Community
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src/general.
+
+Database primary-key column: database/expui/columnGoldKey{,_dark}.svg
+are unmodified 16x16 Apache-2.0 assets from IDEA IU-262.9437.185,
+DatabaseTools lib/modules/intellij.database.jar, icons/expui/.
+They are not claimed to be Community assets. Original copyright headers retained.
+
+Data-grid single toolbar: expui/actions/checked and expui/general/undo,
+moreHorizontal (including dark variants) are unmodified Apache-2.0 SVGs
+from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src/expui.
+
+Database workspace Structure button: expui/toolwindows/structure{,_dark}.svg
+are unmodified 16x16 Apache-2.0 SVGs from Community
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src/expui/toolwindows.
+
+Data-grid submit/revert: expui/general/upload{,_dark}.svg and
+reset{,_dark}.svg are unmodified 16x16 Apache-2.0 assets from Community
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src/expui/general.
+AllIcons.Actions.Upload represents submission; grid RevertSelected assigns
+AllIcons.General.Reset in grid/impl/resources/intellij.grid.impl.xml.
+
+Database remaining-control alignment uses Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade
+platform/icons/src/expui/nodes/dataTables{,_dark}.svg and
+expui/status/warning{,_dark}.svg. The database goldKey, blueKey, and collection light/dark
+SVGs come from the same installed IDEA IU-262.9437.185 DatabaseTools resource
+set as the existing database/expui assets, carry explicit Apache-2.0 headers,
+and follow DatabaseIconMappings.json. Only licensed SVGs are included; no
+DatabaseTools plugin implementation is copied.
+
+The database Services tool window and execution markers use unmodified Community
+revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade assets:
+platform/icons/src/expui/toolwindows/services@20x20{,_dark}.svg,
+platform/icons/src/expui/general/greenCheckmark{,_dark}.svg and
+platform/icons/src/expui/status/error{,_dark}.svg.
+Copyright JetBrains s.r.o. and contributors; Apache License 2.0.

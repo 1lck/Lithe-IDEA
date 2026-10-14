@@ -281,6 +281,7 @@ export async function run(
         );
         const statusLabel = status === "passed" ? "PASS" : status === "skipped" ? "SKIP" : "FAIL";
         console.log(`${statusLabel} ${durationMs}ms ${artifact.target}::${testName}`);
+        if (records.at(-1).details) console.error(records.at(-1).details);
         if (suiteDeadlineReached) {
           suiteTimedOutStage = `test ${artifact.target}::${testName}`;
           shouldStop = true;
