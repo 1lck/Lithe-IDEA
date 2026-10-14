@@ -2911,3 +2911,8 @@
 "Conversation history is unavailable" = "当前无法读取对话历史";
 
 "Cannot create a new conversation: %@" = "无法新建对话：%@";
+
+"Rename Chat" = "重命名对话";
+"Delete Chat" = "删除对话";
+"Show Toolbar" = "显示工具栏";
+"Chat options" = "对话选项";

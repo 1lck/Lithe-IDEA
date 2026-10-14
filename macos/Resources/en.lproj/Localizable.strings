@@ -1516,3 +1516,8 @@
 "Conversation history is unavailable" = "Conversation history is unavailable";
 
 "Cannot create a new conversation: %@" = "Cannot create a new conversation: %@";
+
+"Rename Chat" = "Rename Chat";
+"Delete Chat" = "Delete Chat";
+"Show Toolbar" = "Show Toolbar";
+"Chat options" = "Chat options";

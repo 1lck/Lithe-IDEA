@@ -119,7 +119,7 @@ enum AgentWelcomeVisit {
 
 
 /// Chat-specific content header using the workbench's shared toolbar controls.
-private struct AgentChatHeader: View {
+struct AgentChatHeader: View {
     let agentName: String?
     let onHistory: (() -> Void)?
     let onNew: (() -> Void)?
@@ -127,6 +127,10 @@ private struct AgentChatHeader: View {
     let onHide: () -> Void
     var conversationTitle: String? = nil
     var historyPopup: ((@escaping () -> Void) -> AnyView)? = nil
+    var onRename: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
+    var showsToolbar = true
+    var onToggleToolbar: (() -> Void)? = nil
     @State private var showsHistoryPopup = false
 
     var body: some View {
@@ -187,13 +191,24 @@ private struct AgentChatHeader: View {
                 .disabled(onNew == nil)
                 .help("New conversation")
                 .accessibilityIdentifier("agent-new-chat")
-                Button(action: onOpenSettings) {
-                    LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                  fallbackSystemImage: "gearshape", preservesOriginalColors: true)
+                LitheMenu {
+                    LitheContextMenuItem.action("Rename Chat", isEnabled: onRename != nil) { onRename?() }
+                    LitheContextMenuItem.action("Delete Chat",
+                        icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/delete.svg", size: LitheDropdownMetrics.iconSize,
+                                                   fallbackSystemImage: "trash", preservesOriginalColors: true)),
+                        role: .destructive, isEnabled: onDelete != nil) { onDelete?() }
+                    LitheContextMenuItem.separator
+                    LitheContextMenuItem.action("Settings…", action: onOpenSettings)
+                    LitheContextMenuItem.separator
+                    LitheContextMenuItem.action("Show Toolbar", checked: showsToolbar, leadingCheckmark: true,
+                                                isEnabled: onToggleToolbar != nil) { onToggleToolbar?() }
+                } label: {
+                    LitheIDEAIcon(resourcePath: "expui/general/moreVertical.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                  fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
                 }
                 .litheToolbarIconButton()
-                .help("Agent Settings")
-                .accessibilityIdentifier("agent-header-settings")
+                .help("Chat options")
+                .accessibilityIdentifier("agent-header-options")
                 LitheSidebarHideButton(title: "Agent", action: onHide)
             }
             .padding(.leading, 12)
@@ -338,8 +353,18 @@ private struct AgentConnectionView: View {
     @State private var showsSearch = false
     @State private var searchText = ""
     @State private var showsHistory = false
+    @State private var renameSessionID: String?
+    @State private var renameTitle = ""
+    @State private var deleteSessionID: String?
+    @AppStorage("lithe.agent.showToolbar") private var showsToolbar = true
     @State private var draftReset = 0
     @Environment(\.scenePhase) private var scenePhase
+
+    private var canDeleteConversation: Bool {
+        guard let conversation = feature.selectedConversation else { return false }
+        return !conversation.isResponding && !conversation.isLoading
+            && conversation.pendingConfigToken == nil && conversation.permission == nil
+    }
 
     private var shouldPollQuota: Bool {
         feature.usesSubscription && feature.connectionState == .ready && scenePhase == .active && !showsHistory
@@ -374,6 +399,28 @@ private struct AgentConnectionView: View {
                                  onReconnect: onConnect)
             }
         }
+        .alert("Rename Chat", isPresented: Binding(
+            get: { renameSessionID != nil }, set: { if !$0 { renameSessionID = nil } }
+        ), presenting: renameSessionID) { id in
+            TextField("Name", text: $renameTitle)
+            Button("Cancel", role: .cancel) { renameSessionID = nil }
+            Button("Save") {
+                if !history.rename(id, title: renameTitle) { localError = history.errorMessage }
+            }
+            .disabled(renameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .alert("Confirm deletion", isPresented: Binding(
+            get: { deleteSessionID != nil }, set: { if !$0 { deleteSessionID = nil } }
+        ), presenting: deleteSessionID) { id in
+            Button("Cancel", role: .cancel) { deleteSessionID = nil }
+            Button("Delete", role: .destructive) {
+                guard feature.selectedSessionID == id, canDeleteConversation else { return }
+                if history.setHidden([id], true) { feature.closeConversation(id) }
+                else { localError = history.errorMessage }
+            }
+        } message: { _ in
+            Text(String(format: String(localized: "Remove %d conversation(s) from history? You can restore them from Removed conversations. The Agent's original records will be kept."), 1))
+        }
         .task(id: shouldPollQuota) {
             guard shouldPollQuota else { return }
             while !Task.isCancelled {
@@ -403,7 +450,16 @@ private struct AgentConnectionView: View {
                         onSelect: { id in dismiss(); feature.selectSession(id) },
                         onManage: { dismiss(); showsHistory = true },
                         onSearch: { dismiss(); showsSearch = true }, onDismiss: dismiss))
-                }
+                },
+                onRename: feature.selectedSessionID.map { id in {
+                    renameTitle = conversationTitle ?? ""
+                    renameSessionID = id
+                } },
+                onDelete: canDeleteConversation ? {
+                    if canDeleteConversation { deleteSessionID = feature.selectedSessionID }
+                } : nil,
+                showsToolbar: showsToolbar,
+                onToggleToolbar: { showsToolbar.toggle() }
             )
             if showsSearch {
                 HStack(spacing: 6) {
@@ -452,7 +508,8 @@ private struct AgentConnectionView: View {
                     subscriptionAccount: feature.subscriptionEmail,
                     quotaFailure: feature.quotaFailure,
                     onSetConfig: { feature.setConfigOption($0, value: $1) },
-                    commands: feature.selectedConversation?.availableCommands ?? []
+                    commands: feature.selectedConversation?.availableCommands ?? [],
+                    showsToolbar: showsToolbar
                 )
                 .id(draftReset)
             }

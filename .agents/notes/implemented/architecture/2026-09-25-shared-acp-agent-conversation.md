@@ -86,6 +86,8 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
 
 不要这样做：在 Windows React 层重新实现 JSON-RPC 协议；在打开 IDE 时就启动 Agent；取消尚未确认就解锁发送；把取消超时伪装成成功而不提示用户重连；把 API Key 通过环境变量或命令行传给 Agent；替用户下载一份他本机已有的 Agent CLI。
 
+标题栏的更多按钮使用已有 Community moreVertical 16pt SVG 和共享 LitheMenu。菜单仅接入重命名、删除、设置和显示工具栏，不补参考图里尚不存在的其他功能。重命名与删除复用 AgentHistoryFeatureModel；删除按已有可恢复的隐藏历史语义执行并先确认，忙碌、加载或配置中的会话禁止删除。Show Toolbar 控制输入框内操作栏及下方 Agent/模型/统计栏，默认显示，通过 AppStorage 保存可见状态；隐藏时销毁菜单锚点并关闭浮层，保留文本编辑、回车发送及输入框高度，Tasks/Running/Edits 不受影响，不停止任务或改动消息。Community ToggleToolbarAction 的字符串 ID 入口保存组件可见状态；同 revision 的工具窗口入口已注明 2026.3 不再提供通用开关，因此此处是按用户参考界面使用同类交互，不声称复用 AI 插件内部实现。
+
 模型选择入口放在输入框外的底栏、Agent 右侧；模式保留框内，发送左侧仍为上下文圆环。两处复用 AgentSessionSelectors，按类别分配同一上游配置目录，不复制选择状态；尚未确认会话时不显示回退模型。原生测试覆盖深浅主题和窄面板的同行位置及选择回调。
 
 ### 模型配置的独立子菜单

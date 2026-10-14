@@ -7,6 +7,62 @@ import Testing
 @MainActor
 @Suite("Agent selector layout", .serialized)
 struct AgentSessionSelectorLayoutTests {
+    @Test(arguments: [true, false])
+    func chatOptionsMenuInvokesEachExistingAction(showsToolbar: Bool) async throws {
+        for scheme in [ColorScheme.dark, .light] {
+            for target in 0..<4 {
+                var invoked: Int?
+                let host = NSHostingView(rootView: AgentChatHeader(agentName: "Codex", onHistory: nil,
+                    onNew: {}, onOpenSettings: { invoked = 2 }, onHide: {},
+                    onRename: { invoked = 0 }, onDelete: { invoked = 1 }, showsToolbar: showsToolbar,
+                    onToggleToolbar: { invoked = 3 }).environment(\.colorScheme, scheme))
+                let window = makeWindow(host, size: NSSize(width: 440, height: 66))
+                defer { window.contentView = nil; window.close() }
+                let anchor = try #require(dropdownAnchors(in: host).max {
+                    $0.convert($0.bounds, to: host).midX < $1.convert($1.bounds, to: host).midX
+                })
+                try click(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor, window: window)
+                try #require(await waitUntil { popup(in: window) != nil })
+                let menu = try #require(popup(in: window))
+                try capture(try #require(menu.contentView), name: "chat-options-\(scheme)-\(showsToolbar)")
+                for _ in 0...target { try sendKey(125, to: menu) }
+                try sendKey(36, to: menu)
+                #expect(await waitUntil { invoked == target })
+                #expect(!menu.isVisible)
+            }
+        }
+    }
+
+    @Test
+    func showToolbarRemovesAndRestoresComposerControls() async throws {
+        let options = [
+            AgentSessionConfigOption(id: "mode", name: "Mode", category: "mode", currentValue: "manual",
+                choices: [.init(id: "manual", name: "Manual")]),
+            AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "sol",
+                choices: [.init(id: "sol", name: "6.1 Sol")])
+        ]
+        for scheme in [ColorScheme.dark, .light] {
+            func composer(_ visible: Bool) -> some View {
+                AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
+                    isResponding: false, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                    onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                    configOptions: options, showsToolbar: visible).environment(\.colorScheme, scheme)
+            }
+            let host = NSHostingView(rootView: composer(true))
+            let window = makeWindow(host, size: NSSize(width: 440, height: 140))
+            defer { window.contentView = nil; window.close() }
+            try #require(await waitUntil { dropdownAnchors(in: host).count == 3 })
+            let anchor = try #require(dropdownAnchors(in: host).first)
+            try click(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor, window: window)
+            try #require(await waitUntil { popup(in: window) != nil })
+            host.rootView = composer(false)
+            #expect(await waitUntil { dropdownAnchors(in: host).isEmpty && popup(in: window) == nil })
+            try capture(host, name: "composer-toolbar-hidden-\(scheme)")
+            host.rootView = composer(true)
+            #expect(await waitUntil { dropdownAnchors(in: host).count == 3 })
+        }
+    }
+
     @Test
     func compactModelPanelSearchesAndKeepsReasoningInline() async throws {
         let model = AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "sol",

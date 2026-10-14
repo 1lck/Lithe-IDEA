@@ -27,6 +27,7 @@ struct AgentComposerView: View {
     var quotaFailure: String?
     var onSetConfig: (String, String) -> Void = { _, _ in }
     var commands: [AgentCommand] = []
+    var showsToolbar = true
     @State private var completion = AgentCommandCompletion()
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
@@ -44,7 +45,8 @@ struct AgentComposerView: View {
                              highlightedIndex: completion.highlightedIndex,
                              onSelect: complete, onRemoveFile: { id in files.removeAll { $0.id == id } },
                              onFocus: { isFocused = true }, isFocused: isFocused || isDropTargeted) {
-            contextBar
+            if showsToolbar { contextBar }
+            else { Color.clear.frame(height: AgentComposerMetrics.contextHeight - 1).accessibilityHidden(true) }
         } editor: {
             LitheSearchTextField("Type your task or / for commands", text: $completion.draft, axis: .vertical)
                 .lineLimit(1...)
@@ -55,7 +57,7 @@ struct AgentComposerView: View {
                 .padding(.vertical, 7)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         } toolbar: {
-            toolbar
+            if showsToolbar { toolbar }
         }
         .dropDestination(for: URL.self) { urls, _ in
             addFiles(urls)
