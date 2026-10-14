@@ -119,7 +119,8 @@ final class TranscriptReplay {
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         while clip.documentRect.maxY - clip.bounds.maxY >= 2 {
             guard ContinuousClock.now < deadline else {
-                throw ReplayError.latestReplyWasNotVisible
+                throw ReplayError.latestReplyWasNotVisible(document: clip.documentRect.maxY, viewport: clip.bounds.maxY,
+                    frame: scroll.documentView?.frame.maxY ?? 0, inset: scroll.contentInsets.bottom)
             }
             try await layout("settling-bottom")
         }
@@ -184,5 +185,6 @@ private final class ReplayConnection: AgentConnection {
     func close() async {}
 }
 private enum ReplayError: Error {
-    case missingSession, missingPermission, remainingPermission, missingReply, invalidCommand, missingScrollView, historyPositionWasLost, latestReplyWasNotVisible, permissionObscuredTheLatestReply
+    case missingSession, missingPermission, remainingPermission, missingReply, invalidCommand, missingScrollView, historyPositionWasLost, permissionObscuredTheLatestReply
+    case latestReplyWasNotVisible(document: CGFloat, viewport: CGFloat, frame: CGFloat, inset: CGFloat)
 }
