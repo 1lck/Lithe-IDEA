@@ -2,7 +2,7 @@ import SwiftUI
 import LitheAgentConversationModule
 
 private enum AgentSelectorLayout {
-    static let choiceRowHeight: CGFloat = 26
+    static let choiceRowHeight = LitheDropdownMetrics.rowHeight
 }
 
 /// Search and presentation only; the Agent still owns IDs, choices and confirmed values.
@@ -120,7 +120,7 @@ struct AgentSessionSelectors: View {
             }
             if let model {
                 Button { showsModels.toggle() } label: {
-                    selectorLabel {
+                    selectorLabel(expandsDownward: true) {
                         AgentBrandIcon(name: agentName, size: 12, style: .brand)
                         Text(modelSummary(model))
                     }
@@ -194,9 +194,26 @@ struct AgentModelPopover: View {
     let settings: [AgentSessionConfigOption]
     let agentName: String?
     let onSelect: (String, String) -> Void
+    @Environment(\.locale) private var locale
     @State private var query = ""
     @FocusState private var searchFocused: Bool
     private var choices: [AgentSessionConfigOption.Choice] { AgentSessionSelectorPresentation.filteredChoices(option, query: query) }
+
+    private var reasoning: [AgentSessionConfigOption] { settings.filter { $0.category == "thought_level" } }
+    private var otherSettings: [AgentSessionConfigOption] { settings.filter { $0.category != "thought_level" } }
+    private var panelWidth: CGFloat {
+        let modelItems = option.choices.map {
+            LitheContextMenuItem.action($0.name, localizesTitle: false, leadingCheckmark: true) {}
+        }
+        let settingItems = settings.flatMap { setting -> [LitheContextMenuItem] in
+            if setting.category == "thought_level" {
+                return setting.choices.map { LitheContextMenuItem.action($0.name, localizesTitle: false, leadingCheckmark: true) {} }
+            }
+            return [.action(AgentSessionSelectorPresentation.title(setting) + "  " + AgentSessionSelectorPresentation.currentTitle(setting),
+                            localizesTitle: false, systemImage: "chevron.right") {}]
+        }
+        return LitheContextMenuPresenter.menuWidth(for: modelItems + settingItems, locale: locale)
+    }
 
     var body: some View {
         modelPanel
@@ -207,19 +224,18 @@ struct AgentModelPopover: View {
 
     private var modelPanel: some View {
         VStack(spacing: 0) {
-            LitheSearchTextField("Search models", text: $query)
-                .focused($searchFocused)
-                .litheSearchField(isFocused: searchFocused)
-                .padding(8)
+            LitheSettingsSearchField("Search models", text: $query, focus: $searchFocused)
+                .padding(LitheDropdownMetrics.popupPadding)
                 .onSubmit { if let choice = choices.first { onSelect(option.id, choice.id) } }
-            if choices.isEmpty {
-                Text("No matching models")
-                    .font(LitheTheme.uiFont(size: 12))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(maxWidth: .infinity, minHeight: 36)
-            } else {
+            Text("Model").font(LitheTheme.settingsStrongFont)
+                .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.rowHeight)
                 ScrollView {
                     LazyVStack(spacing: 0) {
+                        if choices.isEmpty {
+                            Text("No matching models")
+                                .font(LitheTheme.settingsFont).foregroundStyle(LitheTheme.secondaryText)
+                                .frame(maxWidth: .infinity, minHeight: 36)
+                        }
                         ForEach(Array(choices.enumerated()), id: \.element.id) { index, choice in
                             if let group = choice.group, index == 0 || choices[index - 1].group != group {
                                 Text(group).font(LitheTheme.uiFont(size: 10)).foregroundStyle(LitheTheme.secondaryText)
@@ -227,23 +243,42 @@ struct AgentModelPopover: View {
                                     .padding(.horizontal, 12).padding(.vertical, 4)
                             }
                             AgentSelectorRow(isSelected: choice.id == option.currentValue, action: { onSelect(option.id, choice.id) }) {
-                                AgentBrandIcon(name: agentName, size: 16, style: .brand)
-                                Text(choice.name).lineLimit(1).truncationMode(.middle)
+                                Text(choice.name).lineLimit(1).truncationMode(.tail)
+                            }
+                            .help(choice.description ?? choice.name)
+                        }
+                        ForEach(reasoning) { setting in
+                            Text(AgentSessionSelectorPresentation.title(setting))
+                                .font(LitheTheme.settingsStrongFont).foregroundStyle(LitheTheme.secondaryText)
+                                .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.rowHeight)
+                            ForEach(setting.choices) { choice in
+                                AgentSelectorRow(isSelected: choice.id == setting.currentValue,
+                                                 action: { onSelect(setting.id, choice.id) }) {
+                                    Text(AgentSessionSelectorPresentation.choiceTitle(choice, in: setting)).lineLimit(1)
+                                }
+                                .help(AgentSessionSelectorPresentation.choiceDescription(choice, in: setting) ?? choice.name)
+                                .accessibilityIdentifier("agent-model-choice-\(setting.id)-\(choice.id)")
                             }
                         }
                     }
+                    .padding(.horizontal, LitheDropdownMetrics.popupPadding)
                 }
-                .frame(height: min(240, CGFloat(choices.count) * AgentSelectorLayout.choiceRowHeight + CGFloat(choices.filter { $0.group != nil }.count * 20)))
-            }
-            if !settings.isEmpty {
+                .litheScrollViewChrome()
+                .frame(height: min(LitheDropdownMetrics.rowHeight * 15,
+                    CGFloat(choices.count + reasoning.reduce(0) { $0 + $1.choices.count + 1 }) * AgentSelectorLayout.choiceRowHeight
+                    + CGFloat(choices.enumerated().filter { index, choice in
+                        choice.group != nil && (index == 0 || choices[index - 1].group != choice.group)
+                    }.count) * 20 + (choices.isEmpty ? 36 : 0)))
+            if !otherSettings.isEmpty {
                 Divider().overlay(AgentPanelStyle.border).padding(.vertical, 4)
-                ForEach(settings) { setting in
+                ForEach(otherSettings) { setting in
                     AgentModelSettingRow(option: setting, onSelect: onSelect)
                 }
             }
         }
         .padding(.bottom, 5)
-        .frame(width: 330)
+        .frame(width: panelWidth)
+        .font(LitheTheme.settingsFont)
     }
 }
 
@@ -280,7 +315,6 @@ private struct AgentModelSettingRow: View {
             // when upstream changes it; keep the model panel and search alive.
             menuRevision = UUID()
         }
-        .lithePointer()
         .accessibilityIdentifier("agent-model-setting-\(option.id)")
         .accessibilityValue(AgentSessionSelectorPresentation.currentTitle(option))
     }
@@ -288,29 +322,23 @@ private struct AgentModelSettingRow: View {
 
 private struct AgentSelectorRow<Content: View>: View {
     let isSelected: Bool
-    var minimumHeight: CGFloat = LitheDropdownMetrics.rowHeight
     let action: () -> Void
     @ViewBuilder let content: Content
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                content
-                Spacer(minLength: 8)
-                Image(systemName: "checkmark")
-                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
-                    .foregroundStyle(LitheTheme.accent)
+                LitheIDEAIcon(resourcePath: "expui/actions/checked.svg", size: LitheDropdownMetrics.iconSize,
+                              fallbackSystemImage: "checkmark")
                     .opacity(isSelected ? 1 : 0)
+                content
+                Spacer(minLength: 0)
             }
             .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
-            .foregroundStyle(AgentPanelStyle.text)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(LitheDropdownRowStyle(isSelected: isSelected))
-        .lithePointer()
+        .buttonStyle(LitheDropdownRowStyle())
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

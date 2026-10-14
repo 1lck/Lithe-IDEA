@@ -7,13 +7,57 @@ import Testing
 @MainActor
 @Suite("Agent selector layout", .serialized)
 struct AgentSessionSelectorLayoutTests {
+    @Test
+    func compactModelPanelSearchesAndKeepsReasoningInline() async throws {
+        let model = AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "sol",
+            choices: [.init(id: "sol", name: "6.1 Sol"), .init(id: "astra", name: "6 Astra")])
+        let effort = AgentSessionConfigOption(id: "effort", name: "Reasoning", category: "thought_level", currentValue: "medium",
+            choices: [.init(id: "medium", name: "Medium"), .init(id: "high", name: "High")])
+        for scheme in [ColorScheme.dark, .light] {
+            var selected: (String, String)?
+            let host = NSHostingView(rootView: AgentModelPopover(option: model, settings: [effort], agentName: "Codex") {
+                selected = ($0, $1)
+            }.environment(\.colorScheme, scheme))
+            let window = makeWindow(host, size: host.fittingSize)
+            defer { window.contentView = nil; window.close() }
+            #expect(window.frame.width < 240, "Short names use the measured compact width")
+            #expect(dropdownAnchors(in: host).isEmpty, "Reasoning choices are inline rather than a nested menu")
+            let scroll = try #require(scrollView(in: host))
+            let document = try #require(scroll.documentView)
+            try click(NSPoint(x: 70, y: LitheDropdownMetrics.rowHeight * 1.5), in: document, window: window)
+            #expect(await waitUntil { selected?.0 == "model" && selected?.1 == "astra" })
+            func field(in view: NSView) -> NSTextField? {
+                if let field = view as? NSTextField, field.isEditable { return field }
+                return view.subviews.lazy.compactMap { field(in: $0) }.first
+            }
+            let search = try #require(field(in: host))
+            #expect(search.font?.pointSize == 13)
+            #expect(window.makeFirstResponder(search))
+            let editor = try #require(search.currentEditor() as? NSTextView)
+            editor.insertText("Astra", replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(await waitUntil {
+                host.layoutSubtreeIfNeeded()
+                return abs(document.bounds.height - 4 * LitheDropdownMetrics.rowHeight) < 1
+            }, "Filtering models retains the reasoning heading and both choices")
+            editor.selectAll(nil)
+            editor.insertText("missing", replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(await waitUntil {
+                host.layoutSubtreeIfNeeded()
+                return abs(document.bounds.height - 36 - 3 * LitheDropdownMetrics.rowHeight) < 1
+            }, "No matching models does not hide reasoning")
+            try click(NSPoint(x: 70, y: document.bounds.maxY - 12), in: document, window: window)
+            #expect(await waitUntil { selected?.0 == "effort" && selected?.1 == "high" })
+            try capture(host, name: "model-compact-search-\(scheme)")
+        }
+    }
+
     @Test(arguments: [false, true])
     func modelSettingFlyoutsFollowTheirRowWithoutExpandingTheModelPanel(atRightEdge: Bool) async throws {
         let model = AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "model-0",
             choices: (0..<8).map { .init(id: "model-\($0)", name: "Model \($0)") })
         let speed = AgentSessionConfigOption(id: "fast-mode", name: "Speed", category: "model_config", currentValue: "off",
             choices: [.init(id: "off", name: "Disabled"), .init(id: "on", name: "Enabled")])
-        let effort = AgentSessionConfigOption(id: "effort", name: "Reasoning", category: "thought_level", currentValue: "high",
+        let effort = AgentSessionConfigOption(id: "effort", name: "Reasoning", category: "custom", currentValue: "high",
             choices: ["low", "medium", "high", "xhigh", "max"].map { .init(id: $0, name: $0) })
         let screen = try #require(NSScreen.main).visibleFrame
         for scheme in [ColorScheme.dark, .light] {
@@ -212,6 +256,8 @@ struct AgentSessionSelectorLayoutTests {
                 let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme))
                 let window = makeWindow(host, size: size)
                 defer { window.close() }
+                window.setContentSize(host.fittingSize)
+                host.layoutSubtreeIfNeeded()
                 let scroll = try #require(scrollView(in: host))
                 let document = try #require(scroll.documentView)
                 #expect(document.bounds.height > scroll.contentView.bounds.height,
