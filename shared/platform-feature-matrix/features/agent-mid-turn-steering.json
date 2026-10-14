@@ -1,0 +1,31 @@
+{
+  "id": "agent-mid-turn-steering",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "回复过程中发送补充指令：协商现有 ACP steering 能力、独立发送与停止、发送确认和失败、保留当前轮次与授权、结束竞态的受控续轮、停止撤销未消费消息、断连保留输入与回显去重",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/steering.rs",
+      "rust/lithe-agent-host/src/lib.rs",
+      "rust/lithe-agent-host/src/tests.rs",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentComposerView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "shared/fixtures/agent/acp-events-v1.json"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/steering.rs",
+      "shared/contracts/rust-core-api.md",
+      "windows/tauri/src/config/backend-capabilities.ts"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS 分别使用 Codex API Key、Codex 订阅和 Claude API Key，在输出、工具执行和等待授权期间发送补充，确认发送与停止独立、上游接受后调整当前任务、原计时和权限保留、用户回显不重复；连续发送保持顺序，拒绝和断连保留输入并显示错误。受控 ACP 测试覆盖完成先于补充确认、Claude promptRequired 仅续发一次且停止撤销、Codex startedNewTurn 等待新轮明确 idle，重复旧 idle 不提前结束、停止仍可达续轮且不确认时看门狗清理；超时不自动重放。深浅主题与窄面板检查发送和停止可见。真实供应商和 Windows 运行验收待完成；Windows Agent 原生后端当前未启用，仅共享协议已实现。"
+}

@@ -322,7 +322,20 @@ private struct AgentMessageRow: View {
         case .user:
             HStack {
                 Spacer(minLength: 40)
-                Text(message.text)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(message.text)
+                    if let delivery = message.delivery {
+                        Group {
+                            switch delivery {
+                            case .sending: Text("Sending…")
+                            case .received: Text("Agent received")
+                            case .failed(let reason): Text(reason).foregroundStyle(LitheTheme.error)
+                            }
+                        }
+                        .font(LitheTheme.uiFont(size: 10))
+                        .foregroundStyle(AgentPanelStyle.secondary)
+                    }
+                }
                     .font(LitheTheme.uiFont(size: 13))
                     .textSelection(.enabled)
                     .padding(.horizontal, 12)

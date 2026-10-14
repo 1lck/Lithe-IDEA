@@ -267,6 +267,8 @@ private struct AgentConnectionView: View {
                     isPreparingSession: isPreparingSession,
                     isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
                     isCancelling: feature.selectedConversation?.isCancelling == true,
+                    canSteer: feature.canSteer,
+                    isSendingSupplement: feature.selectedConversation?.pendingSteeringToken != nil,
                     contextUsage: feature.selectedConversation?.contextUsage,
                     sessionStatistics: feature.selectedConversation?.sessionStatistics,
                     showsSubscriptionQuota: feature.usesSubscription,

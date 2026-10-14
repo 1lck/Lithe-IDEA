@@ -1494,3 +1494,7 @@
 "Plugins…" = "Plugins…";
 "Theme…" = "Theme…";
 "Keymap…" = "Keymap…";
+"Sending…" = "Sending…";
+"Agent received" = "Agent received";
+"Supplementary message cancelled." = "Supplementary message cancelled.";
+"The Agent did not accept the supplementary message." = "The Agent did not accept the supplementary message.";

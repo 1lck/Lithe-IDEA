@@ -18,6 +18,8 @@ struct AgentComposerView: View {
     var isPreparingSession = false
     var isConfiguring = false
     var isCancelling = false
+    var canSteer = false
+    var isSendingSupplement = false
     var contextUsage: AgentContextUsage?
     var sessionStatistics: AgentSessionStatistics?
     var showsSubscriptionQuota = false
@@ -151,17 +153,32 @@ struct AgentComposerView: View {
                 .help(model)
             }
             Spacer(minLength: 0)
-            Button(action: isResponding ? onCancel : send) {
-                Image(systemName: isResponding ? "stop.fill" : "paperplane")
+            if isResponding {
+                Button(action: onCancel) {
+                    Image(systemName: "stop.fill")
+                        .font(LitheTheme.uiFont(size: 13))
+                        .foregroundStyle(LitheTheme.error)
+                        .frame(width: 26, height: 26)
+                        .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 4))
+                }
+                .buttonStyle(.litheNoPress)
+                .lithePointer()
+                .disabled(isCancelling)
+                .help(isCancelling ? "Stopping…" : "Stop")
+                .accessibilityLabel("Stop")
+            }
+            Button(action: send) {
+                Image(systemName: "paperplane")
                     .font(LitheTheme.uiFont(size: 13))
-                    .foregroundStyle(isResponding ? LitheTheme.error : (hasContent ? AgentPanelStyle.text : AgentPanelStyle.muted))
+                    .foregroundStyle(hasContent ? AgentPanelStyle.text : AgentPanelStyle.muted)
                     .frame(width: 26, height: 26)
                     .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 4))
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
-            .disabled(isCancelling || (!isResponding && (!hasContent || isBlocked || isPreparingSession || isConfiguring)))
-            .help(isCancelling ? "Stopping…" : (isResponding ? "Stop" : "Send"))
+            .disabled(isCancelling || isSendingSupplement || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer))
+            .help(isSendingSupplement ? "Sending…" : "Send")
+            .accessibilityLabel("Send")
         }
         .padding(.horizontal, 5)
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)
@@ -225,7 +242,7 @@ struct AgentComposerView: View {
     }
 
     private func send() {
-        guard hasContent, !isResponding else { return }
+        guard hasContent, !isCancelling, !isSendingSupplement, !isResponding || canSteer else { return }
         if isBlocked || isPreparingSession {
             onError(String(localized: "The conversation is still being prepared. Try again in a moment."))
             return

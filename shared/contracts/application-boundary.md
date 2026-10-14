@@ -35,6 +35,23 @@ with bounded process cleanup. Missing usage and unmeasured replayed history rema
 unknown. See the
 [Agent host contract](rust-core-api.md) and `fixtures/agent/acp-events-v1.json`.
 
+An Agent that advertises steering can accept supplementary user input while its
+logical turn is active. Input delivery has a separate pending/received/failed
+outcome and does not replace turn ownership, permissions, timing, or Stop.
+Only an explicit unconsumed-input acknowledgement permits a normal continuation
+prompt; unknown delivery is never retried automatically. Platform UI enables
+this behavior from the negotiated capability, not the Agent's display name.
+
+The opened workspace, supplied by the product, defines the default meaning of
+"current project". A containing Git repository and inherited development rules
+do not replace that scope. The shared Host adds the same explicit workspace
+context to ordinary prompts and supplementary messages, including prompts after
+history restoration. File contents and applicable rules remain Agent-owned;
+explicit user requests can select a different scope. Native slash commands retain
+their original payload. Host-added context is omitted from user-message replay
+presented by Lithe and from generated live/history-list titles, without rewriting
+upstream history or filtering model replies.
+
 Agent activity presentation uses the selected session's reported plan, pending
 tools and file diffs. Review acknowledgements are local to the exact reported
 version; later edits remain reviewable and start after the acknowledged prefix.

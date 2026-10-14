@@ -1,5 +1,10 @@
 {
   "version": 1,
+  "workspaceContext": {
+    "relativeRoots": ["parent/examples/spring-service", "parent/examples/another-service"],
+    "question": "这个项目是用来做什么的",
+    "supplement": "继续讲解当前项目的结构"
+  },
   "commands": {
     "authenticate": { "kind": "authenticate" },
     "refreshQuota": { "kind": "refreshQuota" },
@@ -7,6 +12,7 @@
     "loadSession": { "kind": "loadSession", "token": "token-2", "sessionId": "session-1" },
     "listSessions": { "kind": "listSessions", "token": "token-3" },
     "prompt": { "kind": "prompt", "sessionId": "session-1", "text": "Explain this project" },
+    "steer": { "kind": "steer", "token": "steer-1", "sessionId": "session-1", "text": "Focus on login" },
     "promptWithFiles": { "kind": "prompt", "sessionId": "session-1", "text": "Explain these files", "files": [{ "uri": "file:///example/project/Hello%20World.swift", "name": "Hello World.swift" }, { "uri": "file:///example/project/README.md", "name": "README.md" }] },
     "fileOnlyPrompt": { "kind": "prompt", "sessionId": "session-1", "text": "", "files": [{ "uri": "file:///example/project/README.md", "name": "README.md" }] },
     "cancel": { "kind": "cancel", "sessionId": "session-1" },
@@ -25,9 +31,11 @@
       "agentName": "example-agent",
       "agentVersion": "1.0.0",
       "canLoadSessions": true,
-      "canListSessions": true
+      "canListSessions": true,
+      "canSteer": false
     },
     "sessionCreated": { "kind": "sessionCreated", "token": "token-1", "sessionId": "session-1" },
+    "steeringResult": { "kind": "steeringResult", "token": "steer-1", "sessionId": "session-1", "outcome": "injected" },
     "sessionLoaded": { "kind": "sessionLoaded", "token": "token-2", "sessionId": "session-1" },
     "sessionConfigured": {
       "kind": "sessionConfigured", "token": "config-1", "sessionId": "session-1",
