@@ -69,6 +69,8 @@ struct LitheContextMenuItem: Identifiable {
     let iconKind: LitheIconKind?
     var icon: AnyView? = nil
     var isChecked = false
+    var leadingCheckmark = false
+    var isCenteredHeading = false
     var initiallySelected = false
     let shortcut: String?
     let role: Role
@@ -83,6 +85,7 @@ struct LitheContextMenuItem: Identifiable {
         iconKind: LitheIconKind? = nil,
         icon: AnyView? = nil,
         checked: Bool = false,
+        leadingCheckmark: Bool = false,
         initiallySelected: Bool = false,
         shortcut: String? = nil,
         role: Role = .standard,
@@ -98,6 +101,7 @@ struct LitheContextMenuItem: Identifiable {
             iconKind: iconKind,
             icon: icon,
             isChecked: checked,
+            leadingCheckmark: leadingCheckmark,
             initiallySelected: initiallySelected,
             shortcut: shortcut,
             role: role,
@@ -288,7 +292,7 @@ private struct LitheContextMenuContent: View {
     }
 
     private func menuColumn(_ items: [LitheContextMenuItem], width: CGFloat, isChild: Bool) -> some View {
-        let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
+        let showsIcons = items.contains { $0.leadingCheckmark || $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
         return ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
@@ -366,67 +370,76 @@ private struct LitheContextMenuRow: View {
         Button {
             action?()
         } label: {
-            HStack(spacing: 0) {
-                if showsIcons {
-                    Group {
-                        if let icon = item.icon {
-                            icon
-                        } else if let iconKind = item.iconKind {
-                            LitheIcon(kind: iconKind, size: 16)
-                        } else if let systemImage = item.systemImage {
-                            Image(systemName: systemImage)
-                                .font(LitheTheme.uiFont(size: 13, weight: .regular))
-                        } else {
-                            Color.clear
+            if item.isCenteredHeading {
+                title.font(LitheTheme.settingsStrongFont)
+                    .frame(maxWidth: .infinity)
+            } else {
+                HStack(spacing: 0) {
+                    if showsIcons {
+                        Group {
+                            if item.leadingCheckmark {
+                                LitheIDEAIcon(resourcePath: "expui/actions/checked.svg", size: LitheDropdownMetrics.iconSize,
+                                              fallbackSystemImage: "checkmark")
+                                    .opacity(item.isChecked ? 1 : 0)
+                            } else if let icon = item.icon {
+                                icon
+                            } else if let iconKind = item.iconKind {
+                                LitheIcon(kind: iconKind, size: 16)
+                            } else if let systemImage = item.systemImage {
+                                Image(systemName: systemImage)
+                                    .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                            } else {
+                                Color.clear
+                            }
+                        }
+                        .frame(width: 16, height: 16)
+                        .padding(.trailing, 9)
+                        .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
+                    }
+
+                    VStack(alignment: .leading, spacing: LitheDropdownMetrics.descriptionSpacing) {
+                        title
+                            .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
+                            .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
+                            .lineLimit(1)
+                        if let description = item.description, !description.isEmpty {
+                            Text(verbatim: description)
+                                .font(LitheTheme.uiFont(size: LitheDropdownMetrics.descriptionFontSize))
+                                .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText.opacity(0.78) : LitheTheme.secondaryText)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
-                    .frame(width: 16, height: 16)
                     .padding(.trailing, 9)
-                    .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
-                }
+                    .padding(.vertical, item.description?.isEmpty == false ? LitheDropdownMetrics.descriptionVerticalPadding : 0)
 
-                VStack(alignment: .leading, spacing: LitheDropdownMetrics.descriptionSpacing) {
-                    title
-                        .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
-                        .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
-                        .lineLimit(1)
-                    if let description = item.description, !description.isEmpty {
-                        Text(verbatim: description)
-                            .font(LitheTheme.uiFont(size: LitheDropdownMetrics.descriptionFontSize))
-                            .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText.opacity(0.78) : LitheTheme.secondaryText)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 14)
+
+                    if submenuItems != nil {
+                        Image(systemName: "chevron.right")
+                            .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                            .frame(width: 16)
+                            .padding(.leading, 9)
+                            .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
+                    } else if let shortcut = item.shortcut {
+                        Text(shortcut)
+                            .font(Font(LitheDropdownMetrics.shortcutFont))
+                            .padding(.leading, 9)
+                            .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText.opacity(0.78) : LitheTheme.tertiaryText)
+                    } else if item.isChecked && !item.leadingCheckmark {
+                        Image(systemName: "checkmark")
+                            .font(LitheTheme.uiFont(size: 11))
+                            .frame(width: 16)
+                            .padding(.leading, 9)
+                            .foregroundStyle(LitheTheme.accent)
                     }
-                }
-                .padding(.trailing, 9)
-                .padding(.vertical, item.description?.isEmpty == false ? LitheDropdownMetrics.descriptionVerticalPadding : 0)
-
-                Spacer(minLength: 14)
-
-                if submenuItems != nil {
-                    Image(systemName: "chevron.right")
-                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
-                        .frame(width: 16)
-                        .padding(.leading, 9)
-                        .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
-                } else if let shortcut = item.shortcut {
-                    Text(shortcut)
-                        .font(Font(LitheDropdownMetrics.shortcutFont))
-                        .padding(.leading, 9)
-                        .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText.opacity(0.78) : LitheTheme.tertiaryText)
-                } else if item.isChecked {
-                    Image(systemName: "checkmark")
-                        .font(LitheTheme.uiFont(size: 11))
-                        .frame(width: 16)
-                        .padding(.leading, 9)
-                        .foregroundStyle(LitheTheme.accent)
                 }
             }
         }
         .buttonStyle(LitheDropdownRowStyle(isSelected: isSelected, tracksHover: false))
         .padding(.horizontal, LitheDropdownMetrics.popupPadding)
         .disabled(!item.isEnabled)
-        .opacity(item.isEnabled ? 1 : 0.45)
+        .opacity(item.isEnabled || item.isCenteredHeading ? 1 : 0.45)
         .onContinuousHover { phase in
             switch phase {
             case .active: onSubmenuHover?(true)
@@ -876,7 +889,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             }
             return max(width, menuItemWidth(item, locale: locale))
         }
-        let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
+        let showsIcons = items.contains { $0.leadingCheckmark || $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
         let chromeWidth = 2 * (LitheDropdownMetrics.itemHorizontalPadding + LitheDropdownMetrics.popupPadding)
             + 14 + 9 + (showsIcons ? 16 + 9 : 0)
         let contentWidth = ceil(widestItem + chromeWidth)
@@ -887,7 +900,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     }
 
     fileprivate static func menuHeight(for items: [LitheContextMenuItem], width: CGFloat, locale: Locale) -> CGFloat {
-        let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
+        let showsIcons = items.contains { $0.leadingCheckmark || $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
         return items.reduce(LitheDropdownMetrics.verticalPadding) { height, item in
             switch item.kind {
             case .separator:
@@ -928,7 +941,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         } ?? 0
         let trailingWidth: CGFloat
         if case .submenu = item.kind { trailingWidth = 16 + 9 }
-        else if item.isChecked { trailingWidth = 16 + 9 }
+        else if item.isChecked && !item.leadingCheckmark { trailingWidth = 16 + 9 }
         else { trailingWidth = item.shortcut == nil ? 0 : shortcutWidth + 9 }
         return titleWidth + trailingWidth
     }

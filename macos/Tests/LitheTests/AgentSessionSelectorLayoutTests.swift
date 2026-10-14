@@ -160,59 +160,55 @@ struct AgentSessionSelectorLayoutTests {
         }
     }
 
-    @Test
-    func twoLinePermissionDescriptionsHaveRoomAndKeepTheirSelectionAction() async throws {
-        let description = "批准后才能修改文件。\n其他操作继续遵守权限规则。"
-        let option = AgentSessionConfigOption(
-            id: "mode", name: "Mode", category: "mode", currentValue: "manual",
-            choices: [.init(id: "manual", name: "Manual", description: description),
-                      .init(id: "auto", name: "Auto", description: description)]
-        )
+    @Test(arguments: [2, 100])
+    func modeUsesCompactSharedMenuAndRetainsSelection(count: Int) async throws {
+        let option = AgentSessionConfigOption(id: "mode", name: "Mode", category: "mode", currentValue: "choice-0",
+            choices: (0..<count).map { .init(id: "choice-\($0)", name: "Choice \($0)", description: "A long explanation must not create a tall mode card.") })
         for scheme in [ColorScheme.dark, .light] {
             var selected: String?
-            let host = NSHostingView(rootView: AgentModePopover(option: option) { selected = $0 }
-                .environment(\.colorScheme, scheme).environment(\.locale, Locale(identifier: "zh_Hans")))
-            let window = makeWindow(host, size: NSSize(width: 350, height: 110))
-            defer { window.close() }
-            let scroll = try #require(scrollView(in: host))
+            let host = NSHostingView(rootView: AgentSessionSelectors(options: [option], agentName: "Codex", isDisabled: false) { _, value in selected = value }
+                .frame(width: 320, height: 40).environment(\.colorScheme, scheme))
+            let window = makeWindow(host, size: NSSize(width: 320, height: 40))
+            defer { window.contentView = nil; window.close() }
+            let anchor = try #require(dropdownAnchors(in: host).first)
+            try click(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor, window: window)
+            let panel = try #require(await waitUntil { popup(in: window) != nil } ? popup(in: window) : nil)
+            let content = try #require(panel.contentView)
+            let scroll = try #require(scrollView(in: content))
             let document = try #require(scroll.documentView)
-            try #require(await waitUntil {
-                host.layoutSubtreeIfNeeded()
-                return host.fittingSize.height >= document.bounds.height + 10
-            }, "A short permission list must fit both description lines without scrolling")
-            window.setContentSize(host.fittingSize)
-            host.layoutSubtreeIfNeeded()
-            let rowHeight = document.bounds.height / CGFloat(option.choices.count)
-            #expect(rowHeight >= 48,
-                    "The row must grow to fit a title and both description lines")
-            #expect(rowHeight < 64,
-                    "Wrapping must not restore the old excessive spacing")
-            try click(NSPoint(x: 100, y: rowHeight / 2), in: document, window: window)
-            #expect(await waitUntil { selected == "manual" }, "The rendered choice must preserve the upstream ID")
-            try capture(host, name: "permission-two-lines-\(scheme)")
+            #expect(panel.frame.width < 240, "Mode uses the measured shared menu width instead of a 350pt card")
+            try capture(content, name: "mode-menu-\(scheme)-\(count)")
+            if count == 2 {
+                #expect(panel.frame.height < 100, "A heading and two single-line options remain compact")
+                try click(NSPoint(x: 90, y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * 1.5), in: document, window: panel)
+                #expect(await waitUntil { selected == "choice-0" })
+            } else {
+                for _ in 1..<count { try sendKey(125, to: panel) }
+                try sendKey(36, to: panel)
+                #expect(await waitUntil { selected == "choice-99" }, "Shared keyboard navigation reaches the final upstream mode")
+            }
+            #expect(!panel.isVisible, "Selection closes the shared menu")
+            try capture(host, name: "mode-trigger-\(scheme)-\(count)")
         }
     }
 
     @Test
-    func longPermissionAndModelListsScrollToTheirLastChoice() async throws {
+    func longModelListsScrollToTheirLastChoice() async throws {
         let choices: [AgentSessionConfigOption.Choice] = (0..<30).map {
             .init(id: "choice-\($0)", name: "Choice \($0)")
         }
         for scheme in [ColorScheme.dark, .light] {
-            for category in ["mode", "model"] {
+            for category in ["model"] {
                 let option = AgentSessionConfigOption(
                     id: category, name: category, category: category,
                     currentValue: "choice-0", choices: choices
                 )
                 var selected: String?
-                let view = category == "mode"
-                    ? AnyView(AgentModePopover(option: option) { selected = $0 })
-                    : AnyView(AgentModelPopover(option: option, settings: [], agentName: "Claude") { id, value in
+                let view = AnyView(AgentModelPopover(option: option, settings: [], agentName: "Claude") { id, value in
                         #expect(id == category)
                         selected = value
                     })
-                let size = NSSize(width: category == "mode" ? 350 : 330,
-                                  height: category == "mode" ? 330 : 290)
+                let size = NSSize(width: 330, height: 290)
                 let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme))
                 let window = makeWindow(host, size: size)
                 defer { window.close() }

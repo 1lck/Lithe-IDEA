@@ -3,10 +3,6 @@ import LitheAgentConversationModule
 
 private enum AgentSelectorLayout {
     static let choiceRowHeight: CGFloat = 26
-    // Leave one point of slack for AppKit's fractional pixel rounding.
-    static let modeRowHeight: CGFloat = 50
-    static let modeViewportHeight: CGFloat = 320
-    static let modeVerticalPadding: CGFloat = 5
 }
 
 /// Search and presentation only; the Agent still owns IDs, choices and confirmed values.
@@ -69,17 +65,6 @@ enum AgentSessionSelectorPresentation {
         return fallback.map { localized($0, bundle: bundle) }
     }
 
-    static func modeIcon(_ id: String) -> String {
-        switch id {
-        case "read-only", "default", "manual": "bubble.left.and.bubble.right"
-        case "agent", "auto": "checkmark.shield"
-        case "agent-full-access", "bypassPermissions": "bolt"
-        case "acceptEdits": "pencil"
-        case "plan": "list.bullet.rectangle"
-        default: "slider.horizontal.3"
-        }
-    }
-
     static func localized(_ text: String, bundle: Bundle = .main) -> String {
         String(localized: String.LocalizationValue(text), bundle: bundle)
     }
@@ -93,7 +78,6 @@ struct AgentSessionSelectors: View {
     var appliesToNextTurn = false
     let onSelect: (String, String) -> Void
     @State private var showsModels = false
-    @State private var showsModes = false
 
     private var model: AgentSessionConfigOption? { options.first { $0.category == "model" } }
     private var mode: AgentSessionConfigOption? { options.first { $0.category == "mode" } }
@@ -107,21 +91,32 @@ struct AgentSessionSelectors: View {
     var body: some View {
         HStack(spacing: 4) {
             if let mode {
-                Button { showsModes.toggle() } label: {
-                    selectorLabel {
-                        Image(systemName: AgentSessionSelectorPresentation.modeIcon(mode.currentValue))
+                LitheMenu(opensUpward: true) {
+                    LitheContextMenuItem.heading("Mode", centered: true)
+                    for choice in mode.choices {
+                        LitheContextMenuItem.action(
+                            AgentSessionSelectorPresentation.choiceTitle(choice, in: mode),
+                            localizesTitle: false,
+                            checked: choice.id == mode.currentValue,
+                            leadingCheckmark: true,
+                            initiallySelected: choice.id == mode.currentValue
+                        ) { select(mode.id, choice.id) }
+                    }
+                } label: {
+                    selectorLabel(expandsDownward: true) {
                         Text(AgentSessionSelectorPresentation.currentTitle(mode))
+                            .font(LitheTheme.settingsFont)
                     }
                 }
                 .litheToolbarIconButton(isIconOnly: false)
-                .help(appliesToNextTurn ? String(localized: "Changes apply to the next turn.") : AgentSessionSelectorPresentation.localized(mode.name))
+                .id(isDisabled)
+                .help(appliesToNextTurn ? String(localized: "Changes apply to the next turn.")
+                      : mode.choices.first(where: { $0.id == mode.currentValue })
+                        .flatMap { AgentSessionSelectorPresentation.choiceDescription($0, in: mode) }
+                        ?? AgentSessionSelectorPresentation.localized(mode.name))
                 .accessibilityLabel(Text("Approval mode"))
                 .accessibilityValue(AgentSessionSelectorPresentation.currentTitle(mode))
                 .accessibilityIdentifier("agent-session-mode-selector")
-                .litheDropdown(isPresented: $showsModes, opensUpward: true) {
-                    AgentModePopover(option: mode) { value in select(mode.id, value) }
-                        .onExitCommand { showsModes = false }
-                }
             }
             if let model {
                 Button { showsModels.toggle() } label: {
@@ -165,7 +160,7 @@ struct AgentSessionSelectors: View {
         }
         .disabled(isDisabled)
         .onChange(of: isDisabled) { disabled in
-            if disabled { showsModels = false; showsModes = false }
+            if disabled { showsModels = false }
         }
     }
 
@@ -174,11 +169,11 @@ struct AgentSessionSelectors: View {
         return [model.currentLabel, effort.map { AgentSessionSelectorPresentation.currentTitle($0) }].compactMap { $0 }.joined(separator: " ")
     }
 
-    private func selectorLabel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func selectorLabel<Content: View>(expandsDownward: Bool = false, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 5) {
             content()
-            LitheIDEAIcon(resourcePath: "expui/general/chevronUp.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                          fallbackSystemImage: "chevron.up", preservesOriginalColors: true)
+            LitheIDEAIcon(resourcePath: expandsDownward ? "expui/general/chevronDown.svg" : "expui/general/chevronUp.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                          fallbackSystemImage: expandsDownward ? "chevron.down" : "chevron.up", preservesOriginalColors: true)
         }
         .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(LitheTheme.secondaryText)
@@ -190,7 +185,6 @@ struct AgentSessionSelectors: View {
     private func select(_ id: String, _ value: String) {
         guard !isDisabled else { return }
         showsModels = false
-        showsModes = false
         onSelect(id, value)
     }
 }
@@ -290,54 +284,6 @@ private struct AgentModelSettingRow: View {
         .accessibilityIdentifier("agent-model-setting-\(option.id)")
         .accessibilityValue(AgentSessionSelectorPresentation.currentTitle(option))
     }
-}
-
-struct AgentModePopover: View {
-    let option: AgentSessionConfigOption
-    let onSelect: (String) -> Void
-    @State private var contentHeight: CGFloat = 0
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(option.choices) { choice in
-                    AgentSelectorRow(isSelected: choice.id == option.currentValue, minimumHeight: AgentSelectorLayout.modeRowHeight, action: { onSelect(choice.id) }) {
-                        Image(systemName: AgentSessionSelectorPresentation.modeIcon(choice.id)).frame(width: 16)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(AgentSessionSelectorPresentation.choiceTitle(choice, in: option)).lineLimit(1)
-                            if let description = choice.description, !description.isEmpty {
-                                Text(AgentSessionSelectorPresentation.localized(description))
-                                    .font(LitheTheme.uiFont(size: 11))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                    }
-                }
-            }
-            .background {
-                GeometryReader { geometry in
-                    // Cap the measurement so scrolling a long lazy list cannot keep resizing the popover.
-                    Color.clear.preference(key: AgentModeContentHeightKey.self,
-                                           value: min(AgentSelectorLayout.modeViewportHeight, geometry.size.height))
-                }
-            }
-        }
-        .onPreferenceChange(AgentModeContentHeightKey.self) { height in
-            if abs(height - contentHeight) > 0.5 { contentHeight = height }
-        }
-        .padding(.vertical, AgentSelectorLayout.modeVerticalPadding)
-        .frame(width: 350, height: min(AgentSelectorLayout.modeViewportHeight,
-                                     max(CGFloat(option.choices.count) * AgentSelectorLayout.modeRowHeight, contentHeight))
-                + 2 * AgentSelectorLayout.modeVerticalPadding)
-        .background(LitheTheme.settingsPopupBackground)
-    }
-}
-
-private struct AgentModeContentHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 private struct AgentSelectorRow<Content: View>: View {
