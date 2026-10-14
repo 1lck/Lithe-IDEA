@@ -62,7 +62,7 @@ struct AgentSessionSelectorInteractionTests {
         try sendKey(change == "choices" ? 126 : 125, to: reopened)
         try sendKey(36, to: reopened)
         try #require(await waitUntil { state.selected?.1 == "low" }, "Reopened choices must use the latest upstream IDs")
-        #expect(state.selected?.0 == "effort")
+        #expect(state.selected?.0 == "speed")
         #expect(await waitUntil { popup(in: window) == nil })
     }
 
@@ -258,7 +258,8 @@ private final class SelectorState: ObservableObject {
     @Published var options = [
         AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "first",
             choices: [.init(id: "first", name: "First"), .init(id: "target", name: "Target")]),
-        AgentSessionConfigOption(id: "effort", name: "Reasoning", category: "thought_level", currentValue: "high",
+        // Reasoning is inline; a generic setting exercises the actual child-menu lifecycle.
+        AgentSessionConfigOption(id: "speed", name: "Speed", category: "speed", currentValue: "high",
             choices: [.init(id: "low", name: "low"), .init(id: "high", name: "high")])
     ]
     var selected: (String, String)?

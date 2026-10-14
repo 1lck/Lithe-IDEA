@@ -114,7 +114,15 @@ final class TranscriptReplay {
             try await layout("resumed-following")
         }
         try await layout("settled-bottom")
-        guard clip.documentRect.maxY - clip.bounds.maxY < 2 else { throw ReplayError.latestReplyWasNotVisible }
+        // Native bottom following is queued after viewport changes; one render
+        // transaction does not guarantee that the final follow operation ran.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while clip.documentRect.maxY - clip.bounds.maxY >= 2 {
+            guard ContinuousClock.now < deadline else {
+                throw ReplayError.latestReplyWasNotVisible
+            }
+            try await layout("settling-bottom")
+        }
     }
 
     private func userScroll(_ scroll: NSScrollView, to y: CGFloat) {
