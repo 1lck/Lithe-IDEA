@@ -173,6 +173,7 @@ struct PluginLocalDevelopmentTests {
             ),
             moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [],
@@ -302,7 +303,6 @@ struct NodeLanguageToolEnvironmentTests {
         ]
         let discovery = MacRuntimeToolDiscovery(
             homeDirectoryURL: home,
-            resourceDirectoryURL: nil,
             isExecutable: { executables.contains($0.path) },
             directoryNames: { url in
                 url.path == "/fixture-home/.nvm/versions/node"

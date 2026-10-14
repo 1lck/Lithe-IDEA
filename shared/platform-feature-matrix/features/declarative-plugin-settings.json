@@ -1,0 +1,31 @@
+{
+  "id": "declarative-plugin-settings",
+  "area": "插件",
+  "group": "插件管理",
+  "capability": "声明式插件可以在 plugin.json 里声明用户可调的选项（整数、枚举、布尔），在“设置 › 插件”的插件详情页里编辑，值按插件保存一份并在下次启动语言服务器时代入启动模板；Java Support 首批提供 JDT LS 最大堆内存和日志级别",
+  "macos": {
+    "evidence": [
+      "rust/lithe-core/src/plugins/declarative.rs",
+      "rust/lithe-core/src/lsp/languages/jdt.rs",
+      "macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginSettingsStore.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift",
+      "macos/Sources/Lithe/Views/App/PluginSettingsSection.swift",
+      "macos/Tests/LitheTests/PluginSettingsTests.swift",
+      "Plugins/mac/Official/JavaSupport/plugin.json",
+      "shared/contracts/plugins/v1/fixtures/node-runtime.plugin.json"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Plugin Platform",
+  "verification": "macOS：打开设置 › 插件，选中 Java Support，确认出现“设置”区，显示“最大内存”（默认 1024 MB）和“语言服务器日志级别”（默认全部消息）。把最大内存改成 3072：输入 3072 后点“重启语言服务器”，用 ps 查看 JDT LS 的 java 进程参数，确认 -Xmx3072m 且只出现一次；输入 100 时出现范围提示且没有保存，失焦后回到上一个合法值。把日志级别改成“仅错误”并重启，确认进程参数里是 -Dlog.level=SEVERE。点“恢复默认值”后重启，确认回到 -Xmx1024m 和 -Dlog.level=ALL。退出并重新打开 Lithe，确认修改过的值仍在。卸载并恢复 Java Support，值仍在。Windows：插件契约与设置页尚未接入。"
+}

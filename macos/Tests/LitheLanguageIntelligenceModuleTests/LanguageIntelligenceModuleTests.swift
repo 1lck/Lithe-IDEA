@@ -323,6 +323,41 @@ struct LanguageIntelligenceModuleTests {
         #expect(factory.standardRequests.isEmpty)
     }
 
+    /// Host workflows start a missing server on demand. While a module is
+    /// being stopped its capability is still published, so the extension it
+    /// already stopped must not be registered again; otherwise the server
+    /// restarts and the module can never finish stopping.
+    @Test
+    func anExtensionStoppedByItsModuleIsNotRegisteredAgain() {
+        let factory = TestLanguageProviderRuntimeFactory()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimeFactory: factory,
+            extensionRequiredProviderIDs: ["go"]
+        )
+        let support = LanguageSupportDeclaration(
+            id: "go",
+            displayName: "Go",
+            fileExtensions: ["go"],
+            languageServerModuleID: .languageServerExtension("go")
+        )
+        let stopped = TestLanguageServerExtensionProvider()
+        #expect(manager.registerLanguageServerExtension(stopped, support: support))
+
+        stopped.lifecycle.stop()
+
+        #expect(!manager.registerLanguageServerExtension(stopped, support: support))
+        #expect(throws: LanguageToolingSessionError.self) {
+            _ = try manager.startLanguageServer(
+                providerID: "go",
+                rootURL: URL(fileURLWithPath: "/workspace", isDirectory: true)
+            )
+        }
+        #expect(manager.languageServerExtensionDescriptor(languageID: "go") == nil)
+        // Reactivating the module publishes a new provider.
+        #expect(manager.registerLanguageServerExtension(TestLanguageServerExtensionProvider(), support: support))
+    }
+
     @Test
     func javaWorkspaceResetUsesTheFingerprintFromTheActiveSession() throws {
         let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
@@ -489,8 +524,10 @@ struct LanguageIntelligenceModuleTests {
 
         let rootClasspath = try await session.waitForExecuteCommand(number: 2)
         #expect(rootClasspath.command == "java.project.getClasspaths")
+        // JDT LS reads the options from JSON text only; an object leaves them
+        // null and the command fails inside the server.
         #expect(rootClasspath.arguments == [
-            .string(root.absoluteString), .object(["scope": .string("runtime")])
+            .string(root.absoluteString), .string(#"{"scope":"runtime"}"#)
         ])
         session.completeExecuteReturningValue(.success(.object([
             "classpaths": .array([
@@ -566,6 +603,70 @@ struct LanguageIntelligenceModuleTests {
         #expect(session.executedCommands.count == 5)
         manager.stopLanguageServer(providerID: "java")
         #expect(manager.dependencySnapshot(workspaceURL: root) == nil)
+    }
+
+    /// JDT reports projects and output folders at their resolved location.
+    /// A workspace opened through a symbolic link must still own them.
+    @Test
+    func javaDependencySnapshotMatchesProjectsBehindASymbolicLink() async throws {
+        let fileManager = FileManager.default
+        let scratch = fileManager.temporaryDirectory.appendingPathComponent(
+            "lithe-java-dependencies-\(UUID().uuidString)", isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: scratch) }
+        let resolvedRoot = scratch.appendingPathComponent("resolved", isDirectory: true)
+        try fileManager.createDirectory(at: resolvedRoot, withIntermediateDirectories: true)
+        let root = scratch.appendingPathComponent("link", isDirectory: true)
+        try fileManager.createSymbolicLink(at: root, withDestinationURL: resolvedRoot)
+
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
+            for: root.appendingPathComponent("Main.java")
+        ))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        defer { manager.stopAllLanguageServers() }
+        let (events, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        defer { continuation.finish() }
+        manager.onJavaDependencySnapshotChange = { continuation.yield(()) }
+
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        session.publish(.ready)
+        session.publishPreparation(.init(phase: "ready", status: "ready", blocksRun: false))
+        _ = try await session.waitForExecuteCommand()
+        session.completeExecuteReturningValue(.success(.array([.string(resolvedRoot.absoluteString)])))
+
+        let classpath = try await session.waitForExecuteCommand(number: 2)
+        #expect(classpath.command == "java.project.getClasspaths")
+        #expect(classpath.arguments.first == .string(resolvedRoot.absoluteString))
+        session.completeExecuteReturningValue(.success(.object([
+            "classpaths": .array([
+                .string("/external/cache/one.jar"),
+                .string(resolvedRoot.appendingPathComponent("target/classes").path)
+            ]),
+            "modulepaths": .array([])
+        ])))
+
+        let published = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in events { return true }
+                return false
+            }
+            group.addTask {
+                // test-stability: allow(swift-real-sleep) reason: this is the bounded failure deadline for the snapshot callback stream.
+                try? await Task.sleep(for: .seconds(2))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            continuation.finish()
+            return result
+        }
+        #expect(published)
+        #expect(manager.dependencySnapshot(workspaceURL: root)?.dependencyRoots.map(\.path) == [
+            "/external/cache/one.jar"
+        ])
     }
 
     @Test
@@ -1706,6 +1807,7 @@ private final class TestLanguageServerExtensionProvider: LanguageServerExtension
 private final class TestLanguageServerExtensionLifecycle: LanguageServerExtensionLifecycle {
     private var running: @MainActor () -> Bool = { false }
     private var stopAction: @MainActor () -> Void = {}
+    private(set) var isRetired = false
     var isRunning: Bool { running() }
     func attach(
         isRunning: @escaping @MainActor () -> Bool,
@@ -1714,7 +1816,10 @@ private final class TestLanguageServerExtensionLifecycle: LanguageServerExtensio
         running = isRunning
         stopAction = stop
     }
-    func stop() { stopAction() }
+    func stop() {
+        isRetired = true
+        stopAction()
+    }
 }
 
 @MainActor

@@ -1,0 +1,25 @@
+{
+  "id": "run-processes-end-with-ide",
+  "area": "运行与调试",
+  "group": "运行",
+  "capability": "退出 IDE 时结束它启动的全部运行、服务、测试和插件子进程，不留下孤儿进程",
+  "macos": {
+    "evidence": [
+      "macos/Sources/LitheExecutionModule/Module/ExecutionFeatureGraph.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Process/MacManagedProcess.swift",
+      "macos/Sources/Lithe/LitheApp.swift",
+      "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
+      "macos/Tests/LitheTests/MacProcessRunnerTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": ["windows/tauri/src-tauri/src/main.rs", "windows/tauri/src-tauri/src/run.rs"],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Run",
+  "verification": "运行一个长驻服务（如 Spring Boot）和一个忽略终止信号的程序，分别通过菜单退出和更新重启关闭 IDE，确认 IDE、语言服务器和所有被启动的程序都已退出、端口已释放。",
+  "notes": "Windows 的退出处理只关闭语言工具和调试会话，未停止运行会话，运行进程也未放入 Job Object。IDE 崩溃或被强制结束时两端都不保证清理。"
+}

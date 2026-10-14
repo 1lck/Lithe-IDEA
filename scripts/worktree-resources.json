@@ -65,10 +65,12 @@
       "reusable": false,
       "locations": [
         ".build/<triple>/<configuration>/OfficialPlugins",
-        "<app-support>/Lithe/Plugins/dev.lithe.plugin.php-support/"
+        "<app-support>/Lithe/Plugins/dev.lithe.plugin.php-support/",
+        "Lithe.app/Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-support/",
+        "<app-support>/Lithe/PluginState/<plugin-id>/"
       ],
-      "identity": "Declarative plugin packages are architecture-neutral but carry a build-time Intelephense download and an optional publisher signature; no reliable worktree identity stamp",
-      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees."
+      "identity": "Assembled plugin packages carry build-time downloads (Intelephense for PHP Support; JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation",
+      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage."
     },
     {
       "id": "php-language-server-downloads",

@@ -13,6 +13,11 @@ java_test_plugin_version="$(
 )"
 java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_plugin_version.jar"
 java_test_runner_name="com.microsoft.java.test.runner-jar-with-dependencies.jar"
+# Java Support names its launcher exactly, so the fixture uses the same name.
+java_plugin_manifest="$ROOT_DIR/Plugins/mac/Official/JavaSupport/plugin.json"
+java_launcher_path=$(/usr/bin/plutil -extract languageServers.0.launch.entry raw "$java_plugin_manifest")
+java_launcher_name="${java_launcher_path:t}"
+java_plugin_package="Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-support"
 
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/lithe-package-verification.XXXXXX")
 trap 'rm -rf -- "$temporary_directory"' EXIT
@@ -28,6 +33,7 @@ dmg_log="$temporary_directory/dmg.log"
 # keeping CI deterministic and independent of the Eclipse download service.
 mkdir -p \
     "$jdtls_root/plugins" \
+    "$jdtls_root/features" \
     "$jdtls_root/config_mac_arm" \
     "$jdtls_root/config_mac" \
     "$jdtls_root/config_win" \
@@ -48,7 +54,11 @@ Write-Output $javaAgentArgument
 LAUNCHER
 : > "$jdtls_root/lombok/lombok.jar"
 : > "$jdtls_root/lombok/LICENSE-MIT.txt"
-: > "$jdtls_root/plugins/org.eclipse.equinox.launcher_1.0.0.jar"
+: > "$jdtls_root/plugins/$java_launcher_name"
+print -r -- '{"version":"0.0.0"}' > "$jdtls_root/manifest.json"
+: > "$jdtls_root/LICENSE-EPL-2.0.txt"
+: > "$jdtls_root/config_mac_arm/config.ini"
+: > "$jdtls_root/config_mac/config.ini"
 : > "$jdtls_root/java-debug/$java_debug_plugin_name"
 : > "$jdtls_root/java-debug/LICENSE-EPL-1.0.txt"
 java_test_extension_bundles=(
@@ -199,20 +209,20 @@ required_resources=(
     "$app_path/Contents/Resources/MonacoEditor/ONIGURUMA-LICENSE.txt"
     "$app_path/Contents/Resources/MonacoEditor/VSCODE-LICENSE.txt"
     "$app_path/Contents/Resources/MonacoEditor/TEXTMATE-NOTICE.txt"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/bin/jdtls"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/plugins/org.eclipse.equinox.launcher_1.0.0.jar"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/config_mac_arm"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/config_mac"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/lombok/lombok.jar"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/java-debug/$java_debug_plugin_name"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/java-debug/LICENSE-EPL-1.0.txt"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/java-test/extensions/$java_test_plugin_name"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/java-test/runner/$java_test_runner_name"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/java-test/LICENSE-MIT.txt"
-    "$app_path/Contents/Resources/LanguageServers/jdk-arm64/bin/java"
-    "$app_path/Contents/Resources/LanguageServers/jdk-arm64/lib"
-    "$app_path/Contents/Resources/LanguageServers/jdk-x86_64/bin/java"
-    "$app_path/Contents/Resources/LanguageServers/jdk-x86_64/lib"
+    "$app_path/$java_plugin_package/plugin.json"
+    "$app_path/$java_plugin_package/$java_launcher_path"
+    "$app_path/$java_plugin_package/language-server/configuration/arm64/config.ini"
+    "$app_path/$java_plugin_package/language-server/configuration/x86_64/config.ini"
+    "$app_path/$java_plugin_package/language-server/lombok/lombok.jar"
+    "$app_path/$java_plugin_package/language-server/java-debug/$java_debug_plugin_name"
+    "$app_path/$java_plugin_package/language-server/java-debug/LICENSE-EPL-1.0.txt"
+    "$app_path/$java_plugin_package/language-server/java-test/extensions/$java_test_plugin_name"
+    "$app_path/$java_plugin_package/language-server/java-test/runner/$java_test_runner_name"
+    "$app_path/$java_plugin_package/language-server/java-test/LICENSE-MIT.txt"
+    "$app_path/$java_plugin_package/runtime/arm64/bin/java"
+    "$app_path/$java_plugin_package/runtime/arm64/lib"
+    "$app_path/$java_plugin_package/runtime/x86_64/bin/java"
+    "$app_path/$java_plugin_package/runtime/x86_64/lib"
 )
 for resource in "${required_resources[@]}"; do
     if [[ ! -e "$resource" ]]; then
@@ -224,11 +234,17 @@ done
 /usr/bin/lipo "$app_path/Contents/Frameworks/Sparkle.framework/Sparkle" -verify_arch arm64 x86_64
 /usr/bin/otool -l "$app_path/Contents/MacOS/Lithe" | /usr/bin/grep -F '@executable_path/../Frameworks' >/dev/null
 /usr/bin/lipo \
-    "$app_path/Contents/Resources/LanguageServers/jdk-arm64/bin/java" \
+    "$app_path/$java_plugin_package/runtime/arm64/bin/java" \
     -verify_arch arm64
 /usr/bin/lipo \
-    "$app_path/Contents/Resources/LanguageServers/jdk-x86_64/bin/java" \
+    "$app_path/$java_plugin_package/runtime/x86_64/bin/java" \
     -verify_arch x86_64
+# JDT LS and its JDK belong to the Java Support plugin package. The
+# application itself must not carry a second copy outside that package.
+if [[ -e "$app_path/Contents/Resources/LanguageServers" ]]; then
+    print -u2 -- "Packaged app must not contain language servers outside plugin packages"
+    exit 1
+fi
 
 # Go and PHP support are downloaded from the plugin marketplace, so the app
 # ships no official plugin package; the marketplace index below is the offline

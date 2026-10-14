@@ -11,8 +11,6 @@ case "$(uname -m)" in
 esac
 
 scripts/build-macos.sh --configuration debug --triple "$TRIPLE"
-JDTLS_ROOT=$(scripts/prepare-jdtls.sh)
-JDK_ROOT=$(LITHE_JDK_TARGET_ARCH="$(uname -m)" scripts/prepare-jdk.sh)
 
 # 必须打成 .app 再启动：裸可执行文件没有 Info.plist，macOS 不会把它当成
 # 前台应用，窗口能收到鼠标点击但永远拿不到键盘焦点。
@@ -33,7 +31,6 @@ trap '[[ "${WATCHER_OWNS_INSTANCE_CLEANUP:-false}" == true ]] || cleanup_instanc
 
 mkdir -p \
     "$APP_DIR/Contents/MacOS" \
-    "$APP_DIR/Contents/Resources/LanguageServers" \
     "$APP_DIR/Contents/Resources/OfficialPlugins" \
     "$APP_DIR/Contents/Helpers"
 cp ".build/$TRIPLE/debug/Lithe" "$APP_DIR/Contents/MacOS/Lithe"
@@ -45,8 +42,6 @@ for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
     fi
     cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/$bundle_name"
 done
-cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
-cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
 plugin_root=$(scripts/build-official-plugins.sh \
     --bundled-only \
     --configuration debug \

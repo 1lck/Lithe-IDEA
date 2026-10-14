@@ -11,7 +11,12 @@ struct MacJdtWorkspaceState {
     private static let corePluginPrefix = "org.eclipse.jdt.ls.core_"
     private static let lastUsedMarkerName = ".lithe-last-used"
 
-    private let cacheDirectoryURL: URL
+    /// Directories of the language-server cache root that hold JDT LS state:
+    /// per-workspace indexes (`-data`) and Equinox configuration areas
+    /// (`-configuration`). Rust Core names and fills both.
+    static let ownedCacheDirectoryNames = ["jdtls", "jdtls-configuration"]
+
+    let cacheDirectoryURL: URL
     private let workspaceFingerprintResolver: ((
         [RustCoreBridge.JdtBuildFileObservation],
         [String],
@@ -127,6 +132,17 @@ struct MacJdtWorkspaceState {
             modules,
             languageServerCacheIdentity(for: languageServerExecutableURL)
         )
+    }
+
+    /// Removes every index and configuration area JDT LS wrote, for the case
+    /// where the plugin that owns them is gone and nothing will read them
+    /// again. Best effort: it only frees disk space.
+    nonisolated static func removeAllState(in cacheDirectoryURL: URL) {
+        for name in ownedCacheDirectoryNames {
+            try? FileManager.default.removeItem(
+                at: cacheDirectoryURL.appendingPathComponent(name, isDirectory: true)
+            )
+        }
     }
 
     /// Removes only the current workspace/fingerprint directory. Other cached
@@ -287,13 +303,6 @@ struct MacJdtWorkspaceState {
             roots.append(bin)
             roots.append(bin.deletingLastPathComponent())
         }
-        if let resourceURL = Bundle.main.resourceURL {
-            roots.append(
-                resourceURL
-                    .appendingPathComponent("LanguageServers", isDirectory: true)
-                    .appendingPathComponent("jdtls", isDirectory: true)
-            )
-        }
 
         var visited: Set<String> = []
         for root in roots where visited.insert(root.standardizedFileURL.path).inserted {
@@ -345,17 +354,12 @@ struct MacJdtWorkspaceState {
 
     private func languageServerCacheIdentity(for executableURL: URL?) throws -> String {
         let version = try languageServerVersion(for: executableURL)
-        let installationPath: String
-        if let executableURL {
-            installationPath = executableURL.standardizedFileURL.path
-        } else if let resourceURL = Bundle.main.resourceURL {
-            installationPath = resourceURL
-                .appendingPathComponent("LanguageServers", isDirectory: true)
-                .appendingPathComponent("jdtls", isDirectory: true)
-                .standardizedFileURL.path
-        } else {
+        // The installation is only ever the one its plugin declares; there
+        // is no JDT LS inside the application to fall back to.
+        guard let executableURL else {
             throw MacJdtWorkspaceStateError.languageServerInstallationUnavailable
         }
+        let installationPath = executableURL.standardizedFileURL.path
         // JDT LS persists absolute JRE and source paths inside its workspace.
         // Relocating an app or Preview build must therefore select a fresh cache.
         return "\(version)|installation=\(installationPath)"

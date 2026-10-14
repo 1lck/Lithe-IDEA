@@ -48,6 +48,11 @@ final class MacProcessGroup: @unchecked Sendable {
         return Darwin.kill(-processGroupID, 0) == 0 || errno == EPERM
     }
 
+    /// Delivers one signal to every member without waiting for the outcome.
+    func send(_ signal: Int32) {
+        self.signal(signal)
+    }
+
     private func signal(_ signal: Int32) {
         guard processGroupID > 0 else { return }
         // A negative PID targets every member, including descendants whose

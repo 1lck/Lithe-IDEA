@@ -177,7 +177,7 @@ done
   plans = JSON.parse(File.read(File.join(root, "fixtures", "command-plans.json"))).fetch("cases")
   plans.each do |item|
     abort "plan case #{item.fetch("name")} uses an unknown plugin" unless fixture_names.include?(item.fetch("plugin"))
-    abort "plan case #{item.fetch("name")} uses an unknown operation" unless %w[runPlan discoverTests testPlan].include?(item.fetch("operation"))
+    abort "plan case #{item.fetch("name")} uses an unknown operation" unless %w[runPlan discoverTests testPlan languageServerLaunchPlan].include?(item.fetch("operation"))
     expected = item.fetch("expected")
     if expected.fetch("status") == "rejected"
       abort "plan case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("code"))
