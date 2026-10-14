@@ -27,7 +27,7 @@ struct AgentActivityPresentationTests {
         let edits = NSPoint(x: 18 + 664 * 2.5 / 3, y: 580)
         host.layoutSubtreeIfNeeded()
         try click(edits, in: host, window: window)
-        let popup = try #require(await waitForPopup(excluding: initialWindows))
+        let popup = try #require(await waitForPopup(in: window, updating: host))
         let content = try #require(popup.contentView)
         try capture(content, name: "activity-edits-actions")
         let rowCenter = content.bounds.height - 22
@@ -42,7 +42,7 @@ struct AgentActivityPresentationTests {
         try #require(await waitUntil { window.attachedSheet == nil }, "Done must dismiss the comparison")
 
         try click(edits, in: host, window: window)
-        let nextPopup = try #require(await waitForPopup(excluding: initialWindows))
+        let nextPopup = try #require(await waitForPopup(in: window, updating: host))
         let nextContent = try #require(nextPopup.contentView)
         try click(NSPoint(x: nextContent.bounds.width - 13, y: rowCenter), in: nextContent, window: nextPopup)
         try #require(await waitUntil { window.attachedSheet != nil }, "Rollback must ask for confirmation")
@@ -82,7 +82,7 @@ struct AgentActivityPresentationTests {
                 // Each segment occupies one third of the bar inside its 18pt margins.
                 let point = NSPoint(x: 18 + 284 * (CGFloat(index) + 0.5) / 3, y: 60)
                 try click(point, in: host, window: window)
-                let popup = try #require(await waitForPopup(excluding: initialWindows), "The \(panel.rawValue) segment must open a native panel")
+                let popup = try #require(await waitForPopup(in: window, updating: host), "The \(panel.rawValue) segment must open a native panel")
                 let content = try #require(popup.contentView)
                 #expect(abs(popup.frame.width - 284) < 1, "Every panel follows the activity bar's width")
                 try capture(content, name: "activity-\(panel.rawValue)-\(scheme)")
@@ -94,7 +94,7 @@ struct AgentActivityPresentationTests {
                     #expect(await waitUntil { kept.map(\.path) == ["a.txt"] })
                 }
                 try click(point, in: host, window: window)
-                #expect(await waitUntil { !popup.isVisible })
+                try #require(await waitUntil(updating: host) { !popup.isVisible }, "The panel must finish closing")
             }
         }
     }
@@ -121,7 +121,8 @@ struct AgentActivityPresentationTests {
             for (index, panel) in AgentActivitySummaryBar.Panel.allCases.enumerated() {
                 host.layoutSubtreeIfNeeded()
                 try click(NSPoint(x: 18 + (width - 36) * (Double(index) + 0.5) / 3, y: 140), in: host, window: window)
-                let popup = try #require(await waitForPopup(excluding: initialWindows))
+                let popup = try #require(await waitForPopup(in: window, updating: host),
+                    "The \(panel.rawValue) panel must open at width \(width) in \(scheme) mode")
                 #expect(abs(popup.frame.width - (width - 36)) < 1)
                 #expect(abs(popup.frame.minX - window.frame.minX - 18) < 1)
                 #expect(abs(popup.frame.minY - window.frame.minY - 36) < 1, "The card opens immediately above the bar")
@@ -135,21 +136,25 @@ struct AgentActivityPresentationTests {
             // The same tab toggles closed; reopening still supports Escape and outside clicks.
             let edits = NSPoint(x: 18 + (width - 36) * 2.5 / 3, y: 140)
             try click(edits, in: host, window: window)
-            #expect(await waitUntil { previous?.isVisible == false })
+            try #require(await waitUntil(updating: host) { previous?.isVisible == false },
+                "Toggling the Edits tab must close before reopening at width \(width) in \(scheme) mode")
             try click(edits, in: host, window: window)
-            let popup = try #require(await waitForPopup(excluding: initialWindows))
+            let popup = try #require(await waitForPopup(in: window, updating: host),
+                "Edits must reopen after toggling closed at width \(width) in \(scheme) mode")
             let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                 windowNumber: popup.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 53))
             popup.sendEvent(escape)
-            #expect(await waitUntil { !popup.isVisible })
+            try #require(await waitUntil(updating: host) { !popup.isVisible }, "The panel must finish closing")
             try click(edits, in: host, window: window)
-            let reopened = try #require(await waitForPopup(excluding: initialWindows))
+            let reopened = try #require(await waitForPopup(in: window, updating: host),
+                "Edits must reopen after Escape at width \(width) in \(scheme) mode")
             // Outside-click dismissal is installed on NSApp, so the event must
             // pass through its monitor rather than going straight to NSWindow.
             try click(NSPoint(x: 10, y: 10), in: host, window: window, throughApplication: true)
-            #expect(await waitUntil { !reopened.isVisible })
+            try #require(await waitUntil(updating: host) { !reopened.isVisible }, "Outside clicks must finish closing the panel")
             try click(edits, in: host, window: window)
-            let detached = try #require(await waitForPopup(excluding: initialWindows))
+            let detached = try #require(await waitForPopup(in: window, updating: host),
+                "Edits must reopen after an outside click at width \(width) in \(scheme) mode")
             window.contentView = nil
             #expect(await waitUntil { !detached.isVisible }, "Removing the conversation clears its activity panel")
         }
@@ -183,7 +188,7 @@ struct AgentActivityPresentationTests {
             for (index, panel) in AgentActivitySummaryBar.Panel.allCases.enumerated() {
                 host.layoutSubtreeIfNeeded()
                 try click(NSPoint(x: 18 + 284 * (CGFloat(index) + 0.5) / 3, y: 380), in: host, window: window)
-                let popup = try #require(await waitForPopup(excluding: initialWindows))
+                let popup = try #require(await waitForPopup(in: window, updating: host))
                 #expect(abs(popup.frame.width - 284) < 1)
                 #expect(popup.frame.height <= 260, "Long lists use an internal viewport instead of a tall outer card")
                 let content = try #require(popup.contentView)
@@ -215,9 +220,19 @@ struct AgentActivityPresentationTests {
         return view.subviews.lazy.compactMap { nativeButton(in: $0, titles: titles) }.first
     }
 
-    private func waitForPopup(excluding windows: Set<ObjectIdentifier>) async -> NSWindow? {
-        func popup() -> NSWindow? { NSApp.windows.first { !windows.contains(ObjectIdentifier($0)) && $0.isVisible } }
-        _ = await waitUntil { popup() != nil }
+    private func waitForPopup(in window: NSWindow, updating host: NSView) async -> NSWindow? {
+        // Segment switches reuse a visible popup. Submit the parent layout and
+        // observe main-queue delivery before interacting with its new content.
+        host.needsLayout = true
+        host.layoutSubtreeIfNeeded()
+        var updateDelivered = false
+        DispatchQueue.main.async { updateDelivered = true }
+        func popup() -> NSWindow? {
+            window.childWindows?.first { $0 is NSPanel && $0.isVisible }
+        }
+        // SwiftUI may invalidate the parent after our first layout pass. Keep
+        // driving that native boundary while waiting, including when reopening.
+        guard await waitUntil(updating: host, { updateDelivered && popup() != nil }) else { return nil }
         return popup()
     }
 
@@ -237,12 +252,13 @@ struct AgentActivityPresentationTests {
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool) async -> Bool {
+    private func waitUntil(updating host: NSView? = nil, _ condition: () -> Bool) async -> Bool {
         // Observe native presentation and callbacks; every wait has a local deadline.
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
         while clock.now < deadline {
             renderFrame()
+            host?.layoutSubtreeIfNeeded()
             if condition() { return true }
             await Task.yield()
         }

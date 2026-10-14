@@ -6,7 +6,8 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/LitheApp.swift",
-      "macos/Sources/Lithe/Views/App/RootView.swift"
+      "macos/Sources/Lithe/Views/App/RootView.swift",
+      "macos/Tests/LitheTests/LitheCoreLogicTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -21,5 +22,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Workbench",
-  "verification": "在 macOS 检查系统标题栏控制及全屏入口；在 Windows 验证标题栏最小化、最大化/还原和关闭，以及命令面板的窗口操作，确认图标语义、最大化/还原状态与按钮标签一致，并确认悬停关闭按钮背景贴合窗口右边缘。"
+  "verification": "在 macOS 检查系统标题栏控制及全屏入口；在 Windows 验证标题栏最小化、最大化/还原和关闭，以及命令面板的窗口操作，确认图标语义、最大化/还原状态与按钮标签一致，并确认悬停关闭按钮背景贴合窗口右边缘。 macOS 同一窗口角色下更新模型和标题时保留 SwiftUI 宿主测量的最小内容尺寸，切换欢迎页/工作台角色仍应用对应尺寸，避免重复覆盖引发窗口布局反馈。"
 }
