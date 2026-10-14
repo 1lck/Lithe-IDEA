@@ -627,6 +627,10 @@ export const XCircleIcon = createIconComponent(Nucleo.IconCircleXmarkOutline18, 
 export const XIcon = createIconComponent(Nucleo.IconXmarkOutline18, "XIcon");
 
 export const BellIcon = createIconComponent(Nucleo.IconBellOutline18, "BellIcon");
+export const BalloonErrorIcon = createIconComponent(
+  Nucleo.IconCircleXmarkOutline18,
+  "BalloonErrorIcon",
+);
 export const BoxIcon = createIconComponent(Nucleo.IconBoxOutline18, "BoxIcon");
 export const ChevronExpandYIcon = createIconComponent(
   Nucleo.IconChevronExpandYOutline18,

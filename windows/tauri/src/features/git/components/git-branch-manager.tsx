@@ -50,6 +50,7 @@ import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitBlameStore } from "../stores/git-blame.store";
 import type { GitWorktree } from "../types/git.types";
 import { isOpenableGitWorktree } from "../utils/git-worktree-open";
+import { showCheckoutFailure } from "../utils/git-checkout-failure-presentation";
 import GitCommandSurface from "./git-command-surface";
 import { GitTrackingCounts } from "./git-tracking-counts";
 
@@ -338,10 +339,7 @@ const GitBranchManager = ({
         setIsDropdownOpen(false);
         onBranchChange?.();
       } else {
-        showToast({
-          message: result.message,
-          type: "error",
-        });
+        showCheckoutFailure(t, branchName, result.message);
       }
     } finally {
       setIsLoading(false);

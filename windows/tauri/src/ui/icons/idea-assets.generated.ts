@@ -19,6 +19,8 @@ import arrowSquareOutLight from "./idea/expui/ide/externalLink.svg?url";
 import arrowSquareOutDark from "./idea/expui/ide/externalLink_dark.svg?url";
 import arrowUpLight from "./idea/expui/general/up.svg?url";
 import arrowUpDark from "./idea/expui/general/up_dark.svg?url";
+import balloonErrorLight from "./idea/expui/status/error.svg?url";
+import balloonErrorDark from "./idea/expui/status/error_dark.svg?url";
 import bellLight from "./idea/expui/toolwindows/notifications.svg?url";
 import bellDark from "./idea/expui/toolwindows/notifications_dark.svg?url";
 import bellLargeLight from "./idea/expui/toolwindows/notifications@20x20.svg?url";
@@ -240,6 +242,7 @@ export const ideaIconAssets: Record<string, IdeaIconAsset> = {
   ArrowRightIcon: { light: arrowRightLight, dark: arrowRightDark },
   ArrowSquareOutIcon: { light: arrowSquareOutLight, dark: arrowSquareOutDark },
   ArrowUpIcon: { light: arrowUpLight, dark: arrowUpDark },
+  BalloonErrorIcon: { light: balloonErrorLight, dark: balloonErrorDark },
   BellIcon: { light: bellLight, dark: bellDark, large: { light: bellLargeLight, dark: bellLargeDark } },
   BookmarkIcon: { light: bookmarkLight, dark: bookmarkDark },
   BookOpenIcon: { light: bookOpenLight, dark: bookOpenDark },
