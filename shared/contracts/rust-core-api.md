@@ -420,6 +420,10 @@ CLI found on that `PATH` with its minimum version; they are installed with
 with the user's CLI through the adapter's variable (`CODEX_PATH`,
 `CLAUDE_CODE_EXECUTABLE`). A missing or
 too old CLI is an issue for the user to resolve, never installed by Lithe.
+For Codex, `cli.installation.updateAvailable` is `true` only when the verified
+installation owner reports a newer release, `false` when it confirms the current
+release, and absent when the check is unavailable. It does not change
+`canUpdate`, which only describes whether Lithe can safely invoke that owner.
 `agent.install` runs `npm install` into a staging directory
 and replaces the previous install only after the adapter executable exists; it
 honors `operationId` cancellation and `timeoutMilliseconds`. Failures use

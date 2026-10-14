@@ -21,7 +21,8 @@ struct AgentSetupDiagnosticsTests {
                 cli: .init(name: "Codex CLI", command: "codex", minimumVersion: "0.156.0", installHint: "npm install",
                            detected: .init(version: version, path: "/example/bin/codex"), installation: installation), issues: [])
             let check = try #require(AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: true).first { $0.id == "cli" })
-            #expect(check.fix == (installation.canUpdate ? .updateCli : nil))
+            let compatible = AgentSetupDiagnostics.isVersion(version, atLeast: "0.156.0")
+            #expect(check.fix == (installation.canUpdate && (!compatible || installation.updateAvailable == true) ? .updateCli : nil))
             #expect(check.status == (AgentSetupDiagnostics.isVersion(version, atLeast: "0.156.0") ? .pass : .warn),
                     "Manual update availability must not change the compatibility result")
             #expect(check.message.contains(installation.source == .homebrew ? "Homebrew" :
@@ -31,6 +32,24 @@ struct AgentSetupDiagnosticsTests {
                 #expect(!check.message.contains("npm install"))
             }
         }
+    }
+
+    @Test(arguments: [false, true, nil] as [Bool?])
+    func currentCodexOnlyOffersConfirmedUpdate(updateAvailable: Bool?) throws {
+        let installation = AgentCliInstallation(source: .npm, canUpdate: true,
+                                                updateHint: "npm install -g @openai/codex",
+                                                updateAvailable: updateAvailable)
+        let agent = AgentCatalogStatus(id: "codex-acp", name: "Codex", description: "", package: "adapter",
+            version: "1", installedVersion: "1", protocol: "responses", minimumNodeMajor: 20, verified: true,
+            cli: .init(name: "Codex CLI", command: "codex", minimumVersion: "0.156.0", installHint: "npm install",
+                       detected: .init(version: "0.159.3", path: "/example/bin/codex"), installation: installation), issues: [])
+        let environment = AgentRuntimeEnvironment(node: nil, npm: nil, usedLoginShell: true)
+        let check = try #require(AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: true)
+            .first { $0.id == "cli" })
+        #expect(check.status == .pass)
+        #expect(check.fix == (updateAvailable == true ? .updateCli : nil))
+        if updateAvailable == false { #expect(check.title.contains("Up to date.")) }
+        if updateAvailable == nil { #expect(check.message.contains("Could not check for updates.")) }
     }
 
     @Test

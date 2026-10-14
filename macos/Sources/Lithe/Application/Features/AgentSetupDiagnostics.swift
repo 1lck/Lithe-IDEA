@@ -143,9 +143,20 @@ extension AgentSetupDiagnostics {
             if let detected = cli.detected {
                 if isVersion(detected.version, atLeast: cli.minimumVersion) {
                     // Compatibility does not mean the CLI has the latest model catalog.
-                    checks.append(.init(id: "cli", title: title, status: .pass,
-                                        message: "\(detected.version) · \(detected.path)",
-                                        fix: canUpdate ? .updateCli : nil))
+                    let updateAvailable = cli.command == "codex"
+                        ? cli.installation?.updateAvailable == true : true
+                    var statusTitle = title
+                    var message = "\(detected.version) · \(detected.path)"
+                    if cli.command == "codex" {
+                        switch cli.installation?.updateAvailable {
+                        case false?: statusTitle += " · " + String(localized: "Up to date.")
+                        case nil: message += "\n" + String(localized: "Could not check for updates.")
+                        case true?: break
+                        }
+                    }
+                    checks.append(.init(id: "cli", title: statusTitle, status: .pass,
+                                        message: message,
+                                        fix: canUpdate && updateAvailable ? .updateCli : nil))
                 } else {
                     checks.append(.init(id: "cli", title: title, status: .warn,
                                         message: Issue.cliTooOld(name: cli.name, minimumVersion: cli.minimumVersion, found: detected.version).message,
@@ -167,8 +178,10 @@ extension AgentSetupDiagnostics {
                 }
                 let provenance = String(format: String(localized: "Installation: %@"), source)
                 let hint = NSLocalizedString(installation.updateHint, comment: "CLI update guidance")
+                let showHint = cli.command != "codex" || installation.updateAvailable != false
                 checks[index] = .init(id: check.id, title: check.title, status: check.status,
-                                     message: "\(check.message)\n\(provenance)\n\(hint)", fix: check.fix)
+                                     message: "\(check.message)\n\(provenance)" + (showHint ? "\n\(hint)" : ""),
+                                     fix: check.fix)
             }
         }
 

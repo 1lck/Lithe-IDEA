@@ -61,6 +61,53 @@ fn claude() -> &'static AgentCli {
 }
 
 #[test]
+fn codex_update_probe_accepts_homebrew_outdated_exit_but_not_other_failures() {
+    let fixture = Fixture::new();
+    for (source, output, exit, expected) in [
+        (
+            CliSource::Homebrew,
+            r#"{"casks":[{"name":"codex"}],"formulae":[]}"#,
+            1,
+            Some(true),
+        ),
+        (
+            CliSource::Homebrew,
+            r#"{"casks":[],"formulae":[]}"#,
+            0,
+            Some(false),
+        ),
+        (
+            CliSource::Homebrew,
+            r#"{"casks":[],"formulae":[]}"#,
+            1,
+            None,
+        ),
+        (CliSource::Homebrew, "unavailable", 1, None),
+        (CliSource::Npm, r#""0.160.0""#, 1, None),
+    ] {
+        let executable = fixture.file(
+            "manager",
+            &format!("#!/bin/sh\nprintf '%s\\n' '{output}'\nexit {exit}\n"),
+        );
+        let plan = UpdatePlan::automatic(
+            source,
+            String::new(),
+            &executable,
+            vec!["upgrade".into(), "--cask".into(), "codex".into()],
+            false,
+        );
+        assert_eq!(
+            codex_update_available(&plan, "0.159.3", None, &|| false),
+            expected
+        );
+        assert_eq!(
+            codex_update_available(&plan, "0.159.3", None, &|| true),
+            None
+        );
+    }
+}
+
+#[test]
 fn homebrew_receipt_and_actual_target_win_over_an_unrelated_npm_install() {
     // Preserve cask/formula ownership and Claude's chosen release channel.
     for (kind, directory, package, cli) in [
