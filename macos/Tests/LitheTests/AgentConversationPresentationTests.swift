@@ -320,7 +320,7 @@ struct AgentConversationPresentationTests {
                         } composer: {
                             AgentComposerContent(files: files, commands: Array(commands.prefix(count)), highlightedIndex: 0,
                                                  onSelect: { _ in }, onRemoveFile: { _ in }, onFocus: {}) {
-                                Color.clear.frame(height: AgentComposerMetrics.contextHeight)
+                                Color.clear.frame(height: AgentComposerMetrics.contextHeight - 2)
                             } editor: {
                                 TextField("Message the Agent", text: .constant("/"), axis: .vertical)
                                     .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(1...)
@@ -328,7 +328,7 @@ struct AgentConversationPresentationTests {
                                     .padding(.horizontal, 8).padding(.vertical, 10)
                                     .frame(maxWidth: .infinity, alignment: .topLeading)
                             } toolbar: {
-                                Color.clear.frame(height: AgentComposerMetrics.toolbarHeight)
+                                Color.clear.frame(height: AgentComposerMetrics.toolbarHeight - 2)
                             }
                             .padding(.horizontal, 8).padding(.bottom, AgentComposerMetrics.bottomInset)
                             .background(AgentDraftFrameProbe { composer = $0 })
@@ -347,6 +347,10 @@ struct AgentConversationPresentationTests {
                         #expect(pane.height + AgentComposerMetrics.splitTopInset >= AgentComposerMetrics.minimumHeight(hasFiles: !files.isEmpty) - 0.5)
                         #expect(frame.height > 0, "The actual text field must survive \(count) commands and \(files.count) attachments")
                         #expect(pane.insetBy(dx: -0.5, dy: -0.5).contains(frame), "The writing line must stay inside the sized pane")
+                        if files.isEmpty, count == 0 {
+                            let inputHeight = pane.height - AgentComposerMetrics.bottomInset - (AgentComposerMetrics.contextHeight - 2)
+                            #expect(abs(inputHeight - 108) < 0.5, "Default input border height stays constant across panel sizes")
+                        }
                         let writingScroll = try #require(enclosingScroll(of: input))
                         #expect(writingScroll.bounds.height >= AgentComposerMetrics.writingLineHeight - 0.5)
                         if count > 0 {

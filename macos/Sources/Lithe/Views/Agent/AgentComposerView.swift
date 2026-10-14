@@ -265,7 +265,7 @@ struct AgentConversationLayout<Transcript: View, Composer: View>: View {
             LitheSplitPaneView(
                 axis: .vertical,
                 placement: .trailing,
-                defaultSize: min(132, geometry.size.height * 0.22),
+                defaultSize: AgentComposerMetrics.minimumHeight(hasFiles: false),
                 minimum: minimum,
                 maximum: max(minimum, geometry.size.height * 0.6),
                 showsIdleDivider: false

@@ -7,13 +7,15 @@ enum AgentComposerMetrics {
     static let contextHeight: CGFloat = 26
     static let toolbarHeight: CGFloat = 30
     static let fileHeight: CGFloat = 34
-    static let writingLineHeight: CGFloat = 36
+    // Chat composition target from the reference UI, not a Community platform constant.
+    static let inputMinimumHeight: CGFloat = 108
+    static let writingLineHeight: CGFloat = inputMinimumHeight - (toolbarHeight - 2)
     static let bottomInset: CGFloat = 8
     static let horizontalInset: CGFloat = 8
     static let splitTopInset: CGFloat = 10
 
     static func minimumHeight(hasFiles: Bool) -> CGFloat {
-        contextHeight + toolbarHeight + writingLineHeight + bottomInset + splitTopInset + (hasFiles ? fileHeight : 0)
+        contextHeight - 2 + inputMinimumHeight + bottomInset + splitTopInset + (hasFiles ? fileHeight : 0)
     }
 }
 

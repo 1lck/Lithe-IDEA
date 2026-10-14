@@ -24,14 +24,14 @@ struct AgentActivityPresentationTests {
             for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
             window.close()
         }
-        let edits = NSPoint(x: 18 + 664 * 2.5 / 3, y: 580)
+        let edits = NSPoint(x: 8 + 684 * 2.5 / 3, y: 580)
         host.layoutSubtreeIfNeeded()
         try click(edits, in: host, window: window)
         let popup = try #require(await waitForPopup(excluding: initialWindows))
         let content = try #require(popup.contentView)
         try capture(content, name: "activity-edits-actions")
         let rowCenter = content.bounds.height - 22
-        try click(NSPoint(x: content.bounds.width - 33, y: rowCenter), in: content, window: popup)
+        try click(NSPoint(x: content.bounds.width - 47, y: rowCenter), in: content, window: popup)
         try #require(await waitUntil { window.attachedSheet != nil }, "Diff must open after the dropdown dismisses")
         let sheet = try #require(window.attachedSheet)
         let diff = try #require(sheet.contentView)
@@ -44,7 +44,7 @@ struct AgentActivityPresentationTests {
         try click(edits, in: host, window: window)
         let nextPopup = try #require(await waitForPopup(excluding: initialWindows))
         let nextContent = try #require(nextPopup.contentView)
-        try click(NSPoint(x: nextContent.bounds.width - 13, y: rowCenter), in: nextContent, window: nextPopup)
+        try click(NSPoint(x: nextContent.bounds.width - 19, y: rowCenter), in: nextContent, window: nextPopup)
         try #require(await waitUntil { window.attachedSheet != nil }, "Rollback must ask for confirmation")
         let alert = try #require(window.attachedSheet)
         let alertContent = try #require(alert.contentView)
@@ -79,12 +79,12 @@ struct AgentActivityPresentationTests {
             }
             for (index, panel) in AgentActivitySummaryBar.Panel.allCases.enumerated() {
                 host.layoutSubtreeIfNeeded()
-                // Each segment occupies one third of the bar inside its 18pt margins.
-                let point = NSPoint(x: 18 + 284 * (CGFloat(index) + 0.5) / 3, y: 60)
+                // Each segment occupies one third of the bar inside the same 8pt margins as the composer.
+                let point = NSPoint(x: 8 + 304 * (CGFloat(index) + 0.5) / 3, y: 60)
                 try click(point, in: host, window: window)
                 let popup = try #require(await waitForPopup(excluding: initialWindows), "The \(panel.rawValue) segment must open a native panel")
                 let content = try #require(popup.contentView)
-                #expect(abs(popup.frame.width - 284) < 1, "Every panel follows the activity bar's width")
+                #expect(abs(popup.frame.width - 304) < 1, "Every panel follows the activity bar's width")
                 try capture(content, name: "activity-\(panel.rawValue)-\(scheme)")
                 if panel == .edits {
                     let rowCenter = content.bounds.height - 22
@@ -120,10 +120,10 @@ struct AgentActivityPresentationTests {
             var previous: NSWindow?
             for (index, panel) in AgentActivitySummaryBar.Panel.allCases.enumerated() {
                 host.layoutSubtreeIfNeeded()
-                try click(NSPoint(x: 18 + (width - 36) * (Double(index) + 0.5) / 3, y: 140), in: host, window: window)
+                try click(NSPoint(x: 8 + (width - 16) * (Double(index) + 0.5) / 3, y: 140), in: host, window: window)
                 let popup = try #require(await waitForPopup(excluding: initialWindows))
-                #expect(abs(popup.frame.width - (width - 36)) < 1)
-                #expect(abs(popup.frame.minX - window.frame.minX - 18) < 1)
+                #expect(abs(popup.frame.width - (width - 16)) < 1)
+                #expect(abs(popup.frame.minX - window.frame.minX - 8) < 1)
                 #expect(abs(popup.frame.minY - window.frame.minY - 36) < 1, "The card opens immediately above the bar")
                 #expect(popup.frame.height >= 44 && popup.frame.height <= 56,
                         "An empty card has one centered line, without a heading or tall blank area")
@@ -133,7 +133,7 @@ struct AgentActivityPresentationTests {
                 previous = popup
             }
             // The same tab toggles closed; reopening still supports Escape and outside clicks.
-            let edits = NSPoint(x: 18 + (width - 36) * 2.5 / 3, y: 140)
+            let edits = NSPoint(x: 8 + (width - 16) * 2.5 / 3, y: 140)
             try click(edits, in: host, window: window)
             #expect(await waitUntil { previous?.isVisible == false })
             try click(edits, in: host, window: window)
@@ -182,9 +182,9 @@ struct AgentActivityPresentationTests {
             }
             for (index, panel) in AgentActivitySummaryBar.Panel.allCases.enumerated() {
                 host.layoutSubtreeIfNeeded()
-                try click(NSPoint(x: 18 + 284 * (CGFloat(index) + 0.5) / 3, y: 380), in: host, window: window)
+                try click(NSPoint(x: 8 + 304 * (CGFloat(index) + 0.5) / 3, y: 380), in: host, window: window)
                 let popup = try #require(await waitForPopup(excluding: initialWindows))
-                #expect(abs(popup.frame.width - 284) < 1)
+                #expect(abs(popup.frame.width - 304) < 1)
                 #expect(popup.frame.height <= 260, "Long lists use an internal viewport instead of a tall outer card")
                 let content = try #require(popup.contentView)
                 let scroll = try #require(scrollView(in: content))

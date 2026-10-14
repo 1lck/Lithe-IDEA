@@ -69,39 +69,32 @@ struct AgentActivitySummaryBar: View {
             self.restoration = nil
             panel = .edits
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, AgentComposerMetrics.horizontalInset)
         .padding(.bottom, 4)
     }
 
     private var tabs: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 4) {
             ForEach(Panel.allCases, id: \.self) { item in
-                if item != .tasks { Divider().frame(height: 14).overlay(AgentPanelStyle.border) }
                 Button { panel = panel == item ? nil : item } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 2) {
                         LitheSystemIcon(systemImage: item.icon, size: LitheTheme.Metrics.toolbarIconSize)
                         Text(item.title)
                         badge(item)
                     }
-                    .foregroundStyle(panel == item ? AgentPanelStyle.text : AgentPanelStyle.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 24)
-                    .background(panel == item ? AgentPanelStyle.context : Color.clear, in: RoundedRectangle(cornerRadius: 4))
-                    .contentShape(Rectangle())
+                    .padding(.horizontal, 4)
+                    .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.litheNoPress)
-                .litheRowHover()
+                .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize,
+                                                 isIconOnly: false, isSelected: panel == item))
                 .accessibilityIdentifier("agent-activity-\(item.rawValue)")
                 .accessibilityValue(count(item))
                 .accessibilityAddTraits(panel == item ? .isSelected : [])
                 .help(item.title)
             }
         }
-        .font(LitheTheme.uiFont(size: 11))
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
+        .font(LitheTheme.settingsFont)
         .frame(height: 32)
-        .background(AgentPanelStyle.canvas, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(AgentPanelStyle.border, lineWidth: 1))
     }
 
     private func count(_ panel: Panel) -> String {
@@ -117,7 +110,7 @@ struct AgentActivitySummaryBar: View {
     @ViewBuilder private func badge(_ item: Panel) -> some View {
         let count = count(item)
         if count != "0" {
-            Text(count).font(LitheTheme.uiFont(size: 10, weight: .semibold, design: .monospaced))
+            Text(count).font(LitheTheme.smallFont)
                 .foregroundStyle(item == .running && !activity.running.isEmpty ? LitheTheme.accent : AgentPanelStyle.text)
         }
     }
