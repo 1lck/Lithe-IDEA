@@ -189,7 +189,7 @@ extension AppModel {
         guard let location = navigationHistoryFeature.navigateBack(
             from: currentEditorNavigationLocation()
         ) else { return }
-        navigate(to: location, recordsHistory: false) { [weak self] in
+        navigate(to: location, recordsHistory: false, replaysHistory: true) { [weak self] in
             self?.navigationHistoryFeature.restore(historySnapshot)
         }
     }
@@ -199,7 +199,7 @@ extension AppModel {
         guard let location = navigationHistoryFeature.navigateForward(
             from: currentEditorNavigationLocation()
         ) else { return }
-        navigate(to: location, recordsHistory: false) { [weak self] in
+        navigate(to: location, recordsHistory: false, replaysHistory: true) { [weak self] in
             self?.navigationHistoryFeature.restore(historySnapshot)
         }
     }
@@ -232,8 +232,17 @@ extension AppModel {
     func navigate(
         to location: EditorNavigationLocation,
         recordsHistory: Bool,
+        replaysHistory: Bool = false,
         onFailure: (() -> Void)? = nil
     ) {
+        // Decide before the coordinator records history or a target, so a
+        // refused jump leaves both untouched.
+        let external = externalNavigationDecision(for: location.url, replaysHistory: replaysHistory)
+        if external == .rejected {
+            showNotification("Only source files of the current language can be opened from outside the workspace")
+            onFailure?()
+            return
+        }
         let departure = recordsHistory ? currentEditorNavigationLocation() : nil
         let providerID = location.virtualProviderID
             ?? virtualDocumentProviderIDs[location.url]
@@ -248,10 +257,15 @@ extension AppModel {
             },
             openFile: { [weak self] destination in
                 guard let self else { return }
+                // Definitions often live outside the project: Go's standard
+                // library, a module cache, or stubs inside a language-server
+                // package. Show them read-only instead of refusing the jump.
+                let isOutsideWorkspace = external == .externalReadOnly
                 self.openFile(
                     destination.url,
-                    isReadOnly: destination.isReadOnly,
-                    displayPath: destination.displayPath
+                    isReadOnly: destination.isReadOnly || isOutsideWorkspace,
+                    displayPath: destination.displayPath,
+                    allowsOutsideWorkspace: isOutsideWorkspace
                 )
             },
             openVirtualDocument: { [weak self] url, text, displayPath in
@@ -497,6 +511,24 @@ extension AppModel {
                     self.presentLanguageNavigationResults(kind)
                 }
             }
+        )
+    }
+
+    /// `replaysHistory` is true for Back/Forward. A history entry was already
+    /// accepted when it was recorded, but the language that authorized it is
+    /// not stored, and the current provider may be another language by now.
+    /// Replay therefore judges the file as a source of its own language.
+    func externalNavigationDecision(for url: URL, replaysHistory: Bool = false) -> ExternalNavigationDecision {
+        let languageOf: (URL) -> String? = { self.languageProviderCatalog.provider(for: $0)?.id }
+        let languageID = replaysHistory
+            ? languageOf(url)
+            : languageNavigationCoordinator.state.providerID
+                ?? focusedEditorDocument.flatMap { languageOf($0.url) }
+        return LanguageNavigationCoordinator.externalNavigationDecision(
+            for: url,
+            workspaceURL: workspaceURL,
+            languageID: languageID,
+            languageOf: languageOf
         )
     }
 

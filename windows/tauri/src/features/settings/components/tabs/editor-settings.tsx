@@ -4,7 +4,7 @@ import { getAllLanguages } from "@/features/editor/utils/language-id";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
 import NumberInput from "@/ui/number-input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import Switch from "@/ui/switch";
 import { FontSelector } from "../font-selector";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -190,15 +190,13 @@ export const EditorSettings = () => {
           onReset={() => updateSetting("renderWhitespace", getDefaultSetting("renderWhitespace"))}
           canReset={settings.renderWhitespace !== getDefaultSetting("renderWhitespace")}
         >
-          <Select
+          <SettingsSelect
             value={settings.renderWhitespace}
             options={renderWhitespaceOptions}
             onChange={(value) =>
               updateSetting("renderWhitespace", value as typeof settings.renderWhitespace)
             }
             className={SETTINGS_CONTROL_WIDTHS.default}
-            size="md"
-            variant="default"
           />
         </SettingRow>
 
@@ -338,7 +336,7 @@ export const EditorSettings = () => {
           onReset={() => updateSetting("editorCursorStyle", getDefaultSetting("editorCursorStyle"))}
           canReset={settings.editorCursorStyle !== getDefaultSetting("editorCursorStyle")}
         >
-          <Select
+          <SettingsSelect
             value={settings.editorCursorStyle}
             options={[
               { value: "line", label: t("settings.editor.cursorLine") },
@@ -352,8 +350,6 @@ export const EditorSettings = () => {
               updateSetting("editorCursorStyle", value as typeof settings.editorCursorStyle)
             }
             className={SETTINGS_CONTROL_WIDTHS.default}
-            size="md"
-            variant="default"
           />
         </SettingRow>
 
@@ -365,7 +361,7 @@ export const EditorSettings = () => {
           }
           canReset={settings.editorCursorBlinking !== getDefaultSetting("editorCursorBlinking")}
         >
-          <Select
+          <SettingsSelect
             value={settings.editorCursorBlinking}
             options={[
               { value: "blink", label: t("settings.editor.blink") },
@@ -378,8 +374,6 @@ export const EditorSettings = () => {
               updateSetting("editorCursorBlinking", value as typeof settings.editorCursorBlinking)
             }
             className={SETTINGS_CONTROL_WIDTHS.default}
-            size="md"
-            variant="default"
           />
         </SettingRow>
 
@@ -417,15 +411,12 @@ export const EditorSettings = () => {
           onReset={() => updateSetting("defaultLanguage", getDefaultSetting("defaultLanguage"))}
           canReset={settings.defaultLanguage !== getDefaultSetting("defaultLanguage")}
         >
-          <Select
+          <SettingsSelect
             value={settings.defaultLanguage}
             options={languageOptions}
             onChange={(value) => updateSetting("defaultLanguage", value)}
             className={SETTINGS_CONTROL_WIDTHS.default}
-            size="md"
-            variant="default"
             searchable
-            searchableTrigger="input"
           />
         </SettingRow>
 

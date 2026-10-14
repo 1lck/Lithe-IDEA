@@ -42,8 +42,9 @@ private extension EnvironmentValues {
 
 private struct WorkbenchHoverTooltipAnchor {
     let bounds: Anchor<CGRect>
-    let title: Text
+    let content: AnyView
     let placement: WorkbenchHoverTooltipPlacement
+    let maximumWidth: CGFloat
 }
 
 private struct WorkbenchHoverTooltipPreferenceKey: PreferenceKey {
@@ -82,8 +83,9 @@ private struct WorkbenchHoverTooltipSource: ViewModifier {
     @Environment(\.isLithePaneResizing) private var isResizing
     @State private var id = UUID()
     @State private var isHovered = false
-    let title: Text
+    let tooltip: AnyView
     let placement: WorkbenchHoverTooltipPlacement
+    let maximumWidth: CGFloat
 
     func body(content: Content) -> some View {
         // Keep hover tracking outside the Button's disabled environment.
@@ -95,7 +97,8 @@ private struct WorkbenchHoverTooltipSource: ViewModifier {
                 if isHovered && !isResizing {
                     Color.clear
                         .anchorPreference(key: WorkbenchHoverTooltipPreferenceKey.self, value: .bounds) {
-                            [id: WorkbenchHoverTooltipAnchor(bounds: $0, title: title, placement: placement)]
+                            [id: WorkbenchHoverTooltipAnchor(bounds: $0, content: tooltip, placement: placement,
+                                                             maximumWidth: maximumWidth)]
                         }
                         .allowsHitTesting(false)
                 }
@@ -132,8 +135,9 @@ private struct WorkbenchHoverTooltipOverlay: View {
             if let id = state.hoveredID, let anchor = anchors[id] {
                 let sourceFrame = geometry[anchor.bounds]
                 if sourceFrame.intersects(CGRect(origin: .zero, size: geometry.size)) {
-                    WorkbenchHoverTooltipLayout(sourceFrame: sourceFrame, placement: anchor.placement) {
-                        WorkbenchHoverTooltipLabel(title: anchor.title)
+                    WorkbenchHoverTooltipLayout(sourceFrame: sourceFrame, placement: anchor.placement,
+                                                maximumWidth: anchor.maximumWidth) {
+                        anchor.content
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height)
                 }
@@ -162,6 +166,10 @@ struct WorkbenchHoverTooltipLabel: View {
 struct WorkbenchHoverTooltipLayout: Layout {
     let sourceFrame: CGRect
     let placement: WorkbenchHoverTooltipPlacement
+    var maximumWidth: CGFloat = WorkbenchHoverTooltipLayout.textWidth
+
+    /// Plain tooltips wrap at this width; rich cards may request more.
+    static let textWidth: CGFloat = 236
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         proposal.replacingUnspecifiedDimensions()
@@ -170,7 +178,7 @@ struct WorkbenchHoverTooltipLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let tooltip = subviews.first else { return }
         let edgeInset: CGFloat = 8
-        let maximumWidth = min(236, max(bounds.width - edgeInset * 2, 0))
+        let maximumWidth = min(self.maximumWidth, max(bounds.width - edgeInset * 2, 0))
         let size = tooltip.sizeThatFits(ProposedViewSize(width: maximumWidth, height: nil))
         let gap: CGFloat = 6
         let preferredOrigin: CGPoint
@@ -200,6 +208,17 @@ extension View {
     }
 
     func workbenchHoverHelp(_ title: Text, placement: WorkbenchHoverTooltipPlacement = .below) -> some View {
-        modifier(WorkbenchHoverTooltipSource(title: title, placement: placement))
+        modifier(WorkbenchHoverTooltipSource(tooltip: AnyView(WorkbenchHoverTooltipLabel(title: title)),
+                                             placement: placement, maximumWidth: WorkbenchHoverTooltipLayout.textWidth))
+    }
+
+    /// Show a non-interactive card on hover. `content` supplies its own surface,
+    /// typically `litheHoverTooltipSurface()`, and is laid out within `maximumWidth`.
+    func workbenchHoverCard<Content: View>(
+        placement: WorkbenchHoverTooltipPlacement = .below,
+        maximumWidth: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        modifier(WorkbenchHoverTooltipSource(tooltip: AnyView(content()), placement: placement, maximumWidth: maximumWidth))
     }
 }

@@ -261,7 +261,9 @@ package final class LanguageToolingSessionManager: ObservableObject,
             executableNames: configuration.executableNames,
             arguments: configuration.arguments,
             validationArguments: configuration.validationArguments,
-            environment: configuration.environment
+            environment: configuration.environment,
+            runtimeTools: configuration.runtimeTools,
+            executableURL: configuration.executableURL
         )
         let descriptor = LanguageProviderDescriptor(
             id: support.id,
@@ -292,6 +294,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
             provider.lifecycle
         )
         return true
+    }
+
+    /// The descriptor a registered plugin language server launches with,
+    /// including its validation probe and runtime tools.
+    package func languageServerExtensionDescriptor(languageID: String) -> LanguageProviderDescriptor? {
+        guard extensionRuntimeIDs.contains(languageID) else { return nil }
+        return runtimesByID[languageID]?.descriptor
     }
 
     package func unregisterLanguageServerExtension(languageID: String) {

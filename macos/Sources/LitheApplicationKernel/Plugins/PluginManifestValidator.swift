@@ -71,20 +71,34 @@ public struct ValidatedPluginCatalog: Sendable {
             guard pluginIDs.insert(plugin.id).inserted else {
                 throw PluginCatalogError.duplicatePlugin(plugin.id)
             }
-            guard plugin.schemaVersion == PluginManifest.currentSchemaVersion else {
-                throw PluginCatalogError.unsupportedSchema(
-                    plugin: plugin.id,
-                    version: plugin.schemaVersion
-                )
-            }
-            guard plugin.apiVersion == supportedAPIVersion else {
-                throw PluginCatalogError.unsupportedAPI(plugin: plugin.id, version: plugin.apiVersion)
-            }
-            guard plugin.hostCompatibility.contains(hostVersion) else {
-                throw PluginCatalogError.incompatibleHost(
-                    plugin: plugin.id,
-                    hostVersion: hostVersion
-                )
+            if plugin.entrypoint.kind == .declarative {
+                // Declarative packages declare a plugin API level instead of a
+                // host version range.
+                guard plugin.schemaVersion == PluginManifest.declarativeSchemaVersion else {
+                    throw PluginCatalogError.unsupportedSchema(
+                        plugin: plugin.id,
+                        version: plugin.schemaVersion
+                    )
+                }
+                guard PluginManifest.supportedDeclarativeAPIVersions.contains(plugin.apiVersion) else {
+                    throw PluginCatalogError.unsupportedAPI(plugin: plugin.id, version: plugin.apiVersion)
+                }
+            } else {
+                guard plugin.schemaVersion == PluginManifest.currentSchemaVersion else {
+                    throw PluginCatalogError.unsupportedSchema(
+                        plugin: plugin.id,
+                        version: plugin.schemaVersion
+                    )
+                }
+                guard plugin.apiVersion == supportedAPIVersion else {
+                    throw PluginCatalogError.unsupportedAPI(plugin: plugin.id, version: plugin.apiVersion)
+                }
+                guard plugin.hostCompatibility.contains(hostVersion) else {
+                    throw PluginCatalogError.incompatibleHost(
+                        plugin: plugin.id,
+                        hostVersion: hostVersion
+                    )
+                }
             }
             guard !plugin.modules.isEmpty else {
                 throw PluginCatalogError.emptyPlugin(plugin.id)
@@ -98,10 +112,10 @@ public struct ValidatedPluginCatalog: Sendable {
                     throw PluginCatalogError.invalidEntrypoint(plugin.id)
                 }
             case .nativeBundle:
-                guard plugin.entrypoint.targetName == nil,
-                      plugin.entrypoint.bundleIdentifier?.isEmpty == false,
-                      plugin.entrypoint.principalClass?.isEmpty == false,
-                      Self.isSafeRelativePath(plugin.entrypoint.bundlePath) else {
+                // In-process native bundles are no longer hosted.
+                throw PluginCatalogError.invalidEntrypoint(plugin.id)
+            case .declarative:
+                guard plugin.entrypoint == .declarative else {
                     throw PluginCatalogError.invalidEntrypoint(plugin.id)
                 }
             }

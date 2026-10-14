@@ -268,6 +268,7 @@ private struct AgentConnectionView: View {
                     isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
                     isCancelling: feature.selectedConversation?.isCancelling == true,
                     contextUsage: feature.selectedConversation?.contextUsage,
+                    sessionStatistics: feature.selectedConversation?.sessionStatistics,
                     showsSubscriptionQuota: feature.usesSubscription,
                     subscriptionQuota: feature.subscriptionQuota,
                     subscriptionAccount: feature.subscriptionEmail,

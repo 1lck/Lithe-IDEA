@@ -1,0 +1,26 @@
+{
+  "id": "macos-shared-selection-focus",
+  "area": "工作台",
+  "group": "界面样式",
+  "capability": "macOS 普通选中行主题与区域和窗口焦点",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Theme/LitheTheme.swift",
+      "macos/Sources/Lithe/Views/Components/LitheToolWindowTabStyle.swift",
+      "macos/Tests/LitheTests/LitheTreeRowStyleTests.swift",
+      "macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift",
+      ".agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/file-explorer/styles/file-explorer-tree.css"
+    ],
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Workbench",
+  "verification": "深浅主题下分别点击 Project、Commit、Maven、Run、Git Log、PR、Redis/Nacos、SQL 历史、本地历史、Tests、Debug 堆栈、Agent 历史、Settings 和插件列表；独立列表间及详情编辑器间转移焦点，窗口失焦变灰、激活恢复，选择和布局不变。验证多选、方向键、共用 field editor 转移和快速内外点击；折叠卸载后转移焦点再展开，挂载在下一次主队列按当前焦点重算，销毁真实 SwiftUI State 宿主不触发独占访问冲突；点击列表后详情程序化聚焦，较早鼠标回调不得覆盖新焦点。共享样式真实像素回归覆盖窗口 key/inactive；原生 Git 图谱和文件树需检查窗口切换时及时重绘。完整应用全部入口及非默认主题验收仍 pending。"
+}

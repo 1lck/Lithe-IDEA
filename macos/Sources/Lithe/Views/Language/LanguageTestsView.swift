@@ -7,6 +7,7 @@ struct LanguageTestsView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var service: LanguageTestService
 
+    @State private var itemListActive = false
     @State private var selectedItemID: String?
     @State private var collapsedProviderIDs: Set<String> = []
     @AppStorage("lithe.tests.itemListWidth") private var itemListWidth = 250.0
@@ -60,7 +61,7 @@ struct LanguageTestsView: View {
                             minimum: minimumListWidth,
                             maximum: maximumListWidth,
                             onCommit: { itemListWidth = Double($0) },
-                            sized: { testItemList },
+                            sized: { testItemList.background(LitheToolWindowActivityTracker(isActive: $itemListActive)) },
                             flexible: { selectedTestContent }
                         )
                     }
@@ -257,11 +258,7 @@ struct LanguageTestsView: View {
             .padding(.trailing, 6)
             .frame(height: 26)
             .contentShape(Rectangle())
-            .litheRowHover(
-                isActive: selectedItemID == item.id,
-                cornerRadius: 5,
-                activeBackground: LitheTheme.selection
-            )
+            .litheSelectionRow(isSelected: selectedItemID == item.id, isFocused: itemListActive, cornerRadius: 5)
         }
         .buttonStyle(.litheNoPress)
         .lithePointer()

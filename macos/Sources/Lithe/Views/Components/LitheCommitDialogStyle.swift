@@ -18,14 +18,18 @@ enum LitheCommitDialogStyle {
 
 struct LitheCommitDialogInputStyle: ViewModifier {
     let focused: Bool
+    @Environment(\.isEnabled) private var enabled
 
     func body(content: Content) -> some View {
         content
             .textFieldStyle(.plain)
             .font(LitheTheme.uiFont(size: 13))
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(minHeight: 28)
+            .frame(height: 28, alignment: .center)
+            .onContinuousHover { phase in
+                if case .active = phase, enabled { NSCursor.iBeam.set() }
+                else { NSCursor.arrow.set() }
+            }
             .background(LitheCommitDialogStyle.editorBackground)
             .overlay {
                 Rectangle().strokeBorder(focused ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder,
@@ -43,6 +47,7 @@ struct LitheCommitDialogButtonStyle: ButtonStyle {
         configuration.label
             .font(LitheTheme.uiFont(size: 13))
             .foregroundStyle(primary ? .white : LitheTheme.primaryText)
+            .padding(.horizontal, LitheTheme.Commit.buttonHorizontalPadding)
             .frame(minWidth: 72, minHeight: 28)
             .background(primary ? LitheTheme.settingsControlAccent : LitheCommitDialogStyle.background)
             .overlay {

@@ -14,6 +14,7 @@
 "Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
 "Download PHP Support from the official plugin release." = "Download PHP Support from the official plugin release.";
 "Download and Install" = "Download and Install";
+"Unsigned development package. Release builds of Lithe will not load it." = "Unsigned development package. Release builds of Lithe will not load it.";
 "Install PHP Support Plugin" = "Install PHP Support Plugin";
 "Select a PHP Support plugin package." = "Select a PHP Support plugin package.";
 "Plugin marketplace is not available" = "Plugin marketplace is not available";
@@ -1453,3 +1454,43 @@
 "Expand All" = "Expand All";
 
 "Collapse All" = "Collapse All";
+
+/* Tool window docking destinations. */
+"Move to Left Top" = "Move to Left Top";
+"Move to Left Bottom" = "Move to Left Bottom";
+"Move to Right Top" = "Move to Right Top";
+"Move to Right Bottom" = "Move to Right Bottom";
+"Move to Bottom Left" = "Move to Bottom Left";
+"Move to Bottom Right" = "Move to Bottom Right";
+
+"Could not move the editor tab. Its content could not be synchronized." = "Could not move the editor tab. Its content could not be synchronized.";
+"Database Overview" = "Database Overview";
+
+"Non-Introspected" = "Non-Introspected";
+
+"Switch current database" = "Switch current database";
+
+"%@ Query History" = "%@ Query History";
+
+"Result %d" = "Result %d";
+
+"%d rows retrieved in %d ms" = "%d rows retrieved in %d ms";
+
+"%llu rows affected in %d ms" = "%llu rows affected in %d ms";
+
+"No query output" = "No query output";
+
+"Services" = "Services";
+
+"Output" = "Output";
+
+"SQL execution markers" = "SQL execution markers";
+
+"Succeeded, line %d" = "Succeeded, line %d";
+
+"Failed, line %d" = "Failed, line %d";
+
+/* Main toolbar settings menu. */
+"Plugins…" = "Plugins…";
+"Theme…" = "Theme…";
+"Keymap…" = "Keymap…";

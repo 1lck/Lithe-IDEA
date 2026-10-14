@@ -11,6 +11,7 @@ const DOM_GLOBALS = [
   "HTMLInputElement",
   "HTMLTextAreaElement",
   "Node",
+  "NodeFilter",
   "Event",
   "EventTarget",
   "KeyboardEvent",

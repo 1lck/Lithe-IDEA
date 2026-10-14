@@ -1,0 +1,273 @@
+{
+  "schemaVersion": 1,
+  "description": "plugins.marketplace.installReview golden outcomes. `approvedPrograms` absent means a first installation. Edits apply to the base manifest before review.",
+  "cases": [
+    {
+      "name": "first installation lists every program",
+      "base": "php-support.plugin.json",
+      "expectedID": "dev.lithe.fixture.php-support",
+      "expectedVersion": "0.1.0",
+      "expected": {
+        "permissions": [
+          "languageServer.launch",
+          "process.run",
+          "process.test"
+        ],
+        "programs": [
+          {
+            "kind": "packagedLanguageServer",
+            "languageID": "php",
+            "path": "language-server/bin/intelephense",
+            "arguments": [
+              "--stdio"
+            ],
+            "validationArguments": []
+          },
+          {
+            "kind": "run",
+            "languageID": "php",
+            "executable": {
+              "command": "php"
+            },
+            "arguments": [
+              "${file}",
+              "${userArguments}"
+            ]
+          },
+          {
+            "kind": "runtime",
+            "tool": "node"
+          },
+          {
+            "kind": "test",
+            "languageID": "php",
+            "executable": {
+              "command": "php"
+            },
+            "workspaceArguments": [
+              "vendor/bin/phpunit"
+            ],
+            "fileArguments": [
+              "vendor/bin/phpunit",
+              "${file}"
+            ],
+            "testCaseArguments": [
+              "vendor/bin/phpunit",
+              "--filter",
+              "\\b${testName:regex}\\b",
+              {
+                "value": "${file}",
+                "when": "fileSelected"
+              }
+            ]
+          }
+        ],
+        "newProgramCount": 4
+      }
+    },
+    {
+      "name": "unchanged update needs no new approval",
+      "base": "php-support.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/version",
+          "value": "0.2.0"
+        }
+      ],
+      "approvedFrom": "php-support.plugin.json",
+      "expected": {
+        "newProgramCount": 0
+      }
+    },
+    {
+      "name": "changed language server arguments need approval",
+      "base": "php-support.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/languageServers/0/arguments",
+          "value": [
+            "--stdio",
+            "--log=verbose"
+          ]
+        }
+      ],
+      "approvedFrom": "php-support.plugin.json",
+      "expected": {
+        "newPrograms": [
+          {
+            "kind": "packagedLanguageServer",
+            "languageID": "php",
+            "path": "language-server/bin/intelephense",
+            "arguments": [
+              "--stdio",
+              "--log=verbose"
+            ],
+            "validationArguments": []
+          }
+        ],
+        "newProgramCount": 1
+      }
+    },
+    {
+      "name": "changed run arguments with the same executable need approval",
+      "base": "php-support.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/executionProviders/0/run/arguments",
+          "value": [
+            "-r",
+            "${userArguments}"
+          ]
+        }
+      ],
+      "approvedFrom": "php-support.plugin.json",
+      "expected": {
+        "newPrograms": [
+          {
+            "kind": "run",
+            "languageID": "php",
+            "executable": {
+              "command": "php"
+            },
+            "arguments": [
+              "-r",
+              "${userArguments}"
+            ]
+          }
+        ],
+        "newProgramCount": 1
+      }
+    },
+    {
+      "name": "changed test arguments with the same executable need approval",
+      "base": "php-support.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/executionProviders/0/test/workspaceArguments",
+          "value": [
+            "vendor/bin/other-runner"
+          ]
+        }
+      ],
+      "approvedFrom": "php-support.plugin.json",
+      "expected": {
+        "newProgramCount": 1
+      }
+    },
+    {
+      "name": "changed language server validation probe needs approval",
+      "base": "php-support.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/languageServers/0/validationArguments",
+          "value": [
+            "--version"
+          ]
+        }
+      ],
+      "approvedFrom": "php-support.plugin.json",
+      "expected": {
+        "newProgramCount": 1
+      }
+    },
+    {
+      "name": "package does not match the index entry",
+      "base": "php-support.plugin.json",
+      "expectedID": "dev.lithe.fixture.php-support",
+      "expectedVersion": "9.9.9",
+      "expectedCode": "plugin.package.mismatch"
+    },
+    {
+      "name": "unsigned package in the official namespace",
+      "base": "go-support.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/vendor/signatureRequirement",
+          "value": "none"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "unsigned community package",
+      "base": "go-support.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/id",
+          "value": "io.example.go-tools"
+        },
+        {
+          "op": "set",
+          "path": "/vendor/signatureRequirement",
+          "value": "none"
+        }
+      ],
+      "expected": {
+        "programs": [
+          {
+            "kind": "run",
+            "languageID": "go",
+            "executable": {
+              "toolchain": "project-go"
+            },
+            "arguments": [
+              "run",
+              "${file}",
+              "${userArguments}"
+            ]
+          },
+          {
+            "kind": "runtime",
+            "tool": "go"
+          },
+          {
+            "kind": "systemLanguageServer",
+            "languageID": "go",
+            "commands": [
+              "gopls"
+            ],
+            "arguments": [],
+            "validationArguments": [
+              "version"
+            ]
+          },
+          {
+            "kind": "test",
+            "languageID": "go",
+            "executable": {
+              "toolchain": "project-go"
+            },
+            "workspaceArguments": [
+              "test",
+              "./..."
+            ],
+            "fileArguments": [
+              "test",
+              "${fileDirectory}"
+            ],
+            "testCaseArguments": [
+              "test",
+              {
+                "value": "${fileDirectory}",
+                "when": "fileSelected"
+              },
+              {
+                "value": "./...",
+                "when": "noFileSelected"
+              },
+              "-run",
+              "^${testName:regex}$"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

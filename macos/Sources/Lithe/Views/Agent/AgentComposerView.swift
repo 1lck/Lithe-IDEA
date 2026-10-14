@@ -19,6 +19,7 @@ struct AgentComposerView: View {
     var isConfiguring = false
     var isCancelling = false
     var contextUsage: AgentContextUsage?
+    var sessionStatistics: AgentSessionStatistics?
     var showsSubscriptionQuota = false
     var subscriptionQuota: AgentSubscriptionQuota?
     var subscriptionAccount: String?
@@ -85,12 +86,23 @@ struct AgentComposerView: View {
 
     private var contextBar: some View {
         HStack(spacing: 8) {
-            AgentContextUsageView(usage: contextUsage)
+            if let sessionStatistics {
+                // Session facts take width before the attach label, which
+                // collapses to its icon in a normal-width panel.
+                AgentSessionStatusView(statistics: sessionStatistics, contextUsage: contextUsage)
+                    .layoutPriority(1)
+            } else {
+                AgentContextUsageView(usage: contextUsage)
+            }
             Rectangle().fill(AgentPanelStyle.border).frame(width: 1, height: 12)
             Button { showsFilePicker = true } label: {
-                Label(isDropTargeted ? "Drop files here" : "Attach files", systemImage: "paperclip")
+                ViewThatFits(in: .horizontal) {
+                    Label(isDropTargeted ? "Drop files here" : "Attach files", systemImage: "paperclip").fixedSize()
+                    Image(systemName: "paperclip")
+                }
             }
             .buttonStyle(.litheNoPress)
+            .accessibilityLabel(isDropTargeted ? "Drop files here" : "Attach files")
             .help("Drag files here or click to choose files")
             Spacer(minLength: 0)
             if showsSubscriptionQuota {

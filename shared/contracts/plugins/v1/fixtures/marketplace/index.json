@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "plugins": [
+    {
+      "id": "io.example.zig-support",
+      "name": "Zig Support",
+      "author": "Example Developer",
+      "repository": "https://github.com/example/lithe-zig",
+      "homepage": "https://example.com/lithe-zig",
+      "description": "Zig language server and test runner integration.",
+      "localizedDescriptions": { "zh-Hans": "Zig 语言服务器与测试运行集成。" },
+      "tags": ["Language", "zig"],
+      "license": "MIT",
+      "icon": "https://raw.githubusercontent.com/example/lithe-zig/main/icon.png",
+      "versions": [
+        {
+          "version": "1.9.0",
+          "pluginAPIVersion": 1,
+          "releaseDate": "2026-08-01",
+          "downloads": [
+            {
+              "platforms": ["darwin-arm64"],
+              "downloadURL": "https://github.com/example/lithe-zig/releases/download/v1.9.0/zig-support-1.9.0-darwin-arm64.zip",
+              "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          ]
+        },
+        {
+          "version": "2.0.0",
+          "pluginAPIVersion": 1,
+          "releaseDate": "2026-09-20",
+          "downloads": [
+            {
+              "platforms": ["darwin-arm64"],
+              "downloadURL": "https://github.com/example/lithe-zig/releases/download/v2.0.0/zig-support-2.0.0-darwin-arm64.zip",
+              "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            {
+              "platforms": ["windows-x64"],
+              "downloadURL": "https://github.com/Example/Lithe-Zig/releases/download/v2.0.0/zig-support-2.0.0-windows-x64.zip",
+              "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dev.lithe.fixture.php-support",
+      "name": "PHP Support Fixture",
+      "author": "Lithe",
+      "repository": "https://github.com/Lithe-IDEA/Lithe-IDEA",
+      "description": "PHP language server, run and test support.",
+      "tags": ["language", "php"],
+      "license": "Apache-2.0",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "pluginAPIVersion": 2,
+          "releaseDate": "2026-10-10",
+          "downloads": [
+            {
+              "platforms": ["darwin-arm64", "darwin-x64"],
+              "downloadURL": "https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/plugin-php-support-v1.1.0/Lithe-PHP-Support-1.1.0-darwin.zip",
+              "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+            }
+          ]
+        },
+        {
+          "version": "1.0.0",
+          "pluginAPIVersion": 1,
+          "releaseDate": "2026-10-01",
+          "downloads": [
+            {
+              "platforms": ["darwin-arm64", "darwin-x64"],
+              "downloadURL": "https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/plugin-php-support-v1.0.0/Lithe-PHP-Support-1.0.0-darwin.zip",
+              "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "io.example.future-tools",
+      "name": "Future Tools",
+      "author": "Example Developer",
+      "repository": "https://github.com/example/future-tools",
+      "description": "Needs a plugin API this host does not provide.",
+      "license": "MIT",
+      "versions": [
+        {
+          "version": "3.0.0",
+          "pluginAPIVersion": 2,
+          "releaseDate": "2026-10-05",
+          "downloads": [
+            {
+              "platforms": ["darwin-arm64", "linux-x64"],
+              "downloadURL": "https://github.com/example/future-tools/releases/download/3.0.0/future-tools.zip",
+              "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "io.example.zig-support",
+      "name": "Zig Support (copy)",
+      "author": "Someone Else",
+      "repository": "https://github.com/someone/zig-copy",
+      "description": "A second listing of an ID already in this index.",
+      "license": "MIT",
+      "versions": [
+        {
+          "version": "9.0.0",
+          "pluginAPIVersion": 1,
+          "releaseDate": "2026-10-11",
+          "downloads": [
+            {
+              "platforms": ["darwin-arm64"],
+              "downloadURL": "https://github.com/someone/zig-copy/releases/download/v9/zig.zip",
+              "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

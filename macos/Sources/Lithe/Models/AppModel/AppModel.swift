@@ -87,6 +87,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         service: services.agentManagement,
         dataDirectory: agentDataDirectory
     )
+    /// Settings › Plugins marketplace and plugin repositories, created when
+    /// the page is first shown.
+    lazy var pluginMarketplaceFeature = PluginMarketplaceFeatureModel(
+        service: services.pluginMarketplace,
+        pluginManager: services.pluginManager
+    )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
     var commitMessage: String {
@@ -290,7 +296,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             case .changes: moduleID = .git
             case .pullRequests: moduleID = nil
             case .search: moduleID = .search
-            case .database: moduleID = .database
             }
             guard let moduleID else { return true }
             return moduleSnapshots.first(where: { $0.manifest.id == moduleID })?.state != .disabled
@@ -490,6 +495,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             workbench: workbenchFeature,
             onModuleReleased: { [weak self] moduleID in
                 self?.unregisterModuleLanguageExtensions(for: moduleID)
+                if moduleID == .database { self?.closeDatabaseWorkspace() }
             },
             onChange: { [weak self] in
                 self?.scheduleObjectWillChangeRelay()
@@ -586,12 +592,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func activateDatabaseModule() async {
         guard await databaseModuleCoordinator.activate() != nil else { return }
-        selectedSidebar = .database
+        workbenchFeature.setVisibility(.database, isVisible: true)
     }
 
     func sleepDatabaseModule() async {
         await databaseModuleCoordinator.sleep()
-        if selectedSidebar == .database { selectedSidebar = .project }
+        workbenchFeature.setVisibility(.database, isVisible: false)
+        closeDatabaseWorkspace()
     }
 
     deinit {
@@ -982,15 +989,21 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func openFile(
         _ url: URL,
         isReadOnly: Bool = false,
-        displayPath: String? = nil
+        displayPath: String? = nil,
+        allowsOutsideWorkspace: Bool = false
     ) {
         editorTabOrderFeature.repositoryDiffSelected = false
+        editorTabOrderFeature.databaseSelected = false
         selectedChange = nil
         closeBranchComparison()
         editorNavigationTarget = nil
         // SVG remains a text document so edits, saves, and previews share one buffer.
         if let mediaKind = MediaDocumentKind.from(url: url) {
             openMediaFile(url, kind: mediaKind)
+            return
+        }
+        if allowsOutsideWorkspace {
+            documentFeature.openExternalReadOnlyFile(url, displayPath: displayPath)
             return
         }
         documentFeature.openFile(url, isReadOnly: isReadOnly, displayPath: displayPath)
@@ -1195,6 +1208,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func editorDidFocus(_ document: EditorDocument) {
+        if editorTabOrderFeature.groupLayout.groups.count > 1 {
+            selectEditorDocument(document)
+        }
         documentFeature.editorDidFocus(document)
     }
 
@@ -1306,6 +1322,20 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                         support.displayName
                     )
                 )
+                return false
+            }
+            // A plugin enabled after launch registers its server after the
+            // startup probe ran, so probe it now instead of reporting the
+            // executable as missing before any check happened.
+            if let sessions = languageToolingSessionsIfActive,
+               let tools = languageServerToolsIfActive,
+               let registered = sessions.languageServerExtensionDescriptor(languageID: support.id),
+               tools.needsCandidateValidation(for: registered) {
+                Task { [weak self, weak document] in
+                    await tools.refreshCandidates(for: registered)
+                    guard let self, let document else { return }
+                    _ = self.activateLanguageServerIfAvailable(for: document)
+                }
                 return false
             }
             registerLanguageDependencySourceIfAvailable(support: support)
@@ -1490,6 +1520,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             if let session = terminalSessions.first(where: { $0.id == id }) { selectEditorTerminalSession(session) }
         case .media(let id):
             if let media = openMediaDocuments.first(where: { $0.id == id }) { selectMediaDocument(media) }
+        case .databaseOverview: openDatabaseWorkspace(overview: true)
+        case .database(let profileID): selectDatabaseWorkspace(profileID: profileID)
+        case let .databaseQuery(profileID, queryID): selectDatabaseWorkspace(profileID: profileID, queryID: queryID)
         case .repositoryDiff, nil: break
         }
     }

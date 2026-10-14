@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.go-support",
+  "displayName": "Go Support Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 1,
+  "vendor": {
+    "id": "dev.lithe",
+    "displayName": "Lithe",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "languageServer.launch",
+    "process.run",
+    "process.test"
+  ],
+  "activationEvents": [
+    "onLanguage:go",
+    "onRun:go",
+    "onTest:go"
+  ],
+  "languages": [
+    {
+      "id": "go",
+      "displayName": "Go",
+      "fileExtensions": [
+        "go"
+      ],
+      "projectFileNames": [
+        "go.mod",
+        "go.work"
+      ],
+      "dependencies": {
+        "managementFileNames": [
+          "go.mod",
+          "go.sum",
+          "go.work",
+          "go.work.sum",
+          "vendor/modules.txt"
+        ],
+        "projectDependencyPaths": [
+          "vendor"
+        ]
+      }
+    }
+  ],
+  "languageServers": [
+    {
+      "languageID": "go",
+      "languageIdentifier": "go",
+      "launch": {
+        "kind": "systemCommand",
+        "commands": [
+          "gopls"
+        ]
+      },
+      "arguments": [],
+      "validationArguments": [
+        "version"
+      ],
+      "runtimeDependencies": [{ "tool": "go" }]
+    }
+  ],
+  "executionProviders": [
+    {
+      "languageID": "go",
+      "run": {
+        "executable": {
+          "toolchain": "project-go"
+        },
+        "arguments": [
+          "run",
+          "${file}",
+          "${userArguments}"
+        ]
+      },
+      "test": {
+        "frameworkID": "go",
+        "workspaceLabel": "All Go Tests",
+        "projectMarkers": [
+          "go.mod",
+          "go.work"
+        ],
+        "testFilePatterns": [
+          "*_test.go"
+        ],
+        "executable": {
+          "toolchain": "project-go"
+        },
+        "workspaceArguments": [
+          "test",
+          "./..."
+        ],
+        "fileArguments": [
+          "test",
+          "${fileDirectory}"
+        ],
+        "testCaseArguments": [
+          "test",
+          {
+            "value": "${fileDirectory}",
+            "when": "fileSelected"
+          },
+          {
+            "value": "./...",
+            "when": "noFileSelected"
+          },
+          "-run",
+          "^${testName:regex}$"
+        ]
+      }
+    }
+  ]
+}

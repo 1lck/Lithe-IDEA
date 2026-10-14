@@ -37,6 +37,7 @@ final class AppSettings: ObservableObject {
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
         static let agentConfigurations = "settings.agentConfigurations"
+        static let agentModelCallStatistics = "settings.agentModelCallStatistics"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let keyboardShortcutPreset = "settings.keyboardShortcutPreset"
         static let keyboardShortcutPresets = "settings.keyboardShortcutPresets"
@@ -144,6 +145,11 @@ final class AppSettings: ObservableObject {
     @Published var agentCommand: String { didSet { defaults.set(agentCommand, forKey: Key.agentCommand) } }
     /// One command argument per line, so paths with spaces need no shell parser.
     @Published var agentArguments: String { didSet { defaults.set(agentArguments, forKey: Key.agentArguments) } }
+    /// Observe API-key model calls through the Host's loopback proxy. Applies
+    /// to Agent connections started after the change.
+    @Published var agentModelCallStatistics: Bool {
+        didSet { defaults.set(agentModelCallStatistics, forKey: Key.agentModelCallStatistics) }
+    }
     /// AI provider whose endpoint and API key the Agent uses; `nil` until chosen.
     /// Per-agent setup from Settings › Agents, keyed by ACP registry id or
     /// `AgentConfiguration.customAgentID`.
@@ -243,6 +249,7 @@ final class AppSettings: ObservableObject {
         }
         agentCommand = defaults.string(forKey: Key.agentCommand) ?? ""
         agentArguments = defaults.string(forKey: Key.agentArguments) ?? ""
+        agentModelCallStatistics = defaults.object(forKey: Key.agentModelCallStatistics) as? Bool ?? true
         agentConfigurations = defaults.data(forKey: Key.agentConfigurations)
             .flatMap { try? JSONDecoder().decode([String: AgentConfiguration].self, from: $0) } ?? [:]
         if let data = defaults.data(forKey: Key.javaBuildFailurePolicies),
@@ -381,6 +388,7 @@ final class AppSettings: ObservableObject {
         commitMessageAI = .default
         agentCommand = ""
         agentArguments = ""
+        agentModelCallStatistics = true
         agentConfigurations = [:]
         setCustomLogDirectory(nil)
         clearWorkbenchBackground()

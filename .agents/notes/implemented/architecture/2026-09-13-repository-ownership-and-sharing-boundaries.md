@@ -117,8 +117,8 @@ macos/Sources/Lithe<Feature>Module/
 └── Providers/    # 提供者实现
 ```
 
-官方语言支持插件另外使用 `Capabilities/`、`Plugin/` 和 `Support/`，
-分别存放导出的语言能力、原生插件入口和共享标识符。新文件以主要类型
+官方语言支持插件是声明式包，只包含 `plugin.json` 和声明的资源，不含
+Swift 源码。新文件以主要类型
 命名；`Type+Concern.swift` 只用于专门的扩展或可执行目标桥接。物理移动
 源码时不得重命名模块 ID、能力 ID、JSON 字段、C 符号或插件入口名称。
 

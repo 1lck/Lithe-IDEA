@@ -7,7 +7,9 @@
     "evidence": [
       "macos/Sources/Lithe/Views/App/UpdateControl.swift",
       "macos/Sources/Lithe/Views/App/SettingsView.swift",
-      "macos/Sources/Lithe/Platform/MacOS/Updates"
+      "macos/Sources/Lithe/Platform/MacOS/Updates",
+      "scripts/verify-release-signature.mjs",
+      "scripts/verify-macos-release-install.sh"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -16,13 +18,17 @@
     "evidence": [
       "windows/tauri/src/features/layout/components/app-update-control.tsx",
       "windows/tauri/src/features/layout/components/app-update-details-dialog.tsx",
-      "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
+      "windows/tauri/src/features/settings/components/settings-panels.tsx",
       "windows/tauri/src/features/settings/hooks/use-updater.ts",
-      "windows/tauri/src/features/settings/stores/update.store.test.ts"
+      "windows/tauri/src/features/settings/stores/update.store.test.ts",
+      "windows/tauri/src/config/services.json",
+      "scripts/verify-windows-release-install.ps1",
+      ".github/workflows/release-windows.yml"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Release",
-  "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从应用菜单或欢迎页左下角齿轮菜单手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只更新已有更新入口状态；macOS 更新入口位于右侧活动栏底部，显示图标、忙碌状态和对应悬停说明。 Windows 未检查、正在检查、跳过版本和失败时不得显示已是最新版；菜单通知明确指 Lithe 主程序，不代表语言扩展状态。"
+  "releaseSource": "1lck/Lithe-IDEA 发布应用并使用个人仓库现有 Sparkle/Tauri 签名配置；Lithe-IDEA/Lithe-IDEA 继续分发插件市场与官方插件，客户端保留插件 v2 信任公钥。",
+  "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从应用菜单或欢迎页左下角齿轮菜单手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只更新已有更新入口状态；macOS 更新入口位于右侧活动栏底部，显示图标、忙碌状态和对应悬停说明。 Windows 未检查、正在检查、跳过版本和失败时不得显示已是最新版；菜单通知明确指 Lithe 主程序，不代表语言扩展状态。 个人仓库构建的更新、返回稳定版、发布说明及下载入口必须指向个人仓库，使用个人仓库原有公钥验签；插件索引与下载仍指向组织仓库。"
 }

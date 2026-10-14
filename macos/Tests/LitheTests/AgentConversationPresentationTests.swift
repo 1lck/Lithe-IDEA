@@ -417,6 +417,155 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
+    func sessionStatusHidesProxyOnlyFactsAndCardsFitBothAppearances() throws {
+        let locale = Locale(identifier: "en_US")
+        #expect(AgentSessionStatusPresentation.compactTokens(999, locale: locale) == "999")
+        #expect(AgentSessionStatusPresentation.compactTokens(43_600, locale: locale) == "43.6K")
+        #expect(AgentSessionStatusPresentation.compactTokens(3_685_001, locale: locale) == "3.7M")
+        var conversation = AgentConversation()
+        conversation.completedTurns = [AgentTurnStatistics(id: "turn", startedAt: .now)]
+        // Without proxy observations, steps and speed are absent rather than estimated.
+        #expect(AgentSessionStatusPresentation.summary(conversation.sessionStatistics, locale: locale) == "1 turns")
+        let call = try #require(AgentModelCall.parse([
+            "api": "anthropicMessages", "status": 200, "streaming": true, "firstTokenMs": 500, "durationMs": 2500,
+            "usage": ["inputTokens": 100, "cacheReadTokens": 900, "cacheWriteTokens": 0, "outputTokens": 400],
+            "context": ["systemPromptTokens": 100, "toolTokens": 200, "mcpToolTokens": 300, "messageTokens": 400,
+                        "toolCount": 3, "mcpToolCount": 2, "scaledToUsage": true]
+        ]))
+        conversation.recordModelCall(call)
+        let statistics = conversation.sessionStatistics
+        #expect(AgentSessionStatusPresentation.summary(statistics, locale: locale) == "1 turns 1 steps · 200 tok/s")
+        #expect(AgentSessionStatusPresentation.tokenSummary(try #require(statistics.tokens), locale: locale) == "1.4K tok · Cache hit 90%")
+        var partial = try #require(statistics.tokens)
+        partial.callsMissingUsage = 2
+        #expect(AgentSessionStatusPresentation.tokenSummary(partial, locale: locale) == "≥1.4K tok · Cache hit 90%")
+        let usage = try #require(AgentContextUsage(usedTokens: 1_000, capacityTokens: 200_000))
+        for scheme in [ColorScheme.dark, .light] {
+            for card in [AnyView(AgentSessionSummaryCard(statistics: statistics)),
+                         AnyView(AgentTokenUsageCard(tokens: try #require(statistics.tokens))),
+                         AnyView(AgentContextUsageCard(usage: usage, composition: statistics.modelCalls?.latestContext)),
+                         AnyView(AgentContextUsageCard(usage: nil, composition: nil))] {
+                let host = NSHostingView(rootView: card.environment(\.colorScheme, scheme).environment(\.locale, locale))
+                let size = host.fittingSize
+                #expect(size.width == AgentStatusCardMetrics.width, "Cards keep the shared width")
+                #expect(size.height > 40 && size.height < 400, "Cards wrap footnotes without clipping")
+            }
+        }
+        if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATUS_SCREENSHOTS"] {
+            try captureStatusScreenshots(folder: URL(fileURLWithPath: folder))
+        }
+    }
+
+    @Test
+    func normalWidthComposerKeepsEveryStatusEntryVisible() throws {
+        var conversation = AgentConversation()
+        conversation.completedTurns = [AgentTurnStatistics(id: "turn", startedAt: .now)]
+        conversation.recordModelCall(try #require(AgentModelCall.parse([
+            "api": "anthropicMessages", "status": 200, "streaming": true, "firstTokenMs": 700, "durationMs": 1250,
+            "usage": ["inputTokens": 62063, "cacheReadTokens": 61696, "cacheWriteTokens": 0, "outputTokens": 165]
+        ])))
+        let usage = try #require(AgentContextUsage(usedTokens: 62_000, capacityTokens: 1_000_000))
+        // 417pt is the default Agent panel width reported in review; the
+        // session summary must not be the entry that disappears there.
+        for scheme in [ColorScheme.dark, .light] {
+            let composer = AgentComposerView(
+                agents: [], selectedAgent: nil, isResponding: false, isBlocked: false,
+                onSend: { _, _ in }, onCancel: {}, onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                contextUsage: usage, sessionStatistics: conversation.sessionStatistics)
+            let host = NSHostingView(rootView: composer.frame(width: 417, height: 150)
+                .background(AgentPanelStyle.canvas).environment(\.colorScheme, scheme)
+                .environment(\.locale, Locale(identifier: "en_US")))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 417, height: 150),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = host
+            host.frame.size = NSSize(width: 417, height: 150)
+            host.layoutSubtreeIfNeeded()
+            // The bar's width at 417pt, less composer and bar insets, the
+            // divider and the attach control collapsed to its icon.
+            let available: CGFloat = 417 - 16 - 20 - 1 - 16 - 14
+            for statistics in [conversation.sessionStatistics, try longSession()] {
+                let width = { (view: AnyView) in NSHostingView(rootView: view.font(LitheTheme.uiFont(size: 11))).fittingSize.width }
+                let required = width(AnyView(AgentSessionSummaryView(statistics: statistics, showsRate: false)))
+                    + width(AnyView(AgentTokenUsageView(tokens: try #require(statistics.tokens))))
+                    + width(AnyView(AgentContextUsageView(usage: usage))) + 16
+                #expect(required <= available, "The session summary stays visible at the default panel width")
+            }
+            if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATUS_SCREENSHOTS"] {
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let data = try #require(bitmap.representation(using: .png, properties: [:]))
+                try data.write(to: URL(fileURLWithPath: folder)
+                    .appendingPathComponent("status-composer-\(scheme == .dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    /// 7 turns and 54 streamed calls with a multi-million token cached prompt.
+    private func longSession() throws -> AgentSessionStatistics {
+        var conversation = AgentConversation()
+        conversation.completedTurns = (0..<7).map { AgentTurnStatistics(id: "turn-\($0)", startedAt: .now) }
+        for _ in 0..<54 {
+            conversation.recordModelCall(try #require(AgentModelCall.parse([
+                "api": "anthropicMessages", "status": 200, "streaming": true, "firstTokenMs": 950, "durationMs": 7400,
+                "usage": ["inputTokens": 1100, "cacheReadTokens": 65600, "cacheWriteTokens": 900, "outputTokens": 1500]
+            ])))
+        }
+        return conversation.sessionStatistics
+    }
+
+    /// Opt-in visual review of the status bar and its cards in the review language.
+    private func captureStatusScreenshots(folder: URL) throws {
+        let locale = Locale(identifier: "en_US")
+        // A long session: 7 turns, 54 streamed calls with a large cached prompt.
+        var conversation = AgentConversation()
+        let start = ContinuousClock.Instant.now
+        conversation.completedTurns = (0..<7).map { index in
+            var turn = AgentTurnStatistics(id: "turn-\(index)", startedAt: start)
+            turn.setToolsRunning(true, at: start)
+            turn.setToolsRunning(false, at: start.advanced(by: .seconds(29)))
+            turn.finish(at: start.advanced(by: .seconds(87)), endingMessageID: "reply-\(index)", usage: nil, toolCallCount: 7)
+            return turn
+        }
+        for index in 0..<54 {
+            let call = try #require(AgentModelCall.parse([
+                "api": "anthropicMessages", "status": 200, "streaming": true,
+                "firstTokenMs": 900 + index * 4, "durationMs": 7400,
+                "usage": ["inputTokens": 1100, "cacheReadTokens": 65600, "cacheWriteTokens": 900, "outputTokens": 1500],
+                "context": ["systemPromptTokens": 4500, "toolTokens": 7500, "mcpToolTokens": 14000,
+                            "messageTokens": 85600 + index * 400, "toolCount": 18, "mcpToolCount": 40,
+                            "scaledToUsage": true]
+            ]))
+            conversation.recordModelCall(call)
+        }
+        let statistics = conversation.sessionStatistics
+        let usage = try #require(AgentContextUsage(usedTokens: 133_000, capacityTokens: 1_000_000))
+        let views: [(String, AnyView)] = [
+            ("bar", AnyView(AgentSessionStatusView(statistics: statistics, contextUsage: usage)
+                .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+                .padding(.horizontal, 10).frame(height: 26).background(AgentPanelStyle.context))),
+            ("session", AnyView(AgentSessionSummaryCard(statistics: statistics))),
+            ("tokens", AnyView(AgentTokenUsageCard(tokens: try #require(statistics.tokens)))),
+            ("context", AnyView(AgentContextUsageCard(usage: usage, composition: statistics.modelCalls?.latestContext))),
+            ("context-off", AnyView(AgentContextUsageCard(usage: usage, composition: nil))),
+        ]
+        for (name, view) in views {
+            for (theme, scheme) in [("dark", ColorScheme.dark), ("light", .light)] {
+                let host = NSHostingView(rootView: view.padding(12).background(AgentPanelStyle.canvas)
+                    .environment(\.colorScheme, scheme).environment(\.locale, locale))
+                host.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+                host.frame.size = host.fittingSize
+                host.layoutSubtreeIfNeeded()
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let data = try #require(bitmap.representation(using: .png, properties: [:]))
+                try data.write(to: folder.appendingPathComponent("status-\(name)-\(theme).png"))
+            }
+        }
+    }
+
+    @Test
     func contextIndicatorUsesZeroPlaceholderAndReportedCountsWhenInUse() throws {
         let locale = Locale(identifier: "en_US")
         let usage = try #require(AgentContextUsage(usedTokens: 18700, capacityTokens: 258400))
