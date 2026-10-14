@@ -6,6 +6,7 @@ import LitheDebugModule
 struct GenericDebugView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: GenericDebugFeatureModel
+    @State private var stackListActive = false
     @State private var evaluateExpression = ""
     @State private var editingVariable: DebugVariable?
     @State private var watchEditor: WatchEditorContext?
@@ -602,6 +603,7 @@ struct GenericDebugView: View {
     private var inspector: some View {
         HSplitView {
             executionInspector
+                .background(LitheToolWindowActivityTracker(isActive: $stackListActive))
                 .frame(minWidth: 240, idealWidth: 320, maxWidth: .infinity)
             dataInspector
                 .frame(minWidth: 300, idealWidth: 480, maxWidth: .infinity)
@@ -1472,7 +1474,7 @@ struct GenericDebugView: View {
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 10)
             .frame(minHeight: 28)
-            .background(selected ? LitheTheme.selection : Color.clear)
+            .litheSelectionRow(isSelected: selected, isFocused: stackListActive)
             .contentShape(Rectangle())
         }
         .buttonStyle(.litheNoPress)

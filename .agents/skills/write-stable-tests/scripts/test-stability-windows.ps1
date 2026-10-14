@@ -73,6 +73,7 @@ function Invoke-TimedRustTests {
             # through Git subprocesses need a bounded allowance on Windows.
             foreach ($prefix in @(
                 "tests::git_history_rewrite::",
+                "tests::git_remote_checkout::",
                 "tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote",
                 "tests::git::git_write_squashes_",
                 "tests::git::git_write_deletes_a_local_commit_",

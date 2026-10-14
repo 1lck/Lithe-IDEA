@@ -59,65 +59,6 @@ public struct ModuleEvent: Equatable, Sendable {
     }
 }
 
-/// Swift entrypoint for same-team official plugins built against the matching
-/// Plugin API and host compatibility range. Static manifest validation and
-/// enablement checks must happen before the bundle containing this type loads.
-@MainActor
-public protocol LithePluginEntrypoint: AnyObject {
-    init()
-    func moduleFactories(context: PluginHostContext) throws -> [ModuleFactory]
-}
-
-public struct PluginHostServiceID: RawRepresentable, Hashable, Sendable, Comparable, CustomStringConvertible {
-    public let rawValue: String
-
-    public init(rawValue: String) {
-        precondition(!rawValue.isEmpty, "A plugin host service ID must not be empty.")
-        self.rawValue = rawValue
-    }
-
-    public init(_ rawValue: String) {
-        self.init(rawValue: rawValue)
-    }
-
-    public var description: String { rawValue }
-
-    public static func < (lhs: Self, rhs: Self) -> Bool {
-        lhs.rawValue < rhs.rawValue
-    }
-}
-
-@MainActor
-public protocol PluginHostServiceResolving: AnyObject {
-    func service(_ id: PluginHostServiceID) -> AnyObject?
-}
-
-/// Read-only services supplied by the host while a plugin creates its lazy
-/// module factories. Plugins request narrow, versioned service protocols by
-/// ID instead of importing platform adapters or the application executable.
-@MainActor
-public struct PluginHostContext {
-    private let resolver: any PluginHostServiceResolving
-
-    public init(resolver: any PluginHostServiceResolving) {
-        self.resolver = resolver
-    }
-
-    public func service(_ id: PluginHostServiceID) -> AnyObject? {
-        resolver.service(id)
-    }
-
-    public static var empty: PluginHostContext {
-        PluginHostContext(resolver: EmptyPluginHostServiceResolver.shared)
-    }
-}
-
-@MainActor
-private final class EmptyPluginHostServiceResolver: PluginHostServiceResolving {
-    static let shared = EmptyPluginHostServiceResolver()
-    func service(_ id: PluginHostServiceID) -> AnyObject? { nil }
-}
-
 public extension ModuleEvent {
     static let stateChangedName = "module.state-changed"
     static let activityStartedName = "module.activity-started"

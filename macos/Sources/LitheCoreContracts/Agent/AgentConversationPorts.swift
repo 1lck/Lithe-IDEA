@@ -26,6 +26,9 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
     /// Empty keeps the agent's default model.
     public let model: String
     public let allowsInsecureHTTP: Bool
+    /// Route API-key provider traffic through the Host's loopback proxy to
+    /// observe individual model calls. Subscription connections ignore it.
+    public let observesModelCalls: Bool
 
     public init(
         agentID: String?,
@@ -39,7 +42,8 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
         providerName: String,
         model: String,
         allowsInsecureHTTP: Bool,
-        authentication: AgentAuthentication = .apiKey
+        authentication: AgentAuthentication = .apiKey,
+        observesModelCalls: Bool = false
     ) {
         self.authentication = authentication
         self.agentID = agentID
@@ -53,6 +57,7 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
         self.providerName = providerName
         self.model = model
         self.allowsInsecureHTTP = allowsInsecureHTTP
+        self.observesModelCalls = observesModelCalls
     }
 }
 

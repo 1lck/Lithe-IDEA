@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "description": "plugins.marketplace.resolveSource inputs and the index URL every host must fetch, or the rejection code.",
+  "cases": [
+    { "input": "https://github.com/example/lithe-plugins", "expected": { "indexURL": "https://raw.githubusercontent.com/example/lithe-plugins/HEAD/lithe-plugin-index.json", "repository": "https://github.com/example/lithe-plugins", "displayName": "example/lithe-plugins" } },
+    { "input": " https://github.com/example/lithe-plugins.git/ ", "expected": { "indexURL": "https://raw.githubusercontent.com/example/lithe-plugins/HEAD/lithe-plugin-index.json", "repository": "https://github.com/example/lithe-plugins", "displayName": "example/lithe-plugins" } },
+    { "input": "https://github.com/example/lithe-plugins/blob/release/v1/indexes/lithe-plugin-index.json", "expected": { "indexURL": "https://raw.githubusercontent.com/example/lithe-plugins/release/v1/indexes/lithe-plugin-index.json", "repository": "https://github.com/example/lithe-plugins", "displayName": "example/lithe-plugins" } },
+    { "input": "https://raw.githubusercontent.com/example/lithe-plugins/main/lithe-plugin-index.json", "expected": { "indexURL": "https://raw.githubusercontent.com/example/lithe-plugins/main/lithe-plugin-index.json", "repository": "https://github.com/example/lithe-plugins", "displayName": "example/lithe-plugins" } },
+    { "input": "https://plugins.example.com/lithe/index.json#latest", "expected": { "indexURL": "https://plugins.example.com/lithe/index.json", "repository": null, "displayName": "plugins.example.com" } },
+    { "input": "http://plugins.example.com/index.json", "expectedCode": "plugin.source.invalid" },
+    { "input": "https://token@github.com/example/lithe-plugins", "expectedCode": "plugin.source.invalid" },
+    { "input": "https://github.com/example", "expectedCode": "plugin.source.invalid" },
+    { "input": "https://github.com/example/lithe-plugins/issues", "expectedCode": "plugin.source.invalid" },
+    { "input": "file:///tmp/index.json", "expectedCode": "plugin.source.invalid" },
+    { "input": "github.com/example/lithe-plugins", "expectedCode": "plugin.source.invalid" }
+  ]
+}

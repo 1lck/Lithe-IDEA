@@ -6,6 +6,12 @@ import LitheDatabaseModule
 /// known keys follow the app's injected locale, while database-driver errors
 /// that have no translation continue to be shown verbatim.
 enum DatabaseLocalization {
+    /// Native window titles and formatted output must use the app language too.
+    static func string(_ key: String, locale: Locale, bundle: Bundle = .main) -> String {
+        let localized = bundle.url(forResource: locale.identifier, withExtension: "lproj").flatMap(Bundle.init(url:)) ?? bundle
+        return localized.localizedString(forKey: key, value: key, table: nil)
+    }
+
     static func text(_ value: String) -> Text {
         Text(LocalizedStringKey(value))
     }

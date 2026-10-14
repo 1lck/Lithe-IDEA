@@ -18,8 +18,7 @@ struct LithePluginPackageSigner {
 
         if isVerification {
             let document = try PluginPackageSignature.read(from: packageURL)
-            guard let publicKeyData = Data(base64Encoded: PluginPackageSignature.publisherPublicKeyBase64),
-                  let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData) else {
+            guard let trustedKeys = try? PluginPackageSignature.trustedPublisherKeys() else {
                 throw SignerError.invalidPublicKey
             }
             try PluginPackageSignature.verify(
@@ -27,9 +26,11 @@ struct LithePluginPackageSigner {
                 pluginID: manifest.pluginID,
                 pluginVersion: manifest.pluginVersion,
                 document: document,
-                publicKey: publicKey
+                trustedKeys: trustedKeys
             )
-            writeStatus("Verified publisher signature for \(manifest.pluginID) \(manifest.pluginVersion)")
+            writeStatus(
+                "Verified publisher signature for \(manifest.pluginID) \(manifest.pluginVersion) with \(document.keyID)"
+            )
             return
         }
 
@@ -42,8 +43,14 @@ struct LithePluginPackageSigner {
               let privateKey = try? Curve25519.Signing.PrivateKey(rawRepresentation: keyData) else {
             throw SignerError.invalidPrivateKey
         }
-        guard privateKey.publicKey.rawRepresentation.base64EncodedString()
-            == PluginPackageSignature.publisherPublicKeyBase64 else {
+        // Sign with the trusted key ID that owns this private key so a rotated
+        // key is recorded under its own identity.
+        let publicKeyBase64 = privateKey.publicKey.rawRepresentation.base64EncodedString()
+        guard let keyID = PluginPackageSignature.trustedPublisherKeysBase64
+            .filter({ $0.value == publicKeyBase64 })
+            .keys
+            .sorted()
+            .first else {
             throw SignerError.untrustedPrivateKey
         }
 
@@ -51,7 +58,8 @@ struct LithePluginPackageSigner {
             packageAt: packageURL,
             pluginID: manifest.pluginID,
             pluginVersion: manifest.pluginVersion,
-            privateKey: privateKey
+            privateKey: privateKey,
+            keyID: keyID
         )
         try PluginPackageSignature.write(document, to: packageURL)
         writeStatus("Signed publisher package \(manifest.pluginID) \(manifest.pluginVersion)")

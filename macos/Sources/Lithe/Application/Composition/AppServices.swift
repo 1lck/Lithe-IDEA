@@ -11,6 +11,7 @@ final class AppServices {
     var ideHostTransport: (any IdeHostTransport)?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
+    let pluginMarketplace: any PluginMarketplaceServicing
     let pluginCatalog: ValidatedPluginCatalog
     /// Unified language-pack composition. The derived catalog and focused
     /// registries remain exposed below for source compatibility with existing
@@ -63,6 +64,7 @@ final class AppServices {
     init(
         moduleRuntime: ModuleRuntime,
         pluginManager: any PluginManaging,
+        pluginMarketplace: any PluginMarketplaceServicing,
         pluginCatalog: ValidatedPluginCatalog,
         languageProviderCatalogSource: any LanguageProviderCatalogSource,
         workspaceLanguageServerPreferences: any WorkspaceLanguageServerPreferencesStoring,
@@ -103,6 +105,7 @@ final class AppServices {
     ) {
         self.moduleRuntime = moduleRuntime
         self.pluginManager = pluginManager
+        self.pluginMarketplace = pluginMarketplace
         self.pluginCatalog = pluginCatalog
         self.languageProviderCatalogSource = languageProviderCatalogSource
         self.workspaceLanguageServerPreferences = workspaceLanguageServerPreferences

@@ -4,7 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import Switch from "@/ui/switch";
 import { GitIdentitySettings } from "../git-identity-settings";
 
@@ -42,25 +42,53 @@ export const GitSettings = () => {
   return (
     <SettingsView>
       <GitExecutionSettings />
-      <details className="space-y-4" open={preferencesOpen} onToggle={(event) => setPreferencesOpen(event.currentTarget.open)}>
-        <summary className="cursor-pointer text-sm font-medium">{t("git.execution.preferences")}</summary>
+      <details
+        className="space-y-4"
+        open={preferencesOpen}
+        onToggle={(event) => setPreferencesOpen(event.currentTarget.open)}
+      >
+        <summary className="cursor-pointer text-sm font-medium">
+          {t("git.execution.preferences")}
+        </summary>
         <Section title={t("git.fetch.defaults")}>
           <SettingRow label={t("git.fetch.prune")} description={t("git.fetch.scope")}>
-            <Switch checked={settings.gitFetchPrune} onChange={(value) => {
-              void updateSetting("gitFetchPrune", value);
-              if (!value && settings.gitFetchTags === "prune") void updateSetting("gitFetchTags", "inherit");
-            }} size="sm" />
+            <Switch
+              checked={settings.gitFetchPrune}
+              onChange={(value) => {
+                void updateSetting("gitFetchPrune", value);
+                if (!value && settings.gitFetchTags === "prune")
+                  void updateSetting("gitFetchTags", "inherit");
+              }}
+              size="sm"
+            />
           </SettingRow>
           <SettingRow label={t("git.fetch.submodules")}>
-            <Select value={settings.gitFetchSubmodules} options={["inherit", "no", "onDemand", "yes"].map((value) => ({ value, label: t(`git.fetch.submodules.${value}`) }))}
-              onChange={(value) => void updateSetting("gitFetchSubmodules", value as typeof settings.gitFetchSubmodules)} />
+            <SettingsSelect
+              value={settings.gitFetchSubmodules}
+              options={["inherit", "no", "onDemand", "yes"].map((value) => ({
+                value,
+                label: t(`git.fetch.submodules.${value}`),
+              }))}
+              onChange={(value) =>
+                void updateSetting(
+                  "gitFetchSubmodules",
+                  value as typeof settings.gitFetchSubmodules,
+                )
+              }
+            />
           </SettingRow>
           <SettingRow label={t("git.fetch.tags")} description={t("git.fetch.credentials")}>
-            <Select value={settings.gitFetchTags} options={["inherit", "all", "none", "prune"].map((value) => ({ value, label: t(`git.fetch.tags.${value}`) }))}
+            <SettingsSelect
+              value={settings.gitFetchTags}
+              options={["inherit", "all", "none", "prune"].map((value) => ({
+                value,
+                label: t(`git.fetch.tags.${value}`),
+              }))}
               onChange={(value) => {
                 void updateSetting("gitFetchTags", value as typeof settings.gitFetchTags);
                 if (value === "prune") void updateSetting("gitFetchPrune", true);
-              }} />
+              }}
+            />
           </SettingRow>
         </Section>
         {preferencesOpen && <GitIdentitySettings />}
@@ -203,7 +231,7 @@ export const GitSettings = () => {
           }
           canReset={settings.gitDefaultDiffView !== getDefaultSetting("gitDefaultDiffView")}
         >
-          <Select
+          <SettingsSelect
             value={settings.gitDefaultDiffView}
             options={[
               { value: "unified", label: t("settings.git.unified") },
@@ -211,10 +239,7 @@ export const GitSettings = () => {
             ]}
             onChange={(value) => updateSetting("gitDefaultDiffView", value as "unified" | "split")}
             className={SETTINGS_CONTROL_WIDTHS.default}
-            size="md"
-            variant="default"
             searchable
-            searchableTrigger="input"
           />
         </SettingRow>
       </Section>

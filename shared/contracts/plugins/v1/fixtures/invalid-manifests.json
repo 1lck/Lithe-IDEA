@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "description": "Each case edits a valid fixture manifest and states the stable rejection code every host must report. Edits use JSON Pointer paths; `set` replaces or adds a value and `remove` deletes it.",
+  "cases": [
+    {
+      "name": "legacy native manifest schema",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/schemaVersion", "value": 1 }],
+      "expectedCode": "plugin.schema.unsupported"
+    },
+    {
+      "name": "future plugin API",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/pluginAPIVersion", "value": 99 }],
+      "expectedCode": "plugin.api.unsupported"
+    },
+    {
+      "name": "unknown top-level field",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/entrypoint", "value": { "kind": "nativeBundle" } }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "uppercase plugin id",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/id", "value": "Dev.Lithe.Fixture" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "packaged language server escapes the package",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/path", "value": "../bin/intelephense" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "system command is a path",
+      "base": "go-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/commands", "value": ["/usr/local/bin/gopls"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "language server for an undeclared language",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/languageID", "value": "hack" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "unsupported runtime dependency",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "python" }] }],
+      "expectedCode": "plugin.runtime.unsupported"
+    },
+    {
+      "name": "unknown permission",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/permissions/0", "value": "network.fetch" }],
+      "expectedCode": "plugin.permission.unknown"
+    },
+    {
+      "name": "language server without its permission",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/permissions", "value": ["process.run", "process.test"] }],
+      "expectedCode": "plugin.permission.undeclared"
+    },
+    {
+      "name": "missing activation event",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/activationEvents", "value": ["onLanguage:php", "onRun:php"] }],
+      "expectedCode": "plugin.activation.invalid"
+    },
+    {
+      "name": "activation event without a provider",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "remove", "path": "/executionProviders/0/run" }],
+      "expectedCode": "plugin.activation.invalid"
+    },
+    {
+      "name": "unknown template variable",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/executionProviders/0/run/arguments", "value": ["${workspaceRoot}/${file}"] }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "user arguments embedded in an element",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/executionProviders/0/run/arguments", "value": ["${file}", "--args=${userArguments}"] }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "test case uses the file without a guard",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/executionProviders/0/test/testCaseArguments", "value": ["vendor/bin/phpunit", "--filter", "${testName:regex}", "${file}"] }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "test case never names the test",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/executionProviders/0/test/testCaseArguments", "value": ["vendor/bin/phpunit"] }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "executable is an absolute path",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/executionProviders/0/run/executable", "value": { "command": "/usr/bin/php" } }],
+      "expectedCode": "plugin.manifest.invalid"
+    }
+  ]
+}

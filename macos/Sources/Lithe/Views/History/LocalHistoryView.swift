@@ -8,6 +8,7 @@ struct LocalHistoryView: View {
     /// so the sheet keeps rendering without a required `AppSettings` environment
     /// object; the presenting root view passes the configured family explicitly.
     var fontFamily: String = EditorFontDefaults.monospacedFamily
+    @State private var historyListActive = false
     @State private var isRestoreConfirmationPresented = false
 
     var body: some View {
@@ -16,6 +17,7 @@ struct LocalHistoryView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: 0) {
                 historyList
+                    .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
                     .frame(width: 290)
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 comparison
@@ -128,11 +130,8 @@ struct LocalHistoryView: View {
                                 }
                                 .padding(.horizontal, 12)
                                 .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                                .background(
-                                    model.selectedLocalHistoryEntry?.id == entry.id
-                                        ? LitheTheme.selection
-                                        : Color.clear
-                                )
+                                .litheSelectionRow(isSelected: model.selectedLocalHistoryEntry?.id == entry.id,
+                                                   isFocused: historyListActive)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.litheNoPress)

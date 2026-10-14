@@ -34,6 +34,16 @@ const ERROR_STATUS: &str = "Error";
 /// never adds Eclipse files to the user's tree. Files that already exist at a
 /// module root still take precedence; `jdt_project_metadata` removes those.
 const METADATA_AT_PROJECT_ROOT_PROPERTY: &str = "-Djava.import.generatesMetadataFilesAtProjectRoot";
+/// Heap ceiling passed to the JDT LS JVM on both launch paths.
+///
+/// JDT LS switches to a batched, memory-frugal Maven import as soon as its
+/// maximum heap is at most 1.5 GB. That path hands a `null` project to
+/// `IProject.open` when several modules share `groupId` and `artifactId`, which
+/// fails the whole Java service instead of the affected modules. Keep the
+/// ceiling above that threshold, and at the 2 GB upstream documents for the
+/// language server, so a normal multi-module workspace imports through the
+/// regular path.
+const JDTLS_MAX_HEAP_ARGUMENT: &str = "-Xmx2048m";
 
 /// JDT LS readiness transition conveyed through its `language/status`
 /// extension after the standard LSP initialize handshake.
@@ -736,7 +746,7 @@ fn wrapper_arguments(
     }
     arguments.extend([
         "--jvm-arg=-Xms256m".to_string(),
-        "--jvm-arg=-Xmx1024m".to_string(),
+        format!("--jvm-arg={JDTLS_MAX_HEAP_ARGUMENT}"),
         format!("--jvm-arg={METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
         "-data".to_string(),
         data_directory.to_string_lossy().into_owned(),
@@ -757,7 +767,7 @@ fn direct_java_arguments(
             resources.lombok_agent_path.to_string_lossy()
         ),
         "-Xms256m".to_string(),
-        "-Xmx1024m".to_string(),
+        JDTLS_MAX_HEAP_ARGUMENT.to_string(),
         "--add-modules=ALL-SYSTEM".to_string(),
         "--add-opens=java.base/java.util=ALL-UNNAMED".to_string(),
         "--add-opens=java.base/java.lang=ALL-UNNAMED".to_string(),
@@ -1374,7 +1384,7 @@ mod tests {
                 "--java-executable",
                 "/jdk/bin/java",
                 "--jvm-arg=-Xms256m",
-                "--jvm-arg=-Xmx1024m",
+                "--jvm-arg=-Xmx2048m",
                 "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-data",
                 data_directory.to_string_lossy().as_ref()
@@ -1417,6 +1427,45 @@ mod tests {
     }
 
     #[test]
+    fn java_start_keeps_the_heap_above_the_jdtls_constrained_memory_threshold() {
+        // JDT LS switches to a batched Maven import whose `updateProjects` path
+        // dereferences a `null` project for modules that share a build
+        // coordinate (eclipse-jdtls/eclipse.jdt.ls#3893). Staying above 1.5 GB
+        // keeps a normal multi-module workspace on the regular import path.
+        const CONSTRAINED_MEMORY_THRESHOLD_MEBIBYTES: u64 = 1536;
+
+        let mut direct_context = java_start_context();
+        direct_context.direct_launch_resources = Some(JdtDirectLaunchResources {
+            launcher_jar_path: PathBuf::from("/jdtls/plugins/equinox.jar"),
+            configuration_directory: PathBuf::from("/jdtls/config_mac"),
+            lombok_agent_path: PathBuf::from("/jdtls/lombok/lombok.jar"),
+            java_debug_bundle_path: None,
+        });
+        let wrapper = adapt_start(&java_start_context());
+        let direct = adapt_start(&direct_context);
+
+        for arguments in [&wrapper.arguments, &direct.arguments] {
+            let heap = arguments
+                .iter()
+                .find_map(|argument| {
+                    argument
+                        .strip_prefix("--jvm-arg=")
+                        .unwrap_or(argument)
+                        .strip_prefix("-Xmx")
+                })
+                .expect("both JDT LS launch paths set a maximum heap");
+            let mebibytes = heap
+                .strip_suffix('m')
+                .and_then(|value| value.parse::<u64>().ok())
+                .expect("the JDT LS maximum heap uses a mebibyte suffix");
+            assert!(
+                mebibytes > CONSTRAINED_MEMORY_THRESHOLD_MEBIBYTES,
+                "JDT LS needs more than {CONSTRAINED_MEMORY_THRESHOLD_MEBIBYTES} MiB of maximum heap, found {heap}"
+            );
+        }
+    }
+
+    #[test]
     fn java_direct_start_builds_complete_shell_free_arguments_and_is_stable() {
         let mut context = java_start_context();
         context.direct_launch_resources = Some(JdtDirectLaunchResources {
@@ -1450,7 +1499,7 @@ mod tests {
             vec![
                 "-javaagent:/jdtls/lombok/lombok.jar",
                 "-Xms256m",
-                "-Xmx1024m",
+                "-Xmx2048m",
                 "--add-modules=ALL-SYSTEM",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",

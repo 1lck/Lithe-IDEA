@@ -1,3 +1,4 @@
+import SettingsSelect from "@/ui/settings-select";
 import { useEffect, useRef, useState } from "react";
 import {
   configureGitIdentity,
@@ -89,15 +90,16 @@ export function GitIdentitySettings() {
       <p className="ui-text-sm text-subtle-foreground">{t("git.setup.identityDescription")}</p>
       <label className="flex items-center gap-3 ui-text-sm">
         {t("git.setup.scope")}
-        <select
+        <SettingsSelect
+          aria-label={t("git.setup.scope")}
           value={scope}
           disabled={busy}
-          onChange={(event) => setScope(event.target.value as GitIdentityScope)}
-          className="h-8 rounded border border-input bg-background px-2"
-        >
-          <option value="local">{t("git.setup.local")}</option>
-          <option value="global">{t("git.setup.global")}</option>
-        </select>
+          onChange={(selectedValue) => setScope(selectedValue as GitIdentityScope)}
+          options={[
+            { value: "local", label: t("git.setup.local") },
+            { value: "global", label: t("git.setup.global") },
+          ]}
+        />
       </label>
       <p className="ui-text-sm text-subtle-foreground">
         {t(scope === "global" ? "git.setup.globalDescription" : "git.setup.localDescription")}

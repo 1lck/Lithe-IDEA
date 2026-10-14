@@ -51,6 +51,7 @@ struct AgentLaunchConfigurationResolver {
             command: command, arguments: arguments, workspaceURL: workspaceURL, dataDirectory: dataDirectory,
             providerProtocol: provider.apiProtocol.rawValue, providerEndpoint: provider.endpoint,
             apiKey: apiKey, providerName: provider.name, model: provider.model,
-            allowsInsecureHTTP: provider.allowsInsecureHTTP)
+            allowsInsecureHTTP: provider.allowsInsecureHTTP,
+            observesModelCalls: settings.agentModelCallStatistics)
     }
 }

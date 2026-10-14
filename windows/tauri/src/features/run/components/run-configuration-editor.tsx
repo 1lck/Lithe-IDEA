@@ -1,10 +1,10 @@
+import SettingsSelect from "@/ui/settings-select";
 import { useState, type ReactNode } from "react";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/ui/field";
 import Input from "@/ui/input";
-import { NativeSelect, NativeSelectOption } from "@/ui/native-select";
 import { FolderIcon } from "@/ui/icons";
 import { useTranslation } from "@/i18n/locale-provider";
 import type {
@@ -90,18 +90,13 @@ function ToolchainField({
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <div className="flex gap-1.5">
-        <NativeSelect
+        <SettingsSelect
           id={id}
           className="min-w-0 flex-1 font-mono"
           value={value}
-          onChange={(event) => onSelect(event.target.value)}
-        >
-          {options.map((option) => (
-            <NativeSelectOption key={option.value} value={option.value}>
-              {option.label}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+          onChange={(selectedValue) => onSelect(selectedValue)}
+          options={options}
+        />
         <Button type="button" variant="ghost" size="icon-sm" onClick={() => void onPick()}>
           <FolderIcon />
         </Button>
@@ -218,10 +213,15 @@ export function RunConfigurationEditor({
           </div>
           <p className="text-subtle-foreground ui-text-sm">{t("run.saveScopeLocalHint")}</p>
           {(projectUsesJava || projectUsesMaven) && (
-            <Button variant="ghost" onClick={() => {
-              onClose();
-              useUIState.getState().openSettingsDialog("project");
-            }}>{t("settings.project.openSettings")}</Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                onClose();
+                useUIState.getState().openSettingsDialog("project");
+              }}
+            >
+              {t("settings.project.openSettings")}
+            </Button>
           )}
           {projectUsesNode ? (
             <ToolchainField
@@ -232,13 +232,15 @@ export function RunConfigurationEditor({
               autoLabel={t("run.toolchainAuto")}
               customLabel={t("run.toolchainCurrent")}
               candidates={nodeCandidates}
-              onSelect={(value) => setToolchainDraft((current) => ({
-                ...current,
-                runtimeExecutablePaths: {
-                  ...current.runtimeExecutablePaths,
-                  "project-node": value,
-                },
-              }))}
+              onSelect={(value) =>
+                setToolchainDraft((current) => ({
+                  ...current,
+                  runtimeExecutablePaths: {
+                    ...current.runtimeExecutablePaths,
+                    "project-node": value,
+                  },
+                }))
+              }
               onPick={pickNodeExecutable}
             />
           ) : null}
@@ -246,7 +248,9 @@ export function RunConfigurationEditor({
 
         <div className="border-border/70 border-t pt-4">
           <div className="space-y-1.5">
-            <div className="font-medium text-subtle-foreground ui-text-sm">{t("run.configuration")}</div>
+            <div className="font-medium text-subtle-foreground ui-text-sm">
+              {t("run.configuration")}
+            </div>
             <div className="grid grid-cols-[7.5rem_1fr] gap-y-1 ui-text-sm">
               <span className="text-subtle-foreground">{t("run.type")}</span>
               <span>{configuration.kindTitle}</span>
@@ -262,7 +266,9 @@ export function RunConfigurationEditor({
           </div>
 
           <div className="mt-4">
-            <div className="mb-2 font-medium text-subtle-foreground ui-text-sm">{t("run.saveScope")}</div>
+            <div className="mb-2 font-medium text-subtle-foreground ui-text-sm">
+              {t("run.saveScope")}
+            </div>
             <div className="flex gap-1 rounded-md bg-surface p-0.5">
               <Button
                 size="xs"
@@ -324,7 +330,9 @@ export function RunConfigurationEditor({
                   autoLabel={t("run.toolchainProjectDefault")}
                   customLabel={t("run.toolchainCurrent")}
                   candidates={mavenCandidates}
-                  onSelect={(value) => setDraft((current) => ({ ...current, mavenExecutablePath: value }))}
+                  onSelect={(value) =>
+                    setDraft((current) => ({ ...current, mavenExecutablePath: value }))
+                  }
                   onPick={pickMavenHome}
                   effective={
                     <EffectiveToolchain
@@ -347,7 +355,9 @@ export function RunConfigurationEditor({
                   autoLabel={t("run.toolchainProjectDefault")}
                   customLabel={t("run.toolchainCurrent")}
                   candidates={javaCandidates}
-                  onSelect={(value) => setDraft((current) => ({ ...current, mavenJavaHomePath: value }))}
+                  onSelect={(value) =>
+                    setDraft((current) => ({ ...current, mavenJavaHomePath: value }))
+                  }
                   onPick={() => pickDirectory("mavenJavaHomePath")}
                   effective={
                     <EffectiveToolchain
@@ -359,7 +369,7 @@ export function RunConfigurationEditor({
                 />
                 <Field>
                   <FieldLabel htmlFor="run-maven-tests">{t("run.mavenTests")}</FieldLabel>
-                  <NativeSelect
+                  <SettingsSelect
                     id="run-maven-tests"
                     value={
                       draft.mavenSkipTests == null
@@ -368,20 +378,19 @@ export function RunConfigurationEditor({
                           ? "skip"
                           : "run"
                     }
-                    onChange={(event) =>
+                    onChange={(selectedValue) =>
                       setDraft((current) => ({
                         ...current,
                         mavenSkipTests:
-                          event.target.value === "inherit" ? null : event.target.value === "skip",
+                          selectedValue === "inherit" ? null : selectedValue === "skip",
                       }))
                     }
-                  >
-                    <NativeSelectOption value="inherit">
-                      {t("run.mavenTestsProjectDefault")}
-                    </NativeSelectOption>
-                    <NativeSelectOption value="run">{t("run.mavenTestsRun")}</NativeSelectOption>
-                    <NativeSelectOption value="skip">{t("run.mavenTestsSkip")}</NativeSelectOption>
-                  </NativeSelect>
+                    options={[
+                      { value: "inherit", label: t("run.mavenTestsProjectDefault") },
+                      { value: "run", label: t("run.mavenTestsRun") },
+                      { value: "skip", label: t("run.mavenTestsSkip") },
+                    ]}
+                  />
                   <FieldDescription>{t("run.mavenTestsHint")}</FieldDescription>
                 </Field>
               </>
@@ -409,7 +418,9 @@ export function RunConfigurationEditor({
               <Input
                 id="run-cwd"
                 value={draft.workingDirectoryPath}
-                onChange={(event) => setDraft({ ...draft, workingDirectoryPath: event.target.value })}
+                onChange={(event) =>
+                  setDraft({ ...draft, workingDirectoryPath: event.target.value })
+                }
                 className="font-mono"
               />
               <FieldDescription>{t("run.workingDirectoryHint")}</FieldDescription>
@@ -428,9 +439,17 @@ export function RunConfigurationEditor({
         </div>
       </div>
       <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
-        {saveError && <span role="alert" className="text-destructive ui-text-sm">{saveError}</span>}
-        <Button variant="ghost" disabled={saving} onClick={onClose}>{t("run.cancel")}</Button>
-        <Button disabled={saving} onClick={() => void save()}>{t("ui.save")}</Button>
+        {saveError && (
+          <span role="alert" className="text-destructive ui-text-sm">
+            {saveError}
+          </span>
+        )}
+        <Button variant="ghost" disabled={saving} onClick={onClose}>
+          {t("run.cancel")}
+        </Button>
+        <Button disabled={saving} onClick={() => void save()}>
+          {t("ui.save")}
+        </Button>
       </div>
     </div>
   );

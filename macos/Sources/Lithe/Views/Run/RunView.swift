@@ -8,6 +8,8 @@ struct RunView: View {
         get { feature.selectedProjectSessionID }
         nonmutating set { feature.selectedConfigurationID = newValue ?? RunConfiguration.currentFileID }
     }
+    @State private var scopeListActive = false
+    @State private var configurationListActive = false
     @State private var browser = RunBrowserState()
     @State private var contentTab: ContentTab = .console
     @State private var selectionWorkspacePath: String?
@@ -59,8 +61,8 @@ struct RunView: View {
             } else {
                 RunServicesSplitView(
                     isScopeCollapsed: isConfigurationListCollapsed,
-                    scopes: scopeList,
-                    configurations: applicationTypeList,
+                    scopes: scopeList.background(LitheToolWindowActivityTracker(isActive: $scopeListActive)),
+                    configurations: applicationTypeList.background(LitheToolWindowActivityTracker(isActive: $configurationListActive)),
                     content: selectedConfigurationContent
                 )
             }
@@ -528,6 +530,7 @@ struct RunView: View {
                             isRunning: feature.isRunning,
                             exitCode: feature.lastExitCode,
                             isSelected: selectedSessionID == nil,
+                            isFocused: scopeListActive,
                             onToggle: nil
                         ) {
                             selectedSessionID = nil
@@ -563,7 +566,7 @@ struct RunView: View {
         .font(LitheTheme.uiFont(size: 11.5))
         .padding(.horizontal, 6)
         .frame(height: 30)
-        .background(browser.scope == scope ? LitheTheme.subtleSelection : .clear)
+        .litheSelectionRow(isSelected: browser.scope == scope, isFocused: scopeListActive)
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
@@ -719,6 +722,7 @@ struct RunView: View {
             isRunning: session?.isRunning ?? false,
             exitCode: session?.exitCode,
             isSelected: selectedSessionID == configuration.id,
+            isFocused: configurationListActive,
             isPinned: isPinned(configuration),
             onPin: { togglePinned(configuration) },
             onEdit: { editInSettings(configuration) },
@@ -1025,6 +1029,7 @@ struct RunView: View {
         isRunning: Bool,
         exitCode: Int32?,
         isSelected: Bool,
+        isFocused: Bool,
         isPinned: Bool = false,
         onPin: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
@@ -1122,7 +1127,7 @@ struct RunView: View {
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: 34)
-        .background(isSelected ? LitheTheme.subtleSelection : .clear)
+        .litheSelectionRow(isSelected: isSelected, isFocused: isFocused)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .contentShape(Rectangle())
         .onTapGesture(perform: action)

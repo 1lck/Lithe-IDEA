@@ -24,6 +24,9 @@ final class DatabaseModuleCoordinator {
     }
 
     func activate() async -> DatabaseFeatureModel? {
+        if let capability: DatabaseModuleCapability = store.capability(.databaseWorkspace) {
+            return capability.feature
+        }
         do {
             let value = try await runtime.activateCapability(.databaseWorkspace)
             guard let capability = value as? DatabaseModuleCapability else {
@@ -34,6 +37,11 @@ final class DatabaseModuleCoordinator {
             store.cache(capability, id: .databaseWorkspace, moduleID: .database)
             store.observe(.database, observation: capability.feature.objectWillChange.sink { [weak self] _ in
                 self?.onChange()
+            })
+            // Route operation failures through the existing notification owner,
+            // even when the database sidebar is hidden. Store clears on sleep.
+            store.observe(.database, observation: capability.feature.$errorMessage.dropFirst().compactMap { $0 }.sink { [weak self] message in
+                self?.onError(message)
             })
             return capability.feature
         } catch {

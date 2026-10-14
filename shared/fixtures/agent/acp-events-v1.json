@@ -137,6 +137,35 @@
         ]
       }
     },
+    "modelCall": {
+      "kind": "modelCall",
+      "sessionId": "session-1",
+      "call": {
+        "api": "anthropicMessages", "model": "claude-sonnet", "status": 200, "streaming": true,
+        "firstTokenMs": 820, "durationMs": 6400,
+        "usage": { "inputTokens": 1200, "cacheReadTokens": 42000, "cacheWriteTokens": 800, "outputTokens": 640 },
+        "context": { "systemPromptTokens": 4500, "toolTokens": 3500, "mcpToolTokens": 14000, "messageTokens": 22000, "toolCount": 18, "mcpToolCount": 40, "scaledToUsage": true }
+      }
+    },
+    "modelCallAfterTurn": {
+      "kind": "modelCall",
+      "sessionId": "session-1",
+      "afterTurnFinished": true,
+      "call": {
+        "api": "anthropicMessages", "model": "claude-sonnet", "status": 200, "streaming": true,
+        "firstTokenMs": 820, "durationMs": 6400,
+        "usage": { "inputTokens": 1200, "cacheReadTokens": 42000, "cacheWriteTokens": 800, "outputTokens": 640 },
+        "context": { "systemPromptTokens": 4500, "toolTokens": 3500, "mcpToolTokens": 14000, "messageTokens": 22000, "toolCount": 18, "mcpToolCount": 40, "scaledToUsage": true }
+      }
+    },
+    "modelCallNonStreaming": {
+      "kind": "modelCall",
+      "sessionId": "session-1",
+      "call": {
+        "api": "responses", "status": 200, "streaming": false, "durationMs": 3000,
+        "usage": { "inputTokens": 500, "cacheReadTokens": 0, "cacheWriteTokens": 0, "outputTokens": 300, "reasoningTokens": 100 }
+      }
+    },
     "turnFinished": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn" },
     "turnFinishedWithUsage": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn", "usage": { "totalTokens": 25000, "inputTokens": 18000, "outputTokens": 2000, "thoughtTokens": 1000, "cachedReadTokens": 3000, "cachedWriteTokens": 1000 } },
     "turnCancelled": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "cancelled" },

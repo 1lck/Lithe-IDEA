@@ -82,9 +82,11 @@ while IFS=$'\t' read -r status first_path _; do
     esac
 
     case "$lowercase_path" in
-        *.md|*.mdx)
+        *.md|*.mdx|shared/platform-feature-matrix/*)
             # Text-only documentation still receives git diff validation in the
-            # workflow, but does not reserve a macOS or Windows runner.
+            # workflow, but does not reserve a macOS or Windows runner. The
+            # cross-platform feature matrix is planning data that no product
+            # target reads; Verify Platform Feature Matrix validates its schema.
             ;;
         casks/*|scripts/update-homebrew-cask.rb)
             metadata=true
@@ -94,7 +96,10 @@ while IFS=$'\t' read -r status first_path _; do
             enable_all_validation
             ;;
         .github/workflows/ci-macos.yml)
+            # The shared Swift build job also hosts the database filtered
+            # suite, so a workflow change exercises both.
             swift=true
+            swift_database=true
             rust_core=true
             macos_release=true
             git_validation=true
@@ -116,7 +121,7 @@ while IFS=$'\t' read -r status first_path _; do
         .github/workflows/release-windows.yml|.github/workflows/release-preview-windows.yml)
             windows=true
             ;;
-        .github/actions/prepare-macos-dependency-cache/*|.github/actions/setup-macos-toolchain/*|.swift-version)
+        .github/actions/prepare-macos-dependency-cache/*|.github/actions/save-macos-cargo-build-cache/*|.github/actions/setup-macos-toolchain/*|.swift-version)
             swift=true
             plugins=true
             swift_database=true
@@ -146,7 +151,13 @@ while IFS=$'\t' read -r status first_path _; do
             macos_release=true
             git_validation=true
             ;;
-        plugins/mac/*|macos/tests/litheofficialpluginverifier/*)
+        plugins/mac/*)
+            # Official declarative manifests are validated by the Rust Core
+            # contract tests as well as by the packaged plugin lane.
+            plugins=true
+            rust_core=true
+            ;;
+        macos/tests/litheofficialpluginverifier/*)
             plugins=true
             ;;
         plugins/win/*)
@@ -155,7 +166,7 @@ while IFS=$'\t' read -r status first_path _; do
             windows=true
             windows_rust=true
             ;;
-        macos/tests/lithetests/nativepluginloadertests.swift|macos/tests/lithetests/pluginmanagementpresentationtests.swift|macos/tests/lithetests/pluginmanagertests.swift|macos/tests/lithetests/pluginpackagestoretests.swift)
+        macos/tests/lithetests/declarativeplugintestsupport.swift|macos/tests/lithetests/pluginlocaldevelopmenttests.swift|macos/tests/lithetests/pluginmanagementpresentationtests.swift|macos/tests/lithetests/pluginmanagertests.swift|macos/tests/lithetests/pluginpackagestoretests.swift)
             plugins=true
             ;;
         macos/sources/lithe/litheapp.swift|macos/sources/lithe/application/features/pluginmanagement.swift|macos/sources/lithe/core/language/pluginlanguageprovidercatalogsource.swift|macos/sources/lithe/models/appmodel/appmodel+pluginmanagement.swift|macos/sources/lithe/platform/macos/plugins/*|macos/sources/lithe/views/app/pluginmanagementview.swift|macos/sources/lithe/views/workbench/workbenchmoduleuicomposition.swift|macos/sources/litheapplicationkernel/plugins/*|macos/sources/lithemoduleapi/catalog/bundledlanguageplugincatalog.swift|macos/sources/lithemoduleapi/plugins/*)
@@ -194,8 +205,10 @@ while IFS=$'\t' read -r status first_path _; do
             ;;
         macos/sources/lithe/views/workbench/workbenchview.swift)
             # The root workbench composes both database and plugin-owned UI.
+            # Plugin tests cover plugin models and packages rather than this
+            # view, and it is edited by most workbench pull requests, so the
+            # Swift lane's full compile covers it without the plugin runner.
             swift=true
-            plugins=true
             swift_database=true
             macos_release=true
             ;;
@@ -226,9 +239,11 @@ while IFS=$'\t' read -r status first_path _; do
             swift_database=true
             ;;
         macos/resources/*.lproj/*)
-            # Localization files contain both database and plugin-facing copy.
+            # Localization files contain database copy and are assembled into
+            # the package. Their plugin-facing coverage lives in
+            # AppLocalizationTests, which the Swift lane runs, so UI copy
+            # changes do not reserve the separate plugin runner.
             swift=true
-            plugins=true
             swift_database=true
             macos_release=true
             ;;
@@ -322,6 +337,14 @@ while IFS=$'\t' read -r status first_path _; do
             windows=true
             windows_rust=true
             ;;
+        frontend/editor/*|package.json|bun.lock)
+            # The shared Monaco editor and the Bun workspace are consumed by the
+            # macOS package (Bun tests and the WebKit workbench probe run in the
+            # package lane) and by the Windows frontend lane. Swift, Rust, and
+            # JDT lanes do not read them.
+            macos_release=true
+            windows=true
+            ;;
         windows/tauri/src-tauri/*.rs|windows/tauri/src-tauri/cargo.toml|windows/tauri/src-tauri/cargo.lock|windows/tauri/crates/*)
             windows=true
             windows_rust=true
@@ -404,6 +427,22 @@ while IFS=$'\t' read -r status first_path _; do
             ;;
     esac
 done < <(git diff --name-status --find-renames "$BASE_REVISION" "$HEAD_REVISION")
+
+if [[ "${LITHE_CI_DRAFT_PULL_REQUEST:-false}" == "true" ]]; then
+    # Draft pull requests keep the Linux-only lanes but defer every macOS and
+    # Windows runner lane. The organization shares five macOS runners, so
+    # iterative draft pushes would otherwise queue every ready pull request.
+    # Marking the pull request ready for review triggers a full classification.
+    swift=false
+    plugins=false
+    swift_database=false
+    rust_core=false
+    macos_release=false
+    windows=false
+    windows_rust=false
+    java_jdt=false
+    git_validation=false
+fi
 
 printf 'swift=%s\n' "$swift"
 printf 'plugins=%s\n' "$plugins"

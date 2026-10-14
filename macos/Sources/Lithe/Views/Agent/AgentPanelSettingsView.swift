@@ -132,6 +132,7 @@ private struct AgentsManagementPage: View {
 
     var body: some View {
         featureRow
+        statisticsRow
         segments
         switch selectedEntry {
         case .agent(let id):
@@ -166,6 +167,28 @@ private struct AgentsManagementPage: View {
             .toggleStyle(.switch)
             .controlSize(.small)
             .labelsHidden()
+        }
+        .padding(12)
+        .background(LitheTheme.raised, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(LitheTheme.panelBorder, lineWidth: 1))
+    }
+
+    private var statisticsRow: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Model call statistics")
+                    .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
+                Text("Routes API-key Agent requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and keys are forwarded unchanged and never stored. Applies after reconnecting; subscription sign-in is not observed.")
+                    .font(LitheTheme.uiFont(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Toggle("", isOn: $settings.agentModelCallStatistics)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+                .accessibilityLabel("Model call statistics")
         }
         .padding(12)
         .background(LitheTheme.raised, in: RoundedRectangle(cornerRadius: 8))

@@ -35,15 +35,19 @@ private enum DatabaseBrandIconLoader {
     private struct CacheKey: Hashable {
         let kind: DatabaseKind
         let size: Int
+        let dark: Bool
     }
 
     private static var cache: [CacheKey: NSImage] = [:]
 
-    static func image(for kind: DatabaseKind, size: CGFloat) -> NSImage? {
-        let key = CacheKey(kind: kind, size: max(1, Int(size.rounded())))
+    static func image(for kind: DatabaseKind, size: CGFloat, dark: Bool) -> NSImage? {
+        let key = CacheKey(kind: kind, size: max(1, Int(size.rounded())), dark: dark)
         if let cached = cache[key] { return cached }
         let filename = kind.brandIconFilename as NSString
-        guard let url = Bundle.main.url(
+        let darkFilename = LitheIcons.darkIdeaAssetPath(for: kind.brandIconFilename) as NSString
+        let darkURL = dark ? Bundle.main.url(forResource: darkFilename.deletingPathExtension,
+            withExtension: darkFilename.pathExtension, subdirectory: "DatabaseIcons") : nil
+        guard let url = darkURL ?? Bundle.main.url(
             forResource: filename.deletingPathExtension,
             withExtension: filename.pathExtension,
             subdirectory: "DatabaseIcons"
@@ -63,12 +67,13 @@ private enum DatabaseBrandIconLoader {
 /// Database vendor mark used only for type recognition. The system-image
 /// fallback keeps unbundled development builds and future platforms usable.
 struct DatabaseBrandIcon: View {
+    @Environment(\.colorScheme) private var colorScheme
     let kind: DatabaseKind
     var size: CGFloat = 14
 
     var body: some View {
         Group {
-            if let image = DatabaseBrandIconLoader.image(for: kind, size: size) {
+            if let image = DatabaseBrandIconLoader.image(for: kind, size: size, dark: colorScheme == .dark) {
                 Image(nsImage: image)
                     .resizable()
                     .renderingMode(.original)

@@ -1,10 +1,6 @@
 import Foundation
 import LitheModuleAPI
 
-public extension PluginHostServiceID {
-    static let languageExecution = PluginHostServiceID("dev.lithe.host.language-execution.v1")
-}
-
 public enum LanguageExecutionLifecycleState: String, Sendable {
     case starting
     case running
@@ -93,6 +89,12 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
     public let arguments: [String]
     public let validationArguments: [String]
     public let environment: [String: String]
+    /// Runtimes the server needs on its `PATH`, such as `go` for gopls.
+    public let runtimeTools: [String]
+    /// An executable the provider ships itself, such as a server packaged in
+    /// a plugin. When set, it is the only candidate: `executableNames` is
+    /// then used for display, never for a global lookup.
+    public let executableURL: URL?
     public let languageIdentifier: String
 
     public init(
@@ -102,6 +104,8 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         arguments: [String] = [],
         validationArguments: [String] = [],
         environment: [String: String] = [:],
+        runtimeTools: [String] = [],
+        executableURL: URL? = nil,
         languageIdentifier: String
     ) {
         self.languageID = languageID
@@ -110,6 +114,8 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         self.arguments = arguments
         self.validationArguments = validationArguments
         self.environment = environment
+        self.runtimeTools = runtimeTools
+        self.executableURL = executableURL
         self.languageIdentifier = languageIdentifier
     }
 }

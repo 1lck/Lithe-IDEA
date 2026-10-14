@@ -107,7 +107,6 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     case changes
     case pullRequests
     case search
-    case database
 
     var id: String { rawValue }
     var title: String {
@@ -116,7 +115,6 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .changes: "Changes"
         case .pullRequests: "Pull Requests"
         case .search: "Search"
-        case .database: "Database"
         }
     }
     var ideaAssetPath: String {
@@ -125,7 +123,6 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .changes: "expui/toolwindows/commit@20x20.svg"
         case .pullRequests: "expui/toolwindows/vcs@20x20.svg"
         case .search: "expui/toolwindows/find@20x20.svg"
-        case .database: "expui/toolwindows/toolWindowDataView@20x20.svg"
         }
     }
 
@@ -133,7 +130,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         switch self {
         case .pullRequests:
             LitheFeatureAvailability.githubPullRequests
-        case .project, .changes, .search, .database:
+        case .project, .changes, .search:
             true
         }
     }

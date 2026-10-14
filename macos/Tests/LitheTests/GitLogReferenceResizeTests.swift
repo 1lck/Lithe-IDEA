@@ -12,9 +12,11 @@ struct GitLogReferenceResizeTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-reference-resize-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        // Real Git fixture setup needs a bounded integration budget on loaded CI hosts.
+        // Keep the shared process helper's shorter default for other tests.
         func git(_ arguments: [String]) async throws -> String {
             let result = try await TestProcess.run(executableURL: URL(fileURLWithPath: "/usr/bin/git"),
-                arguments: arguments, currentDirectoryURL: root)
+                arguments: arguments, currentDirectoryURL: root, timeout: .seconds(15))
             try #require(result.terminationStatus == 0, "\(String(decoding: result.output, as: UTF8.self))")
             return String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         }
