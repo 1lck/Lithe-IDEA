@@ -73,11 +73,12 @@ v1 包在新版本里仍会被拒绝，需要重新下载 v2 包。多 key 表�
 构建侧对应 `scripts/build-official-plugins.sh --development-unsigned`，只在 debug
 配置下可用，用来在没有私钥时产出这种开发包；release 配置传入该参数会直接失败。
 
-stable 和 preview 工作流都必须配置同一 repository secret
-`LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`。它是与客户端内置公钥匹配的 base64 编码 32 字节
-Ed25519 私钥；可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 写入 GitHub，私钥只在构建 runner 的标准输入中使用，不能写入
-仓库、release asset 或日志。公钥轮换需要先发布能识别新 key ID 的客户端，再更新
-secret 并重新生成包，不能只替换 GitHub secret。
+官方插件由组织仓库 `Lithe-IDEA/Lithe-IDEA` 的独立插件发布工作流使用
+`LITHE_PLUGIN_PACKAGE_PRIVATE_KEY` 签名，该私钥必须匹配客户端内置 v2 公钥。
+应用 stable/preview 工作流不再构建独立 PHP/Go 包，个人仓库不需要插件私钥即可
+发布应用；个人仓库的插件发布和索引写入任务跳过，客户端仍从组织索引下载插件。
+插件私钥不得写入仓库、release asset 或日志。公钥轮换需要先发布能识别新 key ID
+的客户端，再更新 secret 并重新生成包，不能只替换 GitHub secret。
 
 ### 全量与差分双轨发布
 

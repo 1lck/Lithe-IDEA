@@ -190,7 +190,7 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
           await writeClipboardText(text);
 
           const { openUrl } = await import("@tauri-apps/plugin-opener");
-          await openUrl("https://github.com/Lithe-IDEA/Lithe-IDEA/issues/new?template=01-bug.yml");
+          await openUrl("https://github.com/1lck/Lithe-IDEA/issues/new?template=01-bug.yml");
         } catch (e) {
           console.error("Failed to prepare bug report:", e);
         }

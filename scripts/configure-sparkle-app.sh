@@ -4,7 +4,7 @@ plist="${1:?Usage: configure-sparkle-app.sh Info.plist architecture}"
 architecture="${2:?}"
 channel="${LITHE_UPDATE_CHANNEL:-stable}"
 [[ "$channel" == stable || "$channel" == preview ]] || { print -u2 -- "Invalid update channel"; exit 1; }
-repository="${GITHUB_REPOSITORY:-Lithe-IDEA/Lithe-IDEA}"
+repository="${GITHUB_REPOSITORY:-1lck/Lithe-IDEA}"
 if [[ "$channel" == preview ]]; then
     : "${LITHE_PREVIEW_TAG:?Preview builds require a rolling release tag}"
     [[ "$LITHE_PREVIEW_TAG" == [a-zA-Z0-9]* && "$LITHE_PREVIEW_TAG" != *[^a-zA-Z0-9._-]* ]] || exit 1
