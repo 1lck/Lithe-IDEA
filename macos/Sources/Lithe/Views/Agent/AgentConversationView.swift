@@ -125,6 +125,7 @@ private struct AgentChatHeader: View {
     let onNew: (() -> Void)?
     let onOpenSettings: () -> Void
     let onHide: () -> Void
+    var conversationTitle: String? = nil
     var historyPopup: ((@escaping () -> Void) -> AnyView)? = nil
     @State private var showsHistoryPopup = false
 
@@ -137,7 +138,8 @@ private struct AgentChatHeader: View {
                     HStack(spacing: LitheTheme.MainToolbar.comboIconTextGap) {
                         AgentBrandIcon(name: agentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
                         HStack(spacing: LitheTheme.MainToolbar.comboExpandGap) {
-                            Text("Chat History").lineLimit(1)
+                            Text(conversationTitle ?? String(localized: "Chat History"))
+                                .lineLimit(1).truncationMode(.tail)
                             LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheTheme.Metrics.toolbarIconSize,
                                           fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
                         }
@@ -396,6 +398,7 @@ private struct AgentConnectionView: View {
                 onNew: feature.isCreatingSession ? nil : startNewConversation,
                 onOpenSettings: onOpenSettings,
                 onHide: onHide,
+                conversationTitle: conversationTitle,
                 historyPopup: { dismiss in
                     AnyView(AgentHistoryPopover(feature: feature, history: history,
                         agentName: selectedAgent?.name ?? feature.agentName,
@@ -460,6 +463,15 @@ private struct AgentConnectionView: View {
                 .id(draftReset)
             }
         }
+    }
+
+    private var conversationTitle: String? {
+        guard let id = feature.selectedSessionID else {
+            return feature.isCreatingSession ? String(localized: "New Chat") : nil
+        }
+        let session = feature.sessions.first { $0.id == id } ?? AgentSessionSummary(id: id)
+        return AgentHistoryPresentation.popupTitle(session, metadata: history.metadata[id],
+                                                  conversation: feature.conversations[id])
     }
 
     /// Both New Chat and the tab-strip plus use the existing session action.

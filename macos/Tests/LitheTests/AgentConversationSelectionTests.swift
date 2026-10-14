@@ -9,6 +9,43 @@ import LitheCoreContracts
 @Suite(.serialized)
 struct AgentConversationSelectionTests {
     @Test
+    func conversationHeaderTracksPromptAndHistoryRenameWithoutReplacingTheRoot() async throws {
+        let transport = SelectionTransport()
+        let panel = AgentConversationFeatureModel(transport: transport)
+        panel.setAgents([.init(id: "codex-acp", name: "Codex")])
+        do {
+            let feature = try prepare(panel, transport: transport, agentID: "codex-acp", model: "Model")
+            let host = hostingView(panel)
+            let window = hiddenWindow(host)
+            defer { window.close() }
+            func headerPixels() throws -> Data {
+                host.layoutSubtreeIfNeeded()
+                let region = NSRect(x: 0, y: host.isFlipped ? 0 : host.bounds.height - 34, width: 230, height: 34)
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: region))
+                host.cacheDisplay(in: region, to: bitmap)
+                let bytes = try #require(bitmap.bitmapData)
+                return Data(bytes: bytes, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
+            }
+            let blank = try headerPixels()
+            try feature.send("1")
+            let session = try #require(feature.sessions.first { $0.id == "codex-acp" })
+            #expect(AgentHistoryPresentation.popupTitle(session, metadata: nil, conversation: feature.selectedConversation) == "1")
+            let prompt = try headerPixels()
+            #expect(prompt != blank, "The actual history trigger must replace New Chat with the prompt title")
+            let history = panel.history(for: "codex-acp")
+            #expect(history.rename(session.id, title: "Reviewed conversation"))
+            let renamed = try headerPixels()
+            #expect(renamed != prompt, "A local history rename must refresh the existing header")
+            #expect(AgentHistoryPresentation.popupTitle(session, metadata: history.metadata[session.id], conversation: feature.selectedConversation) == "Reviewed conversation")
+        } catch {
+            await panel.stop()
+            throw error
+        }
+        await panel.stop()
+        #expect(transport.connections.allSatisfy { $0.closeCount == 1 })
+    }
+
+    @Test
     func configuredDefaultDoesNotConsumeWelcomeOrStartAgentBeforeUserSelection() async throws {
         let domain = "Lithe.AgentWelcomeTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: domain))

@@ -18,6 +18,9 @@ enum AgentHistoryPresentation {
     static func popupTitle(_ session: AgentSessionSummary, metadata: AgentHistoryMetadata?,
                            conversation: AgentConversation?) -> String {
         if let title = metadata?.title ?? session.title { return title }
+        if let prompt = conversation?.messages.first(where: { $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return AgentSessionTitle.provisional(prompt.text)
+        }
         if let conversation, conversation.isAttached, !conversation.isLoading, conversation.messages.isEmpty {
             return String(localized: "New Chat")
         }
