@@ -158,8 +158,8 @@ struct AgentSessionSelectorLayoutTests {
         }
     }
 
-    @Test
-    func respondingComposerOpensPermissionAndModelChoicesInBothThemes() async throws {
+    @Test(arguments: [280, 540])
+    func respondingComposerOpensPermissionAndModelChoicesInBothThemes(width: CGFloat) async throws {
         let options = [
             AgentSessionConfigOption(id: "mode", name: "Mode", category: "mode", currentValue: "manual",
                 choices: [.init(id: "manual", name: "Manual"), .init(id: "auto", name: "Auto")]),
@@ -174,7 +174,7 @@ struct AgentSessionSelectorLayoutTests {
                 onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
                 configOptions: options, onSetConfig: { selections[$0] = $1 }
             ).environment(\.colorScheme, scheme))
-            let window = makeWindow(host, size: NSSize(width: 540, height: 200))
+            let window = makeWindow(host, size: NSSize(width: width, height: 200))
             defer {
                 // Detaching the anchors dismisses their panels and removes event monitors.
                 window.contentView = nil
@@ -185,11 +185,21 @@ struct AgentSessionSelectorLayoutTests {
                     host.layoutSubtreeIfNeeded()
                     return dropdownAnchors(in: host).count == 3
                 }, "The composer must lay out the Agent, approval and model triggers")
-                // Shared dropdown anchors have the real trigger geometry; avoid guessed pixel offsets.
+                // Window coordinates increase upwards: Agent/model share the footer below mode.
                 let anchors = dropdownAnchors(in: host).sorted {
-                    $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX
+                    let lhs = $0.convert($0.bounds, to: nil)
+                    let rhs = $1.convert($1.bounds, to: nil)
+                    return abs(lhs.midY - rhs.midY) > 1 ? lhs.midY < rhs.midY : lhs.minX < rhs.minX
                 }
-                let trigger = anchors[category == "mode" ? 1 : 2]
+                let agentFrame = anchors[0].convert(anchors[0].bounds, to: nil)
+                let modelFrame = anchors[1].convert(anchors[1].bounds, to: nil)
+                let modeFrame = anchors[2].convert(anchors[2].bounds, to: nil)
+                #expect(abs(agentFrame.midY - modelFrame.midY) < 1)
+                #expect(modelFrame.minX >= agentFrame.maxX)
+                #expect(modeFrame.minY > modelFrame.maxY)
+                #expect(modelFrame.width > LitheTheme.Metrics.toolbarIconSize)
+                try capture(host, name: "composer-model-footer-\(scheme)-\(Int(width))")
+                let trigger = anchors[category == "mode" ? 2 : 1]
                 try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
                 try #require(await waitUntil { popup(in: window) != nil }, "A native click must open the shared dropdown while responding")
                 let panel = try #require(popup(in: window))

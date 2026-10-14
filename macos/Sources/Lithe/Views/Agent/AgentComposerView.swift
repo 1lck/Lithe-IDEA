@@ -77,6 +77,27 @@ struct AgentComposerView: View {
     private var contextBar: some View {
         HStack(spacing: 8) {
             agentMenu
+            if !isPreparingSession {
+                if !configOptions.isEmpty {
+                    AgentSessionSelectors(
+                        options: configOptions.filter { $0.category != "mode" },
+                        agentName: selectedAgent?.name,
+                        isDisabled: isBlocked || isConfiguring,
+                        appliesToNextTurn: isResponding,
+                        onSelect: onSetConfig
+                    )
+                    .id(sessionID ?? selectedAgent?.id)
+                } else if let model = selectedAgent?.modelName, !model.isEmpty {
+                    HStack(spacing: 5) {
+                        AgentBrandIcon(name: selectedAgent?.name, size: 12, style: .brand)
+                        Text(model).lineLimit(1).truncationMode(.middle)
+                    }
+                    .font(LitheTheme.uiFont(size: 11))
+                    .foregroundStyle(AgentPanelStyle.secondary)
+                    .padding(.horizontal, 4)
+                    .help(model)
+                }
+            }
             if let sessionStatistics {
                 AgentSessionStatusView(statistics: sessionStatistics, contextUsage: contextUsage, showsContext: false)
                     .layoutPriority(1)
@@ -110,7 +131,7 @@ struct AgentComposerView: View {
                     .accessibilityIdentifier("agent-session-settings-loading")
             } else if !configOptions.isEmpty {
                 AgentSessionSelectors(
-                    options: configOptions,
+                    options: configOptions.filter { $0.category == "mode" },
                     agentName: selectedAgent?.name,
                     isDisabled: isBlocked || isConfiguring,
                     appliesToNextTurn: isResponding,
@@ -118,15 +139,6 @@ struct AgentComposerView: View {
                 )
                 .id(sessionID ?? selectedAgent?.id)
                 if isConfiguring { ProgressView().controlSize(.mini) }
-            } else if let model = selectedAgent?.modelName, !model.isEmpty {
-                HStack(spacing: 5) {
-                    AgentBrandIcon(name: selectedAgent?.name, size: 12, style: .brand)
-                    Text(model).lineLimit(1).truncationMode(.middle)
-                }
-                .font(LitheTheme.uiFont(size: 11))
-                .foregroundStyle(AgentPanelStyle.secondary)
-                .padding(.horizontal, 4)
-                .help(model)
             }
             Spacer(minLength: 0)
             AgentContextUsageView(usage: contextUsage, composition: sessionStatistics?.modelCalls?.latestContext,
