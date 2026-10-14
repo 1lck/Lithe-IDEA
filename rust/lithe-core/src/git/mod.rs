@@ -6144,11 +6144,30 @@ fn checkout_updated_remote_branch(
             "The selected branch changed; review and retry",
         ));
     }
-    execute_git(
+    // `branch.<name>.mergeOptions=--squash` would make the merge exit 0 while
+    // only staging the remote diff. Override it for this call without touching
+    // the user's configuration, then confirm HEAD reached the pinned commit.
+    let merged = execute_git(
         root,
-        &["merge".into(), "--ff-only".into(), remote_revision],
+        &[
+            "merge".into(),
+            "--ff-only".into(),
+            "--no-squash".into(),
+            remote_revision.clone(),
+        ],
         None,
-    )
+    )?;
+    if merged.exit_code == 0
+        && (current_branch(root)? != local_name
+            || resolve_commit_revision(root, "HEAD")? != remote_revision)
+    {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git did not move the branch to the selected remote commit",
+        )
+        .with_details(merged.output));
+    }
+    Ok(merged)
 }
 
 fn parse_reference(line: &str) -> Option<GitReferenceResponse> {

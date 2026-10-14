@@ -331,6 +331,29 @@ struct RunConfigurationIntegrationTests {
         #expect(registry.pack(id: "zig")?.toolingRuntime == nil)
     }
 
+    /// A package can leave a feature with the host by declaring it on its
+    /// host integration. Only the declared features get a built-in tool.
+    @Test
+    func extensionOwnedLanguageKeepsTheBuiltInToolsItsPackageDeclares() throws {
+        let descriptor = LanguageProviderDescriptor(
+            id: "python",
+            displayName: "Python",
+            fileExtensions: ["py"],
+            capabilities: [.run, .languageServer, .debugAdapter, .testing],
+            activationPolicy: .onDemand
+        )
+        let registry = LanguagePackRegistry.standard(
+            catalog: LanguageProviderCatalog(descriptors: [descriptor]),
+            extensionRequiredProviderIDs: ["python"],
+            hostCapabilities: ["python": [.debug, .testing]]
+        )
+
+        #expect(registry.runProviders.provider(id: "python") == nil)
+        #expect(registry.testProviders.provider(id: "python") != nil)
+        #expect(registry.pack(id: "python")?.debugAdapterLaunch != nil)
+        #expect(registry.pack(id: "python")?.toolingRuntime == nil)
+    }
+
     @Test
     func customLanguagePackRegistersWithoutChangingCoreServices() {
         let descriptor = LanguageProviderDescriptor(
@@ -482,6 +505,119 @@ struct RunConfigurationIntegrationTests {
             .string("/tmp/java-project/classes"),
         ]))
         #expect(configuration.arguments["cwd"] == .string(root.path))
+    }
+
+    @Test
+    func javaDebugRunsOnTheJDKRunSelectsForTheSameConfiguration() throws {
+        let document = URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
+        let provider = try #require(LanguageProviderCatalog.standard.provider(for: document))
+        let root = URL(fileURLWithPath: "/tmp/java-project", isDirectory: true)
+        let target = JavaDebugLaunchTarget(
+            mainClass: "com.acme.Main",
+            projectName: "service",
+            modulePaths: [],
+            classPaths: []
+        )
+        var requested: [DebugJavaRuntime] = []
+        let resolver = DebugLaunchConfigurationResolver(
+            fileExists: { _ in true },
+            javaExecutablePath: { runtime in
+                requested.append(runtime)
+                return "/selected/bin/java"
+            }
+        )
+        func javaExec(_ selected: RunConfiguration?, _ options: RunOptions) throws -> ToolingJSONValue? {
+            try resolver.resolve(
+                provider: provider,
+                documentURL: document,
+                workspaceURL: root,
+                configurations: [],
+                selectedConfiguration: selected,
+                javaTarget: target,
+                options: { _ in options }
+            ).arguments["javaExec"]
+        }
+        let javaMain = RunConfiguration(
+            id: "java-main:service",
+            name: "Service",
+            kind: .javaMain,
+            execution: .application,
+            modulePath: "service",
+            mainClass: "com.acme.Main"
+        )
+        let mavenModule = RunConfiguration(
+            id: "module:service",
+            name: "service",
+            kind: .mavenModule,
+            execution: .service,
+            modulePath: "service",
+            mainClass: nil
+        )
+
+        #expect(try javaExec(nil, RunOptions()) == .string("/selected/bin/java"))
+        #expect(try javaExec(javaMain, RunOptions(javaHomePath: "/jdks/17")) == .string("/selected/bin/java"))
+        #expect(try javaExec(mavenModule, RunOptions(javaHomePath: "/jdks/17")) == .string("/selected/bin/java"))
+        #expect(try javaExec(
+            mavenModule,
+            RunOptions(javaHomePath: "/jdks/17", mavenJavaHomePath: "/jdks/21")
+        ) == .string("/selected/bin/java"))
+
+        #expect(requested == [
+            .java(homeOverride: nil),
+            .java(homeOverride: "/jdks/17"),
+            .maven(homeOverride: "/jdks/17"),
+            .maven(homeOverride: "/jdks/21"),
+        ])
+    }
+
+    @Test
+    func javaDebugFailsLikeRunWhenItsJDKIsUnusable() throws {
+        let document = URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
+        let provider = try #require(LanguageProviderCatalog.standard.provider(for: document))
+        let resolver = DebugLaunchConfigurationResolver(
+            fileExists: { _ in true },
+            javaExecutablePath: { _ in nil }
+        )
+
+        #expect(throws: DebugLaunchConfigurationResolutionError.javaRuntimeUnavailable) {
+            try resolver.resolve(
+                provider: provider,
+                documentURL: document,
+                workspaceURL: URL(fileURLWithPath: "/tmp/java-project", isDirectory: true),
+                configurations: [],
+                selectedConfiguration: nil,
+                javaTarget: JavaDebugLaunchTarget(
+                    mainClass: "com.acme.Main",
+                    projectName: nil,
+                    modulePaths: [],
+                    classPaths: []
+                ),
+                options: { _ in RunOptions() }
+            )
+        }
+    }
+
+    @Test
+    func debugJavaRuntimeFollowsTheRunSelectionChain() {
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        runtime.openProject(at: URL(fileURLWithPath: "/tmp/lithe-runtime-toolchains", isDirectory: true))
+
+        #expect(
+            runtime.javaExecutableURL(forDebugging: .java(homeOverride: "/local/JDK 21"))
+                == runtime.javaExecutableURL(overridePath: "/local/JDK 21")
+        )
+        #expect(
+            runtime.javaExecutableURL(forDebugging: .maven(homeOverride: "/local/Maven JDK"))?.path
+                == runtime.environment(for: .maven, javaHomeOverride: "/local/Maven JDK")["JAVA_HOME"]
+                    .map { $0 + "/bin/java" }
+        )
+        #expect(
+            runtime.javaExecutableURL(forDebugging: .java(homeOverride: nil))
+                == runtime.javaExecutableURL()
+        )
     }
 
     @Test
@@ -720,6 +856,21 @@ struct RunConfigurationIntegrationTests {
             configuration.arguments["args"]
                 == .string("43128 testng example.UserServiceTest#logsIn")
         )
+        #expect(configuration.arguments["javaExec"] == nil)
+
+        var requested: [DebugJavaRuntime] = []
+        let aligned = try DebugLaunchConfigurationResolver(
+            fileExists: { _ in true },
+            javaTestLaunchResolver: core,
+            javaExecutablePath: { runtime in
+                requested.append(runtime)
+                return "/maven-jdk/bin/java"
+            }
+        ).resolveJavaTest(target: target, resultPort: 43_128)
+
+        #expect(requested == [.maven(homeOverride: nil)])
+        #expect(aligned.arguments["javaExec"] == .string("/maven-jdk/bin/java"))
+        #expect(aligned.arguments["args"] == configuration.arguments["args"])
     }
 
     @Test
@@ -820,24 +971,6 @@ struct RunConfigurationIntegrationTests {
 
         #expect(candidates.first?.executableURL.path == "/tmp/home/.go/bin/gopls")
         #expect(candidates.first?.source == .environment)
-    }
-
-    @Test
-    func macToolDiscoveryPrefersBundledJDTLS() {
-        let resources = URL(fileURLWithPath: "/Applications/Lithe.app/Contents/Resources", isDirectory: true)
-        let root = URL(fileURLWithPath: "/tmp/mac-java-project", isDirectory: true)
-        let bundled = resources.appendingPathComponent("LanguageServers/jdtls/bin/jdtls")
-        let project = root.appendingPathComponent(".lithe/toolchains/bin/jdtls")
-        let discovery = MacRuntimeToolDiscovery(
-            homeDirectoryURL: URL(fileURLWithPath: "/tmp/home", isDirectory: true),
-            resourceDirectoryURL: resources,
-            isExecutable: { $0 == bundled || $0 == project }
-        )
-
-        let candidates = discovery.candidates(for: "jdtls", projectURL: root, environment: [:])
-
-        #expect(candidates.map(\.source) == [.bundled, .project])
-        #expect(candidates.first?.executableURL == bundled)
     }
 
     @Test
@@ -1812,7 +1945,7 @@ struct RunConfigurationIntegrationTests {
             languageServerLaunch: descriptor.languageServerLaunch,
             languageServerCore: TestLanguageServerRuntimeCore(providerID: "java"),
             languageServerExecutableResolver: { _ in URL(fileURLWithPath: "/usr/bin/jdtls") },
-            languageServerRuntimeResolver: { _ in .unavailable(message) }
+            hostIntegrationResolver: { _ in .unavailable(message) }
         )
 
         #expect(runtime.makeLanguageServerSession() == nil)
@@ -1859,10 +1992,12 @@ struct RunConfigurationIntegrationTests {
             languageServerLaunch: descriptor.languageServerLaunch,
             languageServerCore: core,
             languageServerExecutableResolver: { _ in URL(fileURLWithPath: "/jdtls/bin/jdtls") },
-            languageServerRuntimeResolver: { _ in
-                .available(URL(fileURLWithPath: "/jdk/bin/java"))
-            },
-            jdtlsLaunchResourcesResolver: { _, _ in .available(resources) }
+            hostIntegrationResolver: { _ in
+                .available(LanguageServerHostIntegrationLaunch(
+                    runtimeExecutableURL: URL(fileURLWithPath: "/jdk/bin/java"),
+                    coreLaunch: .jdt(resources)
+                ))
+            }
         )
         let session = try #require(runtime.makeLanguageServerSession())
         let mavenContext = MavenLaunchContext(

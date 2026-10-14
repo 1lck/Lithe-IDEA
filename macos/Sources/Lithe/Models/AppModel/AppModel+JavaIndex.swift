@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import LitheLanguageIntelligenceModule
+import LitheModuleAPI
 
 extension AppModel {
     func rebuildJavaIndex() {
@@ -72,8 +73,42 @@ extension AppModel {
     func languageSessionsForWorkspaceMaintenance() async throws
         -> LanguageToolingSessionManager
     {
-        try await languageIntelligenceModuleCoordinator.sessionsForMaintenance(
+        let sessions = try await languageIntelligenceModuleCoordinator.sessionsForMaintenance(
             current: languageToolingSessionsIfActive
         )
+        await registerPluginLanguageServers(in: sessions)
+        return sessions
+    }
+
+    /// Workspace maintenance starts a language server without an open
+    /// document, so the document path has not registered the servers that
+    /// plugins provide yet. Without this the session manager only knows the
+    /// catalog entry of the language, which has no launch of its own.
+    private func registerPluginLanguageServers(in sessions: LanguageToolingSessionManager) async {
+        let supports = services.pluginCatalog.languageSupports.values
+            .map(\.declaration)
+            .sorted { $0.id < $1.id }
+        for support in supports {
+            guard let moduleID = support.languageServerModuleID,
+                  !languageToolingFeature.isDisabled(support.id),
+                  let snapshot = try? services.moduleRuntime.snapshot(for: moduleID),
+                  snapshot.state != .disabled else { continue }
+            let capabilityID = ModuleCapabilityID.languageServerExtension(support.id)
+            let capability: AnyObject?
+            if let active = services.moduleRuntime.capability(capabilityID) {
+                capability = active
+            } else {
+                // A module that cannot activate is reported when its server
+                // is started; it must not block the other languages.
+                capability = try? await services.moduleRuntime.activateCapability(capabilityID)
+            }
+            guard let provider = capability as? any LanguageServerExtensionProviding,
+                  sessions.registerLanguageServerExtension(provider, support: support) else { continue }
+            if let tools = languageServerToolsIfActive,
+               let registered = sessions.languageServerExtensionDescriptor(languageID: support.id),
+               tools.needsCandidateValidation(for: registered) {
+                await tools.refreshCandidates(for: registered)
+            }
+        }
     }
 }

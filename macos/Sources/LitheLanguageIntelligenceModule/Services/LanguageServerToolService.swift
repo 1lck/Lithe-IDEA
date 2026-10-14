@@ -72,22 +72,25 @@ package enum LanguageServerToolConfigurationError: LocalizedError, Equatable {
 package final class LanguageServerToolService: ObservableObject {
     @Published package private(set) var customExecutablePaths: [String: String]
     @Published package private(set) var installationStates: [String: LanguageServerInstallationState] = [:]
-    @Published private var validatedCandidates: [String: [RuntimeToolCandidate]] = [:]
+    @Published private var validatedCandidates: [String: ValidatedCandidates] = [:]
     package var onCandidatesChanged: ((String) -> Void)?
 
     private let runtimeService: any LanguageToolRuntimePort
     private let commandRunner: any LanguageToolCommandRunning
     private let settingsStore: any LanguageToolSettingsStoring
+    private let versionChecker: (any LanguageServerRuntimeVersionChecking)?
     private var validationCache: [ExecutableValidationKey: ExecutableValidationResult] = [:]
 
     package init(
         runtimeService: any LanguageToolRuntimePort,
         commandRunner: any LanguageToolCommandRunning,
-        settingsStore: any LanguageToolSettingsStoring
+        settingsStore: any LanguageToolSettingsStoring,
+        versionChecker: (any LanguageServerRuntimeVersionChecking)? = nil
     ) {
         self.runtimeService = runtimeService
         self.commandRunner = commandRunner
         self.settingsStore = settingsStore
+        self.versionChecker = versionChecker
         customExecutablePaths = settingsStore.loadLanguageToolExecutablePaths()
     }
 
@@ -108,10 +111,10 @@ package final class LanguageServerToolService: ObservableObject {
     }
 
     package func candidates(for descriptor: LanguageProviderDescriptor) -> [RuntimeToolCandidate] {
-        if let cached = validatedCandidates[descriptor.id] {
+        if let cached = cachedCandidates(for: descriptor) {
             return cached
         }
-        guard descriptor.languageServerLaunch?.validationArguments.isEmpty != false else {
+        guard probe(for: descriptor) == nil else {
             return []
         }
         return discoveredCandidates(for: descriptor)
@@ -122,9 +125,11 @@ package final class LanguageServerToolService: ObservableObject {
         for descriptor: LanguageProviderDescriptor
     ) async -> [RuntimeToolCandidate] {
         let discovered = discoveredCandidates(for: descriptor)
-        let arguments = descriptor.languageServerLaunch?.validationArguments ?? []
-        guard !arguments.isEmpty else {
-            validatedCandidates[descriptor.id] = discovered
+        guard probe(for: descriptor) != nil else {
+            validatedCandidates[descriptor.id] = ValidatedCandidates(
+                launch: descriptor.languageServerLaunch,
+                candidates: discovered
+            )
             onCandidatesChanged?(descriptor.id)
             return discovered
         }
@@ -134,9 +139,21 @@ package final class LanguageServerToolService: ObservableObject {
                 usable.append(candidate)
             }
         }
-        validatedCandidates[descriptor.id] = usable
+        validatedCandidates[descriptor.id] = ValidatedCandidates(
+            launch: descriptor.languageServerLaunch,
+            candidates: usable
+        )
         onCandidatesChanged?(descriptor.id)
         return usable
+    }
+
+    /// A language's catalog entry and the server a plugin registers for it
+    /// share one provider ID but not one launch. A result computed for the
+    /// other launch says nothing about this one, so it is not reused.
+    private func cachedCandidates(for descriptor: LanguageProviderDescriptor) -> [RuntimeToolCandidate]? {
+        guard let cached = validatedCandidates[descriptor.id],
+              cached.launch == descriptor.languageServerLaunch else { return nil }
+        return cached.candidates
     }
 
     private func discoveredCandidates(
@@ -186,8 +203,7 @@ package final class LanguageServerToolService: ObservableObject {
     /// True while a provider that requires an executable probe has not been
     /// probed yet, so `candidates(for:)` is empty only because no check ran.
     package func needsCandidateValidation(for descriptor: LanguageProviderDescriptor) -> Bool {
-        validatedCandidates[descriptor.id] == nil
-            && descriptor.languageServerLaunch?.validationArguments.isEmpty == false
+        cachedCandidates(for: descriptor) == nil && probe(for: descriptor) != nil
     }
 
     package func executableURL(for descriptor: LanguageProviderDescriptor) -> URL? {
@@ -200,11 +216,10 @@ package final class LanguageServerToolService: ObservableObject {
         guard let candidate = candidates(for: descriptor).first else {
             return .unavailable
         }
-        let arguments = descriptor.languageServerLaunch?.validationArguments ?? []
-        guard !arguments.isEmpty else { return .foundUnverified }
+        guard let probe = probe(for: descriptor) else { return .foundUnverified }
         let key = ExecutableValidationKey(
             executablePath: candidate.executableURL.standardizedFileURL.path,
-            arguments: arguments
+            probe: probe
         )
         return validationCache[key]?.didExecute == true ? .executableVerified : .unavailable
     }
@@ -297,11 +312,11 @@ package final class LanguageServerToolService: ObservableObject {
         _ candidate: RuntimeToolCandidate,
         for descriptor: LanguageProviderDescriptor
     ) async -> ExecutableValidationResult {
-        let arguments = descriptor.languageServerLaunch?.validationArguments ?? []
-        guard !arguments.isEmpty else { return .unverifiedUsable }
+        guard let probe = probe(for: descriptor) else { return .unverifiedUsable }
+        let arguments = probe.arguments
         let key = ExecutableValidationKey(
             executablePath: candidate.executableURL.standardizedFileURL.path,
-            arguments: arguments
+            probe: probe
         )
         if let cached = validationCache[key],
            Date().timeIntervalSince(cached.checkedAt) < 30 {
@@ -323,20 +338,65 @@ package final class LanguageServerToolService: ObservableObject {
             )
         }.value
         let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        var isUsable = result.succeeded
+        var message = output.isEmpty ? "Exited with code \(result.exitCode)." : output
+        if isUsable, let requirement = probe.versionRequirement {
+            (isUsable, message) = versionOutcome(requirement, output: output)
+        }
         let validation = ExecutableValidationResult(
-            isUsable: result.succeeded,
-            message: output.isEmpty ? "Exited with code \(result.exitCode)." : output,
+            isUsable: isUsable,
+            message: message,
             didExecute: true,
             checkedAt: Date()
         )
         validationCache[key] = validation
         return validation
     }
+
+    /// The probe every candidate must pass before it is used: a declared
+    /// validation command, or the version probe of a runtime launch that
+    /// states a minimum version. `nil` means candidates are trusted as found.
+    private func probe(for descriptor: LanguageProviderDescriptor) -> ExecutableProbe? {
+        guard let launch = descriptor.languageServerLaunch else { return nil }
+        if let requirement = launch.executableVersionRequirement {
+            return ExecutableProbe(arguments: requirement.probeArguments, versionRequirement: requirement)
+        }
+        guard !launch.validationArguments.isEmpty else { return nil }
+        return ExecutableProbe(arguments: launch.validationArguments, versionRequirement: nil)
+    }
+
+    /// A runtime that cannot be shown to meet the requirement is not used:
+    /// starting a server on an older runtime fails later and less clearly.
+    private func versionOutcome(
+        _ requirement: LanguageServerExecutableVersionRequirement,
+        output: String
+    ) -> (isUsable: Bool, message: String) {
+        guard let versionChecker,
+              let check = try? versionChecker.checkRuntimeVersion(requirement, output: output) else {
+            return (false, "Lithe could not check the \(requirement.tool) version.")
+        }
+        guard let version = check.version else {
+            return (false, "The \(requirement.tool) version could not be read. \(requirement.minimumVersion) or newer is required.")
+        }
+        return check.satisfied
+            ? (true, "\(requirement.tool) \(version)")
+            : (false, "\(requirement.tool) \(version) is older than the required \(requirement.minimumVersion).")
+    }
+}
+
+private struct ValidatedCandidates {
+    let launch: LanguageServerLaunchDescriptor?
+    let candidates: [RuntimeToolCandidate]
+}
+
+private struct ExecutableProbe: Hashable {
+    let arguments: [String]
+    let versionRequirement: LanguageServerExecutableVersionRequirement?
 }
 
 private struct ExecutableValidationKey: Hashable {
     let executablePath: String
-    let arguments: [String]
+    let probe: ExecutableProbe
 }
 
 private struct ExecutableValidationResult {

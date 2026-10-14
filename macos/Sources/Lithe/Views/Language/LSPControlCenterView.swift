@@ -179,6 +179,11 @@ struct LSPControlCenterView: View {
                 ? "检测到 \(language) 项目，请先在插件管理中下载并安装 \(name)。"
                 : "This \(language) project needs \(name). Download and install it from Plugin Management."
         }
+        if snapshot.installationStatus == .removed {
+            return usesChinese
+                ? "检测到 \(language) 项目，但 \(name) 已被移除。请在插件管理中恢复它，然后重启 Lithe。"
+                : "This \(language) project needs \(name), which was removed. Restore it from Plugin Management, then restart Lithe."
+        }
         if snapshot.requiresRestart {
             return usesChinese
                 ? "\(name) 已安装，重启 Lithe 后才能在这里控制语言服务器。"

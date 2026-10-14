@@ -4,7 +4,12 @@
   "group": "运行配置",
   "capability": "入口点与运行配置发现",
   "macos": {
-    "evidence": ["macos/Sources/Lithe/Views/Run", "shared/fixtures/run-configuration"],
+    "evidence": [
+      "macos/Sources/Lithe/Views/Run",
+      "shared/fixtures/run-configuration",
+      "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs",
+      "macos/Tests/LitheTests/RealJavaDebugIntegrationTests.swift"
+    ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
@@ -28,7 +33,8 @@
       "windows/tauri/src/features/run/utils/run-configuration-presentation.test.tsx",
       "shared/fixtures/run-configuration",
       "windows/tauri/src/features/run/services/java-context-entrypoint.ts",
-      "windows/tauri/src/features/run/services/java-main-launch.test.ts"
+      "windows/tauri/src/features/run/services/java-main-launch.test.ts",
+      "rust/lithe-core/src/lsp/interface/engine.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

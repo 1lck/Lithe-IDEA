@@ -31,6 +31,10 @@ export function createWheelScrollAnimation({
   let started = 0;
   let lastFrame = 0;
   let duration = SCROLL_DURATION_MS;
+  // Last position read back from the viewport. Browsers may report fractional
+  // or quantized offsets, so external scrolling is detected against this value
+  // rather than against the rounded animation position.
+  let observed = 0;
 
   const clamp = (position: number) => Math.max(0, Math.min(maximum(), position));
   const stop = () => {
@@ -40,7 +44,7 @@ export function createWheelScrollAnimation({
 
   const tick = () => {
     // Scrollbar dragging, keyboard reveal and replacement content win over inertia.
-    if (read() !== Math.round(current)) {
+    if (read() !== observed) {
       stop();
       return;
     }
@@ -49,6 +53,7 @@ export function createWheelScrollAnimation({
     current = initial + (target - initial) * scrollEasing(progress);
     const position = Math.round(clamp(current));
     write(position);
+    observed = read();
     if (progress === 1 || position !== Math.round(current)) {
       stop();
     } else {
@@ -60,7 +65,7 @@ export function createWheelScrollAnimation({
     scroll(delta: number) {
       if (delta === 0 || !Number.isFinite(delta)) return false;
       const position = read();
-      if (frame !== null && position !== Math.round(current)) stop();
+      if (frame !== null && position !== observed) stop();
       const sameDirection = frame !== null && (target - initial) * delta > 0;
       const nextTarget = clamp((sameDirection ? target : position) + delta);
       // Keep owning outward events while still travelling to the boundary;
@@ -77,6 +82,7 @@ export function createWheelScrollAnimation({
         started = scheduler.now();
       }
       current = position;
+      observed = position;
       lastFrame = started;
       target = nextTarget;
       if (frame === null) frame = scheduler.request(tick);

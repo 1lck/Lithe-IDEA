@@ -72,6 +72,33 @@ struct LanguageServerToolServiceTests {
         #expect(service.executableURL(for: pinnedDescriptor("beta", executable: beta)) == nil)
     }
 
+    /// The catalog entry of a language whose server comes from a plugin has no
+    /// launch. Refreshing it at module activation must not hide the server
+    /// the plugin registers later under the same provider ID.
+    @Test
+    func catalogEntryWithoutLaunchDoesNotHideThePluginServerOfItsLanguage() async {
+        let packaged = URL(fileURLWithPath: "/plugins/alpha/bin/language-server")
+        let store = LanguageServerToolTestStore()
+        let service = LanguageServerToolService(
+            runtimeService: makeRuntime(executablePaths: [packaged.path], candidates: [:], store: store),
+            commandRunner: LanguageServerToolTestProcessRunner(),
+            settingsStore: store
+        )
+        let catalogEntry = LanguageProviderDescriptor(
+            id: "alpha",
+            displayName: "alpha",
+            fileExtensions: ["alpha"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: "alpha",
+            languageServerLaunch: nil,
+            languageServerInstallation: nil
+        )
+
+        #expect(await service.refreshCandidates(for: catalogEntry).isEmpty)
+        #expect(service.executableURL(for: pinnedDescriptor("alpha", executable: packaged)) == packaged)
+    }
+
     /// A custom path saved before the server moved into a plugin package must
     /// not outrank, or stand in for, the package's own validated entry.
     @Test

@@ -55,7 +55,7 @@
       "versions": [
         {
           "version": "1.1.0",
-          "pluginAPIVersion": 2,
+          "pluginAPIVersion": 99,
           "releaseDate": "2026-10-10",
           "downloads": [
             {
@@ -89,7 +89,7 @@
       "versions": [
         {
           "version": "3.0.0",
-          "pluginAPIVersion": 2,
+          "pluginAPIVersion": 99,
           "releaseDate": "2026-10-05",
           "downloads": [
             {

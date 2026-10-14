@@ -89,6 +89,8 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(nanoseconds: Self.updateTerminationForceExitNanoseconds)
             guard let self, self.isUpdateInstallTermination, !Task.isCancelled else { return }
             // Sparkle's installer is waiting, and the user has confirmed unsaved work.
+            // exit() skips applicationWillTerminate, so end the children here.
+            MacLiveProcessGroups.application.terminateAllAndWait()
             Foundation.exit(EXIT_SUCCESS)
         }
     }
@@ -194,6 +196,9 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Session shutdown has already stopped what it knows about. Whatever
+        // is still alive must not outlive the IDE.
+        MacLiveProcessGroups.application.terminateAllAndWait()
         isUpdateInstallTermination = false
         updateForceExitTask?.cancel()
         updateForceExitTask = nil

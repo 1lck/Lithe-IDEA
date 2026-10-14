@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // A package must opt into the base application; all other official plugins
 // remain separately buildable and installable through plugin management.
-// Go Support and PHP Support are both downloaded from the plugin marketplace,
-// so no official plugin is bundled today; add an ID here to ship one inside
-// Lithe.app (its manifest must then use `sameTeamAsHost`).
+// Go Support and PHP Support are downloaded from the plugin marketplace. Java
+// Support ships inside Lithe.app so Java works offline on first launch; its
+// manifest uses `sameTeamAsHost`, and the user can remove and restore it in
+// plugin management.
 import { pathToFileURL } from "node:url";
-const bundledOfficialPluginIDs = new Set();
+const bundledOfficialPluginIDs = new Set(["dev.lithe.plugin.java-support"]);
 export function isBundledOfficialPlugin(id) {
   return bundledOfficialPluginIDs.has(id);
 }
