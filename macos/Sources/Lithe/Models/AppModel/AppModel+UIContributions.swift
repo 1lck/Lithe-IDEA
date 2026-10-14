@@ -36,8 +36,8 @@ extension AppModel {
             }
             return
         }
-        let restoresVisibleWindow = openOnly && workbenchFeature.isVisible(window)
         workbenchFeature.customizeContribution(target, isHidden: false)
+        let displayRequest = workbenchFeature.beginDisplayRequest(for: window)
         let workspace = workspaceURL
         let token = UUID()
         contributionActivationTokens[target] = token
@@ -61,7 +61,7 @@ extension AppModel {
                 }
                 guard !Task.isCancelled, self.contributionActivationTokens[target] == token, self.workspaceURL == workspace,
                       self.workbenchFeature.contributionPreferences[target]?.isHidden != true,
-                      !restoresVisibleWindow || self.workbenchFeature.isVisible(window),
+                      self.workbenchFeature.isCurrentDisplayRequest(displayRequest, for: window),
                       self.services.moduleRuntime.availableContributions()[owner]?.contains(contribution) == true else { return }
                 self.workbenchFeature.setVisibility(window, isVisible: true)
             } catch {

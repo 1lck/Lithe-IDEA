@@ -63,6 +63,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     @Published private(set) var contributionPreferences: [String: ContributionPreference] = [:]
     private var toolPlacements: [String: ModuleContributionPlacement] = [:]
     private var contributionOwners: [ModuleID: [ModuleContribution]] = [:]
+    private var displayRequests: [DockPosition: UUID] = [:]
     private var layoutWorkspaceURL: URL?
     private var layoutSessionEnded = false
 
@@ -144,11 +145,23 @@ final class WorkbenchFeatureModel: ObservableObject {
 
     func isVisible(_ toolWindow: ToolWindow) -> Bool { state(for: toolWindow).isVisible }
 
+    /// Requests are scoped to a dock group, so other groups can activate independently.
+    func beginDisplayRequest(for tool: ToolWindow) -> (position: DockPosition, token: UUID) {
+        let request = (position: state(for: tool).position, token: UUID())
+        displayRequests[request.position] = request.token
+        return request
+    }
+
+    func isCurrentDisplayRequest(_ request: (position: DockPosition, token: UUID), for tool: ToolWindow) -> Bool {
+        state(for: tool).position == request.position && displayRequests[request.position] == request.token
+    }
+
     func setVisibility(_ toolWindow: ToolWindow, isVisible: Bool) {
         if isVisible, contributionPreferences[toolWindow.rawValue]?.isHidden == true {
             contributionPreferences[toolWindow.rawValue]?.isHidden = false
         }
         let position = state(for: toolWindow).position
+        displayRequests.removeValue(forKey: position)
         var states = toolWindowStates
         if !states.contains(where: { $0.id == toolWindow.rawValue }) { states.append(state(for: toolWindow)) }
         for index in states.indices {
@@ -178,6 +191,8 @@ final class WorkbenchFeatureModel: ObservableObject {
         var states = toolWindowStates
         guard let index = states.firstIndex(where: { $0.id == tool.rawValue }) else { return }
         let wasVisible = states[index].isVisible
+        displayRequests.removeValue(forKey: states[index].position)
+        displayRequests.removeValue(forKey: position)
         states[index].position = position
         if wasVisible {
             for other in states.indices where other != index && states[other].position == position {
@@ -213,6 +228,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     }
 
     func hideBottomToolWindow() {
+        displayRequests = displayRequests.filter { $0.key.anchor != .bottom }
         for index in toolWindowStates.indices where toolWindowStates[index].position.anchor == .bottom {
             toolWindowStates[index].isVisible = false
         }
@@ -220,6 +236,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     }
 
     func hideAllToolWindows() {
+        displayRequests.removeAll()
         for index in toolWindowStates.indices { toolWindowStates[index].isVisible = false }
         persistContributionPreferences()
     }
@@ -266,8 +283,11 @@ final class WorkbenchFeatureModel: ObservableObject {
                 : (preference?.placement ?? $0.placement)
             return preference?.isHidden != true && actual == placement
         }.sorted {
-            (contributionPreferences[$0.id]?.order ?? $0.order, $0.id)
-                < (contributionPreferences[$1.id]?.order ?? $1.order, $1.id)
+            let left = $0.kind == .toolWindow ? state(for: .init(rawValue: $0.id)).order
+                : (contributionPreferences[$0.id]?.order ?? $0.order)
+            let right = $1.kind == .toolWindow ? state(for: .init(rawValue: $1.id)).order
+                : (contributionPreferences[$1.id]?.order ?? $1.order)
+            return (left, $0.id) < (right, $1.id)
         }
     }
 
@@ -361,6 +381,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     }
 
     func loadLayout(for workspaceURL: URL) -> WorkbenchLayout {
+        displayRequests.removeAll()
         layoutSessionEnded = false
         let priorLeft = activeLeftToolWindow
         let layout = layoutStore?.load(for: workspaceURL)
@@ -442,6 +463,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     }
 
     func hideSidebar() {
+        displayRequests = displayRequests.filter { $0.key.anchor != .left }
         for index in toolWindowStates.indices where toolWindowStates[index].position.anchor == .left {
             toolWindowStates[index].isVisible = false
         }

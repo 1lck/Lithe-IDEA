@@ -390,6 +390,49 @@ struct WorkbenchContributionHostTests {
         }
     }
 
+    @Test(arguments: [false, true], [false, true])
+    func firstOpenRespectsLatestDockSelection(useShow: Bool, sameGroup: Bool) async throws {
+        let suite = "lithe-left-restore-race-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let declaration = PluginModuleDeclaration(
+            manifest: ModuleManifest(id: ModuleID("org.example.restore"), displayName: "Restore", scope: .workspace),
+            contributions: [ModuleContribution(id: "org.example.restore.info", kind: .toolWindow,
+                title: "Info", placement: .leftSidebar, actionID: "org.example.restore.toggle",
+                rendererID: "org.example.restore.info", text: "Fixture")])
+        let started = TestGate()
+        let release = TestGate()
+        defer { release.open() }
+        try container.services.moduleRuntime.register(ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
+            GatedWorkbenchTestModule(declaration: declaration, started: started, release: release)
+        })
+        let model = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
+            defer { release.open() }
+            model.workbenchUIRegistry = try WorkbenchModuleUIRegistry(registrations: WorkbenchModuleUIComposition.registrations + [
+                WorkbenchModuleUIRegistry.declarativeRegistration(declaration)])
+            model.workspaceSessionCoordinator.beginWorkspace(at: URL(fileURLWithPath: "/fixture/restore-race"))
+            let window = WorkbenchFeatureModel.ToolWindow(rawValue: declaration.contributions[0].id)
+            if !sameGroup { model.workbenchFeature.move(.project, to: .init(anchor: .left, group: .secondary)) }
+            let contribution = declaration.contributions[0]
+            if useShow { model.showContributionEntry(contribution) }
+            else { model.workbenchUIRegistry.perform(contribution, model: model) }
+            let pending = model.contributionActivationTasks[window.rawValue]
+            defer { pending?.cancel() }
+            #expect(await started.waitUntilOpen(), "Restored window never started its module")
+            model.workbenchFeature.setVisibility(.project, isVisible: true)
+            release.open()
+            try await scope.run("window activation") { await pending?.value }
+            #expect(model.workbenchFeature.isVisible(window) == !sameGroup)
+            #expect(model.workbenchFeature.isVisible(.project))
+            #expect(model.contributionActivationTasks.isEmpty)
+        }
+    }
+
     @Test(arguments: [false, true])
     func concurrentWindowCommandsShareStateAndOneModuleActivation(disableModule: Bool) async throws {
         let suite = "lithe-ui-action-state-" + UUID().uuidString
@@ -930,6 +973,67 @@ struct WorkbenchContributionHostTests {
         #expect(runtime.contributions().isEmpty)
     }
 
+    @Test func cancelledShutdownWaiterDoesNotRecreateModule() async throws {
+        let runtime = ModuleRuntime()
+        let owner = ModuleID("org.example.shutdown-race")
+        let contribution = ModuleContribution(id: owner.rawValue + ".window", kind: .toolWindow, title: "Shutdown")
+        let declaration = PluginModuleDeclaration(manifest: .init(id: owner, displayName: "Shutdown", scope: .workspace),
+            contributions: [contribution])
+        let started = TestGate(), release = TestGate(), waiting = TestGate()
+        let shutdownStarted = TestGate(), shutdownRelease = TestGate()
+        release.open()
+        var instances: [GatedWorkbenchTestModule] = []
+        try runtime.register(ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
+            let instance = GatedWorkbenchTestModule(declaration: declaration, started: started, release: release,
+                shutdownStarted: shutdownStarted, shutdownRelease: shutdownRelease)
+            instances.append(instance)
+            return instance
+        })
+        var publications = 0
+        let observer = runtime.observeEvents {
+            if $0.name == "module.activation-waiting-for-transition" { waiting.open() }
+            if $0.name == "module.activated" { publications += 1 }
+        }
+        defer { runtime.removeEventObserver(observer); shutdownRelease.open() }
+        try await WorkbenchTestScope.withCleanup({ await runtime.shutdownAll() }) { scope in
+            defer { shutdownRelease.open() }
+            try await scope.run("initial activation") { _ = try await runtime.activate(owner) }
+            let shutdown = Task { try await runtime.shutdown(owner) }
+            defer { shutdown.cancel() }
+            #expect(await shutdownStarted.waitUntilOpen(), "Shutdown did not reach its gate")
+            let waiter = Task {
+                do { _ = try await runtime.activate(owner); return false }
+                catch is CancellationError { return true }
+                catch { Issue.record("Unexpected activation error: \(error)"); return false }
+            }
+            defer { waiter.cancel() }
+            #expect(await waiting.waitUntilOpen(), "Activation did not wait for shutdown")
+            waiter.cancel()
+            shutdownRelease.open()
+            try await scope.run("shutdown completion") { try await shutdown.value }
+            try await scope.run("cancelled waiter completion") { #expect(await waiter.value) }
+            #expect(instances.count == 1 && publications == 1)
+            #expect(instances.allSatisfy { !$0.isModuleResourceActive })
+            #expect(runtime.contributions().isEmpty)
+            #expect(try !runtime.snapshot(for: owner).isInstantiated)
+            #expect(try runtime.snapshot(for: owner).activity.activeResourceCount == 0)
+        }
+    }
+
+    @Test func defaultMavenMovesRelativeToActualRailOrder() {
+        let workbench = WorkbenchFeatureModel()
+        workbench.reconcileContributions([
+            .database: BuiltInModuleCatalog.contributions(for: .database),
+            .agentConversation: BuiltInModuleCatalog.contributions(for: .agentConversation),
+            .execution: BuiltInModuleCatalog.contributions(for: .execution)])
+        let position = DockPosition(anchor: .right, group: .primary)
+        #expect(workbench.tools(in: position) == [.database, .agent, .maven])
+        workbench.moveContribution("execution.maven", earlier: true)
+        #expect(workbench.tools(in: position) == [.database, .maven, .agent])
+        workbench.moveContribution("execution.maven", earlier: false)
+        #expect(workbench.tools(in: position) == [.database, .agent, .maven])
+    }
+
     @Test func servicesCommandActivatesDatabaseWithoutOpeningItsSidebar() async throws {
         let suite = "lithe-ui-services-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -988,13 +1092,18 @@ private final class GatedWorkbenchTestModule: LitheModule, ModuleResource {
     private(set) var activationCount = 0
     private let prepareStarted: TestGate?
     private let prepareRelease: TestGate?
+    private let shutdownStarted: TestGate?
+    private let shutdownRelease: TestGate?
     init(declaration: PluginModuleDeclaration, started: TestGate, release: TestGate,
-         prepareStarted: TestGate? = nil, prepareRelease: TestGate? = nil) {
+         prepareStarted: TestGate? = nil, prepareRelease: TestGate? = nil,
+         shutdownStarted: TestGate? = nil, shutdownRelease: TestGate? = nil) {
         self.declaration = declaration
         self.started = started
         self.release = release
         self.prepareStarted = prepareStarted
         self.prepareRelease = prepareRelease
+        self.shutdownStarted = shutdownStarted
+        self.shutdownRelease = shutdownRelease
     }
     func activate(context: ModuleContext) async throws {
         activationCount += 1
@@ -1010,7 +1119,11 @@ private final class GatedWorkbenchTestModule: LitheModule, ModuleResource {
         if let prepareRelease { #expect(await prepareRelease.waitUntilOpen(), "Sleep gate was not released") }
     }
     func sleep() async { isModuleResourceActive = false }
-    func shutdown() async { isModuleResourceActive = false }
+    func shutdown() async {
+        shutdownStarted?.open()
+        if let shutdownRelease { #expect(await shutdownRelease.waitUntilOpen(), "Shutdown gate was not released") }
+        isModuleResourceActive = false
+    }
     func stopModuleResource() async { isModuleResourceActive = false }
     func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
 }

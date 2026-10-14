@@ -132,9 +132,11 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     public func activate(_ id: ModuleID) async throws -> any LitheModule {
         // The runtime owns construction; simultaneous window/capability requests
         // join it without transferring cancellation ownership to a UI caller.
+        try Task.checkCancellation()
         while let transition = sleepTasks[id] ?? shutdownTasks[id] {
             publish(ModuleEvent(source: id, name: "module.activation-waiting-for-transition"))
             try await transition.value
+            try Task.checkCancellation()
         }
         if let activation = activationTasks[id] {
             publish(ModuleEvent(source: id, name: "module.activation-joined"))
