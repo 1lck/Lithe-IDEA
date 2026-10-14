@@ -1525,3 +1525,6 @@
 "AI Chat" = "AI Chat";
 "Show Chats in the AI Tool Window" = "Show Chats in the AI Tool Window";
 "Show Chats in the Editor" = "Show Chats in the Editor";
+
+"Starting the Agent…" = "Starting the Agent…";
+"The Agent process starts when this panel opens." = "The Agent process starts when this panel opens.";

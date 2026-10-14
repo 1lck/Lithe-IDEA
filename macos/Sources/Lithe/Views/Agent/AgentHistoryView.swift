@@ -16,15 +16,15 @@ enum AgentHistoryFilter: String, CaseIterable {
 
 enum AgentHistoryPresentation {
     static func popupTitle(_ session: AgentSessionSummary, metadata: AgentHistoryMetadata?,
-                           conversation: AgentConversation?) -> String {
+                           conversation: AgentConversation?, locale: Locale = .current) -> String {
         if let title = metadata?.title ?? session.title { return title }
         if let prompt = conversation?.messages.first(where: { $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
             return AgentSessionTitle.provisional(prompt.text)
         }
         if let conversation, conversation.isAttached, !conversation.isLoading, conversation.messages.isEmpty {
-            return String(localized: "New Chat")
+            return AgentLocalization.string("New Chat", locale: locale)
         }
-        return String(localized: "Untitled conversation")
+        return AgentLocalization.string("Untitled conversation", locale: locale)
     }
 
     static func sessions(_ sessions: [AgentSessionSummary], metadata: [String: AgentHistoryMetadata],
@@ -42,12 +42,12 @@ enum AgentHistoryPresentation {
     }
 
     static func popupSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
-                              metadata: [String: AgentHistoryMetadata], selectedSessionID: String? = nil) -> [AgentSessionSummary] {
+                              metadata: [String: AgentHistoryMetadata], selectedSessionID: String? = nil, locale: Locale = .current) -> [AgentSessionSummary] {
         let listed = Self.sessions(sessions, metadata: metadata, query: "", filter: .all)
         let knownIDs = Set(sessions.map(\.id))
         let pending = openSessionIDs.reversed().filter {
             !knownIDs.contains($0) && metadata[$0]?.isHidden != true
-        }.map { AgentSessionSummary(id: $0, title: String(localized: "New Chat")) }
+        }.map { AgentSessionSummary(id: $0, title: AgentLocalization.string("New Chat", locale: locale)) }
         let rows = pending + listed
         return rows.filter { $0.id == selectedSessionID } + rows.filter { $0.id != selectedSessionID }
     }
@@ -70,6 +70,7 @@ enum AgentHistoryPresentation {
 
 /// In-panel history page: annotations stay in Lithe, transcripts stay with the Agent.
 struct AgentHistoryView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: AgentConnectionModel
     @ObservedObject var history: AgentHistoryFeatureModel
     let agentName: String?
@@ -146,7 +147,7 @@ struct AgentHistoryView: View {
                 if history.setHidden(ids, true) { selectedIDs.subtract(ids) }
             }
         } message: { ids in
-            Text(String(format: String(localized: "Remove %d conversation(s) from history? You can restore them from Removed conversations. The Agent's original records will be kept."), ids.count))
+            Text(String(format: AgentLocalization.string("Remove %d conversation(s) from history? You can restore them from Removed conversations. The Agent's original records will be kept.", locale: locale), ids.count))
         }
         .onDisappear { pendingRemovalIDs = nil }
         .accessibilityIdentifier("agent-history-page")
@@ -204,8 +205,8 @@ struct AgentHistoryView: View {
     private var summaryControls: some View {
         HStack(spacing: 8) {
             Text(isSelecting
-                 ? String(format: String(localized: "%d selected"), selected.count)
-                 : String(format: String(localized: "%d conversations"), sessions.count))
+                 ? String(format: AgentLocalization.string("%d selected", locale: locale), selected.count)
+                 : String(format: AgentLocalization.string("%d conversations", locale: locale), sessions.count))
                 .font(LitheTheme.uiFont(size: 12)).foregroundStyle(AgentPanelStyle.secondary)
             Spacer(minLength: 0)
             Button {
@@ -247,10 +248,10 @@ struct AgentHistoryView: View {
             AgentEmptyStateView(systemImage: "clock", title: "Loading history…", message: "", isBusy: true)
         } else if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             AgentEmptyStateView(systemImage: "magnifyingglass", title: "No matching conversations",
-                               message: String(localized: "Try another title or session ID."))
+                               message: AgentLocalization.string("Try another title or session ID.", locale: locale))
         } else {
             AgentEmptyStateView(systemImage: "clock.arrow.circlepath", title: "No earlier conversations",
-                               message: String(localized: "Conversations for this project and Agent appear here."))
+                               message: AgentLocalization.string("Conversations for this project and Agent appear here.", locale: locale))
         }
     }
 
@@ -284,13 +285,14 @@ struct AgentHistoryView: View {
     }
 
     private func displayTitle(_ session: AgentSessionSummary) -> String {
-        AgentSessionTitle.title(of: AgentSessionSummary(id: session.id, title: history.title(for: session)))
+        AgentSessionTitle.title(of: AgentSessionSummary(id: session.id, title: history.title(for: session)), locale: locale)
     }
 
     private var divider: some View { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
 }
 
 private struct AgentHistoryRow: View {
+    @Environment(\.locale) private var locale
     let session: AgentSessionSummary
     let title: String
     let agentName: String?
@@ -352,7 +354,7 @@ private struct AgentHistoryRow: View {
             }
             HStack(spacing: 6) {
                 if let messageCount {
-                    Text(String(format: String(localized: "%d messages"), messageCount))
+                    Text(String(format: AgentLocalization.string("%d messages", locale: locale), messageCount))
                         .lineLimit(1)
                     Text("·")
                 }

@@ -3,6 +3,7 @@ import LitheAgentConversationModule
 
 /// Right-docked Agent panel. Setup lives in the main Settings window.
 struct AgentConversationView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var model: AppModel
     let isEditor: Bool
     @State private var showsWelcome: Bool
@@ -13,7 +14,7 @@ struct AgentConversationView: View {
         AgentWelcomeVisit.builtInAgents.map { builtIn in
             model.configuredAgentOptions.first { $0.id == builtIn.id } ?? builtIn
         } + [.init(id: AgentConfiguration.customAgentID,
-                   name: model.settings.agentConfigurations[AgentConfiguration.customAgentID]?.name ?? String(localized: "Custom Agent"))]
+                   name: model.settings.agentConfigurations[AgentConfiguration.customAgentID]?.name ?? AgentLocalization.string("Custom Agent", locale: locale))]
     }
 
     init(model: AppModel, isEditor: Bool = false) {
@@ -130,6 +131,7 @@ enum AgentWelcomeVisit {
 
 /// Chat-specific content header using the workbench's shared toolbar controls.
 struct AgentChatHeader: View {
+    @Environment(\.locale) private var locale
     let agentName: String?
     let onHistory: (() -> Void)?
     let onNew: (() -> Void)?
@@ -157,7 +159,7 @@ struct AgentChatHeader: View {
                         HStack(spacing: LitheTheme.MainToolbar.comboIconTextGap) {
                             AgentBrandIcon(name: agentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
                             HStack(spacing: LitheTheme.MainToolbar.comboExpandGap) {
-                                Text(conversationTitle ?? String(localized: "Chat History"))
+                                Text(conversationTitle ?? AgentLocalization.string("Chat History", locale: locale))
                                     .lineLimit(1).truncationMode(.tail)
                                 LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheTheme.Metrics.toolbarIconSize,
                                               fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
@@ -242,7 +244,7 @@ struct AgentChatHeader: View {
             if showsAgentHeading {
                 HStack(spacing: 8) {
                     AgentBrandIcon(name: agentName, size: 16, style: .brand)
-                    Text(agentName ?? String(localized: "Agent"))
+                    Text(agentName ?? AgentLocalization.string("Agent", locale: locale))
                         .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                         .lineLimit(1)
                 }
@@ -259,6 +261,7 @@ struct AgentChatHeader: View {
 /// Observe selection where the selected connection is resolved. AppModel does
 /// not forward this optional module's changes, and each connection owns its UI.
 struct AgentConfiguredConversationView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: AgentConversationFeatureModel
     let setupError: AgentConversationError?
     let onSelectAgent: (String) -> Void
@@ -303,6 +306,7 @@ struct AgentConfiguredConversationView: View {
 
 /// Keep the composer available before setup so sending explains what is missing.
 struct AgentUnconfiguredConversationView: View {
+    @Environment(\.locale) private var locale
     let setupError: AgentConversationError?
     let onOpenSettings: () -> Void
     let onHide: () -> Void
@@ -327,7 +331,7 @@ struct AgentUnconfiguredConversationView: View {
                     }
                     AgentEmptyStateView(systemImage: "clock.arrow.circlepath",
                         title: "Conversation history is unavailable",
-                        message: setupError?.localizedDescription ?? String(localized: "No Agent is set up yet"),
+                        message: setupError?.localizedDescription ?? AgentLocalization.string("No Agent is set up yet", locale: locale),
                         actionTitle: "Open Agent Settings", action: onOpenSettings)
                 }
                 .litheWorkbenchSurface(AgentPanelStyle.canvas)
@@ -339,7 +343,7 @@ struct AgentUnconfiguredConversationView: View {
         VStack(spacing: 0) {
             AgentChatHeader(agentName: agentName, onHistory: { showsHistory = true },
                             onNew: {
-                                notice = String(format: String(localized: "Cannot create a new conversation: %@"),
+                                notice = String(format: "Cannot create a new conversation: %@",
                                                 (setupError ?? .noAgentConfigured).localizedDescription)
                             },
                             onOpenSettings: onOpenSettings, onHide: onHide)
@@ -372,6 +376,7 @@ struct AgentUnconfiguredConversationView: View {
 }
 
 private struct AgentConnectionView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: AgentConnectionModel
     @ObservedObject var history: AgentHistoryFeatureModel
     let agents: [AgentOption]
@@ -458,7 +463,7 @@ private struct AgentConnectionView: View {
                 else { localError = history.errorMessage }
             }
         } message: { _ in
-            Text(String(format: String(localized: "Remove %d conversation(s) from history? You can restore them from Removed conversations. The Agent's original records will be kept."), 1))
+            Text(String(format: AgentLocalization.string("Remove %d conversation(s) from history? You can restore them from Removed conversations. The Agent's original records will be kept.", locale: locale), 1))
         }
         .task(id: shouldPollQuota) {
             guard shouldPollQuota else { return }
@@ -482,7 +487,7 @@ private struct AgentConnectionView: View {
                 onNew: feature.isCreatingSession ? nil : startNewConversation,
                 onOpenSettings: onOpenSettings,
                 onHide: onHide,
-                conversationTitle: historyOnly ? String(localized: "AI Chat") : conversationTitle,
+                conversationTitle: historyOnly ? AgentLocalization.string("AI Chat", locale: locale) : conversationTitle,
                 historyPopup: { dismiss in
                     AnyView(AgentHistoryPopover(feature: feature, history: history,
                         agentName: selectedAgent?.name ?? feature.agentName,
@@ -566,11 +571,11 @@ private struct AgentConnectionView: View {
 
     private var conversationTitle: String? {
         guard let id = feature.selectedSessionID else {
-            return feature.isCreatingSession ? String(localized: "New Chat") : nil
+            return feature.isCreatingSession ? AgentLocalization.string("New Chat", locale: locale) : nil
         }
         let session = feature.sessions.first { $0.id == id } ?? AgentSessionSummary(id: id)
         return AgentHistoryPresentation.popupTitle(session, metadata: history.metadata[id],
-                                                  conversation: feature.conversations[id])
+                                                  conversation: feature.conversations[id], locale: locale)
     }
 
     /// New Chat retains the existing guarded session action.
@@ -579,7 +584,7 @@ private struct AgentConnectionView: View {
             let reason: String
             if case .failed(let message) = feature.connectionState { reason = message }
             else { reason = AgentConversationError.notConnected.localizedDescription }
-            localError = String(format: String(localized: "Cannot create a new conversation: %@"), reason)
+            localError = String(format: "Cannot create a new conversation: %@", reason)
             return
         }
         guard !feature.isCreatingSession else { return }
@@ -600,7 +605,7 @@ private struct AgentConnectionView: View {
             AgentEmptyStateView(
                 systemImage: "sparkles",
                 title: "Starting the Agent…",
-                message: String(localized: "The Agent process starts when this panel opens."),
+                message: "The Agent process starts when this panel opens.",
                 isBusy: true
             )
             .onAppear {
@@ -608,12 +613,12 @@ private struct AgentConnectionView: View {
             }
         case .authenticationRequired:
             AgentEmptyStateView(systemImage: "person.crop.circle", title: "Sign in to Codex",
-                message: String(localized: "Use your local ChatGPT account. No API key or URL is needed."),
+                message: "Use your local ChatGPT account. No API key or URL is needed.",
                 actionTitle: "Sign in with ChatGPT", action: { feature.authenticate() },
                 secondaryActionTitle: "Agent Settings", secondaryAction: onOpenSettings)
         case .authenticating:
             AgentEmptyStateView(systemImage: "person.crop.circle", title: "Waiting for ChatGPT sign-in…",
-                message: String(localized: "Complete sign-in in your browser. Your credentials are managed by Codex."),
+                message: "Complete sign-in in your browser. Your credentials are managed by Codex.",
                 actionTitle: "Cancel", action: { Task { await feature.cancelAuthentication() } }, isBusy: true)
         case .failed(let message):
             if feature.selectedConversation?.messages.isEmpty == false {
@@ -651,36 +656,38 @@ private struct AgentConnectionView: View {
     }
 
     private func sessionTitle(_ session: AgentSessionSummary) -> String {
-        AgentSessionTitle.title(of: AgentSessionSummary(id: session.id, title: history.title(for: session)))
+        AgentSessionTitle.title(of: AgentSessionSummary(id: session.id, title: history.title(for: session)), locale: locale)
     }
 }
 
 struct AgentEmptyStateView: View {
+    @Environment(\.locale) private var locale
     let systemImage: String
     let title: LocalizedStringKey
-    /// Already localized; callers format dynamic values into it.
+    /// Product localization key or an exact diagnostic supplied by the workflow.
     let message: String
     var actionTitle: LocalizedStringKey? = nil
     var action: (() -> Void)? = nil
     var secondaryActionTitle: LocalizedStringKey? = nil
     var secondaryAction: (() -> Void)? = nil
     var isBusy = false
+    var bundle: Bundle = .main
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: LitheTheme.Banner.gap) {
             if isBusy {
-                ProgressView().controlSize(.regular)
+                ProgressView().controlSize(.small)
             } else {
                 Image(systemName: systemImage)
-                    .font(LitheTheme.uiFont(size: 28, weight: .light))
+                    .font(LitheTheme.uiFont(size: LitheTheme.Metrics.toolbarIconSize))
                     .foregroundStyle(LitheTheme.tertiaryText)
             }
-            Text(title)
-                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
+            Text(title, bundle: bundle)
+                .font(LitheTheme.settingsStrongFont)
                 .foregroundStyle(LitheTheme.primaryText)
-            Text(message)
-                .font(LitheTheme.uiFont(size: 12))
-                .foregroundStyle(LitheTheme.secondaryText)
+            Text(AgentLocalization.string(String.LocalizationValue(message), locale: locale, bundle: bundle))
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.EditorEmptyState.label)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
             HStack(spacing: 8) {
@@ -701,6 +708,7 @@ struct AgentEmptyStateView: View {
 }
 
 struct AgentInlineNotice: View {
+    @Environment(\.locale) private var locale
     let text: String
     var status: LitheBannerStatus = .warning
     var actionTitle: LocalizedStringKey? = nil
@@ -708,7 +716,7 @@ struct AgentInlineNotice: View {
 
     var body: some View {
         LitheBanner(status: status) {
-            Text(text).textSelection(.enabled)
+            Text(AgentLocalization.message(text, locale: locale)).textSelection(.enabled)
             if let actionTitle, let action { Button(actionTitle, action: action) }
         }
         .padding(.horizontal, AgentComposerMetrics.horizontalInset)
@@ -717,9 +725,9 @@ struct AgentInlineNotice: View {
 }
 
 enum AgentSessionTitle {
-    static func title(of session: AgentSessionSummary) -> String {
+    static func title(of session: AgentSessionSummary, locale: Locale = .current) -> String {
         guard let title = session.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
-            return String(localized: "Untitled conversation")
+            return AgentLocalization.string("Untitled conversation", locale: locale)
         }
         return title
     }
@@ -732,6 +740,7 @@ enum AgentSessionTitle {
 
 /// Observe title notifications directly; AppModel does not relay connection messages.
 struct AgentEditorTabTitle: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var model: AppModel
     var body: some View {
         if let feature = model.agentConversationFeatureIfActive,
@@ -742,14 +751,15 @@ struct AgentEditorTabTitle: View {
 }
 
 private struct AgentEditorConnectionTitle: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var connection: AgentConnectionModel
     @ObservedObject var history: AgentHistoryFeatureModel
     var body: some View {
         let id = connection.selectedSessionID
         let session = connection.sessions.first { $0.id == id }
         let title = session.map {
-            AgentHistoryPresentation.popupTitle($0, metadata: history.metadata[$0.id], conversation: connection.conversations[$0.id])
-        } ?? String(localized: "New Chat")
+            AgentHistoryPresentation.popupTitle($0, metadata: history.metadata[$0.id], conversation: connection.conversations[$0.id], locale: locale)
+        } ?? AgentLocalization.string("New Chat", locale: locale)
         HStack(spacing: 7) {
             AgentBrandIcon(name: connection.agentName, size: 16, style: .brand)
             Text(title).font(LitheTheme.uiFont(size: 13)).lineLimit(1).truncationMode(.tail)

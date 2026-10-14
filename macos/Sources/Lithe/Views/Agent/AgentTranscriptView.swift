@@ -68,6 +68,7 @@ enum AgentTranscriptItem: Identifiable {
 /// Message list of the selected conversation, followed by the pending
 /// permission request and a summary of this turn's tool activity.
 struct AgentTranscriptView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: AgentConnectionModel
     let agentName: String?
     let agentVersion: String?
@@ -227,6 +228,7 @@ struct AgentTranscriptView: View {
 
 /// Compact empty-conversation hint; the composer and this icon both switch agents.
 struct AgentHeroView: View {
+    @Environment(\.locale) private var locale
     let agentName: String?
     let agentVersion: String?
     let onTap: () -> Void
@@ -256,6 +258,7 @@ struct AgentHeroView: View {
 }
 
 private struct AgentPermissionCard: View {
+    @Environment(\.locale) private var locale
     let permission: AgentPermissionPrompt
     let answer: (String?) -> Void
     let onOpenFile: (AgentToolDetails.Location) -> Void
@@ -304,6 +307,7 @@ private struct AgentPermissionCard: View {
 }
 
 private struct AgentMessageRow: View {
+    @Environment(\.locale) private var locale
     let message: AgentConversationMessage
     var isStreamingThought = false
     var isSearching = false
@@ -335,6 +339,7 @@ private struct AgentMessageRow: View {
 }
 
 struct AgentToolEvidenceView: View {
+    @Environment(\.locale) private var locale
     let details: AgentToolDetails
     let onOpenFile: (AgentToolDetails.Location) -> Void
 
@@ -376,6 +381,7 @@ struct AgentToolEvidenceView: View {
 /// Splits the reply into prose and fenced code blocks. Prose uses inline
 /// Markdown; code blocks get a monospaced box with a copy button.
 private struct AgentMarkdownMessage: View {
+    @Environment(\.locale) private var locale
     let text: String
 
     var body: some View {
@@ -441,6 +447,7 @@ private struct AgentMarkdownMessage: View {
 }
 
 private struct AgentCodeBlock: View {
+    @Environment(\.locale) private var locale
     let language: String
     let code: String
     @State private var didCopy = false
@@ -448,7 +455,7 @@ private struct AgentCodeBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(language.isEmpty ? String(localized: "code") : language)
+                Text(language.isEmpty ? AgentLocalization.string("code", locale: locale) : language)
                     .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     .foregroundStyle(LitheTheme.tertiaryText)
                 Spacer()

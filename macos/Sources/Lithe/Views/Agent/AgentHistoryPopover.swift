@@ -4,6 +4,7 @@ import LitheAgentConversationModule
 
 /// Direct session switching; full history management retains its existing page.
 struct AgentHistoryPopover: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: AgentConnectionModel
     @ObservedObject var history: AgentHistoryFeatureModel
     let agentName: String?
@@ -15,7 +16,7 @@ struct AgentHistoryPopover: View {
     @State private var highlightedID: String?
 
     private var sessions: [AgentSessionSummary] {
-        AgentHistoryPresentation.popupSessions(feature.sessions, openSessionIDs: feature.openSessionIDs, metadata: history.metadata, selectedSessionID: feature.selectedSessionID)
+        AgentHistoryPresentation.popupSessions(feature.sessions, openSessionIDs: feature.openSessionIDs, metadata: history.metadata, selectedSessionID: feature.selectedSessionID, locale: locale)
     }
 
     var body: some View {
@@ -28,7 +29,7 @@ struct AgentHistoryPopover: View {
                                 HStack(spacing: LitheDropdownMetrics.itemHorizontalPadding) {
                                     AgentBrandIcon(name: agentName, size: LitheDropdownMetrics.iconSize, style: .brand)
                                     Text(AgentHistoryPresentation.popupTitle(session,
-                                        metadata: history.metadata[session.id], conversation: feature.conversations[session.id]))
+                                        metadata: history.metadata[session.id], conversation: feature.conversations[session.id], locale: locale))
                                         .lineLimit(1).truncationMode(.tail)
                                     Spacer(minLength: 0)
                                     if let date = AgentHistoryPresentation.date(session.updatedAt) {
@@ -57,7 +58,7 @@ struct AgentHistoryPopover: View {
             .frame(height: isToolWindow ? nil : LitheDropdownMetrics.historyViewportHeight)
             .frame(maxHeight: isToolWindow ? .infinity : nil)
             if let error = feature.historyError ?? history.errorMessage {
-                LitheBanner(status: .error) { Text(error).textSelection(.enabled) }
+                LitheBanner(status: .error) { Text(AgentLocalization.message(error, locale: locale)).textSelection(.enabled) }
             }
             if !isToolWindow {
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)

@@ -6,6 +6,7 @@ import LitheCoreContracts
 /// endpoint, model and API key. Node.js remains user-managed; CLI updates use
 /// their installation owner, while ACP adapters are installed with npm.
 struct AgentPanelSettingsView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
     @ObservedObject var feature: AgentManagementFeatureModel
@@ -29,6 +30,7 @@ struct AgentPanelSettingsView: View {
 
 /// Flat settings form with the same Agent selection as the conversation panel.
 private struct AgentsManagementPage: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
     @ObservedObject var feature: AgentManagementFeatureModel
@@ -104,7 +106,7 @@ private struct AgentsManagementPage: View {
                 }
             ), options: agents.map(\.id) + [AgentConfiguration.customAgentID], width: 220,
                accessibilityLabel: "Agent", title: { id in
-                agents.first { $0.id == id }?.name ?? String(localized: "Custom Agent")
+                agents.first { $0.id == id }?.name ?? AgentLocalization.string("Custom Agent", locale: locale)
             }, localizesTitles: false)
             Button { Task { await feature.refresh() } } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: LitheTheme.Metrics.toolbarIconSize,
@@ -122,6 +124,7 @@ private struct AgentsManagementPage: View {
 // MARK: - Agent detail
 
 private struct AgentDetailView: View {
+    @Environment(\.locale) private var locale
     let agent: AgentCatalogStatus
     let environment: AgentRuntimeEnvironment
     @ObservedObject var model: AppModel
@@ -173,7 +176,7 @@ private struct AgentDetailView: View {
                 Spacer()
             }
             if let cli = agent.cli {
-                Text(String(format: String(localized: "Runs the %@ installed on this Mac through the %@ adapter."), cli.name, agent.package))
+                Text(String(format: AgentLocalization.string("Runs the %@ installed on this Mac through the %@ adapter.", locale: locale), cli.name, agent.package))
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -185,8 +188,8 @@ private struct AgentDetailView: View {
         LitheSettingsSection("Version status") {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(String(format: String(localized: "Pinned: %@ · Local: %@"),
-                                agent.version, agent.installedVersion ?? String(localized: "Not installed")))
+                    Text(String(format: AgentLocalization.string("Pinned: %@ · Local: %@", locale: locale),
+                                agent.version, agent.installedVersion ?? AgentLocalization.string("Not installed", locale: locale)))
                         .font(LitheTheme.uiFont(size: 12, design: .monospaced))
                     Text(versionHint)
                         .font(LitheTheme.smallFont)
@@ -216,12 +219,12 @@ private struct AgentDetailView: View {
     private var versionHint: String {
         if !agent.isInstalled {
             return AgentSetupDiagnostics.canInstallAdapter(checks)
-                ? String(localized: "Not installed. Install it to start using this Agent.")
-                : String(localized: "Install Node.js and npm before installing the adapter.")
+                ? AgentLocalization.string("Not installed. Install it to start using this Agent.", locale: locale)
+                : AgentLocalization.string("Install Node.js and npm before installing the adapter.", locale: locale)
         }
         return agent.needsUpdate
-            ? String(localized: "An update is available.")
-            : String(localized: "Up to date.")
+            ? AgentLocalization.string("An update is available.", locale: locale)
+            : AgentLocalization.string("Up to date.", locale: locale)
     }
 
     private var preflightCard: some View {
@@ -327,6 +330,7 @@ private struct AgentDetailView: View {
 }
 
 private struct AgentStatusBadge: View {
+    @Environment(\.locale) private var locale
     let status: AgentPreflightCheck.Status
 
     var body: some View {
@@ -342,6 +346,7 @@ private struct AgentStatusBadge: View {
 }
 
 struct AgentBadge: View {
+    @Environment(\.locale) private var locale
     let text: LocalizedStringKey
     let color: Color
 
@@ -355,6 +360,7 @@ struct AgentBadge: View {
 // MARK: - Custom agent detail
 
 private struct CustomAgentDetailView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
 
@@ -387,7 +393,7 @@ private struct CustomAgentDetailView: View {
         }
         AgentProviderConfigurationView(
             agentID: AgentConfiguration.customAgentID,
-            name: String(localized: "Custom Agent"),
+            name: AgentLocalization.string("Custom Agent", locale: locale),
             source: nil,
             model: model,
             settings: settings
@@ -398,6 +404,7 @@ private struct CustomAgentDetailView: View {
 // MARK: - Shared pieces
 
 struct AgentSettingsHint: View {
+    @Environment(\.locale) private var locale
     let text: LocalizedStringKey
     init(_ text: LocalizedStringKey) { self.text = text }
 
@@ -410,11 +417,12 @@ struct AgentSettingsHint: View {
 }
 
 private struct AgentCliUpdateOutcomeView: View {
+    @Environment(\.locale) private var locale
     let result: AgentCliUpdateResult
 
     var body: some View {
         LitheBanner(status: result.updaterWarning == nil ? .success : .warning) {
-            Text(String(format: String(localized: "CLI updated to %@"), result.cliVersion))
+            Text(String(format: AgentLocalization.string("CLI updated to %@", locale: locale), result.cliVersion))
             Text("Reconnect this Agent to refresh its model list.")
             if let warning = result.updaterWarning {
                 Text("The installer reported an error, but the new CLI version was verified.")
@@ -426,17 +434,19 @@ private struct AgentCliUpdateOutcomeView: View {
 }
 
 struct AgentSettingsIssue: View {
+    @Environment(\.locale) private var locale
     let text: String
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        LitheBanner(status: .error) { Text(text).textSelection(.enabled) }
+        LitheBanner(status: .error) { Text(AgentLocalization.message(text, locale: locale)).textSelection(.enabled) }
     }
 }
 
 /// The download's total size is owned by npm and not known in advance.
 /// Report actual received bytes and rate instead of inventing an install percentage.
 private struct AgentInstallProgressView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: AgentManagementFeatureModel
 
     var body: some View {
@@ -450,12 +460,12 @@ private struct AgentInstallProgressView: View {
                         .disabled(feature.isCancelling)
                 }
                 if let progress = feature.installProgress, progress.downloadedBytes > 0 {
-                    Text(String(format: String(localized: "Downloaded %@ · %@/s"),
+                    Text(String(format: AgentLocalization.string("Downloaded %@ · %@/s", locale: locale),
                                 bytes(progress.downloadedBytes), bytes(progress.bytesPerSecond)))
                         .monospacedDigit()
                 }
                 let elapsed = max(0, Int(timeline.date.timeIntervalSince(feature.operationStartedAt ?? timeline.date)))
-                Text(String(format: String(localized: "Elapsed %lld s"), elapsed))
+                Text(String(format: AgentLocalization.string("Elapsed %lld s", locale: locale), elapsed))
                     .monospacedDigit()
                 if let progress = feature.installProgress, progress.stage == .downloading,
                    progress.idleMilliseconds >= 15_000, !feature.isCancelling {
@@ -468,13 +478,13 @@ private struct AgentInstallProgressView: View {
     }
 
     private var title: String {
-        if feature.isCancelling { return String(localized: "Stopping installation…") }
+        if feature.isCancelling { return AgentLocalization.string("Stopping installation…", locale: locale) }
         switch feature.installProgress?.stage {
-        case .preparing: return String(localized: "Preparing download…")
-        case .downloading: return String(localized: "Downloading packages…")
-        case .installing: return String(localized: "Installing packages…")
-        case .updating: return String(localized: "Updating CLI…")
-        case nil: return String(localized: "Working with npm…")
+        case .preparing: return AgentLocalization.string("Preparing download…", locale: locale)
+        case .downloading: return AgentLocalization.string("Downloading packages…", locale: locale)
+        case .installing: return AgentLocalization.string("Installing packages…", locale: locale)
+        case .updating: return AgentLocalization.string("Updating CLI…", locale: locale)
+        case nil: return AgentLocalization.string("Working with npm…", locale: locale)
         }
     }
 

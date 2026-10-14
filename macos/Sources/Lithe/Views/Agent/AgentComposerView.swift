@@ -4,6 +4,7 @@ import LitheAgentConversationModule
 
 /// Context strip, flexible writing area, and a compact bottom command bar.
 struct AgentComposerView: View {
+    @Environment(\.locale) private var locale
     let agents: [AgentOption]
     let selectedAgent: AgentOption?
     let isResponding: Bool
@@ -112,7 +113,7 @@ struct AgentComposerView: View {
                 } else if let model = selectedAgent?.modelName, !model.isEmpty {
                     HStack(spacing: 5) {
                         AgentBrandIcon(name: selectedAgent?.name, size: 12, style: .brand)
-                        Text(model).lineLimit(1).truncationMode(.middle)
+                        Text(AgentLocalization.string(String.LocalizationValue(model), locale: locale)).lineLimit(1).truncationMode(.middle)
                     }
                     .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(AgentPanelStyle.secondary)
@@ -200,7 +201,7 @@ struct AgentComposerView: View {
         } label: {
             HStack(spacing: 4) {
                 AgentBrandIcon(name: displayAgentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
-                Text(displayAgentName ?? String(localized: "Agent"))
+                Text(displayAgentName ?? AgentLocalization.string("Agent", locale: locale))
                     .lineLimit(1)
                 LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheTheme.Metrics.toolbarIconSize,
                               fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
@@ -211,7 +212,7 @@ struct AgentComposerView: View {
         }
         .litheToolbarIconButton(isIconOnly: false)
         .fixedSize()
-        .help(displayAgentName ?? String(localized: "Choose an Agent"))
+        .help(displayAgentName ?? AgentLocalization.string("Choose an Agent", locale: locale))
         .accessibilityLabel("Switch Agent")
         .accessibilityIdentifier("agent-composer-agent-selector")
     }
@@ -251,7 +252,7 @@ struct AgentComposerView: View {
     private func send() {
         guard hasContent, !isResponding else { return }
         if isBlocked || isPreparingSession {
-            onError(String(localized: "The conversation is still being prepared. Try again in a moment."))
+            onError("The conversation is still being prepared. Try again in a moment.")
             return
         }
         do {
@@ -291,6 +292,7 @@ private struct AgentCommandKeyNavigation: ViewModifier {
 
 /// The shared split container keeps resize updates outside the conversation model.
 struct AgentConversationLayout<Transcript: View, Composer: View>: View {
+    @Environment(\.locale) private var locale
     @ViewBuilder let transcript: Transcript
     @ViewBuilder let composer: Composer
     @State private var composerMinimumHeight = AgentComposerMetrics.minimumHeight(hasFiles: false)

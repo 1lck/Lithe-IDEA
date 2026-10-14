@@ -9,13 +9,13 @@ enum AgentContextUsagePresentation {
 
     static func details(_ usage: AgentContextUsage?, locale: Locale) -> String {
         guard let usage, usage.usedTokens > 0 else {
-            return String(format: String(localized: "Context: %@"), percentage(usage, locale: locale, precise: true))
+            return String(format: AgentLocalization.string("Context: %@", locale: locale), percentage(usage, locale: locale, precise: true))
         }
         let format = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(0...1)).locale(locale)
         let tokens = { (count: UInt64) in
             count >= 1_000 ? (Double(count) / 1_000).formatted(format) + "k" : count.formatted(.number.locale(locale))
         }
-        return String(format: String(localized: "%@ · %@ / %@ context tokens"),
+        return String(format: AgentLocalization.string("%@ · %@ / %@ context tokens", locale: locale),
                       percentage(usage, locale: locale, precise: true), tokens(usage.usedTokens), tokens(usage.capacityTokens))
     }
 }

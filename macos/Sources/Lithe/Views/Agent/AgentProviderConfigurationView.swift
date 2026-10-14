@@ -3,6 +3,7 @@ import LitheCoreContracts
 
 /// Provider selection is independent of the provider used for commit messages.
 struct AgentProviderConfigurationView: View {
+    @Environment(\.locale) private var locale
     let agentID: String
     let name: String
     let source: AIConfigurationSourceKind?
@@ -56,7 +57,7 @@ struct AgentProviderConfigurationView: View {
                 Text("No custom providers yet.").font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.tertiaryText)
             }
             if let selected, selected.credentialSource == .local {
-                Text(String(format: String(localized: "Current provider: %@"), selected.name))
+                Text(String(format: AgentLocalization.string("Current provider: %@", locale: locale), selected.name))
                     .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
             }
             if self.selected != nil || usesSubscription {
@@ -112,7 +113,7 @@ struct AgentProviderConfigurationView: View {
             HStack(spacing: 8) {
                 Image(systemName: active ? "checkmark.circle.fill" : "doc.text.magnifyingglass")
                     .foregroundStyle(active ? LitheTheme.accent : LitheTheme.secondaryText)
-                Text(String(format: String(localized: "Local %@ configuration"), kind.title))
+                Text(String(format: AgentLocalization.string("Local %@ configuration", locale: locale), kind.title))
                     .font(LitheTheme.uiFont(size: 12, weight: .medium))
                 Spacer(minLength: 8)
                 Button(active ? "Refresh" : "Use") {
@@ -173,6 +174,7 @@ struct AgentProviderConfigurationView: View {
 }
 
 private struct AgentProviderEditorView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var model: AppModel
     @State var draft: AgentProviderDraft
     @State private var errorMessage: String?
@@ -227,7 +229,7 @@ private struct AgentProviderEditorView: View {
                             let data = try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
                             text.wrappedValue = String(decoding: data, as: UTF8.self)
                             errorMessage = nil
-                        } catch { errorMessage = String(localized: "Invalid JSON. Check the configuration format.") }
+                        } catch { errorMessage = "Invalid JSON. Check the configuration format." }
                     }.buttonStyle(LitheSecondaryButtonStyle())
                 }
             }

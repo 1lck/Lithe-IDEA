@@ -4,6 +4,7 @@ import LitheAgentConversationModule
 /// The agent's reasoning, separate from its reply. Open while it streams and
 /// collapsed once the reply or a tool call follows; a search keeps it open.
 struct AgentThoughtRow: View {
+    @Environment(\.locale) private var locale
     let text: String
     let isStreaming: Bool
     var isSearching = false
@@ -28,7 +29,7 @@ struct AgentThoughtRow: View {
             }
             .litheToolbarIconButton(isIconOnly: false)
             .help(isExpanded ? "Hide thinking" : "Show thinking")
-            .accessibilityValue(isExpanded ? String(localized: "Expanded") : String(localized: "Collapsed"))
+            .accessibilityValue(isExpanded ? AgentLocalization.string("Expanded", locale: locale) : AgentLocalization.string("Collapsed", locale: locale))
 
             if isExpanded {
                 Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -64,6 +65,7 @@ struct AgentThoughtExpansion {
 /// Plan the agent reported for this conversation, pinned above the activity bar.
 /// Collapsed it shows progress and the current step; it stays expandable after the turn.
 struct AgentPlanView: View {
+    @Environment(\.locale) private var locale
     let plan: AgentPlan
     let isResponding: Bool
     let embedded: Bool
@@ -84,7 +86,7 @@ struct AgentPlanView: View {
                         Image(systemName: "list.bullet.clipboard")
                             .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(plan.isComplete ? LitheTheme.success : LitheTheme.accent)
-                        Text(String(format: String(localized: "Plan %lld/%lld"), plan.completedCount, plan.entries.count))
+                        Text(String(format: AgentLocalization.string("Plan %lld/%lld", locale: locale), plan.completedCount, plan.entries.count))
                             .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
                             .monospacedDigit()
@@ -164,15 +166,16 @@ struct AgentPlanView: View {
 
     private func label(_ status: AgentPlan.Entry.Status) -> String {
         switch status {
-        case .completed: String(localized: "Completed")
-        case .inProgress: String(localized: "Running")
-        case .pending: String(localized: "Pending")
+        case .completed: AgentLocalization.string("Completed", locale: locale)
+        case .inProgress: AgentLocalization.string("Running", locale: locale)
+        case .pending: AgentLocalization.string("Pending", locale: locale)
         }
     }
 }
 
 /// Slash commands matching the draft, shown above the writing area.
 struct AgentCommandSuggestionList: View {
+    @Environment(\.locale) private var locale
     let commands: [AgentCommand]
     let highlightedIndex: Int
     let onSelect: (AgentCommand) -> Void

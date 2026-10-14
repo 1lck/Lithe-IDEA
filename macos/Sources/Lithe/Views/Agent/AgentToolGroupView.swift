@@ -3,6 +3,7 @@ import LitheAgentConversationModule
 
 /// Compact timeline for adjacent ACP tool calls in a conversation.
 struct AgentToolGroupView: View {
+    @Environment(\.locale) private var locale
     let messages: [AgentConversationMessage]
     let searchText: String
     let onOpenFile: (AgentToolDetails.Location) -> Void
@@ -148,11 +149,11 @@ struct AgentToolGroupView: View {
 
     private func statusLabel(for status: AgentConversationMessage.ToolStatus?) -> String {
         switch status {
-        case .completed: String(localized: "Completed")
-        case .failed: String(localized: "Failed")
-        case .interrupted: String(localized: "Interrupted")
-        case .inProgress: String(localized: "Running")
-        case .pending, nil: String(localized: "Pending")
+        case .completed: AgentLocalization.string("Completed", locale: locale)
+        case .failed: AgentLocalization.string("Failed", locale: locale)
+        case .interrupted: AgentLocalization.string("Interrupted", locale: locale)
+        case .inProgress: AgentLocalization.string("Running", locale: locale)
+        case .pending, nil: AgentLocalization.string("Pending", locale: locale)
         }
     }
 }

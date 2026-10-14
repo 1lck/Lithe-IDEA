@@ -90,6 +90,8 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
 
 切换图标使用 Community 915c3c26 的 expui/general/previewVertically.svg 及 dark 变体，16×16；按钮尺寸、选中/hover 与工具提示复用共享 owner。图标作为固定构建资源随包只读发布，不引入运行时下载或缓存。Community 提供通用标签/图标/工具窗口规则，AI 插件的聊天迁移页面未在公开仓库找到，不把当前页面组合与字号布局冒充它的私有源码常量。
 
+Agent 产品文案在界面层按 SwiftUI 注入的 locale 解析。Foundation 的 String(localized:) 在模型或提前构造的字符串中可能跟随系统语言，导致英文标题配中文说明；会话模型、文件错误与应用生成的配置提示因此只保留英文资源键，AgentLocalization 显式选择当前语言的 lproj，再完成格式化。启动/认证空态、设置、模型选项说明、运行状态、用量和额度提示都经过同一入口。New Chat 失败提示保留原因的英文键，到显示时才组合，切换语言不会留下旧语言文案。上游消息、模型名称、未知诊断、历史标题与导出内容保留原文，不能反向猜译用户文字。启动空态复用 settingsStrongFont、smallFont、EditorEmptyState.label、Banner.gap 及小号 ProgressView，避免独立字号和颜色；其他 Agent 空态一起使用这些规则。
+
 标题栏的更多按钮使用已有 Community moreVertical 16pt SVG 和共享 LitheMenu。菜单仅接入重命名、删除、设置和显示工具栏，不补参考图里尚不存在的其他功能。重命名与删除复用 AgentHistoryFeatureModel；删除按已有可恢复的隐藏历史语义执行并先确认，忙碌、加载或配置中的会话禁止删除。Show Toolbar 控制输入框内操作栏及下方 Agent/模型/统计栏，默认显示，通过 AppStorage 保存可见状态；隐藏时销毁菜单锚点并关闭浮层，保留文本编辑、回车发送及输入框高度，Tasks/Running/Edits 不受影响，不停止任务或改动消息。Community ToggleToolbarAction 的字符串 ID 入口保存组件可见状态；同 revision 的工具窗口入口已注明 2026.3 不再提供通用开关，因此此处是按用户参考界面使用同类交互，不声称复用 AI 插件内部实现。
 
 模型选择入口放在输入框外的底栏、Agent 右侧；模式保留框内，发送左侧仍为上下文圆环。两处复用 AgentSessionSelectors，按类别分配同一上游配置目录，不复制选择状态；尚未确认会话时不显示回退模型。原生测试覆盖深浅主题和窄面板的同行位置及选择回调。
