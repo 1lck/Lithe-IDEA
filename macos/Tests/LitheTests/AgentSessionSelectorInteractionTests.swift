@@ -19,16 +19,16 @@ struct AgentSessionSelectorInteractionTests {
         #expect(parent.makeFirstResponder(field))
         let editor = try #require(field.currentEditor() as? NSTextView)
         editor.insertText("Target", replacementRange: NSRange(location: NSNotFound, length: 0))
-        try #require(await waitUntil { field.stringValue == "Target" }, "Model search must accept native editing")
+        try #require(await waitUntil(updating: content) { field.stringValue == "Target" }, "Model search must accept native editing")
         let anchor = try #require(anchors(in: content).first)
         try clickCenter(anchor, window: parent)
-        try #require(await waitUntil { popup(in: parent) != nil }, "The setting child must open")
+        try #require(await waitUntil(updating: content) { popup(in: parent) != nil }, "The setting child must open")
         let child = try #require(popup(in: parent))
 
         // A different option changes first: it must not invalidate this child.
         let parentHeight = parent.frame.height
         state.options[0].choices.append(.init(id: "another", name: "Another Target"))
-        try #require(await waitUntil { parent.frame.height > parentHeight },
+        try #require(await waitUntil(updating: host) { parent.frame.height > parentHeight },
                      "The parent must render the unrelated model update before checking its child")
         #expect(field.stringValue == "Target")
         #expect(child.isVisible)
@@ -37,14 +37,14 @@ struct AgentSessionSelectorInteractionTests {
         case "currentValue": state.options[1].currentValue = "low"
         default: state.options[1].choices[0].description = "Updated upstream explanation\nwith an additional line"
         }
-        try #require(await waitUntil { !child.isVisible }, "An updated option must close its obsolete child snapshot")
+        try #require(await waitUntil(updating: host) { !child.isVisible }, "An updated option must close its obsolete child snapshot")
         #expect(parent.isVisible && popup(in: window) === parent)
         #expect(field.stringValue == "Target", "Only the setting anchor may be rebuilt")
         #expect(state.selected == nil)
 
-        try #require(await waitUntil { anchors(in: content).count == 1 }, "The replacement setting anchor must be laid out")
+        try #require(await waitUntil(updating: content) { anchors(in: content).count == 1 }, "The replacement setting anchor must be laid out")
         try clickCenter(try #require(anchors(in: content).first), window: parent)
-        try #require(await waitUntil { popup(in: parent) != nil }, "The updated child must reopen")
+        try #require(await waitUntil(updating: content) { popup(in: parent) != nil }, "The updated child must reopen")
         let reopened = try #require(popup(in: parent))
         #expect(reopened !== child)
         let reopenedContent = try #require(reopened.contentView)
@@ -61,9 +61,9 @@ struct AgentSessionSelectorInteractionTests {
         }
         try sendKey(change == "choices" ? 126 : 125, to: reopened)
         try sendKey(36, to: reopened)
-        try #require(await waitUntil { state.selected?.1 == "low" }, "Reopened choices must use the latest upstream IDs")
+        try #require(await waitUntil(updating: host) { state.selected?.1 == "low" }, "Reopened choices must use the latest upstream IDs")
         #expect(state.selected?.0 == "effort")
-        #expect(await waitUntil { popup(in: window) == nil })
+        #expect(await waitUntil(updating: host) { popup(in: window) == nil })
     }
 
     @Test(arguments: [ColorScheme.dark, .light])
@@ -84,13 +84,13 @@ struct AgentSessionSelectorInteractionTests {
         #expect(parent.isVisible && state.selected == nil, "Composing must not submit or dismiss the model menu")
         editor.insertText("你", replacementRange: NSRange(location: NSNotFound, length: 0))
         #expect(!editor.hasMarkedText())
-        try #require(await waitUntil { field.stringValue == "你" }, "The committed search must reach the model filter")
+        try #require(await waitUntil(updating: content) { field.stringValue == "你" }, "The committed search must reach the model filter")
         // Commit is distinct from submission; Return then selects the first filtered model.
         #expect(state.selected == nil)
         try sendKey(36, to: parent)
-        try #require(await waitUntil { state.selected?.1 == "target" }, "Search submission must select the filtered upstream model")
+        try #require(await waitUntil(updating: host) { state.selected?.1 == "target" }, "Search submission must select the filtered upstream model")
         #expect(state.selected?.0 == "model")
-        #expect(await waitUntil { popup(in: window) == nil })
+        #expect(await waitUntil(updating: host) { popup(in: window) == nil })
     }
 
     @Test(arguments: [ColorScheme.dark, .light])
@@ -103,14 +103,14 @@ struct AgentSessionSelectorInteractionTests {
         let parent = try await openModelMenu(in: host, window: window)
         let parentContent = try #require(parent.contentView)
         try clickCenter(try #require(anchors(in: parentContent).first), window: parent)
-        try #require(await waitUntil { popup(in: parent) != nil }, "The long child must open")
+        try #require(await waitUntil(updating: parentContent) { popup(in: parent) != nil }, "The long child must open")
         let child = try #require(popup(in: parent))
         let childContent = try #require(child.contentView)
         let scroll = try #require(scrollView(in: childContent))
         let document = try #require(scroll.documentView)
         #expect(document.bounds.height > scroll.contentView.bounds.height)
         try sendKey(126, to: child)
-        try #require(await waitUntil { scroll.contentView.bounds.minY > 0 }, "Up must reveal the final choice")
+        try #require(await waitUntil(updating: childContent) { scroll.contentView.bounds.minY > 0 }, "Up must reveal the final choice")
         // A real mouseMoved event takes ownership back from keyboard navigation.
         // Target the previous visible row, then use Return to observe hover selection.
         let point = NSPoint(x: document.bounds.midX,
@@ -121,8 +121,8 @@ struct AgentSessionSelectorInteractionTests {
             eventNumber: 1, clickCount: 0, pressure: 0))
         child.sendEvent(event)
         try sendKey(36, to: child)
-        try #require(await waitUntil { state.selected?.1 == "choice-58" }, "Pointer hover must replace the previous keyboard target")
-        #expect(await waitUntil { popup(in: window) == nil })
+        try #require(await waitUntil(updating: host) { state.selected?.1 == "choice-58" }, "Pointer hover must replace the previous keyboard target")
+        #expect(await waitUntil(updating: host) { popup(in: window) == nil })
     }
 
     @Test(arguments: [false, true], [false, true])
@@ -144,7 +144,7 @@ struct AgentSessionSelectorInteractionTests {
         let content = try #require(panel.contentView)
         try sendKey(125, to: panel)
         try sendKey(124, to: panel)
-        try #require(await waitUntil { scrollViews(in: content).count == 2 }, "The embedded child must be laid out")
+        try #require(await waitUntil(updating: content) { scrollViews(in: content).count == 2 }, "The embedded child must be laid out")
         let scroll = try #require(scrollViews(in: content).first { ($0.documentView?.bounds.height ?? 0) > 40 })
         let document = try #require(scroll.documentView)
         let point = NSPoint(x: document.bounds.midX,
@@ -154,17 +154,18 @@ struct AgentSessionSelectorInteractionTests {
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber, context: nil,
             eventNumber: 1, clickCount: 0, pressure: 0)))
         try sendKey(36, to: panel)
-        #expect(await waitUntil { selected == (targetsDisabled ? "first" : "second") },
+        #expect(await waitUntil(updating: content) { selected == (targetsDisabled ? "first" : "second") },
                 "Pointer handoff must preserve the enabled keyboard target over a disabled row")
         #expect(!panel.isVisible)
     }
 
     private func openModelMenu(in host: NSView, window: NSWindow) async throws -> NSPanel {
-        try #require(await waitUntil { anchors(in: host).count == 1 }, "The model trigger must be laid out")
+        try #require(await waitUntil(updating: host) { anchors(in: host).count == 1 }, "The model trigger must be laid out")
         try clickCenter(try #require(anchors(in: host).first), window: window)
-        try #require(await waitUntil { popup(in: window) != nil }, "The model menu must open")
+        try #require(await waitUntil(updating: host) { popup(in: window) != nil }, "The model menu must open")
         let parent = try #require(popup(in: window))
-        try #require(await waitUntil { parent.contentView.map { anchors(in: $0).count == 1 } == true },
+        let content = try #require(parent.contentView)
+        try #require(await waitUntil(updating: content) { anchors(in: content).count == 1 },
                      "The setting row must be laid out")
         return parent
     }
@@ -181,7 +182,9 @@ struct AgentSessionSelectorInteractionTests {
     }
 
     private func anchors(in view: NSView) -> [LitheDropdownAnchorView] {
-        if let anchor = view as? LitheDropdownAnchorView { return [anchor] }
+        if let anchor = view as? LitheDropdownAnchorView {
+            return anchor.window != nil && !anchor.bounds.isEmpty ? [anchor] : []
+        }
         return view.subviews.flatMap { anchors(in: $0) }
     }
 
@@ -219,16 +222,23 @@ struct AgentSessionSelectorInteractionTests {
             charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: code)))
     }
 
-    private func waitUntil(_ condition: () -> Bool) async -> Bool {
-        // Native event handling and SwiftUI layout are asynchronous; observe the
-        // actual window/callback with a local monotonic deadline, never a sleep.
+    private func waitUntil(updating view: NSView, _ condition: () -> Bool) async -> Bool {
+        // Finish pending native layout before checking geometry or callbacks;
+        // queued dropdown updates must get an event-loop turn after a click.
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(1))
         repeat {
             await Task.yield()
+            layoutFrame(view)
             if condition() { return true }
         } while clock.now < deadline
         return condition()
+    }
+
+    private func layoutFrame(_ view: NSView) {
+        // Pump one ready native source with zero wait, as in the transcript tests.
+        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
+        view.layoutSubtreeIfNeeded()
     }
 
     private func checkPixels(in view: NSView, row: Int) throws -> Int {

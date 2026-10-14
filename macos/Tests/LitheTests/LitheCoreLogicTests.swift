@@ -807,6 +807,32 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func workspaceUpdatesPreserveTheHostingWindowsMeasuredMinimum() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = NSWindow()
+        window.isReleasedWhenClosed = false
+        defer {
+            coordinator.detach()
+            window.delegate = nil
+            window.close()
+        }
+
+        coordinator.attach(to: window, layout: .workspace, title: "Initial title")
+        // SwiftUI also owns native minimum-size measurement. A same-role model
+        // update must not overwrite it and restart the hosting layout feedback.
+        let measuredMinimum = NSSize(width: 128, height: 96)
+        window.contentMinSize = measuredMinimum
+        coordinator.attach(to: window, layout: .workspace, title: "Updated title")
+        #expect(window.contentMinSize == measuredMinimum)
+        #expect(window.title == "Updated title")
+
+        coordinator.attach(to: window, layout: .welcome)
+        #expect(window.contentMinSize == LitheWindowLayout.welcome.minimumContentSize)
+    }
+
+    @Test
+    @MainActor
     func workspaceWindowKeepsAnAccessibleTitleWithoutShowingTheNativeTitle() {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
         let coordinator = LitheWindowCoordinator(projectSessions: sessions)
