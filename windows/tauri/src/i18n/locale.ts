@@ -3308,6 +3308,8 @@ const catalogs = {
     "git.log.branchNameAlreadyExists": "Branch name {name} already exists",
     "git.log.branchNameClashesWithRemote": "Branch name {name} conflicts with remote branch with the same name",
     "git.log.branchNameClashesWithDirectory": "Branch name {name} conflicts with local branch directory with the same name",
+    "git.log.branchNameClashesWithBranchPrefix":
+      "Branch name {name} conflicts with existing local branch {branch}",
     "git.log.branchDeletedTitle": "Deleted Branch:",
     "git.log.restoreBranch": "Restore",
     "git.log.branchRestored": "Restored branch {name}",
@@ -8045,6 +8047,7 @@ const catalogs = {
     "git.log.branchNameAlreadyExists": "分支名称 {name} 已存在",
     "git.log.branchNameClashesWithRemote": "分支名称 {name} 与同名的远程分支冲突",
     "git.log.branchNameClashesWithDirectory": "分支名称 {name} 与同名的本地分支目录冲突",
+    "git.log.branchNameClashesWithBranchPrefix": "分支名称 {name} 与现有本地分支 {branch} 冲突",
     "git.log.branchDeletedTitle": "已删除分支：",
     "git.log.restoreBranch": "恢复",
     "git.log.branchRestored": "已恢复分支 {name}",

@@ -47,7 +47,8 @@ export type GitBranchNameError =
   | { code: "head" }
   | { code: "clashesWithRemote"; name: string }
   | { code: "clashesWithDirectory"; name: string }
-  | { code: "alreadyExists"; name: string };
+  | { code: "alreadyExists"; name: string }
+  | { code: "clashesWithBranchPrefix"; name: string; branch: string };
 
 function collectDirectories(branchNames: Iterable<string>): Set<string> {
   const directories = new Set<string>();
@@ -62,8 +63,24 @@ function collectDirectories(branchNames: Iterable<string>): Set<string> {
 }
 
 /**
+ * Git stores branches as loose refs, so `feature` and `feature/a` cannot coexist:
+ * creating `feature/a` fails when any `/` prefix of the name is already a full local
+ * branch. Reports the conflicting existing branch, mirroring the directory check above.
+ */
+function findBranchPrefixClash(name: string, localNames: readonly string[]): string | null {
+  let index = name.indexOf("/");
+  while (index !== -1) {
+    const prefix = name.slice(0, index);
+    if (localNames.includes(prefix)) return prefix;
+    index = name.indexOf("/", index + 1);
+  }
+  return null;
+}
+
+/**
  * Validates an already cleaned name against the repository references, in IDEA's order:
- * empty/HEAD, remote branch clash, local branch directory clash, existing local branch.
+ * empty/HEAD, remote branch clash, local branch directory clash, existing local branch,
+ * then a local branch occupying one of the name's `/` prefixes.
  * `empty` is only reported when `requireName` is set, as IDEA validates it on apply.
  */
 export function validateNewBranchName(
@@ -79,5 +96,7 @@ export function validateNewBranchName(
   }
   if (collectDirectories(localNames).has(name)) return { code: "clashesWithDirectory", name };
   if (localNames.includes(name)) return { code: "alreadyExists", name };
+  const branchPrefixClash = findBranchPrefixClash(name, localNames);
+  if (branchPrefixClash) return { code: "clashesWithBranchPrefix", name, branch: branchPrefixClash };
   return null;
 }

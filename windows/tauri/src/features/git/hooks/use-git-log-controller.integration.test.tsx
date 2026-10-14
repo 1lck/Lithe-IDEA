@@ -106,7 +106,11 @@ function graphGate() {
 function mountController(): {
   read: () => GitLogController;
   renders: () => readonly ControllerRender[];
-  render: (repoPath: string, preferredReference?: GitReference | null) => Promise<void>;
+  render: (
+    repoPath: string,
+    preferredReference?: GitReference | null,
+    language?: "en-US" | "zh-CN",
+  ) => Promise<void>;
   root: Root;
 } {
   const container = document.createElement("div");
@@ -136,10 +140,10 @@ function mountController(): {
       return current;
     },
     renders: () => renders,
-    render: async (repoPath, preferredReference = null) => {
+    render: async (repoPath, preferredReference = null, language = "en-US") => {
       await act(async () => {
         root.render(
-          <LocaleProvider language="en-US">
+          <LocaleProvider language={language}>
             <Probe repoPath={repoPath} preferredReference={preferredReference} />
           </LocaleProvider>,
         );
@@ -517,6 +521,150 @@ describe("Git Log controller repository lifecycle", () => {
     } finally {
       globalThis.setTimeout = originalSetTimeout;
       globalThis.clearTimeout = originalClearTimeout;
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+});
+
+describe("Git Log controller branch filter across repositories", () => {
+  const branchReference = (repoPath: string, shortName: string): GitReference => ({
+    fullName: `refs/heads/${shortName}`,
+    shortName,
+    kind: "local",
+    peelsToCommit: true,
+    isCurrent: false,
+    repositoryPath: repoPath,
+  });
+
+  function listBranches(...references: GitReference[]) {
+    getGitReferences.mockImplementation(async () => ({
+      references: [mainReference(), ...references],
+      recentReferences: [],
+    }));
+  }
+
+  test("switching repositories restores the new repository's own filter, not the previous one", async () => {
+    const harness = mountController();
+    try {
+      listBranches(branchReference("C:/repo-a", "feature/a"));
+      await harness.render("C:/repo-a");
+      await act(async () => {
+        harness.read().selectReference(branchReference("C:/repo-a", "feature/a"));
+      });
+      expect(harness.read().selectedReference?.fullName).toBe("refs/heads/feature/a");
+
+      const repoBFeature = branchReference("C:/repo-b", "feature/b");
+      listBranches(repoBFeature);
+      getGitHistoryPage.mockClear();
+      await harness.render("C:/repo-b", repoBFeature);
+
+      // One visible request that already targets B's restored reference; inheriting
+      // A's selection instead would request feature/a and then a fallback reload.
+      expect(visiblePageCalls()).toHaveLength(1);
+      expect(visiblePageCalls()[0]?.[0]).toBe("C:/repo-b");
+      expect(visiblePageCalls()[0]?.[4]).toBe("refs/heads/feature/b");
+      expect(harness.read().selectedReference?.fullName).toBe("refs/heads/feature/b");
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("a repository without a stored filter starts from All after a switch", async () => {
+    const harness = mountController();
+    try {
+      listBranches(branchReference("C:/repo-a", "feature/a"));
+      await harness.render("C:/repo-a");
+      await act(async () => {
+        harness.read().selectReference(branchReference("C:/repo-a", "feature/a"));
+      });
+
+      listBranches(branchReference("C:/repo-b", "unrelated"));
+      getGitHistoryPage.mockClear();
+      await harness.render("C:/repo-b");
+
+      expect(visiblePageCalls()).toHaveLength(1);
+      expect(visiblePageCalls()[0]?.[4]).toBeUndefined();
+      expect(harness.read().selectedReference).toBeNull();
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("returning to a repository restores its own filter after an intermediate switch", async () => {
+    const harness = mountController();
+    try {
+      const repoAFeature = branchReference("C:/repo-a", "feature/a");
+      listBranches(repoAFeature);
+      await harness.render("C:/repo-a");
+      await act(async () => {
+        harness.read().selectReference(repoAFeature);
+      });
+
+      const repoBFeature = branchReference("C:/repo-b", "feature/b");
+      listBranches(repoBFeature);
+      await harness.render("C:/repo-b", repoBFeature);
+      expect(harness.read().selectedReference?.fullName).toBe("refs/heads/feature/b");
+
+      listBranches(repoAFeature);
+      getGitHistoryPage.mockClear();
+      // The tool window restores the stored filter when a repository is reopened.
+      await harness.render("C:/repo-a", repoAFeature);
+
+      expect(visiblePageCalls()).toHaveLength(1);
+      expect(visiblePageCalls()[0]?.[4]).toBe("refs/heads/feature/a");
+      expect(harness.read().selectedReference?.fullName).toBe("refs/heads/feature/a");
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("a restored reference that no longer exists falls back to All", async () => {
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      getGitHistoryPage.mockClear();
+
+      const deletedReference = branchReference("C:/repo-b", "feature/deleted");
+      await harness.render("C:/repo-b", deletedReference);
+
+      expect(visiblePageCalls()).toHaveLength(2);
+      expect(visiblePageCalls()[0]?.[4]).toBe("refs/heads/feature/deleted");
+      expect(visiblePageCalls()[1]?.[4]).toBeUndefined();
+      expect(harness.read().selectedReference).toBeNull();
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("a language change within one repository keeps the user's selected reference", async () => {
+    const harness = mountController();
+    try {
+      const repoAFeature = branchReference("C:/repo-a", "feature/a");
+      listBranches(repoAFeature);
+      await harness.render("C:/repo-a");
+      await act(async () => {
+        harness.read().selectReference(repoAFeature);
+      });
+
+      getGitHistoryPage.mockClear();
+      // A locale switch changes `load`'s identity and re-runs the setup effect while
+      // the repository stays the same; the picked reference must survive it.
+      await harness.render("C:/repo-a", null, "zh-CN");
+
+      expect(visiblePageCalls()).toHaveLength(1);
+      expect(visiblePageCalls()[0]?.[4]).toBe("refs/heads/feature/a");
+      expect(harness.read().selectedReference?.fullName).toBe("refs/heads/feature/a");
+    } finally {
       await act(async () => {
         harness.root.unmount();
       });

@@ -82,6 +82,11 @@ export function GitCreateBranchDialog({
         return t("git.log.branchNameClashesWithRemote", { name: error.name });
       case "clashesWithDirectory":
         return t("git.log.branchNameClashesWithDirectory", { name: error.name });
+      case "clashesWithBranchPrefix":
+        return t("git.log.branchNameClashesWithBranchPrefix", {
+          name: error.name,
+          branch: error.branch,
+        });
       case "alreadyExists":
         return t("git.log.branchNameAlreadyExists", { name: error.name });
     }
