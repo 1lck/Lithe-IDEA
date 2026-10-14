@@ -9,7 +9,39 @@ import SwiftUI
 /// - 智能滚动:用户上翻后不强制拉底,并显示 "Jump to latest" 按钮
 /// - 右上角一键复制全部输出
 /// - 可选自动换行:调用方提供切换回调时,右键菜单附带「自动换行」勾选项
+enum ConsoleToolbarAction: String, CaseIterable, Identifiable {
+    case previous, next, softWraps, scrollToEnd, printOutput, clear
+    var id: Self { self }
+    var asset: String {
+        switch self {
+        case .previous: "expui/general/up.svg"
+        case .next: "expui/general/down.svg"
+        case .softWraps: "expui/general/softWrap.svg"
+        case .scrollToEnd: "expui/general/scrollDown.svg"
+        case .printOutput: "expui/general/print.svg"
+        case .clear: "expui/general/delete.svg"
+        }
+    }
+    var title: String {
+        switch self {
+        case .previous: "Previous Stack Trace"
+        case .next: "Next Stack Trace"
+        case .softWraps: "Use soft wraps"
+        case .scrollToEnd: "Scroll to the End"
+        case .printOutput: "Print"
+        case .clear: "Clear Console"
+        }
+    }
+}
+
+struct ConsoleToolbarRequest {
+    let id = UUID()
+    let action: ConsoleToolbarAction
+}
+
 struct OutputTextView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.hasWorkbenchBackgroundImage) private var hasBackgroundImage
     let output: String
     let searchRoots: [URL]
     let fileExists: (URL) -> Bool
@@ -17,19 +49,32 @@ struct OutputTextView: View {
     /// Wraps lines to the pane width; off keeps each line on one row with
     /// horizontal scrolling, the historical behavior of every output pane.
     var wrapsLines = false
+    var showsConsoleToolbar = false
+    var onClearOutput: (() -> Void)? = nil
     var fontSize: CGFloat = 11.5
+    var usesIDEAConsoleStyle = false
+    var consolePresentation: ConsoleFoldPresentation? = nil
+    var standardInputSessionID: UUID? = nil
+    var onSubmitStandardInput: ((String) -> Bool)? = nil
     var decorateOutput: ((NSMutableAttributedString, Bool) -> Void)?
     /// Adds a soft-wrap toggle to the context menu. Callers that do not own a
     /// wrap preference leave it nil and keep the plain text menu.
     var onToggleWrapsLines: (() -> Void)?
     let onOpenLocation: (URL, Int, Int?) -> Void
 
+    @State private var consoleToolbarRequest: ConsoleToolbarRequest?
+    @State private var hasConsoleOccurrences = false
     @State private var isAtBottom = true
     @State private var scrollToLatestRequest = 0
 
     private static let bottomThreshold: CGFloat = 80
 
     var body: some View {
+        HStack(spacing: 0) {
+            if showsConsoleToolbar {
+                consoleToolbar
+                Rectangle().fill(LitheTheme.toolWindowBorder(for: colorScheme)).frame(width: 1)
+            }
         OutputTextStorageView(
             output: output,
             searchRoots: searchRoots,
@@ -37,41 +82,87 @@ struct OutputTextView: View {
             emptyMessage: emptyMessage,
             theme: LitheTheme.activeTheme,
             wrapsLines: wrapsLines,
+            usesIDEAConsoleStyle: usesIDEAConsoleStyle,
+            consolePresentation: consolePresentation,
+            standardInputSessionID: standardInputSessionID,
+            onSubmitStandardInput: onSubmitStandardInput,
+            fontSize: fontSize,
             onToggleWrapsLines: onToggleWrapsLines,
             scrollToLatestRequest: scrollToLatestRequest,
             bottomThreshold: Self.bottomThreshold,
             copyButton: AnyView(copyButton),
-            render: { source, roots, exists, dark, theme in
-                let rendered = NSMutableAttributedString(attributedString: Self.renderOutput(source, searchRoots: roots, fileExists: exists, isDark: dark, theme: theme, fontSize: fontSize))
+            consoleToolbarRequest: consoleToolbarRequest,
+            onConsoleOccurrencesChange: { hasConsoleOccurrences = $0 },
+            render: { source, roots, exists, dark, theme, size in
+                let rendered = NSMutableAttributedString(attributedString: Self.renderOutput(source, searchRoots: roots, fileExists: exists, isDark: dark, theme: theme, fontSize: size, usesIDEAConsoleStyle: usesIDEAConsoleStyle))
                 decorateOutput?(rendered, dark)
                 return rendered
             },
             onOpenLocation: onOpenLocation,
             onBottomStateChange: { isAtBottom = $0 }
         )
-            .background(LitheTheme.editor)
+            .litheWorkbenchSurface(LitheTheme.editor, hasBackgroundImage: hasBackgroundImage)
             .overlay(alignment: .bottomTrailing) {
                 if !isAtBottom {
                     jumpToLatestButton
                         .padding(10)
                 }
             }
+        }
+    }
+
+    private var consoleToolbar: some View {
+        VStack(spacing: LitheTheme.ActionStripe.spacing) {
+            ForEach(ConsoleToolbarAction.allCases) { action in
+                Button {
+                    switch action {
+                    case .softWraps: onToggleWrapsLines?()
+                    case .clear: onClearOutput?()
+                    default: consoleToolbarRequest = ConsoleToolbarRequest(action: action)
+                    }
+                } label: {
+                    LitheIDEAIcon(resourcePath: action.asset, size: LitheTheme.ActionStripe.iconSize, preservesOriginalColors: true,
+                                  usesIDEADisabledAppearance: true)
+                }
+                .buttonStyle(LitheIconButtonStyle(size: LitheTheme.ActionStripe.buttonSize, disabledOpacity: 1,
+                    cornerRadius: LitheTheme.ActionStripe.cornerRadius,
+                    isSelected: action == .softWraps && wrapsLines))
+                .disabled(action == .previous || action == .next ? !hasConsoleOccurrences
+                    : action == .softWraps ? onToggleWrapsLines == nil
+                    : action == .clear ? onClearOutput == nil || output.isEmpty : output.isEmpty)
+                .workbenchHoverHelp(Text(LocalizedStringKey(action.title)), placement: .trailing)
+                .accessibilityLabel(LocalizedStringKey(action.title))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, LitheTheme.ActionStripe.topInset)
+        .frame(width: LitheTheme.ActionStripe.width)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .litheWorkbenchSurface(LitheTheme.sidebar, hasBackgroundImage: hasBackgroundImage)
     }
 
     // MARK: - 渲染
 
-    fileprivate static func renderOutput(
+    static func renderOutput(
         _ source: String,
         searchRoots: [URL],
         fileExists: @escaping (URL) -> Bool,
         isDark: Bool,
         theme: AppColorTheme,
-        fontSize: CGFloat = 11.5
+        fontSize: CGFloat = 11.5,
+        usesIDEAConsoleStyle: Bool = false
     ) -> NSAttributedString {
-        let defaultForeground = LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
-        let parsed = ANSIOutputRenderer.parse(source, defaultForeground: defaultForeground)
+        let defaultForeground = usesIDEAConsoleStyle ? LitheConsoleStyle.foreground(dark: isDark)
+            : LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
+        let parsed = ANSIOutputRenderer.parse(source, defaultForeground: defaultForeground,
+            palette: usesIDEAConsoleStyle ? LitheConsoleStyle.palette(dark: isDark) : nil)
         guard !parsed.cleanText.isEmpty else { return NSAttributedString() }
         var result = ANSIOutputRenderer.render(parsed, fontSize: fontSize)
+        if usesIDEAConsoleStyle {
+            result.addAttribute(.paragraphStyle, value: LitheConsoleStyle.paragraphStyle(fontSize: fontSize),
+                range: NSRange(location: 0, length: result.length))
+        }
+        if !usesIDEAConsoleStyle {
         applySeverityColors(
             to: &result,
             text: parsed.cleanText,
@@ -80,6 +171,7 @@ struct OutputTextView: View {
             isDark: isDark
         )
         dimTimestamps(in: &result, text: parsed.cleanText, theme: theme, isDark: isDark)
+        }
         for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots, fileExists: fileExists) {
             let range = NSRange(location.range, in: parsed.cleanText)
             result.addAttribute(
@@ -87,11 +179,12 @@ struct OutputTextView: View {
                 value: locationURL(path: location.url.path, line: location.line, column: location.column),
                 range: range
             )
-            result.addAttribute(.foregroundColor, value: resolvedColor(
-                location.kind == .warning ? .warning : .error,
-                theme: theme,
-                isDark: isDark
-            ), range: range)
+            result.addAttribute(.foregroundColor, value: usesIDEAConsoleStyle
+                ? LitheConsoleStyle.hyperlink(dark: isDark)
+                : resolvedColor(location.kind == .warning ? .warning : .error, theme: theme, isDark: isDark), range: range)
+            if usesIDEAConsoleStyle {
+                result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            }
         }
         return result
     }
@@ -324,12 +417,9 @@ struct OutputTextView: View {
             // 复制不含 ANSI 转义码的纯文本
             pasteboard.setString(ANSIOutputRenderer.parse(output).cleanText, forType: .string)
         } label: {
-            HStack(spacing: 4) {
-                LitheIDEAIcon(resourcePath: "expui/general/copy.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
-                Text("Copy").font(LitheTheme.uiFont(size: 13))
-            }.padding(.horizontal, 4)
+            LitheIDEAIcon(resourcePath: "expui/general/copy.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
         }
-        .litheToolbarIconButton(isEnabled: !output.isEmpty, isIconOnly: false)
+        .litheToolbarIconButton(isEnabled: !output.isEmpty)
         .accessibilityLabel("Copy output")
         .help("Copy output")
     }
@@ -339,17 +429,11 @@ struct OutputTextView: View {
             scrollToLatestRequest &+= 1
             isAtBottom = true
         } label: {
-            Label("Jump to latest", systemImage: "arrow.down.to.line")
-                .font(LitheTheme.uiFont(size: 11, weight: .medium))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(LitheTheme.raised.opacity(0.92))
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(LitheTheme.panelBorder, lineWidth: 1))
+            LitheIDEAIcon(resourcePath: "expui/general/scrollDown.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .foregroundStyle(LitheTheme.primaryText)
+        .litheToolbarIconButton()
+        .accessibilityLabel("Jump to latest")
+        .help("Jump to latest")
     }
 }
 
@@ -398,6 +482,99 @@ final class OutputNativeScrollView: NSScrollView {
 }
 
 final class OutputNativeTextView: NSTextView {
+    var onToggleConsoleFold: ((String) -> Void)?
+    var consoleFoldImage: (String) -> NSImage? = { LitheIcons.ideaImage(resourcePath: $0) }
+
+    // Only visible characters participate in gutter drawing and pointer hit testing.
+    func consoleFoldAnchors() -> [(rect: NSRect, id: String, isExpanded: Bool)] {
+        guard usesIDEAConsoleStyle, let storage = textStorage, let layout = layoutManager,
+              let container = textContainer, storage.length > 0 else { return [] }
+        let origin = textContainerOrigin
+        let viewport = visibleRect.offsetBy(dx: -origin.x, dy: -origin.y)
+        let glyphs = layout.glyphRange(forBoundingRect: viewport, in: container)
+        let characters = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        var anchors: [(NSRect, String, Bool)] = []
+        storage.enumerateAttributes(in: characters) { attributes, range, _ in
+            let expandedID = attributes[.consoleExpandedFoldID] as? String
+            let link = attributes[.link] as? URL
+            guard let id = expandedID ?? (link?.scheme == "lithe-console-fold" ? link?.lastPathComponent : nil) else { return }
+            let glyphRange = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            guard glyphRange.length > 0, glyphRange.location < layout.numberOfGlyphs else { return }
+            let line = layout.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            anchors.append((NSRect(x: visibleRect.minX + 1, y: floor(line.minY + origin.y + (line.height - 9) / 2 + 0.5), width: 9, height: 9), id, expandedID != nil))
+        }
+        return anchors
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        // NSTextView clips its drawing to the text container. Restore the
+        // caller's clip before painting markers in the left text inset.
+        NSGraphicsContext.saveGraphicsState()
+        super.draw(dirtyRect)
+        NSGraphicsContext.restoreGraphicsState()
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        for anchor in consoleFoldAnchors() where anchor.rect.intersects(dirtyRect) {
+            let name = anchor.isExpanded ? "fold" : "unfold"
+            let path = "expui/gutter/\(name)\(dark ? "_dark" : "").svg"
+            guard let image = consoleFoldImage(path) else { continue }
+            image.draw(in: anchor.rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+    }
+
+    func invalidateConsoleFoldGutter() {
+        guard usesIDEAConsoleStyle else { return }
+        setNeedsDisplay(NSRect(x: visibleRect.minX, y: visibleRect.minY,
+                               width: textContainerInset.width, height: visibleRect.height))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let anchor = consoleFoldAnchors().first(where: { $0.rect.insetBy(dx: -1, dy: -3).contains(point) }) {
+            onToggleConsoleFold?(anchor.id)
+            return
+        }
+        if usesIDEAConsoleStyle && isEditable, let link = consoleLink(at: point),
+           delegate?.textView?(self, clickedOnLink: link.url, at: link.index) == true { return }
+        super.mouseDown(with: event)
+    }
+
+    private func consoleLink(at point: NSPoint) -> (url: URL, index: Int)? {
+        guard let storage = textStorage, let layout = layoutManager, let container = textContainer else { return nil }
+        let local = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyph = layout.glyphIndex(for: local, in: container)
+        guard glyph < layout.numberOfGlyphs,
+              layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).contains(local) else { return nil }
+        let index = layout.characterIndexForGlyph(at: glyph)
+        guard index < storage.length, let url = storage.attribute(.link, at: index, effectiveRange: nil) as? URL else { return nil }
+        return (url, index)
+    }
+
+    private func updateConsoleLinkCursor(_ event: NSEvent) -> Bool {
+        guard usesIDEAConsoleStyle else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        if consoleFoldAnchors().contains(where: { $0.rect.insetBy(dx: -1, dy: -3).contains(point) }) {
+            NSCursor.arrow.set()
+            return true
+        }
+        guard consoleLink(at: point) != nil else { return false }
+        NSCursor.pointingHand.set()
+        return true
+    }
+
+    var usesIDEAConsoleStyle = false
+    override func paste(_ sender: Any?) {
+        if usesIDEAConsoleStyle && isEditable { pasteAsPlainText(sender) }
+        else { super.paste(sender) }
+    }
+
+    override func copy(_ sender: Any?) {
+        guard usesIDEAConsoleStyle, let storage = textStorage else { super.copy(sender); return }
+        let range = selectedRange()
+        guard range.length > 0, range.location != NSNotFound, NSMaxRange(range) <= storage.length else { return }
+        let text = ConsoleFoldPresentation.copyText(storage.attributedSubstring(from: range))
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
     weak var copyButtonView: NSView?
     var copyButtonRect: NSRect? {
         guard let copyButtonView, let window, copyButtonView.window === window else { return nil }
@@ -419,14 +596,17 @@ final class OutputNativeTextView: NSTextView {
     }
     override func cursorUpdate(with event: NSEvent) {
         if LitheTextViewportLayout.isPointerHitTarget(copyButtonView, at: event.locationInWindow) { NSCursor.arrow.set() }
+        else if updateConsoleLinkCursor(event) {}
         else if LitheTextViewportLayout.isPointerHitTarget(self, at: event.locationInWindow) { super.cursorUpdate(with: event) }
     }
     override func mouseMoved(with event: NSEvent) {
         if LitheTextViewportLayout.isPointerHitTarget(copyButtonView, at: event.locationInWindow) { NSCursor.arrow.set() }
+        else if updateConsoleLinkCursor(event) {}
         else if LitheTextViewportLayout.isPointerHitTarget(self, at: event.locationInWindow) { super.mouseMoved(with: event) }
     }
     override func mouseEntered(with event: NSEvent) {
         if LitheTextViewportLayout.isPointerHitTarget(copyButtonView, at: event.locationInWindow) { NSCursor.arrow.set() }
+        else if updateConsoleLinkCursor(event) {}
         else if LitheTextViewportLayout.isPointerHitTarget(self, at: event.locationInWindow) { super.mouseEntered(with: event) }
     }
 }
@@ -542,21 +722,29 @@ enum OutputTextUpdate: Equatable {
 
 private struct OutputTextStorageView: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.hasWorkbenchBackgroundImage) private var hasBackgroundImage
     let output: String
     let searchRoots: [URL]
     let fileExists: (URL) -> Bool
     let emptyMessage: String
     let theme: AppColorTheme
     let wrapsLines: Bool
+    let usesIDEAConsoleStyle: Bool
+    let consolePresentation: ConsoleFoldPresentation?
+    let standardInputSessionID: UUID?
+    let onSubmitStandardInput: ((String) -> Bool)?
+    let fontSize: CGFloat
     let onToggleWrapsLines: (() -> Void)?
     let scrollToLatestRequest: Int
     let bottomThreshold: CGFloat
     let copyButton: AnyView
-    let render: (String, [URL], @escaping (URL) -> Bool, Bool, AppColorTheme) -> NSAttributedString
+    let consoleToolbarRequest: ConsoleToolbarRequest?
+    let onConsoleOccurrencesChange: (Bool) -> Void
+    let render: (String, [URL], @escaping (URL) -> Bool, Bool, AppColorTheme, CGFloat) -> NSAttributedString
     let onOpenLocation: (URL, Int, Int?) -> Void
     let onBottomStateChange: @MainActor (Bool) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(folds: consolePresentation ?? ConsoleFoldPresentation()) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let textContainer = NSTextContainer(
@@ -609,6 +797,13 @@ private struct OutputTextStorageView: NSViewRepresentable {
             .environment(\.colorScheme, colorScheme).environment(\.locale, context.environment.locale)
             .environment(\.isEnabled, context.environment.isEnabled).fixedSize())
         scrollView.needsLayout = true
+        context.coordinator.configureConsole(usesIDEAConsoleStyle, fontSize: fontSize)
+        scrollView.drawsBackground = usesIDEAConsoleStyle && !hasBackgroundImage
+        scrollView.backgroundColor = scrollView.drawsBackground
+            ? LitheConsoleStyle.background(dark: colorScheme == .dark) : .clear
+        if usesIDEAConsoleStyle {
+            context.coordinator.textView?.insertionPointColor = LitheConsoleStyle.foreground(dark: colorScheme == .dark)
+        }
         context.coordinator.onOpenLocation = onOpenLocation
         context.coordinator.onBottomStateChange = onBottomStateChange
         context.coordinator.bottomThreshold = bottomThreshold
@@ -623,6 +818,19 @@ private struct OutputTextStorageView: NSViewRepresentable {
             fileExists: fileExists,
             render: render
         )
+        context.coordinator.configureStandardInput(sessionID: standardInputSessionID, onSubmit: onSubmitStandardInput)
+        context.coordinator.onConsoleOccurrencesChange = onConsoleOccurrencesChange
+        context.coordinator.updateConsoleOccurrenceAvailability()
+        if let request = consoleToolbarRequest, context.coordinator.lastToolbarRequest != request.id {
+            context.coordinator.lastToolbarRequest = request.id
+            switch request.action {
+            case .previous: context.coordinator.previousConsoleOccurrence(nil)
+            case .next: context.coordinator.nextConsoleOccurrence(nil)
+            case .scrollToEnd: context.coordinator.scrollToBottom()
+            case .printOutput: context.coordinator.textView?.printView(nil)
+            default: break
+            }
+        }
         if context.coordinator.scrollToLatestRequest != scrollToLatestRequest {
             context.coordinator.scrollToLatestRequest = scrollToLatestRequest
             context.coordinator.scrollToBottom()
@@ -638,6 +846,122 @@ private struct OutputTextStorageView: NSViewRepresentable {
         var bottomThreshold: CGFloat = 80
         var scrollToLatestRequest = 0
         var onToggleWrapsLines: (() -> Void)?
+        var lastToolbarRequest: UUID?
+        var onConsoleOccurrencesChange: ((Bool) -> Void)?
+        private var lastOccurrencesAvailable = false
+        private var lastFollowedConsoleLink: (range: NSRange, url: URL)?
+
+        private var consoleOccurrences: [(NSRange, URL)] {
+            guard let storage = textView?.textStorage else { return [] }
+            var links: [(NSRange, URL)] = []
+            storage.enumerateAttribute(.link, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                if let url = value as? URL, url.scheme == "lithe-open" { links.append((range, url)) }
+            }
+            return links
+        }
+
+        func updateConsoleOccurrenceAvailability() {
+            let available = !consoleOccurrences.isEmpty
+            guard available != lastOccurrencesAvailable else { return }
+            lastOccurrencesAvailable = available
+            onConsoleOccurrencesChange?(available)
+        }
+
+        @objc func nextConsoleOccurrence(_ sender: Any?) { navigateConsoleOccurrence(forward: true) }
+        @objc func previousConsoleOccurrence(_ sender: Any?) { navigateConsoleOccurrence(forward: false) }
+
+        private func navigateConsoleOccurrence(forward: Bool) {
+            let links = consoleOccurrences
+            guard !links.isEmpty, let view = textView else { return }
+            let current = links.firstIndex { $0.0 == lastFollowedConsoleLink?.range && $0.1 == lastFollowedConsoleLink?.url } ?? 0
+            let next = (current + (forward ? 1 : -1) + links.count) % links.count
+            let (range, url) = links[next]
+            view.setSelectedRange(range)
+            view.scrollRangeToVisible(range)
+            _ = textView(view, clickedOnLink: url, at: range.location)
+        }
+
+        private let unfoldedStorage = NSMutableAttributedString()
+        private let folds: ConsoleFoldPresentation
+        private var usesIDEAConsoleStyle = false
+        private var consoleFontSize: CGFloat {
+            get { folds.fontSize }
+            set { folds.fontSize = newValue }
+        }
+        init(folds: ConsoleFoldPresentation) { self.folds = folds; super.init() }
+        private var onSubmitStandardInput: ((String) -> Bool)?
+        private var inputStart: Int?
+        private var pendingInputRefresh = false
+        private var refreshingInput = false
+
+        func configureStandardInput(sessionID: UUID?, onSubmit: ((String) -> Bool)?) {
+            let changedSession = folds.inputSessionID != sessionID
+            let changedAvailability = (onSubmitStandardInput == nil) != (onSubmit == nil)
+            if changedSession || (changedAvailability && onSubmit == nil) { textView?.unmarkText() }
+            if changedSession {
+                folds.inputSessionID = sessionID
+                folds.inputDraft = ""
+                textView?.undoManager?.removeAllActions()
+            }
+            onSubmitStandardInput = usesIDEAConsoleStyle ? onSubmit : nil
+            textView?.isEditable = onSubmitStandardInput != nil
+            textView?.allowsUndo = onSubmitStandardInput != nil
+            if changedSession || changedAvailability { lastRender?() }
+        }
+
+        private var inputAttributes: [NSAttributedString.Key: Any] {
+            [.font: LitheTheme.editorFont(size: consoleFontSize),
+             .foregroundColor: LitheConsoleStyle.foreground(dark: renderedIsDark ?? false),
+             .paragraphStyle: LitheConsoleStyle.paragraphStyle(fontSize: consoleFontSize)]
+        }
+
+        func textView(_ view: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
+            guard let start = inputStart, onSubmitStandardInput != nil,
+                  range.location != NSNotFound, NSMaxRange(range) <= (view.textStorage?.length ?? 0) else { return false }
+            guard range.location >= start else {
+                // Typing while reading old output goes to the input tail; deleting logs is never allowed.
+                if let text, !text.isEmpty {
+                    view.setSelectedRange(NSRange(location: (view.textStorage?.length ?? 0), length: 0))
+                    view.insertText(text, replacementRange: view.selectedRange())
+                }
+                return false
+            }
+            view.typingAttributes = inputAttributes
+            return true
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard !refreshingInput, let view = textView, let start = inputStart,
+                  start <= (view.textStorage?.length ?? 0) else { return }
+            folds.inputDraft = (view.string as NSString).substring(from: start)
+            if pendingInputRefresh && !view.hasMarkedText() { lastRender?() }
+        }
+
+        func textView(_ view: NSTextView, doCommandBy command: Selector) -> Bool {
+            guard command == #selector(NSTextView.insertNewline(_:)),
+                  let onSubmitStandardInput, let start = inputStart else { return false }
+            guard !view.hasMarkedText() else { return false }
+            let draft = (view.string as NSString).substring(from: start)
+            guard onSubmitStandardInput(draft + "\n") else { return true }
+            folds.inputDraft = ""
+            view.undoManager?.removeAllActions()
+            lastRender?()
+            view.setSelectedRange(NSRange(location: (view.textStorage?.length ?? 0), length: 0))
+            return true
+        }
+
+        private var baseFontSize: CGFloat = 13
+        private var lastRender: (() -> Void)?
+
+        func configureConsole(_ enabled: Bool, fontSize: CGFloat) {
+            usesIDEAConsoleStyle = enabled
+            baseFontSize = fontSize
+            if !enabled { consoleFontSize = fontSize }
+            (textView as? OutputNativeTextView)?.usesIDEAConsoleStyle = enabled
+            if enabled { textView?.linkTextAttributes = [:] }
+            (textView as? OutputNativeTextView)?.onToggleConsoleFold = { [weak self] id in self?.toggleFold(id) }
+        }
+
         var appliedWrapsLines = false
         private var source = ""
         private var sourceHadANSI = false
@@ -655,7 +979,10 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 object: scrollView.contentView,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reportBottomState() }
+                MainActor.assumeIsolated {
+                    self?.reportBottomState()
+                    (self?.textView as? OutputNativeTextView)?.invalidateConsoleFoldGutter()
+                }
             }
         }
 
@@ -666,9 +993,11 @@ private struct OutputTextStorageView: NSViewRepresentable {
             theme: AppColorTheme,
             searchRoots: [URL],
             fileExists: @escaping (URL) -> Bool,
-            render: (String, [URL], @escaping (URL) -> Bool, Bool, AppColorTheme) -> NSAttributedString
+            render: (String, [URL], @escaping (URL) -> Bool, Bool, AppColorTheme, CGFloat) -> NSAttributedString
         ) {
-            guard let storage = textView?.textStorage else { return }
+            guard let displayedStorage = textView?.textStorage else { return }
+            let storage = usesIDEAConsoleStyle ? unfoldedStorage : displayedStorage
+            if !output.hasPrefix(source) { lastFollowedConsoleLink = nil }
             let wasAtBottom = isAtBottom
             let appearanceChanged = renderedTheme != theme || renderedIsDark != isDark
             if output.isEmpty {
@@ -676,7 +1005,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 storage.setAttributedString(NSAttributedString(
                     string: emptyMessage,
                     attributes: [
-                        .font: LitheTheme.editorFont(size: 11.5),
+                        .font: LitheTheme.editorFont(size: consoleFontSize),
                         .foregroundColor: LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
                     ]
                 ))
@@ -684,6 +1013,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 sourceHadANSI = false
                 showingEmptyMessage = true
             } else {
+                if usesIDEAConsoleStyle, !output.hasPrefix(source) { folds.expanded.removeAll() }
                 let update = appearanceChanged
                     ? OutputTextUpdate.replace
                     : OutputTextUpdate.plan(previous: source, next: output, previousHadANSI: sourceHadANSI)
@@ -691,11 +1021,11 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 case .unchanged:
                     return
                 case let .append(suffix):
-                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme)
+                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme, consoleFontSize)
                     storage.append(rendered)
                     sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
                 case let .replaceTail(length, suffix):
-                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme)
+                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme, consoleFontSize)
                     let replacementRange = NSRange(
                         location: max(0, storage.length - length),
                         length: min(length, storage.length)
@@ -703,7 +1033,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
                     storage.replaceCharacters(in: replacementRange, with: rendered)
                     sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
                 case let .trimPrefix(length, suffix):
-                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme)
+                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme, consoleFontSize)
                     storage.beginEditing()
                     storage.deleteCharacters(in: NSRange(
                         location: 0,
@@ -713,7 +1043,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
                     storage.endEditing()
                     sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
                 case let .trimPrefixAndReplaceTail(prefixLength, tailLength, suffix):
-                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme)
+                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme, consoleFontSize)
                     storage.beginEditing()
                     storage.deleteCharacters(in: NSRange(
                         location: 0,
@@ -730,17 +1060,74 @@ private struct OutputTextStorageView: NSViewRepresentable {
                     storage.endEditing()
                     sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
                 case .replace:
-                    let rendered = render(output, searchRoots, fileExists, isDark, theme)
+                    if !output.hasPrefix(source) { folds.expanded.removeAll() }
+                    let rendered = render(output, searchRoots, fileExists, isDark, theme, consoleFontSize)
                     storage.setAttributedString(rendered)
                     sourceHadANSI = output.unicodeScalars.contains { $0.value == 27 }
                 }
                 source = output
                 showingEmptyMessage = false
             }
+            if usesIDEAConsoleStyle {
+                refreshFolds(dark: isDark, force: appearanceChanged)
+                lastRender = { [weak self] in self?.refreshFolds(dark: isDark, force: true) }
+            }
             renderedTheme = theme
             renderedIsDark = isDark
             if wasAtBottom { scrollToBottom() }
             reportBottomState()
+        }
+
+        private func refreshFolds(dark: Bool, force: Bool) {
+            guard let view = textView, let storage = view.textStorage else { return }
+            // A producer update must not replace an in-progress native IME composition.
+            guard !view.hasMarkedText() else { pendingInputRefresh = true; return }
+            pendingInputRefresh = false
+            let selection = view.selectedRange()
+            let relativeSelection = inputStart.flatMap { start -> NSRange? in
+                guard selection.location >= start, selection.location != NSNotFound else { return nil }
+                return NSRange(location: selection.location - start, length: selection.length)
+            }
+            let projected = NSMutableAttributedString(attributedString: folds.project(unfoldedStorage, dark: dark, fontSize: consoleFontSize))
+            inputStart = onSubmitStandardInput == nil ? nil : projected.length
+            if inputStart != nil {
+                var attributes = inputAttributes
+                attributes[.foregroundColor] = LitheConsoleStyle.foreground(dark: dark)
+                projected.append(NSAttributedString(string: folds.inputDraft, attributes: attributes))
+            }
+            let prefix = force ? 0 : ConsoleFoldPresentation.firstDifference(storage, projected)
+            refreshingInput = true
+            defer { refreshingInput = false }
+            if prefix != storage.length || prefix != projected.length {
+                // ponytail: Output reflow invalidates native undo ranges. Undo is scoped to
+                // edits between output updates; a draft-only undo manager can extend it.
+                view.undoManager?.removeAllActions()
+                storage.replaceCharacters(in: NSRange(location: prefix, length: storage.length - prefix),
+                    with: projected.attributedSubstring(from: NSRange(location: prefix, length: projected.length - prefix)))
+                (view as? OutputNativeTextView)?.invalidateConsoleFoldGutter()
+            }
+            if let start = inputStart {
+                view.typingAttributes = inputAttributes
+                if let relativeSelection {
+                    let offset = min(relativeSelection.location, folds.inputDraft.utf16.count)
+                    view.setSelectedRange(NSRange(location: start + offset,
+                        length: min(relativeSelection.length, folds.inputDraft.utf16.count - offset)))
+                }
+            }
+        }
+
+        private func zoom(_ delta: CGFloat?) {
+            let size = LitheConsoleStyle.resizedFont(current: consoleFontSize, delta: delta, defaultSize: baseFontSize)
+            guard size != consoleFontSize else { return }
+            consoleFontSize = size
+            var fonts: [(NSRange, NSFont)] = []
+            unfoldedStorage.enumerateAttribute(.font, in: NSRange(location: 0, length: unfoldedStorage.length)) { value, range, _ in
+                if let font = value as? NSFont, let resized = NSFont(descriptor: font.fontDescriptor, size: size) { fonts.append((range, resized)) }
+            }
+            for (range, font) in fonts { unfoldedStorage.addAttribute(.font, value: font, range: range) }
+            unfoldedStorage.addAttribute(.paragraphStyle, value: LitheConsoleStyle.paragraphStyle(fontSize: size),
+                range: NSRange(location: 0, length: unfoldedStorage.length))
+            lastRender?()
         }
 
         func scrollToBottom() {
@@ -762,6 +1149,26 @@ private struct OutputTextStorageView: NSViewRepresentable {
         }
 
         func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+            if usesIDEAConsoleStyle {
+                var items: [LitheContextMenuItem] = [
+                    .action("Increase Font Size") { [weak self] in self?.zoom(1) },
+                    .action("Decrease Font Size") { [weak self] in self?.zoom(-1) },
+                    .action("Reset Font Size") { [weak self] in self?.zoom(nil) },
+                    .separator,
+                    .action("Expand All") { [weak self] in
+                        guard let self else { return }
+                        folds.expanded = Set(folds.regions.map(\.id)); lastRender?()
+                    },
+                    .action("Collapse All") { [weak self] in self?.folds.expanded.removeAll(); self?.lastRender?() }
+                ]
+                if let onToggleWrapsLines { items += [.separator, .action("Use soft wraps", checked: appliedWrapsLines, action: onToggleWrapsLines)] }
+                items.insert(.action("Copy", isEnabled: view.selectedRange().length > 0) { [weak view] in view?.copy(nil) }, at: 0)
+                items.insert(.separator, at: 1)
+                let screenPoint = view.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+                LitheContextMenuPresenter.shared.show(items: items, at: screenPoint,
+                    appearance: view.effectiveAppearance, locale: .current, parentWindow: view.window)
+                return nil
+            }
             guard let onToggleWrapsLines else { return menu }
             // AppKit may hand back a reused menu; drop an earlier toggle and its
             // separator so repeated right-clicks never stack duplicate entries.
@@ -777,9 +1184,25 @@ private struct OutputTextStorageView: NSViewRepresentable {
         }
 
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-            guard let url = link as? URL, let location = OutputTextView.location(from: url) else { return false }
+            guard let url = link as? URL else { return false }
+            if usesIDEAConsoleStyle, url.scheme == "lithe-console-fold" {
+                toggleFold(url.lastPathComponent)
+                return true
+            }
+            guard let location = OutputTextView.location(from: url) else { return false }
+            var range = NSRange()
+            if let storage = textView.textStorage, charIndex >= 0, charIndex < storage.length {
+                _ = storage.attribute(.link, at: charIndex, effectiveRange: &range)
+                lastFollowedConsoleLink = (range, url)
+            }
             onOpenLocation?(location.url, location.line, location.column)
             return true
+        }
+
+        private func toggleFold(_ id: String) {
+            if folds.expanded.contains(id) { folds.expanded.remove(id) } else { folds.expanded.insert(id) }
+            lastRender?()
+            textView?.needsDisplay = true
         }
 
         private func reportBottomState() {
@@ -881,7 +1304,8 @@ enum ANSIOutputRenderer {
 
     static func parse(
         _ source: String,
-        defaultForeground: NSColor = .labelColor
+        defaultForeground: NSColor = .labelColor,
+        palette: [NSColor]? = nil
     ) -> ParsedOutput {
         let scalars = Array(source.unicodeScalars)
         var cleanText = ""
@@ -924,7 +1348,7 @@ enum ANSIOutputRenderer {
                     if end < scalars.count {
                         if scalars[end] == "m" {
                             let parameters = String(String.UnicodeScalarView(scalars[(index + 2)..<end]))
-                            applySGR(parameters, defaultForeground: defaultForeground, to: &style)
+                            applySGR(parameters, defaultForeground: defaultForeground, palette: palette, to: &style)
                             if parameters != "0" && !parameters.isEmpty { sawColorCode = true }
                         }
                         index = end + 1
@@ -959,6 +1383,7 @@ enum ANSIOutputRenderer {
     private static func applySGR(
         _ parameters: String,
         defaultForeground: NSColor,
+        palette: [NSColor]?,
         to style: inout Style
     ) {
         let codes = parameters.isEmpty ? [0] : parameters.split(separator: ";").compactMap { Int($0) }
@@ -969,16 +1394,19 @@ enum ANSIOutputRenderer {
             case 0: style = Style(foreground: defaultForeground)
             case 1: style.bold = true
             case 22: style.bold = false
-            case 30...37, 90...97: style.foreground = paletteColor(code)
+            case 30...37, 90...97: style.foreground = paletteColor(code, palette: palette)
             case 39: style.foreground = defaultForeground
-            case 40...47, 100...107: style.background = paletteColor(code - 10)
+            case 40...47, 100...107: style.background = paletteColor(code - 10, palette: palette)
             case 49: style.background = nil
             case 38, 48:
                 let isForeground = code == 38
                 if index + 2 < codes.count, codes[index + 1] == 5 {
-                    setColor(color256(codes[index + 2]), foreground: isForeground, style: &style)
+                    if (0...255).contains(codes[index + 2]) {
+                        setColor(color256(codes[index + 2], palette: palette), foreground: isForeground, style: &style)
+                    }
                     index += 2
                 } else if index + 4 < codes.count, codes[index + 1] == 2 {
+                    if codes[(index + 2)...(index + 4)].allSatisfy({ (0...255).contains($0) }) {
                     let color = NSColor(
                         srgbRed: Double(codes[index + 2]) / 255,
                         green: Double(codes[index + 3]) / 255,
@@ -986,6 +1414,7 @@ enum ANSIOutputRenderer {
                         alpha: 1
                     )
                     setColor(color, foreground: isForeground, style: &style)
+                    }
                     index += 4
                 }
             default: break
@@ -998,7 +1427,8 @@ enum ANSIOutputRenderer {
         if foreground { style.foreground = color } else { style.background = color }
     }
 
-    private static func paletteColor(_ code: Int) -> NSColor {
+    private static func paletteColor(_ code: Int, palette: [NSColor]? = nil) -> NSColor {
+        if let palette, palette.count == 16 { return palette[code >= 90 ? code - 90 + 8 : code - 30] }
         let values: [NSColor] = [
             .black, NSColor(srgbRed: 0.80, green: 0.27, blue: 0.29, alpha: 1),
             NSColor(srgbRed: 0.31, green: 0.72, blue: 0.39, alpha: 1),
@@ -1011,8 +1441,8 @@ enum ANSIOutputRenderer {
         return values[(code >= 90 ? code - 90 : code - 30) % values.count]
     }
 
-    private static func color256(_ value: Int) -> NSColor {
-        if value < 16 { return paletteColor(value < 8 ? value + 30 : value - 8 + 90) }
+    private static func color256(_ value: Int, palette: [NSColor]? = nil) -> NSColor {
+        if value < 16 { return paletteColor(value < 8 ? value + 30 : value - 8 + 90, palette: palette) }
         if value >= 232 {
             let component = Double(8 + (value - 232) * 10) / 255
             return NSColor(srgbRed: component, green: component, blue: component, alpha: 1)

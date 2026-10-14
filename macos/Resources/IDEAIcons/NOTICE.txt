@@ -188,3 +188,31 @@ from Community revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade,
 platform/icons/src/general/contextHelp.svg (one shared light/dark asset).
 Layout follows VcsToolWindowEmptyState.kt and StatusText.java at the same revision.
 Copyright JetBrains s.r.o.; Apache License 2.0.
+
+Debug toolbar actions use the New UI mappings from platform/icons/src/PlatformIconMappings.json
+at c7f91397daa3a961b4e78bc634fe467a0a7d9ade: expui/run/{debug,restartDebug,
+resume,pause,stepOver,stepInto,stepOut,viewBreakpoints,muteBreakpoints}.svg and _dark.svg.
+Console folding rules in macos/Sources/Lithe/Views/Workbench/LitheConsoleStyle.swift
+are adapted from the same revision's StackTraceFolding.kt, StackTraceFoldingSettings.kt,
+ConsoleFoldingSettings.java, SubstringConsoleFolding.java and JavaPlugin.xml, licensed
+under Apache-2.0, Copyright 2000-2024 JetBrains s.r.o. and contributors.
+
+Main-toolbar stop uses expui/run/stop_stroke.svg (shared light/dark white stroke)
+from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src.
+RunWidget surfaces follow RedesignedRunWidget.kt and Islands RunWidget theme tokens.
+Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Console folding gutter uses unmodified expui/gutter/{fold,unfold}{,_dark}.svg,
+9x9, from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade,
+platform/icons/src. Placement follows EditorGutterComponentImpl.drawDirectedBox.
+Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Debug Console actions use unmodified expui/general/{up,down,softWrap,scrollDown,print,delete}
+light/dark SVGs from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade.
+ConsoleViewImpl.createConsoleActions supplies their order and PlatformIconMappings their assets.
+
+Threads & Variables New UI assets from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade:
+expui/debugger/{addToWatch,frame,threadCurrent,threadRunning,threads,watch},
+expui/nodes/{field,variable} and their _dark variants.
+PlatformIconMappings maps these from the legacy Debugger/Nodes IDs;
+XWatchesViewImpl uses Debugger.AddToWatch for the inline expression action.

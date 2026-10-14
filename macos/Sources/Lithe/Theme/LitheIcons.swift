@@ -597,9 +597,13 @@ struct LitheIDEAIcon: View {
     var width: CGFloat? = nil
     var fallbackSystemImage: String?
     var preservesOriginalColors = false
+    var usesIDEADisabledAppearance = false
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        if let image = resolvedImage {
+        if let original = resolvedImage {
+            let image = usesIDEADisabledAppearance && !isEnabled
+                ? LitheIDEADisabledIcon.image(original, dark: colorScheme == .dark) : original
             if preservesOriginalColors {
                 Image(nsImage: image)
                     .renderingMode(.original)
@@ -903,5 +907,54 @@ private struct LogoGlyphShape: Shape {
         path.addLine(to: CGPoint(x: width * 0.54, y: height * 0.40))
         path.closeSubpath()
         return path
+    }
+}
+
+/// Community GrayFilter + inherited Islands grayFilter, without opacity compositing.
+@MainActor
+enum LitheIDEADisabledIcon {
+    private static let cache = NSCache<NSString, NSArray>()
+
+    static func gray(red: Int, green: Int, blue: Int, dark: Bool) -> Int {
+        let brightness = pow(Double(dark ? -70 : 33), 3) / 10_000
+        var value = Int(0.30 * Double(red) + 0.59 * Double(green) + 0.11 * Double(blue))
+        value = brightness >= 0 ? Int((Double(value) + brightness * 255) / (1 + brightness))
+            : Int(Double(value) / (1 - brightness))
+        return Int(127 + Double(value - 127) * (dark ? 0.30 : 0.65))
+    }
+
+    static func image(_ original: NSImage, dark: Bool) -> NSImage {
+        let key = "\(ObjectIdentifier(original))-\(dark)" as NSString
+        if let cached = cache.object(forKey: key), let result = cached[1] as? NSImage { return result }
+        let dimension = NSSize(width: original.size.width * 2, height: original.size.height * 2)
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(dimension.width),
+            pixelsHigh: Int(dimension.height), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+            isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return original }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        original.draw(in: NSRect(origin: .zero, size: dimension))
+        NSGraphicsContext.restoreGraphicsState()
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                var pixel = [Int](repeating: 0, count: 4)
+                bitmap.getPixel(&pixel, atX: x, y: y)
+                let alpha = Double(pixel[3]) / 255
+                guard alpha > 0 else { continue }
+                let premultiplied = !bitmap.bitmapFormat.contains(.alphaNonpremultiplied)
+                let divisor = premultiplied ? alpha : 1
+                let value = gray(red: min(255, Int((Double(pixel[0]) / divisor).rounded())),
+                    green: min(255, Int((Double(pixel[1]) / divisor).rounded())),
+                    blue: min(255, Int((Double(pixel[2]) / divisor).rounded())), dark: dark)
+                let component = premultiplied ? Int((Double(value) * alpha).rounded()) : value
+                pixel[0] = component; pixel[1] = component; pixel[2] = component
+                bitmap.setPixel(&pixel, atX: x, y: y)
+            }
+        }
+        let result = NSImage(size: original.size)
+        result.addRepresentation(bitmap)
+        cache.countLimit = 256
+        cache.setObject([original, result] as NSArray, forKey: key)
+        return result
     }
 }

@@ -59,7 +59,6 @@ struct GitLogView: View {
     @State private var branchSearchQuery = ""
     @State private var headSelected = false
     @State private var branchTreeActive = false
-    @State private var branchStripeHovered = false
     @State private var showsGitLogAuthorFilterPopover = false
     @State private var graphPresentation = GitGraphPresentation.empty
     @FocusState private var gitLogPathFocused: Bool
@@ -565,32 +564,8 @@ struct GitLogView: View {
     private var branchActionStripe: some View {
         VStack(spacing: 0) {
             if branchesCollapsed {
-                Button { branchesCollapsed = false } label: {
-                    VStack(spacing: 4) {
-                        LitheIDEAIcon(resourcePath: "expui/general/chevronRight.svg", size: 16,
-                                      fallbackSystemImage: "chevron.right", preservesOriginalColors: true)
-                        Text("Branches")
-                            .font(LitheTheme.uiFont(size: 11, weight: .regular))
-                            .fixedSize()
-                            .rotationEffect(.degrees(-90))
-                            .frame(width: 22, height: 58)
-                    }
-                    .padding(.top, 8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.litheNoPress)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                // IDEA ExpandStripeButtonUI uses ToolWindow.Button.hoverBackground;
-                // Islands Dark supplies #FFFFFF17 through its wildcard hover color.
-                .background(branchStripeHovered
-                    ? (colorScheme == .dark
-                        ? Color.white.opacity(23.0 / 255.0)
-                        : Color(red: 235.0 / 255.0, green: 236.0 / 255.0, blue: 240.0 / 255.0))
-                    : .clear)
-                .onHover { branchStripeHovered = $0 }
-                .accessibilityLabel("Show Branches")
+                LitheCollapsedActionStripe(title: "Branches", expandsToward: .trailing) { branchesCollapsed = false }
+                    .accessibilityLabel("Show Branches")
             } else {
                 branchStripeButton("expui/general/chevronLeft.svg", fallback: "chevron.left", help: "Hide Branches") {
                     branchesCollapsed = true
@@ -598,7 +573,7 @@ struct GitLogView: View {
                 Rectangle().fill(LitheTheme.divider).frame(width: 22, height: 1)
                     .padding(.vertical, 3)
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 4) {
+                    VStack(spacing: LitheTheme.ActionStripe.spacing) {
                         branchStripeButton("expui/general/add.svg", fallback: "plus", help: "New Branch",
                                            isEnabled: feature.selectedGitReference != nil || currentReference != nil) {
                             guard let reference = feature.selectedGitReference ?? currentReference else { return }
@@ -655,8 +630,8 @@ struct GitLogView: View {
                 }
             }
         }
-        .padding(.top, branchesCollapsed ? 0 : 5)
-        .frame(width: 36)
+        .padding(.top, branchesCollapsed ? 0 : LitheTheme.ActionStripe.topInset)
+        .frame(width: LitheTheme.ActionStripe.width)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(background.hasImage ? Color.clear : LitheTheme.sidebar)
         .overlay(alignment: .trailing) {
@@ -672,10 +647,10 @@ struct GitLogView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            LitheIDEAIcon(resourcePath: icon, size: 16, fallbackSystemImage: fallback,
+            LitheIDEAIcon(resourcePath: icon, size: LitheTheme.ActionStripe.iconSize, fallbackSystemImage: fallback,
                           preservesOriginalColors: true)
         }
-        .buttonStyle(LitheIconButtonStyle(size: 22, cornerRadius: 4))
+        .buttonStyle(LitheIconButtonStyle(size: LitheTheme.ActionStripe.buttonSize, cornerRadius: LitheTheme.ActionStripe.cornerRadius))
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.45)
         .workbenchHoverHelp(Text(LocalizedStringKey(help)), placement: .trailing)

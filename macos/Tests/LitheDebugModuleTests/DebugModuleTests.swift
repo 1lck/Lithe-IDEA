@@ -98,13 +98,13 @@ struct DebugModuleTests {
     }
 
     @Test
-    func debuggeeOutputIsMirroredIntoConsoleWithoutTerminalControlSequences() {
+    func debuggeeOutputPreservesSGRButDiscardsTerminalControlSequences() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
         let feature = GenericDebugFeatureModel(sessions: manager)
 
-        feature.appendDebuggeeOutput("\u{001B}[31mready\u{001B}[0m\r\n")
+        feature.appendDebuggeeOutput("\u{001B}[2J\u{001B}[31mready\u{001B}[0m\u{001B}]0;title\u{0007}\r\n")
 
-        #expect(feature.output == "ready\n")
+        #expect(feature.output == "\u{001B}[31mready\u{001B}[0m\n")
     }
 
     @Test
@@ -116,7 +116,16 @@ struct DebugModuleTests {
         feature.appendDebuggeeOutput("[31mready\u{001B}[0m\r")
         feature.appendDebuggeeOutput("\nnext\n")
 
-        #expect(feature.output == "ready\nnext\n")
+        #expect(feature.output == "\u{001B}[31mready\u{001B}[0m\nnext\n")
+    }
+
+    @Test
+    func debuggeeOutputRejectsOversizedOrPrivateCSIAndPreservesFollowingText() {
+        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        feature.appendDebuggeeOutput("\u{001B}[" + String(repeating: "1;", count: 100))
+        feature.appendDebuggeeOutput("mtext\u{001B}[?25mvisible\u{001B}[36mcyan\u{001B}[0m")
+        #expect(feature.output == "textvisible\u{001B}[36mcyan\u{001B}[0m")
     }
 
     @Test
@@ -1183,6 +1192,44 @@ struct DebugModuleTests {
 
         #expect(feature.javaSteppingFilters == core.defaultSteppingFilters)
         #expect(core.lastLaunchConfiguration?.steppingFilters == core.defaultSteppingFilters)
+    }
+
+    @Test
+    func emptyStateFollowsRetainedContentRatherThanRunningStateOrOutput() {
+        let session = DeferredInspectionDebugSession()
+        let manager = DebugAdapterSessionManager(providers: [
+            DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
+        ]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/workspace/debug-empty-state", isDirectory: true)
+        let source = root.appendingPathComponent("Main.java")
+        let configuration = DebugLaunchConfiguration(
+            name: "Main", request: .launch, arguments: ["mainClass": .string("Main")]
+        )
+
+        #expect(feature.showsEmptyState)
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        #expect(!feature.showsEmptyState)
+        session.transition(to: .terminated)
+        #expect(!feature.isSessionActive)
+        #expect(!feature.hasOutput)
+        #expect(!feature.showsEmptyState, "A silent terminated session still owns visible content")
+        feature.appendDebuggeeOutput("retained output")
+        feature.stop()
+        #expect(feature.hasOutput)
+        #expect(feature.showsEmptyState, "Closing the last session must hide its retained output")
+
+        session.failNextLaunch = true
+        #expect(!feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        #expect(feature.sessionSummaries.isEmpty)
+        #expect(feature.state == .failed)
+        #expect(feature.canRetry)
+        #expect(!feature.showsEmptyState, "Failed launch diagnostics must remain accessible")
+        #expect(feature.retry())
+        #expect(!feature.showsEmptyState)
+        feature.reset()
+        #expect(feature.showsEmptyState)
     }
 
     @Test

@@ -663,7 +663,8 @@ final class MacServiceContainer {
             workbenchBackgroundPlatform: MacWorkbenchBackgroundPlatform(store: store),
             directoryWatcherFactory: MacDirectoryWatcherFactory(),
             platformUI: platformUI,
-            shortcutDetectorFactory: MacShortcutDetectorFactory()
+            shortcutDetectorFactory: MacShortcutDetectorFactory(),
+            debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry)
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)

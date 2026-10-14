@@ -61,17 +61,17 @@ struct GitRepositoryEmptyView: View {
                 Button("Retry") { Task { await setup.load(at: feature.repositorySetupRoot) } }
             }
         }
-        .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize))
-        .foregroundStyle(LitheTheme.GitLog.emptyStateText)
-        .buttonStyle(GitRepositoryEmptyLinkStyle())
-        .tint(LitheTheme.GitLog.emptyStateLink)
+        .font(LitheTheme.uiFont(size: LitheTheme.ToolWindowEmptyState.fontSize))
+        .foregroundStyle(LitheTheme.ToolWindowEmptyState.text)
+        .buttonStyle(LitheToolWindowEmptyLinkStyle())
+        .tint(LitheTheme.ToolWindowEmptyState.link)
     }
 
     private var repositoryInstructions: some View {
         // Community VcsToolWindowEmptyState + StatusText: left-aligned lines, 2pt gaps.
-        VStack(alignment: .leading, spacing: LitheTheme.GitLog.emptyStateLineSpacing) {
+        VStack(alignment: .leading, spacing: LitheTheme.ToolWindowEmptyState.lineSpacing) {
             Text("To track changes to code:")
-                .frame(height: LitheTheme.GitLog.emptyStateRowHeight)
+                .frame(height: LitheTheme.ToolWindowEmptyState.rowHeight)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(verbatim: "—")
                 Text("Share project on")
@@ -79,18 +79,18 @@ struct GitRepositoryEmptyView: View {
                 Text("or")
                 Link("GitLab", destination: URL(string: "https://gitlab.com")!)
             }
-            .frame(height: LitheTheme.GitLog.emptyStateRowHeight)
+            .frame(height: LitheTheme.ToolWindowEmptyState.rowHeight)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(verbatim: "—")
                 Button("Initialize Git repository…") { confirmsInitialization = true }
             }
-            .frame(height: LitheTheme.GitLog.emptyStateRowHeight)
+            .frame(height: LitheTheme.ToolWindowEmptyState.rowHeight)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(verbatim: "—")
                 Button("Open Git Settings", action: openSettings)
             }
-            .frame(height: LitheTheme.GitLog.emptyStateRowHeight)
-            Color.clear.frame(width: 0, height: LitheTheme.GitLog.emptyStateRowHeight).accessibilityHidden(true)
+            .frame(height: LitheTheme.ToolWindowEmptyState.rowHeight)
+            Color.clear.frame(width: 0, height: LitheTheme.ToolWindowEmptyState.rowHeight).accessibilityHidden(true)
             Link(destination: URL(string: "https://git-scm.com/doc")!) {
                 HStack(spacing: 2) {
                     LitheIDEAIcon(resourcePath: "general/contextHelp.svg", size: 16, preservesOriginalColors: true)
@@ -98,21 +98,8 @@ struct GitRepositoryEmptyView: View {
                     Text("Version control integration")
                 }
             }
-            .foregroundStyle(LitheTheme.GitLog.emptyStateLink)
-            .frame(height: LitheTheme.GitLog.emptyStateRowHeight)
+            .foregroundStyle(LitheTheme.ToolWindowEmptyState.link)
+            .frame(height: LitheTheme.ToolWindowEmptyState.rowHeight)
         }
-    }
-}
-
-private struct GitRepositoryEmptyLinkStyle: ButtonStyle {
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize, weight: .regular))
-            .foregroundStyle(LitheTheme.GitLog.emptyStateLink)
-            .underline(isHovering, color: LitheTheme.accent)
-            .onHover { isHovering = $0 }
-            .lithePointer()
     }
 }

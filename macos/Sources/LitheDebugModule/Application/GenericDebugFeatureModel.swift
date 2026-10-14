@@ -136,6 +136,7 @@ private struct GenericDebugOutputNormalizer {
 
     private var state = State.normal
     private var sawCarriageReturn = false
+    private var sgrSequence: String?
 
     mutating func normalize(_ rawOutput: String) -> String {
         var normalized = String()
@@ -160,6 +161,7 @@ private struct GenericDebugOutputNormalizer {
                 sawCarriageReturn = false
                 switch scalar.value {
                 case 0x5B: // CSI: ESC [ ... final byte
+                    sgrSequence = "\u{001B}["
                     state = .controlSequence
                 case 0x5D: // OSC: ESC ] ... BEL or ST
                     state = .operatingSystemCommand
@@ -169,8 +171,18 @@ private struct GenericDebugOutputNormalizer {
             case .controlSequence:
                 sawCarriageReturn = false
                 if (0x40...0x7E).contains(scalar.value) {
+                    // Preserve SGR for the Console renderer, never cursor/screen commands.
+                    if scalar.value == 0x6D, let sequence = sgrSequence {
+                        normalized += sequence + "m"
+                    }
+                    sgrSequence = nil
                     state = .normal
-                }
+                } else if (0x30...0x39).contains(scalar.value) || scalar.value == 0x3B {
+                    // Bound incomplete or malicious control sequences across output chunks.
+                    if let sequence = sgrSequence, sequence.utf8.count < 128 {
+                        sgrSequence?.unicodeScalars.append(scalar)
+                    } else { sgrSequence = nil }
+                } else { sgrSequence = nil }
             case .operatingSystemCommand:
                 sawCarriageReturn = false
                 if scalar.value == 0x07 {
@@ -188,6 +200,7 @@ private struct GenericDebugOutputNormalizer {
 
     mutating func reset() {
         state = .normal
+        sgrSequence = nil
         sawCarriageReturn = false
     }
 }
@@ -460,6 +473,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public var isSessionActive: Bool {
         ![.idle, .terminated, .failed].contains(state)
+    }
+
+    /// Retained session content remains visible after termination, even without output.
+    /// A failed launch has no session record, but must keep its diagnostics and retry action.
+    public var showsEmptyState: Bool {
+        sessionSummaries.isEmpty && !isSessionActive && state != .failed
     }
 
     public var canControl: Bool { state == .running || state == .paused }

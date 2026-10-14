@@ -945,9 +945,14 @@ struct WorkbenchView: View {
                     ? "arrow.clockwise"
                     : "play.fill"
             )
-                .foregroundStyle(LitheTheme.MainToolbar.runIcon)
+                .foregroundStyle(model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                                 ? LitheTheme.MainToolbar.runningIcon : LitheTheme.MainToolbar.runIcon)
         }
-        .buttonStyle(LitheMainToolbarButtonStyle(insets: LitheTheme.MainToolbar.runInsets))
+        .buttonStyle(LitheMainToolbarButtonStyle(
+            insets: LitheTheme.MainToolbar.runInsets,
+            executionBackground: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                ? LitheTheme.MainToolbar.runningBackground : nil
+        ))
         .help(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityLabel(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityIdentifier("run-selected-run-configuration")
@@ -964,9 +969,12 @@ struct WorkbenchView: View {
                 size: 16,
                 fallbackSystemImage: "ladybug.fill"
             )
-            .foregroundStyle(LitheTheme.MainToolbar.runIcon)
+            .foregroundStyle(isDebugSessionActive ? LitheTheme.MainToolbar.runningIcon : LitheTheme.MainToolbar.runIcon)
         }
-        .buttonStyle(LitheMainToolbarButtonStyle(insets: LitheTheme.MainToolbar.runInsets))
+        .buttonStyle(LitheMainToolbarButtonStyle(
+            insets: LitheTheme.MainToolbar.runInsets,
+            executionBackground: isDebugSessionActive ? LitheTheme.MainToolbar.runningBackground : nil
+        ))
         .help(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityLabel(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityIdentifier("debug-selected-run-configuration")
@@ -981,16 +989,16 @@ struct WorkbenchView: View {
             }
         } label: {
             LitheIDEAIcon(
-                resourcePath: "debugger/stop.svg",
+                resourcePath: "expui/run/stop_stroke.svg",
                 size: 16,
-                fallbackSystemImage: "stop.fill",
-                preservesOriginalColors: true
+                fallbackSystemImage: "stop"
             )
-                .frame(width: 28, height: 28)
-                .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+            .foregroundStyle(LitheTheme.MainToolbar.runningIcon)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .buttonStyle(LitheMainToolbarButtonStyle(
+            insets: LitheTheme.MainToolbar.runInsets,
+            executionBackground: LitheTheme.MainToolbar.stopBackground
+        ))
         .help("Stop active execution")
         .accessibilityLabel("Stop active execution")
         .accessibilityIdentifier("stop-active-execution")

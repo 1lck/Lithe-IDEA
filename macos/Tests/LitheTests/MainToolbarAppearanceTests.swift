@@ -63,4 +63,50 @@ struct MainToolbarAppearanceTests {
             }
         }
     }
+
+    @Test
+    func executionSurfacesUseIslandsColorsAndPressedOverlay() throws {
+        for dark in [false, true] {
+            let appearance = try #require(NSAppearance(named: dark ? .darkAqua : .aqua))
+            for stop in [false, true] {
+                for pressed in [false, true] {
+                    let base = stop ? LitheTheme.MainToolbar.stopBackground : LitheTheme.MainToolbar.runningBackground
+                    let content = Button {} label: { Color.clear.frame(width: 16, height: 16) }
+                        .buttonStyle(LitheMainToolbarButtonStyle(
+                            insets: LitheTheme.MainToolbar.runInsets,
+                            isActive: pressed,
+                            executionBackground: base
+                        ))
+                        .background(Color.black)
+                        .environment(\.colorScheme, dark ? .dark : .light)
+                    let host = NSHostingView(rootView: content)
+                    host.appearance = appearance
+                    #expect(host.fittingSize == NSSize(width: 34, height: 40))
+                    host.frame = NSRect(origin: .zero, size: host.fittingSize)
+                    host.layoutSubtreeIfNeeded()
+                    let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    appearance.performAsCurrentDrawingAppearance { host.cacheDisplay(in: host.bounds, to: bitmap) }
+                    let sample = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))
+                    let hex = dark ? (stop ? 0xC54E58 : 0x338555) : (stop ? 0xE4656E : 0x4E9D6C)
+                    let factor: CGFloat = pressed ? 1 - (dark ? 40.0 : 32.0) / 255 : 1
+                    // AppKit captures in the display profile. Blend in that profile,
+                    // rather than comparing its components directly to sRGB literals.
+                    let reference = try #require(NSColor(
+                        srgbRed: CGFloat((hex >> 16) & 255) / 255,
+                        green: CGFloat((hex >> 8) & 255) / 255,
+                        blue: CGFloat(hex & 255) / 255, alpha: 1
+                    ).usingColorSpace(sample.colorSpace))
+                    for (actual, component) in [(sample.redComponent, reference.redComponent),
+                                                (sample.greenComponent, reference.greenComponent),
+                                                (sample.blueComponent, reference.blueComponent)] {
+                        let expected = component * factor
+                        #expect(abs(actual - expected) < 0.01, "dark=\(dark), stop=\(stop), pressed=\(pressed), actual=\(actual), expected=\(expected), space=\(bitmap.colorSpaceName)")
+                    }
+                    let margin = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 20))
+                    #expect(margin.redComponent < 0.01)
+                }
+            }
+        }
+    }
+
 }

@@ -1515,3 +1515,58 @@
 "Version control integration" = "Version control integration";
 "Share project on" = "Share project on";
 "or" = "or";
+
+"To debug your code, do one of the following:" = "To debug your code, do one of the following:";
+
+"— Click the Run icon in the editor gutter" = "— Click the Run icon in the editor gutter";
+
+"— Select \"Debug...\" in the editor context menu" = "— Select \"Debug...\" in the editor context menu";
+
+"— Launch a" = "— Launch a";
+
+"run configuration" = "run configuration";
+
+"Debugging code" = "Debugging code";
+
+"Increase Font Size" = "Increase Font Size";
+
+"Decrease Font Size" = "Decrease Font Size";
+
+"Reset Font Size" = "Reset Font Size";
+
+/* Debug expression history */
+"Expression history" = "Expression history";
+"Previous console expression" = "Previous console expression";
+"Next console expression" = "Next console expression";
+
+"Frames are not available" = "Frames are not available";
+
+"Pause the process to inspect variables" = "Pause the process to inspect variables";
+
+"Performance" = "Performance";
+
+"CPU" = "CPU";
+
+"Heap Memory" = "Heap Memory";
+
+"Hide Performance" = "Hide Performance";
+
+"Waiting for JVM performance data…" = "Waiting for JVM performance data…";
+
+"Start a local Java debug session to view performance." = "Start a local Java debug session to view performance.";
+
+"Performance is available for local Java processes launched by Lithe." = "Performance is available for local Java processes launched by Lithe.";
+
+"A running local JVM and its JDK jstat tool are required." = "A running local JVM and its JDK jstat tool are required.";
+
+"JVM performance monitoring ended." = "JVM performance monitoring ended.";
+
+"No JVM performance samples received for 10 seconds." = "No JVM performance samples received for 10 seconds.";
+
+"The monitored JVM has exited or changed." = "The monitored JVM has exited or changed.";
+
+"Invalid JVM performance output." = "Invalid JVM performance output.";
+
+"The JVM does not expose supported heap counters through jstat." = "The JVM does not expose supported heap counters through jstat.";
+
+"Invalid JVM heap counters." = "Invalid JVM heap counters.";

@@ -679,6 +679,20 @@ enum LitheTheme {
     // 语义化别名，便于 AppKit 装饰代码与设计稿 token 同名。
     static var linkColor: Color { link }
 
+    /// Shared by Git Log branch actions and Console actions.
+    enum ActionStripe {
+        static let width: CGFloat = 36
+        static let iconSize: CGFloat = 16
+        static let buttonSize: CGFloat = 22
+        static let spacing: CGFloat = 4
+        static let topInset: CGFloat = 5
+        static let cornerRadius: CGFloat = 4
+        static func collapsedHover(for scheme: ColorScheme) -> Color {
+            scheme == .dark ? .white.opacity(23.0 / 255)
+                : Color(red: 235.0 / 255, green: 236.0 / 255, blue: 240.0 / 255)
+        }
+    }
+
     /// IDEA Community c7f91397: RunWidget / MainToolbar with Islands theme overrides.
     enum MainToolbar {
         static let iconSize: CGFloat = 16
@@ -690,6 +704,12 @@ enum LitheTheme {
         static let icon = color(dark: 0xC3C5CB, light: 0x73767C)
         // Light inherits RunWidget.runIconColor = Green5 from ExperimentalLightWithLightHeader.
         static let runIcon = color(dark: 0x4E9D6C, light: 0x369650)
+        // RedesignedRunWidget.RunWidgetButtonLook + Islands RunWidget theme overrides.
+        static let runningBackground = color(dark: 0x338555, light: 0x4E9D6C)
+        static let stopBackground = color(dark: 0xC54E58, light: 0xE4656E)
+        static let runningIcon = Color.white
+        static let executionHover = color(dark: 0x000000, light: 0x000000, darkAlpha: 25.0 / 255, lightAlpha: 18.0 / 255)
+        static let executionPressed = color(dark: 0x000000, light: 0x000000, darkAlpha: 40.0 / 255, lightAlpha: 32.0 / 255)
         static let hover = color(dark: 0xFFFFFF, light: 0x000000, darkAlpha: 23.0 / 255, lightAlpha: 18.0 / 255)
         static let pressed = color(dark: 0xFFFFFF, light: 0x000000, darkAlpha: 41.0 / 255, lightAlpha: 32.0 / 255)
 
@@ -794,19 +814,35 @@ enum LitheTheme {
                       weight: style == .headline ? .bold : .regular, design: design)
     }
 
+    /// Islands Debugger.Variables, Community c7f91397 (light/dark).
+    enum Debugger {
+        static let inspectorHeaderHeight: CGFloat = 28
+        static var value: Color {
+            activeTheme == .lithe ? controlColor(light: 0x7D3C3C, dark: 0xF0AC81) : primaryText
+        }
+        static var type: Color {
+            activeTheme == .lithe ? controlColor(light: 0x818594, dark: 0x6F737A) : secondaryText
+        }
+    }
+
+    /// StatusText shared by Community tool-window empty states (c7f91397).
+    enum ToolWindowEmptyState {
+        static let fontSize: CGFloat = 13
+        // StatusText / SimpleColoredComponent: 17pt Inter metrics + 2pt ipad + 2pt border.
+        static let rowHeight: CGFloat = 21
+        static let lineSpacing: CGFloat = 2
+        // Component.infoForeground inherits Darcula / IntelliJ; Islands overrides Link.activeForeground.
+        static var text: Color {
+            activeTheme == .lithe ? controlColor(light: 0x999999, dark: 0x787878) : secondaryText
+        }
+        static var link: Color {
+            activeTheme == .lithe ? controlColor(light: 0x2F5EB9, dark: 0x71A1FE) : LitheTheme.link
+        }
+    }
+
     /// VcsLogGraphTable + FilterComponent, IDEA Community c7f91397.
     enum GitLog {
         static let fontSize: CGFloat = 13
-        // StatusText / SimpleColoredComponent: 17pt Inter metrics + 2pt ipad + 2pt border.
-        static let emptyStateRowHeight: CGFloat = 21
-        static let emptyStateLineSpacing: CGFloat = 2
-        // Component.infoForeground inherits Darcula / IntelliJ; Islands overrides Link.activeForeground.
-        static var emptyStateText: Color {
-            activeTheme == .lithe ? controlColor(light: 0x999999, dark: 0x787878) : secondaryText
-        }
-        static var emptyStateLink: Color {
-            activeTheme == .lithe ? controlColor(light: 0x2F5EB9, dark: 0x71A1FE) : link
-        }
         static let toolbarIconSize: CGFloat = 16
         static let toolbarButtonSize: CGFloat = 22
         static var referenceText: Color {
@@ -1036,6 +1072,7 @@ private struct LitheSelectionRowStyle: ViewModifier {
 struct LitheIconButtonStyle: ButtonStyle {
     var size: CGFloat = 28
     var isIconOnly = true
+    var disabledOpacity: Double = 0.45
     var cornerRadius: CGFloat = LitheTheme.Metrics.cornerRadius
     var isSelected = false
     var hoverBackground: Color = LitheTheme.hoverBackground
@@ -1046,7 +1083,7 @@ struct LitheIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(LitheTheme.toolWindowText)
-            .opacity(isEnabled ? 1 : 0.45)
+            .opacity(isEnabled ? 1 : disabledOpacity)
             .frame(width: isIconOnly ? size : nil, height: size)
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius)
@@ -1065,6 +1102,7 @@ struct LitheIconButtonStyle: ButtonStyle {
 struct LitheMainToolbarButtonStyle: ButtonStyle {
     var insets = LitheTheme.MainToolbar.actionInsets
     var isActive = false
+    var executionBackground: Color? = nil
     @State private var isHovering = false
     @Environment(\.isEnabled) private var isEnabled
 
@@ -1074,10 +1112,17 @@ struct LitheMainToolbarButtonStyle: ButtonStyle {
             .frame(minWidth: LitheTheme.MainToolbar.buttonSize)
             .frame(height: LitheTheme.MainToolbar.buttonSize)
             .background {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isEnabled && (configuration.isPressed || isActive)
-                          ? LitheTheme.MainToolbar.pressed
-                          : (isEnabled && isHovering ? LitheTheme.MainToolbar.hover : .clear))
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isEnabled ? executionBackground ?? .clear : .clear)
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isEnabled && executionBackground != nil
+                              ? ((configuration.isPressed || isActive) ? LitheTheme.MainToolbar.executionPressed
+                                 : (isHovering ? LitheTheme.MainToolbar.executionHover : .clear))
+                              : isEnabled && (configuration.isPressed || isActive)
+                              ? LitheTheme.MainToolbar.pressed
+                              : (isEnabled && isHovering ? LitheTheme.MainToolbar.hover : .clear))
+                }
             }
             .padding(insets)
             .contentShape(Rectangle())
@@ -1450,5 +1495,19 @@ extension View {
         } else {
             self
         }
+    }
+}
+
+/// Git and Debug empty-state links share the same hover semantics.
+struct LitheToolWindowEmptyLinkStyle: ButtonStyle {
+    @State private var isHovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(LitheTheme.uiFont(size: LitheTheme.ToolWindowEmptyState.fontSize, weight: .regular))
+            .foregroundStyle(LitheTheme.ToolWindowEmptyState.link)
+            .underline(isHovering, color: LitheTheme.accent)
+            .onHover { isHovering = $0 }
+            .lithePointer()
     }
 }
