@@ -8,6 +8,50 @@ import Testing
 @Suite("Editor tab order")
 @MainActor
 struct EditorTabOrderFeatureModelTests {
+    @Test func agentEditorPageSelectionAndCloseRestoreTheExistingFile() async throws {
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        model.documentFeature.openVirtualDocument(URL(string: "lithe-test://agent/source.swift")!, text: "unsaved", displayPath: nil)
+        do {
+            let file = try #require(model.editorTabItems.first)
+            let document = try #require(model.activeDocument)
+            model.showAgentChatsInEditor()
+            model.showAgentChatsInEditor()
+            #expect(model.editorTabItems == [file, .agentConversation])
+            #expect(model.isAgentEditorSelected)
+            model.selectEditorTab(file)
+            #expect(!model.isAgentEditorSelected && model.agentChatsInEditor)
+            model.selectEditorTab(.agentConversation)
+            #expect(model.isAgentEditorSelected)
+            #expect(model.requestCloseActiveWorkbenchItem())
+            #expect(!model.agentChatsInEditor)
+            #expect(model.editorTabItems == [file])
+            #expect(model.activeDocument === document)
+            #expect(document.text == "unsaved")
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
+    @Test func agentPageUsesSharedSelectionReconciliationAndGroupMoves() throws {
+        let feature = EditorTabOrderFeatureModel()
+        let file = EditorTabItem.document(UUID())
+        feature.moveToEnd(file)
+        feature.moveToEnd(.agentConversation)
+        feature.focus(.agentConversation)
+        #expect(feature.focusedItem == .agentConversation)
+        feature.reconcileDocuments(orderedIDs: feature.documentIDs)
+        #expect(feature.items == [file, .agentConversation])
+        let group = try #require(feature.groupLayout.groups.first)
+        #expect(feature.drop(.agentConversation, into: group, side: .right))
+        feature.focus(.agentConversation)
+        #expect(feature.focusedItem == .agentConversation)
+        feature.remove(.agentConversation)
+        #expect(feature.items == [file])
+        #expect(feature.groupLayout.groups.count == 1)
+    }
+
     @Test func splitMenuEligibilityMatchesDropForSingleAndMixedGroups() throws {
         let model = EditorTabOrderFeatureModel()
         let a = EditorTabItem.document(UUID()), b = EditorTabItem.document(UUID())

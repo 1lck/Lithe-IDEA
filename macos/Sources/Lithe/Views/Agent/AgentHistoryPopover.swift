@@ -11,6 +11,7 @@ struct AgentHistoryPopover: View {
     let onManage: () -> Void
     let onSearch: () -> Void
     let onDismiss: () -> Void
+    var isToolWindow = false
     @State private var highlightedID: String?
 
     private var sessions: [AgentSessionSummary] {
@@ -53,21 +54,24 @@ struct AgentHistoryPopover: View {
                 .litheScrollViewChrome()
                 .onChange(of: highlightedID) { id in if let id { proxy.scrollTo(id) } }
             }
-            .frame(height: LitheDropdownMetrics.historyViewportHeight)
+            .frame(height: isToolWindow ? nil : LitheDropdownMetrics.historyViewportHeight)
+            .frame(maxHeight: isToolWindow ? .infinity : nil)
             if let error = feature.historyError ?? history.errorMessage {
                 LitheBanner(status: .error) { Text(error).textSelection(.enabled) }
             }
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack {
-                Button("Search conversation", action: onSearch)
-                Spacer(minLength: 0)
-                Button("Conversation history", action: onManage)
+            if !isToolWindow {
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                HStack {
+                    Button("Search conversation", action: onSearch)
+                    Spacer(minLength: 0)
+                    Button("Conversation history", action: onManage)
+                }
+                .buttonStyle(LitheBannerActionStyle())
+                .padding(.horizontal, LitheDropdownMetrics.itemHorizontalPadding)
             }
-            .buttonStyle(LitheBannerActionStyle())
-            .padding(.horizontal, LitheDropdownMetrics.itemHorizontalPadding)
         }
         .padding(LitheDropdownMetrics.popupPadding)
-        .frame(width: LitheDropdownMetrics.maximumWidth)
+        .frame(width: isToolWindow ? nil : LitheDropdownMetrics.maximumWidth)
         .onAppear {
             reconcileSelection()
             feature.refreshSessions()

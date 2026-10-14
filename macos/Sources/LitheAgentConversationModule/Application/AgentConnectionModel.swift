@@ -40,6 +40,9 @@ public final class AgentConnectionModel: ObservableObject {
     @Published public private(set) var fileReviewSessionID: String?
     @Published public private(set) var fileReviewError: String?
     @Published public private(set) var fileReviewErrorSessionID: String?
+    // Drafts belong to the connection so moving its presentation does not discard unsent input.
+    @Published public var draftText = ""
+    @Published public var draftFiles: [AgentFileReference] = []
     private var fileReviewTask: Task<Void, Never>?
 
     /// Called when any conversation starts or stops waiting for a permission
@@ -206,6 +209,8 @@ public final class AgentConnectionModel: ObservableObject {
     public func startNewConversation() {
         guard !isCreatingSession else { return }
         discardUnpersistedEmptySessions()
+        draftText = ""
+        draftFiles = []
         selectedSessionID = nil
         errorMessage = nil
         prepareConversation()

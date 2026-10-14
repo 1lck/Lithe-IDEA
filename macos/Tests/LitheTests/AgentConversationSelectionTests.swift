@@ -9,6 +9,50 @@ import LitheCoreContracts
 @Suite(.serialized)
 struct AgentConversationSelectionTests {
     @Test
+    func movingPresentationKeepsConnectionDraftAndSession() async throws {
+        let transport = SelectionTransport()
+        let panel = AgentConversationFeatureModel(transport: transport)
+        panel.setAgents([.init(id: "codex-acp", name: "Codex")])
+        do {
+            let connection = try prepare(panel, transport: transport, agentID: "codex-acp", model: "Model")
+            let native = try #require(transport.connections.last)
+            connection.draftText = "Unsent prompt"
+            connection.draftFiles = [try AgentFileReference(url: URL(fileURLWithPath: "/example/project/notes.txt"))]
+            let commandCount = native.commands.count
+            var toggles = 0
+            let host = NSHostingView(rootView: AgentConfiguredConversationView(feature: panel, setupError: nil,
+                onSelectAgent: panel.selectAgent, onConnect: {}, onOpenSettings: {}, onHide: {},
+                onCopySessionID: { _ in }, onOpenFile: { _ in },
+                onToggleLocation: { toggles += 1 }))
+            let window = hiddenWindow(host)
+            defer { window.contentView = nil; window.close() }
+            host.layoutSubtreeIfNeeded()
+            // The location control sits immediately before More and Hide, all shared 22pt slots.
+            try clickNativeView(host, at: NSPoint(x: host.bounds.width - 7 - 22 * 2 - 4 * 2 - 11,
+                                                y: LitheTheme.Metrics.toolWindowHeaderHeight / 2))
+            #expect(await awaitChange(on: connection) { toggles == 1 })
+            host.rootView = AgentConfiguredConversationView(feature: panel, setupError: nil,
+                onSelectAgent: panel.selectAgent, onConnect: {}, onOpenSettings: {}, onHide: {},
+                onCopySessionID: { _ in }, onOpenFile: { _ in }, historyOnly: true, chatsInEditor: true,
+                onToggleLocation: { toggles += 1 })
+            host.layoutSubtreeIfNeeded()
+            #expect(connection.draftText == "Unsent prompt")
+            #expect(connection.draftFiles.count == 1)
+            #expect(connection.selectedSessionID == "codex-acp")
+            #expect(native.commands.count == commandCount, "Moving does not create or reconnect a session")
+            host.rootView = AgentConfiguredConversationView(feature: panel, setupError: nil,
+                onSelectAgent: panel.selectAgent, onConnect: {}, onOpenSettings: {}, onHide: {},
+                onCopySessionID: { _ in }, onOpenFile: { _ in }, showsChatActions: false, chatsInEditor: true)
+            host.layoutSubtreeIfNeeded()
+            #expect(connection.draftText == "Unsent prompt" && connection.draftFiles.count == 1)
+            connection.startNewConversation()
+            #expect(connection.draftText.isEmpty && connection.draftFiles.isEmpty)
+        } catch { await panel.stop(); throw error }
+        await panel.stop()
+        #expect(transport.connections.allSatisfy { $0.closeCount == 1 })
+    }
+
+    @Test
     func conversationHeaderTracksPromptAndHistoryRenameWithoutReplacingTheRoot() async throws {
         let transport = SelectionTransport()
         let panel = AgentConversationFeatureModel(transport: transport)

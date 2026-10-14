@@ -28,27 +28,43 @@ struct AgentComposerView: View {
     var onSetConfig: (String, String) -> Void = { _, _ in }
     var commands: [AgentCommand] = []
     var showsToolbar = true
+    var draftText: Binding<String>? = nil
+    var draftFiles: Binding<[AgentFileReference]>? = nil
     @State private var completion = AgentCommandCompletion()
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
     @State private var showsFilePicker = false
     @FocusState private var isFocused: Bool
 
-    private var hasContent: Bool { !completion.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty }
+    private var attachments: [AgentFileReference] {
+        get { draftFiles?.wrappedValue ?? files }
+        nonmutating set {
+            if let draftFiles { draftFiles.wrappedValue = newValue }
+            else { files = newValue }
+        }
+    }
+    private var textBinding: Binding<String> {
+        Binding(get: { draftText?.wrappedValue ?? completion.draft }, set: {
+            completion.draft = $0
+            draftText?.wrappedValue = $0
+        })
+    }
+    private var currentDraft: String { draftText?.wrappedValue ?? completion.draft }
+    private var hasContent: Bool { !currentDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
     private var displayAgentName: String? { selectedAgent?.name ?? fallbackAgentName }
     private var commandSuggestions: [AgentCommand]? {
         completion.suggestions(in: commands)
     }
 
     var body: some View {
-        AgentComposerContent(files: files, commands: commandSuggestions,
+        AgentComposerContent(files: attachments, commands: commandSuggestions,
                              highlightedIndex: completion.highlightedIndex,
-                             onSelect: complete, onRemoveFile: { id in files.removeAll { $0.id == id } },
+                             onSelect: complete, onRemoveFile: { id in attachments.removeAll { $0.id == id } },
                              onFocus: { isFocused = true }, isFocused: isFocused || isDropTargeted) {
             if showsToolbar { contextBar }
             else { Color.clear.frame(height: AgentComposerMetrics.contextHeight - 1).accessibilityHidden(true) }
         } editor: {
-            LitheSearchTextField("Type your task or / for commands", text: $completion.draft, axis: .vertical)
+            LitheSearchTextField("Type your task or / for commands", text: textBinding, axis: .vertical)
                 .lineLimit(1...)
                 .focused($isFocused)
                 .onSubmit { _ = handleCommandKey(.submit) }
@@ -69,7 +85,11 @@ struct AgentComposerView: View {
             }
         }
         .onChange(of: sessionID) { newSessionID in
-            if newSessionID != nil { files.removeAll() }
+            if newSessionID != nil { attachments.removeAll() }
+        }
+        .onAppear { if let draftText { completion.draft = draftText.wrappedValue } }
+        .onChange(of: draftText?.wrappedValue) { value in
+            if let value, value != completion.draft { completion.draft = value }
         }
         .padding(.horizontal, AgentComposerMetrics.horizontalInset)
         .padding(.bottom, AgentComposerMetrics.bottomInset)
@@ -199,7 +219,7 @@ struct AgentComposerView: View {
     private func addFiles(_ urls: [URL]) -> Bool {
         guard !urls.isEmpty else { return false }
         do {
-            files = try AgentFileReference.adding(urls, to: files)
+            attachments = try AgentFileReference.adding(urls, to: attachments)
             onError(nil)
             isFocused = true
             return true
@@ -211,10 +231,13 @@ struct AgentComposerView: View {
 
     private func complete(_ command: AgentCommand) {
         completion.complete(command)
+        draftText?.wrappedValue = completion.draft
         isFocused = true
     }
 
     private func handleCommandKey(_ key: AgentCommandCompletion.Key) -> AgentCommandCompletion.Result {
+        if let draftText { completion.draft = draftText.wrappedValue }
+        defer { draftText?.wrappedValue = completion.draft }
         let result = completion.handle(key, commands: commands, isResponding: isResponding)
         switch result {
         case .send: send()
@@ -232,9 +255,10 @@ struct AgentComposerView: View {
             return
         }
         do {
-            try onSend(completion.draft, files)
+            try onSend(currentDraft, attachments)
             completion.draft = ""
-            files.removeAll()
+            draftText?.wrappedValue = ""
+            attachments.removeAll()
             onError(nil)
         } catch {
             onError(error.localizedDescription)

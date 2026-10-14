@@ -1521,3 +1521,7 @@
 "Delete Chat" = "Delete Chat";
 "Show Toolbar" = "Show Toolbar";
 "Chat options" = "Chat options";
+
+"AI Chat" = "AI Chat";
+"Show Chats in the AI Tool Window" = "Show Chats in the AI Tool Window";
+"Show Chats in the Editor" = "Show Chats in the Editor";

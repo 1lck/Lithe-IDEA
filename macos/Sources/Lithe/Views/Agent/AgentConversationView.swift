@@ -4,6 +4,7 @@ import LitheAgentConversationModule
 /// Right-docked Agent panel. Setup lives in the main Settings window.
 struct AgentConversationView: View {
     @ObservedObject var model: AppModel
+    let isEditor: Bool
     @State private var showsWelcome: Bool
 
     private var feature: AgentConversationFeatureModel? { model.agentConversationFeatureIfActive }
@@ -15,8 +16,9 @@ struct AgentConversationView: View {
                    name: model.settings.agentConfigurations[AgentConfiguration.customAgentID]?.name ?? String(localized: "Custom Agent"))]
     }
 
-    init(model: AppModel) {
+    init(model: AppModel, isEditor: Bool = false) {
         self.model = model
+        self.isEditor = isEditor
         _showsWelcome = State(initialValue: model.selectedAgentConversationID == nil && AgentWelcomeVisit.shouldShow())
     }
 
@@ -47,7 +49,15 @@ struct AgentConversationView: View {
                     onCopySessionID: { model.copyAgentSessionID($0) },
                     onOpenFile: { model.openAgentFile($0) },
                     onRestoreFile: { try await model.restoreAgentFile($0) },
-                    availableAgents: selectableAgents
+                    availableAgents: selectableAgents,
+                    historyOnly: !isEditor && model.agentChatsInEditor,
+                    showsChatActions: !isEditor,
+                    chatsInEditor: model.agentChatsInEditor,
+                    onToggleLocation: {
+                        if model.agentChatsInEditor { model.showAgentChatsInToolWindow() }
+                        else { model.showAgentChatsInEditor() }
+                    },
+                    onFocusEditor: { model.showAgentChatsInEditor() }
                 )
             } else {
                 AgentUnconfiguredConversationView(
@@ -127,6 +137,10 @@ struct AgentChatHeader: View {
     let onHide: () -> Void
     var conversationTitle: String? = nil
     var historyPopup: ((@escaping () -> Void) -> AnyView)? = nil
+    var onToggleLocation: (() -> Void)? = nil
+    var chatsInEditor = false
+    var showsAgentHeading = true
+    var showsActions = true
     var onRename: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     var showsToolbar = true
@@ -135,95 +149,108 @@ struct AgentChatHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 4) {
-                Button {
-                    showsHistoryPopup.toggle()
-                } label: {
-                    HStack(spacing: LitheTheme.MainToolbar.comboIconTextGap) {
-                        AgentBrandIcon(name: agentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
-                        HStack(spacing: LitheTheme.MainToolbar.comboExpandGap) {
-                            Text(conversationTitle ?? String(localized: "Chat History"))
-                                .lineLimit(1).truncationMode(.tail)
-                            LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                          fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
-                        }
-                    }
-                    .font(LitheTheme.uiFont(size: 13, weight: .regular))
-                    .padding(.leading, LitheTheme.MainToolbar.comboInsets.leading)
-                    .padding(.trailing, LitheTheme.MainToolbar.comboInsets.trailing)
-                }
-                .buttonStyle(LitheIconButtonStyle(size: LitheTheme.MainToolbar.comboHeight, isIconOnly: false))
-                .litheDropdown(isPresented: $showsHistoryPopup) {
-                    if let historyPopup {
-                        historyPopup { showsHistoryPopup = false }
-                    } else {
-                        VStack(alignment: .leading, spacing: LitheDropdownMetrics.popupPadding) {
-                            Text("Conversation history is unavailable")
-                                .font(LitheTheme.settingsFont)
-                                .foregroundStyle(LitheTheme.secondaryText)
-                                .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.historyViewportHeight,
-                                       alignment: .topLeading)
-                            if let onHistory {
-                                Button("Conversation history") {
-                                    showsHistoryPopup = false
-                                    onHistory()
-                                }.buttonStyle(LitheDropdownRowStyle())
+            if showsActions {
+                HStack(spacing: 4) {
+                    Button {
+                        showsHistoryPopup.toggle()
+                    } label: {
+                        HStack(spacing: LitheTheme.MainToolbar.comboIconTextGap) {
+                            AgentBrandIcon(name: agentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
+                            HStack(spacing: LitheTheme.MainToolbar.comboExpandGap) {
+                                Text(conversationTitle ?? String(localized: "Chat History"))
+                                    .lineLimit(1).truncationMode(.tail)
+                                LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                              fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
                             }
                         }
-                        .padding(LitheDropdownMetrics.popupPadding)
-                        .frame(width: LitheDropdownMetrics.maximumWidth)
+                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                        .padding(.leading, LitheTheme.MainToolbar.comboInsets.leading)
+                        .padding(.trailing, LitheTheme.MainToolbar.comboInsets.trailing)
                     }
-                }
-                .disabled(onHistory == nil)
-                .help("Conversation history")
-                .accessibilityIdentifier("agent-history-open")
-                Spacer(minLength: 4)
-                Button { onNew?() } label: {
-                    HStack(spacing: 2) {
-                        LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                      fallbackSystemImage: "plus", preservesOriginalColors: true)
-                        Text("New Chat").lineLimit(1)
+                    .buttonStyle(LitheIconButtonStyle(size: LitheTheme.MainToolbar.comboHeight, isIconOnly: false))
+                    .litheDropdown(isPresented: $showsHistoryPopup) {
+                        if let historyPopup {
+                            historyPopup { showsHistoryPopup = false }
+                        } else {
+                            VStack(alignment: .leading, spacing: LitheDropdownMetrics.popupPadding) {
+                                Text("Conversation history is unavailable")
+                                    .font(LitheTheme.settingsFont)
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.historyViewportHeight,
+                                           alignment: .topLeading)
+                                if let onHistory {
+                                    Button("Conversation history") {
+                                        showsHistoryPopup = false
+                                        onHistory()
+                                    }.buttonStyle(LitheDropdownRowStyle())
+                                }
+                            }
+                            .padding(LitheDropdownMetrics.popupPadding)
+                            .frame(width: LitheDropdownMetrics.maximumWidth)
+                        }
                     }
-                    .font(LitheTheme.uiFont(size: 13))
-                    .padding(.horizontal, 4)
+                    .disabled(onHistory == nil)
+                    .help("Conversation history")
+                    .accessibilityIdentifier("agent-history-open")
+                    Spacer(minLength: 4)
+                    Button { onNew?() } label: {
+                        HStack(spacing: 2) {
+                            LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                          fallbackSystemImage: "plus", preservesOriginalColors: true)
+                            Text("New Chat").lineLimit(1)
+                        }
+                        .font(LitheTheme.uiFont(size: 13))
+                        .padding(.horizontal, 4)
+                    }
+                    .litheToolbarIconButton(isIconOnly: false)
+                    .disabled(onNew == nil)
+                    .help("New conversation")
+                    .accessibilityIdentifier("agent-new-chat")
+                    if let onToggleLocation {
+                        Button(action: onToggleLocation) {
+                            LitheIDEAIcon(resourcePath: "expui/general/previewVertically.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                          fallbackSystemImage: "rectangle.rightthird.inset.filled", preservesOriginalColors: true)
+                        }
+                        .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, isSelected: chatsInEditor))
+                        .help(chatsInEditor ? "Show Chats in the AI Tool Window" : "Show Chats in the Editor")
+                        .accessibilityIdentifier("agent-chat-location")
+                    }
+                    LitheMenu {
+                        LitheContextMenuItem.action("Rename Chat", isEnabled: onRename != nil) { onRename?() }
+                        LitheContextMenuItem.action("Delete Chat",
+                            icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/delete.svg", size: LitheDropdownMetrics.iconSize,
+                                                       fallbackSystemImage: "trash", preservesOriginalColors: true)),
+                            role: .destructive, isEnabled: onDelete != nil) { onDelete?() }
+                        LitheContextMenuItem.separator
+                        LitheContextMenuItem.action("Settings…", action: onOpenSettings)
+                        LitheContextMenuItem.separator
+                        LitheContextMenuItem.action("Show Toolbar", checked: showsToolbar, leadingCheckmark: true,
+                                                    isEnabled: onToggleToolbar != nil) { onToggleToolbar?() }
+                    } label: {
+                        LitheIDEAIcon(resourcePath: "expui/general/moreVertical.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                      fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
+                    }
+                    .litheToolbarIconButton()
+                    .help("Chat options")
+                    .accessibilityIdentifier("agent-header-options")
+                    LitheSidebarHideButton(title: "Agent", action: onHide)
                 }
-                .litheToolbarIconButton(isIconOnly: false)
-                .disabled(onNew == nil)
-                .help("New conversation")
-                .accessibilityIdentifier("agent-new-chat")
-                LitheMenu {
-                    LitheContextMenuItem.action("Rename Chat", isEnabled: onRename != nil) { onRename?() }
-                    LitheContextMenuItem.action("Delete Chat",
-                        icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/delete.svg", size: LitheDropdownMetrics.iconSize,
-                                                   fallbackSystemImage: "trash", preservesOriginalColors: true)),
-                        role: .destructive, isEnabled: onDelete != nil) { onDelete?() }
-                    LitheContextMenuItem.separator
-                    LitheContextMenuItem.action("Settings…", action: onOpenSettings)
-                    LitheContextMenuItem.separator
-                    LitheContextMenuItem.action("Show Toolbar", checked: showsToolbar, leadingCheckmark: true,
-                                                isEnabled: onToggleToolbar != nil) { onToggleToolbar?() }
-                } label: {
-                    LitheIDEAIcon(resourcePath: "expui/general/moreVertical.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                  fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
+                .padding(.leading, 12)
+                .padding(.trailing, 7)
+                .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
+            }
+            if showsAgentHeading {
+                HStack(spacing: 8) {
+                    AgentBrandIcon(name: agentName, size: 16, style: .brand)
+                    Text(agentName ?? String(localized: "Agent"))
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
+                        .lineLimit(1)
                 }
-                .litheToolbarIconButton()
-                .help("Chat options")
-                .accessibilityIdentifier("agent-header-options")
-                LitheSidebarHideButton(title: "Agent", action: onHide)
+                .foregroundStyle(AgentPanelStyle.text)
+                .padding(.horizontal, 20)
+                .frame(height: 34)
+                .accessibilityIdentifier("agent-selected-name")
             }
-            .padding(.leading, 12)
-            .padding(.trailing, 7)
-            .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
-            HStack(spacing: 8) {
-                AgentBrandIcon(name: agentName, size: 16, style: .brand)
-                Text(agentName ?? String(localized: "Agent"))
-                    .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(AgentPanelStyle.text)
-            .padding(.horizontal, 20)
-            .frame(height: 34)
-            .accessibilityIdentifier("agent-selected-name")
         }
         .litheWorkbenchSurface(AgentPanelStyle.canvas)
     }
@@ -242,6 +269,11 @@ struct AgentConfiguredConversationView: View {
     let onOpenFile: (AgentToolDetails.Location) -> Void
     var onRestoreFile: (AgentFileChange) async throws -> Void = { _ in throw AgentEditRestoreError.unavailable }
     var availableAgents: [AgentOption]? = nil
+    var historyOnly = false
+    var showsChatActions = true
+    var chatsInEditor = false
+    var onToggleLocation: (() -> Void)? = nil
+    var onFocusEditor: (() -> Void)? = nil
 
     var body: some View {
         if let connection = feature.selectedConnection, let agentID = feature.selectedAgentID {
@@ -256,7 +288,9 @@ struct AgentConfiguredConversationView: View {
                 onHide: onHide,
                 onCopySessionID: onCopySessionID,
                 onOpenFile: onOpenFile,
-                onRestoreFile: onRestoreFile
+                onRestoreFile: onRestoreFile,
+                historyOnly: historyOnly, showsChatActions: showsChatActions, chatsInEditor: chatsInEditor,
+                onToggleLocation: onToggleLocation, onFocusEditor: onFocusEditor
             )
             .id(agentID)
         } else {
@@ -349,6 +383,11 @@ private struct AgentConnectionView: View {
     let onCopySessionID: (String) -> Void
     let onOpenFile: (AgentToolDetails.Location) -> Void
     let onRestoreFile: (AgentFileChange) async throws -> Void
+    var historyOnly = false
+    var showsChatActions = true
+    var chatsInEditor = false
+    var onToggleLocation: (() -> Void)? = nil
+    var onFocusEditor: (() -> Void)? = nil
     @State private var localError: String?
     @State private var showsSearch = false
     @State private var searchText = ""
@@ -367,7 +406,7 @@ private struct AgentConnectionView: View {
     }
 
     private var shouldPollQuota: Bool {
-        feature.usesSubscription && feature.connectionState == .ready && scenePhase == .active && !showsHistory
+        feature.usesSubscription && feature.connectionState == .ready && scenePhase == .active && !showsHistory && !historyOnly
     }
 
     private var selectedAgent: AgentOption? { agents.first { $0.id == selectedAgentID } }
@@ -443,7 +482,7 @@ private struct AgentConnectionView: View {
                 onNew: feature.isCreatingSession ? nil : startNewConversation,
                 onOpenSettings: onOpenSettings,
                 onHide: onHide,
-                conversationTitle: conversationTitle,
+                conversationTitle: historyOnly ? String(localized: "AI Chat") : conversationTitle,
                 historyPopup: { dismiss in
                     AnyView(AgentHistoryPopover(feature: feature, history: history,
                         agentName: selectedAgent?.name ?? feature.agentName,
@@ -451,6 +490,8 @@ private struct AgentConnectionView: View {
                         onManage: { dismiss(); showsHistory = true },
                         onSearch: { dismiss(); showsSearch = true }, onDismiss: dismiss))
                 },
+                onToggleLocation: onToggleLocation, chatsInEditor: chatsInEditor,
+                showsAgentHeading: !historyOnly, showsActions: showsChatActions,
                 onRename: feature.selectedSessionID.map { id in {
                     renameTitle = conversationTitle ?? ""
                     renameSessionID = id
@@ -461,57 +502,64 @@ private struct AgentConnectionView: View {
                 showsToolbar: showsToolbar,
                 onToggleToolbar: { showsToolbar.toggle() }
             )
-            if showsSearch {
-                HStack(spacing: 6) {
-                    LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
-                    LitheSearchTextField("Search conversation", text: $searchText)
-                    Button { showsSearch = false; searchText = "" } label: {
-                        LitheIDEAIcon(resourcePath: "expui/general/close.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+            if historyOnly {
+                AgentHistoryPopover(feature: feature, history: history, agentName: selectedAgent?.name ?? feature.agentName,
+                    onSelect: { id in feature.selectSession(id); onFocusEditor?() },
+                    onManage: { showsHistory = true }, onSearch: { showsSearch = true }, onDismiss: {},
+                    isToolWindow: true)
+            } else {
+                if showsSearch {
+                    HStack(spacing: 6) {
+                        LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+                        LitheSearchTextField("Search conversation", text: $searchText)
+                        Button { showsSearch = false; searchText = "" } label: {
+                            LitheIDEAIcon(resourcePath: "expui/general/close.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+                        }
+                            .litheToolbarIconButton()
+                            .help("Close search")
                     }
-                        .litheToolbarIconButton()
-                        .help("Close search")
+                    .padding(.leading, 12)
+                    .padding(.trailing, 6)
+                    .frame(height: 34)
+                    .litheWorkbenchSurface(AgentPanelStyle.context)
                 }
-                .padding(.leading, 12)
-                .padding(.trailing, 6)
-                .frame(height: 34)
-                .litheWorkbenchSurface(AgentPanelStyle.context)
-            }
-            AgentConversationLayout {
-                VStack(spacing: 0) {
-                    transcript
-                    if let error = localError ?? feature.selectedConversation?.configurationError ?? feature.selectedConversation?.errorMessage ?? feature.errorMessage {
-                        AgentInlineNotice(text: error, status: .error)
+                AgentConversationLayout {
+                    VStack(spacing: 0) {
+                        transcript
+                        if let error = localError ?? feature.selectedConversation?.configurationError ?? feature.selectedConversation?.errorMessage ?? feature.errorMessage {
+                            AgentInlineNotice(text: error, status: .error)
+                        }
                     }
+                } composer: {
+                    AgentComposerView(
+                        agents: agents,
+                        selectedAgent: selectedAgent,
+                        isResponding: feature.selectedConversation?.isResponding == true,
+                        isBlocked: feature.isCreatingSession
+                            || feature.selectedConversation?.isLoading == true
+                            || feature.connectionState != .ready,
+                        onSend: { try feature.send($0, files: $1) },
+                        onCancel: { feature.cancel() },
+                        onSelectAgent: onSelectAgent,
+                        onOpenSettings: onOpenSettings,
+                        onError: { localError = $0 },
+                        configOptions: feature.selectedConversation?.displayConfigOptions ?? [],
+                        sessionID: feature.selectedSessionID,
+                        isPreparingSession: isPreparingSession,
+                        isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
+                        isCancelling: feature.selectedConversation?.isCancelling == true,
+                        contextUsage: feature.selectedConversation?.contextUsage,
+                        sessionStatistics: feature.selectedConversation?.sessionStatistics,
+                        showsSubscriptionQuota: feature.usesSubscription,
+                        subscriptionQuota: feature.subscriptionQuota,
+                        subscriptionAccount: feature.subscriptionEmail,
+                        quotaFailure: feature.quotaFailure,
+                        onSetConfig: { feature.setConfigOption($0, value: $1) },
+                        commands: feature.selectedConversation?.availableCommands ?? [],
+                        showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles
+                    )
+                    .id(draftReset)
                 }
-            } composer: {
-                AgentComposerView(
-                    agents: agents,
-                    selectedAgent: selectedAgent,
-                    isResponding: feature.selectedConversation?.isResponding == true,
-                    isBlocked: feature.isCreatingSession
-                        || feature.selectedConversation?.isLoading == true
-                        || feature.connectionState != .ready,
-                    onSend: { try feature.send($0, files: $1) },
-                    onCancel: { feature.cancel() },
-                    onSelectAgent: onSelectAgent,
-                    onOpenSettings: onOpenSettings,
-                    onError: { localError = $0 },
-                    configOptions: feature.selectedConversation?.displayConfigOptions ?? [],
-                    sessionID: feature.selectedSessionID,
-                    isPreparingSession: isPreparingSession,
-                    isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
-                    isCancelling: feature.selectedConversation?.isCancelling == true,
-                    contextUsage: feature.selectedConversation?.contextUsage,
-                    sessionStatistics: feature.selectedConversation?.sessionStatistics,
-                    showsSubscriptionQuota: feature.usesSubscription,
-                    subscriptionQuota: feature.subscriptionQuota,
-                    subscriptionAccount: feature.subscriptionEmail,
-                    quotaFailure: feature.quotaFailure,
-                    onSetConfig: { feature.setConfigOption($0, value: $1) },
-                    commands: feature.selectedConversation?.availableCommands ?? [],
-                    showsToolbar: showsToolbar
-                )
-                .id(draftReset)
             }
         }
     }
@@ -525,7 +573,7 @@ private struct AgentConnectionView: View {
                                                   conversation: feature.conversations[id])
     }
 
-    /// Both New Chat and the tab-strip plus use the existing session action.
+    /// New Chat retains the existing guarded session action.
     private func startNewConversation() {
         guard feature.connectionState == .ready else {
             let reason: String
@@ -537,6 +585,7 @@ private struct AgentConnectionView: View {
         guard !feature.isCreatingSession else { return }
         feature.startNewConversation()
         if feature.isCreatingSession {
+            if historyOnly { onFocusEditor?() }
             draftReset += 1
             localError = nil
             showsSearch = false
@@ -678,5 +727,33 @@ enum AgentSessionTitle {
     static func provisional(_ prompt: String) -> String {
         let line = prompt.split(whereSeparator: \.isNewline).first.map(String.init) ?? prompt
         return line.count > 40 ? String(line.prefix(40)) + "…" : line
+    }
+}
+
+/// Observe title notifications directly; AppModel does not relay connection messages.
+struct AgentEditorTabTitle: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        if let feature = model.agentConversationFeatureIfActive,
+           let connection = feature.selectedConnection, let id = feature.selectedAgentID {
+            AgentEditorConnectionTitle(connection: connection, history: feature.history(for: id))
+        } else { Text("AI Chat").font(LitheTheme.uiFont(size: 13)) }
+    }
+}
+
+private struct AgentEditorConnectionTitle: View {
+    @ObservedObject var connection: AgentConnectionModel
+    @ObservedObject var history: AgentHistoryFeatureModel
+    var body: some View {
+        let id = connection.selectedSessionID
+        let session = connection.sessions.first { $0.id == id }
+        let title = session.map {
+            AgentHistoryPresentation.popupTitle($0, metadata: history.metadata[$0.id], conversation: connection.conversations[$0.id])
+        } ?? String(localized: "New Chat")
+        HStack(spacing: 7) {
+            AgentBrandIcon(name: connection.agentName, size: 16, style: .brand)
+            Text(title).font(LitheTheme.uiFont(size: 13)).lineLimit(1).truncationMode(.tail)
+        }
+        .help(title)
     }
 }

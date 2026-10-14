@@ -4,6 +4,26 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 extension AppModel {
+    var agentChatsInEditor: Bool { editorTabOrderFeature.contains(.agentConversation) }
+    var isAgentEditorSelected: Bool { agentChatsInEditor && editorTabOrderFeature.focusedItem == .agentConversation }
+
+    func showAgentChatsInEditor() {
+        if !agentChatsInEditor { editorTabOrderFeature.moveToEnd(.agentConversation) }
+        selectedChange = nil
+        closeBranchComparison()
+        editorTabOrderFeature.repositoryDiffSelected = false
+        editorTabOrderFeature.databaseSelected = false
+        editorTabOrderFeature.focus(.agentConversation)
+        workbenchFeature.setVisibility(.agent, isVisible: true)
+    }
+
+    func showAgentChatsInToolWindow() {
+        let wasSelected = isAgentEditorSelected
+        editorTabOrderFeature.remove(.agentConversation)
+        if wasSelected, let next = editorTabItems.last { selectEditorTab(next) }
+        workbenchFeature.setVisibility(.agent, isVisible: true)
+    }
+
     func copyAgentSessionID(_ id: String) {
         platformUI.copyToClipboard(id)
     }
