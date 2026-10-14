@@ -1051,6 +1051,14 @@ package final class RunService: ObservableObject {
         startModuleSession(configuration)
     }
 
+    /// Whether any service session still owns a process, a pre-launch step,
+    /// or a language-extension execution.
+    package var hasRunningServices: Bool {
+        !moduleProcesses.isEmpty
+            || !moduleLanguageExecutionSessions.isEmpty
+            || !modulePreLaunchProcesses.isEmpty
+    }
+
     package func stopAllServices() {
         let sessionIDs = Set(moduleProcesses.keys)
             .union(moduleLanguageExecutionSessions.keys)
