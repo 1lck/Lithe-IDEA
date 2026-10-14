@@ -25,6 +25,7 @@ enum GitCommitFileTreeItem: Equatable, Identifiable {
 }
 
 struct GitCommitFileTreeScrollView: NSViewRepresentable {
+    @Environment(\.controlActiveState) private var controlActiveState
     let items: [GitCommitFileTreeItem]
     let selectedFileID: String?
     let rootSubtitle: String?
@@ -80,6 +81,8 @@ struct GitCommitFileTreeScrollView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let documentView = nsView.documentView as? GitCommitFileTreeNSView else { return }
+        let _ = controlActiveState
+        documentView.needsDisplay = true
         documentView.update(
             locale: context.environment.locale,
             items: items,

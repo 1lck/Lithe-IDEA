@@ -17,6 +17,8 @@ struct OutputTextView: View {
     /// Wraps lines to the pane width; off keeps each line on one row with
     /// horizontal scrolling, the historical behavior of every output pane.
     var wrapsLines = false
+    var fontSize: CGFloat = 11.5
+    var decorateOutput: ((NSMutableAttributedString, Bool) -> Void)?
     /// Adds a soft-wrap toggle to the context menu. Callers that do not own a
     /// wrap preference leave it nil and keep the plain text menu.
     var onToggleWrapsLines: (() -> Void)?
@@ -38,15 +40,16 @@ struct OutputTextView: View {
             onToggleWrapsLines: onToggleWrapsLines,
             scrollToLatestRequest: scrollToLatestRequest,
             bottomThreshold: Self.bottomThreshold,
-            render: Self.renderOutput,
+            copyButton: AnyView(copyButton),
+            render: { source, roots, exists, dark, theme in
+                let rendered = NSMutableAttributedString(attributedString: Self.renderOutput(source, searchRoots: roots, fileExists: exists, isDark: dark, theme: theme, fontSize: fontSize))
+                decorateOutput?(rendered, dark)
+                return rendered
+            },
             onOpenLocation: onOpenLocation,
             onBottomStateChange: { isAtBottom = $0 }
         )
             .background(LitheTheme.editor)
-            .overlay(alignment: .topTrailing) {
-                copyButton
-                    .padding(8)
-            }
             .overlay(alignment: .bottomTrailing) {
                 if !isAtBottom {
                     jumpToLatestButton
@@ -62,12 +65,13 @@ struct OutputTextView: View {
         searchRoots: [URL],
         fileExists: @escaping (URL) -> Bool,
         isDark: Bool,
-        theme: AppColorTheme
+        theme: AppColorTheme,
+        fontSize: CGFloat = 11.5
     ) -> NSAttributedString {
         let defaultForeground = LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
         let parsed = ANSIOutputRenderer.parse(source, defaultForeground: defaultForeground)
         guard !parsed.cleanText.isEmpty else { return NSAttributedString() }
-        var result = ANSIOutputRenderer.render(parsed, fontSize: 11.5)
+        var result = ANSIOutputRenderer.render(parsed, fontSize: fontSize)
         applySeverityColors(
             to: &result,
             text: parsed.cleanText,
@@ -320,19 +324,13 @@ struct OutputTextView: View {
             // 复制不含 ANSI 转义码的纯文本
             pasteboard.setString(ANSIOutputRenderer.parse(output).cleanText, forType: .string)
         } label: {
-            Label("Copy", systemImage: "doc.on.doc")
-                .font(LitheTheme.uiFont(size: 11, weight: .medium))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(LitheTheme.raised.opacity(0.9))
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(LitheTheme.panelBorder, lineWidth: 1))
+            HStack(spacing: 4) {
+                LitheIDEAIcon(resourcePath: "expui/general/copy.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+                Text("Copy").font(LitheTheme.uiFont(size: 13))
+            }.padding(.horizontal, 4)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .foregroundStyle(LitheTheme.primaryText)
-        .disabled(output.isEmpty)
-        .opacity(output.isEmpty ? 0.4 : 1)
+        .litheToolbarIconButton(isEnabled: !output.isEmpty, isIconOnly: false)
+        .accessibilityLabel("Copy output")
         .help("Copy output")
     }
 
@@ -352,6 +350,84 @@ struct OutputTextView: View {
         .buttonStyle(.litheNoPress)
         .lithePointer()
         .foregroundStyle(LitheTheme.primaryText)
+    }
+}
+
+// MARK: - Native cursor ownership for the floating Copy button
+
+/// A real native sibling receives pointer events above NSTextView; the button still uses the shared SwiftUI style.
+final class OutputCopyButtonHost: NSHostingView<AnyView> {
+    private var pointerTracking: NSTrackingArea?
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let pointerTracking { removeTrackingArea(pointerTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.inVisibleRect, .activeAlways, .cursorUpdate, .mouseMoved, .mouseEnteredAndExited], owner: self, userInfo: nil)
+        addTrackingArea(area); pointerTracking = area
+    }
+    override func resetCursorRects() { super.resetCursorRects(); addCursorRect(bounds, cursor: .arrow) }
+    override func cursorUpdate(with event: NSEvent) {
+        guard LitheTextViewportLayout.isPointerHitTarget(self, at: event.locationInWindow) else { return }
+        NSCursor.arrow.set()
+    }
+    override func mouseEntered(with event: NSEvent) {
+        guard LitheTextViewportLayout.isPointerHitTarget(self, at: event.locationInWindow) else { return }
+        super.mouseEntered(with: event); NSCursor.arrow.set()
+    }
+    override func mouseMoved(with event: NSEvent) {
+        guard LitheTextViewportLayout.isPointerHitTarget(self, at: event.locationInWindow) else { return }
+        super.mouseMoved(with: event); NSCursor.arrow.set()
+    }
+}
+
+final class OutputNativeScrollView: NSScrollView {
+    var copyButtonHost: OutputCopyButtonHost?
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        if let copyButtonHost, copyButtonHost.frame.contains(local) { return copyButtonHost.hitTest(local) }
+        return super.hitTest(point)
+    }
+    override func layout() {
+        super.layout()
+        if let copyButtonHost {
+            let size = NSSize(width: copyButtonHost.fittingSize.width, height: LitheTheme.Metrics.toolbarIconButtonSize)
+            copyButtonHost.frame = NSRect(x: bounds.maxX - size.width - 8,
+                y: isFlipped ? bounds.minY + 8 : bounds.maxY - size.height - 8, width: size.width, height: size.height)
+        }
+        if let text = documentView { window?.invalidateCursorRects(for: text) }
+    }
+}
+
+final class OutputNativeTextView: NSTextView {
+    weak var copyButtonView: NSView?
+    var copyButtonRect: NSRect? {
+        guard let copyButtonView, let window, copyButtonView.window === window else { return nil }
+        return convert(copyButtonView.bounds, from: copyButtonView)
+    }
+    func textCursorRects(_ rect: NSRect) -> [NSRect] {
+        guard let button = copyButtonRect else { return [rect] }
+        let cut = rect.intersection(button)
+        guard !cut.isEmpty else { return [rect] }
+        return [
+            NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: cut.minY - rect.minY),
+            NSRect(x: rect.minX, y: cut.maxY, width: rect.width, height: rect.maxY - cut.maxY),
+            NSRect(x: rect.minX, y: cut.minY, width: cut.minX - rect.minX, height: cut.height),
+            NSRect(x: cut.maxX, y: cut.minY, width: rect.maxX - cut.maxX, height: cut.height)
+        ].filter { !$0.isEmpty }
+    }
+    override func addCursorRect(_ rect: NSRect, cursor: NSCursor) {
+        for fragment in textCursorRects(rect) { super.addCursorRect(fragment, cursor: cursor) }
+    }
+    override func cursorUpdate(with event: NSEvent) {
+        if LitheTextViewportLayout.isPointerHitTarget(copyButtonView, at: event.locationInWindow) { NSCursor.arrow.set() }
+        else if LitheTextViewportLayout.isPointerHitTarget(self, at: event.locationInWindow) { super.cursorUpdate(with: event) }
+    }
+    override func mouseMoved(with event: NSEvent) {
+        if LitheTextViewportLayout.isPointerHitTarget(copyButtonView, at: event.locationInWindow) { NSCursor.arrow.set() }
+        else if LitheTextViewportLayout.isPointerHitTarget(self, at: event.locationInWindow) { super.mouseMoved(with: event) }
+    }
+    override func mouseEntered(with event: NSEvent) {
+        if LitheTextViewportLayout.isPointerHitTarget(copyButtonView, at: event.locationInWindow) { NSCursor.arrow.set() }
+        else if LitheTextViewportLayout.isPointerHitTarget(self, at: event.locationInWindow) { super.mouseEntered(with: event) }
     }
 }
 
@@ -475,6 +551,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
     let onToggleWrapsLines: (() -> Void)?
     let scrollToLatestRequest: Int
     let bottomThreshold: CGFloat
+    let copyButton: AnyView
     let render: (String, [URL], @escaping (URL) -> Bool, Bool, AppColorTheme) -> NSAttributedString
     let onOpenLocation: (URL, Int, Int?) -> Void
     let onBottomStateChange: @MainActor (Bool) -> Void
@@ -494,7 +571,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
         layoutManager.addTextContainer(textContainer)
         let textStorage = NSTextStorage()
         textStorage.addLayoutManager(layoutManager)
-        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        let textView = OutputNativeTextView(frame: .zero, textContainer: textContainer)
         textView.delegate = context.coordinator
         textView.isEditable = false
         textView.isSelectable = true
@@ -510,11 +587,16 @@ private struct OutputTextStorageView: NSViewRepresentable {
             NSAttributedString.Key.underlineStyle: NSUnderlineStyle.single.rawValue
         ]
 
-        let scrollView = NSScrollView()
+        let scrollView = OutputNativeScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.documentView = textView
+        let copyHost = OutputCopyButtonHost(rootView: AnyView(copyButton.environment(\.colorScheme, colorScheme)
+            .environment(\.locale, context.environment.locale).environment(\.isEnabled, context.environment.isEnabled).fixedSize()))
+        scrollView.addSubview(copyHost)
+        scrollView.copyButtonHost = copyHost
+        textView.copyButtonView = copyHost
         LitheTextViewportLayout.apply(to: textView, in: scrollView, softWrap: wrapsLines)
         context.coordinator.appliedWrapsLines = wrapsLines
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -523,6 +605,10 @@ private struct OutputTextStorageView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        (scrollView as? OutputNativeScrollView)?.copyButtonHost?.rootView = AnyView(copyButton
+            .environment(\.colorScheme, colorScheme).environment(\.locale, context.environment.locale)
+            .environment(\.isEnabled, context.environment.isEnabled).fixedSize())
+        scrollView.needsLayout = true
         context.coordinator.onOpenLocation = onOpenLocation
         context.coordinator.onBottomStateChange = onBottomStateChange
         context.coordinator.bottomThreshold = bottomThreshold

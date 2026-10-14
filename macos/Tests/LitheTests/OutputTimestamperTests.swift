@@ -1,8 +1,116 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import Lithe
+
+@Suite("Output Copy cursor ownership")
+@MainActor
+struct OutputCopyCursorTests {
+    @Test(arguments: [false, true])
+    func databaseTextAndCopyIgnoreLateEventsOverDivider(editable: Bool) throws {
+        let previousCursor = NSCursor.current
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { previousCursor.set(); window.contentView = nil; window.close() }
+        let content = try #require(window.contentView)
+        let output = OutputNativeTextView(frame: NSRect(x: 0, y: 0, width: 160, height: 240))
+        output.isEditable = false; output.isSelectable = true; output.string = "output"
+        let console = SQLTextView(frame: NSRect(x: 180, y: 0, width: 180, height: 240))
+        console.isEditable = editable; console.string = "select 1;"
+        let copy = OutputCopyButtonHost(rootView: AnyView(Button("Copy") {}))
+        copy.frame = NSRect(x: 100, y: 200, width: 50, height: 22)
+        let handle = SplitHandleInteractionView(frame: NSRect(x: 160, y: 0, width: 10, height: 240))
+        for view in [output, console, copy, handle] { content.addSubview(view) }
+        output.copyButtonView = copy
+        let point = NSPoint(x: 165, y: 120)
+        #expect(content.hitTest(point) === handle)
+        func tracking(_ type: NSEvent.EventType, at point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.enterExitEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        }
+        let cursor = try tracking(.cursorUpdate, at: point)
+        let entered = try tracking(.mouseEntered, at: point)
+        let exited = try tracking(.mouseExited, at: point)
+        let moved = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        for view in [output, console, copy] {
+            for event in [cursor, entered, moved, exited] {
+                handle.cursorUpdate(with: cursor)
+                switch event.type {
+                case .cursorUpdate: view.cursorUpdate(with: event)
+                case .mouseEntered: view.mouseEntered(with: event)
+                case .mouseExited: view.mouseExited(with: event)
+                default: view.mouseMoved(with: event)
+                }
+                #expect(NSCursor.current === NSCursor.resizeLeftRight)
+            }
+        }
+        // Normal body tracking still supplies the native text cursor (or the read-only preview arrow).
+        output.cursorUpdate(with: try tracking(.cursorUpdate, at: NSPoint(x: 20, y: 120)))
+        #expect(NSCursor.current === NSCursor.iBeam)
+        console.cursorUpdate(with: try tracking(.cursorUpdate, at: NSPoint(x: 200, y: 120)))
+        #expect(NSCursor.current === (editable ? NSCursor.iBeam : NSCursor.arrow))
+        copy.cursorUpdate(with: try tracking(.cursorUpdate, at: NSPoint(x: 125, y: 211)))
+        #expect(NSCursor.current === NSCursor.arrow)
+        content.subviews.forEach { $0.removeFromSuperview() }
+        NSCursor.resizeLeftRight.set()
+        output.cursorUpdate(with: cursor); console.cursorUpdate(with: cursor); copy.cursorUpdate(with: cursor)
+        #expect(NSCursor.current === NSCursor.resizeLeftRight)
+    }
+
+    @Test(arguments: [false, true])
+    func copyExcludesNativeTextHitsAndCursorRectsAcrossResize(dark: Bool) throws {
+        let host = NSHostingView(rootView: OutputTextView(output: "select * from customers;", searchRoots: [], fileExists: { _ in false },
+            emptyMessage: "", onOpenLocation: { _, _, _ in }).environment(\.colorScheme, dark ? .dark : .light))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        defer { NSCursor.arrow.set(); window.contentView = nil; window.close() }
+        window.contentView = host; host.layoutSubtreeIfNeeded()
+        func scroll(_ view: NSView) -> OutputNativeScrollView? {
+            if let output = view as? OutputNativeScrollView { return output }
+            return view.subviews.lazy.compactMap { scroll($0) }.first
+        }
+        let output = try #require(scroll(host))
+        let text = try #require(output.documentView as? OutputNativeTextView)
+        let button = try #require(output.copyButtonHost)
+        for width in [520.0, 360.0] {
+            window.setContentSize(NSSize(width: width, height: 240)); host.layoutSubtreeIfNeeded()
+            let rect = try #require(text.copyButtonRect)
+            try #require(rect.width > 40 && rect.height == LitheTheme.Metrics.toolbarIconButtonSize)
+            let cursorRects = text.textCursorRects(text.visibleRect)
+            #expect(cursorRects.allSatisfy { !$0.intersects(rect) })
+            #expect(abs(cursorRects.reduce(0) { $0 + $1.width * $1.height } + rect.intersection(text.visibleRect).width * rect.intersection(text.visibleRect).height
+                - text.visibleRect.width * text.visibleRect.height) < 0.01)
+            // Icon, label and padding all belong to Copy; a stale cursor-update event from NSTextView must also restore the arrow.
+            for x in [button.bounds.minX + 2, button.bounds.midX, button.bounds.maxX - 2] {
+                let point = NSPoint(x: x, y: button.bounds.midY)
+                let hit = try #require(output.hitTest(button.convert(point, to: output.superview)))
+                #expect(hit === button || hit.isDescendant(of: button))
+                #expect(hit !== text)
+                let windowHit = try #require(host.hitTest(button.convert(point, to: host.superview)))
+                #expect(windowHit === button || windowHit.isDescendant(of: button))
+                let event = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: button.convert(point, to: nil),
+                    modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+                let cursor = try #require(NSEvent.enterExitEvent(with: .cursorUpdate, location: event.locationInWindow,
+                    modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 0, trackingNumber: 0, userData: nil))
+                NSCursor.iBeam.set(); text.cursorUpdate(with: cursor)
+                #expect(NSCursor.current === NSCursor.arrow)
+                NSCursor.iBeam.set(); button.cursorUpdate(with: cursor)
+                #expect(NSCursor.current === NSCursor.arrow)
+                NSCursor.iBeam.set(); button.mouseMoved(with: event)
+                #expect(NSCursor.current === NSCursor.arrow)
+                NSCursor.iBeam.set(); text.mouseMoved(with: event)
+                #expect(NSCursor.current === NSCursor.arrow)
+            }
+            let bodyPoint = NSPoint(x: 20, y: text.visibleRect.midY)
+            #expect(cursorRects.contains { $0.contains(bodyPoint) })
+            #expect(output.hitTest(text.convert(bodyPoint, to: output.superview)) === text)
+        }
+    }
+}
 
 @Suite("Output timestamping")
 struct OutputTimestamperTests {

@@ -39,7 +39,6 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     let trackBackground: Color
     let dividerColor: Color
     let showsIdleDivider: Bool
-    let highlightsOnHover: Bool
     /// Called with the final size when a drag ends. Hosts that persist the size
     /// write it here; the container then defers to `defaultSize` again so the
     /// persisted value is the single source of truth.
@@ -65,7 +64,6 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         trackBackground: Color = .clear,
         dividerColor: Color = LitheTheme.divider,
         showsIdleDivider: Bool = true,
-        highlightsOnHover: Bool = true,
         onCommit: ((CGFloat) -> Void)? = nil,
         @ViewBuilder sized: () -> Sized,
         @ViewBuilder flexible: () -> Flexible
@@ -81,7 +79,6 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         self.trackBackground = trackBackground
         self.dividerColor = dividerColor
         self.showsIdleDivider = showsIdleDivider
-        self.highlightsOnHover = highlightsOnHover
         self.onCommit = onCommit
         self.sized = sized()
         self.flexible = flexible()
@@ -104,6 +101,9 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             panes(size)
         }
         .environment(\.isLithePaneResizing, ancestorIsDragging || isDragging)
+        .onChange(of: defaultSize) { _ in
+            if !isDragging, onCommit != nil { draggedSize = nil }
+        }
         .onDisappear { isDragging = false }
     }
 
@@ -155,7 +155,6 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             trackBackground: trackBackground,
             dividerColor: dividerColor,
             showsIdleDivider: showsIdleDivider,
-            highlightsOnHover: highlightsOnHover,
             onDragStarted: {
                 dragStart = size
                 isDragging = true
@@ -167,14 +166,10 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             onDragEnded: { translation in
                 isDragging = false
                 let finalSize = resolved(from: translation)
-                if let onCommit {
-                    onCommit(finalSize)
-                    // The host now owns the value and feeds it back as
-                    // `defaultSize`; keeping a dragged size too would shadow it.
-                    draggedSize = nil
-                } else {
-                    draggedSize = finalSize
-                }
+                // Keep the final bounds until the host echoes its new default;
+                // publishing a commit does not synchronously rebuild this view.
+                draggedSize = finalSize
+                onCommit?(finalSize)
             }
         )
         .frame(

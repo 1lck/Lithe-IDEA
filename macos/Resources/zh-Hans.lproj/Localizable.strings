@@ -1354,6 +1354,7 @@
 "Install PHP Support from a signed plugin package." = "请从已签名的插件包安装 PHP Support。";
 "Download PHP Support from the official plugin release." = "从官方插件版本下载 PHP 支持。";
 "Download and Install" = "下载并安装";
+"Unsigned development package. Release builds of Lithe will not load it." = "未签名的开发包，正式版 Lithe 不会加载。";
 "Install PHP Support Plugin" = "安装 PHP Support 插件";
 "Select a PHP Support plugin package." = "请选择 PHP Support 插件包。";
 "Plugin marketplace is not available" = "插件市场暂不可用";
@@ -2730,3 +2731,165 @@
 "Could not load saved changes" = "无法加载已保存的更改";
 
 "Could not inspect saved file" = "无法读取已保存的文件";
+
+"Database Overview" = "数据库概览";
+
+"Non-Introspected" = "未内省";
+
+"Switch current database" = "切换当前数据库";
+
+"%@ Query History" = "%@ 查询历史";
+
+"Result %d" = "结果 %d";
+
+"%d rows retrieved in %d ms" = "取回 %d 行，耗时 %d 毫秒";
+
+"%llu rows affected in %d ms" = "影响 %llu 行，耗时 %d 毫秒";
+
+"No query output" = "暂无查询输出";
+
+"SQL execution markers" = "SQL 执行状态标记";
+
+"Succeeded, line %d" = "成功，第 %d 行";
+
+"Failed, line %d" = "失败，第 %d 行";
+
+"Update required" = "需要更新";
+
+"Adds PHP language-server integration, formatting, running, and test support." = "提供 PHP 语言服务器集成、格式化、运行和测试支持。";
+
+"Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately." = "通过 gopls 提供 Go 语言服务器集成、运行和测试支持。需要另行安装 gopls 和 Go。";
+
+"Download PHP Support from the official signed plugin package." = "从官方签名的插件包下载 PHP 支持。";
+
+"Only source files of the current language can be opened from outside the workspace" = "工作区外只能打开当前语言的源码文件";
+
+/* Tool window docking destinations. */
+"Move to Left Top" = "移到左侧上方";
+"Move to Left Bottom" = "移到左侧下方";
+"Move to Right Top" = "移到右侧上方";
+"Move to Right Bottom" = "移到右侧下方";
+"Move to Bottom Left" = "移到底部左侧";
+"Move to Bottom Right" = "移到底部右侧";
+
+"Could not move the editor tab. Its content could not be synchronized." = "无法移动编辑标签，未能同步其内容。";
+
+/* Plugin marketplace */
+"Search plugins" = "搜索插件";
+"Plugin repository" = "插件仓库";
+"All Repositories" = "全部仓库";
+"Sort plugins" = "插件排序";
+"Sort by Name" = "按名称排序";
+"Sort by Last Updated" = "按最近更新排序";
+"No plugins available" = "暂无可用插件";
+"No matching plugins" = "没有匹配的插件";
+"Not Supported" = "不支持";
+"Select a plugin" = "选择一个插件";
+"Version" = "版本";
+"Release Date" = "发布日期";
+"License" = "许可证";
+"Platforms" = "支持平台";
+"Author" = "作者";
+"Permissions" = "权限";
+"Homepage" = "主页";
+"Official" = "官方";
+"Community" = "社区";
+"Installed from %@. Updates only come from that repository." = "从 %@ 安装，更新只会来自该仓库。";
+"Version %@ is built in or installed from disk." = "版本 %@ 为内置或从磁盘安装。";
+"Version %@ is installed." = "已安装版本 %@。";
+"Install from repository" = "从仓库安装";
+"Source Repository" = "源码仓库";
+"This plugin is maintained and signed by Lithe. Report problems in the source repository." = "该插件由 Lithe 维护并签名，问题请在源码仓库反馈。";
+"This plugin is maintained by a community developer, not by Lithe. Lithe verified that the download matches the plugin repository, and will show what the plugin can run before installing it. Report problems with the plugin in its own repository." = "插件由社区开发者维护，并非 Lithe 官方出品。Lithe 已校验下载内容与插件仓库一致，并会在安装前列出插件能运行的程序。插件问题请到插件自己的仓库反馈。";
+"Lithe Official" = "Lithe 官方";
+"This plugin requires a newer version of Lithe." = "该插件需要更新版本的 Lithe。";
+"Not supported on %@ yet." = "暂不支持 %@ 平台";
+"Start a language server when you open files of its language" = "打开对应语言的文件时启动语言服务器";
+"Run your files" = "运行你的文件";
+"Run your tests" = "运行你的测试";
+"%@ language server (inside the plugin)" = "%@ 语言服务器（插件内置）";
+"%@ language server (installed on this Mac)" = "%@ 语言服务器（本机已安装）";
+"Runtime used by the language server (installed on this Mac)" = "语言服务器使用的运行时（本机已安装）";
+"Runs %@ files" = "运行 %@ 文件";
+"Runs %@ tests" = "运行 %@ 测试";
+"Program" = "程序";
+"Install community plugin “%@”?" = "安装社区插件“%@”？";
+"Update community plugin “%@”?" = "更新社区插件“%@”？";
+"Listed in" = "所在插件仓库";
+"SHA-256" = "SHA-256";
+"Matches the plugin repository" = "与插件仓库一致";
+"Programs it can run" = "可以运行的程序";
+"Programs (changes are highlighted)" = "可以运行的程序（变化已高亮）";
+"New" = "新增";
+"Community plugins are maintained by third parties and can run the programs above on your Mac. Only install plugins you trust." = "社区插件由第三方维护，可以在你的 Mac 上运行上面列出的程序。请只安装你信任的插件。";
+"Plugin Repositories" = "插件仓库";
+"Manage Plugin Repositories…" = "管理插件仓库…";
+"Refresh Plugin Repositories" = "刷新插件仓库";
+"Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root." = "粘贴 https 插件索引地址或 GitHub 仓库地址。GitHub 仓库的根目录需要包含 lithe-plugin-index.json。";
+"https://github.com/owner/repository" = "https://github.com/owner/repository";
+"Refresh All" = "全部刷新";
+"Refreshed %@" = "已于 %@ 刷新";
+"Not refreshed yet" = "尚未刷新";
+"Ignored entries: %lld" = "已忽略条目：%lld";
+"Uninstall %@?" = "卸载 %@？";
+"The plugin will be removed after restarting Lithe." = "插件将在重启 Lithe 后移除。";
+"Update available" = "有可用更新";
+"Installed from %@" = "安装自 %@";
+"Community plugin maintained by a third party. Report plugin problems in its own repository." = "社区插件由第三方维护，插件问题请到它自己的仓库反馈。";
+"Install Plugin from Disk" = "从磁盘安装插件";
+"Check: %@" = "检查：%@";
+"All tests: %@" = "全部测试：%@";
+"One file: %@" = "单个文件：%@";
+"One test: %@" = "单个测试：%@";
+"Latest Version" = "最新版本";
+"%@ (not available for this Lithe or Mac)" = "%@（当前 Lithe 或这台 Mac 无法使用）";
+
+/* Main toolbar settings menu. */
+"Plugins…" = "插件…";
+"Theme…" = "主题…";
+"Keymap…" = "快捷键…";
+/* Agent session status (issue #22) */
+"Model call statistics" = "模型调用统计";
+"Routes API-key Agent requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and keys are forwarded unchanged and never stored. Applies after reconnecting; subscription sign-in is not observed." = "通过本机本地代理转发 API Key 模式的 Agent 请求，用于显示模型调用次数、首 token 延迟、输出速度和上下文构成。请求与密钥原样转发，不会保存。重新连接后生效；订阅登录不统计。";
+"%@ tok" = "%@ tok";
+"%@ tok/s" = "%@ tok/s";
+"%@s" = "%@秒";
+"%lld turns" = "%lld 轮";
+"%lld steps" = "%lld 步";
+"Cache hit %@" = "缓存命中 %@";
+"Session statistics" = "会话统计";
+"Turns" = "轮次";
+"Model calls (steps)" = "模型调用（步）";
+"Tool calls" = "工具调用";
+"Model time" = "模型用时";
+"Tool and permission time" = "工具与授权用时";
+"Average time to first token (TTFT)" = "首 token 平均（TTFT）";
+"Output speed (TPS)" = "输出速度（TPS）";
+"Non-streaming responses" = "非流式响应";
+"%@ (%@ failed)" = "%@（失败 %@）";
+"Turn on Model call statistics in Agent settings and reconnect to see model calls, time to first token and output speed." = "在 Agent 设置中开启“模型调用统计”并重新连接后，可查看模型调用次数、首 token 延迟和输出速度。";
+"Model calls are observed by the local proxy. Tool time is measured by Lithe and includes permission waits." = "模型调用由本机代理观测；工具用时由 Lithe 本地计时，包含等待授权的时间。";
+"Token usage" = "Token 用量";
+"Cache hit" = "缓存命中";
+"Uncached input" = "未缓存输入";
+"Cache read" = "缓存读取";
+"Cache write" = "缓存写入";
+"Reasoning" = "推理";
+"Counts returned by the model provider for every request in this session." = "本会话所有模型请求由服务商返回的计数。";
+"Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals." = "最近一轮由 Agent 上报的计数，统计口径由 Agent 决定；开启“模型调用统计”后显示整个会话的合计。";
+"System prompt" = "系统提示词";
+"Tool definitions" = "工具定义";
+"MCP tools" = "MCP 工具";
+"Messages" = "对话消息";
+"Free space" = "剩余空间";
+"Context used %@" = "上下文已用 %@";
+"Estimated from the size of the latest request and scaled to the provider's input tokens." = "按最近一次主请求各部分的大小估算，并按服务商返回的输入 token 校准。";
+"Estimated from the size of the latest request." = "按最近一次主请求各部分的大小估算。";
+"The Agent has not reported context usage yet." = "Agent 尚未上报上下文用量。";
+"Turn on Model call statistics in Agent settings and reconnect to see the system prompt, tool definitions and messages." = "在 Agent 设置中开启“模型调用统计”并重新连接后，可查看系统提示词、工具定义和对话消息的占比。";
+"%lld model calls" = "%lld 次模型调用";
+"TTFT %@" = "首字 %@";
+"Non-streaming" = "非流式";
+"%lld non-streaming" = "%lld 次非流式";
+"Model calls observed by the local proxy during this turn. TTFT is the average time to the first generated token." = "本轮由本机代理观测到的模型调用；首字为首个生成 token 的平均等待时间。";
+"%lld requests returned no usage, so these totals are a lower bound." = "有 %lld 次请求未返回用量，以上为最低值。";

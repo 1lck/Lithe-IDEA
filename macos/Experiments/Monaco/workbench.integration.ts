@@ -375,6 +375,39 @@ async function verify() {
     assert(snapshot.text === source, "rejected update changed text");
     window.lithe.unlock("A");
   });
+  await check("cross-file native mirror replacement retains target revision and undo", async () => {
+    const original = "class Target {}\r\n";
+    await send({ type: "open", id: "mirror-target", text: original });
+    await window.lithe.activate({ id: "mirror-target", text: original, revision: 0, language: "java", readonly: false });
+    const target = editor.getModel()!;
+    try {
+      target.pushStackElement();
+      target.pushEditOperations([], [{ range: new Range(1, 15, 1, 15), text: " // pending" }], () => null);
+      target.pushStackElement();
+      const drained = await window.lithe.freeze("mirror-target");
+      window.lithe.unlock("mirror-target");
+      const replacement = drained.text.replace("Target", "Renamed");
+      await send({ type: "replaceFixture", id: "mirror-target", previousRevision: drained.revision, text: replacement });
+      await window.lithe.replace({ id: "mirror-target", previousRevision: drained.revision,
+        revision: drained.revision + 1, text: replacement });
+      target.pushStackElement();
+      const edited = await window.lithe.freeze("mirror-target");
+      assert(edited.text === replacement && edited.revision === drained.revision + 1,
+        "cross-file mirror lost drained input or revision");
+      window.lithe.unlock("mirror-target");
+      await target.undo();
+      const undone = await window.lithe.freeze("mirror-target");
+      assert(undone.text === drained.text, "cross-file mirror replacement lost target undo history");
+      window.lithe.unlock("mirror-target");
+      await target.redo();
+      const redone = await window.lithe.freeze("mirror-target");
+      assert(redone.text === replacement, "cross-file mirror replacement lost target redo history");
+      window.lithe.unlock("mirror-target");
+    } finally {
+      await window.lithe.activate({ id: "A", readonly: false });
+      await window.lithe.retain(["A"]);
+    }
+  });
   await check("workbench bulk synchronization freezes every retained model", async () => {
     const snapshots = await window.lithe.freezeAll();
     assert(snapshots.A.text === source, "bulk snapshot mismatch");

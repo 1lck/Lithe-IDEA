@@ -67,6 +67,7 @@ struct LitheContextMenuItem: Identifiable {
     let iconKind: LitheIconKind?
     var icon: AnyView? = nil
     var isChecked = false
+    var initiallySelected = false
     let shortcut: String?
     let role: Role
     var isEnabled: Bool
@@ -80,6 +81,7 @@ struct LitheContextMenuItem: Identifiable {
         iconKind: LitheIconKind? = nil,
         icon: AnyView? = nil,
         checked: Bool = false,
+        initiallySelected: Bool = false,
         shortcut: String? = nil,
         role: Role = .standard,
         isEnabled: Bool = true,
@@ -94,6 +96,7 @@ struct LitheContextMenuItem: Identifiable {
             iconKind: iconKind,
             icon: icon,
             isChecked: checked,
+            initiallySelected: initiallySelected,
             shortcut: shortcut,
             role: role,
             isEnabled: isEnabled,
@@ -149,6 +152,7 @@ private final class LitheContextMenuSelection: ObservableObject {
     init(items: [LitheContextMenuItem], dismiss: @escaping () -> Void) {
         self.items = items
         self.dismiss = dismiss
+        selectedID = items.first { $0.initiallySelected && $0.isEnabled }?.id
     }
 
     var children: [LitheContextMenuItem]? {

@@ -15,7 +15,7 @@ struct WorkbenchModuleUIRegistryTests {
         #expect(output.placement == .activityBar)
         #expect(navigation.actionID != output.actionID)
         #expect(registry.renderer(for: navigation)?.rightSidebarBehavior == .docked)
-        #expect(registry.renderer(for: navigation)?.ideaAssetPath == "maven/toolWindowMaven.svg")
+        #expect(registry.renderer(for: navigation)?.ideaAssetPath == "maven/expui/toolwindow/maven@20x20.svg")
         #expect(registry.renderer(for: output) != nil)
         try registry.validate(contributions: contributions)
     }
@@ -28,6 +28,26 @@ struct WorkbenchModuleUIRegistryTests {
         #expect(agent.placement == .rightSidebar)
         #expect(registry.renderer(for: agent)?.rightSidebarBehavior == .docked)
         try registry.validate(contributions: contributions)
+    }
+
+    @Test func databaseUsesTheRightDockWithoutReplacingTheProjectTreeOrTerminal() throws {
+        let contributions = BuiltInModuleCatalog.contributions(for: .database)
+        let database = try #require(contributions.first { $0.id == "database.workspace" })
+        let registry = WorkbenchModuleUIComposition.builtIn
+        #expect(database.placement == .rightSidebar)
+        #expect(registry.renderer(for: database)?.rightSidebarBehavior == .docked)
+        try registry.validate(contributions: contributions)
+
+        let workbench = WorkbenchFeatureModel()
+        workbench.setVisibility(.terminal, isVisible: true)
+        workbench.setVisibility(.database, isVisible: true)
+        #expect(workbench.selectedSidebar == .project)
+        #expect(workbench.isSidebarVisible)
+        #expect(workbench.activeToolWindow == .terminal)
+        #expect(workbench.activeRightToolWindow == .database)
+        workbench.setVisibility(.maven, isVisible: true)
+        #expect(!workbench.isVisible(.database))
+        #expect(workbench.isVisible(.terminal))
     }
 
     @Test func duplicateActionIDsAreRejected() {

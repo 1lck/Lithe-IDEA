@@ -552,13 +552,14 @@ pub fn set_native_window_appearance(
     theme_type: String,
 ) -> Result<(), String> {
     let theme = match theme_type.as_str() {
-        "light" => Theme::Light,
-        "dark" => Theme::Dark,
-        _ => return Err("Window theme must be light or dark".into()),
+        // A forced window theme also fixes WebView2's prefers-color-scheme.
+        // Release the override so Tao can propagate Windows app-theme changes.
+        "system" => None,
+        "light" => Some(Theme::Light),
+        "dark" => Some(Theme::Dark),
+        _ => return Err("Window theme must be system, light or dark".into()),
     };
-    window
-        .set_theme(Some(theme))
-        .map_err(|error| error.to_string())
+    window.set_theme(theme).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

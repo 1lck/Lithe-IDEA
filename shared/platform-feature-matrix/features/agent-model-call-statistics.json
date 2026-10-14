@@ -1,0 +1,31 @@
+{
+  "id": "agent-model-call-statistics",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Agent 会话状态栏：轮次/模型调用步数/TPS、Token 用量与缓存命中、上下文构成（系统提示词、工具定义、MCP 工具、对话消息）悬停卡片；可在设置中关闭的本机代理观测每次模型调用的首 token 延迟、耗时与非流式标记",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentSessionStatusView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentContextUsageView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentTurnStatisticsView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentPanelSettingsView.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentModelCall.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentSessionStatistics.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "rust/lithe-agent-host/src/model_proxy.rs",
+      "rust/lithe-agent-host/src/model_calls.rs"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-agent-host/src/model_proxy.rs",
+      "shared/fixtures/agent/acp-events-v1.json"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "owner": "Agent",
+  "verification": "macOS：在 Agent 设置开启“模型调用统计”，用 API Key 模式的 Claude 与 Codex 各完成一轮带工具调用的对话，确认 Agent 正常回复；状态栏显示“N 轮 M 步 · X tok/s”、Token 总量与缓存命中、上下文圆环，三者悬停卡片分别显示会话统计（模型用时、工具与授权用时、TTFT、TPS）、Token 明细和上下文构成，数值与服务商控制台大致一致；每轮页脚显示模型调用次数、首字和速度，非流式响应有标记。关闭开关并重新连接后，步数、TPS、TTFT 与上下文构成隐藏，只显示轮次、Agent 上报的最近一轮 Token 与上下文占用；订阅登录不经过代理。并发两个会话时不串数据。窄宽面板、深浅主题检查布局。Windows 共享 Host 支持 observeModelCalls 与 modelCall 事件，界面尚未接入。"
+}

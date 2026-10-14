@@ -15,7 +15,7 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/terminal",
-      "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
+      "windows/tauri/src/features/settings/components/settings-panels.tsx",
       "windows/tauri/src/features/settings/lib/default-shell-options.ts",
       "windows/tauri/src-tauri"
     ],

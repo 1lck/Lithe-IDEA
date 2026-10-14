@@ -2,24 +2,39 @@ import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 
+/// Host-owned language-server module. The host launches and stops the server
+/// process itself; the module only publishes its launch configuration, so it
+/// serves bundled language specifications and declarative plugins alike.
 @MainActor
 public final class BundledLanguageServerModule: LitheModule {
     public let manifest: ModuleManifest
-    private let specification: BundledLanguagePluginSpecification
+    private let configuration: LanguageServerExtensionConfiguration
     private var capability: BundledLanguageServerCapability?
 
     public init(specification: BundledLanguagePluginSpecification) {
-        self.specification = specification
         manifest = BundledLanguagePluginCatalog.manifests
             .flatMap(\.modules)
             .first { $0.manifest.id == .languageServerExtension(specification.id) }!
             .manifest
+        configuration = LanguageServerExtensionConfiguration(
+            languageID: specification.id,
+            displayName: specification.displayName,
+            executableNames: specification.executableNames,
+            arguments: specification.arguments,
+            validationArguments: specification.validationArguments,
+            languageIdentifier: specification.languageIdentifier
+        )
+    }
+
+    public init(manifest: ModuleManifest, configuration: LanguageServerExtensionConfiguration) {
+        self.manifest = manifest
+        self.configuration = configuration
     }
 
     public func activate(context: ModuleContext) async throws {
         let lifecycle = BundledLanguageServerLifecycle()
         context.resources.register(BundledLanguageServerResource(lifecycle: lifecycle))
-        capability = BundledLanguageServerCapability(specification: specification, lifecycle: lifecycle)
+        capability = BundledLanguageServerCapability(configuration: configuration, lifecycle: lifecycle)
     }
 
     public func prepareForSleep() async throws {}
@@ -27,7 +42,7 @@ public final class BundledLanguageServerModule: LitheModule {
     public func shutdown() async { releaseCapability() }
 
     public func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] {
-        capability.map { [.languageServerExtension(specification.id): $0] } ?? [:]
+        capability.map { [.languageServerExtension(configuration.languageID): $0] } ?? [:]
     }
 
     private func releaseCapability() {
@@ -42,17 +57,10 @@ public final class BundledLanguageServerCapability: NSObject, LanguageServerExte
     public let lifecycle: any LanguageServerExtensionLifecycle
 
     init(
-        specification: BundledLanguagePluginSpecification,
+        configuration: LanguageServerExtensionConfiguration,
         lifecycle: any LanguageServerExtensionLifecycle
     ) {
-        configuration = LanguageServerExtensionConfiguration(
-            languageID: specification.id,
-            displayName: specification.displayName,
-            executableNames: specification.executableNames,
-            arguments: specification.arguments,
-            validationArguments: specification.validationArguments,
-            languageIdentifier: specification.languageIdentifier
-        )
+        self.configuration = configuration
         self.lifecycle = lifecycle
     }
 }

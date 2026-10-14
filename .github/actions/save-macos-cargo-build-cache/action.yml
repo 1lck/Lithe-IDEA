@@ -1,0 +1,60 @@
+name: Save macOS Cargo compilation cache
+description: Save Rust compilation outputs restored by prepare-macos-dependency-cache, including progress from failed, timed-out, or cancelled jobs.
+
+inputs:
+  key:
+    description: Exact cache key from prepare-macos-dependency-cache's cargo-build-key output.
+    required: true
+  exact-hit:
+    description: prepare-macos-dependency-cache's cargo-build-hit output.
+    required: false
+    default: "false"
+  job-status:
+    description: The calling job's job.status.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Call this with if: always(). A successful build owns the exact key. Any
+    # other outcome saves under a run-scoped suffix: the next build restores it
+    # through the primary-key prefix match, yet the exact key stays free for the
+    # first complete build. Cargo's fingerprints are written only after a unit
+    # compiles, so interrupted outputs are rebuilt rather than trusted.
+    - name: Resolve Cargo compilation cache save key
+      id: resolve
+      shell: bash
+      env:
+        CACHE_KEY: ${{ inputs.key }}
+        EXACT_HIT: ${{ inputs.exact-hit }}
+        JOB_STATUS: ${{ inputs.job-status }}
+        RUN_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+      run: |
+        if [[ -z "$CACHE_KEY" || "$EXACT_HIT" == "true" ]]; then
+          echo "save=false" >> "$GITHUB_OUTPUT"
+        elif ! compgen -G "$GITHUB_WORKSPACE/rust/target/*" > /dev/null; then
+          echo "No Rust compilation outputs to save."
+          echo "save=false" >> "$GITHUB_OUTPUT"
+        elif [[ "$JOB_STATUS" == "success" ]]; then
+          echo "save=true" >> "$GITHUB_OUTPUT"
+          echo "key=$CACHE_KEY" >> "$GITHUB_OUTPUT"
+        elif [[ -f "$RUNNER_TEMP/lithe-cargo-build-restored" ]] && [[ -z "$(find "$GITHUB_WORKSPACE/rust/target" -path '*/.fingerprint/*' -newer "$RUNNER_TEMP/lithe-cargo-build-restored" -print -quit)" ]]; then
+          # Nothing compiled since the restore: a partial entry would only
+          # duplicate the restored one and use up the repository cache quota.
+          echo "No Rust units compiled since the restore; skipping partial save."
+          echo "save=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "save=true" >> "$GITHUB_OUTPUT"
+          echo "key=$CACHE_KEY-partial-$RUN_SUFFIX" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Save Cargo compilation outputs
+      if: steps.resolve.outputs.save == 'true'
+      continue-on-error: true
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          rust/target/**/.fingerprint
+          rust/target/**/build
+          rust/target/**/deps
+        key: ${{ steps.resolve.outputs.key }}

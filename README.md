@@ -21,8 +21,8 @@
   </p>
 
   <p>
-    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="Latest release"></a>
-    <a href="https://github.com/1lck/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/1lck/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="Total downloads"></a>
+    <a href="https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/Lithe-IDEA/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="Latest release"></a>
+    <a href="https://github.com/Lithe-IDEA/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/Lithe-IDEA/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="Total downloads"></a>
     <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat&logo=apple&logoColor=white" alt="macOS 13+">
     <img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat&logo=windows&logoColor=white" alt="Windows x64">
     <img src="https://img.shields.io/badge/memory-300--400%20MB-159957?style=flat" alt="300 to 400 MB baseline memory">
@@ -66,7 +66,7 @@ The Lithe application typically uses about **300–400 MB of baseline memory** a
 
 ## If macOS says it cannot open `Lithe.app`
 
-If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest), then use one of these methods:
+If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest), then use one of these methods:
 
 <p align="center">
   <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS warning that Lithe.app cannot be opened">
@@ -157,14 +157,14 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 
 ## Download and install
 
-- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
-- **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
+- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest).
+- **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest).
 
 Homebrew is the recommended installation and update method on macOS:
 
 ```bash
-brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
-brew install --cask 1lck/lithe/lithe
+brew tap lithe-idea/lithe https://github.com/Lithe-IDEA/Lithe-IDEA.git
+brew install --cask lithe-idea/lithe/lithe
 brew upgrade --cask lithe
 ```
 

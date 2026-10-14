@@ -1,14 +1,17 @@
 Database brand icon assets
 ==========================
 
-The database icon files in this directory were copied from the DBX project:
-https://github.com/t8y2/dbx
+MySQL, MariaDB, PostgreSQL, SQLite, Microsoft SQL Server, MongoDB and Redis
+SVGs (including available dark variants) are unmodified IntelliJ Community
+platform/icons/src/providers assets. PostgreSQL, SQL Server and MongoDB retain
+local filenames postgres, sqlserver and mongodb, respectively.
+Source: https://github.com/JetBrains/intellij-community
+Revision: c7f91397daa3a961b4e78bc634fe467a0a7d9ade
+Each imported SVG retains its upstream copyright and Apache-2.0 header.
+
+Nacos remains from https://github.com/t8y2/dbx
 Snapshot commit: 996ce42e80387bba4b33a2bf1713f590ef79d476
+Both sources use Apache License 2.0, included as LICENSE-APACHE-2.0.txt.
 
-DBX is distributed under the Apache License, Version 2.0. A copy of that
-license is included in this directory as LICENSE-APACHE-2.0.txt.
-
-The MySQL, MariaDB, PostgreSQL, SQLite, Microsoft SQL Server, MongoDB, Redis,
-and Nacos names and logos may be
-trademarks of their respective owners. They are used only to identify the
-corresponding connection type and do not imply endorsement or affiliation.
+Names and logos are trademarks of their respective owners, used only to
+identify connection types without endorsement or affiliation.

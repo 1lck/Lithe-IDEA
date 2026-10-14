@@ -6,7 +6,7 @@
 
 以后新增或修改带语言服务器（Language Server，负责通过 LSP 提供补全、诊断和跳转能力的进程）的插件，都必须沿用 PHP Support 的构建方式：插件声明固定版本和校验值，构建阶段下载、校验并把语言服务器放入插件包，插件包完成签名后再分发。主程序不再为插件维护第二套语言服务器路径，也不在运行时改写已安装的 app bundle。
 
-插件拥有语言服务器的文件、启动入口和生命周期；Lithe 只负责插件包验证、插件启停、运行时发现和现有 LSP 会话编排。运行时资源写入用户级 Application Support、Caches 或临时目录，插件卸载、重装和回滚必须能够连同自己的语言服务器一起清理或替换。
+插件拥有语言服务器的文件和启动入口，并在 `plugin.json` 的 `languageServers` 中声明；Lithe 负责插件包验证、插件启停、运行时发现、进程生命周期和现有 LSP 会话编排。插件包是声明式的，不含宿主加载的代码，见 [声明式语言插件](2026-10-12-declarative-language-plugins.md)。运行时资源写入用户级 Application Support、Caches 或临时目录，插件卸载、重装和回滚必须能够连同自己的语言服务器一起清理或替换。
 
 ## 问题
 
@@ -24,13 +24,14 @@ PHP Support 已经验证了独立插件包、固定 Intelephense 版本和插件
 
 ### 2. 构建阶段完成下载、解压和组装
 
-官方 macOS 插件统一通过 `scripts/build-official-plugins.sh` 构建。该脚本负责：
+官方 macOS 插件统一通过 `scripts/build-official-plugins.sh` 组装。该脚本负责：
 
 1. 从插件目录读取 `plugin.json` 和 `language-server.json`。
-2. 编译插件自己的 Swift 模块。
-3. 调用插件专属准备脚本下载并校验语言服务器归档。
-4. 将启动器、上游运行文件、许可证和语言服务器清单放入 bundle 的资源目录。
-5. 对完整 bundle 签名；签名完成后不得再修改其中内容。
+2. 调用插件专属准备脚本下载并校验语言服务器归档。
+3. 将启动器、上游运行文件、许可证和语言服务器清单放入包内 `language-server/`，路径与 `plugin.json` 中 `launch.path` 一致。
+4. 需要 publisher 签名的包用 `LithePluginPackageSigner` 对完整包签名；签名完成后不得再修改其中内容。
+
+插件包不编译、不链接任何 Swift 代码，也不做 codesign，因此与架构和宿主构建无关。
 
 PHP 的具体下载和组装逻辑位于 `scripts/prepare-php-language-server.sh`。后续插件可以复用相同的构建阶段和校验结构，但不能把某个语言的路径、版本或下载地址硬编码到宿主应用中。
 
@@ -38,8 +39,8 @@ PHP 的具体下载和组装逻辑位于 `scripts/prepare-php-language-server.sh
 
 主程序默认分发清单不包含可选 LSP 插件。需要独立安装的插件使用与宿主兼容的签名构建，并作为单独的 release asset 发布。插件管理下载或导入包后，必须按以下顺序处理：
 
-1. 校验插件 manifest、宿主兼容版本和代码签名。
-2. 校验语言服务器清单和插件内的启动器。
+1. 由 Rust Core 校验声明（`pluginAPIVersion`、权限、激活事件、模板），按宿主信任策略校验包签名。
+2. 确认声明的打包启动器是包内的普通可执行文件。
 3. 把整个插件版本放到用户级插件版本目录。
 4. 在重启边界完成启用、替换或卸载，再让 LSP 控制中心显示可用状态。
 
@@ -47,7 +48,7 @@ macOS 当前的用户级目录是 `<app-support>/Lithe/Plugins/<plugin-id>/versi
 
 ### 4. 运行时只发现已安装插件提供的入口
 
-LSP 控制中心和语言工具发现沿用现有 Rust Core LSP 会话。插件启用后，组合根把该插件版本目录中的启动器根路径传给平台运行时；插件未安装、被禁用、隔离或等待重启时，不得重新启用宿主内置的旧路径或通用安装器。
+LSP 控制中心和语言工具发现沿用现有 Rust Core LSP 会话。组合根把已注册插件声明的打包启动器按命令名传给平台运行时（`PluginPackagedTool`）；插件未安装、被禁用、隔离或等待重启时，不得重新启用宿主内置的旧路径或通用安装器。
 
 语言符号、诊断、补全和类型分析继续由上游语言服务器负责。Lithe 只拥有会话生命周期、取消、超时、旧结果保护、资源预算和稳定的跨平台适配契约，不在 Core、Swift 和 Windows 前端各自实现第二套语言语义。
 
@@ -61,7 +62,7 @@ LSP 控制中心和语言工具发现沿用现有 Rust Core LSP 会话。插件�
 
 ### 6. 跨平台实现保持相同边界
 
-macOS 使用原生 bundle 和 Developer ID 签名；Windows 使用自己的 Tauri 插件包和平台签名、缓存适配器。Windows 不得导入 Swift 插件实现，也不得因为跨平台而把 macOS 的目录或构建脚本复制到 Windows。两端都必须满足：插件自有资源、构建时校验、运行时只读安装目录、禁用和卸载可清理自有资源。
+macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用自己的 Tauri 插件包和平台签名、缓存适配器，接入共享契约 `shared/contracts/plugins/v1/` 时复用同一份声明语义。Windows 不得因为跨平台而把 macOS 的目录或构建脚本复制到 Windows。两端都必须满足：插件自有资源、构建时校验、运行时只读安装目录、禁用和卸载可清理自有资源。
 
 ## 考虑过的备选方案
 
@@ -78,11 +79,11 @@ macOS 使用原生 bundle 和 Developer ID 签名；Windows 使用自己的 Taur
 
 ## 验证
 
-- `./scripts/verify-official-plugins.sh`：检查官方插件构建、语言服务器清单、启动器和代码签名。
+- `./scripts/verify-official-plugins.sh`：检查官方插件组装、语言服务器清单、启动器、包内无原生代码和包签名。
 - `./scripts/verify-runtime-bundle-immutability.sh`：确认典型启动和插件工作流不会改写已安装 bundle。
 - `node scripts/test-reuse-worktree-resources.mjs`：确认语言服务器下载和插件包不能跨工作树复用。
 - `./scripts/verify-agent-notes.sh`：确认本笔记格式、路径和验证命令有效。
-- 相关 macOS 测试：`MacPluginPackageDownloaderTests`、`MacRuntimeToolDiscoveryTests` 和 `PluginPackageStoreTests`。
+- 相关 macOS 测试：`MacPluginPackageDownloaderTests`、`LanguageServerToolServiceTests`、`LanguageExtensionProcessLifecycleTests` 和 `PluginPackageStoreTests`。
 - 新增插件还必须验证下载失败、校验失败、取消、等待重启、重装、回滚、禁用和卸载后的进程与文件清理。
 
 ## 适用范围

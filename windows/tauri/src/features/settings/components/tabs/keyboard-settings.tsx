@@ -38,7 +38,7 @@ import { Button } from "@/ui/button";
 import { Alert, AlertDescription } from "@/ui/alert";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import Input from "@/ui/input";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import Switch from "@/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/ui/table";
 import { ToggleGroup } from "@/ui/toggle-group";
@@ -340,7 +340,9 @@ export const KeyboardSettings = () => {
                       <TableRow className="hover:bg-transparent">
                         <TableCell colSpan={5} className="p-0">
                           <Empty className="min-h-36 py-8">
-                            <EmptyDescription>{t("settings.keyboard.noKeybindings")}</EmptyDescription>
+                            <EmptyDescription>
+                              {t("settings.keyboard.noKeybindings")}
+                            </EmptyDescription>
                           </Empty>
                         </TableCell>
                       </TableRow>
@@ -380,7 +382,7 @@ export const KeyboardSettings = () => {
               }
               canReset={keybindingPreset !== getDefaultSetting("keybindingPreset")}
             >
-              <Select
+              <SettingsSelect
                 value={keybindingPreset}
                 onChange={(value) => updateSetting("keybindingPreset", value as KeybindingPreset)}
                 options={keybindingPresetOptions.map((option) =>
@@ -388,10 +390,7 @@ export const KeyboardSettings = () => {
                     ? { ...option, label: t("settings.keyboard.none") }
                     : option,
                 )}
-                size="md"
-                variant="default"
                 searchable
-                searchableTrigger="input"
                 aria-label={t("settings.keyboard.presetAria")}
               />
             </SettingRow>

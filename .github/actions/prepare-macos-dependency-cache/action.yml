@@ -31,9 +31,17 @@ inputs:
     required: false
     default: ""
   restore-only:
-    description: Restore caches without saving them at the end of the job.
+    description: Restore caches without saving them at the end of the job. Cargo compilation outputs are always restore-only here; save them with save-macos-cargo-build-cache.
     required: false
     default: "false"
+
+outputs:
+  cargo-build-key:
+    description: Exact Cargo compilation cache key for save-macos-cargo-build-cache.
+    value: ${{ steps.cargo_build_key.outputs.key }}
+  cargo-build-hit:
+    description: Whether the exact Cargo compilation cache key was restored.
+    value: ${{ steps.cargo_build.outputs.cache-hit }}
 
 runs:
   using: composite
@@ -213,11 +221,27 @@ runs:
         } | shasum -a 256 | cut -d ' ' -f 1)
         echo "identity=$identity" >> "$GITHUB_OUTPUT"
 
+    - name: Resolve Cargo compilation cache key
+      id: cargo_build_key
+      if: inputs.cargo-build == 'true'
+      shell: bash
+      env:
+        KEY_PREFIX: macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}
+        BUILD_ARCHITECTURE: ${{ inputs.cargo-build-architecture }}
+        SOURCE_HASH: ${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'rust/.cargo/**', 'scripts/build-rust-core.sh', 'scripts/build-database-*.sh') }}
+      run: |
+        echo "prefix=$KEY_PREFIX" >> "$GITHUB_OUTPUT"
+        echo "key=$KEY_PREFIX-$BUILD_ARCHITECTURE-$SOURCE_HASH" >> "$GITHUB_OUTPUT"
+
+    # Restore only: saving happens in save-macos-cargo-build-cache, which runs
+    # with always() so a timed-out or superseded build still keeps its progress.
+    # actions/cache's post step is skipped on failure, which let one cold build
+    # time out, save nothing, and leave every following build cold as well.
     - name: Restore Cargo compilation outputs
       id: cargo_build
-      if: inputs.cargo-build == 'true' && inputs.restore-only != 'true'
+      if: inputs.cargo-build == 'true'
       continue-on-error: true
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
         # Core uses target/macos; database helpers use target directly. Include
         # both layouts, while leaving final executables for Cargo to regenerate.
@@ -225,28 +249,27 @@ runs:
           rust/target/**/.fingerprint
           rust/target/**/build
           rust/target/**/deps
-        key: macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-${{ inputs.cargo-build-architecture }}-${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'rust/.cargo/**', 'scripts/build-rust-core.sh', 'scripts/build-database-*.sh') }}
+        # The primary key also prefix-matches partial saves of the same sources.
+        # A universal build falls back to a single-slice cache, which still
+        # covers half of its Rust work after the universal entry was evicted.
+        # Single-slice builds do not fall back to the other slice, whose
+        # target outputs they cannot use. actions/cache drops the empty lines.
+        key: ${{ steps.cargo_build_key.outputs.key }}
         restore-keys: |
-          macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-${{ inputs.cargo-build-architecture }}-
-          macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-universal-
+          ${{ steps.cargo_build_key.outputs.prefix }}-${{ inputs.cargo-build-architecture }}-
+          ${{ steps.cargo_build_key.outputs.prefix }}-universal-
+          ${{ inputs.cargo-build-architecture == 'universal' && format('{0}-arm64-', steps.cargo_build_key.outputs.prefix) || '' }}
+          ${{ inputs.cargo-build-architecture == 'universal' && format('{0}-x86_64-', steps.cargo_build_key.outputs.prefix) || '' }}
 
-    - name: Restore Cargo compilation outputs without saving
-      id: cargo_build_restore
-      if: inputs.cargo-build == 'true' && inputs.restore-only == 'true'
-      continue-on-error: true
-      uses: actions/cache/restore@v6
-      with:
-        path: |
-          rust/target/**/.fingerprint
-          rust/target/**/build
-          rust/target/**/deps
-        key: macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-${{ inputs.cargo-build-architecture }}-${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'rust/.cargo/**', 'scripts/build-rust-core.sh', 'scripts/build-database-*.sh') }}
-        restore-keys: |
-          macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-${{ inputs.cargo-build-architecture }}-
-          macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-universal-
+    # save-macos-cargo-build-cache compares fingerprints against this marker so
+    # a job that fails before compiling any Rust does not store a duplicate.
+    - name: Mark restored Cargo compilation outputs
+      if: inputs.cargo-build == 'true'
+      shell: bash
+      run: touch "$RUNNER_TEMP/lithe-cargo-build-restored"
 
     - name: Discard incomplete Cargo compilation cache
-      if: inputs.cargo-build == 'true' && (steps.cargo_build.outcome == 'failure' || steps.cargo_build_restore.outcome == 'failure')
+      if: inputs.cargo-build == 'true' && steps.cargo_build.outcome == 'failure'
       shell: bash
       run: |
         echo "::warning::Cargo compilation cache restore failed; rebuilding from verified crate archives."

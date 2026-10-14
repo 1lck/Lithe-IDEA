@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
 import type { FileTreeSortOrder } from "@/features/settings/types/settings.types";
 import NumberInput from "@/ui/number-input";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import Textarea from "@/ui/textarea";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
 import Switch from "@/ui/switch";
@@ -68,7 +68,7 @@ export const FileTreeSettings = () => {
           onReset={() => updateSetting("fileTreeSortOrder", getDefaultSetting("fileTreeSortOrder"))}
           canReset={settings.fileTreeSortOrder !== getDefaultSetting("fileTreeSortOrder")}
         >
-          <Select
+          <SettingsSelect
             value={settings.fileTreeSortOrder}
             options={[
               { value: "folders-first", label: t("settings.files.foldersFirst") },
@@ -76,8 +76,6 @@ export const FileTreeSettings = () => {
             ]}
             onChange={(value) => updateSetting("fileTreeSortOrder", value as FileTreeSortOrder)}
             className={SETTINGS_CONTROL_WIDTHS.default}
-            size="sm"
-            variant="default"
           />
         </SettingRow>
 

@@ -1,1 +1,0 @@
-let goLanguageID = "go"

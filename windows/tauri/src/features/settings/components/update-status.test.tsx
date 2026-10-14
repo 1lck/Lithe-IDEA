@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useUpdateStore } from "../stores/update.store";
-import { MacSettingsPanel } from "./macos-settings-panels";
+import { SettingsPanel } from "./settings-panels";
 
 test("settings only claims the application is current after a successful check", async () => {
   const restoreDom = installHappyDom();
@@ -19,18 +19,30 @@ test("settings only claims the application is current after a successful check",
     environment.IS_REACT_ACT_ENVIRONMENT = true;
     useUpdateStore.setState({ status: "idle", error: null, updateInfo: null });
     await act(async () => {
-      root.render(<LocaleProvider language="en-US"><MacSettingsPanel category="updates" onClose={() => {}} /></LocaleProvider>);
+      root.render(
+        <LocaleProvider language="en-US">
+          <SettingsPanel category="updates" onClose={() => {}} />
+        </LocaleProvider>,
+      );
     });
     const message = () => container.querySelector('[role="status"]')?.textContent;
     expect(message()).not.toContain("up to date");
-    await act(async () => { useUpdateStore.setState({ status: "checking" }); });
-    expect(message()).toBe("Checking…");
-    await act(async () => { useUpdateStore.setState({ status: "failed", error: "Offline" }); });
+    await act(async () => {
+      useUpdateStore.setState({ status: "checking" });
+    });
+    expect(message()).toBe("Checking for updates…");
+    await act(async () => {
+      useUpdateStore.setState({ status: "failed", error: "Offline" });
+    });
     expect(message()).not.toContain("up to date");
-    await act(async () => { useUpdateStore.setState({ status: "upToDate", error: null }); });
+    await act(async () => {
+      useUpdateStore.setState({ status: "upToDate", error: null });
+    });
     expect(message()).toBe("Lithe is up to date.");
     // Dismissal or suppression after a previous successful check must clear that claim.
-    await act(async () => { useUpdateStore.setState({ status: "idle" }); });
+    await act(async () => {
+      useUpdateStore.setState({ status: "idle" });
+    });
     expect(message()).not.toContain("up to date");
   } finally {
     try {

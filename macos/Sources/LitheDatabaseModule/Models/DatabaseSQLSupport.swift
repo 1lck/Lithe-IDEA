@@ -82,6 +82,8 @@ package struct DatabaseSQLTab: Identifiable, Equatable, Sendable {
     package var execution: DatabaseSQLExecution?
     package var errorMessage: String?
     package var isRunning: Bool
+    package var statementExecutions: [DatabaseSQLStatementExecution] = []
+    package var outputHiddenThroughExecutionID: UUID?
 
     package init(id: UUID = UUID(), title: String, sql: String = "") {
         self.id = id
@@ -94,6 +96,22 @@ package struct DatabaseSQLTab: Identifiable, Equatable, Sendable {
         errorMessage = nil
         isRunning = false
     }
+}
+
+/// Runtime output stays with its console, never in connection preferences.
+package struct DatabaseSQLStatementExecution: Equatable, Identifiable, Sendable {
+    package let id: UUID
+    package let sql: String
+    // Rendering reference follows edits outside this statement; `sql` remains the actual executed text.
+    package var sourceSQL: String
+    package var sourceRange: NSRange?
+    package let startedAt: Date
+    package let batchStartedAt: Date
+    package let durationMilliseconds: Int
+    package var result: DatabaseQueryResult?
+    package let rowsReturned: Int?
+    package let rowsAffected: UInt64?
+    package let errorMessage: String?
 }
 
 package struct DatabaseSQLExecution: Equatable, Sendable {
@@ -206,19 +224,45 @@ package enum DatabaseSQLAnalyzer {
 
 package enum DatabaseSQLFormatter {
     package static func format(_ sql: String) -> String {
-        let keywords = DatabaseSQLLexing.formatKeywords
-        let source = Array(sql.trimmingCharacters(in: .whitespacesAndNewlines))
+        // ponytail: Top-level clause layout only; use a dialect formatter when a provider exposes one.
+        // ponytail: Backslash escaping depends on dialect AND session modes; keep ambiguous scripts verbatim until a provider formatter supplies that context.
+        if sql.contains("\\") || sql.range(of: #"\$(?:[A-Za-z_][A-Za-z_0-9]*)?\$"#, options: .regularExpression) != nil { return sql }
+        // JetBrains SQL Code Style: preserve word case, SELECT elements on a new line, 4-space indent.
+        let selectIndent = "    "
+        let clauses: Set<String> = [ "WHERE", "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET", "UNION", "RETURNING", "SET", "VALUES", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "FULL", "CROSS"]
+        // SQL delimiters are scalar boundaries; a combining mark may share a Swift Character with its opening quote.
+        let source = sql.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.map { Character(String($0)) }
         var output = ""
         var word = ""
         var needsSpace = false
         var index = 0
+        var depth = 0
+        var previousWord = ""
+        var followsLineComment = false
 
         func appendWord() {
             guard !word.isEmpty else { return }
-            if needsSpace, !output.isEmpty, !output.hasSuffix("\n") { output.append(" ") }
-            output.append(keywords.contains(word.uppercased()) ? word.uppercased() : word)
+            let keyword = word.uppercased()
+            let qualified = output.hasSuffix(".")
+            let joinModifier = ["LEFT", "RIGHT", "INNER", "OUTER", "FULL", "CROSS"].contains(previousWord)
+            if depth == 0, !qualified, keyword == "FROM", !followsLineComment, output.hasSuffix("\n") {
+                output = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                needsSpace = true
+            }
+            if depth == 0, !qualified, clauses.contains(keyword), !output.isEmpty,
+               !(joinModifier && (keyword == "JOIN" || keyword == "OUTER")) {
+                output = output.trimmingCharacters(in: .whitespaces)
+                if !output.hasSuffix("\n") { output.append("\n") }
+            } else if needsSpace, !output.isEmpty, !output.hasSuffix("\n") { output.append(" ") }
+            output.append(word)
+            previousWord = keyword
+            followsLineComment = false
             word = ""
             needsSpace = true
+            if depth == 0, !qualified, keyword == "SELECT" {
+                output.append("\n" + selectIndent)
+                needsSpace = false
+            }
         }
 
         while index < source.count {
@@ -230,48 +274,63 @@ package enum DatabaseSQLFormatter {
             }
             appendWord()
             if character.isWhitespace {
+                if character == "\n", !output.isEmpty, !output.hasSuffix("\n"), !output.hasSuffix("\n" + selectIndent) { output.append("\n") }
                 needsSpace = !output.isEmpty && !output.hasSuffix("\n") && !output.hasSuffix(" ")
                 index += 1
                 continue
             }
-            if character == "-", index + 1 < source.count, source[index + 1] == "-" {
+            if character == "#" || (character == "-" && index + 1 < source.count && source[index + 1] == "-") {
                 if needsSpace, !output.isEmpty, !output.hasSuffix("\n") { output.append(" ") }
-                output.append("--")
-                index += 2
+                output.append(character == "#" ? "#" : "--")
+                index += character == "#" ? 1 : 2
                 while index < source.count {
                     output.append(source[index])
                     if source[index] == "\n" { index += 1; break }
                     index += 1
                 }
                 needsSpace = false
+                followsLineComment = true
                 continue
             }
             if character == "/", index + 1 < source.count, source[index + 1] == "*" {
                 if needsSpace, !output.isEmpty, !output.hasSuffix("\n") { output.append(" ") }
                 output.append("/*")
                 index += 2
+                var commentDepth = 1
                 while index < source.count {
                     let commentCharacter = source[index]
                     output.append(commentCharacter)
                     if commentCharacter == "*", index + 1 < source.count, source[index + 1] == "/" {
                         output.append("/")
                         index += 2
-                        break
+                        commentDepth -= 1
+                        if commentDepth == 0 { break }
+                        continue
+                    }
+                    if commentCharacter == "/", index + 1 < source.count, source[index + 1] == "*" {
+                        output.append("*")
+                        index += 2
+                        commentDepth += 1
+                        continue
                     }
                     index += 1
                 }
                 needsSpace = true
                 continue
             }
-            if character == "'" || character == "\"" || character == "`" {
-                if needsSpace, !output.isEmpty, !output.hasSuffix("\n") { output.append(" ") }
-                let quote = character
+            if character == "'" || character == "\"" || character == "`" || character == "[" {
+                // Preserve adjacent literal prefixes (E'...', X'...') and qualified quoted identifiers.
+                if index > 0, source[index - 1].isWhitespace, needsSpace, !output.isEmpty, !output.hasSuffix("\n") { output.append(" ") }
+                let quote: Character = character == "[" ? "]" : character
                 output.append(character)
                 index += 1
                 while index < source.count {
                     let quoted = source[index]
                     output.append(quoted)
                     index += 1
+                    if quoted == "\\", index < source.count {
+                        output.append(source[index]); index += 1; continue
+                    }
                     if quoted == quote {
                         if index < source.count, source[index] == quote {
                             output.append(source[index])
@@ -287,6 +346,7 @@ package enum DatabaseSQLFormatter {
             if character == ";" {
                 output = output.trimmingCharacters(in: .whitespaces)
                 output.append(";\n")
+                previousWord = ""
                 needsSpace = false
             } else if character == "," {
                 output = output.trimmingCharacters(in: .whitespaces)
@@ -295,15 +355,18 @@ package enum DatabaseSQLFormatter {
             } else if character == "(" {
                 output = output.trimmingCharacters(in: .whitespaces)
                 output.append("(")
+                depth += 1
                 needsSpace = false
             } else if character == ")" {
                 output = output.trimmingCharacters(in: .whitespaces)
                 output.append(")")
+                depth = max(0, depth - 1)
                 needsSpace = true
             } else {
-                if needsSpace, !output.isEmpty, !output.hasSuffix("\n") { output.append(" ") }
+                // Keep adjacent punctuation intact: decimals, qualified names, casts and compound operators.
+                if index > 0, source[index - 1].isWhitespace, !output.isEmpty, !output.hasSuffix("\n"), !output.hasSuffix(" ") { output.append(" ") }
                 output.append(character)
-                needsSpace = true
+                needsSpace = false
             }
             index += 1
         }
@@ -313,22 +376,12 @@ package enum DatabaseSQLFormatter {
 }
 
 private enum DatabaseSQLLexing {
-    package static let formatKeywords: Set<String> = [
-        "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "DELETE", "MERGE", "REPLACE",
-        "CREATE", "ALTER", "DROP", "TRUNCATE", "TABLE", "VIEW", "INDEX", "DATABASE", "SCHEMA", "TRIGGER",
-        "PROCEDURE", "FUNCTION", "BEGIN", "COMMIT", "ROLLBACK", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
-        "ON", "AS", "AND", "OR", "NOT", "NULL", "IS", "IN", "EXISTS", "BETWEEN", "LIKE", "DISTINCT",
-        "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "UNION", "ALL", "WITH", "RETURNING", "SET",
-        "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "PRAGMA", "GRANT", "REVOKE", "VACUUM", "ANALYZE", "CASE",
-        "WHEN", "THEN", "ELSE", "END", "ASC", "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "DEFAULT"
-    ]
-
     package static func keywords(in sql: String) -> [String] {
         sanitized(sql).split { !$0.isLetter && $0 != "_" }.map { String($0).uppercased() }
     }
 
     package static func statements(in sql: String) -> [String] {
-        let characters = Array(sql)
+        let characters = sql.unicodeScalars.map { Character(String($0)) }
         var statements: [String] = []
         var current = ""
         var index = 0
@@ -389,7 +442,7 @@ private enum DatabaseSQLLexing {
     }
 
     private static func sanitized(_ sql: String) -> String {
-        let characters = Array(sql)
+        let characters = sql.unicodeScalars.map { Character(String($0)) }
         var output = ""
         var index = 0
         var quote: Character?

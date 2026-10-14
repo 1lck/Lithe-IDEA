@@ -656,9 +656,10 @@ fn finish_mutation(
 ) -> Result<GitRebaseMutationResponse, CoreError> {
     command.outcome_authoritative = true;
     // Cancellation stops the request; it is never an implicit rebase --abort.
-    // A separate bounded inspection reports surviving state without relaunching Git.
+    // Normal inspection keeps the request budget; only an ended request needs
+    // a separate bounded scope to report surviving state without relaunching Git.
     let refreshed =
-        crate::protocol::cancellation::with_cleanup_deadline(Duration::from_secs(2), || {
+        crate::protocol::cancellation::with_mutation_inspection(Duration::from_secs(2), || {
             if !native_owned(root, &record)? {
                 record.status = if command.operation_error.is_some() {
                     "interrupted"
@@ -680,6 +681,7 @@ fn finish_mutation(
                     Some(error.message),
                 ));
             }
+            crate::protocol::cancellation::check()?;
             Ok::<_, CoreError>(projected)
         });
     let session = match refreshed {

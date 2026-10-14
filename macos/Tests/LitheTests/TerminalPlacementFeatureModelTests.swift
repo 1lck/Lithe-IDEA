@@ -1,3 +1,5 @@
+import AppKit
+import WebKit
 import Foundation
 import LitheModuleAPI
 import LitheTerminalModule
@@ -7,6 +9,83 @@ import Testing
 @Suite("Terminal tab placement")
 @MainActor
 struct TerminalPlacementFeatureModelTests {
+    @Test(arguments: [false, true])
+    func remountDoesNotStealTerminalFocus(switchBeforeAttach: Bool) async throws {
+        let context = makeTerminalCloseContext(), owner = UUID()
+        let model = context.model
+        do {
+            model.documentFeature.openVirtualDocument(URL(string: "lithe-test://remount/A.swift")!, text: "A", displayPath: nil)
+            let document = try #require(model.openDocuments.first)
+            model.selectEditorDocument(document)
+            let group = try #require(model.editorTabOrderFeature.groupLayout.groups.first)
+            model.editorTabOrderFeature.moveToEnd(.terminal(context.session.id))
+            #expect(model.editorTabOrderFeature.drop(.terminal(context.session.id), into: group, side: .right))
+            let session = MonacoWorkbenchSession.forModel(UUID(), documentID: document.id)
+            let container = session.makeContainer(ownerID: owner, isPreview: false)
+            let webView = try #require(container.subviews.first as? WKWebView)
+            session.update(ownerID: owner, document: document, secondaryDocument: nil, preview: nil,
+                markdownScrollPosition: nil, model: model, fontSize: 14, fontFamily: "monospace",
+                theme: .init(colorTheme: .lithe, isDark: true, revealsWorkbenchBackground: false),
+                wrap: false, minimap: false, markers: [], secondaryMarkers: [])
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { session.detachView(ownerID: owner); webView.stopLoading(); window.close() }
+            let root = try #require(window.contentView)
+            let terminal = try #require(context.transport.nativeView as? NSTextView)
+            root.addSubview(terminal)
+            #expect(window.makeFirstResponder(terminal))
+            if switchBeforeAttach { model.selectEditorTerminalSession(context.session) }
+            root.addSubview(container)
+            if !switchBeforeAttach { model.selectEditorTerminalSession(context.session) }
+            // FIFO main-queue barrier observes the production post-attach callback.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+            #expect(model.activeDocumentID == document.id)
+            #expect(window.firstResponder === terminal)
+            model.selectEditorDocument(document)
+            container.removeFromSuperview(); root.addSubview(container)
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+            #expect(window.firstResponder === webView)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
+    @Test(arguments: [false, true])
+    func documentFocusRestoresSelectionAfterTerminalOrDatabase(database: Bool) async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        do {
+            model.documentFeature.openVirtualDocument(URL(string: "lithe-test://focus/A.swift")!, text: "A", displayPath: nil)
+            let document = try #require(model.openDocuments.first)
+            model.selectEditorDocument(document)
+            let group = try #require(model.editorTabOrderFeature.groupLayout.groups.first)
+            model.editorTabOrderFeature.moveToEnd(.terminal(context.session.id))
+            #expect(model.editorTabOrderFeature.drop(.terminal(context.session.id), into: group, side: .right))
+            model.selectEditorTerminalSession(context.session)
+            if database {
+                model.editorTabOrderFeature.moveToEnd(.database(nil))
+                model.editorTabOrderFeature.databaseSelected = true
+                model.editorTabOrderFeature.focus(.database(nil))
+            }
+            #expect(model.activeDocumentID == document.id)
+            model.editorDidFocus(document)
+            #expect(model.activeEditorTerminalSession == nil)
+            #expect(!model.isDatabaseWorkspaceSelected)
+            #expect(model.editorTabOrderFeature.selectedItem(in: group) == .document(document.id))
+            model.showFindBar()
+            #expect(model.isFindBarVisible)
+            #expect(model.requestCloseActiveWorkbenchItem())
+            #expect(!model.openDocuments.contains { $0.id == document.id })
+            #expect(model.editorTerminalSessions.contains { $0.id == context.session.id })
+            if database { #expect(model.editorTabItems.contains(.database(nil))) }
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
     @Test
     func reordersTerminalToolTabs() {
         let model = TerminalPlacementFeatureModel()
@@ -165,7 +244,7 @@ struct TerminalPlacementFeatureModelTests {
 
 @MainActor
 private final class PlacementTestTerminalTransport: TerminalTransport {
-    let nativeView: AnyObject = NSObject()
+    let nativeView: AnyObject = NSTextView()
     var isRunning = false
     var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"

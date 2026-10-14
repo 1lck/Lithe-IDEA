@@ -11,6 +11,8 @@ pub mod cli_update;
 mod codex_retry;
 pub mod environment;
 pub mod install;
+mod model_calls;
+mod model_proxy;
 mod prompt;
 mod prompt_retry;
 mod session_defaults;
@@ -18,6 +20,7 @@ mod session_routing;
 mod subscription;
 
 pub use catalog::{ModelDelivery, ProviderProtocol};
+pub use model_calls::{ContextComposition, ModelApi, ModelCall, ModelCallUsage};
 pub use prompt::PromptFile;
 
 use std::collections::{HashMap, VecDeque};
@@ -48,6 +51,9 @@ const SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const LOAD_SESSION_TIMEOUT: Duration = Duration::from_secs(60);
 const STOP_TIMEOUT: Duration = Duration::from_secs(3);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
+/// Longest wait for observed model calls of a turn to report before the turn
+/// finishes, so per-turn statistics see them. Never affects unobserved turns.
+const MODEL_CALL_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 /// Upper bound on `session/list` pages so a misbehaving cursor cannot loop forever.
 const MAX_SESSION_LIST_PAGES: usize = 50;
 /// Bytes of agent stderr kept for failure reports; older output is discarded.
@@ -79,6 +85,10 @@ pub struct AgentLaunch {
     #[serde(default)]
     pub authentication: AgentAuthentication,
     pub provider: Option<ProviderCredentials>,
+    /// Route API-key provider traffic through the loopback observation proxy
+    /// and emit `modelCall` events. Ignored for subscription connections.
+    #[serde(default)]
+    pub observe_model_calls: bool,
 }
 
 /// Subscription access is explicit and limited to the installed Codex adapter.
@@ -452,6 +462,17 @@ pub enum AgentEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         max_attempts: Option<u32>,
     },
+    /// One provider request observed by the opt-in loopback proxy. `sessionId`
+    /// is absent when no prompt, or more than one, was running at its start.
+    ModelCall {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        /// The causing turn already finished: the stream outlived the settle
+        /// bound. Consumers count it for the session only, never a later turn.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        after_turn_finished: bool,
+        call: model_calls::ModelCall,
+    },
     /// The agent acknowledged the prompt's completion, including cancellation.
     TurnFinished {
         session_id: String,
@@ -485,6 +506,15 @@ type PendingPermissions = Arc<Mutex<HashMap<String, PendingPermission>>>;
 /// Running turn generation per session. A session is absent while idle, so a
 /// response whose generation no longer matches belongs to a cancelled turn.
 type RunningTurns = Arc<Mutex<HashMap<String, RunningTurn>>>;
+
+/// Per-connection prompt state shared with the handle and the optional model
+/// call proxy.
+struct TurnActivity {
+    permissions: PendingPermissions,
+    turns: RunningTurns,
+    /// Observed provider requests that must report before their turn finishes.
+    calls_in_flight: Arc<model_proxy::CallsInFlight>,
+}
 
 struct RunningTurn {
     generation: u64,
@@ -703,10 +733,40 @@ async fn run_agent(
     emit: Emit,
 ) -> Result<(), String> {
     let cancelled = || stop_requested.load(Ordering::Acquire);
+    let observe_model_calls = launch.observe_model_calls;
     let mut launch = resolve_with_cancel(launch, &cancelled)?;
     if cancelled() {
         return Err("Agent launch was cancelled".into());
     }
+    let turns: RunningTurns = Arc::new(Mutex::new(HashMap::new()));
+    let calls_in_flight = Arc::new(model_proxy::CallsInFlight::default());
+    let _model_calls = match launch.gateway.as_mut().filter(|_| observe_model_calls) {
+        Some(route) => {
+            let running = turns.clone();
+            let session: model_proxy::SessionResolver =
+                Arc::new(move || sole_running_session(&running));
+            let calls = emit.clone();
+            let sink: model_proxy::CallSink =
+                Arc::new(move |session_id, after_turn_finished, call| {
+                    calls(AgentEvent::ModelCall {
+                        session_id,
+                        after_turn_finished,
+                        call,
+                    })
+                });
+            // Statistics are optional. A proxy that cannot start leaves the
+            // configured endpoint in place rather than blocking the Agent.
+            match model_proxy::start(&route.base_url, session, sink, calls_in_flight.clone()).await
+            {
+                Ok(proxy) => {
+                    route.base_url = proxy.base_url().to_owned();
+                    Some(proxy)
+                }
+                Err(_) => None,
+            }
+        }
+        None => None,
+    };
     let _relay = if launch
         .gateway
         .as_ref()
@@ -786,7 +846,11 @@ async fn run_agent(
         launch.gateway,
         launch.subscription_cli,
         controls,
-        permissions,
+        TurnActivity {
+            permissions,
+            turns,
+            calls_in_flight,
+        },
         emit,
     )
     .await;
@@ -807,6 +871,20 @@ async fn run_agent(
             None => message,
         }
     })
+}
+
+/// Provider requests carry no ACP session id. Attribute a model call only
+/// when exactly one non-cancelling prompt can have caused it.
+fn sole_running_session(turns: &RunningTurns) -> Option<model_proxy::CallOwner> {
+    let turns = turns.lock().ok()?;
+    let mut active = turns.iter().filter(|(_, turn)| !turn.cancelling);
+    match (active.next(), active.next()) {
+        (Some((session_id, turn)), None) => Some(model_proxy::CallOwner {
+            session: session_id.clone(),
+            generation: turn.generation,
+        }),
+        _ => None,
+    }
 }
 
 /// Ask the whole agent tree to exit, then force-kill whatever is left.
@@ -866,16 +944,20 @@ async fn run_connection<OB, IB>(
     gateway: Option<GatewaySignIn>,
     subscription_cli: Option<PathBuf>,
     mut controls: async_mpsc::UnboundedReceiver<Control>,
-    permissions: PendingPermissions,
+    activity: TurnActivity,
     emit: Emit,
 ) -> Result<(), String>
 where
     OB: futures::io::AsyncWrite + Send + 'static,
     IB: futures::io::AsyncRead + Send + 'static,
 {
+    let TurnActivity {
+        permissions,
+        turns,
+        calls_in_flight,
+    } = activity;
     let session_meta = session_routing::metadata(gateway.as_ref())?;
     let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
-    let turns: RunningTurns = Arc::new(Mutex::new(HashMap::new()));
     let updates = emit.clone();
     let update_turns = turns.clone();
     let requests = emit.clone();
@@ -1229,6 +1311,7 @@ where
                         let turns = turns.clone();
                         let prompt_permissions = cancel_permissions.clone();
                         let cancel_deadline = cancel_deadline_tx.clone();
+                        let calls_in_flight = calls_in_flight.clone();
                         tasks.spawn(async move {
                             let result = prompt_retry::wait(response.as_mut(), retry_changes, |quiet| {
                                 emit(AgentEvent::TurnActivity { session_id: session_id.clone(), quiet });
@@ -1278,6 +1361,7 @@ where
                                                 &prompt_permissions,
                                                 Some(&session_id),
                                             );
+                                            calls_in_flight.finish_turn(&session_id, generation);
                                             emit(failed(
                                                 None,
                                                 Some(session_id),
@@ -1289,6 +1373,7 @@ where
                                         // Keep the turn registered so the outer loop stops the
                                         // connection instead of allowing a stale request to
                                         // overlap.
+                                        calls_in_flight.finish_turn(&session_id, generation);
                                         emit(failed(
                                             None,
                                             Some(session_id.clone()),
@@ -1313,6 +1398,10 @@ where
                                 return;
                             }
                             reject_pending_permissions(&prompt_permissions, Some(&session_id));
+                            // The proxy reports a call when its response stream
+                            // ends, which can trail the prompt response.
+                            calls_in_flight.settle(&session_id, MODEL_CALL_SETTLE_TIMEOUT).await;
+                            calls_in_flight.finish_turn(&session_id, generation);
                             emit(match result {
                                 Ok(Ok(response)) => prompt::finished(session_id, response),
                                 Ok(Err(error)) => failed(None, Some(session_id), prompt_retry::error_message(&error)),

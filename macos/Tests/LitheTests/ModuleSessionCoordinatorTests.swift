@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct ModuleSessionCoordinatorTests {
     @Test
-    func releaseEventsClearOnlyTheirModuleAndRestoreTheDatabaseSidebar() {
+    func releaseEventsClearOnlyTheirModuleAndCloseTheDatabaseDock() {
         let runtime = ModuleRuntime()
         let store = ModuleCapabilityStore()
         let workbench = WorkbenchFeatureModel()
@@ -16,7 +16,7 @@ struct ModuleSessionCoordinatorTests {
         let git = SessionTestCapability()
         store.cache(database, id: .databaseWorkspace, moduleID: .database)
         store.cache(git, id: .gitWorkspace, moduleID: .git)
-        workbench.selectedSidebar = .database
+        workbench.setVisibility(.database, isVisible: true)
         var released: [ModuleID] = []
         var changes = 0
         let coordinator = ModuleSessionCoordinator(
@@ -31,6 +31,7 @@ struct ModuleSessionCoordinatorTests {
         #expect(store.capability(.databaseWorkspace, as: SessionTestCapability.self) == nil)
         #expect(store.capability(.gitWorkspace) === git)
         #expect(workbench.selectedSidebar == .project)
+        #expect(!workbench.isVisible(.database))
         #expect(released == [.database])
         #expect(changes == 1)
         runtime.publish(ModuleEvent(source: .git, name: ModuleEvent.stateChangedName))

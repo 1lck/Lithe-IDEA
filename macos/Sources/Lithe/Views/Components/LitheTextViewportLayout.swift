@@ -1,6 +1,15 @@
 import AppKit
 
 enum LitheTextViewportLayout {
+    /// Delayed tracking events must not overwrite the cursor of a foreground control or neighbouring divider.
+    @MainActor
+    static func isPointerHitTarget(_ view: NSView?, at windowPoint: NSPoint) -> Bool {
+        // hitTest takes superview coordinates, including when the content view is a flipped NSHostingView.
+        guard let view, let contentView = view.window?.contentView,
+              let hit = contentView.hitTest(contentView.superview?.convert(windowPoint, from: nil) ?? windowPoint) else { return false }
+        return hit === view || hit.isDescendant(of: view)
+    }
+
     /// Above this logical line count, soft wrap stays unavailable: rewrapping
     /// the whole buffer on every pane resize would stall the main thread, so
     /// oversized documents keep the unwrapped geometry regardless of the
@@ -15,6 +24,32 @@ enum LitheTextViewportLayout {
     /// 用于在缓冲区尚未替换时判定"本次即将显示的内容"。
     static func lineCount(of text: String) -> Int {
         TextLineIndex(source: text as NSString).lineCount
+    }
+
+    @MainActor
+    static func consoleLineHeight(in textView: NSTextView) -> CGFloat {
+        (textView.layoutManager?.defaultLineHeight(for: textView.font ?? LitheTheme.editorFont(size: 13)) ?? 0)
+            * LitheTheme.editorLineHeightMultiple
+    }
+
+    /// One TextKit rectangle for both the console text and its gutter, including the empty final line.
+    @MainActor
+    static func consoleCaretLineRect(in textView: NSTextView) -> NSRect {
+        guard let layout = textView.layoutManager, let container = textView.textContainer else { return .zero }
+        layout.ensureLayout(for: container)
+        var rect = NSRect(x: 0, y: textView.textContainerOrigin.y, width: textView.bounds.width,
+                          height: consoleLineHeight(in: textView))
+        let length = textView.string.utf16.count
+        let finalLineIsEmpty = length > 0 && (textView.string as NSString).lineRange(for: NSRange(location: length, length: 0)).location == length
+        if length > 0, textView.selectedRange().location < length || !finalLineIsEmpty {
+            let glyph = layout.glyphIndexForCharacter(at: min(textView.selectedRange().location, length - 1))
+            let fragment = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            rect.origin.y += fragment.minY
+            rect.size.height = fragment.height
+        } else if length > 0 {
+            rect.origin.y += layout.extraLineFragmentRect.minY
+        }
+        return rect
     }
 
     /// 一次更新中软换行的最终判定。`incomingLineCount` 是待替换内容
