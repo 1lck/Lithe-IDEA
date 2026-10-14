@@ -283,6 +283,20 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-name-validation.json -- src/utils/java-name-validation.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test Java and Spring project wizard
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-new-project-location.json -- src/features/window/lib/new-project-location.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-spring-initializr.json -- src/features/window/lib/spring-initializr.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-new-project-creation.json -- src/features/window/components/new-project-creation.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-project-picker-creation.json -- src/features/window/components/project-picker-creation.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test workspace open, replace, and close lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-lifecycle.json -- src/features/workspace/services/workspace-lifecycle.test.ts src/features/window/services/project-window-router.test.ts

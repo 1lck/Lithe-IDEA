@@ -56,7 +56,7 @@ import {
   getProjectPickerInitialState,
   type ProjectPickerMode,
 } from "@/features/window/utils/project-picker-mode";
-import NewProjectContent from "./new-project-content";
+import NewProjectContent, { type NewProjectContentHandle } from "./new-project-content";
 
 interface ProjectPickerProps {
   isOpen: boolean;
@@ -76,7 +76,12 @@ const createRemoteConnectionFormData = (): RemoteConnectionFormData => ({
 });
 
 const ProjectPicker = memo(
-  ({ isOpen, onClose, initialMode = "picker" }: ProjectPickerProps) => {
+  ({ isOpen, onClose: onDismiss, initialMode = "picker" }: ProjectPickerProps) => {
+  const projectCreationRef = useRef<NewProjectContentHandle>(null);
+  const onClose = useCallback(() => {
+    projectCreationRef.current?.cancelPendingCreation();
+    onDismiss();
+  }, [onDismiss]);
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const remoteNameInputRef = useRef<HTMLInputElement>(null);
@@ -443,6 +448,7 @@ const ProjectPicker = memo(
       >
         {commandStep === "newProject" ? (
           <NewProjectContent
+            ref={projectCreationRef}
             initialSource={initialPickerState.newProjectSource}
             onBack={handleBackToPicker}
             onClose={onClose}

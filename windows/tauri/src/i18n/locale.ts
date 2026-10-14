@@ -1,3 +1,4 @@
+import { javaProjectChinese, javaProjectEnglish } from "./java-project-creation";
 import { javaEntryChinese, javaEntryEnglish } from "./java-entry-creation";
 import { changelistsChinese, changelistsEnglish } from "./git-changelists";
 import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-commit";
@@ -11,6 +12,7 @@ const catalogs = {
     "agent.quietNotice": "No recent progress has been received. The task is still active.",
     "agent.continueWaiting": "Continue waiting",
     "agent.stop": "Stop",
+    ...javaProjectEnglish,
     ...javaEntryEnglish,
     ...aiCommitEnglish,
     ...workspaceCommitEnglish,
@@ -4610,6 +4612,7 @@ const catalogs = {
     "agent.quietNotice": "暂未收到新的进度，任务仍在进行。",
     "agent.continueWaiting": "继续等待",
     "agent.stop": "停止",
+    ...javaProjectChinese,
     ...javaEntryChinese,
     ...aiCommitChinese,
     ...workspaceCommitChinese,

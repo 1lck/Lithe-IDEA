@@ -1,7 +1,18 @@
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { SpringProjectFields } from "./spring-project-fields";
+import type { SpringProjectOptions } from "../lib/spring-initializr";
 import { homeDir } from "@tauri-apps/api/path";
 import { invoke } from "@/platform/tauri-core";
 import { exists } from "@tauri-apps/plugin-fs";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type Ref,
+} from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { createNewDirectory } from "@/features/file-system/controllers/file-operations";
 import { openFolder } from "@/features/file-system/controllers/platform";
@@ -38,13 +49,19 @@ import {
   getNewProjectPath,
   getProjectNameError,
   getStarterCommand,
+  loadDefaultProjectLocation,
   inferProjectNameFromRepositoryUrl,
   type NewProjectSource,
   type ProjectPackageManager,
 } from "../lib/new-project-model";
 import { useTranslation } from "@/i18n/locale-provider";
 
+export interface NewProjectContentHandle {
+  cancelPendingCreation: () => void;
+}
+
 interface NewProjectContentProps {
+  ref?: Ref<NewProjectContentHandle>;
   onBack: () => void;
   onClose: () => void;
   initialSource?: NewProjectSource;
@@ -66,12 +83,25 @@ const packageManagerOptions = [
 ];
 
 export default function NewProjectContent({
+  ref,
   onBack,
   onClose,
   initialSource,
 }: NewProjectContentProps) {
   const { t } = useTranslation();
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const creatingRef = useRef<{ opening: boolean } | null>(null);
+  useImperativeHandle(
+    ref,
+    () => ({
+      // The outer dialog must retire the request before hiding or animating out.
+      cancelPendingCreation: () => {
+        creatingRef.current = null;
+      },
+    }),
+    [],
+  );
+  const [springOptions, setSpringOptions] = useState<SpringProjectOptions | null>(null);
   const repositoryInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"source" | "details" | "creating">(
     initialSource ? "details" : "source",
@@ -95,6 +125,22 @@ export default function NewProjectContent({
         badge: t("welcome.builtIn"),
         icon: FolderPlus,
         keywords: ["blank", "folder", "local", "empty"],
+      },
+      {
+        id: "java",
+        label: t("javaProject.project"),
+        description: t("javaProject.projectDescription"),
+        badge: t("welcome.builtIn"),
+        icon: Code,
+        keywords: ["jdk", "java", "main"],
+      },
+      {
+        id: "spring-boot",
+        label: t("javaProject.spring"),
+        description: t("javaProject.springDescription"),
+        badge: "Initializr",
+        icon: RocketLaunch,
+        keywords: ["java", "spring", "maven", "gradle", "boot"],
       },
       {
         id: "nextjs",
@@ -130,21 +176,53 @@ export default function NewProjectContent({
     return t("welcome.newProject");
   };
 
+  const closeCreation = () => {
+    creatingRef.current = null;
+    onClose();
+  };
+  const backFromCreation = () => {
+    creatingRef.current = null;
+    onBack();
+  };
+
   useEffect(() => {
-    void homeDir()
-      .then(setLocationPath)
-      .catch(() => setLocationPath(""));
+    // Generation may finish after closing or switching projects. Its directory
+    // remains user-owned, but the retired request must not change current UI.
+    const retireGeneration = () => {
+      if (creatingRef.current && !creatingRef.current.opening) {
+        creatingRef.current = null;
+        setStep("details");
+        setErrorMessage("");
+      }
+    };
+    const stopRoot = useFileSystemStore.subscribe((next, previous) => {
+      if (next.rootFolderPath !== previous.rootFolderPath) retireGeneration();
+    });
+    let workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
+    const stopWorkspace = workspaceRuntimeRegistry.subscribe(() => {
+      const next = workspaceRuntimeRegistry.getActiveWorkspaceId();
+      if (next !== workspaceId) retireGeneration();
+      workspaceId = next;
+    });
+    return () => {
+      creatingRef.current = null;
+      stopRoot();
+      stopWorkspace();
+    };
   }, []);
+
+  useEffect(() => loadDefaultProjectLocation(homeDir, setLocationPath), []);
 
   useEffect(() => {
     if (step !== "details") return;
-    window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       if (source === "clone") {
         repositoryInputRef.current?.focus();
       } else {
         nameInputRef.current?.focus();
       }
     }, 0);
+    return () => window.clearTimeout(timer);
   }, [source, step]);
 
   const filteredSourceOptions = useMemo(() => {
@@ -173,10 +251,12 @@ export default function NewProjectContent({
     !projectNameError &&
     !!locationPath.trim() &&
     (source !== "clone" || !!repositoryUrl.trim()) &&
+    (source !== "spring-boot" || springOptions !== null) &&
     step === "details";
 
   const chooseSource = (nextSource: NewProjectSource) => {
     setSource(nextSource);
+    setSpringOptions(null);
     setStep("details");
     setProjectName("");
     setRepositoryUrl("");
@@ -237,13 +317,18 @@ export default function NewProjectContent({
   };
 
   const createProject = async () => {
-    if (!canCreate) return;
+    if (!canCreate || creatingRef.current) return;
+    const creation = { opening: false };
+    creatingRef.current = creation;
+    const isCurrent = () => creatingRef.current === creation;
 
     setStep("creating");
     setErrorMessage("");
 
     try {
-      if (await exists(destinationPath)) {
+      const destinationExists = await exists(destinationPath);
+      if (!isCurrent()) return;
+      if (destinationExists) {
         throw new Error(t("newProject.errorDestinationExists", { path: destinationPath }));
       }
 
@@ -252,11 +337,25 @@ export default function NewProjectContent({
           repositoryUrl: repositoryUrl.trim(),
           destinationPath,
         });
+      } else if (source === "empty" || source === "java" || source === "spring-boot") {
+        await invoke<string>("create_project_scaffold", {
+          request: {
+            parentPath: locationPath.trim(),
+            name: projectName.trim(),
+            source,
+            ...(source === "spring-boot" ? springOptions : {}),
+          },
+        });
       } else {
         await createNewDirectory(locationPath.trim(), projectName.trim());
       }
 
+      if (!isCurrent()) return;
+      // Opening this project changes the active root by design. Once dispatched,
+      // that operation keeps the existing workspace lifecycle owner.
+      creation.opening = true;
       const opened = await handleOpenFolderByPath(destinationPath);
+      if (!isCurrent()) return;
       if (!opened) {
         throw new Error(t("newProject.errorCreatedButCouldNotOpen"));
       }
@@ -270,17 +369,24 @@ export default function NewProjectContent({
         });
       }
     } catch (error) {
+      if (!isCurrent()) return;
       console.error("Failed to create project:", error);
       setErrorMessage(error instanceof Error ? error.message : String(error));
       setStep("details");
+    } finally {
+      if (isCurrent()) creatingRef.current = null;
     }
   };
 
   if (step === "source") {
     return (
       <>
-        <CommandHeader onClose={onClose}>
-          <CommandHeaderAction type="button" aria-label={t("welcome.backToProjects")} onClick={onBack}>
+        <CommandHeader onClose={closeCreation}>
+          <CommandHeaderAction
+            type="button"
+            aria-label={t("welcome.backToProjects")}
+            onClick={backFromCreation}
+          >
             <ArrowLeft />
           </CommandHeaderAction>
           <CommandInput
@@ -321,7 +427,7 @@ export default function NewProjectContent({
   if (step === "creating") {
     return (
       <>
-        <CommandHeader onClose={onClose}>
+        <CommandHeader onClose={closeCreation}>
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <SourceIcon className="shrink-0 text-primary" />
             <span className="truncate font-sans ui-text-base font-medium text-foreground">
@@ -353,7 +459,7 @@ export default function NewProjectContent({
 
   return (
     <>
-      <CommandHeader onClose={onClose}>
+      <CommandHeader onClose={closeCreation}>
         <CommandHeaderAction
           type="button"
           aria-label={t("newProject.backToStarters")}
@@ -436,6 +542,14 @@ export default function NewProjectContent({
             </InputGroup>
           </Field>
 
+          {source === "spring-boot" && (
+            <SpringProjectFields
+              projectName={projectName}
+              onChange={setSpringOptions}
+              initialOptions={springOptions}
+            />
+          )}
+
           {source === "nextjs" || source === "vite-react" ? (
             <Field>
               <FieldLabel htmlFor="new-project-package-manager">
@@ -448,9 +562,7 @@ export default function NewProjectContent({
                 onChange={(value) => setPackageManager(value as ProjectPackageManager)}
                 size="md"
               />
-              <FieldDescription>
-                {t("newProject.packageManagerDescription")}
-              </FieldDescription>
+              <FieldDescription>{t("newProject.packageManagerDescription")}</FieldDescription>
             </Field>
           ) : null}
 

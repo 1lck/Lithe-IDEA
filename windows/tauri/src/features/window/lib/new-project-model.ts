@@ -1,6 +1,6 @@
 import { joinPath } from "@/utils/path-helpers";
 
-export type NewProjectSource = "empty" | "nextjs" | "vite-react" | "clone";
+export type NewProjectSource = "empty" | "java" | "spring-boot" | "nextjs" | "vite-react" | "clone";
 export type ProjectPackageManager = "npm" | "pnpm" | "bun";
 type Translator = (key: string, values?: Record<string, string | number>) => string;
 
@@ -73,7 +73,7 @@ export function getNewProjectPath(locationPath: string, projectName: string): st
 }
 
 export function getStarterCommand(
-  source: Exclude<NewProjectSource, "empty" | "clone">,
+  source: "nextjs" | "vite-react",
   packageManager: ProjectPackageManager,
 ): string {
   if (source === "nextjs") {
@@ -103,4 +103,20 @@ export function getStarterCommand(
   }[packageManager];
 
   return `${createCommand} && ${installCommand}`;
+}
+
+/** Late native home-directory answers must not replace a user's chosen location. */
+export function loadDefaultProjectLocation(
+  readHome: () => Promise<string>,
+  setLocation: (update: (current: string) => string) => void,
+): () => void {
+  let active = true;
+  void readHome()
+    .then((home) => {
+      if (active) setLocation((current) => current || home);
+    })
+    .catch(() => {});
+  return () => {
+    active = false;
+  };
 }
