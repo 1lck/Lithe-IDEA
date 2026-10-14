@@ -109,6 +109,7 @@ dev.lithe.plugin.java-support/
 - **随应用发行**：Java 是主场景，首次启动必须离线可用，所以包在 `Lithe.app/Contents/Resources/OfficialPlugins/` 下，信任方式是 `sameTeamAsHost`（由应用自身的代码签名封住）。
 - **默认启用**：随应用发行的包替代的是内置功能，它的模块默认开启；下载安装的插件仍然默认关闭。
 - **卸载**：app bundle 运行时只读，包本身删不掉。卸载记录在用户目录的 `<app-support>/Lithe/Plugins/.removed-bundled-plugins.json`，宿主重启后不再注册这个插件，并在那次启动时删除它的语言服务器状态（卸载后到重启前，语言服务器仍在运行并写入该目录，所以不在点击时删除；重启前恢复则不会丢失索引）。插件管理里仍然列出它并提供“恢复”。
+- **卸载时 JDT 状态的清理**：JDT LS 的工作区索引（`<cache>/Lithe/language-servers/jdtls/`）和 Equinox 配置区（`jdtls-configuration/`）在宿主缓存里，不在插件自己的 `PluginState/<plugin-id>/` 下，插件包管理器删不到。所以由 `jdt` 集成自己清理：启动时 `pluginsDidLoad` 拿到扫描结果，如果没有任何“未卸载”的已安装插件声明 `jdt` 集成，就在后台删除这两个目录（不碰同目录下其他语言服务器的缓存）。扫描本身失败（拿不到已安装列表）、或插件已安装但启动时被拒绝，都不算卸载，状态保留。这样宿主既不用写死 Java Support 的插件 ID，也不需要把缓存搬进插件状态目录。
 - **卸载后的表现**：插件仍然“拥有”Java 语言，宿主不会退回任何内置路径。打开 Java 文件时提示需要安装或恢复 Java Support；语法高亮、Maven 面板和其他语言不受影响。
 
 ### 正确做法
@@ -166,7 +167,7 @@ dev.lithe.plugin.java-support/
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib plugins`：API 2 的合法与非法清单、启动计划标准答案、运行时版本判定，以及仓库里的官方 `plugin.json`。
 - `./scripts/verify-official-plugins.sh`：组装三个官方包并校验入口、自带运行时、符号链接和原生代码的位置。
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|JavaLanguageServerRuntimeTests|MacJdtWorkspaceStateTests'`：按声明定位资源、路径固定在包内、版本过滤、默认启用、移除与恢复。
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|JavaLanguageServerRuntimeTests|MacJdtWorkspaceStateTests|MacJdtHostIntegrationStateTests|LanguageToolEnvironmentTests'`：按声明定位资源、路径固定在包内、版本过滤、默认启用、移除与恢复；卸载后 JDT 的索引和 Equinox 配置区被删除（扫描失败或插件被拒绝时保留）；运行时启动的服务器 `PATH` 上先找到宿主选中的运行时。
 - `LITHE_RUN_JAVA_DEBUG_INTEGRATION=1 ./scripts/test-macos.sh --filter RealJavaDebugIntegrationTests`：从组装好的插件包启动真实的 JDT LS 并完成 Spring Boot 断点调试。迁移初版时它因 `java.project.getClasspaths` 在服务端抛空指针而失败（迁移前的代码同样失败），该问题已随入口发现的修复一并解决，见 [Java 入口由 JDT 判定](2026-09-21-java-entrypoints-owned-by-jdt.md)。这组测试直接组装调试会话，不验证应用里的能力目录。
 - `./scripts/test-macos.sh --filter '(LanguageProviderCatalogSourceTests|RunWorkflowCoordinatorTests|RunConfigurationIntegrationTests)'`：用仓库里的官方 Java 清单验证能力目录保留运行、测试、调试；未声明的插件得不到任何宿主能力；注册表只为声明的能力创建内置工具；声明了 `run` 的语言不要求执行模块。
 - `./scripts/verify-macos-package.sh`：打出的应用里 Java Support 的文件齐全，且不存在 `Contents/Resources/LanguageServers`。

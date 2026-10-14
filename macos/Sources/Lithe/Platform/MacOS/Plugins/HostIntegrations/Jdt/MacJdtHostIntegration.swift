@@ -17,6 +17,9 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
     private let runtimeService: ProjectRuntimeService
     private let workspaceState: MacJdtWorkspaceState
     private let launchResources = MacJdtLaunchResources()
+    /// The removal of cached state started by the last `pluginsDidLoad`, so a
+    /// caller that needs the files gone can wait for it.
+    private(set) var stateRemoval: Task<Void, Never>?
 
     init(
         launchResolver: MacPluginLanguageServerLaunchResolver,
@@ -31,8 +34,30 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
     /// JDT LS runs on the JDK its plugin ships. The host only learns where
     /// that JDK is from the plugin's declaration; without a declaring plugin
     /// the Java language service is unavailable.
-    func pluginsDidLoad(_ plugins: [InstalledPluginPackage]) {
+    ///
+    /// The indexes and Equinox areas JDT LS keeps in the host cache belong to
+    /// the plugin too. They live outside the plugin's own state directory, so
+    /// the package store cannot reach them; when no installed plugin declares
+    /// this integration any more, the integration discards them itself. A
+    /// package that is installed but rejected at startup, or a scan that
+    /// failed, is not a removal: the state is kept until the plugin is known
+    /// to be gone.
+    func pluginsDidLoad(_ plugins: [InstalledPluginPackage], installed: [InstalledPluginPackage]?) {
         runtimeService.setJavaLanguageServerRuntimeHome(runtimeHome(in: plugins))
+        guard let installed,
+              !installed.contains(where: { $0.installation.status != .removed && declaresIntegration($0) })
+        else {
+            stateRemoval = nil
+            return
+        }
+        let cacheDirectoryURL = workspaceState.cacheDirectoryURL
+        stateRemoval = Task.detached(priority: .utility) {
+            MacJdtWorkspaceState.removeAllState(in: cacheDirectoryURL)
+        }
+    }
+
+    private func declaresIntegration(_ plugin: InstalledPluginPackage) -> Bool {
+        plugin.descriptor.languageServers.contains { $0.hostIntegrationID == id }
     }
 
     func launch(

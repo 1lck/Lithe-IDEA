@@ -311,7 +311,8 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
   后文件名不一致会在组装时失败。组装结果由 `LitheOfficialPluginVerifier` 校验：入口和各架构的
   `bin/java` 存在，包内没有符号链接，Mach-O 只出现在清单声明的 `runtime/` 目录内。
 - **运行时状态**：语言服务器的可写状态在 `<app-support>/Lithe/PluginState/<plugin-id>/`，
-  JDT LS 的工作区索引和 Equinox 配置区仍在 `<cache>/Lithe/language-servers/`。两者都是单次安装的
+  JDT LS 的工作区索引和 Equinox 配置区仍在 `<cache>/Lithe/language-servers/`（`jdtls/`、`jdtls-configuration/`），
+  由 `jdt` 宿主集成在启动时发现没有未卸载的插件声明它后删除。两者都是单次安装的
   可变状态，任何阶段都不得复制或跨 worktree 共享。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。

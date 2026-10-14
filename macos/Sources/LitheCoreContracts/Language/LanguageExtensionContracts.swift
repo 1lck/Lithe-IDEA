@@ -105,6 +105,10 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
     public let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
     /// Native host integration the provider declares, such as `jdt`.
     public let hostIntegrationID: String?
+    /// Runtime tool, such as `node`, the host starts the server with. The
+    /// executable the host selects for it is also what the server's own
+    /// commands resolve by name.
+    public let launchRuntimeTool: String?
 
     public init(
         languageID: String,
@@ -118,7 +122,8 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         languageIdentifier: String,
         launchSource: DeclarativeLanguageServerLaunchSource? = nil,
         executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
-        hostIntegrationID: String? = nil
+        hostIntegrationID: String? = nil,
+        launchRuntimeTool: String? = nil
     ) {
         self.languageID = languageID
         self.displayName = displayName
@@ -132,6 +137,7 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         self.launchSource = launchSource
         self.executableVersionRequirement = executableVersionRequirement
         self.hostIntegrationID = hostIntegrationID
+        self.launchRuntimeTool = launchRuntimeTool
     }
 }
 

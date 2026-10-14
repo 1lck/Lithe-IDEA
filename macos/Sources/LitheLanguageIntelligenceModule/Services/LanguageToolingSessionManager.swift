@@ -273,7 +273,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
             executableURL: configuration.executableURL,
             launchSource: configuration.launchSource,
             executableVersionRequirement: configuration.executableVersionRequirement,
-            hostIntegrationID: configuration.hostIntegrationID
+            hostIntegrationID: configuration.hostIntegrationID,
+            launchRuntimeTool: configuration.launchRuntimeTool
         )
         let descriptor = LanguageProviderDescriptor(
             id: support.id,

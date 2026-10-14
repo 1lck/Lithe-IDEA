@@ -13,7 +13,10 @@ protocol MacLanguageServerHostIntegration {
     var id: String { get }
 
     /// Called once the installed plugins are known, before any server starts.
-    func pluginsDidLoad(_ plugins: [InstalledPluginPackage])
+    /// `plugins` are the accepted packages. `installed` is every package the
+    /// scan found, or `nil` when the scan itself failed and nothing is known
+    /// about what is installed.
+    func pluginsDidLoad(_ plugins: [InstalledPluginPackage], installed: [InstalledPluginPackage]?)
 
     /// What the integration adds to one start of the declaring server.
     func launch(
@@ -56,9 +59,9 @@ struct MacLanguageServerHostIntegrations {
         self.integrations = Dictionary(uniqueKeysWithValues: integrations.map { ($0.id, $0) })
     }
 
-    func pluginsDidLoad(_ plugins: [InstalledPluginPackage]) {
+    func pluginsDidLoad(_ plugins: [InstalledPluginPackage], installed: [InstalledPluginPackage]?) {
         for id in integrations.keys.sorted() {
-            integrations[id]?.pluginsDidLoad(plugins)
+            integrations[id]?.pluginsDidLoad(plugins, installed: installed)
         }
     }
 

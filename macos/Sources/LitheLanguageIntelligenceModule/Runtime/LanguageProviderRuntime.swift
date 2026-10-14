@@ -95,6 +95,16 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         var environment = runtimeService.languageToolProcessEnvironment(
             runtimeTools: languageServerLaunch.runtimeTools
         )
+        // A host integration owns the environment of its server. Any other
+        // server started by a runtime gets the runtime selected above, not
+        // another one the inherited PATH may list first.
+        if let tool = languageServerLaunch.launchRuntimeTool, hostIntegrationLaunch == nil {
+            environment = LanguageToolEnvironment.exportingRuntime(
+                tool: tool,
+                executableURL: executableURL,
+                into: environment
+            )
+        }
         environment.merge(languageServerLaunch.environment) { _, configured in configured }
         let launchResolver: (@MainActor (URL) throws -> ResolvedLanguageServerLaunch)?
         if let source = languageServerLaunch.launchSource {

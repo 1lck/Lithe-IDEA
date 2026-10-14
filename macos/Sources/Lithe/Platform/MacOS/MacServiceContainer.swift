@@ -232,7 +232,10 @@ final class MacServiceContainer {
                 )
             )
         ])
-        languageServerHostIntegrations.pluginsDidLoad(pluginStartup.registeredPlugins)
+        languageServerHostIntegrations.pluginsDidLoad(
+            pluginStartup.registeredPlugins,
+            installed: pluginStartup.scanSucceeded ? pluginStartup.installedPlugins : nil
+        )
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
         // package is disabled, quarantined, or failed to load. Only the active
@@ -719,7 +722,8 @@ final class MacServiceContainer {
                     languageIdentifier: server.languageIdentifier,
                     launchSource: launchSource,
                     executableVersionRequirement: probe.versionRequirement,
-                    hostIntegrationID: server.hostIntegrationID
+                    hostIntegrationID: server.hostIntegrationID,
+                    launchRuntimeTool: server.launchRuntimeTool
                 )
                 return ModuleFactory(manifest: manifest) {
                     BundledLanguageServerModule(manifest: manifest, configuration: configuration)

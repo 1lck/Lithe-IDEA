@@ -15,6 +15,9 @@ struct MacPluginStartupResult {
     /// so a package is registered even while it is disabled.
     let registeredPlugins: [InstalledPluginPackage]
     let issues: [PluginStartupIssue]
+    /// `false` when the installed packages could not be scanned at all, so an
+    /// empty `installedPlugins` means "unknown" rather than "none installed".
+    var scanSucceeded = true
 
     var installedManifests: [PluginManifest] {
         installedPlugins.map(\.manifest).sorted { $0.id < $1.id }
@@ -59,7 +62,8 @@ final class MacPluginStartupLoader {
             return MacPluginStartupResult(
                 installedPlugins: [],
                 registeredPlugins: [],
-                issues: [PluginStartupIssue(pluginID: nil, message: error.localizedDescription)]
+                issues: [PluginStartupIssue(pluginID: nil, message: error.localizedDescription)],
+                scanSucceeded: false
             )
         }
 

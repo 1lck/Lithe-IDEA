@@ -76,6 +76,8 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
     package let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
     /// Native host integration the provider declares, such as `jdt`.
     package let hostIntegrationID: String?
+    /// See `LanguageServerExtensionConfiguration.launchRuntimeTool`.
+    package let launchRuntimeTool: String?
 
     package init(
         executableNames: [String],
@@ -87,7 +89,8 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
         initializationOptions: ToolingJSONValue? = nil,
         launchSource: DeclarativeLanguageServerLaunchSource? = nil,
         executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
-        hostIntegrationID: String? = nil
+        hostIntegrationID: String? = nil,
+        launchRuntimeTool: String? = nil
     ) {
         self.executableNames = executableNames
         self.arguments = arguments
@@ -99,6 +102,7 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
         self.launchSource = launchSource
         self.executableVersionRequirement = executableVersionRequirement
         self.hostIntegrationID = hostIntegrationID
+        self.launchRuntimeTool = launchRuntimeTool
     }
 }
 

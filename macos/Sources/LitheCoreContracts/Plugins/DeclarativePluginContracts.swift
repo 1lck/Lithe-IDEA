@@ -61,6 +61,13 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
     /// language ID.
     public let hostIntegrationID: String?
 
+    /// Tool of a runtime launch, such as `node`. The executable the host
+    /// starts for this server is that runtime, and the server's own child
+    /// processes expect to find the same one by name.
+    public var launchRuntimeTool: String? {
+        if case .runtime(let tool, _, _) = launch { tool } else { nil }
+    }
+
     /// Path inside the plugin package for a packaged server.
     public var packagedRelativePath: String? {
         if case .packaged(let relativePath) = launch { relativePath } else { nil }

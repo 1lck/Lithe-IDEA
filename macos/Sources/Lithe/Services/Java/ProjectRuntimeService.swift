@@ -45,8 +45,7 @@ extension ProjectRuntimeService: LanguageToolRuntimePort {
     }
 
     static func runtimeToolEnvironmentKey(_ tool: String) -> String {
-        let name = String(tool.uppercased().map { $0.isLetter || $0.isNumber ? $0 : "_" })
-        return "LITHE_\(name)_PATH"
+        LanguageToolEnvironment.runtimeToolKey(tool)
     }
 
     package func missingLanguageToolMessage(_ name: String) -> String {
