@@ -15,6 +15,15 @@ enum AgentHistoryFilter: String, CaseIterable {
 }
 
 enum AgentHistoryPresentation {
+    static func popupTitle(_ session: AgentSessionSummary, metadata: AgentHistoryMetadata?,
+                           conversation: AgentConversation?) -> String {
+        if let title = metadata?.title ?? session.title { return title }
+        if let conversation, conversation.isAttached, !conversation.isLoading, conversation.messages.isEmpty {
+            return String(localized: "New Chat")
+        }
+        return String(localized: "Untitled conversation")
+    }
+
     static func sessions(_ sessions: [AgentSessionSummary], metadata: [String: AgentHistoryMetadata],
                          query: String, filter: AgentHistoryFilter) -> [AgentSessionSummary] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)

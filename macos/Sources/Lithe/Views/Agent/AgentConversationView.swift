@@ -101,7 +101,7 @@ enum AgentWelcomeVisit {
                                AgentOption(id: "claude-acp", name: "Claude Agent")]
 
     static func shouldShow(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: key) == nil
+        chosenAgentID(defaults: defaults) == nil
     }
 
     static func markAgentChosen(agentID: String, defaults: UserDefaults = .standard) {

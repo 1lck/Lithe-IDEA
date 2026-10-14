@@ -15,7 +15,7 @@ struct AgentConversationEntryPolicyTests {
         #expect(AgentWelcomeVisit.shouldShow(defaults: defaults))
         #expect(AgentWelcomeVisit.shouldShow(defaults: defaults), "Opening and leaving the panel must not consume the welcome page")
         defaults.set(true, forKey: AppSettings.agentSelectionPreferenceKey)
-        #expect(!AgentWelcomeVisit.shouldShow(defaults: defaults))
+        #expect(AgentWelcomeVisit.shouldShow(defaults: defaults), "The legacy first-open flag is not a user selection")
         #expect(AgentWelcomeVisit.chosenAgentID(defaults: defaults) == nil,
                 "The legacy Boolean must not become a nonexistent Agent ID")
         AgentWelcomeVisit.markAgentChosen(agentID: "codex-acp", defaults: defaults)

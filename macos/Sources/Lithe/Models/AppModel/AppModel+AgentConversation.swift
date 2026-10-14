@@ -56,6 +56,7 @@ extension AppModel {
     }
 
     func activateAgentConversation() {
+        guard selectedAgentConversationID != nil else { return }
         guard isAgentConversationEnabled, agentConversationFeatureIfActive == nil else {
             connectAgentConversation()
             return
@@ -137,18 +138,15 @@ extension AppModel {
     /// Refresh the panel's agents and start the selected one if needed.
     func connectAgentConversation() {
         guard !isChangingAgentProvider else { return }
+        guard let selectedAgentConversationID else { return }
         guard let feature = agentConversationFeatureIfActive else { return }
         if let workspaceURL { feature.bindWorkspace(workspaceURL) }
         feature.onAttentionChanged = { [weak self] needsAttention in
             self?.agentConversationNeedsAttention = needsAttention
         }
         feature.setAgents(configuredAgentOptions)
-        if let selectedAgentConversationID {
-            guard feature.agents.contains(where: { $0.id == selectedAgentConversationID }) else { return }
-            feature.selectAgent(selectedAgentConversationID)
-        } else {
-            selectedAgentConversationID = feature.selectedAgentID
-        }
+        guard feature.agents.contains(where: { $0.id == selectedAgentConversationID }) else { return }
+        feature.selectAgent(selectedAgentConversationID)
         guard let agentID = feature.selectedAgentID else { return }
         let connection = feature.connection(for: agentID)
         guard !connection.hasActiveConnection else { return }

@@ -9,6 +9,43 @@ import LitheCoreContracts
 @Suite(.serialized)
 struct AgentConversationSelectionTests {
     @Test
+    func configuredDefaultDoesNotConsumeWelcomeOrStartAgentBeforeUserSelection() async throws {
+        let domain = "Lithe.AgentWelcomeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        settings.agentConfigurations["codex-acp"] = .init(name: "Codex", providerID: nil, authentication: .codexSubscription)
+        let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .normal).services
+        let model = AppModel(settings: settings, services: services)
+        do {
+            try await services.moduleRuntime.setEnabled(true, for: .agentConversation)
+            for _ in 0..<2 {
+                model.activateAgentConversation()
+                #expect(try services.moduleRuntime.snapshot(for: .agentConversation).isInstantiated == false)
+                #expect(model.selectedAgentConversationID == nil)
+                #expect(AgentWelcomeVisit.shouldShow(defaults: defaults))
+            }
+            // Even an already activated module's default must not become a user choice.
+            let capability = try #require(try await services.moduleRuntime.activateCapability(.agentConversation) as? AgentConversationCapability)
+            capability.feature.setAgents(model.configuredAgentOptions)
+            #expect(capability.feature.selectedAgentID == "codex-acp")
+            model.connectAgentConversation()
+            #expect(model.selectedAgentConversationID == nil)
+            #expect(settings.preferredConversationAgentID == nil)
+            #expect(!capability.feature.hasActiveConnection)
+            #expect(AgentWelcomeVisit.shouldShow(defaults: defaults))
+            model.selectAgentConversationAgent("codex-acp")
+            #expect(settings.preferredConversationAgentID == "codex-acp")
+            #expect(!AgentWelcomeVisit.shouldShow(defaults: defaults))
+        } catch {
+            await model.shutdownProjectSession()
+            throw error
+        }
+        await model.shutdownProjectSession()
+    }
+
+    @Test
     func settingsAndConversationShareSelectionEvenBeforeAgentSetup() async throws {
         let domain = "Lithe.AgentSelectionTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: domain))
@@ -329,6 +366,11 @@ struct AgentConversationSelectionTests {
             host.layoutSubtreeIfNeeded()
             #expect(feature.selectedSessionID == "new-chat")
             #expect(feature.openSessionIDs == ["codex-acp", "new-chat"])
+            let session = try #require(feature.sessions.first { $0.id == "new-chat" })
+            let conversation = try #require(feature.conversations[session.id])
+            #expect(conversation.hasCompleteHistory)
+            #expect(AgentHistoryPresentation.popupTitle(session, metadata: nil, conversation: conversation) == String(localized: "New Chat"))
+            #expect(AgentHistoryPresentation.popupTitle(session, metadata: .init(title: "Renamed"), conversation: conversation) == "Renamed")
             try clickNativeView(host, at: point)
             #expect(await awaitChange(on: feature) { feature.isCreatingSession })
             #expect(native.commands.count == count + 2, "New Chat becomes usable again after confirmation")

@@ -26,7 +26,8 @@ struct AgentHistoryPopover: View {
                             Button { onSelect(session.id) } label: {
                                 HStack(spacing: LitheDropdownMetrics.itemHorizontalPadding) {
                                     AgentBrandIcon(name: agentName, size: LitheDropdownMetrics.iconSize, style: .brand)
-                                    Text(title(session))
+                                    Text(AgentHistoryPresentation.popupTitle(session,
+                                        metadata: history.metadata[session.id], conversation: feature.conversations[session.id]))
                                         .lineLimit(1).truncationMode(.tail)
                                     Spacer(minLength: 0)
                                     if let date = AgentHistoryPresentation.date(session.updatedAt) {
@@ -99,15 +100,6 @@ struct AgentHistoryPopover: View {
     private func canSelect(_ id: String) -> Bool {
         id == feature.selectedSessionID || feature.conversations[id]?.isAttached == true
             || (feature.connectionState == .ready && feature.canLoadSessions)
-    }
-
-    private func title(_ session: AgentSessionSummary) -> String {
-        if let title = history.metadata[session.id]?.title ?? session.title { return title }
-        if let conversation = feature.conversations[session.id], conversation.isAttached,
-           !conversation.isLoading, !conversation.hasCompleteHistory, conversation.messages.isEmpty {
-            return String(localized: "New Chat")
-        }
-        return String(localized: "Untitled conversation")
     }
 
     private func reconcileSelection() {
