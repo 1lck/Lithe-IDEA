@@ -56,7 +56,7 @@ jobs:
   release:
     name: Release ${{ matrix.release.tag }}
     needs: plan
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/preview' && needs.plan.outputs.releases != '[]'
+    if: github.repository == 'Lithe-IDEA/Lithe-IDEA' && github.event_name != 'pull_request' && github.ref == 'refs/heads/preview' && needs.plan.outputs.releases != '[]'
     runs-on: macos-26
     timeout-minutes: 30
     permissions:
@@ -135,6 +135,7 @@ jobs:
     # a listing that failed earlier is retried.
     if: >-
       !cancelled()
+      && github.repository == 'Lithe-IDEA/Lithe-IDEA'
       && github.event_name != 'pull_request'
       && github.ref == 'refs/heads/preview'
       && needs.plan.result == 'success'

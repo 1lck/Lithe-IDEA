@@ -254,6 +254,17 @@ open dist/Lithe.app
   FastAI 提供多款主流大模型的便捷中转服务，让开发者可以更轻松地把 AI 能力接入日常开发流程。其支持也帮助 Lithe 持续完善 AI 辅助体验。感谢 FastAI 对本项目的支持！欢迎扫码加入 FastAI Token 交流群②（群号：1073874006）。
 </p>
 
+<p align="center">
+  <a href="https://pateway.ai/?ch=68i69k">
+    <img src="./docs/assets/sponsors/patewayai-banner-zh-CN.png" width="720" alt="PatewayAI">
+  </a>
+</p>
+<p align="center">
+  感谢 PatewayAI 对本项目的赞助！<br>
+  PatewayAI 专注于官方高质量模型 API 中继，完整支持 Claude、GPT 系列以及各类国内主流模型，并提供透明计费与企业级服务。<br>
+  经济模式低至 0.5 折！<a href="https://pateway.ai/?ch=68i69k">通过此链接注册可获试用额度</a>，还可参与不定时活动领取免费额度，双向推荐奖励最高达 150 美元。
+</p>
+
 <a href="mailto:2188718831@qq.com">想显示在下方？</a>
 
 <table>
@@ -269,13 +280,22 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
+      <a href="https://pateway.ai/?ch=68i69k">
+        <img src="./docs/assets/sponsors/patewayai-logo.png" width="112" alt="PatewayAI">
+      </a>
+    </td>
+    <td>
+      <a href="https://pateway.ai/?ch=68i69k"><strong>PatewayAI</strong></a> 提供 Claude、GPT 系列及国内主流模型的官方高质量 API 中继，支持透明计费与企业级服务。注册可获试用额度，还可参与不定时免费额度活动。感谢 PatewayAI 对 Lithe 的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
       <a href="https://www.packyapi.ai/register?aff=dWNN">
         <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
       </a>
     </td>
     <td>
-      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> 是一家稳定、高效的 API 中转服务商，一句话接入主流大模型。统一域名、统一密钥、智能容灾切换，97% 可用性。人民币 1:1 充值，无汇率无手续费坑，新用户首充立享折扣 + $1 免费体验额度，多分组折扣低至 2 折起，提供专属 Codex/Claude Code 高速通道。<br>
-      <a href="https://www.packyapi.ai/register?aff=dWNN">点此链接注册，立即开始使用！</a>
+      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> 提供主流大模型 API 中转服务，支持统一密钥、智能容灾及 Codex、Claude Code 专属通道。人民币 1:1 充值，无手续费，新用户可享首充折扣和 $1 体验额度。
     </td>
   </tr>
   <tr>
@@ -286,6 +306,16 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> 面向开发者提供大模型中转服务，便于在编程、内容生成和自动化等不同场景中调用模型 API。其支持帮助 Lithe 保持持续开发，并探索更实用的 AI 工具体验。感谢 TorchAI 对本项目的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://www.ccsub.net/register?ref=FKVAWH6E">
+        <img src="./docs/assets/sponsors/ccsub.svg" width="112" alt="CCSub">
+      </a>
+    </td>
+    <td>
+      <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> 提供统一 API 接入，一个密钥即可调用 Claude、GPT、Gemini 和 DeepSeek 等模型，兼容 Claude Code、Codex、Cursor 等 AI 编程工具。新用户注册可获 $5 体验额度。感谢 CCSub 对 Lithe 的支持！
     </td>
   </tr>
   <tr>

@@ -302,7 +302,7 @@ export function useMenuEventsWrapper() {
     },
     onChangelog: async () => {
       const { openUrl } = await import("@tauri-apps/plugin-opener");
-      await openUrl("https://github.com/Lithe-IDEA/Lithe-IDEA/releases");
+      await openUrl("https://github.com/1lck/Lithe-IDEA/releases");
     },
     onWhatsNew: () => {
       void openWhatsNew();
@@ -325,14 +325,14 @@ export function useMenuEventsWrapper() {
         await writeClipboardText(text);
 
         const { openUrl } = await import("@tauri-apps/plugin-opener");
-        await openUrl("https://github.com/Lithe-IDEA/Lithe-IDEA/issues/new?template=01-bug.yml");
+        await openUrl("https://github.com/1lck/Lithe-IDEA/issues/new?template=01-bug.yml");
       } catch (e) {
         console.error("Failed to prepare bug report:", e);
       }
     },
     onRequestFeature: async () => {
       const { openUrl } = await import("@tauri-apps/plugin-opener");
-      await openUrl("https://github.com/Lithe-IDEA/Lithe-IDEA/issues/new?template=02-feature.yml");
+      await openUrl("https://github.com/1lck/Lithe-IDEA/issues/new?template=02-feature.yml");
     },
     onCheckForUpdates: async () => {
       // An available update opens the shared details dialog from the store.

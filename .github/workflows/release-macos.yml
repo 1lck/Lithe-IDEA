@@ -350,11 +350,14 @@ jobs:
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
-          brew tap lithe-idea/lithe "https://github.com/$GITHUB_REPOSITORY.git"
-          tap_path="$(brew --repository)/Library/Taps/lithe-idea/homebrew-lithe"
+          tap_owner="${GITHUB_REPOSITORY%%/*}"
+          tap_owner="$(printf '%s' "$tap_owner" | tr '[:upper:]' '[:lower:]')"
+          tap="$tap_owner/lithe"
+          brew tap "$tap" "https://github.com/$GITHUB_REPOSITORY.git"
+          tap_path="$(brew --repository)/Library/Taps/$tap_owner/homebrew-lithe"
           cp "$GITHUB_WORKSPACE/Casks/lithe.rb" "$tap_path/Casks/lithe.rb"
-          brew style --cask lithe-idea/lithe/lithe
-          brew audit --cask --online lithe-idea/lithe/lithe
+          brew style --cask "$tap/lithe"
+          brew audit --cask --online "$tap/lithe"
 
       - name: Create or update the Cask pull request
         env:
