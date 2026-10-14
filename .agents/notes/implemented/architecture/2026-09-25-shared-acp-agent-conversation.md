@@ -242,20 +242,11 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 活动栏原先只有计数，用户无法从“任务 / 运行中 / 编辑”查看内容。现在三项通过共享 `litheDropdown` 面板展示当前会话的计划、待执行或执行中的工具、按上报路径合并的文件修改；搜索不改变统计，切换会话关闭旧面板。面板定位、关闭和外观复用已有共享控件，差异片段选择使用 `LitheSettingsSelect`，避免新增系统 popover 或独立下拉样式。参考 [CC GUI 的活动面板](https://github.com/zhukunpenglinyutong/jetbrains-cc-gui/tree/7bcd6c3803ec44944cef90f5bff0aa666cab99a2/webview/src/components/StatusPanel) 的交互，继续使用 ACP 已上报的状态。“运行中”不声称这些工具都是子代理，也不重新请求上游数据。
 
-活动栏复用 Community `915c3c26` 的 ActionButtonWithText 布局规则：普通标签字体、图文间距 2pt、水平留白 4pt；按钮由共享 LitheIconButtonStyle 绘制 hover、按下和选中状态，不再叠加整条外框、竖分隔与局部背景。16pt 图标与计数的共享小号字体沿用已有控件入口，左右 8pt 与输入框对齐。三个面板的宽度跟随活动栏，空态只显示一行居中提示，标题由下方入口承担。
-参考版本的 `StatusPanel.less` 使用等宽浮层和中性选中背景，`TodoList.tsx`、
-`SubagentList.tsx` 与 `FileChangesList.tsx` 都直接展示内容，不重复面板标题。
-因此不再使用固定 340pt 宽度，也不在计划或工具列表外再套一层带标题的卡片。
-计划和工具列表复用现有渲染器的嵌入模式，保留状态、证据展开和有界滚动；
-编辑的批量操作集中在顶部右侧，文件行保持打开、差异查看与回撤入口。
-例如点击空的“任务”只出现短提示，切换“编辑”直接更新同一原生面板。
-不要为了靠近参考截图把它改成占用对话高度的常驻区域，或另写全局点击监听。
+活动入口位于Agent标题行右侧，复用LitheDropdownPopover与LitheContextMenuPresenter的键盘选择、菜单测量与LitheIconButtonStyle按钮；菜单保留任务、运行中、编辑三项与数量。没有计划条目、工具或文件修改时不显示入口；存在运行项时标题为“活动 · 运行中 N”，其他内容显示“活动”。标题与菜单按界面语言显示，计数不受聊天搜索影响。选择菜单项后用同一触发位置的共享litheDropdown展示已有详情，关闭后重新选择菜单项；会话切换、锚点销毁和最后内容清空关闭浮层。
 
-宽度由活动栏的局部布局读取，不写入会话模型或持久化存储。取舍是宽屏中的
-列表更宽，但内容高度仍按已有上限滚动；普通对话中的计划卡片和工具分组仍可
-独立折叠。`AgentActivityPresentationTests` 用真实窗口事件验证深浅主题、窄宽
-等宽空态、切换与关闭、三种长列表滚动至末项，以及编辑动作和锚点拆除清理。
-该布局不新增下载、缓存或磁盘资源，也不改变安装包、签名或 Sparkle 增量基线。
+三项分别使用Community `915c3c26029bd2f8d35907d6faf43c4a3264c5f7` 的 `platform/icons/src/expui/build/taskGroup`、`expui/general/refresh`、`expui/general/edit` 明暗SVG，保持16pt和原色。这是Lithe对任务、运行工具与修改的语义映射，不声称来源于专有AI插件的动作定义。初级动作菜单按共享规则测量宽度，详情使用共享下拉最大宽度与已有内部滚动；不再占用输入框上方一整行，也不另写菜单表面、颜色或键盘事件。计划、工具证据、文件打开、差异和回撤确认继续复用原视图与回调。
+
+取舍是三种内容多一次菜单选择，但输入区减少常驻占位，标题附近集中会话功能。`AgentActivityPresentationTests`通过原生菜单点击检查三种内容、深浅主题、长列表末项和编辑操作；空会话不产生下拉锚点。该布局不新增下载或运行时磁盘资源，不改变安装包、签名或Sparkle增量基线。
 
 “编辑”支持打开文件、复用已有比较界面查看差异、保留单轮文件修改和回撤单个文件或全部文件。Agent 已经保存文件，所以“保留全部”只确认当前版本，不重复写盘。确认保存在该会话的内存里，后续新增工具修改以已确认版本为起点；旧工具的证据若被更新则重新展示，避免旧确认隐藏新内容。同一标签断连、重连和历史回放时继承这些确认；加载失败恢复原会话，加载成功仍核对完整版本或已确认前缀。关闭会话才释放这些状态，Lithe 不新建聊天历史或可复用缓存。行增减数只采用上游版本兼容的统计，缺失时不从字符串或片段估算。
 
@@ -334,3 +325,5 @@ ACP 差异可能是完整文本，也可能是 Claude 上报的片段。界面�
 `rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
 
 - 编辑区限宽验证：72项测试、4组套件通过（5.751秒），实际AgentConversationView原生宿主覆盖320/900/1400pt与工具窗口；检查底栏锚点位置并查看窄宽截图，900pt宿主输入框700pt、左右各100pt。未启动完整产品或真实Agent会话，完整窗口验收仍待执行。
+
+- 标题行活动菜单验证：90项测试、5组套件通过（23.493秒），覆盖共享菜单鼠标及方向键/Enter选择、Escape关闭、空态无锚点、标题右侧位置、原生16pt明暗SVG加载、三类长列表末项、文件打开/保留、差异及回撤确认。计时报告`/tmp/lithe-agent-activity-menu-tests.json`与组件捕获`/tmp/lithe-activity-menu-captures`；测试宿主无正式资源包，真实SVG单独附着原生宿主加载检查，不把无资源菜单截图当作正式应用SVG验收。完整应用预览与真实Agent会话未执行。

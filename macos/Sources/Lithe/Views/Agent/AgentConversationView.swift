@@ -149,6 +149,7 @@ struct AgentChatHeader: View {
     var onDelete: (() -> Void)? = nil
     var showsToolbar = true
     var onToggleToolbar: (() -> Void)? = nil
+    var activity: AgentActivitySummaryBar? = nil
     @State private var showsHistoryPopup = false
 
     var body: some View {
@@ -249,6 +250,8 @@ struct AgentChatHeader: View {
                     Text(agentName ?? AgentLocalization.string("Agent", locale: locale))
                         .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                         .lineLimit(1)
+                    Spacer(minLength: 8)
+                    if let activity { activity.id(activity.sessionID) }
                 }
                 .foregroundStyle(AgentPanelStyle.text)
                 .padding(.horizontal, 20)
@@ -508,7 +511,8 @@ private struct AgentConnectionView: View {
                     if canDeleteConversation { deleteSessionID = feature.selectedSessionID }
                 } : nil,
                 showsToolbar: showsToolbar,
-                onToggleToolbar: { showsToolbar.toggle() }
+                onToggleToolbar: { showsToolbar.toggle() },
+                activity: activity
             )
             if historyOnly {
                 AgentHistoryPopover(feature: feature, history: history, agentName: selectedAgent?.name ?? feature.agentName,
@@ -599,6 +603,20 @@ private struct AgentConnectionView: View {
             showsSearch = false
             searchText = ""
         }
+    }
+
+    private var activity: AgentActivitySummaryBar {
+        let conversation = feature.selectedConversation
+        let sessionID = feature.selectedSessionID
+        return AgentActivitySummaryBar(messages: conversation?.messages ?? [], sessionID: sessionID,
+            plan: conversation?.plan, reviewed: conversation?.reviewedFileChanges ?? [:],
+            isResponding: conversation?.isResponding == true, isReviewing: feature.fileReviewSessionID != nil,
+            reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
+            onOpenFile: onOpenFile,
+            onKeep: { changes in if let sessionID { feature.keepFileChanges(changes, in: sessionID) } },
+            onRestore: { changes in
+                if let sessionID { await feature.restoreFileChanges(changes, in: sessionID, restore: onRestoreFile) }
+            })
     }
 
     @ViewBuilder

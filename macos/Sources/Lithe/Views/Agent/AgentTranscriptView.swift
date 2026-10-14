@@ -84,7 +84,6 @@ struct AgentTranscriptView: View {
 
     var body: some View {
         let conversation = feature.selectedConversation
-        let sessionID = feature.selectedSessionID
         let messages = conversation?.messages ?? []
         let transcript = AgentTranscriptItem.grouped(messages, turns: conversation?.completedTurns ?? [])
             .filter { $0.matches(searchText) }
@@ -188,23 +187,7 @@ struct AgentTranscriptView: View {
             if let permission = conversation?.permission {
                 AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
             }
-            AgentActivitySummaryBar(
-                messages: messages, plan: conversation?.plan,
-                reviewed: conversation?.reviewedFileChanges ?? [:],
-                isResponding: conversation?.isResponding == true,
-                isReviewing: feature.fileReviewSessionID != nil,
-                reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
-                onOpenFile: onOpenFile,
-                onKeep: { changes in
-                    if let sessionID { feature.keepFileChanges(changes, in: sessionID) }
-                },
-                onRestore: { changes in
-                    if let sessionID {
-                        await feature.restoreFileChanges(changes, in: sessionID, restore: onRestoreFile)
-                    }
-                }
-            )
-            .id(feature.selectedSessionID)
+
         }
         .onChange(of: feature.openSessionIDs) { sessionIDs in
             thoughtExpansions = thoughtExpansions.filter { sessionIDs.contains($0.key) }

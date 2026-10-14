@@ -24,9 +24,8 @@ struct AgentActivityPresentationTests {
             for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
             window.close()
         }
-        let edits = NSPoint(x: 8 + 684 * 2.5 / 3, y: 580)
         host.layoutSubtreeIfNeeded()
-        try click(edits, in: host, window: window)
+        try await openPanel(.edits, in: host, window: window, excluding: initialWindows)
         let popup = try #require(await waitForPopup(excluding: initialWindows))
         let content = try #require(popup.contentView)
         try capture(content, name: "activity-edits-actions")
@@ -41,7 +40,7 @@ struct AgentActivityPresentationTests {
         try click(NSPoint(x: diff.bounds.width - 32, y: 22), in: diff, window: sheet)
         try #require(await waitUntil { window.attachedSheet == nil }, "Done must dismiss the comparison")
 
-        try click(edits, in: host, window: window)
+        try await openPanel(.edits, in: host, window: window, excluding: initialWindows)
         let nextPopup = try #require(await waitForPopup(excluding: initialWindows))
         let nextContent = try #require(nextPopup.contentView)
         try click(NSPoint(x: nextContent.bounds.width - 19, y: rowCenter), in: nextContent, window: nextPopup)
@@ -77,14 +76,12 @@ struct AgentActivityPresentationTests {
                 for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
                 window.close()
             }
-            for (index, panel) in AgentActivitySummaryBar.Panel.allCases.enumerated() {
+            for panel in AgentActivitySummaryBar.Panel.allCases {
                 host.layoutSubtreeIfNeeded()
-                // Each segment occupies one third of the bar inside the same 8pt margins as the composer.
-                let point = NSPoint(x: 8 + 304 * (CGFloat(index) + 0.5) / 3, y: 60)
-                try click(point, in: host, window: window)
+                try await openPanel(panel, in: host, window: window, excluding: initialWindows)
                 let popup = try #require(await waitForPopup(excluding: initialWindows), "The \(panel.rawValue) segment must open a native panel")
                 let content = try #require(popup.contentView)
-                #expect(abs(popup.frame.width - 304) < 1, "Every panel follows the activity bar's width")
+                #expect(abs(popup.frame.width - LitheDropdownMetrics.maximumWidth) < 1)
                 try capture(content, name: "activity-\(panel.rawValue)-\(scheme)")
                 if panel == .edits {
                     let rowCenter = content.bounds.height - 22
@@ -93,66 +90,21 @@ struct AgentActivityPresentationTests {
                     try click(NSPoint(x: content.bounds.width - 50, y: 15), in: content, window: popup)
                     #expect(await waitUntil { kept.map(\.path) == ["a.txt"] })
                 }
-                try click(point, in: host, window: window)
+                try closePopup(popup)
                 #expect(await waitUntil { !popup.isVisible })
             }
         }
     }
 
-    @Test(arguments: [320.0, 700.0])
-    func emptyPanelsMatchTheBarAndStayCompactInBothThemes(width: Double) async throws {
-        for scheme in [ColorScheme.dark, .light] {
-            let host = NSHostingView(rootView: VStack {
-                Spacer()
-                AgentActivitySummaryBar(messages: [])
-            }.frame(width: width, height: 160).background(AgentPanelStyle.canvas).environment(\.colorScheme, scheme))
-            let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: 160),
-                styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.contentView = host
-            window.orderFront(nil)
-            let initialWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
-            defer {
-                window.contentView = nil
-                for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
-                window.close()
-            }
-            var previous: NSWindow?
-            for (index, panel) in AgentActivitySummaryBar.Panel.allCases.enumerated() {
-                host.layoutSubtreeIfNeeded()
-                try click(NSPoint(x: 8 + (width - 16) * (Double(index) + 0.5) / 3, y: 140), in: host, window: window)
-                let popup = try #require(await waitForPopup(excluding: initialWindows))
-                #expect(abs(popup.frame.width - (width - 16)) < 1)
-                #expect(abs(popup.frame.minX - window.frame.minX - 8) < 1)
-                #expect(abs(popup.frame.minY - window.frame.minY - 36) < 1, "The card opens immediately above the bar")
-                #expect(popup.frame.height >= 44 && popup.frame.height <= 56,
-                        "An empty card has one centered line, without a heading or tall blank area")
-                if let previous { #expect(previous === popup, "Switching tabs reuses the existing panel") }
-                try capture(try #require(popup.contentView), name: "activity-empty-\(panel.rawValue)-\(scheme)-\(Int(width))")
-                try capture(host, name: "activity-bar-\(panel.rawValue)-\(scheme)-\(Int(width))")
-                previous = popup
-            }
-            // The same tab toggles closed; reopening still supports Escape and outside clicks.
-            let edits = NSPoint(x: 8 + (width - 16) * 2.5 / 3, y: 140)
-            try click(edits, in: host, window: window)
-            #expect(await waitUntil { previous?.isVisible == false })
-            try click(edits, in: host, window: window)
-            let popup = try #require(await waitForPopup(excluding: initialWindows))
-            let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                windowNumber: popup.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 53))
-            popup.sendEvent(escape)
-            #expect(await waitUntil { !popup.isVisible })
-            try click(edits, in: host, window: window)
-            let reopened = try #require(await waitForPopup(excluding: initialWindows))
-            // Outside-click dismissal is installed on NSApp, so the event must
-            // pass through its monitor rather than going straight to NSWindow.
-            try click(NSPoint(x: 10, y: 10), in: host, window: window, throughApplication: true)
-            #expect(await waitUntil { !reopened.isVisible })
-            try click(edits, in: host, window: window)
-            let detached = try #require(await waitForPopup(excluding: initialWindows))
-            window.contentView = nil
-            #expect(await waitUntil { !detached.isVisible }, "Removing the conversation clears its activity panel")
-        }
+    @Test func emptyActivityHasNoDropdownAnchor() {
+        let host = NSHostingView(rootView: AgentActivitySummaryBar(messages: []).frame(width: 320, height: 34))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 34),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        #expect(anchor(in: host) == nil)
     }
 
     @Test func allThreeLongListsStayBoundedAndLastFileCanOpen() async throws {
@@ -180,12 +132,12 @@ struct AgentActivityPresentationTests {
                 for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
                 window.close()
             }
-            for (index, panel) in AgentActivitySummaryBar.Panel.allCases.enumerated() {
+            for panel in AgentActivitySummaryBar.Panel.allCases {
                 host.layoutSubtreeIfNeeded()
-                try click(NSPoint(x: 8 + 304 * (CGFloat(index) + 0.5) / 3, y: 380), in: host, window: window)
+                try await openPanel(panel, in: host, window: window, excluding: initialWindows)
                 let popup = try #require(await waitForPopup(excluding: initialWindows))
-                #expect(abs(popup.frame.width - 304) < 1)
-                #expect(popup.frame.height <= 260, "Long lists use an internal viewport instead of a tall outer card")
+                #expect(abs(popup.frame.width - LitheDropdownMetrics.maximumWidth) < 1)
+                #expect(popup.frame.height <= 290, "Long lists use an internal viewport instead of a tall outer card")
                 let content = try #require(popup.contentView)
                 let scroll = try #require(scrollView(in: content))
                 let document = try #require(scroll.documentView)
@@ -202,6 +154,91 @@ struct AgentActivityPresentationTests {
                 }
             }
         }
+    }
+
+    @Test(arguments: [false, true])
+    func headerActivityStaysToTheRightOfAgentAndHidesWhenEmpty(hasActivity: Bool) throws {
+        let host = NSHostingView(rootView: AgentChatHeader(agentName: "Codex", onHistory: nil, onNew: nil,
+            onOpenSettings: {}, onHide: {}, showsActions: false,
+            activity: AgentActivitySummaryBar(messages: hasActivity ? [editedFile()] : []))
+            .frame(width: 320, height: 34))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 34),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        if hasActivity {
+            let trigger = try #require(anchor(in: host))
+            #expect(trigger.convert(trigger.bounds, to: host).minX > 160)
+        } else { #expect(anchor(in: host) == nil) }
+        try capture(host, name: "activity-header-\(hasActivity)")
+    }
+
+    @Test func activitySVGsLoadAtNativeSizeInBothThemes() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/IDEAIcons")
+        for dark in [false, true] {
+            var images: [NSImage] = []
+            for panel in AgentActivitySummaryBar.Panel.allCases {
+                let path = dark ? LitheIcons.darkIdeaAssetPath(for: panel.icon) : panel.icon
+                let image = try #require(NSImage(contentsOf: root.appendingPathComponent(path)))
+                #expect(image.size == NSSize(width: 16, height: 16))
+                images.append(image)
+            }
+            let host = NSHostingView(rootView: HStack {
+                ForEach(images.indices, id: \.self) { Image(nsImage: images[$0]).frame(width: 16, height: 16) }
+            }.frame(width: 100, height: 24).background(AgentPanelStyle.canvas).environment(\.colorScheme, dark ? .dark : .light))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 24),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            host.layoutSubtreeIfNeeded()
+            try capture(host, name: "activity-svg-\(dark)")
+        }
+    }
+
+    private func anchor(in view: NSView) -> LitheDropdownAnchorView? {
+        if let anchor = view as? LitheDropdownAnchorView { return anchor }
+        return view.subviews.lazy.compactMap { anchor(in: $0) }.first
+    }
+
+    private func closePopup(_ popup: NSWindow) throws {
+        NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
+    }
+
+    private func openPanel(_ panel: AgentActivitySummaryBar.Panel, in host: NSView, window: NSWindow,
+                           excluding windows: Set<ObjectIdentifier>) async throws {
+        for popup in NSApp.windows where !windows.contains(ObjectIdentifier(popup)) && popup.isVisible {
+            try closePopup(popup)
+        }
+        host.layoutSubtreeIfNeeded()
+        let trigger = try #require(anchor(in: host))
+        let rect = trigger.convert(trigger.bounds, to: host)
+        let point = NSPoint(x: rect.midX, y: host.isFlipped ? rect.midY : host.bounds.height - rect.midY)
+        try click(point, in: host, window: window)
+        let popup = try #require(await waitForPopup(excluding: windows))
+        let content = try #require(popup.contentView)
+        try capture(content, name: "activity-menu")
+        let index = try #require(AgentActivitySummaryBar.Panel.allCases.firstIndex(of: panel))
+        if panel == .running {
+            for code: UInt16 in [125, 125, 36] {
+                NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                    timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "",
+                    charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
+            }
+        } else {
+            try click(NSPoint(x: content.bounds.midX,
+                y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * (CGFloat(index) + 0.5)),
+                in: content, window: popup)
+        }
+        try #require(await waitUntil {
+            NSApp.windows.contains { !windows.contains(ObjectIdentifier($0)) && $0.isVisible
+                && $0.frame.width >= LitheDropdownMetrics.maximumWidth - 1 }
+        })
     }
 
     private func editedFile(path: String = "a.txt") -> AgentConversationMessage {

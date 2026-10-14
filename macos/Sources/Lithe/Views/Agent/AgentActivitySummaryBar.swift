@@ -4,17 +4,19 @@ import LitheAgentConversationModule
 /// Conversation-local selection. Shared dropdown panels own positioning, outside-click
 /// dismissal and keyboard handling, matching the existing Agent selectors.
 struct AgentActivitySummaryBar: View {
+    @Environment(\.locale) private var locale
     enum Panel: String, CaseIterable {
         case tasks, running, edits
-        var title: LocalizedStringKey {
+        var title: String {
             switch self { case .tasks: "Tasks"; case .running: "Running"; case .edits: "Edits" }
         }
         var icon: String {
-            switch self { case .tasks: "checklist"; case .running: "arrow.triangle.2.circlepath"; case .edits: "pencil" }
+            switch self { case .tasks: "expui/build/taskGroup.svg"; case .running: "expui/general/refresh.svg"; case .edits: "expui/general/edit.svg" }
         }
     }
 
     let messages: [AgentConversationMessage]
+    var sessionID: String?
     var plan: AgentPlan?
     var reviewed: [String: AgentFileChange] = [:]
     var isResponding = false
@@ -23,6 +25,7 @@ struct AgentActivitySummaryBar: View {
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     var onKeep: ([AgentFileChange]) -> Void = { _ in }
     var onRestore: ([AgentFileChange]) async -> Void = { _ in }
+    @State private var showsActivity = false
     @State private var panel: Panel?
     @State private var selectedDiff: AgentFileChange?
     @State private var confirmation: [AgentFileChange]?
@@ -36,21 +39,33 @@ struct AgentActivitySummaryBar: View {
     private var activity: AgentActivity { AgentActivity(messages: messages, reviewed: reviewed) }
 
     var body: some View {
-        GeometryReader { geometry in
-            tabs
-                .litheDropdown(isPresented: Binding(get: { panel != nil }, set: { if !$0 { panel = nil } }), opensUpward: true) {
-                    if let panel {
-                        AgentActivityDetailsView(panel: panel, activity: activity, plan: plan, width: geometry.size.width,
-                            isResponding: isResponding, isReviewing: isReviewing, reviewError: reviewError,
-                            onOpenFile: onOpenFile, onDiff: { change in self.panel = nil; selectedDiff = change },
-                            onKeep: onKeep, onRequestRestore: { changes in
-                                self.panel = nil
-                                confirmation = changes
-                            })
+        Group {
+            if !activity.tools.isEmpty || !activity.files.isEmpty || plan?.entries.isEmpty == false {
+                Button { panel = nil; showsActivity.toggle() } label: {
+                    HStack(spacing: LitheTheme.MainToolbar.comboIconTextGap) {
+                        Text(summary).lineLimit(1)
+                        LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16, preservesOriginalColors: true)
                     }
                 }
+                .litheToolbarIconButton(isIconOnly: false)
+                .accessibilityIdentifier("agent-activity-menu")
+                .overlay {
+                    LitheDropdownPopover(isPresented: $showsActivity, items: panel == nil ? menuItems : nil) {
+                        Group {
+                            if let panel {
+                                AgentActivityDetailsView(panel: panel, activity: activity, plan: plan,
+                                    width: LitheDropdownMetrics.maximumWidth,
+                                    isResponding: isResponding, isReviewing: isReviewing, reviewError: reviewError,
+                                    onOpenFile: onOpenFile, onDiff: { change in showsActivity = false; selectedDiff = change },
+                                    onKeep: onKeep, onRequestRestore: { changes in
+                                        showsActivity = false; confirmation = changes
+                                    })
+                            }
+                        }
+                    }
+                }
+            }
         }
-        .frame(height: 32)
         .sheet(item: $selectedDiff) { change in
             AgentFileDiffView(change: change, onOpenFile: onOpenFile)
         }
@@ -68,33 +83,24 @@ struct AgentActivitySummaryBar: View {
             await onRestore(restoration.changes)
             self.restoration = nil
             panel = .edits
+            showsActivity = true
         }
-        .padding(.horizontal, AgentComposerMetrics.horizontalInset)
-        .padding(.bottom, 4)
+
     }
 
-    private var tabs: some View {
-        HStack(spacing: 4) {
-            ForEach(Panel.allCases, id: \.self) { item in
-                Button { panel = panel == item ? nil : item } label: {
-                    HStack(spacing: 2) {
-                        LitheSystemIcon(systemImage: item.icon, size: LitheTheme.Metrics.toolbarIconSize)
-                        Text(item.title)
-                        badge(item)
-                    }
-                    .padding(.horizontal, 4)
-                    .frame(maxWidth: .infinity)
+    private var summary: String {
+        let title = AgentLocalization.string("Activity", locale: locale)
+        return activity.running.isEmpty ? title : title + " · " + AgentLocalization.string("Running", locale: locale) + " " + count(.running)
+    }
+
+    private var menuItems: [LitheContextMenuItem] {
+        Panel.allCases.map { item in
+            .action(AgentLocalization.string(String.LocalizationValue(item.title), locale: locale) + " " + count(item),
+                localizesTitle: false,
+                icon: AnyView(LitheIDEAIcon(resourcePath: item.icon, size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true))) {
+                    panel = item; showsActivity = true
                 }
-                .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize,
-                                                 isIconOnly: false, isSelected: panel == item))
-                .accessibilityIdentifier("agent-activity-\(item.rawValue)")
-                .accessibilityValue(count(item))
-                .accessibilityAddTraits(panel == item ? .isSelected : [])
-                .help(item.title)
-            }
         }
-        .font(LitheTheme.settingsFont)
-        .frame(height: 32)
     }
 
     private func count(_ panel: Panel) -> String {
@@ -107,13 +113,7 @@ struct AgentActivitySummaryBar: View {
         }
     }
 
-    @ViewBuilder private func badge(_ item: Panel) -> some View {
-        let count = count(item)
-        if count != "0" {
-            Text(count).font(LitheTheme.smallFont)
-                .foregroundStyle(item == .running && !activity.running.isEmpty ? LitheTheme.accent : AgentPanelStyle.text)
-        }
-    }
+
 }
 
 struct AgentActivityDetailsView: View {
