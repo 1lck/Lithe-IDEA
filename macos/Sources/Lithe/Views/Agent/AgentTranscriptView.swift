@@ -233,7 +233,8 @@ struct AgentHeroView: View {
                     .foregroundStyle(AgentPanelStyle.secondary)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.leading, AgentPanelStyle.iconButtonLeadingInset)
+        .padding(.trailing, 20)
         .padding(.top, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .help("Switch Agent")

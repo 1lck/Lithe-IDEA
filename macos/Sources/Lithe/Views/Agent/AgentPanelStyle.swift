@@ -6,6 +6,10 @@ enum AgentPanelStyle {
     // Reference chat composition target, not a public Community AI-plugin constant.
     // The composer keeps its existing 8pt insets inside this centered column.
     static let editorContentMaximumWidth: CGFloat = 700 + 2 * AgentComposerMetrics.horizontalInset
+    static let headerLeadingInset: CGFloat = 12
+    static let iconLeadingInset = headerLeadingInset + LitheTheme.MainToolbar.comboInsets.leading
+    static let iconButtonLeadingInset = iconLeadingInset
+        - (LitheTheme.Metrics.toolbarIconButtonSize - LitheTheme.Metrics.toolbarIconSize) / 2
     static var canvas: Color { LitheTheme.editor }
     static var header: Color { LitheTheme.toolHeader }
     static var context: Color { LitheTheme.raised }

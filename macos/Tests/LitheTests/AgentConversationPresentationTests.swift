@@ -723,6 +723,42 @@ struct AgentConversationPresentationTests {
         #expect(AgentBrandIconLoader.image(name: "Custom") == nil)
     }
 
+    @Test(arguments: [ColorScheme.dark, .light])
+    func conversationBrandIconsShareTheSameVerticalAxis(scheme: ColorScheme) throws {
+        let host = NSHostingView(rootView: VStack(spacing: 0) {
+            AgentChatHeader(agentName: "Codex", onHistory: {}, onNew: {}, onOpenSettings: {}, onHide: {},
+                            conversationTitle: "New Chat")
+            AgentHeroView(agentName: "Codex", agentVersion: nil, onTap: {}).frame(height: 44)
+        }.frame(width: 320, height: 108).background(AgentPanelStyle.canvas).environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 108),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        if let directory = ProcessInfo.processInfo.environment["LITHE_AGENT_ICON_ALIGNMENT_SCREENSHOTS"] {
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: directory).appendingPathComponent("icons-\(scheme).png"))
+        }
+        let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        var centers: [CGFloat] = []
+        for band in [0..<30, 30..<64, 64..<108] {
+            var xs: [Int] = []
+            for y in Int(CGFloat(band.lowerBound) * scale)..<Int(CGFloat(band.upperBound) * scale) {
+                for x in Int(16 * scale)..<Int(42 * scale) {
+                    let color = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                    if scheme == .dark ? color.redComponent > 0.6 : color.redComponent < 0.6 { xs.append(x) }
+                }
+            }
+            #expect(xs.count > 10, "Each row must render its actual brand icon")
+            centers.append(CGFloat(try #require(xs.min()) + (try #require(xs.max()))) / (2 * scale))
+        }
+        #expect(try #require(centers.max()) - (try #require(centers.min())) <= 0.5)
+
+    }
+
     @Test
     func inputSplitStaysWithinNarrowAndWidePanels() throws {
         let host = NSHostingView(rootView: AgentConversationLayout {

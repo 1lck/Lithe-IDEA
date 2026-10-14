@@ -240,7 +240,7 @@ struct AgentChatHeader: View {
                     .accessibilityIdentifier("agent-header-options")
                     LitheSidebarHideButton(title: "Agent", action: onHide)
                 }
-                .padding(.leading, 12)
+                .padding(.leading, AgentPanelStyle.headerLeadingInset)
                 .padding(.trailing, 7)
                 .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
             }
@@ -254,7 +254,8 @@ struct AgentChatHeader: View {
                     if let activity { activity.id(activity.sessionID) }
                 }
                 .foregroundStyle(AgentPanelStyle.text)
-                .padding(.horizontal, 20)
+                .padding(.leading, AgentPanelStyle.iconLeadingInset)
+                .padding(.trailing, 20)
                 .frame(height: 34)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("agent-selected-name")
