@@ -513,7 +513,7 @@ extension AppModel {
              "replace-in-project", "project-local-history", "run", "debug",
              "stop-run", "stop-debug", "toggle-terminal", "toggle-problems",
              "toggle-maven", "toggle-git-log", "toggle-run", "toggle-tests",
-             "toggle-debug", "view-breakpoints", "spring-endpoints":
+             "toggle-debug", "view-breakpoints", "spring-endpoints", "rebuild-java-index":
             workspaceURL != nil
         default:
             false

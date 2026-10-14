@@ -230,8 +230,11 @@ struct WorkbenchModuleUIRegistry {
         return renderer.isVisible(model) && renderer.isSelected(model)
     }
 
-    func state(for contribution: ModuleContribution, model: AppModel) -> ActionState {
-        guard model.workbenchContributions.contains(contribution),
+    /// `available` lets list builders pass one snapshot of the workbench
+    /// contributions instead of rebuilding it for every entry they evaluate.
+    func state(for contribution: ModuleContribution, model: AppModel,
+               available: [ModuleContribution]? = nil) -> ActionState {
+        guard (available ?? model.workbenchContributions).contains(contribution),
               let id = contribution.actionID, let action = actions[id] else { return .unavailable }
         var state = action.state(model)
         if let renderer = renderer(for: contribution) {
@@ -247,7 +250,7 @@ struct WorkbenchModuleUIRegistry {
         if let contribution = model.workbenchContributions.first(where: { $0.actionID == id }) {
             return state(for: contribution, model: model)
         }
-        guard LitheCommandCatalog.command(id: id) != nil || id == "workbench.debug-start-or-restart",
+        guard LitheCommandCatalog.command(id: id) != nil,
               let action = actions[id] else { return .unavailable }
         return action.state(model)
     }

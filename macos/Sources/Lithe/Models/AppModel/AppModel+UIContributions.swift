@@ -97,7 +97,8 @@ extension AppModel {
     }
 
     func registeredContributions(at placement: ModuleContributionPlacement) -> [ModuleContribution] {
-        workbenchFeature.contributions(workbenchContributions, at: placement)
-            .filter { workbenchUIRegistry.state(for: $0, model: self).isVisible }
+        let available = workbenchContributions
+        return workbenchFeature.contributions(available, at: placement)
+            .filter { workbenchUIRegistry.state(for: $0, model: self, available: available).isVisible }
     }
 }

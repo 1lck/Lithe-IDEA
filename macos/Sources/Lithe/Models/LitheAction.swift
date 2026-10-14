@@ -114,8 +114,9 @@ enum LitheActionRegistry {
     }
 
     static func actions(for model: AppModel) -> [LitheAction] {
-        model.registeredContributions(at: .commandPalette).map { contribution in
-            let state = model.workbenchUIRegistry.state(for: contribution, model: model)
+        let available = model.workbenchContributions
+        return model.registeredContributions(at: .commandPalette).map { contribution in
+            let state = model.workbenchUIRegistry.state(for: contribution, model: model, available: available)
             let definition = LitheCommandCatalog.command(id: contribution.actionID ?? "")
             return LitheAction(id: contribution.actionID ?? contribution.id, title: contribution.title,
                         subtitle: definition?.subtitle ?? "", group: definition?.group ?? .window,

@@ -229,16 +229,22 @@ final class WorkbenchFeatureModel: ObservableObject {
 
     func hideBottomToolWindow() {
         displayRequests = displayRequests.filter { $0.key.anchor != .bottom }
-        for index in toolWindowStates.indices where toolWindowStates[index].position.anchor == .bottom {
-            toolWindowStates[index].isVisible = false
-        }
+        hideToolWindows { $0.position.anchor == .bottom }
         persistContributionPreferences()
     }
 
     func hideAllToolWindows() {
         displayRequests.removeAll()
-        for index in toolWindowStates.indices { toolWindowStates[index].isVisible = false }
+        hideToolWindows { _ in true }
         persistContributionPreferences()
+    }
+
+    /// Hide in one assignment so observers see a single layout change instead
+    /// of one publish per window.
+    private func hideToolWindows(where matches: (ToolWindowState) -> Bool) {
+        var states = toolWindowStates
+        for index in states.indices where matches(states[index]) { states[index].isVisible = false }
+        if states != toolWindowStates { toolWindowStates = states }
     }
 
     /// Catalog changes do not instantiate modules or destroy saved layout for
@@ -262,18 +268,14 @@ final class WorkbenchFeatureModel: ObservableObject {
                 order: preference?.order ?? entry.order, isVisible: false))
         }
         let available = Set(toolPlacements.keys)
-        for index in toolWindowStates.indices where !available.contains(toolWindowStates[index].id) {
-            toolWindowStates[index].isVisible = false
-        }
+        hideToolWindows { !available.contains($0.id) }
     }
 
     func releaseContributions(for moduleID: ModuleID) {
         // Releasing resources is not a user layout edit. Agent keeps its setup panel.
         guard moduleID != .agentConversation else { return }
         let ids = Set((contributionOwners[moduleID] ?? []).filter { $0.kind == .toolWindow }.map(\.id))
-        for index in toolWindowStates.indices where ids.contains(toolWindowStates[index].id) {
-            toolWindowStates[index].isVisible = false
-        }
+        hideToolWindows { ids.contains($0.id) }
     }
 
     func contributions(_ catalog: [ModuleContribution], at placement: ModuleContributionPlacement) -> [ModuleContribution] {
@@ -297,7 +299,10 @@ final class WorkbenchFeatureModel: ObservableObject {
             guard contribution.kind == .toolWindow && [.activityBar, .leftSidebar, .rightSidebar].contains(placement) else { return }
         }
         let window = ToolWindow(rawValue: id)
+        // Only a dock change or hiding needs the window closed; reordering or
+        // showing an entry must not flicker an open window.
         let wasVisible = contribution.kind == .toolWindow && isVisible(window)
+            && (placement != nil || isHidden == true)
         if wasVisible { setVisibility(window, isVisible: false) }
         var preference = contributionPreferences[id] ?? ContributionPreference()
         if let placement { preference.placement = placement }
@@ -464,9 +469,7 @@ final class WorkbenchFeatureModel: ObservableObject {
 
     func hideSidebar() {
         displayRequests = displayRequests.filter { $0.key.anchor != .left }
-        for index in toolWindowStates.indices where toolWindowStates[index].position.anchor == .left {
-            toolWindowStates[index].isVisible = false
-        }
+        hideToolWindows { $0.position.anchor == .left }
         persistContributionPreferences()
     }
 }

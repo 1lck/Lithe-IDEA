@@ -902,6 +902,19 @@ struct WorkbenchContributionHostTests {
         }
     }
 
+    @Test func rebuildJavaIndexIsEnabledOnlyWithAWorkspace() throws {
+        let suite = "lithe-rebuild-index-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        #expect(!model.canPerformShortcutCommand(id: "rebuild-java-index"))
+        model.workspaceSessionCoordinator.beginWorkspace(at: URL(fileURLWithPath: "/fixture/rebuild-index"))
+        #expect(model.canPerformShortcutCommand(id: "rebuild-java-index"))
+    }
+
     @Test func savedMavenWindowDoesNotRenderInNonMavenWorkspace() async throws {
         let suite = "lithe-maven-dock-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))

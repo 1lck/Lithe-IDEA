@@ -165,13 +165,16 @@ struct UIToolWindow {
     title: String,
     /// Initial dock only; saved user layout takes precedence.
     placement: UIDock,
+    /// Sort rank within the dock; ties fall back to the identifier.
     #[serde(default)]
     order: i32,
+    /// Plain text shown in the window body; the host never interprets markup.
     text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     icon: Option<UIIcon>,
 }
 
+/// Edge of the workbench where a tool window first docks.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 enum UIDock {
@@ -211,11 +214,14 @@ struct UIIcon {
     mode: UIIconMode,
 }
 
+/// How the host paints an icon resource.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 enum UIIconMode {
+    /// Tinted with the current theme foreground, like built-in icons.
     #[default]
     Template,
+    /// Drawn with its own colors, untinted.
     Original,
 }
 
@@ -266,6 +272,7 @@ impl UIIcon {
     }
 }
 
+/// Host surface that may list a plugin command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 enum UICommandPlacement {

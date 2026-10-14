@@ -66,14 +66,15 @@ struct WorkbenchLayoutStore {
     func save(_ layout: WorkbenchLayout, for workspaceURL: URL) {
         var layout = layout
         // Geometry commits must not overwrite customization saved by a command.
-        if layout.contributionPreferences == nil {
-            layout.contributionPreferences = load(for: workspaceURL).contributionPreferences
+        if layout.contributionPreferences == nil || layout.isSidebarVisible == nil || layout.visibleToolWindowIDs == nil {
+            let saved = load(for: workspaceURL)
+            if layout.contributionPreferences == nil { layout.contributionPreferences = saved.contributionPreferences }
+            if layout.isSidebarVisible == nil {
+                layout.isSidebarVisible = saved.isSidebarVisible
+                layout.sidebarToolWindowID = saved.sidebarToolWindowID
+            }
+            if layout.visibleToolWindowIDs == nil { layout.visibleToolWindowIDs = saved.visibleToolWindowIDs }
         }
-        if layout.isSidebarVisible == nil {
-            layout.isSidebarVisible = load(for: workspaceURL).isSidebarVisible
-            layout.sidebarToolWindowID = load(for: workspaceURL).sidebarToolWindowID
-        }
-        if layout.visibleToolWindowIDs == nil { layout.visibleToolWindowIDs = load(for: workspaceURL).visibleToolWindowIDs }
         guard let data = try? JSONEncoder().encode(layout) else { return }
         store.set(data, forKey: key(for: workspaceURL))
     }
