@@ -26,7 +26,7 @@ const REPORT_BUG_CHANNELS = [
     id: "github",
     label: "GitHub",
     detailKey: "settings.general.githubReportDescription",
-    url: "https://github.com/Lithe-IDEA/Lithe-IDEA/issues/new",
+    url: "https://github.com/1lck/Lithe-IDEA/issues/new",
   },
 ] as const;
 

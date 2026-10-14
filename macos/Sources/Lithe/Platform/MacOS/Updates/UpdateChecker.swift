@@ -37,7 +37,7 @@ struct UpdateBuildIdentity: Equatable {
         build = info["CFBundleVersion"] as? String ?? "0"
         buildDate = info["LitheBuildTimestamp"] as? String
         releaseURL = (info["LitheUpdateReleaseURL"] as? String).flatMap(URL.init(string:))
-            ?? URL(string: "https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest")!
+            ?? URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
     }
 
     func updateInfo(version: String, targetVersion: String, targetBuild: String,
@@ -109,7 +109,7 @@ enum UpdateErrorCode: String, Equatable, Sendable {
 
 struct UpdateEndpointConfiguration: Equatable {
     static let productionManifestURL = URL(
-        string: "https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest/download/latest-macos.json"
+        string: "https://github.com/1lck/Lithe-IDEA/releases/latest/download/latest-macos.json"
     )!
 
     let manifestURL: URL
@@ -169,7 +169,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     private var userDriver: LitheSparkleUserDriver?
     @Published private(set) var updateInfo: UpdateInfo?
     private var started = false
-    static let releasePageURL = URL(string: "https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest")!
+    static let releasePageURL = URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
 
     init(bundle: Bundle = .main, diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) }) {
         stableRollback = MacStableRollback(diagnosticSink: diagnosticSink)

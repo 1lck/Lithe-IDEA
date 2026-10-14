@@ -1,14 +1,14 @@
 cask "lithe" do
   arch arm: "arm64", intel: "x86_64"
 
-  version "0.6.1"
-  sha256 arm:   "a980acd63dce44b2ed5b8162e8dca3007d20aa57c2f523f2cd4ed83341735571",
-         intel: "7fd2f434514e39370ea82c661bfa9e2eacc39aec8745ca77ba0968eccc472581"
+  version "0.6.0"
+  sha256 arm:   "48d16d3eb44e9093061b38522bf8cbf321c0fdc9b6b3e50afe488064e1c304ef",
+         intel: "cc8ac3d39009ad648e92d4ed239beaec141c0bae9aeddc0ac62125fa7de4fc76"
 
-  url "https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/v#{version}/Lithe-#{version}-#{arch}.dmg"
+  url "https://github.com/1lck/Lithe-IDEA/releases/download/v#{version}/Lithe-#{version}-#{arch}.dmg"
   name "Lithe"
   desc "Native IDE for AI-assisted Java development"
-  homepage "https://github.com/Lithe-IDEA/Lithe-IDEA"
+  homepage "https://github.com/1lck/Lithe-IDEA"
 
   livecheck do
     url :homepage

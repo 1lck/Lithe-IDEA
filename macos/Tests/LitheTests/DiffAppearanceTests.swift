@@ -288,8 +288,7 @@ struct DiffAppearanceTests {
         hosting.layoutSubtreeIfNeeded()
         await Task.yield()
         hosting.layoutSubtreeIfNeeded()
-        let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
-        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        let bitmap = try nativeSRGBCapture(hosting)
         let image = try #require(bitmap.cgImage)
         let scale = CGFloat(image.width) / 900
         func color(_ x: CGFloat, _ y: CGFloat) throws -> NSColor {
@@ -342,8 +341,7 @@ struct DiffAppearanceTests {
         handle.mouseUp(with: try event(.leftMouseUp, offset: 70))
         await Task.yield()
         hosting.layoutSubtreeIfNeeded()
-        let resized = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
-        hosting.cacheDisplay(in: hosting.bounds, to: resized)
+        let resized = try nativeSRGBCapture(hosting)
         let resizedBackground = try #require(resized.colorAt(x: Int(450 * scale), y: Int(28 * scale)))
         let resizedCurve = try #require(resized.colorAt(x: Int(520 * scale), y: Int(28 * scale)))
         #expect(matches(resizedBackground, dark ? 0x191A1C : 0xFFFFFF))
@@ -360,8 +358,7 @@ struct DiffAppearanceTests {
         #expect(column.caretLine == 2)
         let hitPoint = editor.convert(NSPoint(x: 24, y: 10), to: hosting.superview)
         #expect(hosting.hitTest(hitPoint) === editor, "Transparent anchors/curves must not intercept code selection: point=\(hitPoint), bounds=\(hosting.bounds)")
-        let selected = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
-        hosting.cacheDisplay(in: hosting.bounds, to: selected)
+        let selected = try nativeSRGBCapture(hosting)
         let numberView = try #require(column.gutter)
         let caretY = column.lines[2].item.top + 5
         let numberOrigin = hosting.convert(NSPoint(x: 0, y: caretY), from: numberView)
@@ -399,8 +396,7 @@ struct DiffAppearanceTests {
             if target == gutterOnlyPosition { #expect(widths.leftCode == 0); #expect(widths.leftNumbers == layout.lineNumberGutterWidth) }
             if target == 0 { #expect(widths.leftNumbers == 0); #expect(widths.divider == 0) }
             if target == 900 { #expect(widths.rightNumbers == 0); #expect(widths.divider == 0) }
-            let clipped = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
-            hosting.cacheDisplay(in: hosting.bounds, to: clipped)
+            let clipped = try nativeSRGBCapture(hosting)
             if target == 0 || target == gutterOnlyPosition || target == 900 {
                 let x: CGFloat = target == 900 ? 860 : 10
                 let pixel = try #require(clipped.colorAt(x: Int(x * scale), y: Int(28 * scale)))
