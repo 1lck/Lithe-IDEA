@@ -380,6 +380,7 @@ private final class FakePluginManager: PluginManaging {
     private(set) var installed: [Install] = []
 
     func setEnabled(_ enabled: Bool, for pluginID: PluginID) async throws {}
+    func setSetting(_ value: ToolingJSONValue?, id settingID: String, for pluginID: PluginID) throws {}
 
     func installMarketplacePackage(
         at packageURL: URL,
@@ -392,4 +393,5 @@ private final class FakePluginManager: PluginManaging {
     func installPackage(at packageURL: URL) throws {}
     func rollback(_ pluginID: PluginID) throws {}
     func uninstall(_ pluginID: PluginID) async throws {}
+    func restore(_ pluginID: PluginID) throws {}
 }

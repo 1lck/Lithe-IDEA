@@ -1,0 +1,23 @@
+{
+  "id": "debug-java-runtime",
+  "area": "运行与调试",
+  "group": "调试器",
+  "capability": "Java 调试与运行使用同一个 JDK：调试不单独配置 JDK，随运行配置、项目 JDK 和 JAVA_HOME 的选择变化",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Services/Debug/DebugLaunchConfigurationResolver.swift",
+      "macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift",
+      "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": ["windows/tauri/src/platform/lsp-core-adapter.ts"],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Debug",
+  "verification": "为项目或运行配置指定与语言服务器运行时不同的 JDK，分别运行和调试 Java 主类、Maven 类配置与测试，确认三者的被调试 JVM 都是运行所用的 JDK；把 JDK 改为无效路径，确认调试与运行给出相同的报错。",
+  "notes": "Windows 的 Java 调试启动参数不带 javaExec，由 Java Debug Server 选择 JVM，尚未与运行对齐。"
+}

@@ -35,7 +35,7 @@
 4. 每个 `packaged` 语言服务器入口必须是包内的普通可执行文件，不能是符号链接。
 5. `MacPluginStartupLoader` 只做静态校验（与内置清单的所有权冲突、模块依赖图），不加载代码。被接受的包无论是否启用都注册宿主模块，启用状态只决定能否激活，所以启用、禁用即时生效，不需要重启；只有启动后才安装的包需要重启才能进入模块图。
 6. `MacServiceContainer.declarativePluginFactories` 用声明配置通用的 `BundledLanguageServerModule` 和 `BundledLanguageExecutionModule`。运行/测试计划由 `DeclarativeLanguageExecutionCapability` 交给 Rust Core 展开；进程仍由模块的资源范围持有，禁用时一并停止。
-7. `packaged` 语言服务器固定为**本插件**已安装版本目录里的完整路径（`LanguageServerExtensionConfiguration.executableURL`），它就是唯一候选，不按文件名在 PATH 或其他插件里查找，升级前保存的自定义可执行路径也不会排到它前面或在它缺失时顶替：两个插件都打包 `bin/language-server` 时也不会互相启动对方的服务器，文件缺失时直接报不可用而不是换成同名工具；`systemCommand`（如 gopls）走普通工具发现。`runtimeDependencies` 声明的运行时（v1 支持 `node`、`go`）由宿主发现，导出为 `LITHE_<TOOL>_PATH`，并把所在目录放到语言服务器 `PATH` 最前面：Intelephense 的启动脚本读 `LITHE_NODE_PATH`，gopls 则自己调用 `go`。从 Dock 打开的应用不继承 shell 的 `PATH`（没有 `/opt/homebrew/bin`），不声明 `go` 时 gopls 能启动但每个请求都报 `no views`。项目目录里的同名工具永远不会被选中，因为语言服务器在打开文件时自动启动，不能执行仓库自带的程序。
+7. `packaged` 语言服务器固定为**本插件**已安装版本目录里的完整路径（`LanguageServerExtensionConfiguration.executableURL`），它就是唯一候选，不按文件名在 PATH 或其他插件里查找，升级前保存的自定义可执行路径也不会排到它前面或在它缺失时顶替：两个插件都打包 `bin/language-server` 时也不会互相启动对方的服务器，文件缺失时直接报不可用而不是换成同名工具；`systemCommand`（如 gopls）走普通工具发现。`runtimeDependencies` 声明的运行时（v1 支持 `node`、`go`）由宿主发现，导出为 `LITHE_<TOOL>_PATH`，并把所在目录放到语言服务器 `PATH` 最前面：Intelephense 的启动脚本读 `LITHE_NODE_PATH`，gopls 则自己调用 `go`。从 Dock 打开的应用不继承 shell 的 `PATH`（没有 `/opt/homebrew/bin`），不声明 `go` 时 gopls 能启动但每个请求都报 `no views`。项目目录里的同名工具永远不会被选中，因为语言服务器在打开文件时自动启动，不能执行仓库自带的程序。`launch.kind` 为 `runtime` 的服务器（如 `node`、`java`）即使没有写 `runtimeDependencies`，也会把自己启动用的那个运行时同样导出（`LITHE_<TOOL>_PATH`，所在目录放到 `PATH` 最前面），用的是宿主已选中的那个可执行文件，而不是 `PATH` 上排在前面的同名旧版本，这样服务器按命令名调用的辅助脚本（`/usr/bin/env node`）与它同一个运行时。宿主集成（如 `jdt`）自己管理环境，不套用这条。
 8. 带 `validationArguments` 的语言服务器（如 `gopls version`）只有探测通过的候选才会被使用。插件在启动后才启用时，它的语言服务器错过了启动时的探测，所以 `AppModel` 在注册后发现尚未探测，会先探测再启动，而不是先报“找不到 gopls”再靠重试恢复。
 
 ### 3. 去掉原生加载与过严的隔离
@@ -48,7 +48,7 @@
 
 ### 5. Go 一并改造
 
-Go Support 改为声明式后首次出现在插件管理页，默认禁用；用户启用后才会在打开 `.go` 文件时启动用户自己安装的 gopls。最初它随应用内置（`sameTeamAsHost`，不提供重装和卸载），后来改为和 PHP 一样从插件市场下载（`publisherPackage`，发布标签 `plugin-go-support-v<版本>`）：Lithe.app 不再内置任何官方插件，Go 的修复也不再依赖 Lithe 发版。包里仍只有 `plugin.json`，gopls 和 Go 继续由用户自己安装；`official-plugin-distribution.mjs` 的内置名单因此为空，保留它是为了以后需要时再让某个插件随应用发行。改造前 Go 模块默认禁用且界面无入口，实际从未加载，所以这次没有退化风险。单文件测试改为运行该文件所在的包（根目录文件对应 `.`），比原来的 `./...` 更准确。
+Go Support 改为声明式后首次出现在插件管理页，默认禁用；用户启用后才会在打开 `.go` 文件时启动用户自己安装的 gopls。最初它随应用内置（`sameTeamAsHost`，不提供重装和卸载），后来改为和 PHP 一样从插件市场下载（`publisherPackage`，发布标签 `plugin-go-support-v<版本>`）：Go 的修复也不再依赖 Lithe 发版。包里仍只有 `plugin.json`，gopls 和 Go 继续由用户自己安装。`official-plugin-distribution.mjs` 的内置名单后来只包含 Java Support，见 [Java 语言服务器是一个声明式插件](2026-10-13-java-language-server-as-declarative-plugin.md)。改造前 Go 模块默认禁用且界面无入口，实际从未加载，所以这次没有退化风险。单文件测试改为运行该文件所在的包（根目录文件对应 `.`），比原来的 `./...` 更准确。
 
 ### 6. 跳转到工作区外的源码只读打开
 

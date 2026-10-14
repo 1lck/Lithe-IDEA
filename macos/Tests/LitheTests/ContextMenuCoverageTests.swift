@@ -218,6 +218,116 @@ struct ContextMenuCoverageTests {
     }
 
     @Test
+    func preferredSizeChangesCoalesceWithoutReenteringTheCallback() async {
+        let controller = LitheDropdownHostingController(rootView: AnyView(EmptyView()))
+        var sizes: [NSSize] = []
+        var callbackDepth = 0
+        var maximumDepth = 0
+        controller.sizeChanged = { [weak controller] in
+            guard let controller else { return }
+            callbackDepth += 1
+            defer { callbackDepth -= 1 }
+            maximumDepth = max(maximumDepth, callbackDepth)
+            sizes.append(controller.preferredContentSize)
+            if sizes.count == 1 {
+                // A size measurement caused by resizing must run in a later turn.
+                controller.preferredContentSize = NSSize(width: 400, height: 160)
+            }
+        }
+        defer { controller.sizeChanged = nil }
+
+        for width in [200, 240, 300] as [CGFloat] {
+            controller.preferredContentSize = NSSize(width: width, height: 120)
+        }
+        #expect(sizes.isEmpty)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while sizes.count < 2, clock.now < deadline { await Task.yield() }
+        #expect(sizes == [NSSize(width: 300, height: 120), NSSize(width: 400, height: 160)],
+                "The latest measurement and its resize feedback must both be delivered")
+        #expect(maximumDepth == 1)
+    }
+
+    @Test
+    func closingContentCancelsQueuedSizeFeedback() async {
+        let controller = LitheDropdownHostingController(rootView: AnyView(EmptyView()))
+        var callbacks = 0
+        controller.sizeChanged = { callbacks += 1 }
+        defer { controller.sizeChanged = nil }
+        controller.preferredContentSize = NSSize(width: 300, height: 120)
+        controller.sizeChanged = nil
+
+        // The sentinel proves the queue passed the cancelled notification.
+        var queuePassedNotification = false
+        DispatchQueue.main.async { queuePassedNotification = true }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while !queuePassedNotification, clock.now < deadline { await Task.yield() }
+        #expect(queuePassedNotification, "Main queue did not reach the cancellation sentinel")
+        #expect(callbacks == 0)
+    }
+
+    @Test(arguments: [ColorScheme.light, .dark])
+    func dropdownPresentationDefersLayoutAndUsesTheLatestContent(scheme: ColorScheme) async throws {
+        var isPresented = true
+        var width: CGFloat = 300
+        let coordinator = LitheDropdownPopover<AnyView>.Coordinator(
+            isPresented: Binding(get: { isPresented }, set: { isPresented = $0 })
+        ) { AnyView(Text("Latest content").frame(width: width, height: 120)) }
+        coordinator.environment.colorScheme = scheme
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 400, width: 240, height: 36),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let anchor = LitheDropdownAnchorView(frame: NSRect(x: 0, y: 0, width: 240, height: 36))
+        anchor.onDetach = { [weak coordinator] in coordinator?.dismiss() }
+        window.contentView = anchor
+        defer {
+            coordinator.dismiss()
+            anchor.onDetach = nil
+            window.contentView = nil
+            window.close()
+        }
+
+        coordinator.present(relativeTo: anchor, in: window)
+        width = 480
+        coordinator.present(relativeTo: anchor, in: window)
+        #expect(window.childWindows?.isEmpty != false,
+                "Presenting during updateNSView must not synchronously lay out a child window")
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while window.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
+        let popup = try #require(window.childWindows?.first, "Deferred presentation did not open")
+        #expect(window.childWindows?.count == 1)
+        #expect(popup.frame.width == 480)
+        #expect(popup.appearance?.name == (scheme == .dark ? .darkAqua : .aqua))
+
+        // Closing a queued update must not reopen the old panel on the next turn.
+        coordinator.present(relativeTo: anchor, in: window)
+        window.contentView = nil
+        var queuePassedPresentation = false
+        DispatchQueue.main.async { queuePassedPresentation = true }
+        let cancellationDeadline = clock.now.advanced(by: .seconds(1))
+        while !queuePassedPresentation, clock.now < cancellationDeadline { await Task.yield() }
+        #expect(queuePassedPresentation, "Main queue did not reach the dismissal sentinel")
+        #expect(!popup.isVisible)
+        #expect(!isPresented)
+        #expect(window.childWindows?.isEmpty != false)
+
+        // Detach before the first presentation is delivered, not just an update.
+        isPresented = true
+        window.contentView = anchor
+        coordinator.present(relativeTo: anchor, in: window)
+        window.contentView = nil
+        var queuePassedOpening = false
+        DispatchQueue.main.async { queuePassedOpening = true }
+        let openingDeadline = clock.now.advanced(by: .seconds(1))
+        while !queuePassedOpening, clock.now < openingDeadline { await Task.yield() }
+        #expect(queuePassedOpening, "Main queue did not reach the cancelled opening sentinel")
+        #expect(!isPresented)
+        #expect(window.childWindows?.isEmpty != false)
+    }
+
+    @Test
     func sharedContentInheritsEnvironmentAndClosesWhenAnchorDetaches() async throws {
         let probe = DropdownEnvironmentProbe()
         let host = NSHostingView(rootView: DropdownEnvironmentHarness(probe: probe))

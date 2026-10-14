@@ -16,6 +16,9 @@ struct MacPluginStartupResult {
     let registeredPlugins: [InstalledPluginPackage]
     let issues: [PluginStartupIssue]
     var iconResources: [String: PluginUIIconResources] = [:]
+    /// `false` when the installed packages could not be scanned at all, so an
+    /// empty `installedPlugins` means "unknown" rather than "none installed".
+    var scanSucceeded = true
 
     var installedManifests: [PluginManifest] {
         installedPlugins.map(\.manifest).sorted { $0.id < $1.id }
@@ -60,7 +63,8 @@ final class MacPluginStartupLoader {
             return MacPluginStartupResult(
                 installedPlugins: [],
                 registeredPlugins: [],
-                issues: [PluginStartupIssue(pluginID: nil, message: error.localizedDescription)]
+                issues: [PluginStartupIssue(pluginID: nil, message: error.localizedDescription)],
+                scanSucceeded: false
             )
         }
 
@@ -70,6 +74,9 @@ final class MacPluginStartupLoader {
             PluginStartupIssue(pluginID: $0.pluginID, message: $0.message)
         }
         for installed in scan.packages.sorted(by: { $0.manifest.id < $1.manifest.id }) {
+            // A removed bundled plugin stays listed so it can be restored and
+            // keeps owning its language, but none of its modules are registered.
+            guard installed.installation.status != .removed else { continue }
             do {
                 // Include every accepted candidate so plugin, module, and
                 // language ownership collisions are rejected per package.

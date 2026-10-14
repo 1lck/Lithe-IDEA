@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { act, type ChangeEvent } from "react";
+import { act, type ChangeEvent, type Ref, type RefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
@@ -23,6 +23,7 @@ const createTag = mock(
 );
 const onCreated = mock(async () => {});
 const onClose = mock(() => {});
+let dialogInitialFocus: RefObject<HTMLElement | null> | undefined;
 const commit: GitCommit = {
   hash: "a".repeat(40),
   shortHash: "aaaaaaa",
@@ -40,20 +41,27 @@ beforeEach(() => {
   createTag.mockClear();
   onCreated.mockClear();
   onClose.mockClear();
+  dialogInitialFocus = undefined;
   // Stub shared controls so portal animation and React DOM's module-order
   // detection cannot suppress the form events; exercise the tag workflow.
   spies.push(
-    spyOn(dialogs, "default").mockImplementation(({ title, children, footer, onClose }) => (
-      <section role="dialog">
-        <h2>{title}</h2>
-        {children}
-        {footer}
-        <button aria-label="Close" onClick={onClose} />
-      </section>
-    )),
+    spyOn(dialogs, "default").mockImplementation(({ title, children, footer, onClose, initialFocus }) => {
+      dialogInitialFocus = initialFocus;
+      return (
+        <section role="dialog">
+          <h2>{title}</h2>
+          {children}
+          {footer}
+          <button aria-label="Close" onClick={onClose} />
+        </section>
+      );
+    }),
     spyOn(tagsApi, "createTag").mockImplementation(createTag),
-    spyOn(inputs, "default").mockImplementation((({ value, disabled, onChange }: InputProps) => (
+    spyOn(inputs, "default").mockImplementation((({ value, disabled, onChange, ref }: InputProps & {
+      ref?: Ref<HTMLInputElement>;
+    }) => (
       <input
+        ref={ref}
         value={value}
         disabled={disabled}
         onInput={(event) => onChange?.(event as unknown as ChangeEvent<HTMLInputElement>)}
@@ -144,6 +152,13 @@ test("validates names and creates a lightweight tag on the selected commit exact
   await finishCreation(true);
   expect(onCreated).toHaveBeenCalledTimes(1);
   expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+test("opening the dialog focuses the tag name instead of the header close button", async () => {
+  await renderDialog();
+  // Base UI focuses the first tabbable element by default; the dialog must
+  // hand it the name input so typing works without an extra click.
+  expect(dialogInitialFocus?.current).toBe(input());
 });
 
 test("cancel closes the tag dialog without writing", async () => {

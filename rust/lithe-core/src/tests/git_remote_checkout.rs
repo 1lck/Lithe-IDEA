@@ -364,6 +364,30 @@ fn remote_checkout_keeps_checkout_and_rebase_history_policy() {
 }
 
 #[test]
+fn remote_checkout_fast_forwards_despite_a_squash_merge_option() {
+    let fixture = CheckoutFixture::new();
+    // A branch-level squash default makes plain `merge --ff-only` exit 0
+    // without moving HEAD; the checkout must still land on the remote tip.
+    fixture.git(&["config", "branch.preview.mergeOptions", "--squash"]);
+    assert_success(&fixture.call(
+        "git.write",
+        json!({
+            "operation": "checkout", "gitReference": contract()["reference"]
+        }),
+    ));
+    assert_eq!(fixture.git(&["symbolic-ref", "HEAD"]), "refs/heads/preview");
+    assert_eq!(
+        fixture.git(&["rev-parse", "HEAD"]),
+        fixture.git(&["rev-parse", "upstream/preview"])
+    );
+    assert!(fixture.git(&["status", "--porcelain"]).is_empty());
+    assert_eq!(
+        fixture.git(&["config", "branch.preview.mergeOptions"]),
+        "--squash"
+    );
+}
+
+#[test]
 fn remote_checkout_rechecks_the_local_tip_after_post_checkout_hooks() {
     let fixture = CheckoutFixture::new();
     let original = fixture.git(&["rev-parse", "preview"]);

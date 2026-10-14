@@ -103,6 +103,10 @@ jobs:
         with:
           swiftpm: "true"
           cargo: "true"
+          # Java Support is assembled from the pinned JDT LS and JDK.
+          jdtls: "true"
+          jdk: "true"
+          jdk-architecture: arm64
 
       # Compile and discover tests before starting the test execution deadline.
       - name: Build Swift tests

@@ -157,6 +157,9 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
         var items: [LitheContextMenuItem]?
         private var menuIsPresented = false
         private var hostingController: LitheDropdownHostingController?
+        private var pendingPresentationID: UUID?
+        private weak var pendingAnchor: NSView?
+        private weak var pendingWindow: NSWindow?
 
         init(isPresented: Binding<Bool>, content: @escaping () -> Content) {
             self.isPresented = isPresented
@@ -164,6 +167,27 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
         }
 
         func present(relativeTo anchor: NSView, in window: NSWindow) {
+            pendingAnchor = anchor
+            pendingWindow = window
+            guard pendingPresentationID == nil else { return }
+            let presentationID = UUID()
+            pendingPresentationID = presentationID
+            // updateNSView is part of the parent's SwiftUI layout transaction.
+            // Present/resize after it returns, using the latest content/environment.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.pendingPresentationID == presentationID else { return }
+                self.pendingPresentationID = nil
+                let anchor = self.pendingAnchor
+                let window = self.pendingWindow
+                self.pendingAnchor = nil
+                self.pendingWindow = nil
+                guard self.isPresented.wrappedValue, let anchor, let window,
+                      anchor.window === window else { return }
+                self.presentNow(relativeTo: anchor, in: window)
+            }
+        }
+
+        private func presentNow(relativeTo anchor: NSView, in window: NSWindow) {
             let rect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
             let point = NSPoint(x: rect.minX, y: opensUpward ? rect.maxY : rect.minY)
             let appearance = NSAppearance(named: environment.colorScheme == .dark ? .darkAqua : .aqua)
@@ -209,10 +233,20 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
         }
 
         func dismiss() {
-            if menuIsPresented { presenter.dismiss() }
-            guard let hostingController else { return }
-            presenter.dismiss(contentController: hostingController)
-            self.hostingController = nil
+            let hadPendingPresentation = pendingPresentationID != nil
+            pendingPresentationID = nil
+            pendingAnchor = nil
+            pendingWindow = nil
+            if menuIsPresented {
+                presenter.dismiss()
+                return
+            }
+            if let hostingController {
+                presenter.dismiss(contentController: hostingController)
+                self.hostingController = nil
+            } else if hadPendingPresentation {
+                isPresented.wrappedValue = false
+            }
         }
     }
 }

@@ -34,6 +34,8 @@
 "Pending plugin changes: %lld" = "Pending plugin changes: %lld";
 "Uninstall" = "Uninstall";
 "Reinstall" = "Reinstall";
+"Removed. Restart Lithe to finish." = "Removed. Restart Lithe to finish.";
+"Removed. Restore it to use it again." = "Removed. Restore it to use it again.";
 "Uninstall PHP Support?" = "Uninstall PHP Support?";
 "PHP language support will be removed after restarting Lithe." = "PHP language support will be removed after restarting Lithe.";
 "Overview" = "Overview";
@@ -1514,3 +1516,16 @@
 "Plugins…" = "Plugins…";
 "Theme…" = "Theme…";
 "Keymap…" = "Keymap…";
+
+/* Declarative plugin settings (Settings › Plugins). */
+"Applies the next time the language server starts." = "Applies the next time the language server starts.";
+"Restart Language Servers" = "Restart Language Servers";
+"Reset to Default" = "Reset to Default";
+"Enter a whole number from %d to %d." = "Enter a whole number from %d to %d.";
+"Maximum memory" = "Maximum memory";
+"Upper bound of the Java language server's heap. Raise it for large multi-module projects." = "Upper bound of the Java language server's heap. Raise it for large multi-module projects.";
+"Language server log level" = "Language server log level";
+"How much the Java language server writes to its own log. Quieter levels reduce disk writes." = "How much the Java language server writes to its own log. Quieter levels reduce disk writes.";
+"All messages" = "All messages";
+"Warnings" = "Warnings";
+"Errors only" = "Errors only";
