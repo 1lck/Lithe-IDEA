@@ -205,6 +205,7 @@ public final class AgentConnectionModel: ObservableObject {
 
     public func startNewConversation() {
         guard !isCreatingSession else { return }
+        discardUnpersistedEmptySessions()
         selectedSessionID = nil
         errorMessage = nil
         prepareConversation()

@@ -379,6 +379,8 @@ struct AgentConversationSelectionTests {
         do {
             let feature = try prepare(panel, transport: transport, agentID: "codex-acp", model: "Model")
             let native = try #require(transport.connections.last)
+            try feature.send("Keep this conversation")
+            feature.receive(try json(["kind": "turnFinished", "sessionId": "codex-acp"]))
             let host = hostingView(panel)
             let window = hiddenWindow(host)
             defer { window.close() }
@@ -411,6 +413,14 @@ struct AgentConversationSelectionTests {
             try clickNativeView(host, at: point)
             #expect(await awaitChange(on: feature) { feature.isCreatingSession })
             #expect(native.commands.count == count + 2, "New Chat becomes usable again after confirmation")
+            #expect(feature.conversations["new-chat"] == nil)
+            #expect(!feature.sessions.contains { $0.id == "new-chat" })
+            #expect(feature.openSessionIDs == ["codex-acp"])
+            #expect(feature.conversations["codex-acp"]?.messages.first?.text == "Keep this conversation")
+            feature.receive(try json(["kind": "sessionCreated", "sessionId": "replacement",
+                                       "token": native.commands.last?["token"] as Any]))
+            #expect(feature.openSessionIDs == ["codex-acp", "replacement"])
+
         } catch {
             await panel.stop()
             throw error

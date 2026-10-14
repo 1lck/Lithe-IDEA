@@ -338,7 +338,6 @@ private struct AgentConnectionView: View {
     @State private var showsSearch = false
     @State private var searchText = ""
     @State private var showsHistory = false
-    @State private var isToolWindowActive = false
     @State private var draftReset = 0
     @Environment(\.scenePhase) private var scenePhase
 
@@ -375,7 +374,6 @@ private struct AgentConnectionView: View {
                                  onReconnect: onConnect)
             }
         }
-        .background(LitheToolWindowActivityTracker(isActive: $isToolWindowActive))
         .task(id: shouldPollQuota) {
             guard shouldPollQuota else { return }
             while !Task.isCancelled {
@@ -421,10 +419,6 @@ private struct AgentConnectionView: View {
                 .padding(.trailing, 6)
                 .frame(height: 34)
                 .litheWorkbenchSurface(AgentPanelStyle.context)
-            }
-            if feature.openSessionIDs.count > 1
-                || (feature.selectedSessionID == nil && !feature.openSessionIDs.isEmpty) {
-                sessionTabs
             }
             AgentConversationLayout {
                 VStack(spacing: 0) {
@@ -493,27 +487,6 @@ private struct AgentConnectionView: View {
         }
     }
 
-    private var sessionTabs: some View {
-        AgentSessionTabStrip(
-            tabs: feature.openSessionIDs.map { id in
-                AgentSessionTabItem(
-                    id: id,
-                    title: feature.sessions.first { $0.id == id }.map(sessionTitle) ?? String(localized: "Untitled conversation"),
-                    isSelected: feature.selectedSessionID == id,
-                    isBusy: feature.conversations[id]?.isResponding == true,
-                    needsAttention: feature.conversations[id]?.permission != nil
-                )
-            },
-            showsNewTab: feature.selectedSessionID == nil,
-            isNewTabBusy: feature.isCreatingSession,
-            newTabTitle: feature.pendingNewConversationPrompt.map(AgentSessionTitle.provisional),
-            onSelect: { feature.selectSession($0) },
-            onClose: { feature.closeConversation($0) },
-            onNew: startNewConversation,
-            isActive: isToolWindowActive
-        )
-    }
-
     @ViewBuilder
     private var transcript: some View {
         switch feature.connectionState {
@@ -573,108 +546,6 @@ private struct AgentConnectionView: View {
 
     private func sessionTitle(_ session: AgentSessionSummary) -> String {
         AgentSessionTitle.title(of: AgentSessionSummary(id: session.id, title: history.title(for: session)))
-    }
-}
-
-struct AgentSessionTabItem: Identifiable, Equatable {
-    let id: String
-    let title: String
-    let isSelected: Bool
-    let isBusy: Bool
-    let needsAttention: Bool
-}
-
-/// Agent badge on the left, then one tab per open conversation and a "new" button.
-/// One tab per open conversation and a "new" button.
-struct AgentSessionTabStrip: View {
-    let tabs: [AgentSessionTabItem]
-    let showsNewTab: Bool
-    let isNewTabBusy: Bool
-    var newTabTitle: String? = nil
-    let onSelect: (String) -> Void
-    let onClose: (String) -> Void
-    let onNew: () -> Void
-    var isActive = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(tabs) { tab in
-                        AgentSessionTab(
-                            title: tab.title,
-                            isSelected: tab.isSelected,
-                            isActive: isActive,
-                            isBusy: tab.isBusy,
-                            needsAttention: tab.needsAttention,
-                            select: { onSelect(tab.id) },
-                            close: { onClose(tab.id) }
-                        )
-                    }
-                    if showsNewTab {
-                        AgentSessionTab(
-                            title: newTabTitle ?? String(localized: "New conversation"),
-                            isSelected: true,
-                            isActive: isActive,
-                            isBusy: isNewTabBusy,
-                            needsAttention: false,
-                            select: {},
-                            close: nil
-                        )
-                    }
-                }
-            }
-            Button(action: onNew) {
-                LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                              fallbackSystemImage: "plus", preservesOriginalColors: true)
-            }
-            .litheToolbarIconButton()
-            .help("New conversation")
-            .disabled(showsNewTab)
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 32)
-        .litheWorkbenchSurface(LitheTheme.toolHeaderInactive)
-    }
-}
-
-private struct AgentSessionTab: View {
-    let title: String
-    let isSelected: Bool
-    let isActive: Bool
-    let isBusy: Bool
-    let needsAttention: Bool
-    let select: () -> Void
-    let close: (() -> Void)?
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(spacing: 5) {
-            if isBusy {
-                ProgressView().controlSize(.mini)
-            } else if needsAttention {
-                Circle().fill(LitheTheme.warning).frame(width: 6, height: 6)
-            }
-            Text(title)
-                .font(LitheTheme.uiFont(size: 12, weight: isSelected ? .medium : .regular))
-                .lineLimit(1)
-                .frame(maxWidth: 140)
-            if let close, isHovering || isSelected {
-                Button(action: close) {
-                    LitheIDEAIcon(resourcePath: "expui/general/close.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                  fallbackSystemImage: "xmark", preservesOriginalColors: true)
-                }
-                .litheToolbarIconButton()
-                .help("Close conversation")
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-        .modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: isActive))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: select)
-        .onHover { isHovering = $0 }
     }
 }
 
