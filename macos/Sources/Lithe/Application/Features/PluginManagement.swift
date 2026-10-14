@@ -42,4 +42,7 @@ protocol PluginManaging: AnyObject {
     func installPackage(at packageURL: URL) throws
     func rollback(_ pluginID: PluginID) throws
     func uninstall(_ pluginID: PluginID) async throws
+    /// Brings back a plugin that ships inside the application after the user
+    /// removed it.
+    func restore(_ pluginID: PluginID) throws
 }

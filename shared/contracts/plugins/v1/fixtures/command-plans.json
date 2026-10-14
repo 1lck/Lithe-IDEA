@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Golden expansions of declarative run/test templates. `request` is the payload's request object for the named operation; `expected` is the command's data object.",
+  "description": "Golden expansions of declarative run/test templates and language-server launch plans. `request` is the payload's request object for the named operation; `expected` is the command's data object.",
   "cases": [
     {
       "name": "php run passes user arguments after the file",
@@ -191,6 +191,294 @@
       "expected": {
         "status": "ok",
         "plan": { "label": "TestStore/sub(case)", "frameworkID": "go", "executable": { "toolchain": "project-go" }, "arguments": ["test", "./...", "-run", "^TestStore/sub\\(case\\)$"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "java launch pins the packaged runtime and lists the jdt integration resources",
+      "plugin": "java-support.plugin.json",
+      "languageID": "java",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "arm64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "java",
+            "entry": "language-server/plugins/org.eclipse.equinox.launcher.jar",
+            "packagedRuntime": "runtime/arm64/bin/java"
+          },
+          "arguments": [
+            "-Dfile.encoding=UTF-8",
+            "-jar",
+            "/plugins/java/versions/1.0.0/language-server/plugins/org.eclipse.equinox.launcher.jar"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [],
+          "initializationOptions": {
+            "extendedClientCapabilities": {
+              "classFileContentsSupport": true
+            }
+          },
+          "hostIntegration": {
+            "id": "jdt",
+            "resources": {
+              "configuration": "language-server/configuration/arm64",
+              "extensionBundleDirectories": [
+                "language-server/java-debug",
+                "language-server/java-test/extensions"
+              ],
+              "lombokAgent": "language-server/lombok/lombok.jar",
+              "testRunner": "language-server/java-test/runner/runner.jar"
+            }
+          },
+          "requiredDirectories": [],
+          "requiredPackagePaths": [
+            "language-server/configuration/arm64",
+            "language-server/java-debug",
+            "language-server/java-test/extensions",
+            "language-server/java-test/runner/runner.jar",
+            "language-server/lombok/lombok.jar",
+            "language-server/plugins/org.eclipse.equinox.launcher.jar",
+            "runtime/arm64/bin/java"
+          ]
+        }
+      }
+    },
+    {
+      "name": "java launch selects per-architecture package paths and drops a trailing separator",
+      "plugin": "java-support.plugin.json",
+      "languageID": "java",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0/",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "x86_64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "java",
+            "entry": "language-server/plugins/org.eclipse.equinox.launcher.jar",
+            "packagedRuntime": "runtime/x86_64/bin/java"
+          },
+          "arguments": [
+            "-Dfile.encoding=UTF-8",
+            "-jar",
+            "/plugins/java/versions/1.0.0/language-server/plugins/org.eclipse.equinox.launcher.jar"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [],
+          "initializationOptions": {
+            "extendedClientCapabilities": {
+              "classFileContentsSupport": true
+            }
+          },
+          "hostIntegration": {
+            "id": "jdt",
+            "resources": {
+              "configuration": "language-server/configuration/x86_64",
+              "extensionBundleDirectories": [
+                "language-server/java-debug",
+                "language-server/java-test/extensions"
+              ],
+              "lombokAgent": "language-server/lombok/lombok.jar",
+              "testRunner": "language-server/java-test/runner/runner.jar"
+            }
+          },
+          "requiredDirectories": [],
+          "requiredPackagePaths": [
+            "language-server/configuration/x86_64",
+            "language-server/java-debug",
+            "language-server/java-test/extensions",
+            "language-server/java-test/runner/runner.jar",
+            "language-server/lombok/lombok.jar",
+            "language-server/plugins/org.eclipse.equinox.launcher.jar",
+            "runtime/x86_64/bin/java"
+          ]
+        }
+      }
+    },
+    {
+      "name": "node launch discovers the runtime, carries its version probe, and expands host directories",
+      "plugin": "node-runtime.plugin.json",
+      "languageID": "fixture",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/node/versions/1.0.0",
+        "stateDirectory": "/state/node",
+        "workspaceStateDirectory": "/state/node/workspaces/abc",
+        "architecture": "x86_64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "node",
+            "entry": "language-server/lib/server.js",
+            "minimumVersion": "18.17",
+            "versionArguments": [
+              "--version"
+            ]
+          },
+          "arguments": [
+            "--max-old-space-size=2048",
+            "--require=/plugins/node/versions/1.0.0/language-server/lib/preload.js",
+            "/plugins/node/versions/1.0.0/language-server/lib/server.js",
+            "--stdio",
+            "--storage",
+            "/state/node/storage",
+            "--workspace-cache",
+            "/state/node/workspaces/abc"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [
+            {
+              "tool": "node",
+              "minimumVersion": "18.17"
+            }
+          ],
+          "initializationOptions": {
+            "stubs": [
+              "/plugins/node/versions/1.0.0/language-server/stubs/x86_64"
+            ],
+            "telemetry": false
+          },
+          "requiredDirectories": [
+            "state",
+            "workspaceState"
+          ],
+          "requiredPackagePaths": [
+            "language-server/lib/preload.js",
+            "language-server/lib/server.js",
+            "language-server/stubs/x86_64"
+          ]
+        }
+      }
+    },
+    {
+      "name": "php launch keeps API 1 arguments literal and names the packaged executable",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "arm64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "packaged",
+            "path": "language-server/bin/intelephense"
+          },
+          "arguments": [
+            "--stdio"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [
+            {
+              "tool": "node"
+            }
+          ],
+          "requiredDirectories": [],
+          "requiredPackagePaths": [
+            "language-server/bin/intelephense"
+          ]
+        }
+      }
+    },
+    {
+      "name": "go launch resolves a system command and needs nothing from the package",
+      "plugin": "go-support.plugin.json",
+      "languageID": "go",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "arm64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "systemCommand",
+            "commands": [
+              "gopls"
+            ]
+          },
+          "arguments": [],
+          "validationArguments": [
+            "version"
+          ],
+          "runtimeRequirements": [
+            {
+              "tool": "go"
+            }
+          ],
+          "requiredDirectories": [],
+          "requiredPackagePaths": []
+        }
+      }
+    },
+    {
+      "name": "launch plan refuses an unknown architecture",
+      "plugin": "java-support.plugin.json",
+      "languageID": "java",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "riscv64"
+      },
+      "expected": {
+        "status": "rejected",
+        "code": "plugin.launch.invalidRequest"
+      }
+    },
+    {
+      "name": "launch plan refuses an empty plugin directory",
+      "plugin": "java-support.plugin.json",
+      "languageID": "java",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "arm64"
+      },
+      "expected": {
+        "status": "rejected",
+        "code": "plugin.launch.invalidRequest"
+      }
+    },
+    {
+      "name": "launch plan refuses a language without a server",
+      "plugin": "java-support.plugin.json",
+      "languageID": "kotlin",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "arm64"
+      },
+      "expected": {
+        "status": "rejected",
+        "code": "plugin.launch.unavailable"
       }
     }
   ]

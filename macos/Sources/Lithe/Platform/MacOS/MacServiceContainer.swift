@@ -149,6 +149,10 @@ final class MacServiceContainer {
             fileStorage: fileStorage,
             validator: declarativePluginOperations
         )
+        let pluginLaunchResolver = MacPluginLanguageServerLaunchResolver(
+            planner: declarativePluginOperations,
+            directories: MacPluginStateDirectories(fileStorage: fileStorage)
+        )
         let pluginStartup = MacPluginStartupLoader(packageStore: pluginPackageStore)
             .load(recoveryStore: moduleStore)
         let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
@@ -211,6 +215,22 @@ final class MacServiceContainer {
             store: store,
             toolDiscovery: MacRuntimeToolDiscovery()
         )
+        let languageServerCacheDirectory = fileStorage.cacheDirectory()
+            .appendingPathComponent("Lithe/language-servers", isDirectory: true)
+        // Native integrations a plugin's language server may name in its
+        // manifest. Each one owns everything specific to its server; the code
+        // below only routes by the declared ID.
+        let languageServerHostIntegrations = MacLanguageServerHostIntegrations([
+            MacJdtHostIntegration(
+                launchResolver: pluginLaunchResolver,
+                runtimeService: runtimeService,
+                workspaceState: MacJdtWorkspaceState(
+                    core: rustCore,
+                    cacheDirectoryURL: languageServerCacheDirectory
+                )
+            )
+        ])
+        languageServerHostIntegrations.pluginsDidLoad(pluginStartup.registeredPlugins)
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
         // package is disabled, quarantined, or failed to load. Only the active
@@ -226,11 +246,23 @@ final class MacServiceContainer {
         let languageProviderCatalogSnapshot = languageProviderCatalogSource.load()
         let languageProviderCatalog = languageProviderCatalogSnapshot.catalog
         let pluginLanguageIDs = Set(installedLanguageSupports.map(\.id))
+        // A package may declare, through its host integration, that the host
+        // keeps providing a feature of its language. Everything else of an
+        // installed language needs the package's own module.
+        let hostLanguageCapabilities = Dictionary(
+            installedLanguageSupports.map { ($0.id, $0.hostCapabilities) },
+            uniquingKeysWith: { $0.intersection($1) }
+        )
+        let runExtensionLanguageIDs = installedLanguageSupports
+            .languageIDs(requiringExtensionFor: .run)
+        let testExtensionLanguageIDs = installedLanguageSupports
+            .languageIDs(requiringExtensionFor: .testing)
         // Build the catalog once so every standard runtime consumes the
         // language-pack launch metadata instead of maintaining a second map.
         let languagePackDefinitions = LanguagePackRegistry.standard(
             catalog: languageProviderCatalog,
-            extensionRequiredProviderIDs: pluginLanguageIDs
+            extensionRequiredProviderIDs: pluginLanguageIDs,
+            hostCapabilities: hostLanguageCapabilities
         )
         let debugLaunches = Dictionary(
             uniqueKeysWithValues: languagePackDefinitions.packs.compactMap { pack in
@@ -245,58 +277,16 @@ final class MacServiceContainer {
                     let tools = LanguageServerToolService(
                         runtimeService: runtimeService,
                         commandRunner: processRunner,
-                        settingsStore: MacLanguageToolSettingsStore(store: store)
-                    )
-                    let languageServerCacheDirectory = fileStorage.cacheDirectory()
-                        .appendingPathComponent("Lithe/language-servers", isDirectory: true)
-                    let jdtWorkspaceState = MacJdtWorkspaceState(
-                        core: rustCore,
-                        cacheDirectoryURL: languageServerCacheDirectory
-                    )
-                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver(
-                        configurationCacheDirectoryURL: languageServerCacheDirectory
+                        settingsStore: MacLanguageToolSettingsStore(store: store),
+                        versionChecker: declarativePluginOperations
                     )
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,
                         languageServerExecutableResolver: { tools.executableURL(for: $0) },
-                        languageServerRuntimeResolver: { descriptor in
-                            guard descriptor.id == "java" else { return .notRequired }
-                            guard let executableURL = runtimeService.javaLanguageServerExecutableURL() else {
-                                return .unavailable(
-                                    runtimeService.javaLanguageServerRuntimeFailureMessage()
-                                        ?? "The bundled Temurin JDK 21 is not prepared."
-                                )
-                            }
-                            return .available(executableURL)
-                        },
-                        jdtlsLaunchResourcesResolver: { descriptor, executableURL in
-                            guard descriptor.id == "java" else { return .notRequired }
-                            switch jdtlsLaunchResourceResolver.resolve(for: executableURL) {
-                            case .direct(let resources):
-                                // JDT LS binds each project to the installed JDK that
-                                // matches its release; the bundled JDK 21 it runs on
-                                // cannot build a Java 25 project.
-                                let discovered = runtimeService.javaRuntimes.isEmpty
-                                    ? MacRuntimeDiscovery.discover(
-                                        environment: ProcessInfo.processInfo.environment
-                                    ).javaRuntimes
-                                    : runtimeService.javaRuntimes
-                                return .available(JDTLSLaunchResources(
-                                    launcherJarURL: resources.launcherJarURL,
-                                    configurationDirectoryURL: resources.configurationDirectoryURL,
-                                    lombokAgentURL: resources.lombokAgentURL,
-                                    javaExtensionBundleURLs: resources.javaExtensionBundleURLs,
-                                    javaTestRunnerURL: resources.javaTestRunnerURL,
-                                    javaRuntimes: discovered.map {
-                                        JavaLanguageServiceRuntime(homePath: $0.homePath, version: $0.version)
-                                    }
-                                ))
-                            case .wrapperFallback:
-                                return .notRequired
-                            case .unavailable(let message):
-                                return .unavailable(message)
-                            }
+                        hostIntegrationResolver: { languageServerHostIntegrations.launch(for: $0) },
+                        languageServerLaunchResolver: { source, rootURL in
+                            try pluginLaunchResolver.resolve(source, workspaceRootURL: rootURL)
                         },
                         languageServerCacheDirectory: languageServerCacheDirectory,
                         processRegistry: processRegistry
@@ -309,7 +299,8 @@ final class MacServiceContainer {
                     let registry = LanguagePackRegistry.standard(
                         catalog: languageProviderCatalog,
                         runtimes: runtimes,
-                        extensionRequiredProviderIDs: pluginLanguageIDs
+                        extensionRequiredProviderIDs: pluginLanguageIDs,
+                        hostCapabilities: hostLanguageCapabilities
                     )
                     let sessions = LanguageToolingSessionManager(
                         catalog: registry.catalog,
@@ -322,27 +313,24 @@ final class MacServiceContainer {
                                 .contains(providerID)
                         },
                         workspaceFingerprintProvider: { descriptor, workspaceRootURL in
-                            guard descriptor.id == "java" else { return nil }
-                            return try jdtWorkspaceState.fingerprint(
-                                at: workspaceRootURL,
-                                languageServerExecutableURL: tools.executableURL(for: descriptor)
+                            try languageServerHostIntegrations.workspaceFingerprint(
+                                for: descriptor,
+                                workspaceRootURL: workspaceRootURL
                             )
                         },
                         workspaceStateResetter: { descriptor, workspaceRootURL, fingerprint in
-                            guard descriptor.id == "java" else {
-                                throw CocoaError(.featureUnsupported)
-                            }
-                            try jdtWorkspaceState.clearIndex(
-                                at: workspaceRootURL,
-                                workspaceFingerprint: fingerprint
+                            try languageServerHostIntegrations.resetWorkspaceState(
+                                for: descriptor,
+                                workspaceRootURL: workspaceRootURL,
+                                fingerprint: fingerprint
                             )
                         },
                         workspaceStateCleaner: { descriptor, workspaceRootURL, fingerprint in
-                            guard descriptor.id == "java" else { return 0 }
-                            return try jdtWorkspaceState.pruneExpiredCaches(
-                                at: workspaceRootURL,
-                                workspaceFingerprint: fingerprint
-                            ).removedWorkspaceKeys.count
+                            try languageServerHostIntegrations.pruneWorkspaceState(
+                                for: descriptor,
+                                workspaceRootURL: workspaceRootURL,
+                                fingerprint: fingerprint
+                            )
                         }
                     )
                     let graph = LanguageIntelligenceFeatureGraph(
@@ -383,7 +371,7 @@ final class MacServiceContainer {
                             executableResolver: executableResolver,
                             languageProviderCatalog: languagePackRegistry.catalog,
                             languageRunProviders: languagePackRegistry.runProviders,
-                            extensionRequiredLanguageIDs: pluginLanguageIDs,
+                            extensionRequiredLanguageIDs: runExtensionLanguageIDs,
                             languageSupports: installedLanguageSupports,
                             dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage),
                             javaLaunchArgumentPreparer: rustCore
@@ -393,7 +381,7 @@ final class MacServiceContainer {
                             registry: languagePackRegistry.testProviders,
                             executableResolver: executableResolver,
                             processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
-                            extensionRequiredLanguageIDs: pluginLanguageIDs,
+                            extensionRequiredLanguageIDs: testExtensionLanguageIDs,
                             resultParser: { output, rootURL, reports in
                                 javaMavenOperations.mavenTestResults(
                                     output: output,
@@ -552,7 +540,8 @@ final class MacServiceContainer {
             for factory in Self.declarativePluginFactories(
                 pluginStartup.registeredPlugins,
                 executionHost: languageExecutionHost,
-                planner: declarativePluginOperations
+                planner: declarativePluginOperations,
+                launchResolver: pluginLaunchResolver
             ) {
                 try moduleRegistry.register(factory)
             }
@@ -632,7 +621,10 @@ final class MacServiceContainer {
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
                 fileStorage: fileStorage,
-                javaTestLaunchResolver: rustCore
+                javaTestLaunchResolver: rustCore,
+                javaExecutablePath: { [runtimeService] runtime in
+                    runtimeService.javaExecutableURL(forDebugging: runtime)?.path
+                }
             ),
             debugPortAvailabilityChecker: MacDebugPortAvailabilityChecker(),
             javaTestResultServerFactory: { MacJavaTestResultServer() },
@@ -679,7 +671,8 @@ final class MacServiceContainer {
     static func declarativePluginFactories(
         _ plugins: [InstalledPluginPackage],
         executionHost: any LanguageExecutionHostProviding,
-        planner: any DeclarativeExecutionPlanning
+        planner: any DeclarativeExecutionPlanning,
+        launchResolver: MacPluginLanguageServerLaunchResolver? = nil
     ) -> [ModuleFactory] {
         plugins.flatMap { installed -> [ModuleFactory] in
             let descriptor = installed.descriptor
@@ -691,19 +684,39 @@ final class MacServiceContainer {
             })
             let servers = descriptor.languageServers.compactMap { server -> ModuleFactory? in
                 guard let manifest = modules[.languageServerExtension(server.languageID)] else { return nil }
+                // Plugin API 2 arguments are templates: Rust Core expands them
+                // when the server starts. API 1 arguments stay literal and
+                // keep the launch path they have always used.
+                let launchSource = server.expandsLaunchTemplates
+                    ? DeclarativeLanguageServerLaunchSource(
+                        pluginID: descriptor.id.rawValue,
+                        languageID: server.languageID,
+                        manifest: descriptor.normalizedManifest,
+                        packageURL: installed.packageURL
+                    )
+                    : nil
+                // An unexpandable probe is left empty, so the server is found
+                // unverified and the launch itself reports the real problem.
+                let probe = launchSource.map {
+                    (try? launchResolver?.executableProbe(for: $0)) ?? .init()
+                } ?? .init(validationArguments: server.validationArguments)
                 let configuration = LanguageServerExtensionConfiguration(
                     languageID: server.languageID,
                     displayName: languageNames[server.languageID] ?? server.languageID,
                     executableNames: server.executableNames,
                     arguments: server.arguments,
-                    validationArguments: server.validationArguments,
+                    validationArguments: probe.validationArguments,
                     runtimeTools: server.runtimeTools,
-                    // A packaged server is read in place from the installed,
-                    // read-only plugin version directory of this plugin only.
+                    // A packaged server, or the runtime a plugin ships for
+                    // its server, is read in place from the installed,
+                    // read-only version directory of this plugin only.
                     executableURL: server.packagedRelativePath.map {
                         installed.packageURL.appendingPathComponent($0).standardizedFileURL
-                    },
-                    languageIdentifier: server.languageIdentifier
+                    } ?? probe.packagedRuntimeURL,
+                    languageIdentifier: server.languageIdentifier,
+                    launchSource: launchSource,
+                    executableVersionRequirement: probe.versionRequirement,
+                    hostIntegrationID: server.hostIntegrationID
                 )
                 return ModuleFactory(manifest: manifest) {
                     BundledLanguageServerModule(manifest: manifest, configuration: configuration)

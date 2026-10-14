@@ -33,8 +33,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private let arguments: [String]
     private let environment: [String: String]
     private let initializationOptions: ToolingJSONValue?
-    private let runtimeExecutableURL: URL?
-    private let jdtlsLaunchResources: JDTLSLaunchResources?
+    private let launchResolver: (@MainActor (URL) throws -> ResolvedLanguageServerLaunch)?
+    private let hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?
     private let cacheDirectoryURL: URL?
     private let initializeTimeout: TimeInterval
     private let requestTimeout: TimeInterval
@@ -61,7 +61,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?
     package private(set) var serverInfo: LanguageServerInfo?
     package var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
-    package var javaTestRunnerURL: URL? { jdtlsLaunchResources?.javaTestRunnerURL }
+    package var javaTestRunnerURL: URL? {
+        hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources?.javaTestRunnerURL
+    }
 
     package init(
         providerID: String,
@@ -69,8 +71,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         arguments: [String],
         environment: [String: String],
         initializationOptions: ToolingJSONValue? = nil,
-        runtimeExecutableURL: URL? = nil,
-        jdtlsLaunchResources: JDTLSLaunchResources? = nil,
+        launchResolver: (@MainActor (URL) throws -> ResolvedLanguageServerLaunch)? = nil,
+        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch? = nil,
         cacheDirectoryURL: URL? = nil,
         initializeTimeout: TimeInterval = 30,
         requestTimeout: TimeInterval = 30,
@@ -84,8 +86,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         self.arguments = arguments
         self.environment = environment
         self.initializationOptions = initializationOptions
-        self.runtimeExecutableURL = runtimeExecutableURL
-        self.jdtlsLaunchResources = jdtlsLaunchResources
+        self.launchResolver = launchResolver
+        self.hostIntegrationLaunch = hostIntegrationLaunch
         self.cacheDirectoryURL = cacheDirectoryURL
         self.initializeTimeout = initializeTimeout
         self.requestTimeout = requestTimeout
@@ -123,6 +125,25 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         guard sessionID == nil else { return }
         let normalizedRoot = rootURL.standardizedFileURL
         transition(to: .startingProcess)
+        var arguments = arguments
+        var initializationOptions = initializationOptions
+        if let launchResolver {
+            do {
+                let resolved = try launchResolver(normalizedRoot)
+                arguments = resolved.arguments
+                initializationOptions = resolved.initializationOptions
+            } catch {
+                let message = "Language server launch could not be prepared: \(error.localizedDescription)"
+                let failure = LanguageServerSessionFailure(
+                    code: (error as? DeclarativePluginRejection)?.code ?? "plugin.launch.missing",
+                    stage: "processStart",
+                    message: message
+                )
+                transition(to: .failed(failure))
+                onLog?(.error, "Language server failed to start", message, nil)
+                throw LanguageServerSessionStartError(failure: failure)
+            }
+        }
         onLog?(
             .info,
             "Starting language server",
@@ -137,8 +158,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             rootURL: normalizedRoot,
             workingDirectoryURL: normalizedRoot,
             initializationOptions: initializationOptions,
-            runtimeExecutableURL: runtimeExecutableURL,
-            jdtlsLaunchResources: jdtlsLaunchResources,
+            runtimeExecutableURL: hostIntegrationLaunch?.runtimeExecutableURL,
+            jdtlsLaunchResources: hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources,
             cacheDirectoryURL: cacheDirectoryURL,
             workspaceFingerprint: workspaceFingerprint,
             mavenContext: mavenContext,

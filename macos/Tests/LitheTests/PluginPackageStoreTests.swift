@@ -277,6 +277,69 @@ struct PluginPackageStoreTests {
         }
     }
 
+    /// A plugin inside the application replaces a built-in feature, so it has
+    /// to work on first launch. A downloaded plugin stays off until enabled.
+    @Test
+    func bundledPluginIsEnabledByDefaultAndAnInstalledOneIsNot() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundledRoot = root.appendingPathComponent("bundled", isDirectory: true)
+        let version = PluginVersion(major: 0, minor: 3, patch: 0)
+        try makePackage(
+            at: bundledRoot.appendingPathComponent("dev.example.bundled", isDirectory: true),
+            version: version,
+            pluginID: PluginID("dev.example.bundled"),
+            languageID: "bundled"
+        )
+        let store = makeStore(root: root, bundledRoot: bundledRoot)
+        _ = try store.installPackage(from: makePackage(
+            root: root,
+            name: "downloaded",
+            version: version,
+            pluginID: PluginID("dev.example.downloaded"),
+            languageID: "downloaded"
+        ))
+
+        let plugins = Dictionary(uniqueKeysWithValues: try store.installedPlugins().map { ($0.manifest.id.rawValue, $0) })
+
+        #expect(plugins["dev.example.bundled"]?.manifest.modules.map(\.manifest.defaultState) == [.enabled])
+        #expect(plugins["dev.example.downloaded"]?.manifest.modules.map(\.manifest.defaultState) == [.disabled])
+    }
+
+    /// The app bundle is read-only, so removing a bundled plugin is recorded
+    /// outside it. The package stays listed for restoring, its state is
+    /// deleted, and nothing inside the bundle changes.
+    @Test
+    func aBundledPluginCanBeRemovedAndRestoredWithoutTouchingTheBundle() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundledRoot = root.appendingPathComponent("bundled", isDirectory: true)
+        let pluginID = PluginID("dev.example.plugin")
+        try makePackage(
+            at: bundledRoot.appendingPathComponent(pluginID.rawValue, isDirectory: true),
+            version: PluginVersion(major: 0, minor: 3, patch: 0)
+        )
+        let directories = MacPluginStateDirectories(rootURL: root.appendingPathComponent("state", isDirectory: true))
+        let state = directories.stateDirectory(pluginID: pluginID.rawValue, languageID: "fixture")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let store = makeStore(root: root, bundledRoot: bundledRoot, stateDirectories: directories)
+        let bundleFilesBefore = try FileManager.default.subpathsOfDirectory(atPath: bundledRoot.path).sorted()
+
+        try store.setBundledPluginRemoved(pluginID, removed: true)
+
+        let removed = try #require(try store.installedPlugins().first)
+        #expect(removed.installation.status == .removed)
+        #expect(removed.installation.origin == .bundled)
+        #expect(!FileManager.default.fileExists(atPath: directories.pluginDirectory(pluginID: pluginID.rawValue).path))
+        #expect(try FileManager.default.subpathsOfDirectory(atPath: bundledRoot.path).sorted() == bundleFilesBefore)
+        // The record survives a relaunch, and it is not mistaken for an installation.
+        try store.prepareForLaunch()
+        #expect(try makeStore(root: root, bundledRoot: bundledRoot).installedPlugins().first?.installation.status == .removed)
+
+        try store.setBundledPluginRemoved(pluginID, removed: false)
+        #expect(try store.installedPlugins().first?.installation.status == .installed)
+    }
+
     @Test
     func deferredUpdateAndUninstallCompleteAtNextLaunch() throws {
         let root = temporaryRoot()
@@ -323,6 +386,36 @@ struct PluginPackageStoreTests {
 
         #expect(!FileManager.default.fileExists(atPath: installed.packageURL.path))
         #expect(try store.installedPlugins().isEmpty)
+    }
+
+    /// Language-server state lives outside the package, so removing the
+    /// package directory alone would leave indexes behind.
+    @Test
+    func uninstallRemovesThePluginsLanguageServerState() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directories = MacPluginStateDirectories(rootURL: root.appendingPathComponent("state", isDirectory: true))
+        let store = makeStore(root: root, stateDirectories: directories)
+        let version = PluginVersion(major: 0, minor: 3, patch: 0)
+        func writeState(for plugin: InstalledPluginPackage) throws -> URL {
+            let state = directories.stateDirectory(pluginID: plugin.manifest.id.rawValue, languageID: "fixture")
+            try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+            try Data("index".utf8).write(to: state.appendingPathComponent("index"))
+            return directories.pluginDirectory(pluginID: plugin.manifest.id.rawValue)
+        }
+
+        let immediate = try store.installPackage(from: makePackage(root: root, name: "one", version: version))
+        let immediateState = try writeState(for: immediate)
+        try store.uninstall(immediate.manifest.id)
+        #expect(!FileManager.default.fileExists(atPath: immediateState.path))
+
+        // A staged uninstall keeps the state until the package itself goes.
+        let staged = try store.installPackage(from: makePackage(root: root, name: "two", version: version))
+        let stagedState = try writeState(for: staged)
+        try store.stageUninstall(staged.manifest.id)
+        #expect(FileManager.default.fileExists(atPath: stagedState.path))
+        try store.prepareForLaunch()
+        #expect(!FileManager.default.fileExists(atPath: stagedState.path))
     }
 
     /// An installed schema-1 native PHP package is reported as needing an
@@ -502,11 +595,13 @@ struct PluginPackageStoreTests {
     private func makeStore(
         root: URL,
         bundledRoot: URL? = nil,
+        stateDirectories: MacPluginStateDirectories? = nil,
         verifier: any PluginPackageSignatureVerifying = TestPluginSignatureVerifier()
     ) -> MacPluginPackageStore {
         MacPluginPackageStore(
             rootURL: installedRoot(root),
             bundledRootURL: bundledRoot,
+            stateDirectories: stateDirectories,
             validator: DeclarativePluginTestSupport.operations,
             verifier: verifier
         )

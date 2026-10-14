@@ -46,7 +46,7 @@
 
 ### 5. Go 一并改造
 
-Go Support 改为声明式后首次出现在插件管理页，默认禁用；用户启用后才会在打开 `.go` 文件时启动用户自己安装的 gopls。最初它随应用内置（`sameTeamAsHost`，不提供重装和卸载），后来改为和 PHP 一样从插件市场下载（`publisherPackage`，发布标签 `plugin-go-support-v<版本>`）：Lithe.app 不再内置任何官方插件，Go 的修复也不再依赖 Lithe 发版。包里仍只有 `plugin.json`，gopls 和 Go 继续由用户自己安装；`official-plugin-distribution.mjs` 的内置名单因此为空，保留它是为了以后需要时再让某个插件随应用发行。改造前 Go 模块默认禁用且界面无入口，实际从未加载，所以这次没有退化风险。单文件测试改为运行该文件所在的包（根目录文件对应 `.`），比原来的 `./...` 更准确。
+Go Support 改为声明式后首次出现在插件管理页，默认禁用；用户启用后才会在打开 `.go` 文件时启动用户自己安装的 gopls。最初它随应用内置（`sameTeamAsHost`，不提供重装和卸载），后来改为和 PHP 一样从插件市场下载（`publisherPackage`，发布标签 `plugin-go-support-v<版本>`）：Go 的修复也不再依赖 Lithe 发版。包里仍只有 `plugin.json`，gopls 和 Go 继续由用户自己安装。`official-plugin-distribution.mjs` 的内置名单后来只包含 Java Support，见 [Java 语言服务器是一个声明式插件](2026-10-13-java-language-server-as-declarative-plugin.md)。改造前 Go 模块默认禁用且界面无入口，实际从未加载，所以这次没有退化风险。单文件测试改为运行该文件所在的包（根目录文件对应 `.`），比原来的 `./...` 更准确。
 
 ### 6. 跳转到工作区外的源码只读打开
 

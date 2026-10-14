@@ -70,6 +70,12 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
     /// Executable pinned by the provider; see `LanguageServerExtensionConfiguration.executableURL`.
     package let executableURL: URL?
     package let initializationOptions: ToolingJSONValue?
+    /// See `LanguageServerExtensionConfiguration.launchSource`.
+    package let launchSource: DeclarativeLanguageServerLaunchSource?
+    /// See `LanguageServerExtensionConfiguration.executableVersionRequirement`.
+    package let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
+    /// Native host integration the provider declares, such as `jdt`.
+    package let hostIntegrationID: String?
 
     package init(
         executableNames: [String],
@@ -78,7 +84,10 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
         environment: [String: String] = [:],
         runtimeTools: [String] = [],
         executableURL: URL? = nil,
-        initializationOptions: ToolingJSONValue? = nil
+        initializationOptions: ToolingJSONValue? = nil,
+        launchSource: DeclarativeLanguageServerLaunchSource? = nil,
+        executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
+        hostIntegrationID: String? = nil
     ) {
         self.executableNames = executableNames
         self.arguments = arguments
@@ -87,6 +96,9 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
         self.runtimeTools = runtimeTools
         self.executableURL = executableURL
         self.initializationOptions = initializationOptions
+        self.launchSource = launchSource
+        self.executableVersionRequirement = executableVersionRequirement
+        self.hostIntegrationID = hostIntegrationID
     }
 }
 

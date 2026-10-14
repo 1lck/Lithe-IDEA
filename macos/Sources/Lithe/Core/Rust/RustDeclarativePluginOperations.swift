@@ -4,7 +4,8 @@ import LitheCoreContracts
 /// Typed `plugins.declarative.*` operations. Rust Core owns manifest
 /// validation and template expansion for both products; this adapter only
 /// translates payloads and outcomes.
-struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, DeclarativeExecutionPlanning {
+struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, DeclarativeExecutionPlanning,
+    DeclarativeLanguageServerLaunchPlanning, LanguageServerRuntimeVersionChecking {
     let core: RustCoreBridge
 
     func validate(manifest: Data) throws -> DeclarativePluginDescriptor {
@@ -91,6 +92,69 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         )
     }
 
+    func languageServerLaunchPlan(
+        manifest: Data,
+        languageID: String,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        let outcome: Outcome<LaunchPlanResult> = try execute(
+            "plugins.declarative.languageServerLaunchPlan",
+            payload: PlanPayload(
+                manifest: try Self.json(manifest),
+                languageID: languageID,
+                request: LaunchRequest(
+                    pluginDirectory: request.pluginDirectory.path,
+                    stateDirectory: request.stateDirectory.path,
+                    workspaceStateDirectory: request.workspaceStateDirectory.path,
+                    architecture: request.architecture
+                )
+            )
+        )
+        let plan = outcome.value.plan
+        return DeclarativeLanguageServerLaunchPlan(
+            arguments: plan.arguments,
+            validationArguments: plan.validationArguments,
+            initializationOptions: plan.initializationOptions,
+            entryPath: plan.launch.entry,
+            hostIntegration: plan.hostIntegration.map {
+                .init(id: $0.id, resources: $0.resources.mapValues(\.paths))
+            },
+            packagedRuntimePath: plan.launch.packagedRuntime,
+            executableVersionRequirement: plan.launch.versionRequirement,
+            runtimeRequirements: plan.runtimeRequirements.map {
+                .init(tool: $0.tool, minimumVersion: $0.minimumVersion)
+            },
+            requiredDirectories: try plan.requiredDirectories.map { name in
+                guard let directory = DeclarativeLanguageServerLaunchPlan.RequiredDirectory(rawValue: name) else {
+                    throw DeclarativePluginRejection(
+                        code: "plugin.manifest.invalid",
+                        message: "Rust Core returned an unknown launch directory: \(name)."
+                    )
+                }
+                return directory
+            },
+            requiredPackagePaths: plan.requiredPackagePaths
+        )
+    }
+
+    func checkRuntimeVersion(
+        _ requirement: LanguageServerExecutableVersionRequirement,
+        output: String
+    ) throws -> LanguageServerRuntimeVersionCheck {
+        let outcome: Outcome<VersionCheckResult> = try execute(
+            "plugins.declarative.checkRuntimeVersion",
+            payload: VersionCheckRequest(
+                tool: requirement.tool,
+                minimumVersion: requirement.minimumVersion,
+                output: output
+            )
+        )
+        return LanguageServerRuntimeVersionCheck(
+            satisfied: outcome.value.check.satisfied,
+            version: outcome.value.check.version
+        )
+    }
+
     private func execute<Payload: Encodable, Value: Decodable>(
         _ command: String,
         payload: Payload
@@ -155,6 +219,84 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
     private struct TestRequest: Encodable {
         let scope: TestScope
         let relativeProjectFilePaths: [String]
+    }
+
+    private struct LaunchRequest: Encodable {
+        let pluginDirectory: String
+        let stateDirectory: String
+        let workspaceStateDirectory: String
+        let architecture: String
+    }
+
+    private struct LaunchPlan: Decodable {
+        struct RuntimeRequirement: Decodable {
+            let tool: String
+            let minimumVersion: String?
+        }
+
+        struct Launch: Decodable {
+            let tool: String?
+            let entry: String?
+            let packagedRuntime: String?
+            let minimumVersion: String?
+            let versionArguments: [String]?
+
+            var versionRequirement: LanguageServerExecutableVersionRequirement? {
+                guard let tool, let minimumVersion, let versionArguments else { return nil }
+                return LanguageServerExecutableVersionRequirement(
+                    tool: tool,
+                    minimumVersion: minimumVersion,
+                    probeArguments: versionArguments
+                )
+            }
+        }
+
+        /// One package path or an ordered list of them.
+        struct ResourcePaths: Decodable {
+            let paths: [String]
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.singleValueContainer()
+                if let path = try? container.decode(String.self) {
+                    paths = [path]
+                } else {
+                    paths = try container.decode([String].self)
+                }
+            }
+        }
+
+        struct HostIntegration: Decodable {
+            let id: String
+            let resources: [String: ResourcePaths]
+        }
+
+        let launch: Launch
+        let hostIntegration: HostIntegration?
+        let arguments: [String]
+        let validationArguments: [String]
+        let initializationOptions: ToolingJSONValue?
+        let runtimeRequirements: [RuntimeRequirement]
+        let requiredDirectories: [String]
+        let requiredPackagePaths: [String]
+    }
+
+    private struct LaunchPlanResult: Decodable {
+        let plan: LaunchPlan
+    }
+
+    private struct VersionCheckRequest: Encodable {
+        let tool: String
+        let minimumVersion: String
+        let output: String
+    }
+
+    private struct VersionCheckResult: Decodable {
+        struct Check: Decodable {
+            let satisfied: Bool
+            let version: String?
+        }
+
+        let check: Check
     }
 
     private struct Rejection: Decodable {

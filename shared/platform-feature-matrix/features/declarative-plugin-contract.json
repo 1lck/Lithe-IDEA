@@ -2,7 +2,7 @@
   "id": "declarative-plugin-contract",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "声明式插件契约 v1（插件不在宿主进程内运行代码）",
+  "capability": "声明式插件契约 v1（插件不在宿主进程内运行代码），API 2 增加运行时启动、插件自带运行时、启动模板、具名宿主集成及其声明的宿主能力",
   "macos": {
     "evidence": [
       "shared/contracts/plugins/v1",
@@ -10,7 +10,11 @@
       "macos/Sources/Lithe/Core/Rust/RustDeclarativePluginOperations.swift",
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginStartupLoader.swift",
-      "macos/Tests/LitheTests/PluginPackageStoreTests.swift"
+      "macos/Tests/LitheTests/PluginPackageStoreTests.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift",
+      "macos/Tests/LitheTests/PluginLanguageServerLaunchResolverTests.swift",
+      "macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift",
+      "macos/Tests/LitheTests/LanguageProviderCatalogSourceTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -24,5 +28,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Extensions",
-  "verification": "macOS：安装 shared/contracts/plugins/v1/fixtures/invalid-manifests.json 中每类错误的包，确认插件管理显示对应错误且不注册模块；合法包启用、禁用无需重启；包内声明的语言服务器可执行文件缺失或为符号链接时拒绝安装；启动后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。Windows：现有扩展清单尚未改为读取该契约，接入时必须通过同一组共享 fixture。"
+  "verification": "macOS：安装 shared/contracts/plugins/v1/fixtures/invalid-manifests.json 中每类错误的包，确认插件管理显示对应错误且不注册模块；合法包启用、禁用无需重启；包内声明的语言服务器可执行文件缺失或为符号链接时拒绝安装；启动后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。API 2：安装 fixtures 中 node-runtime 形态的包，确认宿主发现满足最低版本的 node 并用它启动入口文件，版本过低的候选不被使用；语言服务器的状态写在 <app-support>/Lithe/PluginState 下而不是插件包内，卸载后该目录被删除。宿主能力：声明语言但未在 hostIntegration.capabilities 中列出运行、测试或调试、也未提供执行提供方的包，对应入口不可用且宿主不运行内置工具；列出后对应入口恢复。Windows：现有扩展清单尚未改为读取该契约，接入时必须通过同一组共享 fixture。"
 }

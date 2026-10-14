@@ -34,6 +34,8 @@
 "Pending plugin changes: %lld" = "Pending plugin changes: %lld";
 "Uninstall" = "Uninstall";
 "Reinstall" = "Reinstall";
+"Removed. Restart Lithe to finish." = "Removed. Restart Lithe to finish.";
+"Removed. Restore it to use it again." = "Removed. Restore it to use it again.";
 "Uninstall PHP Support?" = "Uninstall PHP Support?";
 "PHP language support will be removed after restarting Lithe." = "PHP language support will be removed after restarting Lithe.";
 "Overview" = "Overview";

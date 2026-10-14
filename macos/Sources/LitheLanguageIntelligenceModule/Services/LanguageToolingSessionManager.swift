@@ -161,21 +161,26 @@ package final class LanguageToolingSessionManager: ObservableObject,
         }
     }
 
+    /// `java.project.getClasspaths` options selecting the runtime classpath.
+    ///
+    /// JDT LS deserializes this argument only from JSON text, as its own
+    /// VS Code client sends it; a JSON object leaves the options null and the
+    /// command fails inside the server.
+    private static let javaRuntimeClasspathOptions = #"{"scope":"runtime"}"#
+
     private func resolvedJavaDependencies(workspace: URL) async throws -> LanguageDependencySnapshot {
         let projects = try await executeJavaCommand("java.project.getAll", arguments: [], rootURL: workspace)
         guard case .array(let values) = projects else {
             throw LanguageToolingSessionError.toolingUnavailable("The Java service returned an invalid project list.")
         }
-        let rootPath = workspace.path
         var dependencyPaths: Set<String> = []
         for case .string(let projectURI) in values {
             try Task.checkCancellation()
-            guard let projectURL = URL(string: projectURI), projectURL.isFileURL else { continue }
-            let projectPath = projectURL.standardizedFileURL.path
-            guard projectPath == rootPath || projectPath.hasPrefix(rootPath + "/") else { continue }
+            guard let projectURL = URL(string: projectURI), projectURL.isFileURL,
+                  Self.isLocated(projectURL, within: workspace) else { continue }
             let response = try await executeJavaCommand(
                 "java.project.getClasspaths",
-                arguments: [.string(projectURI), .object(["scope": .string("runtime")])],
+                arguments: [.string(projectURI), .string(Self.javaRuntimeClasspathOptions)],
                 rootURL: workspace
             )
             guard case .object(let paths) = response else {
@@ -185,7 +190,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 + Self.stringValues(paths["modulepaths"] ?? .array([])) {
                 guard (path as NSString).isAbsolutePath else { continue }
                 let url = URL(fileURLWithPath: path).standardizedFileURL
-                guard url.path != rootPath, !url.path.hasPrefix(rootPath + "/") else { continue }
+                guard !Self.isLocated(url, within: workspace) else { continue }
                 dependencyPaths.insert(url.path)
             }
         }
@@ -249,6 +254,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
         guard configuration.languageID == support.id,
               let ownerModuleID = support.languageServerModuleID,
               !configuration.executableNames.isEmpty,
+              // The module that owns this provider already stopped it.
+              !provider.lifecycle.isRetired,
               let runtimeFactory else { return false }
         let providerIdentity = ObjectIdentifier(provider)
         if extensionProviderIdentities[support.id] == providerIdentity,
@@ -263,7 +270,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
             validationArguments: configuration.validationArguments,
             environment: configuration.environment,
             runtimeTools: configuration.runtimeTools,
-            executableURL: configuration.executableURL
+            executableURL: configuration.executableURL,
+            launchSource: configuration.launchSource,
+            executableVersionRequirement: configuration.executableVersionRequirement,
+            hostIntegrationID: configuration.hostIntegrationID
         )
         let descriptor = LanguageProviderDescriptor(
             id: support.id,
@@ -574,6 +584,15 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         guard filePath.hasPrefix(prefix) else { return nil }
         return String(filePath.dropFirst(prefix.count))
+    }
+
+    /// Whether `url` is `root` or lies below it, with symbolic links resolved.
+    /// JDT reports canonical locations, such as `/private/var`, for a
+    /// workspace that was opened through a link, such as `/var`.
+    private static func isLocated(_ url: URL, within root: URL) -> Bool {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
+            == root.resolvingSymlinksInPath().standardizedFileURL.path
+            || workspaceRelativePath(of: url, in: root) != nil
     }
 
     private func prepareJavaLaunchTarget(
@@ -1474,8 +1493,16 @@ package final class LanguageToolingSessionManager: ObservableObject,
             return active
         }
 
+        if extensionLifecycles[descriptor.id]?.value?.isRetired == true {
+            // Stopped by its module before any server was started for it.
+            unregisterLanguageServerExtension(languageID: descriptor.id)
+        }
         guard let runtime = runtime(for: descriptor) else {
-            throw LanguageToolingSessionError.toolingUnavailable(descriptor.displayName)
+            throw LanguageToolingSessionError.toolingUnavailable(
+                extensionRequiredProviderIDs.contains(descriptor.id)
+                    ? "\(descriptor.displayName) language support comes from a plugin that is not enabled. Enable or restore it in Settings > Plugins."
+                    : descriptor.displayName
+            )
         }
         guard runtime.supportsLanguageServerSession else {
             throw LanguageToolingSessionError.toolingUnavailable(
@@ -1604,7 +1631,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
         extensionLifecycles[descriptor.id]?.value?.attach(
             isRunning: { [weak created] in created?.isRunning ?? false },
             stop: { [weak self] in
-                self?.stopLanguageServer(providerID: descriptor.id)
+                // Host workflows start a missing server on demand. Removing
+                // the extension, not only its process, keeps them from
+                // restarting it while its module is being stopped.
+                self?.unregisterLanguageServerExtension(languageID: descriptor.id)
             }
         )
 

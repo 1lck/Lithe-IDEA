@@ -2,6 +2,7 @@ import Foundation
 import LitheCoreContracts
 import LitheDebugModule
 import LitheLanguageIntelligenceModule
+import LitheModuleAPI
 import LitheTerminalModule
 import Testing
 @testable import Lithe
@@ -15,21 +16,11 @@ struct RealJavaDebugIntegrationTests {
         guard environment["LITHE_RUN_JAVA_DEBUG_INTEGRATION"] == "1" else { return }
 
         let repositoryRoot = Self.repositoryRoot
-        let jdtlsRoot = URL(
-            fileURLWithPath: environment["LITHE_JDTLS_ROOT"]
-                ?? repositoryRoot.appendingPathComponent(".artifacts/jdtls").path,
-            isDirectory: true
-        )
-        let javaURL = URL(
-            fileURLWithPath: environment["LITHE_JAVA_PATH"]
-                ?? repositoryRoot.appendingPathComponent(".artifacts/jdk-arm64/bin/java").path
-        )
-        let jdtlsURL = jdtlsRoot.appendingPathComponent("bin/jdtls")
         let fileManager = FileManager.default
-        #expect(fileManager.isExecutableFile(atPath: javaURL.path))
-        #expect(fileManager.isExecutableFile(atPath: jdtlsURL.path))
-        guard fileManager.isExecutableFile(atPath: javaURL.path),
-              fileManager.isExecutableFile(atPath: jdtlsURL.path) else { return }
+        // The same package the application ships: JDT LS, its extensions and
+        // the JDK are located only through the plugin's own declaration.
+        let javaSupport = try RealJavaSupportPackage(environment: environment)
+        let javaURL = javaSupport.javaURL
 
         let rootURL = fileManager.temporaryDirectory.appendingPathComponent(
             "lithe-real-java-debug-\(UUID().uuidString)",
@@ -73,30 +64,21 @@ struct RealJavaDebugIntegrationTests {
         let core = RustCoreBridge()
         #expect(core.isAvailable)
         guard core.isAvailable else { return }
-        let resources: JDTLSLaunchResources
-        switch MacJDTLSLaunchResourceResolver(
-            bundledJdtlsRootURL: jdtlsRoot
-        ).resolve(for: jdtlsURL) {
-        case .direct(let value):
-            resources = value
-        case .wrapperFallback:
-            Issue.record("The real Java Debug test requires direct JDT LS resources.")
-            return
-        case .unavailable(let message):
-            Issue.record("JDT LS resources are unavailable: \(message)")
-            return
-        }
+        let resources = javaSupport.resources
 
         let descriptor = try #require(LanguageProviderCatalog.standard.provider(for: mainURL))
         let launch = try #require(descriptor.languageServerLaunch)
         let languageSession = LanguageServerRuntimeSession(
             providerID: descriptor.id,
-            executableURL: jdtlsURL,
+            executableURL: javaURL,
             arguments: launch.arguments,
             environment: environment,
             initializationOptions: launch.initializationOptions,
-            runtimeExecutableURL: javaURL,
-            jdtlsLaunchResources: resources,
+            launchResolver: { try javaSupport.resolveLaunch(workspaceRootURL: $0) },
+            hostIntegrationLaunch: LanguageServerHostIntegrationLaunch(
+                runtimeExecutableURL: javaURL,
+                coreLaunch: .jdt(resources)
+            ),
             cacheDirectoryURL: cacheURL,
             initializeTimeout: 120,
             requestTimeout: 120,
@@ -168,6 +150,13 @@ struct RealJavaDebugIntegrationTests {
                 logs: Self.languageServerLogSummary(languageManager.languageServerLogs)
             )
         }
+        // The dependency projection asks the same server for each project's
+        // runtime classpath. The temporary workspace sits behind `/var`, so
+        // this also covers projects JDT reports at their resolved location.
+        #expect(await Self.waitUntil(timeout: .seconds(60)) {
+            languageManager.dependencySnapshot(workspaceURL: rootURL)?
+                .dependencyRoots.contains { $0.lastPathComponent.hasPrefix("spring-boot-") } == true
+        }, "JDT LS did not report the project's runtime dependencies.")
         // Start at the controller call so the real integration test exercises
         // both Java step-into and step-out, not only a step-over at a leaf line.
         feature.toggleBreakpoint(fileURL: controllerURL, line: controllerBreakpointLine)
@@ -342,21 +331,11 @@ struct RealJavaDebugIntegrationTests {
         guard environment["LITHE_RUN_JAVA_TEST_DEBUG_INTEGRATION"] == "1" else { return }
 
         let repositoryRoot = Self.repositoryRoot
-        let jdtlsRoot = URL(
-            fileURLWithPath: environment["LITHE_JDTLS_ROOT"]
-                ?? repositoryRoot.appendingPathComponent(".artifacts/jdtls").path,
-            isDirectory: true
-        )
-        let javaURL = URL(
-            fileURLWithPath: environment["LITHE_JAVA_PATH"]
-                ?? repositoryRoot.appendingPathComponent(".artifacts/jdk-arm64/bin/java").path
-        )
-        let jdtlsURL = jdtlsRoot.appendingPathComponent("bin/jdtls")
         let fileManager = FileManager.default
-        #expect(fileManager.isExecutableFile(atPath: javaURL.path))
-        #expect(fileManager.isExecutableFile(atPath: jdtlsURL.path))
-        guard fileManager.isExecutableFile(atPath: javaURL.path),
-              fileManager.isExecutableFile(atPath: jdtlsURL.path) else { return }
+        // The same package the application ships: JDT LS, its extensions and
+        // the JDK are located only through the plugin's own declaration.
+        let javaSupport = try RealJavaSupportPackage(environment: environment)
+        let javaURL = javaSupport.javaURL
 
         let rootURL = fileManager.temporaryDirectory.appendingPathComponent(
             "lithe-real-java-test-debug-\(scenario.rawValue)-\(UUID().uuidString)",
@@ -388,30 +367,21 @@ struct RealJavaDebugIntegrationTests {
         let core = RustCoreBridge()
         #expect(core.isAvailable)
         guard core.isAvailable else { return }
-        let resources: JDTLSLaunchResources
-        switch MacJDTLSLaunchResourceResolver(
-            bundledJdtlsRootURL: jdtlsRoot
-        ).resolve(for: jdtlsURL) {
-        case .direct(let value):
-            resources = value
-        case .wrapperFallback:
-            Issue.record("The real Java test Debug test requires direct JDT LS resources.")
-            return
-        case .unavailable(let message):
-            Issue.record("JDT LS resources are unavailable: \(message)")
-            return
-        }
+        let resources = javaSupport.resources
 
         let descriptor = try #require(LanguageProviderCatalog.standard.provider(for: testURL))
         let launch = try #require(descriptor.languageServerLaunch)
         let languageSession = LanguageServerRuntimeSession(
             providerID: descriptor.id,
-            executableURL: jdtlsURL,
+            executableURL: javaURL,
             arguments: launch.arguments,
             environment: environment,
             initializationOptions: launch.initializationOptions,
-            runtimeExecutableURL: javaURL,
-            jdtlsLaunchResources: resources,
+            launchResolver: { try javaSupport.resolveLaunch(workspaceRootURL: $0) },
+            hostIntegrationLaunch: LanguageServerHostIntegrationLaunch(
+                runtimeExecutableURL: javaURL,
+                coreLaunch: .jdt(resources)
+            ),
             cacheDirectoryURL: cacheURL,
             initializeTimeout: 120,
             requestTimeout: 120,
@@ -861,4 +831,54 @@ private enum RealJavaDebugIntegrationError: Error {
     case debuggerDidNotResume(String)
     case stoppedFrameUnavailable(String)
     case invalidFixture(String)
+}
+
+/// The assembled Java Support plugin package, resolved the way the application
+/// resolves it: Rust Core expands the declaration, and the `jdt` integration
+/// receives only the files the plugin names.
+@MainActor
+private struct RealJavaSupportPackage {
+    let javaURL: URL
+    let resources: JDTLSLaunchResources
+    private let source: DeclarativeLanguageServerLaunchSource
+    private let resolver: MacPluginLanguageServerLaunchResolver
+    private let stateRootURL: URL
+
+    /// Build the package first with
+    /// `scripts/build-official-plugins.sh --bundled-only --triple <triple>`
+    /// and pass the directory it prints, plus the plugin ID, as
+    /// `LITHE_JAVA_SUPPORT_PACKAGE`. The default is the debug output of a
+    /// local build.
+    init(environment: [String: String]) throws {
+        let packageURL = URL(
+            fileURLWithPath: environment["LITHE_JAVA_SUPPORT_PACKAGE"]
+                ?? DeclarativePluginTestSupport.repositoryRoot
+                    .appendingPathComponent(".build/out/Products/Debug/OfficialPlugins")
+                    .appendingPathComponent(OfficialPluginCatalog.javaPluginID.rawValue).path,
+            isDirectory: true
+        ).standardizedFileURL
+        let operations = DeclarativePluginTestSupport.operations
+        let descriptor = try operations.validate(
+            manifest: Data(contentsOf: packageURL.appendingPathComponent("plugin.json"))
+        )
+        source = DeclarativeLanguageServerLaunchSource(
+            pluginID: descriptor.id.rawValue,
+            languageID: "java",
+            manifest: descriptor.normalizedManifest,
+            packageURL: packageURL
+        )
+        stateRootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-real-java-plugin-state-\(UUID().uuidString)", isDirectory: true)
+        resolver = MacPluginLanguageServerLaunchResolver(
+            planner: operations,
+            directories: MacPluginStateDirectories(rootURL: stateRootURL)
+        )
+        javaURL = try #require(try resolver.executableProbe(for: source).packagedRuntimeURL)
+        let integration = try #require(try resolver.hostIntegration(for: source))
+        resources = try MacJdtLaunchResources().resources(from: integration, javaRuntimes: [])
+    }
+
+    func resolveLaunch(workspaceRootURL: URL) throws -> ResolvedLanguageServerLaunch {
+        try resolver.resolve(source, workspaceRootURL: workspaceRootURL)
+    }
 }

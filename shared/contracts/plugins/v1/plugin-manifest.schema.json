@@ -100,6 +100,20 @@
                   "items": { "type": "string", "pattern": "^[^/\\\\\\s]+$" }
                 }
               }
+            },
+            {
+              "description": "pluginAPIVersion 2: a packaged entry file started by a host-discovered runtime.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "tool", "entry"],
+              "properties": {
+                "kind": { "const": "runtime" },
+                "tool": { "enum": ["java", "node"] },
+                "minimumVersion": { "$ref": "#/$defs/minimumVersion" },
+                "packagedRuntime": { "type": "string", "minLength": 1 },
+                "runtimeArguments": { "type": "array", "items": { "type": "string" } },
+                "entry": { "type": "string", "minLength": 1 }
+              }
             }
           ]
         },
@@ -111,10 +125,43 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["tool"],
-            "properties": { "tool": { "enum": ["go", "node"] } }
+            "properties": { "tool": { "enum": ["go", "java", "node"] } }
+          }
+        },
+        "initializationOptions": {
+          "description": "pluginAPIVersion 2: LSP initializationOptions; string values are launch templates.",
+          "type": "object"
+        },
+        "hostIntegration": {
+          "description": "pluginAPIVersion 2, official plugins only: a named host integration and the package resources it reads.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id"],
+          "properties": {
+            "id": { "enum": ["jdt"] },
+            "capabilities": {
+              "description": "Process-backed features of the language that the host's own implementation provides through the integration.",
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["debug", "run", "testing"] }
+            },
+            "resources": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  { "type": "string", "minLength": 1 },
+                  { "type": "array", "items": { "type": "string", "minLength": 1 } }
+                ]
+              }
+            }
           }
         }
       }
+    },
+    "minimumVersion": {
+      "description": "pluginAPIVersion 2: one to three dot-separated numbers, for example 21 or 18.17.",
+      "type": "string",
+      "pattern": "^[0-9]{1,9}(\\.[0-9]{1,9}){0,2}$"
     },
     "executable": {
       "type": "object",

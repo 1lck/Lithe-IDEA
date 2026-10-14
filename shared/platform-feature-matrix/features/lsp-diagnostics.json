@@ -6,7 +6,9 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Core/Language",
-      "macos/Sources/Lithe/Services/Diagnostics"
+      "macos/Sources/Lithe/Services/Diagnostics",
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -14,11 +16,12 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/diagnostics",
-      "shared/fixtures/lsp"
+      "shared/fixtures/lsp",
+      "rust/lithe-core/src/lsp/interface/engine.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Language Tooling",
-  "verification": "制造语法和类型错误，比较诊断等级、消息、行列号和清理行为。"
+  "verification": "制造语法和类型错误，比较诊断等级、消息、行列号和清理行为；通过符号链接路径打开的工作区（macOS 的 /tmp、/var 下的项目）中，Java 类型错误同样出现在编辑器波浪线和问题面板，修正后消失。"
 }

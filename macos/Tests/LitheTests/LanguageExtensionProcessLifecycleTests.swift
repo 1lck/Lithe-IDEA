@@ -141,6 +141,67 @@ struct LanguageExtensionProcessLifecycleTests {
         }
     }
 
+    /// The module the host registers for a plugin API 2 package must carry
+    /// everything a runtime launch needs: the runtime the plugin ships,
+    /// pinned inside its own package, and the declaration the templates are
+    /// expanded from.
+    @Test
+    func apiLevelTwoPackageConfiguresARuntimeLaunch() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-runtime-launch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let operations = DeclarativePluginTestSupport.operations
+        let descriptor = try operations.validate(manifest: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/java-support.plugin.json")))
+        let packageURL = root.appendingPathComponent("package", isDirectory: true)
+        let installed = InstalledPluginPackage(
+            descriptor: descriptor,
+            installation: PluginInstallationRecord(
+                pluginID: descriptor.id,
+                activeVersion: descriptor.pluginManifest.version,
+                origin: .localDevelopment
+            ),
+            packageURL: packageURL
+        )
+        let runtime = ModuleRuntime()
+        let workspace = BuiltInModuleCatalog.manifest(for: .workspace)!
+        try runtime.register(ModuleFactory(manifest: workspace) {
+            ProcessLifecycleWorkspaceModule(manifest: workspace)
+        })
+        for factory in MacServiceContainer.declarativePluginFactories(
+            [installed],
+            executionHost: MacLanguageExecutionHost(processRegistry: ManagedProcessRegistry()),
+            planner: operations,
+            launchResolver: MacPluginLanguageServerLaunchResolver(
+                planner: operations,
+                directories: MacPluginStateDirectories(rootURL: root.appendingPathComponent("state", isDirectory: true))
+            )
+        ) {
+            try runtime.register(factory)
+        }
+        let moduleID = ModuleID.languageServerExtension("java")
+        try await runtime.setEnabled(true, for: moduleID)
+
+        let provider = try #require(
+            try await runtime.activateCapability(.languageServerExtension("java"))
+                as? any LanguageServerExtensionProviding
+        )
+        let configuration = provider.configuration
+
+        // The shipped runtime is the only executable; the tool name is for
+        // display and is never looked up on the machine.
+        #expect(configuration.executableNames == ["java"])
+        #expect(configuration.executableURL == packageURL.appendingPathComponent(
+            "runtime/\(MacPluginLanguageServerLaunchResolver.hostArchitecture)/bin/java"
+        ).standardizedFileURL)
+        #expect(configuration.launchSource?.packageURL == packageURL)
+        #expect(configuration.launchSource?.languageID == "java")
+        #expect(configuration.executableVersionRequirement == nil)
+        // Activating the module must not create plugin state.
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("state").path))
+        try await runtime.setEnabled(false, for: moduleID)
+    }
+
     private func processExited(_ pid: Int32) async -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))

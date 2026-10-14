@@ -22,11 +22,13 @@ pub(crate) const JAVA_ENTRYPOINTS_SCHEMA_VERSION: u32 = 1;
 /// `workspace/executeCommand` params that discover entry points under one workspace.
 ///
 /// Passing the workspace URI scopes the search to projects inside it instead of
-/// every project JDT has imported.
-pub(crate) fn java_entrypoints_command(root_uri: &str) -> Value {
+/// every project JDT has imported. Java Debug Server compares that path with
+/// each project's canonical location textually, so `scope_uri` must name the
+/// workspace with symbolic links resolved or no project matches.
+pub(crate) fn java_entrypoints_command(scope_uri: &str) -> Value {
     json!({
         "command": JAVA_RESOLVE_MAIN_CLASS_COMMAND,
-        "arguments": [root_uri],
+        "arguments": [scope_uri],
     })
 }
 

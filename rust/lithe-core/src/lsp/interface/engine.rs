@@ -1828,7 +1828,7 @@ impl RuntimeSession {
                     allocate_raw_request(
                         state.client.clone(),
                         method,
-                        java_entrypoints_command(&self.root_uri),
+                        java_entrypoints_command(&java_entrypoint_scope_uri(&self.root_uri)),
                     )?
                 }
                 LspSemanticOperation::JavaTestItems => {
@@ -2371,6 +2371,12 @@ impl RuntimeSession {
 
         let reduced = {
             let state = self.lock_state()?;
+            let message = if method == Some("textDocument/publishDiagnostics") {
+                diagnostics_addressed_to_open_document(&state.client.open_documents, &value)
+                    .unwrap_or(message)
+            } else {
+                message
+            };
             client_apply_server_message(ClientApplyServerMessageRequest {
                 state: state.client.clone(),
                 message,
@@ -4199,6 +4205,53 @@ fn java_executable_from_environment(environment: &BTreeMap<String, String>) -> O
         let executable = if cfg!(windows) { "java.exe" } else { "java" };
         Path::new(home).join("bin").join(executable)
     })
+}
+
+/// Re-addresses published diagnostics to the open document they describe.
+///
+/// A server reports a file at its resolved location while the host may have
+/// opened it through a symbolic link (JDT answers `/private/tmp/...` for a
+/// document opened as `/tmp/...` on macOS). The client reducer matches URIs
+/// textually and would drop such diagnostics, so when no open document carries
+/// the published URI this returns the message rewritten to the URI of the open
+/// document that resolves to the same file. Returns `None` when the message
+/// needs no change.
+fn diagnostics_addressed_to_open_document(
+    open_documents: &BTreeMap<String, LspClientDocument>,
+    message: &Value,
+) -> Option<String> {
+    let published = message.get("params")?.get("uri")?.as_str()?;
+    if open_documents.contains_key(published) {
+        return None;
+    }
+    let resolved = |uri: &str| {
+        let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;
+        std::fs::canonicalize(path).ok()
+    };
+    let target = resolved(published)?;
+    let document_uri = open_documents
+        .keys()
+        .find(|uri| resolved(uri).as_ref() == Some(&target))?;
+    let mut message = message.clone();
+    message["params"]["uri"] = Value::String(document_uri.clone());
+    Some(message.to_string())
+}
+
+/// The workspace URI that scopes Java entry-point discovery.
+///
+/// JDT imports a project at its canonical location, and Java Debug Server
+/// keeps only the classes whose project path starts with the scope path. A
+/// workspace opened through a symbolic link (`/tmp` or `/var` on macOS) would
+/// therefore match no project and silently yield an empty list, so the scope
+/// names the resolved directory. A root that cannot be resolved is sent as is.
+fn java_entrypoint_scope_uri(root_uri: &str) -> String {
+    url::Url::parse(root_uri)
+        .ok()
+        .and_then(|url| url.to_file_path().ok())
+        .and_then(|path| std::fs::canonicalize(path).ok())
+        .and_then(|canonical| url::Url::from_directory_path(canonical).ok())
+        .map(|url| url.to_string())
+        .unwrap_or_else(|| root_uri.to_string())
 }
 
 /// The workspace directory with symbolic links resolved, when it exists.
@@ -7917,6 +7970,112 @@ mod tests {
                 ]
             }))
         );
+    }
+
+    /// Removes a scratch directory when the owning test ends or unwinds.
+    struct ScratchDirectory(PathBuf);
+
+    impl Drop for ScratchDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    // Regression: a workspace opened through a symbolic link, as `/tmp` and
+    // `/var` are on macOS, listed no entry points because JDT places the
+    // project at the resolved location and the scope named the link.
+    #[cfg(unix)]
+    #[test]
+    fn java_entrypoint_scope_names_the_workspace_a_symbolic_link_resolves_to() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should follow the Unix epoch")
+            .as_nanos();
+        let scratch = ScratchDirectory(std::env::temp_dir().join(format!(
+            "lithe-entrypoint-scope-{}-{stamp}",
+            std::process::id()
+        )));
+        let workspace = scratch.0.join("real workspace");
+        std::fs::create_dir_all(&workspace).expect("workspace should be creatable");
+        let link = scratch.0.join("link");
+        std::os::unix::fs::symlink(&workspace, &link).expect("link should be creatable");
+
+        let scope = java_entrypoint_scope_uri(
+            url::Url::from_directory_path(&link)
+                .expect("link converts to a URI")
+                .as_str(),
+        );
+        let resolved = workspace.canonicalize().expect("workspace canonicalizes");
+        assert_eq!(
+            url::Url::parse(&scope)
+                .expect("scope is a URI")
+                .to_file_path()
+                .expect("scope is a file URI"),
+            resolved
+        );
+    }
+
+    // Regression: JDT publishes diagnostics under the resolved path of a file
+    // the host opened through a symbolic link; matching the URIs textually
+    // dropped every Java error in such a workspace.
+    #[cfg(unix)]
+    #[test]
+    fn diagnostics_published_under_the_resolved_path_reach_the_linked_document() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should follow the Unix epoch")
+            .as_nanos();
+        let scratch = ScratchDirectory(std::env::temp_dir().join(format!(
+            "lithe-linked-diagnostics-{}-{stamp}",
+            std::process::id()
+        )));
+        let workspace = scratch.0.join("resolved");
+        std::fs::create_dir_all(&workspace).expect("workspace should be creatable");
+        std::fs::write(workspace.join("main.go"), "package main").expect("source file");
+        let link = scratch.0.join("link");
+        std::os::unix::fs::symlink(&workspace, &link).expect("link should be creatable");
+        let opened_uri = url::Url::from_file_path(link.join("main.go"))
+            .expect("linked file converts to a URI")
+            .to_string();
+        let published_uri = url::Url::from_file_path(
+            workspace
+                .canonicalize()
+                .expect("workspace canonicalizes")
+                .join("main.go"),
+        )
+        .expect("resolved file converts to a URI")
+        .to_string();
+        assert_ne!(opened_uri, published_uri);
+
+        let mut harness = Harness::ready();
+        harness.sync(&opened_uri, "package main");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": published_uri,
+                "diagnostics": [{
+                    "range": {
+                        "start": { "line": 0, "character": 0 },
+                        "end": { "line": 0, "character": 7 }
+                    },
+                    "severity": 1,
+                    "message": "reported at the resolved path"
+                }]
+            }
+        }));
+        let event = harness
+            .await_event(|event| event.kind == "diagnostics")
+            .clone();
+        assert_eq!(event.uri.as_deref(), Some(opened_uri.as_str()));
+        assert_eq!(event.diagnostics.map(|list| list.len()), Some(1));
+    }
+
+    #[test]
+    fn java_entrypoint_scope_keeps_a_root_that_cannot_be_resolved() {
+        for root_uri in ["file:///lithe-missing-workspace/app", "untitled:workspace"] {
+            assert_eq!(java_entrypoint_scope_uri(root_uri), root_uri);
+        }
     }
 
     #[test]

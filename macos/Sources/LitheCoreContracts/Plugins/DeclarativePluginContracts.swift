@@ -39,6 +39,11 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
         case packaged(relativePath: String)
         /// Bare command names resolved by the host's tool discovery.
         case systemCommand([String])
+        /// Entry file inside the package, started by a runtime such as `java`
+        /// or `node` (plugin API 2). `packagedRuntime` is the template of the
+        /// runtime the plugin ships, for example `runtime/${arch}/bin/java`;
+        /// `nil` means the host discovers the tool.
+        case runtime(tool: String, entryRelativePath: String, packagedRuntime: String?)
     }
 
     public let languageID: String
@@ -48,6 +53,13 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
     public let validationArguments: [String]
     /// Runtimes the host discovers for the server, such as `node`.
     public let runtimeTools: [String]
+    /// True from plugin API 2 on, where arguments are launch templates that
+    /// Rust Core expands with host directories before the server starts.
+    public let expandsLaunchTemplates: Bool
+    /// Native host integration the server declares, such as `jdt`. The host
+    /// enables that integration for this server instead of matching on its
+    /// language ID.
+    public let hostIntegrationID: String?
 
     /// Path inside the plugin package for a packaged server.
     public var packagedRelativePath: String? {
@@ -63,7 +75,149 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
             [relativePath.split(separator: "/").last.map(String.init) ?? relativePath]
         case .systemCommand(let commands):
             commands
+        case .runtime(let tool, _, _):
+            // The runtime is the process the host starts; the entry file is
+            // an argument of the expanded launch plan.
+            [tool]
         }
+    }
+}
+
+/// Identifies the declaration a language server's launch plan is expanded
+/// from. It is plain data so launch descriptors stay comparable.
+public struct DeclarativeLanguageServerLaunchSource: Hashable, Sendable {
+    public let pluginID: String
+    public let languageID: String
+    /// Normalized `plugin.json` returned by `plugins.declarative.validate`.
+    public let manifest: Data
+    /// Root of the installed, read-only plugin package.
+    public let packageURL: URL
+
+    public init(pluginID: String, languageID: String, manifest: Data, packageURL: URL) {
+        self.pluginID = pluginID
+        self.languageID = languageID
+        self.manifest = manifest
+        self.packageURL = packageURL
+    }
+}
+
+/// Version a discovered executable must report before the host uses it. The
+/// probe arguments come from Rust Core, so the host needs no per-tool rules.
+public struct LanguageServerExecutableVersionRequirement: Hashable, Sendable {
+    public let tool: String
+    public let minimumVersion: String
+    /// Arguments that make the tool print its version and exit.
+    public let probeArguments: [String]
+
+    public init(tool: String, minimumVersion: String, probeArguments: [String]) {
+        self.tool = tool
+        self.minimumVersion = minimumVersion
+        self.probeArguments = probeArguments
+    }
+}
+
+/// Outcome of `plugins.declarative.checkRuntimeVersion`.
+public struct LanguageServerRuntimeVersionCheck: Equatable, Sendable {
+    public let satisfied: Bool
+    /// Version read from the probe output; `nil` when it contained none.
+    public let version: String?
+
+    public init(satisfied: Bool, version: String?) {
+        self.satisfied = satisfied
+        self.version = version
+    }
+}
+
+/// Host directories substituted into a server's launch templates.
+public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
+    public let pluginDirectory: URL
+    public let stateDirectory: URL
+    public let workspaceStateDirectory: URL
+    /// `arm64` or `x86_64`.
+    public let architecture: String
+
+    public init(
+        pluginDirectory: URL,
+        stateDirectory: URL,
+        workspaceStateDirectory: URL,
+        architecture: String
+    ) {
+        self.pluginDirectory = pluginDirectory
+        self.stateDirectory = stateDirectory
+        self.workspaceStateDirectory = workspaceStateDirectory
+        self.architecture = architecture
+    }
+}
+
+/// Result of `plugins.declarative.languageServerLaunchPlan`. Rust Core only
+/// joins text; the host creates the directories and checks the package paths.
+public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
+    public enum RequiredDirectory: String, Sendable {
+        case state
+        case workspaceState
+    }
+
+    public struct RuntimeRequirement: Equatable, Sendable {
+        public let tool: String
+        public let minimumVersion: String?
+
+        public init(tool: String, minimumVersion: String?) {
+            self.tool = tool
+            self.minimumVersion = minimumVersion
+        }
+    }
+
+    /// Complete argument list after the executable.
+    public let arguments: [String]
+    public let validationArguments: [String]
+    public let initializationOptions: ToolingJSONValue?
+    /// A declared host integration with its package-relative resource paths.
+    public struct HostIntegration: Equatable, Sendable {
+        public let id: String
+        /// Resource name to one or more package-relative paths, in declared order.
+        public let resources: [String: [String]]
+
+        public init(id: String, resources: [String: [String]]) {
+            self.id = id
+            self.resources = resources
+        }
+    }
+
+    /// Package-relative entry file of a runtime launch.
+    public let entryPath: String?
+    public let hostIntegration: HostIntegration?
+    /// Package-relative path of the runtime the plugin ships, when it does.
+    /// The host starts exactly this file instead of discovering the tool.
+    public let packagedRuntimePath: String?
+    /// Set for a discovered runtime that must meet a minimum version.
+    public let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
+    public let runtimeRequirements: [RuntimeRequirement]
+    public let requiredDirectories: [RequiredDirectory]
+    /// Package-relative paths the launch points at.
+    public let requiredPackagePaths: [String]
+
+    public init(
+        arguments: [String],
+        validationArguments: [String] = [],
+        initializationOptions: ToolingJSONValue? = nil,
+        entryPath: String? = nil,
+        hostIntegration: HostIntegration? = nil,
+        packagedRuntimePath: String? = nil,
+        executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
+        runtimeRequirements: [RuntimeRequirement] = [],
+        requiredDirectories: [RequiredDirectory] = [],
+        requiredPackagePaths: [String] = []
+    ) {
+        self.arguments = arguments
+        self.validationArguments = validationArguments
+        self.initializationOptions = initializationOptions
+        self.entryPath = entryPath
+        self.hostIntegration = hostIntegration
+        self.packagedRuntimePath = packagedRuntimePath
+        self.executableVersionRequirement = executableVersionRequirement
+        self.runtimeRequirements = runtimeRequirements
+        self.requiredDirectories = requiredDirectories
+        self.requiredPackagePaths = requiredPackagePaths
     }
 }
 
@@ -86,7 +240,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
 
     public var id: PluginID { pluginManifest.id }
 
-    public init(normalizedManifest: Data) throws {
+    /// - Parameter enabledByDefault: `true` for a package that ships inside
+    ///   the application. It replaces a built-in feature, so it must work on
+    ///   first launch; a downloaded plugin stays off until the user enables it.
+    public init(normalizedManifest: Data, enabledByDefault: Bool = false) throws {
         let decoded = try JSONDecoder().decode(NormalizedManifest.self, from: normalizedManifest)
         guard let version = PluginVersion(decoded.version) else {
             throw DeclarativePluginRejection(
@@ -100,12 +257,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             DeclarativeLanguageServer(
                 languageID: server.languageID,
                 languageIdentifier: server.languageIdentifier ?? server.languageID,
-                launch: server.launch.kind == "packaged"
-                    ? .packaged(relativePath: server.launch.path ?? "")
-                    : .systemCommand(server.launch.commands ?? []),
+                launch: Self.launch(server.launch),
                 arguments: server.arguments,
                 validationArguments: server.validationArguments,
-                runtimeTools: server.runtimeDependencies.map(\.tool)
+                runtimeTools: server.runtimeDependencies.map(\.tool),
+                expandsLaunchTemplates: decoded.pluginAPIVersion >= 2,
+                hostIntegrationID: server.hostIntegration?.id
             )
         }
         executionProviders = decoded.executionProviders.map { provider in
@@ -120,11 +277,26 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         self.normalizedManifest = normalizedManifest
 
         let serverLanguages = Set(languageServers.map(\.languageID))
+        // Rust Core has already refused a capability the integration does not
+        // provide, so a name unknown here comes from a newer contract and is
+        // a feature this host cannot supply.
+        let hostCapabilitiesByLanguage = Dictionary(
+            decoded.languageServers.map { server in
+                (
+                    server.languageID,
+                    Set((server.hostIntegration?.capabilities ?? []).compactMap {
+                        LanguageHostCapability(rawValue: $0)
+                    })
+                )
+            },
+            uniquingKeysWith: { $0.union($1) }
+        )
         let executionByLanguage = Dictionary(uniqueKeysWithValues: executionProviders.map { ($0.languageID, $0) })
         var modules = languageServers.map { server in
             PluginModuleDeclaration(manifest: LanguageExtensionModuleManifests.languageServer(
                 languageID: server.languageID,
-                displayName: displayNames[server.languageID] ?? server.languageID
+                displayName: displayNames[server.languageID] ?? server.languageID,
+                enabledByDefault: enabledByDefault
             ))
         }
         modules += executionProviders.map { provider in
@@ -157,7 +329,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     : nil,
                 testingModuleID: execution?.providesTest == true
                     ? .languageExecutionExtension(language.id)
-                    : nil
+                    : nil,
+                hostCapabilities: hostCapabilitiesByLanguage[language.id] ?? []
             )
         }
         pluginManifest = PluginManifest(
@@ -178,6 +351,21 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             modules: modules,
             languageSupports: languageSupports
         )
+    }
+
+    private static func launch(_ launch: NormalizedManifest.Launch) -> DeclarativeLanguageServer.Launch {
+        switch launch.kind {
+        case "packaged":
+            .packaged(relativePath: launch.path ?? "")
+        case "runtime":
+            .runtime(
+                tool: launch.tool ?? "",
+                entryRelativePath: launch.entry ?? "",
+                packagedRuntime: launch.packagedRuntime
+            )
+        default:
+            .systemCommand(launch.commands ?? [])
+        }
     }
 
     /// Mirrors the manifest fields the host needs. Optional lists default to
@@ -231,9 +419,16 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let kind: String
             let path: String?
             let commands: [String]?
+            let tool: String?
+            let entry: String?
+            let packagedRuntime: String?
         }
         struct RuntimeDependency: Decodable {
             let tool: String
+        }
+        struct HostIntegration: Decodable {
+            let id: String
+            let capabilities: [String]?
         }
         struct LanguageServer: Decodable {
             let languageID: String
@@ -242,6 +437,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let arguments: [String]
             let validationArguments: [String]
             let runtimeDependencies: [RuntimeDependency]
+            let hostIntegration: HostIntegration?
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -251,10 +447,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 arguments = try values.decodeIfPresent([String].self, forKey: .arguments) ?? []
                 validationArguments = try values.decodeIfPresent([String].self, forKey: .validationArguments) ?? []
                 runtimeDependencies = try values.decodeIfPresent([RuntimeDependency].self, forKey: .runtimeDependencies) ?? []
+                hostIntegration = try values.decodeIfPresent(HostIntegration.self, forKey: .hostIntegration)
             }
 
             private enum CodingKeys: String, CodingKey {
                 case languageID, languageIdentifier, launch, arguments, validationArguments, runtimeDependencies
+                case hostIntegration
             }
         }
         /// Templates stay opaque to the host; only their presence matters here.
@@ -326,4 +524,23 @@ public protocol DeclarativeExecutionPlanning: Sendable {
         languageID: String,
         request: LanguageTestExtensionRequest
     ) throws -> LanguageTestExtensionPlan
+}
+
+/// Expands a declarative language server's launch declaration. Implementations
+/// throw `DeclarativePluginRejection`.
+public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
+    func languageServerLaunchPlan(
+        manifest: Data,
+        languageID: String,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan
+}
+
+/// Reads a launch runtime's version from its probe output and compares it
+/// with the declared minimum. Implementations throw `DeclarativePluginRejection`.
+public protocol LanguageServerRuntimeVersionChecking: Sendable {
+    func checkRuntimeVersion(
+        _ requirement: LanguageServerExecutableVersionRequirement,
+        output: String
+    ) throws -> LanguageServerRuntimeVersionCheck
 }

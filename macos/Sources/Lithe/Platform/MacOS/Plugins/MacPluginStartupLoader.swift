@@ -68,6 +68,9 @@ final class MacPluginStartupLoader {
             PluginStartupIssue(pluginID: $0.pluginID, message: $0.message)
         }
         for installed in scan.packages.sorted(by: { $0.manifest.id < $1.manifest.id }) {
+            // A removed bundled plugin stays listed so it can be restored and
+            // keeps owning its language, but none of its modules are registered.
+            guard installed.installation.status != .removed else { continue }
             do {
                 // Include every accepted candidate so plugin, module, and
                 // language ownership collisions are rejected per package.

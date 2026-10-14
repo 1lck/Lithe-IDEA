@@ -302,7 +302,6 @@ struct NodeLanguageToolEnvironmentTests {
         ]
         let discovery = MacRuntimeToolDiscovery(
             homeDirectoryURL: home,
-            resourceDirectoryURL: nil,
             isExecutable: { executables.contains($0.path) },
             directoryNames: { url in
                 url.path == "/fixture-home/.nvm/versions/node"

@@ -139,6 +139,8 @@ Windows 会先同步当前编辑文档再请求该操作。两端都不再解析
   排除 `private`/错误返回类型/字符串示例，并实际编译运行 #769 的入口。
 - 同一真实测试让 Java Test/JDT 发现自定义组合注解和继承来的测试，再用 Maven
   精确运行这两个非传统命名测试并检查执行标记。
+- 真实 JDT 测试 `real_jdtls_lists_entrypoints_and_classpaths_behind_a_symbolic_link`
+  通过符号链接打开工作区，要求仍然列出入口；去掉作用域解析后它会得到空列表。
 - `scripts/verify-java-semantic-ownership.mjs` 阻止已删除的本地入口/测试扫描标识符
   回到 Rust、macOS 或 Windows 产品源码。
 - Windows 和 macOS 打包同一份上游 `contributes.javaExtensions` bundle 列表；
@@ -154,6 +156,13 @@ Windows 会先同步当前编辑文档再请求该操作。两端都不再解析
   悄悄改变返回格式，所以版本必须锁定，并用契约测试和真实 JDT 测试盯住。
 - 插件在内部出错时可能返回空列表，产品层无法和“确实没有入口”区分。只能靠
   状态机不让失败覆盖旧结果、真实 JDT 测试和日志关联降低风险。
+- 传给 `vscode.java.resolveMainClass` 的作用域必须是解析符号链接之后的工作区
+  目录。JDT 把项目放在规范路径（例如 macOS 的 `/private/tmp`、`/private/var`），
+  Java Debug 插件再按路径前缀逐字比较“项目是否在作用域内”；如果作用域写的是
+  `/tmp` 或 `/var` 这样的链接路径，所有项目都会被过滤，结果是一个不带任何诊断
+  的空列表，运行时表现为“当前文件没有 main 方法”。因此 Rust 引擎在发请求前用
+  `java_entrypoint_scope_uri` 解析工作区路径，目录无法解析时才原样发送。平台
+  代码不要自己拼作用域，也不要假设打开时的路径就是 JDT 看到的路径。
 - 从父类继承的 main 目前 JDT 也识别不到（JVM 能运行）。这是上游缺口，不在本地
   补规则，记录为已知限制。
 - JDT 升级影响补全、跳转、Maven 导入等全部 Java 功能，需要单独回归。

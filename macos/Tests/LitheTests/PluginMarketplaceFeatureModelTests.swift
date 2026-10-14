@@ -392,4 +392,5 @@ private final class FakePluginManager: PluginManaging {
     func installPackage(at packageURL: URL) throws {}
     func rollback(_ pluginID: PluginID) throws {}
     func uninstall(_ pluginID: PluginID) async throws {}
+    func restore(_ pluginID: PluginID) throws {}
 }

@@ -26,6 +26,15 @@ extension AppModel {
         }
     }
 
+    func restorePlugin(_ pluginID: PluginID) {
+        do {
+            try services.pluginManager.restore(pluginID)
+            objectWillChange.send()
+        } catch {
+            showNotification(error.localizedDescription)
+        }
+    }
+
     func uninstallPlugin(_ pluginID: PluginID) async {
         do {
             try await services.pluginManager.uninstall(pluginID)

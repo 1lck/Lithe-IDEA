@@ -615,6 +615,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
+| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server launch with host directories and architecture |
+| `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -2434,6 +2436,23 @@ Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 `label` and `frameworkID` for tests) or `items`; refusals use the same
 `rejected` shape. Only a malformed payload is an `invalid_request` failure.
 `shared/contracts/plugins/v1/fixtures/` holds the golden cases.
+
+`plugins.declarative.languageServerLaunchPlan` uses the same envelope with the
+request `{ pluginDirectory, stateDirectory, workspaceStateDirectory,
+architecture }`. These are absolute host directories used only as
+substitution text; the command does not read or create them. Success returns
+`plan` with `launch`, `arguments`, `validationArguments`,
+`runtimeRequirements`, `requiredDirectories`, `requiredPackagePaths`, and
+`initializationOptions` and `hostIntegration` when the server declares them. An unknown
+architecture or an empty directory is refused with
+`plugin.launch.invalidRequest`, a language without a server with
+`plugin.launch.unavailable`.
+
+`plugins.declarative.checkRuntimeVersion` accepts
+`{ tool, minimumVersion, output }`, where `output` is what the runtime printed
+for the plan's `launch.versionArguments`, and returns
+`{ "status": "ok", "check": { "satisfied": bool, "version"?: string } }`.
+`version` is absent when the output contains none. It takes no manifest.
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
 archives and pass the parsed JSON. `validateIndex` accepts

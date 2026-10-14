@@ -173,9 +173,30 @@ final class MacPluginManager: PluginManaging {
         guard !installed.manifest.modules.contains(where: { $0.manifest.isRequired }) else {
             throw PluginManagerError.requiredPluginCannotBeUninstalled(pluginID)
         }
-        try packageStore.stageUninstall(pluginID)
+        if installed.installation.origin == .bundled {
+            // The package itself lives in the read-only app bundle.
+            try packageStore.setBundledPluginRemoved(pluginID, removed: true)
+        } else {
+            try packageStore.stageUninstall(pluginID)
+        }
         restartRequiredPluginIDs.insert(pluginID)
         try refreshInstalledPlugins()
+    }
+
+    func restore(_ pluginID: PluginID) throws {
+        guard let installed = installedPlugins[pluginID],
+              installed.installation.status == .removed else {
+            throw PluginManagerError.unknownPlugin(pluginID)
+        }
+        try packageStore.setBundledPluginRemoved(pluginID, removed: false)
+        // Its modules join the module graph at the next launch.
+        restartRequiredPluginIDs.insert(pluginID)
+        try refreshInstalledPlugins()
+    }
+
+    /// A plugin removed in this session is still registered until restart.
+    private func requiresRestartForRemoval(_ pluginID: PluginID) -> Bool {
+        registeredPluginIDs.contains(pluginID)
     }
 
     private func manifest(for pluginID: PluginID) -> PluginManifest? {
@@ -228,6 +249,10 @@ final class MacPluginManager: PluginManaging {
             statusMessage = matchingIssue.message
         } else if installationStatus == .uninstallPending {
             statusMessage = "Will be uninstalled after restart"
+        } else if installationStatus == .removed {
+            statusMessage = requiresRestartForRemoval(manifest.id)
+                ? "Removed. Restart Lithe to finish."
+                : "Removed. Restore it to use it again."
         } else if requiresRestart {
             statusMessage = "Restart required"
         } else if isQuarantined {

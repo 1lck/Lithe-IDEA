@@ -96,6 +96,15 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
     /// then used for display, never for a global lookup.
     public let executableURL: URL?
     public let languageIdentifier: String
+    /// Declaration whose launch templates the host expands when the server
+    /// starts. When set, `arguments` are templates and are never passed to
+    /// the process as written.
+    public let launchSource: DeclarativeLanguageServerLaunchSource?
+    /// Minimum version a discovered executable must report, for a server
+    /// started by a runtime such as `java`.
+    public let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
+    /// Native host integration the provider declares, such as `jdt`.
+    public let hostIntegrationID: String?
 
     public init(
         languageID: String,
@@ -106,7 +115,10 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         environment: [String: String] = [:],
         runtimeTools: [String] = [],
         executableURL: URL? = nil,
-        languageIdentifier: String
+        languageIdentifier: String,
+        launchSource: DeclarativeLanguageServerLaunchSource? = nil,
+        executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
+        hostIntegrationID: String? = nil
     ) {
         self.languageID = languageID
         self.displayName = displayName
@@ -117,6 +129,9 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         self.runtimeTools = runtimeTools
         self.executableURL = executableURL
         self.languageIdentifier = languageIdentifier
+        self.launchSource = launchSource
+        self.executableVersionRequirement = executableVersionRequirement
+        self.hostIntegrationID = hostIntegrationID
     }
 }
 
@@ -129,6 +144,10 @@ public protocol LanguageServerExtensionProviding: AnyObject {
 @MainActor
 public protocol LanguageServerExtensionLifecycle: AnyObject {
     var isRunning: Bool { get }
+    /// True once the owning module stopped this extension. A retired
+    /// extension never starts a server again; the module publishes a new
+    /// lifecycle when it is activated again.
+    var isRetired: Bool { get }
     func attach(
         isRunning: @escaping @MainActor () -> Bool,
         stop: @escaping @MainActor () -> Void
@@ -138,6 +157,8 @@ public protocol LanguageServerExtensionLifecycle: AnyObject {
 }
 
 public extension LanguageServerExtensionLifecycle {
+    var isRetired: Bool { false }
+
     func waitUntilStopped() async {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))

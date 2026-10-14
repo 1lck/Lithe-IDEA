@@ -2,17 +2,24 @@ import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 
-package enum LanguageServerRuntimeResolution: Sendable, Equatable {
-    case notRequired
-    case available(URL)
-    case unavailable(String)
+/// A declarative server's launch after Rust Core expanded its templates and
+/// the host prepared the directories and checked the package paths.
+package struct ResolvedLanguageServerLaunch: Equatable, Sendable {
+    package let arguments: [String]
+    package let initializationOptions: ToolingJSONValue?
+
+    package init(arguments: [String], initializationOptions: ToolingJSONValue?) {
+        self.arguments = arguments
+        self.initializationOptions = initializationOptions
+    }
 }
 
-package enum JDTLSLaunchResourcesResolution: Sendable, Equatable {
-    case notRequired
-    case available(JDTLSLaunchResources)
-    case unavailable(String)
-}
+/// Resolves a declarative launch for one workspace root. It runs when the
+/// session starts, because the workspace state directory depends on the root.
+package typealias LanguageServerLaunchResolver = @MainActor (
+    DeclarativeLanguageServerLaunchSource,
+    URL
+) throws -> ResolvedLanguageServerLaunch
 
 @MainActor
 package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
@@ -21,11 +28,8 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     private let languageServerLaunch: LanguageServerLaunchDescriptor?
     private let languageServerCore: any LanguageServerRuntimeCore
     private let languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)?
-    private let languageServerRuntimeResolver: ((LanguageProviderDescriptor) -> LanguageServerRuntimeResolution)?
-    private let jdtlsLaunchResourcesResolver: ((
-        LanguageProviderDescriptor,
-        URL
-    ) -> JDTLSLaunchResourcesResolution)?
+    private let hostIntegrationResolver: LanguageServerHostIntegrationResolver?
+    private let languageServerLaunchResolver: LanguageServerLaunchResolver?
     private let languageServerCacheDirectory: URL?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let moduleID: ModuleID
@@ -47,11 +51,8 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         languageServerLaunch: LanguageServerLaunchDescriptor? = nil,
         languageServerCore: any LanguageServerRuntimeCore,
         languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
-        languageServerRuntimeResolver: ((LanguageProviderDescriptor) -> LanguageServerRuntimeResolution)? = nil,
-        jdtlsLaunchResourcesResolver: ((
-            LanguageProviderDescriptor,
-            URL
-        ) -> JDTLSLaunchResourcesResolution)? = nil,
+        hostIntegrationResolver: LanguageServerHostIntegrationResolver? = nil,
+        languageServerLaunchResolver: LanguageServerLaunchResolver? = nil,
         languageServerCacheDirectory: URL? = nil,
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence
@@ -61,8 +62,8 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         self.languageServerLaunch = languageServerLaunch
         self.languageServerCore = languageServerCore
         self.languageServerExecutableResolver = languageServerExecutableResolver
-        self.languageServerRuntimeResolver = languageServerRuntimeResolver
-        self.jdtlsLaunchResourcesResolver = jdtlsLaunchResourcesResolver
+        self.hostIntegrationResolver = hostIntegrationResolver
+        self.languageServerLaunchResolver = languageServerLaunchResolver
         self.languageServerCacheDirectory = languageServerCacheDirectory
         self.processRegistry = processRegistry
         self.moduleID = moduleID
@@ -81,22 +82,12 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
             }).first
         }
         guard let executableURL else { return nil }
-        let runtimeExecutableURL: URL?
-        switch languageServerRuntimeResolver?(descriptor) ?? .notRequired {
-        case .notRequired:
-            runtimeExecutableURL = nil
-        case .available(let executableURL):
-            runtimeExecutableURL = executableURL
-        case .unavailable(let message):
-            runtimeUnavailableMessage = message
-            return nil
-        }
-        let jdtlsLaunchResources: JDTLSLaunchResources?
-        switch jdtlsLaunchResourcesResolver?(descriptor, executableURL) ?? .notRequired {
-        case .notRequired:
-            jdtlsLaunchResources = nil
-        case .available(let resources):
-            jdtlsLaunchResources = resources
+        let hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?
+        switch hostIntegrationResolver?(descriptor) {
+        case nil:
+            hostIntegrationLaunch = nil
+        case .available(let launch):
+            hostIntegrationLaunch = launch
         case .unavailable(let message):
             runtimeUnavailableMessage = message
             return nil
@@ -105,14 +96,26 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
             runtimeTools: languageServerLaunch.runtimeTools
         )
         environment.merge(languageServerLaunch.environment) { _, configured in configured }
+        let launchResolver: (@MainActor (URL) throws -> ResolvedLanguageServerLaunch)?
+        if let source = languageServerLaunch.launchSource {
+            // The declared arguments are templates. Without a resolver they
+            // would reach the process unexpanded, so the server is unavailable.
+            guard let languageServerLaunchResolver else {
+                runtimeUnavailableMessage = "\(descriptor.displayName) needs a launch plan this build of Lithe cannot resolve."
+                return nil
+            }
+            launchResolver = { rootURL in try languageServerLaunchResolver(source, rootURL) }
+        } else {
+            launchResolver = nil
+        }
         return LanguageServerRuntimeSession(
             providerID: descriptor.id,
             executableURL: executableURL,
             arguments: languageServerLaunch.arguments,
             environment: environment,
             initializationOptions: languageServerLaunch.initializationOptions,
-            runtimeExecutableURL: runtimeExecutableURL,
-            jdtlsLaunchResources: jdtlsLaunchResources,
+            launchResolver: launchResolver,
+            hostIntegrationLaunch: hostIntegrationLaunch,
             cacheDirectoryURL: languageServerCacheDirectory,
             core: languageServerCore,
             processRegistry: processRegistry,
@@ -127,11 +130,8 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
     private let runtimeService: any LanguageToolRuntimePort
     private let languageServerCore: any LanguageServerRuntimeCore
     private let languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)?
-    private let languageServerRuntimeResolver: ((LanguageProviderDescriptor) -> LanguageServerRuntimeResolution)?
-    private let jdtlsLaunchResourcesResolver: ((
-        LanguageProviderDescriptor,
-        URL
-    ) -> JDTLSLaunchResourcesResolution)?
+    private let hostIntegrationResolver: LanguageServerHostIntegrationResolver?
+    private let languageServerLaunchResolver: LanguageServerLaunchResolver?
     private let languageServerCacheDirectory: URL?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let moduleID: ModuleID
@@ -140,11 +140,8 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
         runtimeService: any LanguageToolRuntimePort,
         languageServerCore: any LanguageServerRuntimeCore,
         languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
-        languageServerRuntimeResolver: ((LanguageProviderDescriptor) -> LanguageServerRuntimeResolution)? = nil,
-        jdtlsLaunchResourcesResolver: ((
-            LanguageProviderDescriptor,
-            URL
-        ) -> JDTLSLaunchResourcesResolution)? = nil,
+        hostIntegrationResolver: LanguageServerHostIntegrationResolver? = nil,
+        languageServerLaunchResolver: LanguageServerLaunchResolver? = nil,
         languageServerCacheDirectory: URL? = nil,
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence
@@ -152,8 +149,8 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
         self.runtimeService = runtimeService
         self.languageServerCore = languageServerCore
         self.languageServerExecutableResolver = languageServerExecutableResolver
-        self.languageServerRuntimeResolver = languageServerRuntimeResolver
-        self.jdtlsLaunchResourcesResolver = jdtlsLaunchResourcesResolver
+        self.hostIntegrationResolver = hostIntegrationResolver
+        self.languageServerLaunchResolver = languageServerLaunchResolver
         self.languageServerCacheDirectory = languageServerCacheDirectory
         self.processRegistry = processRegistry
         self.moduleID = moduleID
@@ -172,8 +169,8 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
             languageServerLaunch: languageServerLaunch,
             languageServerCore: languageServerCore,
             languageServerExecutableResolver: languageServerExecutableResolver,
-            languageServerRuntimeResolver: languageServerRuntimeResolver,
-            jdtlsLaunchResourcesResolver: jdtlsLaunchResourcesResolver,
+            hostIntegrationResolver: hostIntegrationResolver,
+            languageServerLaunchResolver: languageServerLaunchResolver,
             languageServerCacheDirectory: languageServerCacheDirectory,
             processRegistry: processRegistry,
             moduleID: moduleID
@@ -191,8 +188,8 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
             languageServerLaunch: languageServerLaunch,
             languageServerCore: languageServerCore,
             languageServerExecutableResolver: languageServerExecutableResolver,
-            languageServerRuntimeResolver: languageServerRuntimeResolver,
-            jdtlsLaunchResourcesResolver: jdtlsLaunchResourcesResolver,
+            hostIntegrationResolver: hostIntegrationResolver,
+            languageServerLaunchResolver: languageServerLaunchResolver,
             languageServerCacheDirectory: languageServerCacheDirectory,
             processRegistry: processRegistry,
             moduleID: ownerModuleID

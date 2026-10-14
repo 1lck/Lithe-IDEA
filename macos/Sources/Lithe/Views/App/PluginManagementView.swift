@@ -374,7 +374,15 @@ private struct InstalledPluginsView: View {
                     .buttonStyle(.bordered)
                     .disabled(isApplyingChanges || isBusy)
                 }
-                if plugin.origin != .bundled {
+                if plugin.installationStatus == .removed {
+                    Button(LocalizedStringKey("Restore")) {
+                        model.restorePlugin(plugin.id)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isApplyingChanges || isBusy)
+                } else if plugin.origin != .bundled || OfficialPluginCatalog.entry(for: plugin.id) != nil {
+                    // Built-in feature groups are listed as bundled too, but
+                    // only an official plugin package can be removed.
                     Button(LocalizedStringKey("Uninstall")) {
                         confirmingUninstall = plugin
                     }
@@ -547,6 +555,12 @@ struct PluginManagementListContent {
                 systemImage: "chevron.left.forwardslash.chevron.right",
                 tint: LitheTheme.accent,
                 summary: "Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately."
+            )
+        case OfficialPluginCatalog.javaPluginID:
+            Presentation(
+                systemImage: "cup.and.saucer",
+                tint: LitheTheme.warning,
+                summary: "Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime."
             )
         case OfficialPluginCatalog.phpPluginID:
             Presentation(

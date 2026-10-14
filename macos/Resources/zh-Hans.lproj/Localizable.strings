@@ -1374,6 +1374,8 @@
 "Pending plugin changes: %lld" = "待确认的插件修改：%lld";
 "Uninstall" = "卸载";
 "Reinstall" = "重新安装";
+"Removed. Restart Lithe to finish." = "已移除，重启 Lithe 后完成。";
+"Removed. Restore it to use it again." = "已移除，恢复后可再次使用。";
 "Uninstall PHP Support?" = "卸载 PHP 支持？";
 "PHP language support will be removed after restarting Lithe." = "重启 Lithe 后将移除 PHP 语言支持。";
 "Overview" = "概览";
@@ -2757,6 +2759,7 @@
 "Update required" = "需要更新";
 
 "Adds PHP language-server integration, formatting, running, and test support." = "提供 PHP 语言服务器集成、格式化、运行和测试支持。";
+"Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime." = "通过 Eclipse JDT 语言服务器提供 Java 代码智能，并支持 Lombok、调试和测试。自带 Java 运行时。";
 
 "Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately." = "通过 gopls 提供 Go 语言服务器集成、运行和测试支持。需要另行安装 gopls 和 Go。";
 
