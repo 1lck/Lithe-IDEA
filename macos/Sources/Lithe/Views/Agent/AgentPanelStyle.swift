@@ -3,6 +3,9 @@ import SwiftUI
 
 /// Conversation surfaces follow the same live theme tokens as the workbench.
 enum AgentPanelStyle {
+    // Reference chat composition target, not a public Community AI-plugin constant.
+    // The composer keeps its existing 8pt insets inside this centered column.
+    static let editorContentMaximumWidth: CGFloat = 700 + 2 * AgentComposerMetrics.horizontalInset
     static var canvas: Color { LitheTheme.editor }
     static var header: Color { LitheTheme.toolHeader }
     static var context: Color { LitheTheme.raised }

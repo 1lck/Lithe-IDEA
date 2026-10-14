@@ -87,6 +87,7 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
 不要这样做：在 Windows React 层重新实现 JSON-RPC 协议；在打开 IDE 时就启动 Agent；取消尚未确认就解锁发送；把取消超时伪装成成功而不提示用户重连；把 API Key 通过环境变量或命令行传给 Agent；替用户下载一份他本机已有的 Agent CLI。
 
 对话可以移入共享编辑区标签页。位置由 EditorTabOrderFeatureModel 是否包含 agentConversation 页决定，工具窗口改用同一历史列表的伸展布局；点击历史后选择同一 AgentConnectionModel 中的会话并聚焦编辑页。重复打开只聚焦已有页，不再创建标签或连接；关闭编辑页将对话移回工具窗口，保留其他文件及未保存内容。共享标签负责关闭、排序、拖动分组和活动/非活动选中样式，不另写页面标签系统。此页呈现当前会话，历史切换更新同一页的标题与消息，不为每条历史再创建独立连接。草稿文字与附件由连接模型保留，编辑器的命令补全/焦点仍属视图；位置切换和标签换焦点不清空草稿，New Chat 明确清空。输入写入绑定和补全/发送同步更新草稿，避免等待视图销毁后的 onChange。
+编辑区内标题、消息、活动入口和输入区共用居中内容列，最大宽度为716pt，输入框保留已有左右8pt内边距，因此边框最大宽度700pt；窄窗口按可用宽度收缩，工具窗口仍铺满自身可用宽度。700pt来自参考截图的聊天构图目标，不是Community公开AI插件常量；公开JBUI边距API不定义聊天列宽，不能用固定左右90pt代替随窗口变化的居中留白。
 
 切换图标使用 Community 915c3c26 的 expui/general/previewVertically.svg 及 dark 变体，16×16；按钮尺寸、选中/hover 与工具提示复用共享 owner。图标作为固定构建资源随包只读发布，不引入运行时下载或缓存。Community 提供通用标签/图标/工具窗口规则，AI 插件的聊天迁移页面未在公开仓库找到，不把当前页面组合与字号布局冒充它的私有源码常量。
 
@@ -331,3 +332,5 @@ ACP 差异可能是完整文本，也可能是 Claude 上报的片段。界面�
 ## 适用范围
 
 `rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
+
+- 编辑区限宽验证：72项测试、4组套件通过（5.751秒），实际AgentConversationView原生宿主覆盖320/900/1400pt与工具窗口；检查底栏锚点位置并查看窄宽截图，900pt宿主输入框700pt、左右各100pt。未启动完整产品或真实Agent会话，完整窗口验收仍待执行。

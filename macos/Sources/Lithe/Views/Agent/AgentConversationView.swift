@@ -75,6 +75,8 @@ struct AgentConversationView: View {
                 )
             }
         }
+        .frame(maxWidth: isEditor ? AgentPanelStyle.editorContentMaximumWidth : .infinity)
+        .frame(maxWidth: .infinity, alignment: .center)
         .litheWorkbenchSurface(AgentPanelStyle.canvas)
         .workbenchHoverTooltipScope()
         .onAppear {
@@ -251,6 +253,7 @@ struct AgentChatHeader: View {
                 .foregroundStyle(AgentPanelStyle.text)
                 .padding(.horizontal, 20)
                 .frame(height: 34)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("agent-selected-name")
             }
         }

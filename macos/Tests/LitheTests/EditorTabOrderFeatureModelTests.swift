@@ -8,6 +8,44 @@ import Testing
 @Suite("Editor tab order")
 @MainActor
 struct EditorTabOrderFeatureModelTests {
+    @Test(arguments: [CGFloat(320), 900, 1400])
+    func editorChatCentersItsContentWhileToolWindowKeepsAvailableWidth(width: CGFloat) async throws {
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        settings.preferredConversationAgentID = "codex-acp"
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        do {
+            for editor in [true, false] {
+                let host = NSHostingView(rootView: AgentConversationView(model: model, isEditor: editor))
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 400),
+                                      styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.contentView = host
+                defer { window.contentView = nil; window.close() }
+                host.layoutSubtreeIfNeeded()
+                func anchors(_ view: NSView) -> [LitheDropdownAnchorView] {
+                    if let anchor = view as? LitheDropdownAnchorView { return [anchor] }
+                    return view.subviews.flatMap(anchors)
+                }
+                let footer = try #require(anchors(host).min {
+                    $0.convert($0.bounds, to: nil).midY < $1.convert($1.bounds, to: nil).midY
+                })
+                let frame = footer.convert(footer.bounds, to: host)
+                let column = editor ? min(width, AgentPanelStyle.editorContentMaximumWidth) : width
+                #expect(abs(frame.minX - ((width - column) / 2 + AgentComposerMetrics.horizontalInset)) < 1)
+                #expect(frame.minX >= AgentComposerMetrics.horizontalInset)
+                if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_EDITOR_LAYOUT_SCREENSHOTS"] {
+                    let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                        URL(fileURLWithPath: folder).appendingPathComponent("chat-\(editor)-\(Int(width)).png"))
+                }
+            }
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
     @Test func agentEditorPageSelectionAndCloseRestoreTheExistingFile() async throws {
         let store = EditorTabOrderTestStore()
         let settings = AppSettings(store: store)
