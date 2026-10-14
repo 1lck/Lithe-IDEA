@@ -21,25 +21,22 @@ case "$ARCH" in
 esac
 
 cd "$ROOT_DIR"
-JDTLS_ROOT=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdtls.sh")
+# Java Support assembles JDT LS and its JDK into its own plugin package later
+# in this script. They are prepared here first so a missing or invalid
+# download fails before the application is compiled.
+LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdtls.sh" > /dev/null
 if [[ "$ARCH" == "universal" ]]; then
     if [[ -n "${LITHE_JDK_ROOT:-}" ]]; then
         print -u2 -- \
             "Universal packaging requires LITHE_JDK_ARM64_ROOT and LITHE_JDK_X86_64_ROOT instead of LITHE_JDK_ROOT"
         exit 1
     fi
-    ARM64_JDK_ROOT=$( \
-        LITHE_JDK_ROOT="${LITHE_JDK_ARM64_ROOT:-}" \
-        LITHE_JDK_TARGET_ARCH="arm64" \
-        "$ROOT_DIR/scripts/prepare-jdk.sh"
-    )
-    X86_64_JDK_ROOT=$( \
-        LITHE_JDK_ROOT="${LITHE_JDK_X86_64_ROOT:-}" \
-        LITHE_JDK_TARGET_ARCH="x86_64" \
-        "$ROOT_DIR/scripts/prepare-jdk.sh"
-    )
+    LITHE_JDK_ROOT="${LITHE_JDK_ARM64_ROOT:-}" LITHE_JDK_TARGET_ARCH="arm64" \
+        "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
+    LITHE_JDK_ROOT="${LITHE_JDK_X86_64_ROOT:-}" LITHE_JDK_TARGET_ARCH="x86_64" \
+        "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
 else
-    JDK_ROOT=$(LITHE_JDK_TARGET_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdk.sh")
+    LITHE_JDK_TARGET_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
 fi
 if [[ "$ARCH" == "universal" ]]; then
     scripts/build-macos.sh --configuration release --triple "$ARM64_TRIPLE"
@@ -120,19 +117,11 @@ for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
     fi
     cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/$bundle_name"
 done
-mkdir -p "$APP_DIR/Contents/Resources/LanguageServers"
-cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
-if [[ "$ARCH" == "universal" ]]; then
-    cp -R "$ARM64_JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk-arm64"
-    cp -R "$X86_64_JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk-x86_64"
-else
-    cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
-fi
-
 OFFICIAL_PLUGIN_DESTINATION="$APP_DIR/Contents/Resources/OfficialPlugins"
 mkdir -p "$OFFICIAL_PLUGIN_DESTINATION"
-# Declarative plugin packages contain no native code and are identical for
-# every architecture, so one build serves arm64, x86_64, and universal apps.
+# Declarative plugin packages contain no host-loaded code. Java Support ships
+# JDT LS and the JDK it runs on inside its own package, assembled for the
+# architectures of this app; the application itself carries no language server.
 if [[ "$ARCH" == "universal" ]]; then
     plugin_triple="$ARM64_TRIPLE"
 else
@@ -140,6 +129,7 @@ else
 fi
 plugin_root=$(scripts/build-official-plugins.sh --bundled-only \
     --configuration release \
+    --arch "$ARCH" \
     --triple "$plugin_triple")
 for plugin_package in "$plugin_root"/*(/N); do
     cp -R "$plugin_package" "$OFFICIAL_PLUGIN_DESTINATION/${plugin_package:t}"

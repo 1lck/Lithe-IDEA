@@ -1374,6 +1374,8 @@
 "Pending plugin changes: %lld" = "待确认的插件修改：%lld";
 "Uninstall" = "卸载";
 "Reinstall" = "重新安装";
+"Removed. Restart Lithe to finish." = "已移除，重启 Lithe 后完成。";
+"Removed. Restore it to use it again." = "已移除，恢复后可再次使用。";
 "Uninstall PHP Support?" = "卸载 PHP 支持？";
 "PHP language support will be removed after restarting Lithe." = "重启 Lithe 后将移除 PHP 语言支持。";
 "Overview" = "概览";
@@ -2757,6 +2759,7 @@
 "Update required" = "需要更新";
 
 "Adds PHP language-server integration, formatting, running, and test support." = "提供 PHP 语言服务器集成、格式化、运行和测试支持。";
+"Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime." = "通过 Eclipse JDT 语言服务器提供 Java 代码智能，并支持 Lombok、调试和测试。自带 Java 运行时。";
 
 "Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately." = "通过 gopls 提供 Go 语言服务器集成、运行和测试支持。需要另行安装 gopls 和 Go。";
 
@@ -2893,3 +2896,16 @@
 "%lld non-streaming" = "%lld 次非流式";
 "Model calls observed by the local proxy during this turn. TTFT is the average time to the first generated token." = "本轮由本机代理观测到的模型调用；首字为首个生成 token 的平均等待时间。";
 "%lld requests returned no usage, so these totals are a lower bound." = "有 %lld 次请求未返回用量，以上为最低值。";
+
+/* Declarative plugin settings (Settings › Plugins). */
+"Applies the next time the language server starts." = "下次启动语言服务器时生效。";
+"Restart Language Servers" = "重启语言服务器";
+"Reset to Default" = "恢复默认值";
+"Enter a whole number from %d to %d." = "请输入 %d 到 %d 之间的整数。";
+"Maximum memory" = "最大内存";
+"Upper bound of the Java language server's heap. Raise it for large multi-module projects." = "Java 语言服务器的堆内存上限。大型多模块项目可适当调高。";
+"Language server log level" = "语言服务器日志级别";
+"How much the Java language server writes to its own log. Quieter levels reduce disk writes." = "Java 语言服务器写入自身日志的详细程度；较安静的级别可减少磁盘写入。";
+"All messages" = "全部消息";
+"Warnings" = "警告";
+"Errors only" = "仅错误";
