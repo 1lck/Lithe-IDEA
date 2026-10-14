@@ -237,6 +237,11 @@ export function useGitLogController(
     cancelActiveOperations();
     cancelRepositoryGraph();
     closeActiveCursor();
+    // Capture which repository the visible state belonged to before claiming the new one:
+    // comparing after the assignment always matches, which would carry the previous
+    // repository's selected reference into the next repository instead of its own
+    // restored preference.
+    const previousStateRepoPath = stateRepoPathRef.current;
     stateRepoPathRef.current = repoPath;
     historyRef.current = EMPTY_HISTORY;
     setRepositoryCommits([]);
@@ -244,7 +249,7 @@ export function useGitLogController(
     // change). Within the same repository keep the reference the user picked instead of
     // dropping back to the stored initial one.
     const initialReference =
-      stateRepoPathRef.current === repoPath && selectedReferenceRef.current
+      previousStateRepoPath === repoPath && selectedReferenceRef.current
         ? selectedReferenceRef.current
         : preferredReferenceRef.current;
     preferredReferenceRef.current = null;

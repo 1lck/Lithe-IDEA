@@ -58,3 +58,31 @@ test("validation follows IDEA's order and only requires a name on apply", () => 
   // Tags do not occupy the branch namespace checked by the dialog.
   expect(validateNewBranchName("v1", references, false)).toBeNull();
 });
+
+// Git keeps branches as loose refs, so `feature` and `feature/x` cannot coexist in
+// either direction: both orders must be rejected before the create command runs.
+test("a name whose slash prefix is an existing local branch is rejected up front", () => {
+  const flatReferences = [
+    { kind: "local", shortName: "main" },
+    { kind: "local", shortName: "feature" },
+    { kind: "remote", shortName: "origin/main" },
+  ] as const;
+  // Candidate name is a directory of an existing branch (feature vs feature/login).
+  expect(validateNewBranchName("feature/login", flatReferences, false)).toEqual({
+    code: "clashesWithBranchPrefix",
+    name: "feature/login",
+    branch: "feature",
+  });
+  // The clash may sit deeper than the first segment.
+  const nestedReferences = [{ kind: "local", shortName: "a/b" }] as const;
+  expect(validateNewBranchName("a/b/c", nestedReferences, false)).toEqual({
+    code: "clashesWithBranchPrefix",
+    name: "a/b/c",
+    branch: "a/b",
+  });
+  // A prefix that is only a directory of other branches is not itself a clash.
+  expect(validateNewBranchName("feature/signup", references, false)).toBeNull();
+  // Remote branches do not occupy the local ref namespace being validated here.
+  const remoteOnlyReferences = [{ kind: "remote", shortName: "origin/release" }] as const;
+  expect(validateNewBranchName("release/next", remoteOnlyReferences, false)).toBeNull();
+});
