@@ -18,10 +18,12 @@ struct AgentActivityPresentationTests {
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
-        let initialWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
+        // Retain baseline windows: closed windows can otherwise deallocate and
+        // a new popup may reuse an ObjectIdentifier excluded by this snapshot.
+        let initialWindows = Set(NSApp.windows)
         defer {
             window.contentView = nil
-            for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
+            for popup in NSApp.windows where !initialWindows.contains(popup) { popup.close() }
             window.close()
         }
         host.layoutSubtreeIfNeeded()
@@ -70,10 +72,10 @@ struct AgentActivityPresentationTests {
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderFront(nil)
-            let initialWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
+            let initialWindows = Set(NSApp.windows)
             defer {
                 window.contentView = nil
-                for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
+                for popup in NSApp.windows where !initialWindows.contains(popup) { popup.close() }
                 window.close()
             }
             for panel in AgentActivitySummaryBar.Panel.allCases {
@@ -126,10 +128,10 @@ struct AgentActivityPresentationTests {
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderFront(nil)
-            let initialWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
+            let initialWindows = Set(NSApp.windows)
             defer {
                 window.contentView = nil
-                for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
+                for popup in NSApp.windows where !initialWindows.contains(popup) { popup.close() }
                 window.close()
             }
             for panel in AgentActivitySummaryBar.Panel.allCases {
@@ -211,8 +213,8 @@ struct AgentActivityPresentationTests {
     }
 
     private func openPanel(_ panel: AgentActivitySummaryBar.Panel, in host: NSView, window: NSWindow,
-                           excluding windows: Set<ObjectIdentifier>) async throws {
-        for popup in NSApp.windows where !windows.contains(ObjectIdentifier(popup)) && popup.isVisible {
+                           excluding windows: Set<NSWindow>) async throws {
+        for popup in NSApp.windows where !windows.contains(popup) && popup.isVisible {
             try closePopup(popup)
         }
         host.layoutSubtreeIfNeeded()
@@ -224,16 +226,21 @@ struct AgentActivityPresentationTests {
         let content = try #require(popup.contentView)
         try capture(content, name: "activity-menu")
         let index = try #require(AgentActivitySummaryBar.Panel.allCases.firstIndex(of: panel))
-        // Exercise every Agent menu entry through the same window-targeted mouse
-        // route; shared-menu keyboard navigation is covered by ContextMenuCoverageTests.
-        // NSApp key dispatch depends on the desktop's current focus, including in CI.
-        try click(NSPoint(x: content.bounds.midX,
-            y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * (CGFloat(index) + 0.5)),
-            in: content, window: popup)
+        if panel == .running {
+            for code: UInt16 in [125, 125, 36] {
+                NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                    timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "",
+                    charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
+            }
+        } else {
+            try click(NSPoint(x: content.bounds.midX,
+                y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * (CGFloat(index) + 0.5)),
+                in: content, window: popup)
+        }
         try #require(await waitUntil {
-            NSApp.windows.contains { !windows.contains(ObjectIdentifier($0)) && $0.isVisible
+            NSApp.windows.contains { !windows.contains($0) && $0.isVisible
                 && $0.frame.width >= LitheDropdownMetrics.maximumWidth - 1 }
-        }, "The \(panel.rawValue) detail panel must replace the activity menu")
+        })
     }
 
     private func editedFile(path: String = "a.txt") -> AgentConversationMessage {
@@ -247,8 +254,8 @@ struct AgentActivityPresentationTests {
         return view.subviews.lazy.compactMap { nativeButton(in: $0, titles: titles) }.first
     }
 
-    private func waitForPopup(excluding windows: Set<ObjectIdentifier>) async -> NSWindow? {
-        func popup() -> NSWindow? { NSApp.windows.first { !windows.contains(ObjectIdentifier($0)) && $0.isVisible } }
+    private func waitForPopup(excluding windows: Set<NSWindow>) async -> NSWindow? {
+        func popup() -> NSWindow? { NSApp.windows.first { !windows.contains($0) && $0.isVisible } }
         _ = await waitUntil { popup() != nil }
         return popup()
     }
