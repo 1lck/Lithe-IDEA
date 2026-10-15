@@ -10,7 +10,13 @@ import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace
 import * as dialog from "@/ui/dialog";
 import * as panels from "./settings-panels";
 import SettingsDialog from "./settings-dialog";
-import { filterSettingsCategories } from "../lib/settings-navigation";
+import {
+  filterSettingsCategories,
+  settingsCategories,
+  settingsGroups,
+  settingsSidebarLayout,
+  settingsTopLevelCategories,
+} from "../lib/settings-navigation";
 
 const restoreDom = installHappyDom();
 afterAll(restoreDom);
@@ -38,6 +44,50 @@ test("settings search finds shipped Chinese labels and English vocabulary on the
     expect(matches(t("run.mavenJdkHome"))).toContain("project");
     expect(matches(t("settings.tabs.plugins"))).toContain("plugins");
     expect(matches("unknown-setting-zzzz")).toEqual([]);
+  }
+});
+
+test("every settings page belongs to exactly one group or is a top-level page, in the shared order", () => {
+  const owners = settingsCategories.map(({ id }) => [
+    id,
+    [
+      ...settingsGroups.filter((group) => (group.categories as readonly string[]).includes(id)),
+      ...settingsTopLevelCategories.filter((top) => top === id),
+    ].length,
+  ]);
+  expect(owners.filter(([, count]) => count !== 1)).toEqual([]);
+  expect(settingsGroups.map(({ id, categories }) => [id, categories])).toEqual([
+    ["appearance", ["general", "updates", "editor", "keyboard"]],
+    ["version-control", ["git"]],
+    ["build", ["project", "run", "maven"]],
+    ["languages", ["lsp"]],
+    ["tools", ["terminal", "logs"]],
+    ["ai", ["mcp", "ai-commit", "ai"]],
+  ]);
+  expect([...settingsTopLevelCategories]).toEqual(["plugins"]);
+  expect(settingsSidebarLayout.map(({ id }) => id)).toEqual([
+    "appearance",
+    "plugins",
+    "version-control",
+    "build",
+    "languages",
+    "tools",
+    "ai",
+  ]);
+  for (const language of ["en-US", "zh-CN"] as const) {
+    const t = createTranslator(language);
+    expect(settingsGroups.map(({ labelKey }) => t(labelKey))).toEqual(
+      language === "en-US"
+        ? [
+            "Appearance & Behavior",
+            "Version Control",
+            "Build, Execution, Deployment",
+            "Languages & Frameworks",
+            "Tools",
+            "AI",
+          ]
+        : ["外观与行为", "版本控制", "构建、执行、部署", "语言与框架", "工具", "AI"],
+    );
   }
 });
 
@@ -121,11 +171,22 @@ test("hierarchical navigation preserves drafts through empty search, automatic r
       });
     expect(currentPage()).toBe("general");
     expect(group("tools").getAttribute("aria-expanded")).toBe("false");
+    expect(group("ai").getAttribute("aria-expanded")).toBe("false");
     await searchFor("default shell");
     expect(currentPage()).toBe("terminal");
     expect(group("tools").getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector("[data-settings-breadcrumb]")?.textContent).toBe("ToolsTerminal");
     expect(host.querySelector('[data-settings-category="git"]')).toBeNull();
+
+    // 移动后的页面：搜索命中 MCP 时展开 AI 分组，面包屑与侧栏一致。
+    await searchFor("MCP");
+    expect(currentPage()).toBe("mcp");
+    expect(group("ai").getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector("[data-settings-breadcrumb]")?.textContent).toBe(
+      "AIMCP Configuration",
+    );
+    await searchFor("default shell");
+    expect(currentPage()).toBe("terminal");
 
     await searchFor("unknown-setting-zzzz");
     expect(currentPage()).toBeUndefined();
@@ -134,6 +195,18 @@ test("hierarchical navigation preserves drafts through empty search, automatic r
     expect(search.value).toBe("");
     expect(currentPage()).toBe("terminal");
     expect(group("tools").getAttribute("aria-expanded")).toBe("true");
+
+    // 外部请求把原本的一级页面送进所属分组，并展开该分组。
+    await act(async () => store.getState().openSettingsDialog("keyboard"));
+    expect(currentPage()).toBe("keyboard");
+    expect(group("appearance").getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector("[data-settings-breadcrumb]")?.textContent).toBe(
+      "Appearance & BehaviorKeymap",
+    );
+    await act(async () => store.getState().openSettingsDialog("ai-commit"));
+    expect(group("ai").getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector("[data-settings-breadcrumb]")?.textContent).toBe("AIAI & Commit");
+    await act(async () => store.getState().openSettingsDialog("terminal"));
 
     await act(async () => group("tools").click());
     expect(group("tools").getAttribute("aria-expanded")).toBe("false");

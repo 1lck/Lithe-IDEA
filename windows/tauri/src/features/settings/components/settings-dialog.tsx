@@ -15,6 +15,7 @@ import {
   settingsCategories,
   settingsGroupForCategory,
   settingsGroups,
+  settingsSidebarLayout,
 } from "../lib/settings-navigation";
 import { SettingsPanel, type SettingsCategory } from "./settings-panels";
 
@@ -208,11 +209,10 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
               aria-label={t("settings.mac.categories")}
             >
               <ul>
-                {groupNode(settingsGroups[0])}
-                {(["keyboard", "editor", "plugins", "mcp"] as const).map((id) =>
-                  categoryButton(id),
-                )}
-                {settingsGroups.slice(1).map(groupNode)}
+                {settingsSidebarLayout.map((entry) => {
+                  if (entry.type === "page") return categoryButton(entry.id);
+                  return groupNode(settingsGroups.find((group) => group.id === entry.id)!);
+                })}
               </ul>
               {!filteredCategories.length && (
                 <p role="status" className="px-3 py-2 ui-text-sm text-subtle-foreground">

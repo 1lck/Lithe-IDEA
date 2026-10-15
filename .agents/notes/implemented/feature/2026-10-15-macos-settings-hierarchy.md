@@ -50,7 +50,7 @@ Issue 希望“构建工具 → Maven”“服务运行”“框架支持”也�
 
 - 收益：一级入口从九个减少到七个，AI 相关页面集中；分组关系只有一个来源。
 - 代价：“快捷键”“编辑器”“MCP 配置”“AI 提交”“AI 服务商”的位置变了，老用户需要重新找一次。
-- Windows 的 `settings-navigation.ts` 仍是旧分组，本次没有改动，需要单独跟进。
+- Windows 的分组已按同一规则同步，见 `2026-10-08-windows-settings-hierarchy.md`；Windows 没有独立的 AI 服务商页，AI 分组只有 MCP 配置、AI 与提交、AI 聊天与编辑。
 
 ## 验证
 
@@ -65,3 +65,4 @@ Issue 希望“构建工具 → Maven”“服务运行”“框架支持”也�
 - `macos/Sources/Lithe/Views/App/SettingsView.swift`
 - `macos/Sources/Lithe/Views/App/SettingsSearchVocabulary.swift`
 - `macos/Tests/LitheTests/SettingsSidebarLayoutTests.swift`
+- `windows/tauri/src/features/settings/lib/settings-navigation.ts`（Windows 同步）

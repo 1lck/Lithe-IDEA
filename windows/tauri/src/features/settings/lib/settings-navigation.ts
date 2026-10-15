@@ -6,17 +6,40 @@ import { createTranslator } from "@/i18n/locale";
 const englishLabel = createTranslator("en-US");
 const chineseLabel = createTranslator("zh-CN");
 
+/**
+ * 分组与页面的归属只在这里声明；侧栏、面包屑和展开逻辑都从它推导。
+ * 归属规则见 .agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md。
+ */
 export const settingsGroups = [
-  { id: "appearance", labelKey: "settings.groups.appearance", categories: ["general", "updates"] },
+  {
+    id: "appearance",
+    labelKey: "settings.groups.appearance",
+    categories: ["general", "updates", "editor", "keyboard"],
+  },
   { id: "version-control", labelKey: "settings.groups.versionControl", categories: ["git"] },
   { id: "build", labelKey: "settings.groups.build", categories: ["project", "run", "maven"] },
   { id: "languages", labelKey: "settings.groups.languages", categories: ["lsp"] },
-  {
-    id: "tools",
-    labelKey: "settings.groups.tools",
-    categories: ["terminal", "ai", "ai-commit", "logs"],
-  },
+  { id: "tools", labelKey: "settings.groups.tools", categories: ["terminal", "logs"] },
+  { id: "ai", labelKey: "settings.groups.ai", categories: ["mcp", "ai-commit", "ai"] },
 ] as const;
+
+type SettingsGroupId = (typeof settingsGroups)[number]["id"];
+
+/** 不属于任何分组的一级页面；只留给插件管理这类入口，普通设置页必须归入分组。 */
+export const settingsTopLevelCategories = ["plugins"] as const;
+
+/** 侧栏一级入口的顺序：插件紧跟“外观与行为”，其余分组依次排列。 */
+export const settingsSidebarLayout: ReadonlyArray<
+  { type: "group"; id: SettingsGroupId } | { type: "page"; id: SettingsCategory }
+> = [
+  { type: "group", id: "appearance" },
+  { type: "page", id: "plugins" },
+  { type: "group", id: "version-control" },
+  { type: "group", id: "build" },
+  { type: "group", id: "languages" },
+  { type: "group", id: "tools" },
+  { type: "group", id: "ai" },
+];
 
 export const settingsCategories: Array<{
   id: SettingsCategory;

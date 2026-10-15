@@ -14,18 +14,21 @@ macOS 的 `SettingsView` 已有五个可折叠分组、顶层页面和本地化�
 
 以 `macos/Sources/Lithe/Views/App/SettingsView.swift`、`SettingsSearchVocabulary.swift` 和前者内部的 `SettingsViewState` 类为依据。macOS 普通设置绑定直接写入；只有插件启用状态由 `pendingPluginEnabledStates` 暂存，并在确认时应用，不能将插件事务推广到全部设置。
 
-Windows 的 `settings-navigation.ts` 集中定义可见分层和检索词。对应关系如下：
+Windows 的 `settings-navigation.ts` 集中定义可见分层和检索词。2026-10-15 起分组与 macOS 的七个一级入口对齐（归属规则见 `2026-10-15-macos-settings-hierarchy.md`），对应关系如下：
 
-| 层级 | Windows 页面 |
+| 一级入口 | Windows 页面 |
 | --- | --- |
-| 外观与行为 | 通用、更新 |
-| 顶层页面 | 快捷键、编辑器、插件、MCP 配置 |
+| 外观与行为 | 通用、更新、编辑器、快捷键 |
+| 插件（一级页面，不属于任何分组） | 插件 |
 | 版本控制 | Git |
 | 构建、执行、部署 | 项目环境、运行配置、Maven |
 | 语言与框架 | LSP |
-| 工具 | 终端、AI 聊天与编辑、AI 与提交、日志 |
+| 工具 | 终端、日志 |
+| AI | MCP 配置、AI 与提交、AI 聊天与编辑 |
 
-保留 Windows 的 Maven、AI 聊天和日志入口。macOS 的 AI Providers 相关选项在 Windows 已由 AI 页面和 AI 提交配置负责，不增加重复的服务商设置页。插件页复用已有 `ExtensionsSidebar`，按需加载，不复制安装、市场、启用和详情逻辑；其操作仍即时生效，与 macOS 的插件草稿确认不同。
+分组与页面的归属只写在 `settingsGroups` 与 `settingsTopLevelCategories`，一级入口的顺序写在 `settingsSidebarLayout`；侧栏、面包屑、搜索时展开分组和外部分类请求展开所属分组都从它们推导，`settings-dialog.tsx` 不再写按页面分支的分组逻辑。只调整了归属与导航，页面内容、存储键和保存时机不变，仍不凑三级树，也不新增空页面。
+
+保留 Windows 的 Maven、AI 聊天和日志入口。macOS 的 AI Providers 相关选项在 Windows 已由“AI 聊天与编辑”和“AI 与提交”两页负责，所以 Windows 的 AI 分组只有 MCP 配置、AI 与提交、AI 聊天与编辑三页，不增加重复的服务商设置页。插件页复用已有 `ExtensionsSidebar`，按需加载，不复制安装、市场、启用和详情逻辑；其操作仍即时生效，与 macOS 的插件草稿确认不同。
 
 Windows 底部使用单个次要样式的“关闭”按钮。普通设置和插件操作已即时生效，项目、运行和 Maven 配置由页面内的显式保存动作负责；保留同样只关闭窗口的取消和确定会让用户误以为存在统一提交或回滚。因此不照搬 macOS 的插件确认按钮，也不让关闭替代页面保存。
 
@@ -59,12 +62,13 @@ Windows 设置组件使用 `settings-panels.tsx`、`SettingsPanel` 和 `Settings
 
 - `scripts/build-windows.ps1 -Configuration Release` 验证类型、前端和 Windows 构建。
 - `.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1` 与 `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend` 检查测试稳定性并生成计时报告。
-- `windows/tauri/src/features/settings/components/settings-hierarchy.test.tsx` 覆盖两种界面语言下的中英文字段检索、不可见字段排除、折叠组搜索、无结果、重复外部请求、面包屑和 Esc 清空查询，并验证无结果搜索、命中后的自动跳转、手动切换和外部导航均保留项目与 Maven 草稿，关闭后清除且释放页面资源。这些交互不能由类型检查证明。
+- `windows/tauri/src/features/settings/components/settings-hierarchy.test.tsx` 覆盖两种界面语言下的中英文字段检索、不可见字段排除、折叠组搜索、无结果、重复外部请求、面包屑和 Esc 清空查询，并固定每个页面恰好属于一个分组或一级页面、分组内容与一级入口顺序、中英文分组标题，以及快捷键、MCP、AI 与提交在搜索命中和外部请求时展开新的所属分组，并验证无结果搜索、命中后的自动跳转、手动切换和外部导航均保留项目与 Maven 草稿，关闭后清除且释放页面资源。这些交互不能由类型检查证明。
 - `windows/tauri/src/extensions/ui/components/extensions-sidebar-focus.test.tsx` 挂载真实插件浏览器，验证设置模式保留全局搜索焦点、独立入口仍自动聚焦；原生发现和市场请求使用立即完成的测试替身，不访问网络。分层、主题、下拉控件、更新状态和插件焦点回归分别以独立进程接入 Windows CI（持续集成）。
 - 编辑器路由测试验证字号即时写入，关闭不会回滚；快捷键测试准确定位页面内搜索，避免与新全局搜索混淆。
 - 核对共用中英文标签及说明与 macOS 设置语境一致，保留变量占位符；检查命令入口、搜索匹配和无障碍名称使用同一文案。Windows 专有说明按实际功能验收。
 - `windows/tauri/src/features/settings/lib/settings-theme-sync.test.ts` 用受控媒体查询和原生接口模拟验证手动浅色切回系统深色、系统明暗变化、重复启用不重复监听，以及手动模式清理监听。真实 Windows 另验证浅色 → 跟随系统立即恢复当前系统模式；系统变化由既有窗口事件与 WebView2 媒体查询传递。
 - `scripts/verify-windows-boundaries.sh`、`scripts/verify-platform-feature-matrix.sh` 和 `scripts/verify-agent-notes.sh` 验证边界及记录。
+- 真实 Windows 窗口中确认一级入口依次为外观与行为、插件、版本控制、构建/执行/部署、语言与框架、工具、AI；快捷键和编辑器在外观与行为下，MCP 配置、AI 与提交、AI 聊天与编辑在 AI 下；搜索和外部请求跳转到这些页面时展开所属分组且面包屑一致。本次只运行了浏览器组件测试，尚未在真实 Windows 上验证。
 - 深浅色检查分类、下拉菜单、字体检索、外部关闭、Esc 和底部按钮；连续拖动时确认存储不变，松开后保存，重开恢复宽度；分别以 720px、768px、769px 和 800px 视口检查正文至少 500px、弹窗无水平溢出及底部按钮可用，再从已保存的宽布局缩至最小窗口。
 
 ## 适用范围
