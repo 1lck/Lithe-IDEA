@@ -73,7 +73,12 @@ extension AppModel {
     }
 
     func openSearchEverywhereResult(_ result: FileSearchResult) { dismissSearchEverywhere(); openSearchResult(result) }
-    func performSearchEverywhereAction(_ action: LitheAction) { dismissSearchEverywhere(); action.perform() }
+    func performSearchEverywhereAction(_ action: LitheAction) {
+        let state = workbenchUIRegistry.state(forActionID: action.id, model: self)
+        guard state.isVisible && state.isEnabled else { return }
+        dismissSearchEverywhere()
+        action.perform()
+    }
 
     func openSearchResult(_ result: FileSearchResult) {
         if let line = result.line {

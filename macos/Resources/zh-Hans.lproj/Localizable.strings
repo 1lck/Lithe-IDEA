@@ -2847,6 +2847,26 @@
 "Latest Version" = "最新版本";
 "%@ (not available for this Lithe or Mac)" = "%@（当前 Lithe 或这台 Mac 无法使用）";
 
+// Host-owned workbench contribution controls
+"Workbench Actions" = "工作台操作";
+"Tool Windows" = "工具窗口";
+"Toolbar Actions" = "工具栏操作";
+"Restore Default UI Layout" = "恢复默认 UI 布局";
+"Show" = "显示";
+"Hide Entry" = "隐藏入口";
+"Move to Bottom" = "移至底部";
+"Move to Right" = "移至右侧";
+"Move Earlier" = "向前移动";
+"Move Later" = "向后移动";
+"Add tool windows and commands to the workbench" = "向工作台添加工具窗口和命令";
+
+"Move to Left" = "移到左侧";
+
+"Menu Actions" = "菜单命令";
+
+"Show Entry" = "显示入口";
+
+"Command Palette Actions" = "命令面板入口";
 /* Main toolbar settings menu. */
 "Plugins…" = "插件…";
 "Theme…" = "主题…";

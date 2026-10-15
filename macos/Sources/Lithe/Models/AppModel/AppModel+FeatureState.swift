@@ -483,29 +483,13 @@ extension AppModel {
     }
 
     func performShortcutCommand(id: String) {
-        guard canPerformShortcutCommand(id: id) else { return }
-        switch id {
-        case "save":
-            saveActiveDocument()
-        case "search-everywhere":
-            toggleSearchEverywhere()
-        case "navigate-back":
-            navigateBack()
-        case "navigate-forward":
-            navigateForward()
-        case "find-next":
-            navigateFind(offset: 1)
-        case "find-previous":
-            navigateFind(offset: -1)
-        case "go-to-implementation":
-            goToImplementation()
-        default:
-            LitheActionRegistry.actions(for: self).first { $0.id == id }?.perform()
-        }
+        workbenchUIRegistry.performAction(id: id, model: self)
     }
 
     func canPerformShortcutCommand(id: String) -> Bool {
-        switch id {
+        if let owner = LitheCommandCatalog.moduleOwner(for: id),
+           services.moduleRuntime.availableContributions()[owner] == nil { return false }
+        return switch id {
         case "open-project", "settings":
             true
         case "save", "find-in-file", "replace-in-file", "go-to-line", "local-history", "reveal-in-finder", "toggle-breakpoint":
@@ -529,7 +513,7 @@ extension AppModel {
              "replace-in-project", "project-local-history", "run", "debug",
              "stop-run", "stop-debug", "toggle-terminal", "toggle-problems",
              "toggle-maven", "toggle-git-log", "toggle-run", "toggle-tests",
-             "toggle-debug", "view-breakpoints", "spring-endpoints":
+             "toggle-debug", "view-breakpoints", "spring-endpoints", "rebuild-java-index":
             workspaceURL != nil
         default:
             false

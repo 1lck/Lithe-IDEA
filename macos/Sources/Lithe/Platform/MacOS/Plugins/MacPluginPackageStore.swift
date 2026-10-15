@@ -616,6 +616,7 @@ final class MacPluginPackageStore {
             try validateCommunityContent(descriptor.id, at: packageURL, marketplace: marketplace)
         }
         try validateLaunchResources(descriptor, at: packageURL)
+        _ = try MacPluginUIIconLoader.load(descriptor, at: packageURL)
     }
 
     /// A community package has no publisher signature, so its integrity is

@@ -1492,6 +1492,26 @@
 
 "Failed, line %d" = "Failed, line %d";
 
+// Host-owned workbench contribution controls
+"Workbench Actions" = "Workbench Actions";
+"Tool Windows" = "Tool Windows";
+"Toolbar Actions" = "Toolbar Actions";
+"Restore Default UI Layout" = "Restore Default UI Layout";
+"Show" = "Show";
+"Hide Entry" = "Hide Entry";
+"Move to Bottom" = "Move to Bottom";
+"Move to Right" = "Move to Right";
+"Move Earlier" = "Move Earlier";
+"Move Later" = "Move Later";
+"Add tool windows and commands to the workbench" = "Add tool windows and commands to the workbench";
+
+"Move to Left" = "Move to Left";
+
+"Menu Actions" = "Menu Actions";
+
+"Show Entry" = "Show Entry";
+
+"Command Palette Actions" = "Command Palette Actions";
 /* Main toolbar settings menu. */
 "Plugins…" = "Plugins…";
 "Theme…" = "Theme…";

@@ -10,7 +10,8 @@ struct WorkspaceModuleTests {
     func eagerWorkspaceCreatesGraphOnlyWhenActivated() async throws {
         let calls = Counter()
         let runtime = ModuleRuntime()
-        try runtime.register(ModuleFactory(manifest: WorkspaceFoundationModule.moduleManifest) {
+        try runtime.register(ModuleFactory(manifest: WorkspaceFoundationModule.moduleManifest,
+            contributions: WorkspaceFoundationModule.moduleContributions) {
             calls.factory += 1
             return WorkspaceFoundationModule(makeGraph: {
                 calls.graph += 1
@@ -21,13 +22,15 @@ struct WorkspaceModuleTests {
         _ = try await runtime.activateCapability(.workspaceFoundation)
         #expect(calls.factory == 1)
         #expect(calls.graph == 1)
+        try await runtime.shutdown(.workspace)
     }
 
     @Test
     func shutdownReleasesWorkspaceGraphAndResource() async throws {
         let calls = Counter()
         let runtime = ModuleRuntime()
-        try runtime.register(ModuleFactory(manifest: WorkspaceFoundationModule.moduleManifest) {
+        try runtime.register(ModuleFactory(manifest: WorkspaceFoundationModule.moduleManifest,
+            contributions: WorkspaceFoundationModule.moduleContributions) {
             calls.factory += 1
             return WorkspaceFoundationModule(makeGraph: {
                 calls.graph += 1

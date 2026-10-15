@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 struct LitheCommandDefinition: Identifiable, Equatable, Sendable {
     let id: String
@@ -183,6 +184,34 @@ enum LitheCommandCatalog {
 
     static func command(id: String) -> LitheCommandDefinition? {
         commands.first { $0.id == id }
+    }
+
+    static func moduleOwner(for id: String) -> ModuleID? {
+        switch id {
+        case "run", "stop-run", "toggle-run", "toggle-tests", "toggle-maven": .execution
+        case "debug", "stop-debug", "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out",
+             "toggle-breakpoint", "view-breakpoints", "toggle-debug": .debug
+        case "toggle-terminal": .terminal
+        case "toggle-git-log": .git
+        case "search-everywhere", "search-in-project", "replace-in-project": .search
+        case "toggle-problems", "spring-endpoints": .languageIntelligence
+        case "local-history", "project-local-history": .localHistory
+        default: nil
+        }
+    }
+
+    static func toolWindow(for id: String) -> WorkbenchFeatureModel.ToolWindow? {
+        switch id {
+        case "toggle-terminal": .terminal
+        case "toggle-problems": .problems
+        case "toggle-maven": .maven
+        case "toggle-git-log": .gitLog
+        case "toggle-run": .run
+        case "toggle-tests": .tests
+        case "toggle-debug": .debug
+        case "spring-endpoints": .spring
+        default: nil
+        }
     }
 
     private static func command(

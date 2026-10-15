@@ -400,9 +400,13 @@ fn availability(
             continue;
         }
         platform_listed = true;
+        // Core validates UI declarations on every platform, but only macOS
+        // currently has the API level 2 UI host. Do not advertise an adapter
+        // that Windows/Linux cannot run merely because validation succeeded.
         if !SUPPORTED_PLUGIN_API_VERSIONS
             .iter()
             .any(|supported| u64::from(*supported) == version.plugin_api_version)
+            || (version.plugin_api_version >= 2 && !platform.starts_with("darwin-"))
         {
             continue;
         }
