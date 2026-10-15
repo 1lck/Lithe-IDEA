@@ -6,9 +6,9 @@ require "timeout"
 require "time"
 require "digest"
 require "base64"
+require "json"
 require_relative "select-sparkle-baselines"
 require_relative "verify-sparkle-appcast"
-require_relative "preview-asset-retention"
 
 # Integration test: uses the pinned Sparkle tools and local macOS signing tools.
 # No network, Keychain access, installed application, or production key is used.
@@ -39,7 +39,24 @@ def expect(condition, message)
   raise message unless condition
 end
 
+# Optional report records each integration scenario separately, including failures.
+$timing_cases = []
+def timed_test(name)
+  started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  status = "failed"
+  yield
+  status = "passed"
+ensure
+  $timing_cases << {name: name, suite: "Sparkle integration", status: status,
+    durationMs: (Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000, maxMs: 120_000,
+    details: status == "failed" ? $!&.message.to_s : ""}
+  if ENV["LITHE_TEST_REPORT_PATH"]
+    File.write(ENV.fetch("LITHE_TEST_REPORT_PATH"), JSON.pretty_generate({runner: "release-infrastructure", warnMs: 1000, tests: $timing_cases}))
+  end
+end
+
 tools = ARGV.fetch(0)
+timed_test("rollback DMG signature compatibility") do
 Dir.mktmpdir("lithe-rollback-signatures-") do |root|
   @fixture_home = File.join(root, "home")
   FileUtils.mkdir_p(@fixture_home)
@@ -66,7 +83,9 @@ Dir.mktmpdir("lithe-rollback-signatures-") do |root|
   run(*generator, succeeds: false)
 end
 puts "Rollback DMG signatures, CryptoKit compatibility and required manifest fields passed"
+end
 [false, true].each do |preview|
+timed_test(preview ? "AutoBuild timestamp and legacy delta" : "stable signed full update and delta") do
 Dir.mktmpdir("lithe-sparkle-test-") do |root|
   @fixture_home = File.join(root, "home")
   FileUtils.mkdir_p(@fixture_home)
@@ -77,7 +96,7 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
   originals = []
   pinned_timestamp = "2026-01-02T03:04:05Z"
   [1, 2].each do |version|
-    build = preview ? "#{version}.1" : version.to_s
+    build = preview ? (version == 1 ? "58.1" : "20260102.030405") : version.to_s
     app = File.join(root, "v#{version}", "Lithe.app")
     originals << app
     FileUtils.mkdir_p(File.join(app, "Contents", "MacOS"))
@@ -106,7 +125,7 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
     end
   end
   feed = File.join(archives, "appcast.xml")
-  target_build = preview ? "2.1" : "2"
+  target_build = preview ? "20260102.030405" : "2"
   notes = "# Changes\n\nOpening files is faster. A & B < C.\n"
   File.write(File.join(archives, "Lithe-2.txt"), notes) unless preview
   File.delete(feed) # Release jobs reconstruct the feed from archived ZIPs.
@@ -119,11 +138,14 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
     %w[arm64 x86_64].each do |architecture|
       architecture_feed = File.join(root, "appcast-#{architecture}.xml")
       FileUtils.cp(feed, architecture_feed)
-      run("ruby", File.join(__dir__, "set-preview-appcast-date.rb"), architecture_feed, pinned_timestamp)
+      run("ruby", File.join(__dir__, "set-preview-appcast-date.rb"), architecture_feed, pinned_timestamp, target_build)
       date = REXML::Document.new(File.read(architecture_feed)).root.elements["channel/item/pubDate"].text
       expect(Time.rfc2822(date).utc.iso8601 == bundle_timestamp, "Both architectures must use the app's pinned build timestamp")
+      verify_autobuild_feed(architecture_feed, target_build, pinned_timestamp)
+      title = REXML::Document.new(File.read(architecture_feed)).root.elements["channel/item/title"].text
+      expect(title == "AutoBuild — 构建自 2026-01-02 03:04:05 UTC", "Update title must show the shared UTC build time")
     end
-    run("ruby", File.join(__dir__, "set-preview-appcast-date.rb"), feed, pinned_timestamp)
+    run("ruby", File.join(__dir__, "set-preview-appcast-date.rb"), feed, pinned_timestamp, target_build)
   end
   run(File.join(tools, "sign_update"), "--ed-key-file", "-", feed, input: key + "\n")
   run(File.join(tools, "sign_update"), "--verify", "--ed-key-file", "-", feed, input: key + "\n")
@@ -148,19 +170,31 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
 end
 end
 
+end
+
+timed_test("channel feed and preference isolation") do
 Dir.mktmpdir("lithe-sparkle-channels-") do |root|
+  @fixture_home = File.join(root, "home")
+  FileUtils.mkdir_p(@fixture_home)
   key = Base64.strict_encode64("\x01" * 32)
-  %w[stable preview].product(%w[arm64 x86_64]).each do |channel, architecture|
+  %w[stable autobuild preview].product(%w[arm64 x86_64]).each do |channel, architecture|
     path = File.join(root, "#{channel}-#{architecture}.plist")
     File.write(path, '<plist version="1.0"><dict/></plist>')
-    run("env", "LITHE_UPDATE_CHANNEL=#{channel}", "LITHE_PREVIEW_TAG=preview-0.3.0",
+    run("env", "LITHE_UPDATE_CHANNEL=#{channel}", "LITHE_PREVIEW_TAG=ignored-legacy-tag",
       "LITHE_SPARKLE_PUBLIC_KEY=#{key}", "GITHUB_REPOSITORY=example/lithe",
       "zsh", File.join(__dir__, "configure-sparkle-app.sh"), path, architecture)
     info = JSON.parse(run("plutil", "-convert", "json", "-o", "-", path))
-    expected = channel == "preview" ? "download/preview-0.3.0/appcast-preview-#{architecture}.xml" : "latest/download/appcast-#{architecture}.xml"
-    expect(info["SUFeedURL"] == "https://github.com/example/lithe/releases/#{expected}", "Update channels must use separate architecture-specific feeds")
-    expect(info["LitheUpdateChannel"] == channel, "Bundle must identify its channel")
-    expect(info["SUDefaultsDomain"] == "app.lithe.desktop.sparkle.#{channel}", "Sparkle preferences must be isolated per channel")
+    normalized = channel == "preview" ? "autobuild" : channel
+    stable_feed = "https://github.com/example/lithe/releases/latest/download/appcast-#{architecture}.xml"
+    autobuild_feed = "https://github.com/example/lithe/releases/download/AutoBuild/appcast-preview-#{architecture}.xml"
+    expected = normalized == "autobuild" ? autobuild_feed : stable_feed
+    expect(info["SUFeedURL"] == expected, "Update channels must use separate architecture-specific feeds")
+    expect(info["LitheUpdateChannel"] == normalized, "Legacy preview must identify as AutoBuild")
+    expect(info["SUDefaultsDomain"] == "app.lithe.desktop.sparkle.#{normalized}", "Sparkle preferences must be isolated per channel")
+    expect(info["LitheStableFeedURL"] == stable_feed, "Stable selection must never reuse an installed AutoBuild feed")
+    expect(info["LitheAutoBuildFeedURL"] == autobuild_feed, "AutoBuild must use its fixed tag despite legacy overrides")
+    expect(info["LitheStableReleaseURL"] == "https://github.com/example/lithe/releases/latest", "Stable full installer must use the stable page")
+    expect(info["LitheAutoBuildReleaseURL"] == "https://github.com/example/lithe/releases/tag/AutoBuild", "AutoBuild full installer must use its fixed tag")
     expect(info["SUPublicEDKey"] == key, "Both channels must validate signed updates")
   end
   # Use isolated test suites derived from the actual packaged domains. Never
@@ -186,6 +220,9 @@ Dir.mktmpdir("lithe-sparkle-channels-") do |root|
   SWIFT
 end
 
+end
+
+timed_test("timestamp and legacy baseline selection across midnight") do
 releases = (1..5).map do |version|
   {"tag_name" => "v1.0.#{version}", "assets" => [{"name" => "Lithe-1.0.#{version}-arm64.zip"}]}
 end
@@ -193,57 +230,22 @@ expect(sparkle_baselines(releases.reverse, "1.0.5", "arm64").map(&:first) == %w[
 expect(sparkle_baselines(releases, "1.0.5", "x86_64").empty?, "Architectures must not share baselines")
 puts "Baseline selection passed"
 
-preview_release = {"tag_name" => "preview-0.3.0", "prerelease" => true, "assets" => %w[9.1 10.1 11.1 11.2].map { |build| {"name" => "Lithe-preview-#{build}-arm64.zip"} }}
+preview_release = {"tag_name" => "AutoBuild", "prerelease" => true, "assets" => %w[58.1 20261014.235959 20261015.000000 20261015.000001].map { |build| {"name" => "Lithe-preview-#{build}-arm64.zip"} }}
 preview_history = [preview_release] + releases
-baselines = preview_sparkle_baselines(preview_history, "12.1", "arm64", "preview-0.3.0")
-expect(baselines.map(&:last) == %w[Lithe-preview-11.2-arm64.zip Lithe-preview-11.1-arm64.zip Lithe-preview-10.1-arm64.zip], "Select latest three preview builds numerically, including reruns")
-expect(preview_sparkle_baselines(preview_history, "12.1", "x86_64", "preview-0.3.0").empty?, "Never use another architecture as a preview baseline")
-expect(preview_sparkle_baselines([], "1.1", "arm64", "preview-0.3.0").empty?, "First preview uses full update")
-rejected_old_build = false
-begin
-  preview_sparkle_baselines(preview_history, "11.2", "arm64", "preview-0.3.0")
-rescue RuntimeError
-  rejected_old_build = true
-end
-expect(rejected_old_build, "Reject publication of an older or duplicate preview build")
-puts "Preview channel packaging, fixed-version deltas, reruns and baseline isolation passed"
-
-# A nearly full rolling release must regain capacity without breaking current
-# or recently cached feeds, even when a failed upload left an orphan delta.
-assets = (1..120).flat_map do |build|
-  %w[arm64 x86_64].flat_map do |architecture|
-    ["Lithe-preview-#{build}.1-#{architecture}.zip"] + (1..3).map do |offset|
-      "Lithe#{build}.1-#{[build - offset, 0].max}.1-#{architecture}.delta"
-    end
+baselines = preview_sparkle_baselines(preview_history, "20261015.000002", "arm64", "AutoBuild")
+expect(baselines.map(&:last) == %w[Lithe-preview-20261015.000001-arm64.zip Lithe-preview-20261015.000000-arm64.zip Lithe-preview-20261014.235959-arm64.zip], "Select latest three timestamp builds across midnight")
+expect(preview_sparkle_baselines(preview_history, "20261015.000002", "x86_64", "AutoBuild").empty?, "Never use another architecture as an AutoBuild baseline")
+expect(preview_sparkle_baselines([], "20261015.000002", "arm64", "AutoBuild").empty?, "First AutoBuild uses full update")
+legacy = {"tag_name" => "AutoBuild", "prerelease" => true, "assets" => [{"name" => "Lithe-preview-58.1-arm64.zip"}]}
+expect(preview_sparkle_baselines([legacy], "20261015.000002", "arm64", "AutoBuild").map(&:last) == ["Lithe-preview-58.1-arm64.zip"], "Legacy numeric baselines remain readable")
+%w[20261015.000001 20261014.235959 58.1 20260230.000002].each do |build|
+  rejected = false
+  begin
+    preview_sparkle_baselines(preview_history, build, "arm64", "AutoBuild")
+  rescue RuntimeError, ArgumentError
+    rejected = true
   end
+  expect(rejected, "Reject duplicate, backward or invalid new AutoBuild identity #{build}")
 end
-assets += ["Windows.zip", "appcast-preview-arm64.xml", "appcast-preview-x86_64.xml",
-           "Lithe3.2-1.1-arm64.delta"]
-assets = assets.each_with_index.map { |name, index| {"id" => index + 1, "name" => name} }
-current_names = ["Lithe-preview-2.1-arm64.zip", "Lithe2.1-0.1-arm64.delta"]
-feed = '<rss><channel><item>' + current_names.map { |name| "<enclosure url=\"https://example.com/#{name}\"/>" }.join + '</item></channel></rss>'
-incoming = %w[Lithe-preview-121.1-arm64.zip Lithe-preview-121.1-x86_64.zip]
-deleted = preview_asset_deletions(assets, [feed], incoming)
-remaining = (assets - deleted).map { |asset| asset.fetch("name") }
-expect((remaining + incoming).size < 300, "Cleanup must leave ample capacity below GitHub's 1000-asset limit")
-expect(current_names.all? { |name| remaining.include?(name) }, "Protect the current feed even outside the cache window")
-expect(remaining.include?("Windows.zip"), "Never delete another publisher's assets")
-expect(!remaining.include?("Lithe3.2-1.1-arm64.delta"), "Old orphan assets must be cleaned up")
-%w[arm64 x86_64].each do |architecture|
-  (118..120).each { |build| expect(remaining.include?("Lithe-preview-#{build}.1-#{architecture}.zip"), "Protect three baselines") }
+puts "AutoBuild timestamp packaging, legacy delta, baseline ordering and isolation passed"
 end
-expect(remaining.include?("Lithe91.1-88.1-arm64.delta"), "Protect deltas targeting the oldest retained cached build")
-expect(preview_asset_deletions(assets - deleted, [feed], incoming).empty?, "Cleanup must be idempotent")
-orphan_assets = (121..160).map { |build| {"id" => build + 2000, "name" => "Lithe#{build}.1-1.1-arm64.delta"} }
-orphan_history = assets + orphan_assets
-orphan_remaining = orphan_history - preview_asset_deletions(orphan_history, [feed], incoming)
-expect(orphan_remaining.any? { |asset| asset["name"] == "Lithe-preview-118.1-x86_64.zip" },
-  "Baseline ZIPs must survive even when failed attempts fill the recent-build window")
-blocked = false
-begin
-  preview_asset_deletions((1..901).map { |id| {"id" => id, "name" => "foreign-#{id}.zip"} }, [], incoming)
-rescue RuntimeError
-  blocked = true
-end
-expect(blocked, "Fail safely when unrelated assets consume the capacity reserve")
-puts "Preview asset retention, cached feeds, baselines, orphan cleanup and capacity checks passed"

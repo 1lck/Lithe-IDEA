@@ -19,6 +19,8 @@ feed_name="appcast-$LITHE_ARCH.xml"
 channel="${LITHE_UPDATE_CHANNEL:-stable}"
 if [[ "$channel" == preview ]]; then
     : "${LITHE_PREVIEW_TAG:?}"
+    [[ "$LITHE_PREVIEW_TAG" == AutoBuild ]] || { print -u2 -- "AutoBuild requires the fixed AutoBuild tag"; exit 1; }
+    ruby scripts/autobuild-identity.rb --identity "$LITHE_BUILD_NUMBER" "${LITHE_BUILD_TIMESTAMP:?}"
     archive="Lithe-preview-$LITHE_BUILD_NUMBER-$LITHE_ARCH.zip"
     release_tag="$LITHE_PREVIEW_TAG"
     feed_name="appcast-preview-$LITHE_ARCH.xml"
@@ -61,7 +63,7 @@ print -r -- "$LITHE_SPARKLE_PRIVATE_KEY" | "$tools/generate_appcast" \
     -o "$archives/$feed_name" "$archives"
 ruby scripts/name-sparkle-deltas.rb "$archives/$feed_name" "$LITHE_ARCH"
 if [[ "$channel" == preview ]]; then
-    ruby scripts/set-preview-appcast-date.rb "$archives/$feed_name" "${LITHE_BUILD_TIMESTAMP:?}"
+    ruby scripts/set-preview-appcast-date.rb "$archives/$feed_name" "${LITHE_BUILD_TIMESTAMP:?}" "$LITHE_BUILD_NUMBER"
 fi
 print -r -- "$LITHE_SPARKLE_PRIVATE_KEY" | "$tools/sign_update" \
     --ed-key-file - "$archives/$feed_name"
@@ -70,4 +72,8 @@ cp "$archives/$archive" "$archives/$feed_name" "dist/sparkle-$LITHE_ARCH/"
 for delta in "$archives"/*.delta(N); do
     cp "$delta" "dist/sparkle-$LITHE_ARCH/"
 done
-ruby scripts/verify-sparkle-appcast.rb "dist/sparkle-$LITHE_ARCH/$feed_name" "$LITHE_BUILD_NUMBER"
+if [[ "$channel" == preview ]]; then
+    ruby scripts/verify-sparkle-appcast.rb "dist/sparkle-$LITHE_ARCH/$feed_name" "$LITHE_BUILD_NUMBER" "$LITHE_BUILD_TIMESTAMP"
+else
+    ruby scripts/verify-sparkle-appcast.rb "dist/sparkle-$LITHE_ARCH/$feed_name" "$LITHE_BUILD_NUMBER"
+fi

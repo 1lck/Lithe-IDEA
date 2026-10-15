@@ -73,7 +73,39 @@ These presentation actions do not add Agent Host commands or persist chat histor
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
-| Updates | normalized release metadata, state names, preference semantics, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
+| Updates | normalized release metadata, state names, validated `stable|autobuild` preference, explicit rolling consent, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
+
+### Application update channels
+
+The saved channel defaults to `stable` independently of the installed build identity.
+Invalid or missing preferences select Stable. Choosing `autobuild` requires explicit
+acknowledgement that rolling builds may contain unfinished features and serious bugs;
+both settings UIs continuously recommend Stable for ordinary users. The AutoBuild
+release is `https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild` and is built
+from one pinned `preview` commit per nightly run.
+
+Installed identity and selected channel are separate. A cross-channel switch requires
+an explicit full installation; stable semantic versions must never be compared to
+rolling workflow build numbers. Channel changes cannot race active checks, downloads,
+installation, or an outstanding switch. Existing offers must be dismissed before the
+new preference takes effect. macOS keeps its signed full Stable rollback path.
+
+Within AutoBuild, one whole-second UTC build time is captured per build and encoded
+as `YYYYMMDD.HHMMSS` for Sparkle's numeric version comparison. Its corresponding
+ISO timestamp is displayed as `AutoBuild — Built at YYYY-MM-DD HH:mm:ss UTC`
+(localized as `AutoBuild — 构建自 … UTC`). Equal or older build times are rejected;
+workflow run/attempt counters do not determine version identity. The fixed tag stays
+`AutoBuild`; its release title and notes show the refreshed build time. Commit SHA
+identifies source and SHA-256 checks bytes, neither orders releases. Date formatting
+is checked on both clients against
+[`build-time-v1.json`](../fixtures/updates/build-time-v1.json).
+Windows AutoBuild currently uses an acknowledged browser installer route because
+its rolling publisher has no signed Tauri manifest or monotonic updater version.
+That route has no target update metadata, download/install progress, or claim that
+the installed app is current; scheduled checks do not open a browser or dialog.
+Normal Stable-to-Stable checks retain each platform's existing signed updater.
+The shared scenarios live in
+[`channel-selection-v1.json`](../fixtures/updates/channel-selection-v1.json).
 
 ### Document encoding
 
