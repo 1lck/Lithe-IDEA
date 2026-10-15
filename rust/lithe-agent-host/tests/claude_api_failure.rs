@@ -451,6 +451,7 @@ fn local_model_phase(
             cwd: project.0.clone(),
             data_directory: Some(data_directory.to_path_buf()),
             authentication: AgentAuthentication::ApiKey,
+            observe_model_calls: false,
             provider: Some(ProviderCredentials {
                 protocol: ProviderProtocol::AnthropicMessages,
                 base_url: format!("http://{}", listener.local_addr().unwrap()),

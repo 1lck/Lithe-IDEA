@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.java-support",
+  "displayName": "Java Support Fixture",
+  "version": "1.0.0",
+  "pluginAPIVersion": 2,
+  "vendor": {
+    "id": "dev.lithe",
+    "displayName": "Lithe",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "languageServer.launch"
+  ],
+  "activationEvents": [
+    "onLanguage:java"
+  ],
+  "languages": [
+    {
+      "id": "java",
+      "displayName": "Java",
+      "fileExtensions": [
+        "java"
+      ],
+      "projectFileNames": [
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts"
+      ]
+    }
+  ],
+  "languageServers": [
+    {
+      "languageID": "java",
+      "languageIdentifier": "java",
+      "launch": {
+        "kind": "runtime",
+        "tool": "java",
+        "packagedRuntime": "runtime/${arch}/bin/java",
+        "runtimeArguments": [
+          "-Dfile.encoding=UTF-8"
+        ],
+        "entry": "language-server/plugins/org.eclipse.equinox.launcher.jar"
+      },
+      "initializationOptions": {
+        "extendedClientCapabilities": {
+          "classFileContentsSupport": true
+        }
+      },
+      "hostIntegration": {
+        "id": "jdt",
+        "capabilities": ["debug", "run", "testing"],
+        "resources": {
+          "configuration": "language-server/configuration/${arch}",
+          "lombokAgent": "language-server/lombok/lombok.jar",
+          "extensionBundleDirectories": [
+            "language-server/java-debug",
+            "language-server/java-test/extensions"
+          ],
+          "testRunner": "language-server/java-test/runner/runner.jar"
+        }
+      }
+    }
+  ]
+}

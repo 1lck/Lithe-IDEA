@@ -1416,6 +1416,79 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func stoppingTheGraphStopsServiceSessions() async throws {
+        let moduleProcess = TestStreamingProcess()
+        let configuration = RunConfiguration(
+            id: "java-main:example.Main", name: "Main", kind: .javaMain,
+            execution: .application, modulePath: "app", mainClass: "example.Main",
+            mavenReactorPath: "."
+        )
+        let runtime = TestRuntime(javaHome: URL(fileURLWithPath: "/valid/project-jdk"))
+        let resolver = TestExecutableResolver()
+        let service = RunService(
+            runtime: runtime,
+            process: TestStreamingProcess(),
+            processFactory: { moduleProcess },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration,
+                plan: SharedLaunchPlan(
+                    executable: .toolchain("project-jdk"),
+                    arguments: ["example.Main"],
+                    workingDirectory: ".",
+                    classpath: ["/workspace/app/target/classes"]
+                ),
+                options: RunOptions(javaHomePath: "/valid/project-jdk")
+            ),
+            executableResolver: resolver,
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let graph = ExecutionFeatureGraph(
+            maven: MavenService(
+                runtimeService: runtime,
+                process: TestStreamingProcess(),
+                dependencyProcess: TestStreamingProcess(),
+                mavenOperations: TestMavenOperations()
+            ),
+            run: service,
+            tests: LanguageTestService(
+                catalog: .compatibilityFallback,
+                registry: LanguageTestProviderRegistry(providers: []),
+                executableResolver: resolver,
+                processFactory: { TestStreamingProcess() }
+            )
+        )
+        defer { service.reset() }
+
+        await service.loadProject(
+            at: URL(fileURLWithPath: "/workspace", isDirectory: true),
+            files: [],
+            mavenProject: nil
+        )
+        service.startConfiguration(configuration, javaLaunch: JavaDebugLaunchTarget(
+            mainClass: "example.Main",
+            projectName: "app",
+            classPaths: ["/workspace/app/target/classes"]
+        ))
+
+        // A service session is not the "current run", yet it owns a process
+        // that must keep the module awake and must end with the session.
+        #expect(moduleProcess.isRunning)
+        #expect(!service.isRunning)
+        #expect(service.hasRunningServices)
+        #expect(graph.hasActiveExecutionWork)
+
+        graph.stop()
+
+        #expect(!moduleProcess.isRunning)
+        #expect(!service.hasRunningServices)
+        #expect(!graph.hasActiveExecutionWork)
+    }
+
+    @Test
     func standaloneJavaMergesCompileOutputIntoUserClasspath() async throws {
         let mainProcess = TestStreamingProcess()
         let stepProcesses = StepProcessRecorder()

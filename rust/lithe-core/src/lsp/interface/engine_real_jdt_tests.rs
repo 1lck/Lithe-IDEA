@@ -314,6 +314,88 @@ fn request_real_test_items(
     await_operation(session, &operation_id, Duration::from_secs(60))
 }
 
+/// Launches JDT LS for `workspace` the way the product does, keeping every
+/// cache below `root`.
+fn real_start_request(
+    toolchain: &RealJdtToolchain,
+    root: &Path,
+    workspace: &Path,
+    root_uri: &str,
+) -> StartServerRequest {
+    let java_home = PathBuf::from(&toolchain.java)
+        .parent()
+        .and_then(Path::parent)
+        .expect("JDT LS Java should be inside a JDK bin directory")
+        .to_path_buf();
+    StartServerRequest {
+        provider_id: "java".to_string(),
+        executable_path: toolchain
+            .root
+            .join("bin")
+            .join("jdtls")
+            .to_string_lossy()
+            .into_owned(),
+        arguments: Vec::new(),
+        environment: BTreeMap::from([(
+            "JAVA_HOME".to_string(),
+            java_home.to_string_lossy().into_owned(),
+        )]),
+        root_uri: root_uri.to_string(),
+        working_directory: workspace.to_string_lossy().into_owned(),
+        initialization_options: None,
+        runtime_executable_path: Some(toolchain.java.clone()),
+        jdtls_launch_resources: Some(packaged_launch_resources(&toolchain.root)),
+        cache_directory: Some(root.join("cache").to_string_lossy().into_owned()),
+        workspace_fingerprint: None,
+        maven_context: None,
+        // The project compiles for release 25 while JDT LS itself runs on
+        // an older JDK, as in the product.
+        java_runtimes: vec![JavaRuntimeCandidate {
+            home_path: toolchain.project_jdk.to_string_lossy().into_owned(),
+            version: "25".to_string(),
+        }],
+        initialize_timeout_milliseconds: 90_000,
+        service_ready_idle_timeout_milliseconds: 45_000,
+        service_ready_absolute_timeout_milliseconds: 600_000,
+        request_timeout_milliseconds: 60_000,
+        java_build_timeout_milliseconds: DEFAULT_JAVA_BUILD_TIMEOUT_MS,
+        shutdown_timeout_milliseconds: 10_000,
+    }
+}
+
+/// Asks for entry points until JDT, which can finish importing shortly after
+/// it reports ready, lists at least `minimum` of them.
+fn await_real_entrypoints(
+    engine: &LspEngine,
+    session: &Arc<RuntimeSession>,
+    minimum: usize,
+) -> Value {
+    let import_deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let result = request_real_entrypoints(engine, session)
+            .unwrap_or_else(|error| panic!("entry-point discovery failed: {error}"));
+        if result["entries"]
+            .as_array()
+            .is_some_and(|entries| entries.len() >= minimum)
+        {
+            return result;
+        }
+        assert!(
+            Instant::now() < import_deadline,
+            "JDT did not report the fixture entry points: {result}"
+        );
+        // Import progress arrives as events; wait for the next one instead of
+        // sleeping, bounded so a silent server still reaches the deadline.
+        session
+            .wait_events(
+                import_deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(Duration::from_secs(5)),
+            )
+            .expect("JDT events should be readable");
+    }
+}
+
 #[test]
 fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
     let Some(toolchain) = real_jdt_toolchain() else {
@@ -345,50 +427,11 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
     let root_uri = url::Url::from_directory_path(&canonical_workspace)
         .expect("workspace converts to a file URI")
         .to_string();
-    let java_home = PathBuf::from(&toolchain.java)
-        .parent()
-        .and_then(Path::parent)
-        .expect("JDT LS Java should be inside a JDK bin directory")
-        .to_path_buf();
-
     let installation_before = installation_listing(&toolchain.root);
 
     let engine = LspEngine::new();
     let started = engine
-        .start_server(StartServerRequest {
-            provider_id: "java".to_string(),
-            executable_path: toolchain
-                .root
-                .join("bin")
-                .join("jdtls")
-                .to_string_lossy()
-                .into_owned(),
-            arguments: Vec::new(),
-            environment: BTreeMap::from([(
-                "JAVA_HOME".to_string(),
-                java_home.to_string_lossy().into_owned(),
-            )]),
-            root_uri: root_uri.clone(),
-            working_directory: workspace.to_string_lossy().into_owned(),
-            initialization_options: None,
-            runtime_executable_path: Some(toolchain.java.clone()),
-            jdtls_launch_resources: Some(packaged_launch_resources(&toolchain.root)),
-            cache_directory: Some(root.join("cache").to_string_lossy().into_owned()),
-            workspace_fingerprint: None,
-            maven_context: None,
-            // The project compiles for release 25 while JDT LS itself runs on
-            // an older JDK, as in the product.
-            java_runtimes: vec![JavaRuntimeCandidate {
-                home_path: toolchain.project_jdk.to_string_lossy().into_owned(),
-                version: "25".to_string(),
-            }],
-            initialize_timeout_milliseconds: 90_000,
-            service_ready_idle_timeout_milliseconds: 45_000,
-            service_ready_absolute_timeout_milliseconds: 600_000,
-            request_timeout_milliseconds: 60_000,
-            java_build_timeout_milliseconds: DEFAULT_JAVA_BUILD_TIMEOUT_MS,
-            shutdown_timeout_milliseconds: 10_000,
-        })
+        .start_server(real_start_request(&toolchain, &root, &workspace, &root_uri))
         .expect("real JDTLS should start");
     let _cleanup = RealSmokeCleanup {
         engine: &engine,
@@ -400,32 +443,7 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
         .expect("real JDTLS session should be registered");
     await_real_smoke_ready(&session).unwrap_or_else(|error| panic!("{error}"));
 
-    // Project import can finish shortly after ServiceReady, so poll the
-    // discovery result until JDT reports the project's entries.
-    let import_deadline = Instant::now() + Duration::from_secs(120);
-    let entrypoints = loop {
-        let result = request_real_entrypoints(&engine, &session)
-            .unwrap_or_else(|error| panic!("entry-point discovery failed: {error}"));
-        if result["entries"]
-            .as_array()
-            .is_some_and(|entries| entries.len() >= 5)
-        {
-            break result;
-        }
-        assert!(
-            Instant::now() < import_deadline,
-            "JDT did not report the fixture entry points: {result}"
-        );
-        // Import progress arrives as events; wait for the next one instead of
-        // sleeping, bounded so a silent server still reaches the deadline.
-        session
-            .wait_events(
-                import_deadline
-                    .saturating_duration_since(Instant::now())
-                    .min(Duration::from_secs(5)),
-            )
-            .expect("JDT events should be readable");
-    };
+    let entrypoints = await_real_entrypoints(&engine, &session, 5);
     let discovered = entrypoints["entries"]
         .as_array()
         .expect("entries array")
@@ -677,5 +695,136 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
     assert!(
         canonical_workspace.join("target/inherited-ran").is_file(),
         "the inherited test did not run"
+    );
+}
+
+/// Regression for a workspace opened through a symbolic link, which is how
+/// macOS exposes `/tmp` and `/var`. JDT imports the project at its resolved
+/// location, so an entry-point scope naming the link matched no project and
+/// Run reported that the open file had no `main` method.
+#[cfg(unix)]
+#[test]
+fn real_jdtls_lists_entrypoints_and_classpaths_behind_a_symbolic_link() {
+    let Some(toolchain) = real_jdt_toolchain() else {
+        return;
+    };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should follow the Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "lithe-real-jdt-symlink-{}-{stamp}",
+        std::process::id()
+    ));
+    let resolved_workspace = root.join("resolved");
+    let source = "src/main/java/demo/ClassicMain.java";
+    let source_path = resolved_workspace.join(source);
+    std::fs::create_dir_all(source_path.parent().expect("source parent"))
+        .expect("fixture source directory");
+    std::fs::write(
+        &source_path,
+        "package demo;\npublic class ClassicMain { public static void main(String[] args) { } }\n",
+    )
+    .expect("fixture source");
+    std::fs::write(resolved_workspace.join("pom.xml"), JAVA_25_POM).expect("fixture pom");
+    let workspace = root.join("link");
+    std::os::unix::fs::symlink(&resolved_workspace, &workspace).expect("workspace link");
+    let root_uri = url::Url::from_directory_path(&workspace)
+        .expect("workspace converts to a file URI")
+        .to_string();
+
+    let engine = LspEngine::new();
+    let started = engine
+        .start_server(real_start_request(&toolchain, &root, &workspace, &root_uri))
+        .expect("real JDTLS should start");
+    let _cleanup = RealSmokeCleanup {
+        engine: &engine,
+        session_id: started.session_id.clone(),
+        root: root.clone(),
+    };
+    let session = engine
+        .session(&started.session_id)
+        .expect("real JDTLS session should be registered");
+    await_real_smoke_ready(&session).unwrap_or_else(|error| panic!("{error}"));
+
+    let entrypoints = await_real_entrypoints(&engine, &session, 1);
+    assert_eq!(
+        entrypoints["entries"][0]["sourcePath"],
+        json!(source),
+        "{entrypoints}"
+    );
+    assert_eq!(entrypoints["diagnostics"], json!([]), "{entrypoints}");
+
+    // JDT publishes diagnostics under the resolved path; they must still reach
+    // the document the host opened through the link.
+    let opened_uri = url::Url::from_file_path(workspace.join(source))
+        .expect("linked source converts to a file URI")
+        .to_string();
+    session
+        .sync_document(SyncDocumentRequest {
+            session_id: session.id.clone(),
+            uri: opened_uri.clone(),
+            language_id: "java".to_string(),
+            text: "package demo;\npublic class ClassicMain { public static void main(String[] args) { String broken = 1; } }\n".to_string(),
+            content_changes: Vec::new(),
+        })
+        .expect("the linked source should open");
+    let diagnostics_deadline = Instant::now() + Duration::from_secs(60);
+    let reported = loop {
+        let remaining = diagnostics_deadline.saturating_duration_since(Instant::now());
+        assert!(
+            !remaining.is_zero(),
+            "JDT diagnostics did not reach the document opened through the link"
+        );
+        let events = session
+            .wait_events(remaining)
+            .expect("JDT events should be readable");
+        if let Some(event) = events.into_iter().find(|event| {
+            event.kind == "diagnostics"
+                && event
+                    .diagnostics
+                    .as_ref()
+                    .is_some_and(|list| !list.is_empty())
+        }) {
+            break event;
+        }
+    };
+    assert_eq!(reported.uri.as_deref(), Some(opened_uri.as_str()));
+
+    // The dependency projection reads each project's runtime classpath. JDT LS
+    // deserializes the options from JSON text only; a JSON object leaves them
+    // null and the command fails inside the server.
+    let projects = execute_real_command(
+        &engine,
+        &session,
+        json!({ "command": "java.project.getAll", "arguments": [] }),
+        Duration::from_secs(60),
+    )
+    .unwrap_or_else(|error| panic!("JDT should list its projects: {error}"));
+    let project_uri = projects["value"]
+        .as_array()
+        .and_then(|projects| {
+            projects
+                .iter()
+                .filter_map(Value::as_str)
+                .find(|uri| !uri.contains("jdt.ls-java-project"))
+        })
+        .unwrap_or_else(|| panic!("no imported project in {projects}"))
+        .to_string();
+    let classpaths = execute_real_command(
+        &engine,
+        &session,
+        json!({
+            "command": "java.project.getClasspaths",
+            "arguments": [project_uri, json!({ "scope": "runtime" }).to_string()]
+        }),
+        Duration::from_secs(60),
+    )
+    .unwrap_or_else(|error| panic!("the runtime classpath should resolve: {error}"));
+    assert!(
+        classpaths["value"]["classpaths"]
+            .as_array()
+            .is_some_and(|paths| !paths.is_empty()),
+        "no runtime classpath in {classpaths}"
     );
 }

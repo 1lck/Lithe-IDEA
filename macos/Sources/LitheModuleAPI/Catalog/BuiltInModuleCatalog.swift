@@ -232,8 +232,19 @@ public enum OfficialPluginCatalog {
 
     public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
     public static let goPluginID = PluginID("dev.lithe.plugin.go-support")
+    public static let javaPluginID = PluginID("dev.lithe.plugin.java-support")
 
     public static let entries: [Entry] = [
+        Entry(
+            id: javaPluginID,
+            displayName: "Java Support",
+            signatureRequirement: .sameTeamAsHost,
+            distribution: .bundled,
+            languageID: "java",
+            languageDisplayName: "Java",
+            fileExtensions: ["java"],
+            projectFileNames: ["pom.xml", "build.gradle", "build.gradle.kts"]
+        ),
         Entry(
             id: goPluginID,
             displayName: "Go Support",
@@ -265,12 +276,16 @@ public enum OfficialPluginCatalog {
 /// bundled language specifications and declarative plugins so both run under
 /// the same lifecycle policy.
 public enum LanguageExtensionModuleManifests {
-    public static func languageServer(languageID: String, displayName: String) -> ModuleManifest {
+    public static func languageServer(
+        languageID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
         ModuleManifest(
             id: .languageServerExtension(languageID),
             displayName: "\(displayName) Language Server",
             scope: .workspace,
-            defaultState: .disabled,
+            defaultState: enabledByDefault ? .enabled : .disabled,
             activationPolicy: .onDemand,
             sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
             dependencies: [.module(.workspace)],

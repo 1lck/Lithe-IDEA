@@ -1313,6 +1313,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             }
             if let provider = services.moduleRuntime.capability(capabilityID)
                     as? any LanguageServerExtensionProviding,
+               provider.lifecycle.isRetired {
+                // The module is being stopped; its capability is still
+                // published until the stop completes.
+                return false
+            }
+            if let provider = services.moduleRuntime.capability(capabilityID)
+                    as? any LanguageServerExtensionProviding,
                let sessions = languageToolingSessionsIfActive,
                !sessions.registerLanguageServerExtension(provider, support: support) {
                 languageToolingFeature.markActivationFailed(

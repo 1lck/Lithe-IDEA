@@ -124,6 +124,15 @@ export function GitCommitTable({
   const { setFilterQuery, setFilterScope, setShowDecorations, setShowLongGraphEdges } =
     useGitLogPreferencesStore.use.actions();
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Menu actions such as New Tag open a dialog that focuses its own field while
+  // the menu is still closing; returning focus to the viewport would steal it.
+  const restoreMenuFocus = useCallback(() => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest('[role="dialog"], [role="alertdialog"]')) {
+      return false;
+    }
+    return scrollRef.current;
+  }, []);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const paint = useGitGraphPaint();
   const graphLayout = useMemo(
@@ -527,7 +536,7 @@ export function GitCommitTable({
                         <GitLogColumnResizeHandle column="date" onStartResize={startResize} />
                       </div>
                     </ContextMenuTrigger>
-                    <ContextMenuContent finalFocus={scrollRef}>
+                    <ContextMenuContent finalFocus={restoreMenuFocus}>
                       {hasMultipleContextCommits ? (
                         <>
                           <ContextMenuItem

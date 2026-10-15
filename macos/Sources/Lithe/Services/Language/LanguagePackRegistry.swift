@@ -1,5 +1,6 @@
 import Foundation
 import LitheExecutionModule
+import LitheModuleAPI
 
 /// The single registration surface for language capabilities.
 ///
@@ -51,7 +52,8 @@ final class LanguagePackRegistry {
     static func standard(
         catalog: LanguageProviderCatalog = .standard,
         runtimes: [any LanguageProviderRuntime] = [],
-        extensionRequiredProviderIDs: Set<String> = []
+        extensionRequiredProviderIDs: Set<String> = [],
+        hostCapabilities: [String: Set<LanguageHostCapability>] = [:]
     ) -> Self {
         let runtimeByID = Dictionary(uniqueKeysWithValues: runtimes.map {
             ($0.descriptor.id, $0)
@@ -59,13 +61,18 @@ final class LanguagePackRegistry {
         let standardToolchains = RunToolchainRegistry.standardProviders()
 
         let packs = catalog.descriptors.map { descriptor in
-            let isExtensionOwned = extensionRequiredProviderIDs.contains(descriptor.id)
-            let runProvider: (any LanguageRunProvider)? = descriptor.id == "java" || isExtensionOwned
+            // A language owned by a package gets a built-in tool only for
+            // the features the package declares the host provides.
+            let hostProvided = extensionRequiredProviderIDs.contains(descriptor.id)
+                ? hostCapabilities[descriptor.id] ?? []
+                : Set(LanguageHostCapability.allCases)
+            let runProvider: (any LanguageRunProvider)? = descriptor.id == "java"
+                || !hostProvided.contains(.run)
                 ? nil
                 : descriptor.capabilities.contains(.run)
                     ? StandardLanguageRunProvider(descriptor: descriptor)
                     : nil
-            let testProviders: [any LanguageTestProvider] = !isExtensionOwned
+            let testProviders: [any LanguageTestProvider] = hostProvided.contains(.testing)
                 && descriptor.capabilities.contains(.testing)
                 ? [StandardLanguageTestProvider(descriptor: descriptor)]
                 : []
@@ -75,9 +82,9 @@ final class LanguagePackRegistry {
                 toolchainProviders: standardToolchains.filter {
                     $0.languageProviderID == descriptor.id
                 },
-                debugAdapterLaunch: isExtensionOwned
-                    ? nil
-                    : Self.standardDebugAdapterDefinition(for: descriptor.id),
+                debugAdapterLaunch: hostProvided.contains(.debug)
+                    ? Self.standardDebugAdapterDefinition(for: descriptor.id)
+                    : nil,
                 toolingRuntime: runtimeByID[descriptor.id],
                 testProviders: testProviders
             )
