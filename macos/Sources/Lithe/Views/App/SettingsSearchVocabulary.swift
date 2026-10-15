@@ -38,7 +38,7 @@ enum SettingsSearchVocabulary {
         case .git:
             ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
         case .updates:
-            ["Updates", "Application version", "Update status", "Check for Updates"]
+            ["Updates", "Application version", "Update status", "Check for Updates", "Update channel", "Stable (Recommended)", "AutoBuild Rolling"]
         case .diagnostics:
             ["Diagnostics", "Diagnostics bundle", "Export logs", "Bug report"]
         case .plugins:

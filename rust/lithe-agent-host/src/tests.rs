@@ -1608,13 +1608,140 @@ async fn claude_new_and_restored_sessions_receive_credentials_over_stdio_without
     ));
     harness.send(json!({"kind": "loadSession", "token": "load-claude", "sessionId": "claude-1"}));
     let loaded = harness.agent.expect("session/load").await;
-    assert_eq!(loaded["params"]["_meta"], expected);
+    let restored = fixture()["upstream"]["claudeSessionRouting"]["restoredMeta"].clone();
+    assert_eq!(loaded["params"]["_meta"], restored);
     assert_eq!(loaded["params"]["sessionId"], "claude-1");
     harness.agent.reply(&loaded, json!({})).await;
     assert!(matches!(
         harness.event().await,
         AgentEvent::SessionLoaded { .. }
     ));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+// A restored selector can describe the transcript while the SDK still runs the
+// launch default. Publishing it before an explicit model acknowledgement would
+// allow the next prompt to use a different model from the visible selection.
+#[tokio::test(flavor = "current_thread")]
+async fn claude_restored_session_confirms_model_before_publishing_loaded() {
+    for scenario in [
+        "different-default",
+        "same-default",
+        "grouped",
+        "outside-picker",
+    ] {
+        let mut harness = Harness::ready_claude().await;
+        let mut options = fixture()["upstream"]["claudeRestoredSession"]["configOptions"].clone();
+        if scenario == "same-default" {
+            options[0]["currentValue"] =
+                fixture()["upstream"]["claudeSessionRouting"]["provider"]["model"].clone();
+        }
+        if scenario == "grouped" {
+            let choices = options[0]["options"].clone();
+            options[0]["options"] =
+                json!([{"group": "models", "name": "Models", "options": choices}]);
+        } else if scenario == "outside-picker" {
+            options[0]["options"] = json!([]);
+        }
+        let model = options[0]["currentValue"].as_str().unwrap().to_owned();
+        harness.send(json!({"kind": "loadSession", "token": "restore", "sessionId": "history"}));
+        let load = harness.agent.expect("session/load").await;
+        assert!(load["params"]["_meta"]["claudeCode"]["options"]
+            .get("model")
+            .is_none());
+        harness
+            .agent
+            .reply(&load, json!({"configOptions": options}))
+            .await;
+        let configure = harness.agent.expect("session/set_config_option").await;
+        assert_eq!(configure["params"]["sessionId"], "history");
+        assert_eq!(configure["params"]["configId"], "restored-model-selector");
+        assert_eq!(configure["params"]["value"], model);
+        assert!(
+            harness.events.try_recv().is_err(),
+            "loading stays pending until model confirmation"
+        );
+        // Return the full upstream configuration, including a changed effort
+        // catalog; consumers must receive that response rather than stale load data.
+        options[2]["currentValue"] = json!("high");
+        harness
+            .agent
+            .reply(&configure, json!({"configOptions": options}))
+            .await;
+        match harness.event().await {
+            AgentEvent::SessionLoaded {
+                token,
+                session_id,
+                config_options,
+            } => {
+                assert_eq!(token, "restore");
+                assert_eq!(session_id, "history");
+                assert_eq!(serde_json::to_value(config_options).unwrap(), options);
+            }
+            other => panic!("expected confirmed restore, got {other:?}"),
+        }
+        harness.send(json!({"kind": "prompt", "sessionId": "history", "text": "continue"}));
+        let prompt = harness.agent.expect("session/prompt").await;
+        harness
+            .agent
+            .reply(&prompt, json!({"stopReason": "end_turn"}))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+        assert_eq!(harness.stop().await, Ok(()));
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn claude_restored_model_rejection_or_mismatch_does_not_report_loaded() {
+    for rejection in [true, false] {
+        let mut harness = Harness::ready_claude().await;
+        let mut options = fixture()["upstream"]["claudeRestoredSession"]["configOptions"].clone();
+        harness.send(json!({"kind": "loadSession", "token": "restore", "sessionId": "history"}));
+        let load = harness.agent.expect("session/load").await;
+        harness
+            .agent
+            .reply(&load, json!({"configOptions": options}))
+            .await;
+        let configure = harness.agent.expect("session/set_config_option").await;
+        if rejection {
+            harness.agent.write(json!({"jsonrpc": "2.0", "id": configure["id"], "error": {"code": -32603, "message": "model switch rejected"}})).await;
+        } else {
+            options[0]["currentValue"] = json!("wrong-model");
+            harness
+                .agent
+                .reply(&configure, json!({"configOptions": options}))
+                .await;
+        }
+        assert!(
+            matches!(harness.event().await, AgentEvent::RequestFailed { token: Some(token), session_id: Some(id), .. } if token == "restore" && id == "history")
+        );
+        assert!(
+            harness.events.try_recv().is_err(),
+            "failed model sync must not unlock a queued prompt"
+        );
+        assert_eq!(harness.stop().await, Ok(()));
+    }
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn claude_restored_model_confirmation_shares_the_load_deadline() {
+    let mut harness = Harness::ready_claude().await;
+    harness.send(json!({"kind": "loadSession", "token": "restore", "sessionId": "history"}));
+    let load = harness.agent.expect("session/load").await;
+    tokio::time::advance(Duration::from_secs(30)).await;
+    let options = fixture()["upstream"]["claudeRestoredSession"]["configOptions"].clone();
+    harness
+        .agent
+        .reply(&load, json!({"configOptions": options}))
+        .await;
+    harness.agent.expect("session/set_config_option").await;
+    tokio::time::advance(LOAD_SESSION_TIMEOUT - Duration::from_secs(30)).await;
+    assert!(
+        matches!(harness.event().await, AgentEvent::RequestFailed { token: Some(token), session_id: Some(id), message } if token == "restore" && id == "history" && message == "The Agent did not respond in time")
+    );
     assert_eq!(harness.stop().await, Ok(()));
 }
 
@@ -2422,7 +2549,14 @@ fn fake_install(data: &Path, agent_id: &str) {
 
 #[test]
 fn catalog_agents_resolve_to_their_install_and_key_delivery() {
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
     let data = std::env::temp_dir().join(format!("lithe-resolve-{}", std::process::id()));
+    let _cleanup = Cleanup(data.clone());
     let _ = std::fs::remove_dir_all(&data);
     let launch = |agent_id: &str, provider: ProviderCredentials| AgentLaunch {
         agent_id: Some(agent_id.into()),
@@ -2549,15 +2683,13 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         sign_in.headers,
         [("x-api-key".to_owned(), "test-key-123".to_owned())]
     );
+    assert_eq!(sign_in.model.as_deref(), Some("claude-sonnet-5"));
     assert_eq!(
         claude.env,
-        [
-            (
-                "CLAUDE_CODE_EXECUTABLE".to_owned(),
-                "/opt/example/bin/claude".to_owned()
-            ),
-            ("ANTHROPIC_MODEL".to_owned(), "claude-sonnet-5".to_owned()),
-        ]
+        [(
+            "CLAUDE_CODE_EXECUTABLE".to_owned(),
+            "/opt/example/bin/claude".to_owned()
+        )]
     );
     let mismatch = resolve(launch("claude-acp", provider())).err().unwrap();
     assert!(mismatch.contains("Anthropic Messages"), "{mismatch}");
