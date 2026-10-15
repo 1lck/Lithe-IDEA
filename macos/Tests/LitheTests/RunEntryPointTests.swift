@@ -87,6 +87,7 @@ struct RunEntryPointTests {
         #expect(runFeature.generationState == .projectNotReady)
         #expect(!workspace.hasGeneratedConfiguration, "a partial inventory must not be written")
 
+        operations.releaseSnapshots()
         await model.workspaceFeature.refreshCurrent()
 
         let ready = await awaitLoadDrivenChange(on: model) {
@@ -118,6 +119,7 @@ struct RunEntryPointTests {
         let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
         #expect(deferred, "Run must be deferred while the inventory is provisional")
 
+        operations.releaseSnapshots()
         await model.workspaceFeature.refreshCurrent()
 
         let ready = await awaitLoadDrivenChange(on: model) {
@@ -161,6 +163,7 @@ struct RunEntryPointTests {
             "Run must not build a launch plan from a provisional inventory"
         )
 
+        workspaceOperations.releaseSnapshots()
         await model.workspaceFeature.refreshCurrent()
 
         // Production clears the deferred action before it re-issues Run, so
@@ -217,6 +220,7 @@ struct RunEntryPointTests {
         // The snapshot lands and is fully consumed while that load is suspended.
         // The refresh cannot be awaited here: the load it drives suspends on the
         // inspection this test releases further down.
+        workspaceOperations.releaseSnapshots()
         let refreshTask = Task { await model.workspaceFeature.refreshCurrent() }
         #expect(
             await runConfigurations.inspectionEntered(2),
@@ -263,6 +267,7 @@ struct RunEntryPointTests {
         #expect(bound, "the Debug entry point never bound the workspace")
         #expect(model.runFeatureIfActive?.isProjectReady(for: workspace.root, snapshotID: model.workspaceSnapshotID) == false)
 
+        operations.releaseSnapshots()
         await model.workspaceFeature.refreshCurrent()
 
         let ready = await awaitLoadDrivenChange(on: model) {
@@ -323,6 +328,7 @@ struct RunEntryPointTests {
             "direct start must not build a launch plan from a provisional inventory"
         )
 
+        workspaceOperations.releaseSnapshots()
         await model.workspaceFeature.refreshCurrent()
 
         let relaunched = await runConfigurations.launchPlanRequested(1)
@@ -345,6 +351,7 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction?.kind == .startConfigurations(ids.sorted()))
         #expect(runConfigurations.launchPlanCallCount == 0)
 
+        operations.releaseSnapshots()
         await model.workspaceFeature.refreshCurrent()
         #expect(await runConfigurations.launchPlanRequested(2))
         #expect(model.pendingRunAction == nil)
@@ -382,6 +389,7 @@ struct RunEntryPointTests {
             "run-all-services must not build a launch plan from a provisional inventory"
         )
 
+        workspaceOperations.releaseSnapshots()
         await model.workspaceFeature.refreshCurrent()
 
         let relaunched = await runConfigurations.launchPlanRequested(1)
@@ -415,6 +423,7 @@ struct RunEntryPointTests {
         #expect(deferred)
         #expect(runConfigurations.launchPlanCallCount == 0)
 
+        workspaceOperations.releaseSnapshots()
         await model.workspaceFeature.refreshCurrent()
         let relaunched = await runConfigurations.launchPlanRequested(2)
         #expect(relaunched)
@@ -444,7 +453,7 @@ struct RunEntryPointTests {
             id: UUID()
         )
 
-        let workspaceOperations = SequencedWorkspaceOperations(snapshots: [nil, first, second])
+        let workspaceOperations = SequencedWorkspaceOperations(snapshots: [first, second], holdsSnapshots: true)
         let watchContext = GatedGitWatchContextProvider()
         defer { watchContext.releaseAll() }
         let runConfigurations = ReadyRunConfigurationOperations()
@@ -465,6 +474,7 @@ struct RunEntryPointTests {
         // Each refresh is held at its watch-configuration fetch, so it runs as a
         // task the test releases; a refresh must also finish before the next one
         // starts, or the workspace feature would drop it as already refreshing.
+        workspaceOperations.releaseSnapshots()
         let firstRefresh = Task { await model.workspaceFeature.refreshCurrent() }
         #expect(await watchContext.entered(1))
         watchContext.release(1)
@@ -590,6 +600,7 @@ struct RunEntryPointTests {
         )
 
         // Reopen the same path and let this opening reach a fully loaded state.
+        workspaceOperations.releaseSnapshots()
         model.openProjectDirectly(workspace.root)
         #expect(model.pendingRunAction == nil, "reopening must clear the previous pending")
         #expect(
@@ -803,9 +814,17 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
     private let lock = NSLock()
     private let snapshots: [WorkspaceSnapshot?]
     private var scanCount = 0
+    private var holdsSnapshots: Bool
 
-    init(snapshots: [WorkspaceSnapshot?]) {
+    init(snapshots: [WorkspaceSnapshot?], holdsSnapshots: Bool = false) {
         self.snapshots = snapshots
+        self.holdsSnapshots = holdsSnapshots
+    }
+
+    func releaseSnapshots() {
+        lock.lock()
+        holdsSnapshots = false
+        lock.unlock()
     }
 
     /// No scan ever succeeds, so every opening stays before its inventory.
@@ -813,14 +832,15 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
         SequencedWorkspaceOperations(snapshots: [])
     }
 
-    /// The first scan finds nothing and later scans succeed, which is what a test
-    /// uses to publish an inventory on demand through `refreshCurrent()`.
+    /// All scans stay unavailable until the test releases the inventory. Real
+    /// file-watcher refreshes must not advance the scenario ahead of Run.
     static func unavailableThenReady(_ snapshot: WorkspaceSnapshot) -> SequencedWorkspaceOperations {
-        SequencedWorkspaceOperations(snapshots: [nil, snapshot, snapshot, snapshot])
+        SequencedWorkspaceOperations(snapshots: [snapshot, snapshot, snapshot], holdsSnapshots: true)
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
         lock.lock()
+        guard !holdsSnapshots else { lock.unlock(); return nil }
         let ordinal = scanCount
         scanCount += 1
         lock.unlock()
