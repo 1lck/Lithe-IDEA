@@ -122,9 +122,16 @@ The publisher checks both existing appcasts before any remote mutation: the new
 time must be strictly later than each published `pubDate`, and the numeric build
 must increase. When AutoBuild does not yet exist, migration checks the old
 `preview-0.3.0` appcasts first. Legacy builds such as `58.1` remain readable baselines; new builds
-must use timestamp identities. Duplicate seconds and backward clocks fail without
-inventing a counter. After a partially published feed, rebuild all jobs to obtain
-a later identity.
+must use timestamp identities. New publications at duplicate seconds and backward
+clocks fail without inventing a counter. Before replacing data or feeds, the publisher
+uploads `autobuild-publication.json`, binding source, version, build, timestamp and the
+sorted target asset sizes and SHA-256 hashes. A byte-identical checkpoint permits
+resuming the same publication with the original artifacts, including completing tag,
+metadata and cleanup after feed replacement. An already-current feed must match the
+local bytes exactly; older feeds still pass the strict baseline check. Missing feeds
+or empty `starter` uploads can be repaired only with this matching checkpoint.
+Changed bytes/source at the same instant and older retries against newer checkpoints
+fail before mutation. The checkpoint itself is retained and verified with the assets.
 
 GitHub executes scheduled workflows from the default branch (`main`). After
 review on `preview`, the updated workflow must also reach `main` for the daily

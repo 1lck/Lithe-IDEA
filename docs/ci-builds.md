@@ -91,8 +91,16 @@ gh workflow run release-preview-macos.yml \
 发布器验证三个平台的源码、版本、build、ISO 时间完全一致，且 build 精确对应 ISO 秒。
 任何远端写入前下载双架构已有 appcast，要求新时间严格晚于每份基线且 build 数值递增；
 尚无 `AutoBuild` 时先读取旧 `preview-0.3.0` appcast，迁移也不能绕过时间顺序。
-同秒或时钟倒退直接拒绝，不补造计数。没有历史入口才允许首次发布；已有 ZIP 却缺失
-feed、损坏 feed 或时间身份不一致均拒绝发布。
+新发布同秒或时钟倒退直接拒绝，不补造计数。没有历史入口才允许首次发布；已有 ZIP
+却缺失 feed、损坏 feed 或时间身份不一致均拒绝发布。同一次发布的恢复由下述检查点约束，
+不能仅凭相同时间或 tag 源码放行。
+
+发布器在全部输入与双架构基线验证后，先上传 `autobuild-publication.json`：包含仓库、
+源码 SHA、版本、build、ISO 时间及按名称排序的全部目标文件大小与 SHA-256。
+重跑只有在本地生成的检查点与远端逐字节一致时，才允许继续同一次发布；当前 feed
+必须与本地逐字节一致，否则仍走严格递增校验。该恢复允许补齐被中断替换删除的 feed
+或空的 `starter` 上传残片。同时间但源码、插件、安装包或 feed 字节不同，以及更旧
+身份遇到较新检查点，都会在远端变更前失败。没有有效检查点不能跳过时间顺序。
 
 `publish-autobuild.mjs` 从 prepare SHA 用 `git fetch/show` 把
 `Plugins/marketplace/official-plugins.json` 和 `index.json` 固定到本次临时目录，
@@ -102,12 +110,14 @@ feed、损坏 feed 或时间身份不一致均拒绝发布。
 验证原始 ZIP，再生成旁路 checksum；不构建、重签插件，也不需要插件私钥。
 索引和上游 canonical URL 不修改，AutoBuild 只是方便手动下载的镜像架。
 
-发布器验证全部本地输入后，先上传所有数据，再替换两个 XML；通过 GitHub asset
+发布器验证全部本地输入与基线后，先持久化检查点，再上传所有数据，最后替换两个 XML；通过 GitHub asset
 SHA-256 digest（缺失时重新下载校验）验证所有目标资源后，显式 force PATCH
 `git/refs/tags/AutoBuild` 到源码 SHA，更新并复查 release 元数据，最后按完整目标
 清单删除所有过期资产，包括旧版本 DMG、Windows 安装包和插件。任何下载、哈希、
 上传或完整性验证失败均不会触发过期资产清理。GitHub 固定 tag 的多文件替换不是
-原子操作，失败可能留下部分新文件；修复后重跑全部构建可恢复，旧资产只有成功后才清理。
+原子操作，失败可能留下部分新文件；保留相同构建 artifacts 重跑 publish 可恢复，
+不需要给原字节另造时间。检查点本身也参与最终完整性验证并保留到下次发布。
+旧资产只有成功后才清理。
 
 只有 AutoBuild 全部发布、校验和清理成功后，才退役 `preview-0.3.0` release 与 tag。
 旧客户端需要手动重装一次 AutoBuild，不保留第二个兼容 tag。历史缓存 feed 引用
@@ -269,7 +279,9 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 - AutoBuild 插件镜像与发布校验 staging：
   `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{marketplace,plugins,baselines,verification}/`。
   源码 SHA、固定索引中的 SHA-256、组织 release/tag/asset、当前 build/ISO 时间与本次发布共同决定输入；
-  baselines 保存从固定 AutoBuild 下载的双架构 appcast，仅用于本次严格时间排序校验；
+  根目录生成 `autobuild-publication.json`，baselines 保存从固定 AutoBuild 下载的检查点与
+  双架构 appcast，用于本次严格时间排序和精确恢复校验。检查点绑定全部目标字节，
+  不是可跨工作树复制的构建缓存；远端发布资产仅供本次调用下载验证。
   ZIP 的平台/架构由索引下载变体约束，复用现有签名，不依赖本地工具链重新构建。
   缺少可跨工作树复用的 identity stamp，`autobuild-plugin-mirror-staging` 注册在
   `excludedResources` 并由复用脚本的通用排除路由拒绝，任何复制阶段都不共享。

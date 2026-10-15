@@ -23,7 +23,7 @@ function fixture(t, options = {}) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const dist = path.join(root, 'dist'), temp = path.join(root, 'temp');
   fs.mkdirSync(dist); fs.mkdirSync(temp);
-  const config = { repository: 'example/lithe', source, build: '20261015.124354', timestamp: '2026-10-15T12:43:54Z', version: '0.4.0', dist, runnerTemp: temp };
+  const config = { repository: 'example/lithe', source, build: options.build ?? '20261015.124354', timestamp: options.timestamp ?? '2026-10-15T12:43:54Z', version: '0.4.0', dist, runnerTemp: temp };
   function write(name, bytes) { const file = path.join(dist, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes); }
   for (const platform of ['arm64', 'x86_64', 'windows-x64']) {
     write(`identity-${platform}.json`, JSON.stringify({ source, build: config.build, timestamp: config.timestamp, version: config.version }));
@@ -60,11 +60,16 @@ function fixture(t, options = {}) {
   let id = 100, exists = !options.bootstrap, legacy = true, legacyRef = true, ref = 'b'.repeat(40);
   const calls = [];
   const [registry, index] = catalog();
+  function interrupt(stage) {
+    if (options.failAt !== stage) return;
+    options.failAt = undefined;
+    throw new Error(`HTTP 422 interrupted at ${stage}`);
+  }
   const run = (command, args) => {
     calls.push([command, ...args]);
     if (command === 'git') {
-      if (args[0] === 'fetch') { assert.equal(args.at(-1), source); return ''; }
-      assert.match(args[1], new RegExp(`^${source}:Plugins/marketplace/`));
+      if (args[0] === 'fetch') { assert.equal(args.at(-1), config.source); return ''; }
+      assert.match(args[1], new RegExp(`^${config.source}:Plugins/marketplace/`));
       return JSON.stringify(args[1].endsWith('official-plugins.json') ? registry : index);
     }
     if (command === 'ruby') return runCommand(command, args);
@@ -84,40 +89,204 @@ function fixture(t, options = {}) {
       if (args[1] === 'upload') {
         const file = args[3], name = path.basename(file);
         if (options.failUpload && (options.failUpload === true || name.endsWith('.xml'))) throw new Error('HTTP 422 upload failed');
+        interrupt(`upload:${name}`);
+        if (options.failAt === `starter:${name}`) {
+          assets = assets.filter(asset => asset.name !== name);
+          remoteBytes.delete(name);
+          assets.push({ id: id++, name, size: 0, state: 'starter', digest: null });
+          interrupt(`starter:${name}`);
+        }
         const bytes = fs.readFileSync(file); remoteBytes.set(name, bytes);
         assets = assets.filter(asset => asset.name !== name);
         assets.push({ id: id++, name, size: bytes.length, state: 'uploaded', digest: options.noDigest ? null : `sha256:${options.badDigest ? hash('corrupt') : hash(bytes)}` });
+        interrupt(`uploaded:${name}`);
         return '';
       }
       if (args[1] === 'edit') {
+        interrupt('metadata');
         releaseTitle = args[args.indexOf('--title') + 1];
-        assert.equal(releaseTitle, 'AutoBuild — 构建自 2026-10-15 12:43:54 UTC');
+        assert.equal(releaseTitle, validateBuildIdentity(config.build, config.timestamp));
         const notes = fs.readFileSync(args[args.indexOf('--notes-file') + 1], 'utf8');
-        assert.match(notes, /AutoBuild — 构建自 2026-10-15 12:43:54 UTC/);
+        assert.ok(notes.includes(releaseTitle));
         assert.match(notes, /普通用户建议使用 Stable/); assert.match(notes, /Ordinary users should use the Stable/);
         return '';
       }
     }
-    if (args.includes('--paginate')) return JSON.stringify([args.some(arg => arg.includes('/releases/2/assets')) ? legacyAssets : assets]);
+    if (args.includes('--paginate')) {
+      if (['arm64', 'x86_64'].every(architecture => remoteBytes.get(`appcast-preview-${architecture}.xml`)?.equals(fs.readFileSync(path.join(dist, `sparkle-${architecture}/appcast-preview-${architecture}.xml`))))) interrupt('verification');
+      return JSON.stringify([args.some(arg => arg.includes('/releases/2/assets')) ? legacyAssets : assets]);
+    }
     const endpoint = args.find(arg => arg.startsWith('repos/'));
     if (args.includes('DELETE')) {
-      if (endpoint.includes('/assets/')) assets = assets.filter(asset => asset.id !== Number(endpoint.split('/').at(-1)));
-      else if (endpoint.endsWith('/releases/2')) legacy = false;
-      else if (endpoint.endsWith('/git/refs/tags/preview-0.3.0')) legacyRef = false;
+      if (endpoint.includes('/assets/')) { assets = assets.filter(asset => asset.id !== Number(endpoint.split('/').at(-1))); interrupt('cleanup'); }
+      else if (endpoint.endsWith('/releases/2')) { legacy = false; interrupt('legacy-release'); }
+      else if (endpoint.endsWith('/git/refs/tags/preview-0.3.0')) { legacyRef = false; interrupt('legacy-tag'); }
       else assert.fail(`Unexpected deletion ${endpoint}`);
       return '';
     }
-    if (args.includes('PATCH')) { assert.ok(args.includes('force=true')); ref = args.find(arg => arg.startsWith('sha=')).slice(4); return '{}'; }
+    if (args.includes('PATCH')) { interrupt('tag'); assert.ok(args.includes('force=true')); ref = args.find(arg => arg.startsWith('sha=')).slice(4); return '{}'; }
     if (endpoint.endsWith('/releases/tags/AutoBuild')) { if (!exists) throw new Error('HTTP 404'); return JSON.stringify({ id: 1, name: releaseTitle, prerelease: true, draft: false }); }
     if (endpoint.endsWith('/git/ref/tags/AutoBuild')) return JSON.stringify({ object: { sha: ref } });
     if (endpoint.endsWith('/releases/tags/preview-0.3.0')) { if (!legacy) throw new Error('HTTP 404'); return JSON.stringify({ id: 2 }); }
     if (endpoint.endsWith('/git/ref/tags/preview-0.3.0')) { if (!legacyRef) throw new Error('HTTP 404'); return '{}'; }
     assert.fail(`Unexpected command: ${command} ${args.join(' ')}`);
   };
-  return { config, run, calls, temp, dist, stale, assets: () => assets };
+  return { config, run, calls, temp, dist, stale, index, remoteBytes, assets: () => assets, state: () => ({ ref, legacy, legacyRef }), removeAsset: name => { assets = assets.filter(asset => asset.name !== name); remoteBytes.delete(name); } };
 }
 const deletes = f => f.calls.filter(call => call.includes('DELETE'));
 const uploads = f => f.calls.filter(call => call[1] === 'release' && call[2] === 'upload');
+
+for (const failAt of [
+  'uploaded:autobuild-publication.json',
+  'starter:autobuild-publication.json',
+  'starter:appcast-preview-arm64.xml',
+  'starter:appcast-preview-x86_64.xml',
+  'upload:Lithe-0.4.0-windows-x64.exe',
+  'uploaded:Lithe-preview-20261015.124354-arm64.zip',
+  'uploaded:appcast-preview-arm64.xml',
+  'upload:appcast-preview-x86_64.xml',
+  'verification', 'tag', 'metadata', 'cleanup', 'legacy-release', 'legacy-tag',
+]) await test(`same publication resumes after ${failAt}`, { timeout: 5000 }, t => {
+  const f = fixture(t, { failAt });
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
+  assert.deepEqual(fs.readdirSync(f.temp), []);
+  const names = publishAutoBuild(f.config, { run: f.run });
+  assert.deepEqual(f.assets().map(asset => asset.name).sort(), names);
+  assert.deepEqual(f.state(), { ref: source, legacy: false, legacyRef: false });
+  const checkpoint = JSON.parse(f.remoteBytes.get('autobuild-publication.json'));
+  assert.equal(checkpoint.source, source);
+  assert.equal(checkpoint.build, f.config.build);
+  assert.equal(checkpoint.timestamp, f.config.timestamp);
+  assert.equal(checkpoint.version, f.config.version);
+  for (const asset of checkpoint.assets) {
+    assert.equal(hash(f.remoteBytes.get(asset.name)), asset.sha256);
+    assert.equal(f.remoteBytes.get(asset.name).length, asset.size);
+  }
+  assert.deepEqual(fs.readdirSync(f.temp), []);
+});
+
+await test('same identity with changed installer bytes fails before mutation', { timeout: 5000 }, t => {
+  const f = fixture(t, { failAt: 'upload:appcast-preview-x86_64.xml' });
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
+  const installer = `Lithe-${f.config.version}-windows-x64.exe`;
+  fs.writeFileSync(path.join(f.dist, installer), 'different but locally checksummed bytes');
+  fs.writeFileSync(path.join(f.dist, `${installer}.sha256`), `${hash('different but locally checksummed bytes')}  ${installer}\n`);
+  const count = f.calls.length;
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /Conflicting AutoBuild publication/);
+  assert.ok(!f.calls.slice(count).some(call => call.includes('upload') || call.includes('PATCH') || call.includes('DELETE') || call.includes('edit')));
+  assert.deepEqual(fs.readdirSync(f.temp), []);
+});
+
+await test('checkpoint is uploaded before installers and feeds and binds every target asset', { timeout: 5000 }, t => {
+  const f = fixture(t);
+  const names = publishAutoBuild(f.config, { run: f.run });
+  assert.equal(path.basename(uploads(f)[0][4]), 'autobuild-publication.json');
+  const checkpoint = JSON.parse(f.remoteBytes.get('autobuild-publication.json'));
+  assert.equal(checkpoint.schemaVersion, 1);
+  assert.equal(checkpoint.repository, f.config.repository);
+  assert.deepEqual(checkpoint.assets.map(asset => asset.name), names.filter(name => name !== 'autobuild-publication.json'));
+});
+
+await test('same build without its publication checkpoint remains rejected', { timeout: 5000 }, t => {
+  const f = fixture(t); publishAutoBuild(f.config, { run: f.run });
+  f.removeAsset('autobuild-publication.json');
+  const count = f.calls.length;
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /strictly newer/);
+  assert.ok(!f.calls.slice(count).some(call => call.includes('upload') || call.includes('PATCH') || call.includes('DELETE')));
+});
+
+for (const bootstrap of [false, true]) await test(`same plan repairs a missing feed after interrupted clobber (bootstrap=${bootstrap})`, { timeout: 5000 }, t => {
+  const f = fixture(t, { bootstrap, failAt: 'upload:appcast-preview-x86_64.xml' });
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
+  f.removeAsset('appcast-preview-x86_64.xml');
+  const names = publishAutoBuild(f.config, { run: f.run });
+  assert.deepEqual(f.assets().map(asset => asset.name).sort(), names);
+  assert.deepEqual(f.state(), { ref: source, legacy: false, legacyRef: false });
+  assert.deepEqual(fs.readdirSync(f.temp), []);
+});
+
+for (const change of ['source', 'plugin', 'feed']) await test(`same identity rejects changed ${change} before any mutation`, { timeout: 5000 }, t => {
+  const f = fixture(t, { failAt: 'uploaded:autobuild-publication.json' });
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
+  if (change === 'source') {
+    f.config.source = 'c'.repeat(40);
+    for (const platform of ['arm64', 'x86_64', 'windows-x64']) {
+      const file = path.join(f.dist, `identity-${platform}.json`);
+      fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), source: f.config.source }));
+    }
+  } else if (change === 'plugin') {
+    f.index.plugins[0].versions = [version('1.1.0')];
+  } else {
+    const file = path.join(f.dist, 'sparkle-arm64/appcast-preview-arm64.xml');
+    fs.appendFileSync(file, '\n');
+  }
+  const count = f.calls.length;
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /Conflicting AutoBuild publication/);
+  assert.ok(!f.calls.slice(count).some(call => call.includes('upload') || call.includes('PATCH') || call.includes('DELETE') || call.includes('edit')));
+});
+
+await test('a newer committed checkpoint blocks older retries before feeds change', { timeout: 5000 }, t => {
+  const f = fixture(t, { failAt: 'uploaded:autobuild-publication.json' });
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
+  const name = 'autobuild-publication.json';
+  const checkpoint = JSON.parse(f.remoteBytes.get(name));
+  checkpoint.build = '20261016.000001'; checkpoint.timestamp = '2026-10-16T00:00:01Z';
+  f.remoteBytes.set(name, Buffer.from(JSON.stringify(checkpoint) + '\n'));
+  const count = f.calls.length;
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /Conflicting AutoBuild publication/);
+  assert.ok(!f.calls.slice(count).some(call => call.includes('upload') || call.includes('PATCH') || call.includes('DELETE')));
+});
+
+await test('a later publication may replace an older checkpoint', { timeout: 5000 }, t => {
+  const previous = fixture(t, { failAt: 'uploaded:autobuild-publication.json' });
+  assert.throws(() => publishAutoBuild(previous.config, { run: previous.run }), /interrupted at/);
+  const f = fixture(t, { build: '20261016.000001', timestamp: '2026-10-16T00:00:01Z' });
+  const name = 'autobuild-publication.json', bytes = previous.remoteBytes.get(name);
+  f.remoteBytes.set(name, bytes);
+  f.assets().push({ id: 200, name, size: bytes.length, state: 'uploaded', digest: `sha256:${hash(bytes)}` });
+  publishAutoBuild(f.config, { run: f.run });
+  assert.equal(JSON.parse(f.remoteBytes.get(name)).build, f.config.build);
+});
+
+await test('exact checkpoint does not allow a different uploaded feed at the same instant', { timeout: 5000 }, t => {
+  const f = fixture(t); publishAutoBuild(f.config, { run: f.run });
+  const name = 'appcast-preview-arm64.xml';
+  f.remoteBytes.set(name, Buffer.concat([f.remoteBytes.get(name), Buffer.from('\n')]));
+  const count = f.calls.length;
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /strictly newer/);
+  assert.ok(!f.calls.slice(count).some(call => call.includes('upload') || call.includes('PATCH') || call.includes('DELETE')));
+});
+
+await test('same plan resumes and verifies bytes when GitHub omits asset digests', { timeout: 5000 }, t => {
+  const f = fixture(t, { noDigest: true, failAt: 'tag' });
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
+  const names = publishAutoBuild(f.config, { run: f.run });
+  assert.deepEqual(f.assets().map(asset => asset.name).sort(), names);
+  assert.deepEqual(fs.readdirSync(f.temp), []);
+});
+
+for (const corrupt of ['json', 'schema', 'identity']) await test(`invalid publication checkpoint (${corrupt}) fails before mutation`, { timeout: 5000 }, t => {
+  const f = fixture(t, { failAt: 'uploaded:autobuild-publication.json' });
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
+  const name = 'autobuild-publication.json';
+  const checkpoint = JSON.parse(f.remoteBytes.get(name));
+  if (corrupt === 'schema') checkpoint.schemaVersion = 2;
+  if (corrupt === 'identity') checkpoint.build = '20261015.124353';
+  f.remoteBytes.set(name, Buffer.from(corrupt === 'json' ? '{broken' : JSON.stringify(checkpoint)));
+  const count = f.calls.length;
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }));
+  assert.ok(!f.calls.slice(count).some(call => call.includes('upload') || call.includes('PATCH') || call.includes('DELETE')));
+  assert.deepEqual(fs.readdirSync(f.temp), []);
+});
+
+await test('starter feed without a matching checkpoint cannot bypass baseline checks', { timeout: 5000 }, t => {
+  const f = fixture(t, { failAt: 'starter:appcast-preview-arm64.xml' });
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
+  f.removeAsset('autobuild-publication.json');
+  const count = f.calls.length;
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /Invalid published appcast baseline/);
+  assert.ok(!f.calls.slice(count).some(call => call.includes('upload') || call.includes('PATCH') || call.includes('DELETE')));
+});
 
 await test('latest numeric version wins; all variants deduplicate and bundled Java is excluded', { timeout: 5000 }, () => {
   const [registry, index] = catalog([version('1.9.0'), version('1.10.0', ['PHP-arm.zip', 'PHP-x64.zip', 'PHP-arm.zip']), version('2.0.0-beta')]);
@@ -132,7 +301,7 @@ await test('untrusted URLs and conflicting index hashes are rejected', { timeout
   i.plugins[0].versions[0].downloads.push(duplicate);
   assert.throws(() => selectPlugins(r, i), /Conflicting/);
 });
-await test('publication accepts legacy baseline, uploads data before feeds and rejects duplicate time', { timeout: 5000 }, t => {
+await test('publication accepts legacy baseline, uploads data before feeds and repeats idempotently', { timeout: 5000 }, t => {
   const f = fixture(t);
   const manifest = publishAutoBuild(f.config, { run: f.run });
   assert.deepEqual(f.assets().map(asset => asset.name).sort(), manifest);
@@ -146,7 +315,7 @@ await test('publication accepts legacy baseline, uploads data before feeds and r
   assert.ok(f.calls.some(call => call.includes('PATCH') && call.includes(`sha=${source}`) && call.includes('force=true')));
   assert.deepEqual(fs.readdirSync(f.temp), []);
   const count = deletes(f).length;
-  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /strictly newer than appcast baseline/);
+  assert.deepEqual(publishAutoBuild(f.config, { run: f.run }), manifest);
   assert.equal(deletes(f).length, count);
 });
 await test('bootstrap creates exactly AutoBuild before uploading', { timeout: 5000 }, t => {

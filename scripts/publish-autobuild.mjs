@@ -137,24 +137,52 @@ export function publishAutoBuild(config, { run = runCommand } = {}) {
       fs.writeFileSync(`${file}.sha256`, `${plugin.sha256}  ${plugin.name}\n`);
       add(file); add(`${file}.sha256`);
     }
+    // This checkpoint commits the complete target before any installer/feed write.
+    // Equal timestamps may resume only when this exact plan is already published.
+    const checkpointName = 'autobuild-publication.json';
+    const checkpointFile = path.join(root, checkpointName);
+    fs.writeFileSync(checkpointFile, JSON.stringify({
+      schemaVersion: 1, repository, source, build, timestamp, version,
+      assets: [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+        .map(([name, { sha256, size }]) => ({ name, sha256, size })),
+    }) + '\n');
+    add(checkpointFile);
     // No mutation until every local asset and upstream ZIP passes validation.
     let release = optional(`repos/${repository}/releases/tags/${releaseTag}`);
     const baselineRelease = release ?? optional(`repos/${repository}/releases/tags/${oldTag}`);
     const baselineTag = release ? releaseTag : oldTag;
+    let resume = false;
     if (baselineRelease) {
       const assets = list(baselineRelease.id);
       const baselineDirectory = path.join(root, 'baselines'); fs.mkdirSync(baselineDirectory);
+      const checkpoints = release ? assets.filter(asset => asset.name === checkpointName) : [];
+      if (checkpoints.length > 1) throw new Error('Invalid AutoBuild publication checkpoint');
+      if (checkpoints.length === 1 && checkpoints[0].state === 'uploaded') {
+        const file = path.join(baselineDirectory, checkpointName);
+        ghCommand(['release', 'download', releaseTag, '--repo', repository, '--pattern', checkpointName, '--dir', baselineDirectory], run, () => fs.rmSync(file, { force: true }));
+        const previous = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (previous.schemaVersion !== 1 || previous.repository !== repository || !/^[a-f0-9]{40}$/.test(previous.source) || !numericVersion(previous.version) || !Array.isArray(previous.assets)) throw new Error('Invalid AutoBuild publication checkpoint');
+        validateBuildIdentity(previous.build, previous.timestamp);
+        resume = digest(file) === files.get(checkpointName).sha256;
+        if (!resume && previous.timestamp >= timestamp) throw new Error('Conflicting AutoBuild publication: checkpoint is newer or has different content at the same timestamp');
+      }
       for (const architecture of ['arm64', 'x86_64']) {
         const name = `appcast-preview-${architecture}.xml`;
         const matches = assets.filter(asset => asset.name === name);
         if (matches.length === 0) {
-          if (assets.some(asset => asset.name.startsWith('Lithe-preview-') && asset.name.endsWith(`-${architecture}.zip`))) throw new Error(`Missing published appcast baseline: ${architecture}`);
+          // A prior validated checkpoint also covers a clobber interrupted after deletion.
+          if (!resume && assets.some(asset => asset.name.startsWith('Lithe-preview-') && asset.name.endsWith(`-${architecture}.zip`))) throw new Error(`Missing published appcast baseline: ${architecture}`);
           continue;
         }
-        if (matches.length !== 1 || matches[0].state !== 'uploaded') throw new Error(`Invalid published appcast baseline: ${architecture}`);
+        if (matches.length !== 1) throw new Error(`Invalid published appcast baseline: ${architecture}`);
+        if (matches[0].state !== 'uploaded') {
+          if (resume && matches[0].state === 'starter' && matches[0].size === 0) continue;
+          throw new Error(`Invalid published appcast baseline: ${architecture}`);
+        }
         const file = path.join(baselineDirectory, name);
         ghCommand(['release', 'download', baselineTag, '--repo', repository, '--pattern', name, '--dir', baselineDirectory], run, () => fs.rmSync(file, { force: true }));
-        run('ruby', ['scripts/autobuild-identity.rb', '--baseline', file, build, timestamp]);
+        const mode = resume && digest(file) === files.get(name).sha256 ? '--feed' : '--baseline';
+        run('ruby', ['scripts/autobuild-identity.rb', mode, file, build, timestamp]);
       }
     }
     const notes = path.join(root, 'notes.md'); fs.writeFileSync(notes, releaseNotes(config));
@@ -162,8 +190,9 @@ export function publishAutoBuild(config, { run = runCommand } = {}) {
       gh(['release', 'create', releaseTag, '--repo', repository, '--target', source, '--title', title, '--notes-file', notes, '--prerelease', '--latest=false']);
       release = api(`repos/${repository}/releases/tags/${releaseTag}`);
     }
+    if (!resume) gh(['release', 'upload', releaseTag, checkpointFile, '--repo', repository, '--clobber']);
     for (const xml of [false, true]) {
-      for (const [name, asset] of files) if (name.endsWith('.xml') === xml) gh(['release', 'upload', releaseTag, asset.file, '--repo', repository, '--clobber']);
+      for (const [name, asset] of files) if (name !== checkpointName && name.endsWith('.xml') === xml) gh(['release', 'upload', releaseTag, asset.file, '--repo', repository, '--clobber']);
     }
     const verification = path.join(root, 'verification'); fs.mkdirSync(verification);
     function verifyRemote(assets) {

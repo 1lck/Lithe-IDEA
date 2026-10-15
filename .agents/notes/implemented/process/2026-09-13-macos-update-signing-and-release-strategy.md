@@ -93,9 +93,10 @@ AutoBuild 使用独立的 `LitheUpdateChannel=autobuild`（兼容读取旧 `prev
 返回 stable 是显式操作。Build 号使用 UTC `YYYYMMDD.HHMMSS`，例如
 `20261015.124354`。prepare 只采样一次 UTC，同秒生成 compact build 与标准 ISO
 时间 `2026-10-15T12:43:54Z`，全部平台共享。新发布必须严格晚于双架构已有
-appcast 的 `pubDate` 且数值 build 递增；同秒重复或时钟倒退直接拒绝，不能补计数。
-旧 `58.1` 只兼容作为历史基线，新发布不能再使用计数身份。部分发布失败后应
-重跑全部 job 取得更晚身份；只重跑 publish 不会产生新的构建时间。
+appcast 的 `pubDate` 且数值 build 递增；新发布同秒或时钟倒退直接拒绝，不能补计数。
+旧 `58.1` 只兼容作为历史基线，新发布不能再使用计数身份。部分发布失败后，
+保留原 artifacts 重跑 publish，由下面的发布检查点证明这是同一次发布；
+不能只凭相同时间或 tag SHA 跳过时间排序，也不能给旧字节贴新时间。
 
 ### AutoBuild 固定入口与最新资源清单
 
@@ -106,6 +107,19 @@ appcast 的 `pubDate` 且数值 build 递增；同秒重复或时钟倒退直接
 macOS 双架构和 Windows 复用工作流共同消费这些输入。Windows 只产出 artifact，
 没有独立定时任务或 release 写权限，publish 等待三个平台全部完成，并逐项检查
 artifact identity（包括时间）及 build/ISO 精确对应，避免把不同源码或 build 的安装包混在同一个入口。
+
+发布检查点是记录这次发布完整目标的 `autobuild-publication.json`。发布器先验证
+本地输入、插件和两个历史 feed，再上传包含源码、版本、共享时间及全部目标文件
+大小与 SHA-256 的确定性清单，之后才写数据和 feed。重跑时，只有远端检查点
+与本地逐字节相同，才允许完成同一次发布：相同字节的当前 feed 按身份验证，
+较旧 feed 仍按严格时间顺序验证，被 clobber 删除或留下空 `starter` 的 feed 可补齐。
+同时间但源码或任何目标字节变化、较旧构建遇到较新检查点、相同时间却不同字节的
+远端 feed 都拒绝，检查点也纳入最终资产校验和保留清单。
+
+例如 arm64 feed 已发布而 Intel 上传失败，应使用原 artifacts 重跑 publish；
+不要在重跑前重新打包、重签或改时间。直接允许所有相同 build 的 feed 虽然更简单，
+却无法证明两架构和安装包来自同一份内容；要求每次失败都重新构建则无法原样完成
+已提交的发布。因此采用先记录完整目标、再恢复相同目标的办法。
 
 定时任务从 main 使用受审查的工作流；publish 按 `github.workflow_sha` 检出
 helper，再从 prepare 的 preview SHA 用 `git fetch/show` 读取官方插件 registry
@@ -120,9 +134,10 @@ helper，再从 prepare 的 preview SHA 用 `git fetch/show` 读取官方插件 
 `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{marketplace,plugins,baselines,verification}/`；
 没有可复用 identity stamp，通用排除路由拒绝跨工作树复制。每个子进程限时
 120 秒，暂时性故障最多三次尝试，重试前删除本次下载残片，`finally` 删除本次
-创建的精确临时目录。baselines 是本次从 AutoBuild 下载的架构 appcast；初次迁移
-尚无 AutoBuild 时读取旧 `preview-0.3.0` 的 appcast。它们只供严格时间排序校验；
-不可跨工作树复用，已有 ZIP 却缺少 feed 或 feed 损坏都拒绝发布。
+创建的精确临时目录。根目录生成目标检查点，baselines 下载旧检查点和架构 appcast；
+初次迁移尚无 AutoBuild 时读取旧 `preview-0.3.0` 的 appcast。它们只供本次排序和
+精确恢复校验，不可跨工作树复用。没有匹配检查点时，已有 ZIP 却缺少 feed 或 feed
+损坏都拒绝发布；存在检查点也不能接受损坏的已上传 feed。
 这里只处理发布期资源，不改运行时 app bundle、代码签名
 或 Sparkle 差分基线。
 
@@ -206,7 +221,8 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   更新检查偏好。
 - 最新资源清单阻止安装包、插件和 Sparkle 历史无限累积；代价是旧缓存 feed
   可能引用已删除文件，旧客户端需重新检查并使用全量更新，迁移旧 tag 还需一次
-  手动重装。固定 tag 多文件更新不具原子性，失败后必须修复并重跑全部构建。
+  手动重装。固定 tag 多文件更新不具原子性；精确检查点让原 artifacts 可重跑完成，
+  代价是额外保留并校验一个清单资产，且同秒重打包或重签后的不同字节不能冒充恢复。
 - 回滚路径的安全性依赖客户端内置公钥永不改变；如果需要轮换
   `SPARKLE_PRIVATE_KEY`，替换 repository secret 本身不够，必须单独
   规划迁移（重签或双签过渡期），否则旧客户端会拒绝新签名的更新。

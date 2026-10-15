@@ -81,6 +81,8 @@ try {
     const resource = registry.excludedResources.find(item => item.id === "autobuild-plugin-mirror-staging");
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.includes("<RUNNER_TEMP>/lithe-autobuild-<invocation>/baselines/"));
+    assert.ok(resource.locations.includes("<RUNNER_TEMP>/lithe-autobuild-<invocation>/autobuild-publication.json"));
+    assert.match(resource.identity, /publication checkpoint.*sorted target asset SHA-256\/size.*exact-plan recovery/);
     assert.match(resource.identity, /build\/ISO timestamp.*strict publication-time ordering/);
     assert.match(resource.identity, /source SHA.*SHA-256.*official organization/);
     assert.ok(resource.locations.every(location => location.startsWith("<RUNNER_TEMP>/lithe-autobuild-<invocation>/")));
