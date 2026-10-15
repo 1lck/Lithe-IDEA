@@ -1,5 +1,6 @@
 import Foundation
 import LitheApplicationKernel
+import LitheCoreContracts
 import LitheModuleAPI
 
 @MainActor
@@ -7,11 +8,15 @@ final class MacPluginManager: PluginManaging {
     private let packageStore: MacPluginPackageStore
     private let moduleRuntime: ModuleRuntime
     private let configurationStore: MacModuleConfigurationStore
+    private let settings: any PluginSettingsStoring
     private let launchMode: ModuleLaunchMode
     private let managedBuiltInPlugins: [PluginManifest]
-    private let activeNativePluginIDs: Set<PluginID>
-    private let packageDownloader: any MacPluginPackageDownloading
+    /// Plugins whose host-owned modules were registered at launch. Their
+    /// enablement changes apply immediately; anything installed later needs
+    /// a restart to join the module graph.
+    private let registeredPluginIDs: Set<PluginID>
     private let hostVersion: PluginVersion
+    private let allowsLocalDevelopmentPackages: Bool
     private var installedPlugins: [PluginID: InstalledPluginPackage]
     private var restartRequiredPluginIDs: Set<PluginID> = []
     private(set) var issues: [PluginManagementIssue]
@@ -20,20 +25,23 @@ final class MacPluginManager: PluginManaging {
         packageStore: MacPluginPackageStore,
         moduleRuntime: ModuleRuntime,
         configurationStore: MacModuleConfigurationStore,
+        settings: any PluginSettingsStoring,
         launchMode: ModuleLaunchMode,
         startup: MacPluginStartupResult,
         managedBuiltInPlugins: [PluginManifest] = [],
-        packageDownloader: any MacPluginPackageDownloading = MacPluginPackageDownloader(),
-        hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion
+        hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
+        allowsLocalDevelopmentPackages: Bool =
+            MacOfficialPluginSignatureVerifier.allowsLocalDevelopmentPackagesByDefault
     ) {
         self.packageStore = packageStore
+        self.allowsLocalDevelopmentPackages = allowsLocalDevelopmentPackages
         self.moduleRuntime = moduleRuntime
         self.configurationStore = configurationStore
+        self.settings = settings
         self.launchMode = launchMode
         self.managedBuiltInPlugins = managedBuiltInPlugins.sorted { $0.id < $1.id }
-        self.packageDownloader = packageDownloader
         self.hostVersion = hostVersion
-        activeNativePluginIDs = Set(startup.activeNativeManifests.map(\.id))
+        registeredPluginIDs = Set(startup.registeredPlugins.map(\.manifest.id))
         installedPlugins = Dictionary(
             uniqueKeysWithValues: startup.installedPlugins.map { ($0.manifest.id, $0) }
         )
@@ -53,6 +61,8 @@ final class MacPluginManager: PluginManaging {
                     origin: $0.installation.origin,
                     installationStatus: $0.installation.status,
                     previousVersion: $0.installation.previousVersion,
+                    marketplace: $0.installation.marketplace,
+                    settings: $0.descriptor.settings,
                     runtimeSnapshots: runtimeSnapshots
                 )
             }
@@ -62,6 +72,8 @@ final class MacPluginManager: PluginManaging {
                 origin: .bundled,
                 installationStatus: .installed,
                 previousVersion: nil,
+                marketplace: nil,
+                settings: [],
                 runtimeSnapshots: runtimeSnapshots
             )
         }
@@ -92,62 +104,50 @@ final class MacPluginManager: PluginManaging {
             }
         }
 
-        if manifest.entrypoint.kind == .nativeBundle,
-           enabled != activeNativePluginIDs.contains(pluginID) {
-            restartRequiredPluginIDs.insert(pluginID)
-        } else if manifest.entrypoint.kind == .nativeBundle, !enabled {
-            // The module graph is stopped immediately, but Swift Bundle code
-            // remains mapped until this process exits.
+        // Declarative plugins run no code in this process, so a registered
+        // plugin is enabled or disabled live. Only a plugin installed after
+        // launch waits for the next module graph.
+        if manifest.entrypoint.kind == .declarative, !registeredPluginIDs.contains(pluginID) {
             restartRequiredPluginIDs.insert(pluginID)
         }
     }
 
-    func download(pluginID: PluginID) async throws {
-        guard pluginID == OfficialPluginCatalog.phpPluginID else {
-            throw PluginManagerError.onlineDownloadUnavailable(pluginID)
+    func installMarketplacePackage(
+        at packageURL: URL,
+        origin: PluginInstallationOrigin,
+        provenance: PluginMarketplaceProvenance
+    ) throws {
+        guard origin == .marketplace || origin == .community else {
+            throw PluginManagerError.unsupportedInstallationOrigin(origin)
         }
-        guard installedPlugins[pluginID] == nil else {
-            throw PluginManagerError.pluginAlreadyInstalled(pluginID)
-        }
-        let downloaded = try await packageDownloader.download(
-            pluginID: pluginID,
-            hostVersion: hostVersion
-        )
-        defer { try? FileManager.default.removeItem(at: downloaded.temporaryDirectory) }
         let installed = try packageStore.installPackage(
-            from: downloaded.packageURL,
+            from: packageURL,
             deferActivationUntilRestart: true,
-            // The action is only exposed when no valid installation exists.
-            // Allow replacement so an older or unreadable package directory
-            // can be repaired with the package that carries Intelephense.
-            replaceExisting: true
-        )
-        restartRequiredPluginIDs.insert(installed.manifest.id)
-        try refreshInstalledPlugins()
-    }
-
-    func reinstall(pluginID: PluginID) async throws {
-        guard installedPlugins[pluginID] != nil else {
-            throw PluginManagerError.unknownPlugin(pluginID)
-        }
-        let downloaded = try await packageDownloader.download(
-            pluginID: pluginID,
-            hostVersion: hostVersion
-        )
-        defer { try? FileManager.default.removeItem(at: downloaded.temporaryDirectory) }
-        let installed = try packageStore.installPackage(
-            from: downloaded.packageURL,
-            deferActivationUntilRestart: true,
-            replaceExisting: true
+            // Reinstalling the active version repairs a damaged or retired
+            // package; a new version is installed beside the current one.
+            replaceExisting: true,
+            origin: origin,
+            marketplace: provenance
         )
         restartRequiredPluginIDs.insert(installed.manifest.id)
         try refreshInstalledPlugins()
     }
 
     func installPackage(at packageURL: URL) throws {
+        // Only development builds record an unsigned package from disk as a
+        // development package, and only when its trust model requires a
+        // publisher signature; release builds keep the signed-package path.
+        let manifest = try packageStore.inspectPackage(at: packageURL).pluginManifest
+        let isDevelopmentPackage = allowsLocalDevelopmentPackages
+            && MacOfficialPluginSignatureVerifier.isUnsignedDevelopmentPackage(
+                at: packageURL,
+                manifest: manifest
+            )
         let installed = try packageStore.installPackage(
             from: packageURL,
-            deferActivationUntilRestart: true
+            deferActivationUntilRestart: true,
+            replaceExisting: isDevelopmentPackage,
+            origin: isDevelopmentPackage ? .localDevelopment : .marketplace
         )
         restartRequiredPluginIDs.insert(installed.manifest.id)
         try refreshInstalledPlugins()
@@ -173,15 +173,36 @@ final class MacPluginManager: PluginManaging {
             ))
             return
         }
-        if activeNativePluginIDs.contains(pluginID) {
+        if registeredPluginIDs.contains(pluginID) {
             try await setEnabled(false, for: pluginID)
         }
         guard !installed.manifest.modules.contains(where: { $0.manifest.isRequired }) else {
             throw PluginManagerError.requiredPluginCannotBeUninstalled(pluginID)
         }
-        try packageStore.stageUninstall(pluginID)
+        if installed.installation.origin == .bundled {
+            // The package itself lives in the read-only app bundle.
+            try packageStore.setBundledPluginRemoved(pluginID, removed: true)
+        } else {
+            try packageStore.stageUninstall(pluginID)
+        }
         restartRequiredPluginIDs.insert(pluginID)
         try refreshInstalledPlugins()
+    }
+
+    func restore(_ pluginID: PluginID) throws {
+        guard let installed = installedPlugins[pluginID],
+              installed.installation.status == .removed else {
+            throw PluginManagerError.unknownPlugin(pluginID)
+        }
+        try packageStore.setBundledPluginRemoved(pluginID, removed: false)
+        // Its modules join the module graph at the next launch.
+        restartRequiredPluginIDs.insert(pluginID)
+        try refreshInstalledPlugins()
+    }
+
+    /// A plugin removed in this session is still registered until restart.
+    private func requiresRestartForRemoval(_ pluginID: PluginID) -> Bool {
+        registeredPluginIDs.contains(pluginID)
     }
 
     private func manifest(for pluginID: PluginID) -> PluginManifest? {
@@ -207,6 +228,8 @@ final class MacPluginManager: PluginManaging {
         origin: PluginInstallationOrigin,
         installationStatus: PluginInstallationStatus,
         previousVersion: PluginVersion?,
+        marketplace: PluginMarketplaceProvenance?,
+        settings declaredSettings: [DeclarativePluginSetting],
         runtimeSnapshots: [ModuleID: ModuleSnapshot]
     ) -> PluginManagementSnapshot {
         let moduleSnapshots = manifest.modules.compactMap { runtimeSnapshots[$0.manifest.id] }
@@ -233,6 +256,10 @@ final class MacPluginManager: PluginManaging {
             statusMessage = matchingIssue.message
         } else if installationStatus == .uninstallPending {
             statusMessage = "Will be uninstalled after restart"
+        } else if installationStatus == .removed {
+            statusMessage = requiresRestartForRemoval(manifest.id)
+                ? "Removed. Restart Lithe to finish."
+                : "Removed. Restore it to use it again."
         } else if requiresRestart {
             statusMessage = "Restart required"
         } else if isQuarantined {
@@ -257,25 +284,51 @@ final class MacPluginManager: PluginManaging {
             isSuppressedBySafeMode: isSuppressedBySafeMode,
             requiresRestart: requiresRestart,
             canRollback: previousVersion != nil,
-            statusMessage: statusMessage
+            statusMessage: statusMessage,
+            marketplace: marketplace,
+            settings: settingStates(declaredSettings, pluginID: manifest.id)
         )
+    }
+
+    private func settingStates(
+        _ declarations: [DeclarativePluginSetting],
+        pluginID: PluginID
+    ) -> [PluginSettingState] {
+        guard !declarations.isEmpty else { return [] }
+        let stored = settings.values(forPlugin: pluginID.rawValue)
+        return declarations.map {
+            PluginSettingState(declaration: $0, value: $0.effectiveValue(stored: stored[$0.id]))
+        }
+    }
+
+    func setSetting(_ value: ToolingJSONValue?, id settingID: String, for pluginID: PluginID) throws {
+        guard let declaration = installedPlugins[pluginID]?.descriptor.settings.first(where: { $0.id == settingID })
+        else { throw PluginManagerError.unknownSetting(pluginID, settingID) }
+        if let value, !declaration.accepts(value) {
+            throw PluginManagerError.settingValueRejected(pluginID, settingID)
+        }
+        // A value equal to the default is forgotten, so a later change of the
+        // declared default reaches users who never picked a value.
+        settings.setValue(value == declaration.defaultValue ? nil : value, forSetting: settingID, plugin: pluginID.rawValue)
     }
 }
 
 enum PluginManagerError: Error, Equatable, LocalizedError {
     case unknownPlugin(PluginID)
-    case onlineDownloadUnavailable(PluginID)
-    case pluginAlreadyInstalled(PluginID)
+    case unsupportedInstallationOrigin(PluginInstallationOrigin)
     case requiredPluginCannotBeDisabled(PluginID)
     case requiredPluginCannotBeUninstalled(PluginID)
+    case unknownSetting(PluginID, String)
+    case settingValueRejected(PluginID, String)
 
     var errorDescription: String? {
         switch self {
         case .unknownPlugin(let id): "Plugin \(id) is not installed."
-        case .onlineDownloadUnavailable(let id): "Online download is not available for plugin \(id)."
-        case .pluginAlreadyInstalled(let id): "Plugin \(id) is already installed."
+        case .unsupportedInstallationOrigin(let origin): "Marketplace packages cannot be installed as \(origin.rawValue)."
         case .requiredPluginCannotBeDisabled(let id): "Required plugin \(id) cannot be disabled."
         case .requiredPluginCannotBeUninstalled(let id): "Required plugin \(id) cannot be uninstalled."
+        case .unknownSetting(let id, let setting): "Plugin \(id) has no setting \(setting)."
+        case .settingValueRejected(let id, let setting): "The value is not allowed for setting \(setting) of plugin \(id)."
         }
     }
 }

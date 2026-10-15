@@ -67,6 +67,7 @@ struct LitheContextMenuItem: Identifiable {
     let iconKind: LitheIconKind?
     var icon: AnyView? = nil
     var isChecked = false
+    var initiallySelected = false
     let shortcut: String?
     let role: Role
     var isEnabled: Bool
@@ -80,6 +81,7 @@ struct LitheContextMenuItem: Identifiable {
         iconKind: LitheIconKind? = nil,
         icon: AnyView? = nil,
         checked: Bool = false,
+        initiallySelected: Bool = false,
         shortcut: String? = nil,
         role: Role = .standard,
         isEnabled: Bool = true,
@@ -94,6 +96,7 @@ struct LitheContextMenuItem: Identifiable {
             iconKind: iconKind,
             icon: icon,
             isChecked: checked,
+            initiallySelected: initiallySelected,
             shortcut: shortcut,
             role: role,
             isEnabled: isEnabled,
@@ -117,6 +120,7 @@ struct LitheContextMenuItem: Identifiable {
     static func submenu(
         _ title: String,
         systemImage: String? = nil,
+        icon: AnyView? = nil,
         items: [LitheContextMenuItem]
     ) -> Self {
         Self(
@@ -124,6 +128,7 @@ struct LitheContextMenuItem: Identifiable {
             title: title,
             systemImage: systemImage,
             iconKind: nil,
+            icon: icon,
             shortcut: nil,
             role: .standard,
             isEnabled: true,
@@ -149,6 +154,7 @@ private final class LitheContextMenuSelection: ObservableObject {
     init(items: [LitheContextMenuItem], dismiss: @escaping () -> Void) {
         self.items = items
         self.dismiss = dismiss
+        selectedID = items.first { $0.initiallySelected && $0.isEnabled }?.id
     }
 
     var children: [LitheContextMenuItem]? {
@@ -451,9 +457,25 @@ private final class LitheContextMenuPanel: NSPanel {
 /// Keep searchable dropdowns sized when their SwiftUI content opens a flyout.
 @MainActor
 final class LitheDropdownHostingController: NSHostingController<AnyView> {
-    var sizeChanged: (() -> Void)?
+    var sizeChanged: (() -> Void)? {
+        didSet { pendingSizeChangeID = nil }
+    }
+    private var pendingSizeChangeID: UUID?
+
     override var preferredContentSize: NSSize {
-        didSet { if preferredContentSize != oldValue { sizeChanged?() } }
+        didSet {
+            guard preferredContentSize != oldValue, sizeChanged != nil,
+                  pendingSizeChangeID == nil else { return }
+            let notificationID = UUID()
+            pendingSizeChangeID = notificationID
+            // Hosting measures during layout. Leave that stack before resizing
+            // its window, and deliver only the latest measurement in this turn.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.pendingSizeChangeID == notificationID else { return }
+                self.pendingSizeChangeID = nil
+                self.sizeChanged?()
+            }
+        }
     }
 }
 
@@ -486,6 +508,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     private var contentResizeStartFrame: NSRect?
     private var pendingCornerTranslation = CGSize.zero
     private weak var triggerView: NSView?
+    private var isResizingContent = false
 
     init(resizeScheduler: LitheDragUpdateScheduler = LitheDragUpdateScheduler()) {
         contentResizeScheduler = resizeScheduler
@@ -763,19 +786,24 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     }
 
     func resize(contentController: NSViewController) {
-        guard let panel, contentResizeStartWidth == nil, contentResizeStartFrame == nil, customContentController === contentController,
+        guard !isResizingContent, let panel, contentResizeStartWidth == nil, contentResizeStartFrame == nil, customContentController === contentController,
               let point = contentAnchor else { return }
+        isResizingContent = true
+        defer { isResizingContent = false }
         let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
         let bounds = (screen?.visibleFrame ?? panel.frame).insetBy(dx: 6, dy: 6)
         contentController.view.layoutSubtreeIfNeeded()
+        guard self.panel === panel, customContentController === contentController else { return }
         let preferred = contentController.preferredContentSize
         let fitting = preferred.width > 0 && preferred.height > 0
             ? preferred : contentController.view.fittingSize
         let size = NSSize(width: min(contentWidth.map { max($0, contentMinimumWidth) } ?? fitting.width, bounds.width),
                           height: min(max(contentHeight ?? fitting.height, contentMinimumHeight), bounds.height))
         if contentWidth != nil {
-            panel.contentMinSize = NSSize(width: min(contentMinimumWidth, bounds.width), height: contentMinimumHeight > 0 ? min(contentMinimumHeight, bounds.height) : size.height)
-            panel.contentMaxSize = NSSize(width: bounds.width, height: contentMinimumHeight > 0 ? bounds.height : size.height)
+            let minimum = NSSize(width: min(contentMinimumWidth, bounds.width), height: contentMinimumHeight > 0 ? min(contentMinimumHeight, bounds.height) : size.height)
+            let maximum = NSSize(width: bounds.width, height: contentMinimumHeight > 0 ? bounds.height : size.height)
+            if panel.contentMinSize != minimum { panel.contentMinSize = minimum }
+            if panel.contentMaxSize != maximum { panel.contentMaxSize = maximum }
         }
         // Keep app-owned dropdowns attached while there is room, then flip to
         // the other side before finally clamping an oversized panel on screen.
@@ -793,9 +821,15 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         let origin = NSPoint(x: min(max(point.x, bounds.minX), bounds.maxX - size.width),
                              y: yOrigin)
         let frame = NSRect(origin: origin, size: size)
-        contentWidthConstraint?.constant = size.width
-        contentHeightConstraint?.constant = size.height
-        if panel.frame != frame { panel.setFrame(frame, display: true) }
+        if let constraint = contentWidthConstraint, constraint.constant != size.width {
+            constraint.constant = size.width
+        }
+        if let constraint = contentHeightConstraint, constraint.constant != size.height {
+            constraint.constant = size.height
+        }
+        // AppKit owns the next display pass; synchronous display can restart
+        // hosting layout while the parent window is still updating its size.
+        if panel.frame != frame { panel.setFrame(frame, display: false) }
     }
 
     func dismiss(contentController: NSViewController) {
@@ -826,7 +860,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         )
         // When neither side has room, keep the combined panel inside the screen.
         frame.origin.x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - frame.width)
-        if panel.frame != frame { panel.setFrame(frame, display: true) }
+        if panel.frame != frame { panel.setFrame(frame, display: false) }
         return childOffset
     }
 
@@ -898,6 +932,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     }
 
     func dismiss() {
+        (customContentController as? LitheDropdownHostingController)?.sizeChanged = nil
         removeEventMonitors()
         contentResizeHandle?.removeFromSuperview()
         contentResizeHandle = nil

@@ -220,7 +220,10 @@ struct AgentConversationFeatureModelTests {
             #expect(feature.selectedConversation?.plan?.currentEntry?.content == "Run the tests")
             #expect(feature.selectedConversation?.responseStatus == (stopping ? .stopping : .waitingForPermission))
             #expect(feature.selectedConversation?.permission?.id == permissionID)
-            #expect(feature.selectedConversation?.activeTurn == turn)
+            // Plans and retries never replace or restart the turn; only its
+            // tool-wait clock may start while approval is pending.
+            #expect(feature.selectedConversation?.activeTurn?.id == turn?.id)
+            #expect(feature.selectedConversation?.activeTurn?.startedAt == turn?.startedAt)
             if !stopping {
                 #expect(feature.selectedConversation?.retryAttempt == nil)
                 #expect(feature.selectedConversation?.retryMaxAttempts == nil)
@@ -1540,6 +1543,145 @@ struct AgentConversationFeatureModelTests {
         try feature.send("Explain this project")
         try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
         return (feature, connection)
+    }
+
+    @Test
+    func toolAndPermissionWaitsAreTimedOnceAndCountedPerTurn() async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            try feature.send("Run the tests")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            clock.advance(2)
+            try feature.receive(event("toolCall"))
+            clock.advance(3)
+            // A permission overlapping the running tool must not double the wait.
+            try feature.receive(event("permission"))
+            clock.advance(4)
+            feature.answerPermission(optionID: "allow_once")
+            clock.advance(1)
+            try feature.receive(event("toolCallUpdate"))
+            clock.advance(5)
+            #expect(feature.selectedConversation?.sessionStatistics.toolCallCount == 1)
+            #expect(feature.selectedConversation?.sessionStatistics.turnCount == 1)
+            try feature.receive(event("turnFinished"))
+            let turn = try #require(feature.selectedConversation?.completedTurns.last)
+            #expect(turn.duration == 15)
+            #expect(turn.toolDuration == 8)
+            #expect(turn.toolCallCount == 1)
+            #expect(feature.selectedConversation?.sessionStatistics.toolDuration == 8)
+        }
+    }
+
+    @Test
+    func observedModelCallsDriveStepsSpeedAndProviderTokens() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.send("Explain the build")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("modelCall"))
+            try feature.receive(event("modelCallNonStreaming"))
+            // Calls the Host could not attribute must not be assigned by guessing.
+            var unattributed = try #require(JSONSerialization.jsonObject(with: Data(try event("modelCall").utf8)) as? [String: Any])
+            unattributed.removeValue(forKey: "sessionId")
+            try feature.receive(String(decoding: JSONSerialization.data(withJSONObject: unattributed), as: UTF8.self))
+            try feature.receive(event("turnFinishedWithUsage"))
+            let statistics = try #require(feature.selectedConversation?.sessionStatistics)
+            let calls = try #require(statistics.modelCalls)
+            #expect(calls.callCount == 2)
+            #expect(calls.nonStreamingCount == 1)
+            #expect(calls.duration == 9.4)
+            #expect(calls.averageFirstToken == 0.82)
+            // Only streamed output after the first token contributes to speed.
+            #expect(abs((calls.outputTokensPerSecond ?? 0) - 640 / 5.58) < 0.001)
+            #expect(calls.latestContext?.mcpToolCount == 40)
+            #expect(feature.selectedConversation?.completedTurns.last?.modelCalls.callCount == 2)
+            // Provider counters replace Agent-reported totals when observed.
+            let tokens = try #require(statistics.tokens)
+            #expect(tokens.source == .modelCalls)
+            #expect(tokens.uncachedInputTokens == 1700)
+            #expect(tokens.cacheReadTokens == 42000)
+            #expect(tokens.outputTokens == 940)
+            #expect(tokens.reasoningTokens == 100)
+            #expect(abs((tokens.cacheHitRate ?? 0) - 42000.0 / 44500) < 0.0001)
+        }
+    }
+
+    @Test
+    func lateCallsFromAFinishedTurnCountForTheSessionOnly() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.send("First")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("turnFinished"))
+            // The next turn starts before the previous turn's stream reports.
+            try feature.send("Second")
+            try feature.receive(event("modelCallAfterTurn"))
+            #expect(feature.selectedConversation?.activeTurn?.modelCalls.callCount == 0)
+            #expect(feature.selectedConversation?.modelCalls.callCount == 1)
+            try feature.receive(event("modelCall"))
+            #expect(feature.selectedConversation?.activeTurn?.modelCalls.callCount == 1)
+            #expect(feature.selectedConversation?.modelCalls.callCount == 2)
+        }
+    }
+
+    @Test
+    func callsWithoutUsageMakeTokenTotalsAnExplicitLowerBound() throws {
+        var conversation = AgentConversation()
+        conversation.recordModelCall(try modelCall(usage: ["inputTokens": 100, "cacheReadTokens": 900,
+                                                            "cacheWriteTokens": 0, "outputTokens": 50]))
+        // An interrupted stream or a provider without final usage reports no counters.
+        conversation.recordModelCall(try modelCall(usage: nil))
+        let tokens = try #require(conversation.sessionStatistics.tokens)
+        #expect(tokens.source == .modelCalls)
+        #expect(tokens.totalTokens == 1050)
+        #expect(tokens.callsMissingUsage == 1)
+        #expect(conversation.modelCalls.callCount == 2)
+        #expect(conversation.modelCalls.callsWithUsage == 1)
+    }
+
+    @Test
+    func contextCompositionFollowsMainRequestsWithAndWithoutTools() throws {
+        // Agents that never send tools refresh the composition on every request.
+        var toolless = AgentModelCallTotals()
+        toolless.record(try modelCall(context: context(messages: 1000, tools: 0)))
+        toolless.record(try modelCall(context: context(messages: 5000, tools: 0)))
+        #expect(toolless.latestContext?.messageTokens == 5000)
+        // Once tools are sent, tool-less auxiliary requests do not replace it.
+        var main = AgentModelCallTotals()
+        main.record(try modelCall(context: context(messages: 1000, tools: 0)))
+        main.record(try modelCall(context: context(messages: 8000, tools: 12)))
+        main.record(try modelCall(context: context(messages: 40, tools: 0)))
+        #expect(main.latestContext?.messageTokens == 8000)
+        main.record(try modelCall(context: context(messages: 9000, tools: 12)))
+        #expect(main.latestContext?.messageTokens == 9000)
+    }
+
+    private func modelCall(usage: [String: Any]? = nil, context: [String: Any]? = nil) throws -> AgentModelCall {
+        var call: [String: Any] = ["api": "anthropicMessages", "status": 200, "streaming": true, "durationMs": 1000]
+        if let usage { call["usage"] = usage }
+        if let context { call["context"] = context }
+        return try #require(AgentModelCall.parse(call))
+    }
+
+    private func context(messages: Int, tools: Int) -> [String: Any] {
+        ["systemPromptTokens": 100, "toolTokens": tools * 100, "mcpToolTokens": 0, "messageTokens": messages,
+         "toolCount": tools, "mcpToolCount": 0, "scaledToUsage": false]
+    }
+
+    @Test
+    func agentReportedTokensDistinguishInclusiveAndDisjointCacheAccounting() throws {
+        // The shared fixture uses disjoint buckets: total = input + output + thought + cache.
+        let disjoint = try #require(AgentTurnUsage.parse(["totalTokens": 25000, "inputTokens": 18000, "outputTokens": 2000,
+                                                         "thoughtTokens": 1000, "cachedReadTokens": 3000, "cachedWriteTokens": 1000]))
+        // OpenAI-style accounting includes cached prompt tokens in input.
+        let inclusive = try #require(AgentTurnUsage.parse(["totalTokens": 10500, "inputTokens": 10000, "outputTokens": 500,
+                                                          "cachedReadTokens": 8000]))
+        let separate = AgentSessionStatistics.agentTokens(disjoint)
+        #expect(separate.source == .latestAgentTurn)
+        #expect(separate.uncachedInputTokens == 18000)
+        #expect(separate.promptTokens == 22000)
+        #expect(separate.reasoningTokens == 1000)
+        let included = AgentSessionStatistics.agentTokens(inclusive)
+        #expect(included.uncachedInputTokens == 2000)
+        #expect(included.promptTokens == 10000)
+        #expect(included.cacheHitRate == 0.8)
     }
 
     private func event(_ name: String, _ overrides: [String: Any] = [:]) throws -> String {

@@ -63,7 +63,7 @@ function syncThemeWithSystem(settings: Settings) {
   latestThemeSyncSettings = settings;
   const handleChange = () => {
     if (latestThemeSyncSettings) {
-      void applyTheme(resolveEffectiveTheme(latestThemeSyncSettings));
+      return applyTheme(resolveEffectiveTheme(latestThemeSyncSettings), true);
     }
   };
 
@@ -74,7 +74,7 @@ function syncThemeWithSystem(settings: Settings) {
   removeThemeSyncListener = subscribeSystemThemePreference(handleChange);
 }
 
-async function applyTheme(theme: Theme) {
+async function applyTheme(theme: Theme, syncSystemTheme: boolean) {
   if (typeof window === "undefined") return;
 
   try {
@@ -85,7 +85,9 @@ async function applyTheme(theme: Theme) {
       const appliedTheme = themeRegistry.getTheme(theme);
       if (appliedTheme) {
         cacheThemeForBootstrap(appliedTheme);
-        syncNativeWindowAppearance(appliedTheme.isDark ? "dark" : "light");
+        return syncNativeWindowAppearance(
+          syncSystemTheme ? "system" : appliedTheme.isDark ? "dark" : "light",
+        );
       }
     };
 
@@ -117,20 +119,20 @@ async function applyTheme(theme: Theme) {
 
     cancelPendingThemeApplication?.();
     cancelPendingThemeApplication = null;
-    applyRegisteredTheme();
+    return applyRegisteredTheme();
   } catch (error) {
     console.error("Failed to apply theme via registry:", error);
     applyFallbackTheme(theme);
   }
 }
 
-function syncNativeWindowAppearance(themeType: "light" | "dark") {
+function syncNativeWindowAppearance(themeType: "system" | "light" | "dark") {
   const transparencyEnabled =
     typeof document === "undefined"
       ? true
       : document.documentElement.getAttribute("data-window-transparency") !== "disabled";
 
-  void invoke("set_native_window_appearance", { themeType, transparencyEnabled }).catch((error) => {
+  return invoke("set_native_window_appearance", { themeType, transparencyEnabled }).catch((error) => {
     console.warn("Failed to sync native window appearance", error);
   });
 }
@@ -178,7 +180,7 @@ export function applySettingsSideEffects(settings: Settings) {
   applyWindowTransparency(settings.windowTransparency);
   applyProjectGradient(settings.differentiateProjects);
   applyUiPreferences(settings);
-  void applyTheme(resolveEffectiveTheme(settings));
+  void applyTheme(resolveEffectiveTheme(settings), settings.syncSystemTheme);
   if (settings.syncSystemTheme) {
     syncThemeWithSystem(settings);
   } else {
@@ -195,18 +197,18 @@ export function applySettingSideEffect<K extends keyof Settings>(
   getSettings: () => Settings,
 ) {
   if (key === "theme") {
-    void applyTheme(resolveEffectiveTheme(getSettings()));
+    const settings = getSettings();
+    return applyTheme(resolveEffectiveTheme(settings), settings.syncSystemTheme);
   }
 
   if (key === "syncSystemTheme" || key === "autoThemeLight" || key === "autoThemeDark") {
     const settings = getSettings();
-    void applyTheme(resolveEffectiveTheme(settings));
-
     if (settings.syncSystemTheme) {
       syncThemeWithSystem(settings);
     } else {
       stopSystemThemeSync();
     }
+    return applyTheme(resolveEffectiveTheme(settings), settings.syncSystemTheme);
   }
 
   if (key === "ollamaBaseUrl") {

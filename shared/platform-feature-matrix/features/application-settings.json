@@ -26,7 +26,7 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/settings",
-      "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
+      "windows/tauri/src/features/settings/components/settings-panels.tsx",
       "windows/tauri/src/features/settings/config/default-settings.ts",
       "windows/tauri/src/features/settings/lib/settings-normalization.test.ts",
       "windows/tauri/src/ui/number-input.tsx",
@@ -35,12 +35,33 @@
       "windows/tauri/src-tauri/src/fonts.rs",
       "windows/tauri/src/features/settings/components/editor-font-settings.test.tsx",
       "windows/tauri/src/features/settings/lib/editor-font-size.test.ts",
-      "windows/tauri/src/utils/search-match.test.ts"
+      "windows/tauri/src/utils/search-match.test.ts",
+      "windows/tauri/src/ui/settings-select.tsx",
+      "windows/tauri/src/ui/settings-path-input.tsx",
+      "windows/tauri/src/ui/settings-select.test.tsx",
+      ".agents/notes/implemented/simplification/2026-10-08-windows-settings-controls.md",
+      "windows/tauri/src/features/settings/lib/settings-navigation.ts",
+      "windows/tauri/src/features/settings/components/settings-dialog.tsx",
+      "windows/tauri/src/features/settings/components/settings-section.tsx",
+      "windows/tauri/src/features/settings/components/settings-hierarchy.test.tsx",
+      "windows/tauri/src/extensions/ui/components/extensions-sidebar.tsx",
+      ".agents/notes/implemented/feature/2026-10-08-windows-settings-hierarchy.md",
+      "windows/tauri/src/extensions/ui/components/extensions-browser-layout.tsx",
+      "windows/tauri/src/i18n/locale.ts",
+      "windows/tauri/src/i18n/ai-commit.ts",
+      "windows/tauri/src/features/settings/lib/settings-effects.ts",
+      "windows/tauri/src/features/settings/lib/theme-resolution.ts",
+      "windows/tauri/src/features/settings/lib/settings-theme-sync.test.ts",
+      "windows/tauri/src-tauri/src/host.rs",
+      "windows/tauri/src/extensions/ui/components/extensions-sidebar-focus.test.tsx",
+      "windows/tauri/src/features/settings/components/update-status.test.tsx",
+      ".github/workflows/ci-windows.yml",
+      "windows/tauri/src/ui/settings-path-input.test.tsx"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Settings",
-  "notes": "Windows 当前设置面板的 Editor → Display 提供显示缩略图开关，复用 showMinimap 和 Monaco 实时选项更新。无已保存 showMinimap 配置时默认关闭；已有用户保存的 true 或 false 保留，恢复默认设置也会关闭。macOS 默认值不变。 Windows字体目录使用DirectWrite提供系统及用户字体的规范名、本地化标签与等宽信息；编辑器可选择非等宽字体，目录失败不替换已保存选择，字号6–72与连字设置即时持久化。",
-  "verification": "macOS 共享下拉选择器闭合框遵循 Islands：深色底 #26282C、浅色白底，1pt 普通边框、2pt 展开或键盘聚焦描边，28pt 高及 4pt 圆角；验证设置页与 Commit 的深浅外观、键盘聚焦及选择功能。Windows 无已保存缩略图配置时确认代码编辑器右侧不显示缩略图，设置 → Editor → Display 的显示缩略图开关为关闭；切换开关确认所有打开的编辑器即时更新，关闭设置重开及应用重启后选择保持，已有 showMinimap=true/false 的设置均保留，恢复默认后关闭；中英文显示对应文案。修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏、设置树、插件列表与详情背景和主界面侧边栏使用同一主题色，窗口按钮可用且可拖动；缩小设置窗口确认最小尺寸 900×700，底部操作按钮为 72×28 且边框与输入框一样以 1pt 内描边绘制；拖动设置树与插件列表右侧分隔线，确认设置分类栏不能小于原始宽度、插件列表分隔线可向左缩至 200 pt 或向右加宽，在 900 pt 最小宽度下仍有至少 150 pt 可分配的拖动余量，窗口缩小时设置内容区保留至少 500 pt、插件详情区至少 160 pt，拖动结束后宽度可恢复，悬停及拖动分隔线仅显示左右调整光标而不改变线条颜色；点击设置搜索框后切换分类及点击内容空白区域，确认焦点边框消失；悬停插件条目及设置窗口各子页面的按钮和选择控件时光标保持箭头；从主窗口打开设置后切换到其他应用，确认设置窗口随主窗口置后且不置顶遮挡；在插件页点击 Enable 后点击设置窗口 OK，确认成功时应用并关闭、失败时保留待确认状态且可重试；应用期间确认窗口关闭按钮和常规关闭命令不能关闭窗口，应用结束后恢复关闭能力；A 项目开始应用插件后从 B 项目重新打开共享设置窗口，确认 A 完成后 B 窗口仍打开且未应用草稿保留；待确认时点击 Cancel 或窗口关闭按钮，确认重开后草稿已清除；亮色模式确认分段选择的选中文字清晰可读；检查搜索框、普通及密码输入框、多行编辑框（含获得与失去焦点的边框）、数值步进器、下拉框和分段选择在各设置子页面中的背景、边框、焦点态及操作行为一致，关闭后重开再检查；macOS 切换通用、编辑器、快捷键、项目、运行配置和语言服务等设置页，检查右侧路径标题、分组线、行对齐、说明文字、下拉框、复选框、分段控件与底部操作区；打开短列表和超过十项的下拉框，检查当前项蓝色高亮、无勾号、圆角、紧凑行距、鼠标悬停不跳动、键盘选择与按需滚动；再次点击原下拉按钮应收起弹层，点击另一处下拉框应切换弹层，点击空白处应关闭弹层；缩小可用屏幕高度时检查弹层不遮挡控件；使用辅助功能检查勾选框和分段控件的当前状态。 Windows 编辑器字号输入数字居中，输入区到独立步进按钮间隔 8px，标准按钮命中范围 32×32px；手动输入、增减、上下限、只读和禁用正确。检查行高、缩进等共用数值控件的布局，并在深浅色设置页验收。 从实际 Windows 设置窗口进入 Editor → Display，确认 Font size 使用共享数值控件，增减与直接输入写入 editor.fontSize，6–72 上下限生效；检查此真实页面的居中、按钮大小及深浅色，避免只验证旧设置页或孤立组件。 步进按钮横排在输入框右侧，左侧增大、右侧减小，各保留 32×32px 点击区域和 4px 间距，输入框与按钮组垂直居中；键盘 Tab 顺序与左右顺序一致。 Windows验证中文与英文目录检索、非等宽字体、目录加载中及失败时的已存选择、共享字号步进控件边界、连字预览以及所有打开编辑器的即时更新。"
+  "notes": "Windows 当前设置面板的 Editor → Display 提供显示缩略图开关，复用 showMinimap 和 Monaco 实时选项更新。无已保存 showMinimap 配置时默认关闭；已有用户保存的 true 或 false 保留，恢复默认设置也会关闭。macOS 默认值不变。 Windows字体目录使用DirectWrite提供系统及用户字体的规范名、本地化标签与等宽信息；编辑器可选择非等宽字体，目录失败不替换已保存选择，字号6–72与连字设置即时持久化。 Windows设置页通过SettingsSelect统一固定与可搜索下拉框的触发密度和菜单样式，包含运行配置、Git与AI提交；文本、多行文本与复选框复用现有共享控件，空字符串自动配置保持选中态。 项目JDK与Maven路径候选菜单复用SettingsPathInput，保留任意路径直接输入的草稿。 Windows设置对齐macOS分类树、双语检索、面包屑和标题分组线；侧栏默认234px，视口不超过768px时最小180px，否则最小234px；正文最小500px，拖动结束持久化布局。插件页复用既有插件管理且即时操作；普通设置即时保存；底部左侧恢复默认、右侧单个关闭，关闭不回滚已保存修改，项目及运行配置继续显式保存。Windows的AI服务商配置继续由既有AI与AI提交页面负责。 插件设置使用独立可调整的列表/详情分栏，列表最小200px、详情最小160px，窄设置窗口保留详情；原扩展管理入口保留网格布局。 Windows共用设置的中英文文案按macOS设置源码与中文本地化统一，覆盖通用、字体、Code Vision、标签布局、Tab宽度、Git、AI术语、搜索空态与相关命令入口；项目附加和Windows凭据说明保留平台实际语义，底部仍为单个关闭。 Windows跟随系统通过Tauri set_theme(None)解除原生窗口的手动主题覆盖，保留Windows主题事件向WebView2传递系统颜色偏好；复用既有媒体查询同步应用与编辑器，手动模式清理监听。通用页显示实际生效的主题，并按主题元数据判断明暗。 Windows设置检索仅收录当前实际页面字段，始终支持中英文标签；排除旧索引中的不可见控件。插件设置挂载保留全局搜索焦点，独立插件入口继续自动聚焦。Windows设置组件采用settings-panels中性命名；分层、主题、下拉、更新和插件焦点回归已接入Windows CI独立测试进程。 Windows路径输入在候选关闭时按Esc保留已编辑路径，手动清空仍可切回自动配置；搜索无结果时隐藏当前页面并保留未保存草稿，清空搜索恢复显示。 Windows路径候选回归使用非空候选和真实Combobox，覆盖方向键/Enter选择、未列出路径、弹层打开和关闭时Esc保留草稿、再次编辑与清空；候选行使用稳定路径key。",
+  "verification": "macOS 共享下拉选择器闭合框遵循 Islands：深色底 #26282C、浅色白底，1pt 普通边框、2pt 展开或键盘聚焦描边，28pt 高及 4pt 圆角；验证设置页与 Commit 的深浅外观、键盘聚焦及选择功能。Windows 无已保存缩略图配置时确认代码编辑器右侧不显示缩略图，设置 → Editor → Display 的显示缩略图开关为关闭；切换开关确认所有打开的编辑器即时更新，关闭设置重开及应用重启后选择保持，已有 showMinimap=true/false 的设置均保留，恢复默认后关闭；中英文显示对应文案。修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏、设置树、插件列表与详情背景和主界面侧边栏使用同一主题色，窗口按钮可用且可拖动；缩小设置窗口确认最小尺寸 900×700，底部操作按钮为 72×28 且边框与输入框一样以 1pt 内描边绘制；拖动设置树与插件列表右侧分隔线，确认设置分类栏不能小于原始宽度、插件列表分隔线可向左缩至 200 pt 或向右加宽，在 900 pt 最小宽度下仍有至少 150 pt 可分配的拖动余量，窗口缩小时设置内容区保留至少 500 pt、插件详情区至少 160 pt，拖动结束后宽度可恢复，悬停及拖动分隔线仅显示左右调整光标而不改变线条颜色；点击设置搜索框后切换分类及点击内容空白区域，确认焦点边框消失；悬停插件条目及设置窗口各子页面的按钮和选择控件时光标保持箭头；从主窗口打开设置后切换到其他应用，确认设置窗口随主窗口置后且不置顶遮挡；在插件页点击 Enable 后点击设置窗口 OK，确认成功时应用并关闭、失败时保留待确认状态且可重试；应用期间确认窗口关闭按钮和常规关闭命令不能关闭窗口，应用结束后恢复关闭能力；A 项目开始应用插件后从 B 项目重新打开共享设置窗口，确认 A 完成后 B 窗口仍打开且未应用草稿保留；待确认时点击 Cancel 或窗口关闭按钮，确认重开后草稿已清除；亮色模式确认分段选择的选中文字清晰可读；检查搜索框、普通及密码输入框、多行编辑框（含获得与失去焦点的边框）、数值步进器、下拉框和分段选择在各设置子页面中的背景、边框、焦点态及操作行为一致，关闭后重开再检查；macOS 切换通用、编辑器、快捷键、项目、运行配置和语言服务等设置页，检查右侧路径标题、分组线、行对齐、说明文字、下拉框、复选框、分段控件与底部操作区；打开短列表和超过十项的下拉框，检查当前项蓝色高亮、无勾号、圆角、紧凑行距、鼠标悬停不跳动、键盘选择与按需滚动；再次点击原下拉按钮应收起弹层，点击另一处下拉框应切换弹层，点击空白处应关闭弹层；缩小可用屏幕高度时检查弹层不遮挡控件；使用辅助功能检查勾选框和分段控件的当前状态。 Windows 编辑器字号输入数字居中，输入区到独立步进按钮间隔 8px，标准按钮命中范围 32×32px；手动输入、增减、上下限、只读和禁用正确。检查行高、缩进等共用数值控件的布局，并在深浅色设置页验收。 从实际 Windows 设置窗口进入 Editor → Display，确认 Font size 使用共享数值控件，增减与直接输入写入 editor.fontSize，6–72 上下限生效；检查此真实页面的居中、按钮大小及深浅色，避免只验证旧设置页或孤立组件。 步进按钮横排在输入框右侧，左侧增大、右侧减小，各保留 32×32px 点击区域和 4px 间距，输入框与按钮组垂直居中；键盘 Tab 顺序与左右顺序一致。 Windows验证中文与英文目录检索、非等宽字体、目录加载中及失败时的已存选择、共享字号步进控件边界、连字预览以及所有打开编辑器的即时更新。 Windows逐一打开所有设置分类及运行配置编辑器，检查深浅主题的下拉按钮、菜单圆角、边框、选中项与禁用态一致；验证字体和模型搜索、选项键盘选择、Esc仅关闭菜单、点击外部关闭、长列表滚动、标签可访问名称、切换到空字符串自动配置和关闭重开后的持久化；AI提交数值草稿仅在真实失焦或Enter失焦后保存，Maven路径保留显式应用。 项目路径候选菜单检查深浅色、候选选择、任意路径输入后直接点击保存和清空恢复自动配置，确认输入草稿不会被候选列表替换。 Windows逐一访问五个分组及快捷键、编辑器、插件、MCP顶层页面；中文字段与英文关键词搜索应定位正确页面并展开父组，无结果显示空态，Esc清空查询，外部重复请求同一页清空查询并重新定位。确认第一组标题、水平线、左对齐行、说明和底部左侧恢复默认、右侧只有关闭；中英文分别显示关闭和 Close，点击关闭后即时保存的字号等仍保留，未显式保存的项目草稿丢弃。拖动侧栏时不得连续写入布局，松开后保存，关闭重开或刷新后恢复；720px、768px、769px及800px宽窗口内容区至少500px且底部按钮可用；视口不超过768px时分类栏最小180px，超过断点恢复234px，已保存的宽布局缩至720px仍不溢出。插件管理保留既有安装和启用行为，在真实WebView2及工作区验证。 插件设置在800px宽窗口仍显示详情；拖动插件列表分隔栏检查200px/160px最小宽度、松开前不写入、松开后保存，以及切换页面和重开恢复布局。 Windows逐页切换中英文，核对通用/General、字体/Font、编辑器标签栏/Editor tabs、多行展开/Wrap into rows、Tab宽度/Tab width、Git搁置与Git Stash、AI服务商与API密钥或Token；搜索设置和搜索操作或快捷键的提示及空态与macOS一致，相关命令入口使用通用和Keymap。核对替换前后的本地化键集合和变量占位符一致；关闭行为与原有保存时机保持正确。 Windows当前系统为深色时，先手动选择浅色再切回跟随系统，确认窗口、设置页与编辑器立即恢复深色，配色主题显示实际主题；反向和系统明暗变化也应同步。关闭重开以及重启保持跟随系统；手动模式保持指定外观，重复切换不增加监听。主题元数据为浅色但名称不含light时，模式仍正确显示浅色。 Windows分别在中文和英文界面检索字体连字、显示引用数量和Git作者、LSP自动补全及语义高亮，确认进入正确页面；Sticky Scroll、UI Font Size等当前未提供字段应无结果。在全局搜索持续输入插件关键词时确认焦点不离开搜索框，打开独立扩展管理入口确认插件搜索自动聚焦；Git Fetch配置的prune=true和false均应显示文本值。 Windows在项目设置输入未列出的JDK或Maven路径，候选关闭时按Esc确认路径保留，继续编辑和手动清空仍可用；编辑项目路径或运行参数但不保存，搜索无匹配词后清空查询，确认当前页面草稿仍保留且空态期间控件不可见。 Windows非空路径候选自动化回归：运行settings-path-input.test.tsx，确认方向键只高亮不改草稿、Enter输出所选完整路径、未列出路径可直接输入、打开和关闭弹层时Esc均不清空草稿、关闭后可继续筛选和恢复空字符串自动配置。自动化结果不替代真实WebView2主题切换与连续拖动验收，实机验证仍待完成。 Windows项目及Maven输入未保存路径后搜索Git，再清空查询并切回原页，确认草稿保留且未自动保存；手动切换分类和重复外部导航亦保留。关闭设置后重开，草稿清除且仅挂载当前页，所有已访问页面的订阅在关闭时释放。"
 }

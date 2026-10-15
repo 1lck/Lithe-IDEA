@@ -14,6 +14,7 @@
 "Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
 "Download PHP Support from the official plugin release." = "Download PHP Support from the official plugin release.";
 "Download and Install" = "Download and Install";
+"Unsigned development package. Release builds of Lithe will not load it." = "Unsigned development package. Release builds of Lithe will not load it.";
 "Install PHP Support Plugin" = "Install PHP Support Plugin";
 "Select a PHP Support plugin package." = "Select a PHP Support plugin package.";
 "Plugin marketplace is not available" = "Plugin marketplace is not available";
@@ -33,6 +34,8 @@
 "Pending plugin changes: %lld" = "Pending plugin changes: %lld";
 "Uninstall" = "Uninstall";
 "Reinstall" = "Reinstall";
+"Removed. Restart Lithe to finish." = "Removed. Restart Lithe to finish.";
+"Removed. Restore it to use it again." = "Removed. Restore it to use it again.";
 "Uninstall PHP Support?" = "Uninstall PHP Support?";
 "PHP language support will be removed after restarting Lithe." = "PHP language support will be removed after restarting Lithe.";
 "Overview" = "Overview";
@@ -1453,3 +1456,76 @@
 "Expand All" = "Expand All";
 
 "Collapse All" = "Collapse All";
+
+/* Tool window docking destinations. */
+"Move to Left Top" = "Move to Left Top";
+"Move to Left Bottom" = "Move to Left Bottom";
+"Move to Right Top" = "Move to Right Top";
+"Move to Right Bottom" = "Move to Right Bottom";
+"Move to Bottom Left" = "Move to Bottom Left";
+"Move to Bottom Right" = "Move to Bottom Right";
+
+"Could not move the editor tab. Its content could not be synchronized." = "Could not move the editor tab. Its content could not be synchronized.";
+"Database Overview" = "Database Overview";
+
+"Non-Introspected" = "Non-Introspected";
+
+"Switch current database" = "Switch current database";
+
+"%@ Query History" = "%@ Query History";
+
+"Result %d" = "Result %d";
+
+"%d rows retrieved in %d ms" = "%d rows retrieved in %d ms";
+
+"%llu rows affected in %d ms" = "%llu rows affected in %d ms";
+
+"No query output" = "No query output";
+
+"Services" = "Services";
+
+"Output" = "Output";
+
+"SQL execution markers" = "SQL execution markers";
+
+"Succeeded, line %d" = "Succeeded, line %d";
+
+"Failed, line %d" = "Failed, line %d";
+
+// Host-owned workbench contribution controls
+"Workbench Actions" = "Workbench Actions";
+"Tool Windows" = "Tool Windows";
+"Toolbar Actions" = "Toolbar Actions";
+"Restore Default UI Layout" = "Restore Default UI Layout";
+"Show" = "Show";
+"Hide Entry" = "Hide Entry";
+"Move to Bottom" = "Move to Bottom";
+"Move to Right" = "Move to Right";
+"Move Earlier" = "Move Earlier";
+"Move Later" = "Move Later";
+"Add tool windows and commands to the workbench" = "Add tool windows and commands to the workbench";
+
+"Move to Left" = "Move to Left";
+
+"Menu Actions" = "Menu Actions";
+
+"Show Entry" = "Show Entry";
+
+"Command Palette Actions" = "Command Palette Actions";
+/* Main toolbar settings menu. */
+"Plugins…" = "Plugins…";
+"Theme…" = "Theme…";
+"Keymap…" = "Keymap…";
+
+/* Declarative plugin settings (Settings › Plugins). */
+"Applies the next time the language server starts." = "Applies the next time the language server starts.";
+"Restart Language Servers" = "Restart Language Servers";
+"Reset to Default" = "Reset to Default";
+"Enter a whole number from %d to %d." = "Enter a whole number from %d to %d.";
+"Maximum memory" = "Maximum memory";
+"Upper bound of the Java language server's heap. Raise it for large multi-module projects." = "Upper bound of the Java language server's heap. Raise it for large multi-module projects.";
+"Language server log level" = "Language server log level";
+"How much the Java language server writes to its own log. Quieter levels reduce disk writes." = "How much the Java language server writes to its own log. Quieter levels reduce disk writes.";
+"All messages" = "All messages";
+"Warnings" = "Warnings";
+"Errors only" = "Errors only";

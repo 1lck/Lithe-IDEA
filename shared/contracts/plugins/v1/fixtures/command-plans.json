@@ -1,0 +1,697 @@
+{
+  "schemaVersion": 1,
+  "description": "Golden expansions of declarative run/test templates and language-server launch plans. `request` is the payload's request object for the named operation; `expected` is the command's data object.",
+  "cases": [
+    {
+      "name": "php run passes user arguments after the file",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "runPlan",
+      "request": { "relativeFilePath": "public/index.php", "arguments": ["--verbose", "two words"] },
+      "expected": {
+        "status": "ok",
+        "plan": { "executable": { "command": "php" }, "arguments": ["public/index.php", "--verbose", "two words"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "php run protects a file name that looks like an option",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "runPlan",
+      "request": { "relativeFilePath": "-weird.php" },
+      "expected": {
+        "status": "ok",
+        "plan": { "executable": { "command": "php" }, "arguments": ["./-weird.php"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "php run keeps surrounding spaces in a file name",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "runPlan",
+      "request": { "relativeFilePath": " spaced.php" },
+      "expected": {
+        "status": "ok",
+        "plan": { "executable": { "command": "php" }, "arguments": [" spaced.php"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "php run refuses a path outside the workspace",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "runPlan",
+      "request": { "relativeFilePath": "../outside.php" },
+      "expected": { "status": "rejected", "code": "plugin.path.invalid" }
+    },
+    {
+      "name": "php discovery lists the workspace then sorted test files",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "discoverTests",
+      "request": { "relativeProjectFilePaths": ["tests/StoreTest.php", "composer.json", "src/Store.php", "tests/Helpers.php", "tests/LegacyTEST.php"] },
+      "expected": {
+        "status": "ok",
+        "items": [
+          { "id": "php:workspace", "label": "All PHP Tests", "kind": "workspace" },
+          { "id": "php:file:tests/LegacyTEST.php", "label": "tests/LegacyTEST.php", "kind": "file", "relativeFilePath": "tests/LegacyTEST.php" },
+          { "id": "php:file:tests/StoreTest.php", "label": "tests/StoreTest.php", "kind": "file", "relativeFilePath": "tests/StoreTest.php" }
+        ]
+      }
+    },
+    {
+      "name": "php discovery returns nothing outside a PHP project",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "discoverTests",
+      "request": { "relativeProjectFilePaths": ["README.md", "index.php", "tests/IndexTest.php"] },
+      "expected": { "status": "ok", "items": [] }
+    },
+    {
+      "name": "php workspace test",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "testPlan",
+      "request": { "scope": { "kind": "workspace" }, "relativeProjectFilePaths": ["phpunit.xml.dist"] },
+      "expected": {
+        "status": "ok",
+        "plan": { "label": "All PHP Tests", "frameworkID": "phpunit", "executable": { "command": "php" }, "arguments": ["vendor/bin/phpunit"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "php file test",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "testPlan",
+      "request": { "scope": { "kind": "file", "relativeFilePath": "tests/StoreTest.php" }, "relativeProjectFilePaths": ["composer.json"] },
+      "expected": {
+        "status": "ok",
+        "plan": { "label": "StoreTest.php", "frameworkID": "phpunit", "executable": { "command": "php" }, "arguments": ["vendor/bin/phpunit", "tests/StoreTest.php"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "php single test case with its file",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "testPlan",
+      "request": { "scope": { "kind": "testCase", "identifier": " testKeepsInsertionOrder ", "relativeFilePath": "tests/StoreTest.php" }, "relativeProjectFilePaths": ["composer.json"] },
+      "expected": {
+        "status": "ok",
+        "plan": { "label": "testKeepsInsertionOrder", "frameworkID": "phpunit", "executable": { "command": "php" }, "arguments": ["vendor/bin/phpunit", "--filter", "\\btestKeepsInsertionOrder\\b", "tests/StoreTest.php"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "php single test case escapes regex characters and omits the missing file",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "testPlan",
+      "request": { "scope": { "kind": "testCase", "identifier": "testA.b/c" }, "relativeProjectFilePaths": ["composer.json"] },
+      "expected": {
+        "status": "ok",
+        "plan": { "label": "testA.b/c", "frameworkID": "phpunit", "executable": { "command": "php" }, "arguments": ["vendor/bin/phpunit", "--filter", "\\btestA\\.b/c\\b"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "php blank test identifier",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "testPlan",
+      "request": { "scope": { "kind": "testCase", "identifier": "  " }, "relativeProjectFilePaths": ["composer.json"] },
+      "expected": { "status": "rejected", "code": "plugin.test.invalidIdentifier" }
+    },
+    {
+      "name": "php test outside a PHP project",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "testPlan",
+      "request": { "scope": { "kind": "workspace" }, "relativeProjectFilePaths": ["index.php"] },
+      "expected": { "status": "rejected", "code": "plugin.test.unsupportedProject" }
+    },
+    {
+      "name": "language without an execution provider",
+      "plugin": "php-support.plugin.json",
+      "languageID": "python",
+      "operation": "runPlan",
+      "request": { "relativeFilePath": "main.py" },
+      "expected": { "status": "rejected", "code": "plugin.execution.unavailable" }
+    },
+    {
+      "name": "go run uses the project toolchain",
+      "plugin": "go-support.plugin.json",
+      "languageID": "go",
+      "operation": "runPlan",
+      "request": { "relativeFilePath": "cmd/app/main.go", "arguments": ["-port", "8080"] },
+      "expected": {
+        "status": "ok",
+        "plan": { "executable": { "toolchain": "project-go" }, "arguments": ["run", "cmd/app/main.go", "-port", "8080"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "go discovery",
+      "plugin": "go-support.plugin.json",
+      "languageID": "go",
+      "operation": "discoverTests",
+      "request": { "relativeProjectFilePaths": ["go.mod", "main.go", "pkg/store/store_test.go", "main_test.go"] },
+      "expected": {
+        "status": "ok",
+        "items": [
+          { "id": "go:workspace", "label": "All Go Tests", "kind": "workspace" },
+          { "id": "go:file:main_test.go", "label": "main_test.go", "kind": "file", "relativeFilePath": "main_test.go" },
+          { "id": "go:file:pkg/store/store_test.go", "label": "pkg/store/store_test.go", "kind": "file", "relativeFilePath": "pkg/store/store_test.go" }
+        ]
+      }
+    },
+    {
+      "name": "go file test runs the file's package",
+      "plugin": "go-support.plugin.json",
+      "languageID": "go",
+      "operation": "testPlan",
+      "request": { "scope": { "kind": "file", "relativeFilePath": "pkg/store/store_test.go" }, "relativeProjectFilePaths": ["go.mod"] },
+      "expected": {
+        "status": "ok",
+        "plan": { "label": "store_test.go", "frameworkID": "go", "executable": { "toolchain": "project-go" }, "arguments": ["test", "./pkg/store"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "go test case in a root file targets the root package",
+      "plugin": "go-support.plugin.json",
+      "languageID": "go",
+      "operation": "testPlan",
+      "request": { "scope": { "kind": "testCase", "identifier": "TestMain", "relativeFilePath": "main_test.go" }, "relativeProjectFilePaths": ["go.work"] },
+      "expected": {
+        "status": "ok",
+        "plan": { "label": "TestMain", "frameworkID": "go", "executable": { "toolchain": "project-go" }, "arguments": ["test", ".", "-run", "^TestMain$"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "go test case without a file searches every package",
+      "plugin": "go-support.plugin.json",
+      "languageID": "go",
+      "operation": "testPlan",
+      "request": { "scope": { "kind": "testCase", "identifier": "TestStore/sub(case)" }, "relativeProjectFilePaths": ["go.mod"] },
+      "expected": {
+        "status": "ok",
+        "plan": { "label": "TestStore/sub(case)", "frameworkID": "go", "executable": { "toolchain": "project-go" }, "arguments": ["test", "./...", "-run", "^TestStore/sub\\(case\\)$"], "workingDirectory": "." }
+      }
+    },
+    {
+      "name": "java launch pins the packaged runtime and lists the jdt integration resources",
+      "plugin": "java-support.plugin.json",
+      "languageID": "java",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "arm64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "java",
+            "entry": "language-server/plugins/org.eclipse.equinox.launcher.jar",
+            "packagedRuntime": "runtime/arm64/bin/java"
+          },
+          "arguments": [
+            "-Dfile.encoding=UTF-8",
+            "-jar",
+            "/plugins/java/versions/1.0.0/language-server/plugins/org.eclipse.equinox.launcher.jar"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [],
+          "initializationOptions": {
+            "extendedClientCapabilities": {
+              "classFileContentsSupport": true
+            }
+          },
+          "hostIntegration": {
+            "id": "jdt",
+            "resources": {
+              "configuration": "language-server/configuration/arm64",
+              "extensionBundleDirectories": [
+                "language-server/java-debug",
+                "language-server/java-test/extensions"
+              ],
+              "lombokAgent": "language-server/lombok/lombok.jar",
+              "testRunner": "language-server/java-test/runner/runner.jar"
+            }
+          },
+          "requiredDirectories": [],
+          "requiredPackagePaths": [
+            "language-server/configuration/arm64",
+            "language-server/java-debug",
+            "language-server/java-test/extensions",
+            "language-server/java-test/runner/runner.jar",
+            "language-server/lombok/lombok.jar",
+            "language-server/plugins/org.eclipse.equinox.launcher.jar",
+            "runtime/arm64/bin/java"
+          ]
+        }
+      }
+    },
+    {
+      "name": "java launch selects per-architecture package paths and drops a trailing separator",
+      "plugin": "java-support.plugin.json",
+      "languageID": "java",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0/",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "x86_64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "java",
+            "entry": "language-server/plugins/org.eclipse.equinox.launcher.jar",
+            "packagedRuntime": "runtime/x86_64/bin/java"
+          },
+          "arguments": [
+            "-Dfile.encoding=UTF-8",
+            "-jar",
+            "/plugins/java/versions/1.0.0/language-server/plugins/org.eclipse.equinox.launcher.jar"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [],
+          "initializationOptions": {
+            "extendedClientCapabilities": {
+              "classFileContentsSupport": true
+            }
+          },
+          "hostIntegration": {
+            "id": "jdt",
+            "resources": {
+              "configuration": "language-server/configuration/x86_64",
+              "extensionBundleDirectories": [
+                "language-server/java-debug",
+                "language-server/java-test/extensions"
+              ],
+              "lombokAgent": "language-server/lombok/lombok.jar",
+              "testRunner": "language-server/java-test/runner/runner.jar"
+            }
+          },
+          "requiredDirectories": [],
+          "requiredPackagePaths": [
+            "language-server/configuration/x86_64",
+            "language-server/java-debug",
+            "language-server/java-test/extensions",
+            "language-server/java-test/runner/runner.jar",
+            "language-server/lombok/lombok.jar",
+            "language-server/plugins/org.eclipse.equinox.launcher.jar",
+            "runtime/x86_64/bin/java"
+          ]
+        }
+      }
+    },
+    {
+      "name": "node launch discovers the runtime, carries its version probe, and expands host directories",
+      "plugin": "node-runtime.plugin.json",
+      "languageID": "fixture",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/node/versions/1.0.0",
+        "stateDirectory": "/state/node",
+        "workspaceStateDirectory": "/state/node/workspaces/abc",
+        "architecture": "x86_64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "node",
+            "entry": "language-server/lib/server.js",
+            "minimumVersion": "18.17",
+            "versionArguments": [
+              "--version"
+            ]
+          },
+          "arguments": [
+            "--max-old-space-size=2048",
+            "--require=/plugins/node/versions/1.0.0/language-server/lib/preload.js",
+            "/plugins/node/versions/1.0.0/language-server/lib/server.js",
+            "--stdio",
+            "--log-level=info",
+            "--storage",
+            "/state/node/storage",
+            "--workspace-cache",
+            "/state/node/workspaces/abc"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [
+            {
+              "tool": "node",
+              "minimumVersion": "18.17"
+            }
+          ],
+          "initializationOptions": {
+            "stubs": [
+              "/plugins/node/versions/1.0.0/language-server/stubs/x86_64"
+            ],
+            "telemetry": false
+          },
+          "requiredDirectories": [
+            "state",
+            "workspaceState"
+          ],
+          "requiredPackagePaths": [
+            "language-server/lib/preload.js",
+            "language-server/lib/server.js",
+            "language-server/stubs/x86_64"
+          ],
+          "settings": {
+            "heapMB": 2048,
+            "logLevel": "info",
+            "telemetry": false
+          }
+        }
+      }
+    },
+    {
+      "name": "node launch substitutes stored settings, keeping a boolean setting a boolean",
+      "plugin": "node-runtime.plugin.json",
+      "languageID": "fixture",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/node/versions/1.0.0",
+        "stateDirectory": "/state/node",
+        "workspaceStateDirectory": "/state/node/workspaces/abc",
+        "architecture": "x86_64",
+        "settings": {
+          "heapMB": 4096,
+          "logLevel": "debug",
+          "telemetry": true
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "node",
+            "entry": "language-server/lib/server.js",
+            "minimumVersion": "18.17",
+            "versionArguments": [
+              "--version"
+            ]
+          },
+          "arguments": [
+            "--max-old-space-size=4096",
+            "--require=/plugins/node/versions/1.0.0/language-server/lib/preload.js",
+            "/plugins/node/versions/1.0.0/language-server/lib/server.js",
+            "--stdio",
+            "--log-level=debug",
+            "--storage",
+            "/state/node/storage",
+            "--workspace-cache",
+            "/state/node/workspaces/abc"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [
+            {
+              "tool": "node",
+              "minimumVersion": "18.17"
+            }
+          ],
+          "initializationOptions": {
+            "stubs": [
+              "/plugins/node/versions/1.0.0/language-server/stubs/x86_64"
+            ],
+            "telemetry": true
+          },
+          "requiredDirectories": [
+            "state",
+            "workspaceState"
+          ],
+          "requiredPackagePaths": [
+            "language-server/lib/preload.js",
+            "language-server/lib/server.js",
+            "language-server/stubs/x86_64"
+          ],
+          "settings": {
+            "heapMB": 4096,
+            "logLevel": "debug",
+            "telemetry": true
+          }
+        }
+      }
+    },
+    {
+      "name": "node launch falls back to defaults for stored values the declaration no longer accepts",
+      "plugin": "node-runtime.plugin.json",
+      "languageID": "fixture",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/node/versions/1.0.0",
+        "stateDirectory": "/state/node",
+        "workspaceStateDirectory": "/state/node/workspaces/abc",
+        "architecture": "x86_64",
+        "settings": {
+          "heapMB": 99999,
+          "logLevel": "verbose",
+          "telemetry": "yes",
+          "unknown": 1
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "node",
+            "entry": "language-server/lib/server.js",
+            "minimumVersion": "18.17",
+            "versionArguments": [
+              "--version"
+            ]
+          },
+          "arguments": [
+            "--max-old-space-size=2048",
+            "--require=/plugins/node/versions/1.0.0/language-server/lib/preload.js",
+            "/plugins/node/versions/1.0.0/language-server/lib/server.js",
+            "--stdio",
+            "--log-level=info",
+            "--storage",
+            "/state/node/storage",
+            "--workspace-cache",
+            "/state/node/workspaces/abc"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [
+            {
+              "tool": "node",
+              "minimumVersion": "18.17"
+            }
+          ],
+          "initializationOptions": {
+            "stubs": [
+              "/plugins/node/versions/1.0.0/language-server/stubs/x86_64"
+            ],
+            "telemetry": false
+          },
+          "requiredDirectories": [
+            "state",
+            "workspaceState"
+          ],
+          "requiredPackagePaths": [
+            "language-server/lib/preload.js",
+            "language-server/lib/server.js",
+            "language-server/stubs/x86_64"
+          ],
+          "settings": {
+            "heapMB": 2048,
+            "logLevel": "info",
+            "telemetry": false
+          }
+        }
+      }
+    },
+    {
+      "name": "node launch keeps a stored value for one setting and defaults the others",
+      "plugin": "node-runtime.plugin.json",
+      "languageID": "fixture",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/node/versions/1.0.0",
+        "stateDirectory": "/state/node",
+        "workspaceStateDirectory": "/state/node/workspaces/abc",
+        "architecture": "x86_64",
+        "settings": {
+          "heapMB": 1024
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "node",
+            "entry": "language-server/lib/server.js",
+            "minimumVersion": "18.17",
+            "versionArguments": [
+              "--version"
+            ]
+          },
+          "arguments": [
+            "--max-old-space-size=1024",
+            "--require=/plugins/node/versions/1.0.0/language-server/lib/preload.js",
+            "/plugins/node/versions/1.0.0/language-server/lib/server.js",
+            "--stdio",
+            "--log-level=info",
+            "--storage",
+            "/state/node/storage",
+            "--workspace-cache",
+            "/state/node/workspaces/abc"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [
+            {
+              "tool": "node",
+              "minimumVersion": "18.17"
+            }
+          ],
+          "initializationOptions": {
+            "stubs": [
+              "/plugins/node/versions/1.0.0/language-server/stubs/x86_64"
+            ],
+            "telemetry": false
+          },
+          "requiredDirectories": [
+            "state",
+            "workspaceState"
+          ],
+          "requiredPackagePaths": [
+            "language-server/lib/preload.js",
+            "language-server/lib/server.js",
+            "language-server/stubs/x86_64"
+          ],
+          "settings": {
+            "heapMB": 1024,
+            "logLevel": "info",
+            "telemetry": false
+          }
+        }
+      }
+    },
+    {
+      "name": "php launch keeps API 1 arguments literal and names the packaged executable",
+      "plugin": "php-support.plugin.json",
+      "languageID": "php",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "arm64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "packaged",
+            "path": "language-server/bin/intelephense"
+          },
+          "arguments": [
+            "--stdio"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [
+            {
+              "tool": "node"
+            }
+          ],
+          "requiredDirectories": [],
+          "requiredPackagePaths": [
+            "language-server/bin/intelephense"
+          ]
+        }
+      }
+    },
+    {
+      "name": "go launch resolves a system command and needs nothing from the package",
+      "plugin": "go-support.plugin.json",
+      "languageID": "go",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "arm64"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "systemCommand",
+            "commands": [
+              "gopls"
+            ]
+          },
+          "arguments": [],
+          "validationArguments": [
+            "version"
+          ],
+          "runtimeRequirements": [
+            {
+              "tool": "go"
+            }
+          ],
+          "requiredDirectories": [],
+          "requiredPackagePaths": []
+        }
+      }
+    },
+    {
+      "name": "launch plan refuses an unknown architecture",
+      "plugin": "java-support.plugin.json",
+      "languageID": "java",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "riscv64"
+      },
+      "expected": {
+        "status": "rejected",
+        "code": "plugin.launch.invalidRequest"
+      }
+    },
+    {
+      "name": "launch plan refuses an empty plugin directory",
+      "plugin": "java-support.plugin.json",
+      "languageID": "java",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "arm64"
+      },
+      "expected": {
+        "status": "rejected",
+        "code": "plugin.launch.invalidRequest"
+      }
+    },
+    {
+      "name": "launch plan refuses a language without a server",
+      "plugin": "java-support.plugin.json",
+      "languageID": "kotlin",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/java/versions/1.0.0",
+        "stateDirectory": "/state/java",
+        "workspaceStateDirectory": "/state/java/workspaces/abc",
+        "architecture": "arm64"
+      },
+      "expected": {
+        "status": "rejected",
+        "code": "plugin.launch.unavailable"
+      }
+    }
+  ]
+}

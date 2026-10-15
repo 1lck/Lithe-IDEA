@@ -23,6 +23,8 @@ enum AgentContextUsagePresentation {
 /// Compact context ring with a zero placeholder until the Agent reports usage.
 struct AgentContextUsageView: View {
     let usage: AgentContextUsage?
+    /// Estimated prompt composition from the optional model call proxy.
+    var composition: AgentModelCall.Context?
     @Environment(\.locale) private var locale
 
     private var color: Color {
@@ -48,7 +50,9 @@ struct AgentContextUsageView: View {
         .foregroundStyle(color)
         .padding(.vertical, 4)
         .fixedSize()
-        .workbenchHoverHelp(Text(verbatim: AgentContextUsagePresentation.details(usage, locale: locale)), placement: .above)
+        .workbenchHoverCard(placement: .above, maximumWidth: AgentStatusCardMetrics.width) {
+            AgentContextUsageCard(usage: usage, composition: composition)
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Context usage")
         .accessibilityValue(AgentContextUsagePresentation.details(usage, locale: locale))

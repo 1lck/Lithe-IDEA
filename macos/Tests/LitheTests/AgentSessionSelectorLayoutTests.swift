@@ -23,22 +23,26 @@ struct AgentSessionSelectorLayoutTests {
             let window = makeWindow(host, size: NSSize(width: 330, height: 36))
             window.setFrameOrigin(NSPoint(x: atRightEdge ? screen.maxX - 336 : screen.minX + 80, y: screen.midY - 100))
             defer { window.contentView = nil; window.close() }
-            try #require(await waitUntil { dropdownAnchors(in: host).count == 1 }, "The model trigger must be laid out")
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 1 }, "The model trigger must be laid out")
             let trigger = try #require(dropdownAnchors(in: host).first)
             try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
-            try #require(await waitUntil { popup(in: window) != nil }, "The model menu must open")
+            try #require(await waitUntil(updating: host) { popup(in: window) != nil }, "The model menu must open")
             let parent = try #require(popup(in: window))
             let parentContent = try #require(parent.contentView)
-            try #require(await waitUntil { dropdownAnchors(in: parentContent).count == 2 }, "Both settings rows must be laid out")
+            try #require(await waitUntil(updating: parentContent) { dropdownAnchors(in: parentContent).count == 2 }, "Both settings rows must be laid out")
             let parentFrame = parent.frame
-            let rows = dropdownAnchors(in: parentContent).sorted {
-                parent.convertToScreen($0.convert($0.bounds, to: nil)).maxY > parent.convertToScreen($1.convert($1.bounds, to: nil)).maxY
-            }
             for (index, setting) in [speed, effort].enumerated() {
+                try #require(await waitUntil(updating: parentContent) {
+                    dropdownAnchors(in: parentContent).count == 2
+                }, "Both setting triggers must have native geometry before clicking")
+                let rows = dropdownAnchors(in: parentContent).sorted {
+                    parent.convertToScreen($0.convert($0.bounds, to: nil)).maxY > parent.convertToScreen($1.convert($1.bounds, to: nil)).maxY
+                }
                 let anchor = rows[index]
                 let row = parent.convertToScreen(anchor.convert(anchor.bounds, to: nil))
                 try click(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor, window: parent)
-                try #require(await waitUntil { popup(in: parent) != nil }, "The setting must open a separate child menu")
+                try #require(await waitUntil(updating: parentContent) { popup(in: parent) != nil },
+                    "Setting \(setting.id) must open a child menu in \(scheme) mode (right edge: \(atRightEdge), parent visible: \(parent.isVisible), anchor: \(anchor.bounds))")
                 let child = try #require(popup(in: parent))
                 #expect(parent.isVisible && parent.frame == parentFrame,
                         "Opening a setting must not move, widen or dismiss the model panel")
@@ -61,13 +65,14 @@ struct AgentSessionSelectorLayoutTests {
                 try capture(try #require(child.contentView), name: "\(setting.id)-flyout-\(scheme)-\(atRightEdge)")
                 if index == 0 {
                     try sendKey(53, to: child)
-                    #expect(!child.isVisible && parent.isVisible, "Escape closes just the child menu")
+                    try #require(await waitUntil(updating: parentContent) { !child.isVisible && parent.isVisible },
+                        "Escape must close just the child before opening the next setting")
                 } else {
                     // Use the real child keyboard route; selection must preserve the upstream ID.
                     try sendKey(125, to: child)
                     try sendKey(36, to: child)
-                    #expect(await waitUntil { selected?.0 == "effort" && selected?.1 == "low" })
-                    #expect(await waitUntil { popup(in: window) == nil }, "Selecting a child choice closes both menus")
+                    #expect(await waitUntil(updating: host) { selected?.0 == "effort" && selected?.1 == "low" })
+                    #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "Selecting a child choice closes both menus")
                     #expect(!child.isVisible, "The child must not survive as an orphaned popup")
                 }
             }
@@ -91,10 +96,10 @@ struct AgentSessionSelectorLayoutTests {
             let screen = try #require(NSScreen.main).visibleFrame
             window.setFrameOrigin(NSPoint(x: screen.minX + 80, y: screen.midY))
             defer { window.contentView = nil; window.close() }
-            try #require(await waitUntil { dropdownAnchors(in: host).count == 1 }, "The custom setting must be laid out")
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 1 }, "The custom setting must be laid out")
             let anchor = try #require(dropdownAnchors(in: host).first)
             try click(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor, window: window)
-            try #require(await waitUntil { popup(in: window) != nil }, "The long described menu must open")
+            try #require(await waitUntil(updating: host) { popup(in: window) != nil }, "The long described menu must open")
             let child = try #require(popup(in: window))
             #expect(child.frame.width <= LitheDropdownMetrics.maximumWidth)
             #expect(screen.contains(child.frame), "Long described menus must stay on screen")
@@ -104,10 +109,10 @@ struct AgentSessionSelectorLayoutTests {
             #expect(document.bounds.height > scroll.contentView.bounds.height)
             // Up from an unnavigated menu selects its final item and scrolls it into view.
             try sendKey(126, to: child)
-            #expect(await waitUntil { scroll.contentView.bounds.minY > 0 }, "Keyboard navigation must reveal the final choice")
+            #expect(await waitUntil(updating: content) { scroll.contentView.bounds.minY > 0 }, "Keyboard navigation must reveal the final choice")
             try capture(content, name: "described-settings-scrolled-\(scheme)")
             try sendKey(36, to: child)
-            #expect(await waitUntil { selected == "choice-29" }, "The final upstream ID must remain selectable")
+            #expect(await waitUntil(updating: host) { selected == "choice-29" }, "The final upstream ID must remain selectable")
             #expect(!child.isVisible)
         }
     }
@@ -135,9 +140,8 @@ struct AgentSessionSelectorLayoutTests {
                 window.close()
             }
             for (category, value) in [("mode", "auto"), ("model", "model-b")] {
-                try #require(await waitUntil {
-                    host.layoutSubtreeIfNeeded()
-                    return dropdownAnchors(in: host).count == 3
+                try #require(await waitUntil(updating: host) {
+                    dropdownAnchors(in: host).count == 3
                 }, "The composer must lay out the Agent, approval and model triggers")
                 // Shared dropdown anchors have the real trigger geometry; avoid guessed pixel offsets.
                 let anchors = dropdownAnchors(in: host).sorted {
@@ -145,15 +149,15 @@ struct AgentSessionSelectorLayoutTests {
                 }
                 let trigger = anchors[category == "mode" ? 1 : 2]
                 try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
-                try #require(await waitUntil { popup(in: window) != nil }, "A native click must open the shared dropdown while responding")
+                try #require(await waitUntil(updating: host) { popup(in: window) != nil }, "A native click must open the shared dropdown while responding")
                 let panel = try #require(popup(in: window))
                 let content = try #require(panel.contentView)
                 let scroll = try #require(scrollView(in: content))
                 let document = try #require(scroll.documentView)
                 let rowHeight = document.bounds.height / 2
                 try click(NSPoint(x: 100, y: rowHeight * 1.5), in: document, window: panel)
-                #expect(await waitUntil { selections[category] == value }, "The open dropdown must preserve its selection callback")
-                #expect(await waitUntil { popup(in: window) == nil }, "Choosing a value must dismiss the dropdown")
+                #expect(await waitUntil(updating: host) { selections[category] == value }, "The open dropdown must preserve its selection callback")
+                #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "Choosing a value must dismiss the dropdown")
             }
         }
     }
@@ -174,9 +178,8 @@ struct AgentSessionSelectorLayoutTests {
             defer { window.close() }
             let scroll = try #require(scrollView(in: host))
             let document = try #require(scroll.documentView)
-            try #require(await waitUntil {
-                host.layoutSubtreeIfNeeded()
-                return host.fittingSize.height >= document.bounds.height + 10
+            try #require(await waitUntil(updating: host) {
+                host.fittingSize.height >= document.bounds.height + 10
             }, "A short permission list must fit both description lines without scrolling")
             window.setContentSize(host.fittingSize)
             host.layoutSubtreeIfNeeded()
@@ -186,7 +189,7 @@ struct AgentSessionSelectorLayoutTests {
             #expect(rowHeight < 64,
                     "Wrapping must not restore the old excessive spacing")
             try click(NSPoint(x: 100, y: rowHeight / 2), in: document, window: window)
-            #expect(await waitUntil { selected == "manual" }, "The rendered choice must preserve the upstream ID")
+            #expect(await waitUntil(updating: host) { selected == "manual" }, "The rendered choice must preserve the upstream ID")
             try capture(host, name: "permission-two-lines-\(scheme)")
         }
     }
@@ -225,7 +228,7 @@ struct AgentSessionSelectorLayoutTests {
                 let lastPoint = NSPoint(x: 100, y: document.bounds.maxY - 13)
                 #expect(scroll.contentView.bounds.contains(lastPoint), "The final choice must be inside the scrolled viewport")
                 try click(lastPoint, in: document, window: window)
-                #expect(await waitUntil { selected == "choice-29" }, "Scrolling must make the final upstream choice selectable")
+                #expect(await waitUntil(updating: host) { selected == "choice-29" }, "Scrolling must make the final upstream choice selectable")
                 try capture(host, name: "\(category)-scrolled-\(scheme)")
             }
         }
@@ -248,7 +251,9 @@ struct AgentSessionSelectorLayoutTests {
     }
 
     private func dropdownAnchors(in view: NSView) -> [LitheDropdownAnchorView] {
-        if let anchor = view as? LitheDropdownAnchorView { return [anchor] }
+        if let anchor = view as? LitheDropdownAnchorView {
+            return anchor.window != nil && !anchor.bounds.isEmpty ? [anchor] : []
+        }
         return view.subviews.flatMap { dropdownAnchors(in: $0) }
     }
 
@@ -273,15 +278,24 @@ struct AgentSessionSelectorLayoutTests {
             charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
     }
 
-    private func waitUntil(_ condition: () -> Bool) async -> Bool {
-        // Native mouse events can publish a SwiftUI action asynchronously; wait on the callback, not a delay.
+    private func waitUntil(updating view: NSView, _ condition: () -> Bool) async -> Bool {
+        // A mounted anchor can precede its geometry, and SwiftUI can schedule
+        // another layout after a mouse action. Drive native work while waiting
+        // on the actual window/callback, keeping the original local deadline.
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(1))
-        while clock.now < deadline {
-            if condition() { return true }
+        repeat {
             await Task.yield()
-        }
+            layoutFrame(view)
+            if condition() { return true }
+        } while clock.now < deadline
         return condition()
+    }
+
+    private func layoutFrame(_ view: NSView) {
+        // Pump one ready native source with zero wait, as in the transcript tests.
+        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
+        view.layoutSubtreeIfNeeded()
     }
 
     private func capture(_ host: NSView, name: String) throws {

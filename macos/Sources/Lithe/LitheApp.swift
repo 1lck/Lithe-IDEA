@@ -55,7 +55,6 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             pendingURLs.forEach { projectSessions.openStandaloneFile($0) }
         }
     }
-    var recordCleanPluginShutdown: (() -> Void)?
     var prepareStableRollbackTermination: (() -> Bool)?
     var cancelStableRollbackTermination: (() -> Bool)?
 
@@ -90,6 +89,8 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(nanoseconds: Self.updateTerminationForceExitNanoseconds)
             guard let self, self.isUpdateInstallTermination, !Task.isCancelled else { return }
             // Sparkle's installer is waiting, and the user has confirmed unsaved work.
+            // exit() skips applicationWillTerminate, so end the children here.
+            MacLiveProcessGroups.application.terminateAllAndWait()
             Foundation.exit(EXIT_SUCCESS)
         }
     }
@@ -195,6 +196,9 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Session shutdown has already stopped what it knows about. Whatever
+        // is still alive must not outlive the IDE.
+        MacLiveProcessGroups.application.terminateAllAndWait()
         isUpdateInstallTermination = false
         updateForceExitTask?.cancel()
         updateForceExitTask = nil
@@ -202,7 +206,6 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(kCoreEventClass),
             andEventID: AEEventID(kAEOpenDocuments)
         )
-        recordCleanPluginShutdown?()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -342,8 +345,6 @@ struct LitheApp: App {
         }
         let processRegistry = ManagedProcessRegistry()
         let moduleStore = MacModuleConfigurationStore(store: store)
-        let pluginRuntimeRecovery = MacPluginRuntimeRecoveryCoordinator()
-        pluginRuntimeRecovery.recoverPreviousSession(using: moduleStore)
         _settings = StateObject(wrappedValue: settings)
         let projectWindowLauncher = ProjectWindowLauncher()
         _projectWindowLauncher = StateObject(wrappedValue: projectWindowLauncher)
@@ -360,7 +361,6 @@ struct LitheApp: App {
                             ? .safeMode
                             : .normal,
                         moduleStore: moduleStore,
-                        pluginRuntimeRecovery: pluginRuntimeRecovery,
                         gitPerformanceLogger: gitPerformanceLogger
                     ).services
                 )
@@ -392,9 +392,6 @@ struct LitheApp: App {
         })
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
-        appDelegate.recordCleanPluginShutdown = {
-            pluginRuntimeRecovery.recordCleanShutdown(using: moduleStore)
-        }
         let appDelegate = appDelegate
         updateChecker.willRelaunchForUpdate = { [weak appDelegate] in
             appDelegate?.prepareForUpdateRelaunch()

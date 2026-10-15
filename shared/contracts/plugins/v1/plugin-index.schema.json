@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/plugins/v1/plugin-index.schema.json",
+  "title": "Lithe plugin marketplace index (plugin contract v1)",
+  "description": "Shape of a marketplace source index. Semantic rules that JSON Schema cannot express (download URLs inside the entry's own repository, duplicate IDs and versions, the official namespace, platform and API filtering) are defined in README.md and enforced by plugins.marketplace.validateIndex.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "plugins"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "plugins": { "type": "array", "items": { "$ref": "#/$defs/plugin" } }
+  },
+  "$defs": {
+    "https": { "type": "string", "pattern": "^https://" },
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "author", "repository", "description", "license", "versions"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+        "name": { "type": "string", "minLength": 1 },
+        "author": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/?$" },
+        "homepage": { "$ref": "#/$defs/https" },
+        "description": { "type": "string", "minLength": 1 },
+        "localizedDescriptions": {
+          "description": "Translations of description keyed by language tag (for example zh-Hans). Hosts show the one matching the interface language and fall back to description.",
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$" },
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "tags": { "type": "array", "items": { "type": "string", "pattern": "^\\S+$" } },
+        "license": { "type": "string", "minLength": 1 },
+        "icon": { "type": "string", "pattern": "^https://raw\\.githubusercontent\\.com/" },
+        "versions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/version" } }
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "pluginAPIVersion", "releaseDate", "downloads"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "pluginAPIVersion": { "type": "integer", "minimum": 1 },
+        "releaseDate": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "downloads": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/download" } }
+      }
+    },
+    "download": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platforms", "downloadURL", "sha256"],
+      "properties": {
+        "platforms": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[a-z0-9]+-[a-z0-9]+$" } },
+        "downloadURL": { "type": "string", "pattern": "^https://github\\.com/[^/]+/[^/]+/releases/download/[^/]+/[^/]+\\.zip$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

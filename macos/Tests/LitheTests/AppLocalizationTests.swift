@@ -203,7 +203,7 @@ struct AppLocalizationTests {
     }
 
     @Test
-    func simplifiedChineseResourcesCoverPHPPluginManagement() throws {
+    func simplifiedChineseResourcesCoverPHPSupportManagement() throws {
         let translations = try simplifiedChineseTranslations()
 
         #expect(translations["PHP Support"] == "PHP 支持")

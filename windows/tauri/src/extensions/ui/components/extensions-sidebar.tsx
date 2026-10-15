@@ -65,6 +65,7 @@ import { EmptyState } from "@/ui/empty";
 import { Spinner } from "@/ui/spinner";
 import { SearchField } from "@/ui/search";
 import { ScrollArea } from "@/ui/scroll-area";
+import { ExtensionsBrowserLayout } from "./extensions-browser-layout";
 import { cn } from "@/utils/cn";
 import { PLATFORM_ARCH } from "@/utils/platform";
 
@@ -536,7 +537,9 @@ const ExtensionRow = ({
   );
 };
 
-export const ExtensionsSidebar = () => {
+export const ExtensionsSidebar = ({
+  presentation = "workbench",
+}: { presentation?: "workbench" | "settings" } = {}) => {
   const { t } = useTranslation();
   const settings = useSettingsStore(
     useShallow((state) => ({
@@ -579,8 +582,8 @@ export const ExtensionsSidebar = () => {
   }, [settings.extensionsActiveTab, updateSetting]);
 
   useEffect(() => {
-    searchInputRef.current?.focus();
-  }, []);
+    if (presentation === "workbench") searchInputRef.current?.focus();
+  }, [presentation]);
 
   const loadAgents = useCallback(async () => {
     setIsLoadingAgents(true);
@@ -1631,7 +1634,12 @@ export const ExtensionsSidebar = () => {
 
   return (
     <div className="font-sans flex h-full min-h-0 flex-col bg-background">
-      <div className="shrink-0 border-border/70 border-b px-5 py-4">
+      <div
+        className={cn(
+          "shrink-0 border-border/70 border-b",
+          presentation === "settings" ? "px-4 py-3" : "px-5 py-4",
+        )}
+      >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -1656,7 +1664,7 @@ export const ExtensionsSidebar = () => {
           <div className="flex min-w-65 flex-1 items-center justify-end gap-2 sm:flex-none">
             <SearchField
               ref={searchInputRef}
-              autoFocus
+              autoFocus={presentation === "workbench"}
               value={searchQuery}
               onChange={setSearchQuery}
               leftIcon={Search}
@@ -1736,8 +1744,14 @@ export const ExtensionsSidebar = () => {
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(380px,1fr)_minmax(340px,440px)]">
-        <ScrollArea className="min-h-0 border-border/70 border-r" contentClassName="p-5">
+      <ExtensionsBrowserLayout presentation={presentation}>
+        <ScrollArea
+          className={cn(
+            "min-h-0",
+            presentation === "settings" ? "h-full" : "border-border/70 border-r",
+          )}
+          contentClassName={presentation === "settings" ? "p-3" : "p-5"}
+        >
           {settings.extensionsActiveTab === "skill" && isLoadingSkills ? (
             <div className="mb-3">
               <Spinner label={t("extensions.loadingSkills")} showLabel compact />
@@ -1753,7 +1767,12 @@ export const ExtensionsSidebar = () => {
           {filteredExtensions.length === 0 ? (
             <EmptyState message={t("extensions.noneFound")} />
           ) : (
-            <div className="grid grid-cols-1 gap-1 xl:grid-cols-2 xl:gap-x-8 xl:gap-y-2">
+            <div
+              className={cn(
+                "grid grid-cols-1 gap-1",
+                presentation === "workbench" && "xl:grid-cols-2 xl:gap-x-8 xl:gap-y-2",
+              )}
+            >
               {filteredExtensions.map((extension) => {
                 const isInstalling = isExtensionInstalling(extension);
                 const hasUpdate = hasExtensionUpdate(extension);
@@ -1779,8 +1798,11 @@ export const ExtensionsSidebar = () => {
         </ScrollArea>
 
         <ScrollArea
-          className="hidden min-h-0 bg-surface/25 lg:block"
-          contentClassName="p-5"
+          className={cn(
+            "min-h-0 bg-surface/25",
+            presentation === "settings" ? "h-full" : "hidden lg:block",
+          )}
+          contentClassName={presentation === "settings" ? "p-4" : "p-5"}
           render={<aside />}
         >
           {selectedExtension ? (
@@ -2012,7 +2034,7 @@ export const ExtensionsSidebar = () => {
             <EmptyState message={t("extensions.noneSelected")} />
           )}
         </ScrollArea>
-      </div>
+      </ExtensionsBrowserLayout>
 
       <SkillsCommand
         isOpen={isSkillsCommandOpen}

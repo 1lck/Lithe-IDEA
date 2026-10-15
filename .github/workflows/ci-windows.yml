@@ -1,10 +1,13 @@
+# Registered by the standalone preview repository.
 name: Windows CI
 
 on:
   pull_request:
+    # ready_for_review reruns the deferred runner lanes after a draft is ready.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
-      - main
+      - preview
   workflow_dispatch:
 
 permissions:
@@ -64,6 +67,7 @@ jobs:
         env:
           MANUAL: ${{ steps.base.outputs.manual }}
           BASE_SHA: ${{ steps.base.outputs.base_sha }}
+          LITHE_CI_DRAFT_PULL_REQUEST: ${{ github.event.pull_request.draft == true }}
         shell: bash
         run: |
           if [[ "$MANUAL" == "true" ]]; then
@@ -92,6 +96,7 @@ jobs:
           RUST_CORE: ${{ steps.classify.outputs.rust_core }}
           WINDOWS_RUST: ${{ steps.classify.outputs.windows_rust }}
           JAVA_JDT: ${{ steps.classify.outputs.java_jdt }}
+          DRAFT: ${{ github.event.pull_request.draft == true }}
         run: |
           {
             echo "### Windows CI lanes"
@@ -101,6 +106,10 @@ jobs:
             echo "| Shared Rust Core tests | $RUST_CORE |"
             echo "| Windows Rust tests | $WINDOWS_RUST |"
             echo "| Real JDT on Windows | $JAVA_JDT |"
+            if [[ "$DRAFT" == "true" ]]; then
+              echo ""
+              echo "Draft pull request: Windows runner lanes are deferred until it is marked ready for review."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   frontend:
@@ -390,12 +399,14 @@ jobs:
             "src/features/git/components/log/git-commit-table.presentation.test.tsx",
             "src/features/git/components/log/git-commit-table-keyboard-menu.test.tsx",
             "src/features/git/components/log/git-commit-table-tag.test.tsx",
+            "src/features/git/components/log/git-create-tag-dialog.test.tsx",
             "src/features/git/components/log/git-graph-row.test.ts",
             "src/features/git/components/log/git-graph-row.theme.test.tsx",
             "src/features/git/components/log/git-log-branch-actions.test.tsx",
             "src/features/git/hooks/use-git-graph-paint.test.tsx",
             "src/features/git/hooks/use-git-log-controller.integration.test.tsx",
             "src/features/git/stores/git-log-preferences.store.test.ts",
+            "src/features/git/utils/git-checkout-failure-presentation.test.ts",
             "src/features/git/utils/git-graph-colors.test.ts",
             "src/features/git/utils/git-graph-geometry.test.ts",
             "src/features/git/utils/git-graph-highlights.test.ts",
@@ -445,6 +456,25 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-font-size.json -- src/features/settings/lib/editor-font-size.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-search-match.json -- src/utils/search-match.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test settings hierarchy, controls, theme and plugin search focus
+        shell: pwsh
+        timeout-minutes: 7
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          # Keep DOM setup, native spies and store mocks isolated between suites.
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-hierarchy.json -- src/features/settings/components/settings-hierarchy.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-theme-sync.json -- src/features/settings/lib/settings-theme-sync.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-select.json -- src/ui/settings-select.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-path.json -- src/ui/settings-path-input.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-updates.json -- src/features/settings/components/update-status.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-plugin-focus.json -- --preload ./src/test-utils/vite-assets.ts src/extensions/ui/components/extensions-sidebar-focus.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Spring dependency readiness and properties completion
@@ -628,6 +658,7 @@ jobs:
             --max-ms 15000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
+            --test-budget tests::git_remote_checkout::=30000 `
             --test-budget tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote=30000 `
             --test-budget tests::git::git_write_squashes_=30000 `
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `

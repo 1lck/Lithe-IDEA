@@ -1,0 +1,451 @@
+{
+  "schemaVersion": 1,
+  "description": "Each case edits a valid fixture manifest and states the stable rejection code every host must report. Edits use JSON Pointer paths; `set` replaces or adds a value and `remove` deletes it.",
+  "cases": [
+    {
+      "name": "legacy native manifest schema",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/schemaVersion", "value": 1 }],
+      "expectedCode": "plugin.schema.unsupported"
+    },
+    {
+      "name": "future plugin API",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/pluginAPIVersion", "value": 99 }],
+      "expectedCode": "plugin.api.unsupported"
+    },
+    {
+      "name": "unknown top-level field",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/entrypoint", "value": { "kind": "nativeBundle" } }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "uppercase plugin id",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/id", "value": "Dev.Lithe.Fixture" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "packaged language server escapes the package",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/path", "value": "../bin/intelephense" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "system command is a path",
+      "base": "go-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/commands", "value": ["/usr/local/bin/gopls"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "language server for an undeclared language",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/languageID", "value": "hack" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "unsupported runtime dependency",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "python" }] }],
+      "expectedCode": "plugin.runtime.unsupported"
+    },
+    {
+      "name": "unknown permission",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/permissions/0", "value": "network.fetch" }],
+      "expectedCode": "plugin.permission.unknown"
+    },
+    {
+      "name": "language server without its permission",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/permissions", "value": ["process.run", "process.test"] }],
+      "expectedCode": "plugin.permission.undeclared"
+    },
+    {
+      "name": "missing activation event",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/activationEvents", "value": ["onLanguage:php", "onRun:php"] }],
+      "expectedCode": "plugin.activation.invalid"
+    },
+    {
+      "name": "activation event without a provider",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "remove", "path": "/executionProviders/0/run" }],
+      "expectedCode": "plugin.activation.invalid"
+    },
+    {
+      "name": "unknown template variable",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/executionProviders/0/run/arguments", "value": ["${workspaceRoot}/${file}"] }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "user arguments embedded in an element",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/executionProviders/0/run/arguments", "value": ["${file}", "--args=${userArguments}"] }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "test case uses the file without a guard",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/executionProviders/0/test/testCaseArguments", "value": ["vendor/bin/phpunit", "--filter", "${testName:regex}", "${file}"] }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "test case never names the test",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/executionProviders/0/test/testCaseArguments", "value": ["vendor/bin/phpunit"] }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "executable is an absolute path",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/executionProviders/0/run/executable", "value": { "command": "/usr/bin/php" } }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "runtime launch in an API 1 manifest",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch", "value": { "kind": "runtime", "tool": "node", "entry": "language-server/lib/intelephense.js" } }, { "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "initialization options in an API 1 manifest",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/initializationOptions", "value": { "storagePath": "cache" } }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "host integration in an API 1 manifest",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration", "value": { "id": "jdt" } }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "runtime dependency states a minimum version",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "node", "minimumVersion": "18" }] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "java runtime in an API 1 manifest",
+      "base": "php-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "java" }] }],
+      "expectedCode": "plugin.runtime.unsupported"
+    },
+    {
+      "name": "runtime launch with a tool that cannot start an entry",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/tool", "value": "go" }],
+      "expectedCode": "plugin.runtime.unsupported"
+    },
+    {
+      "name": "runtime entry escapes the package",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/entry", "value": "../server.js" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "malformed minimum runtime version",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/minimumVersion", "value": "18+" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "launch runtime repeated as a dependency",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "node" }] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "runtime launch with a validation probe",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/validationArguments", "value": ["--version"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "packaged runtime escapes the package",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/packagedRuntime", "value": "../jdk/bin/java" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "packaged runtime varies by something other than the architecture",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/packagedRuntime", "value": "${stateDir}/jdk/bin/java" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "packaged runtime also states a minimum version",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/minimumVersion", "value": "21" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "unknown launch template variable",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/arguments/2", "value": "${homeDir}/storage" }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "package path leaves the package",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch/runtimeArguments/1", "value": "--require=${pluginDir}/../preload.js" }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "plugin directory without a package path",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/arguments/2", "value": "${pluginDir}" }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "package path varies by a state directory",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/arguments/2", "value": "${pluginDir}/storage/${stateDir}" }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "validation probe uses a state directory",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch", "value": { "kind": "packaged", "path": "language-server/bin/server" } }, { "op": "set", "path": "/languageServers/0/validationArguments", "value": ["--check", "${workspaceStateDir}"] }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "initialization options are not an object",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/initializationOptions", "value": ["stubs"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "unknown template variable inside initialization options",
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/initializationOptions/stubs/0", "value": "${stubDir}/php" }],
+      "expectedCode": "plugin.template.invalid"
+    },
+    {
+      "name": "unknown host integration",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/id", "value": "roslyn" }],
+      "expectedCode": "plugin.integration.unsupported"
+    },
+    {
+      "name": "host integration requested outside the official namespace",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/id", "value": "io.example.java" }, { "op": "set", "path": "/vendor/signatureRequirement", "value": "none" }],
+      "expectedCode": "plugin.integration.unsupported"
+    },
+    {
+      "name": "jdt integration without a java runtime launch",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/launch", "value": { "kind": "packaged", "path": "language-server/bin/jdtls" } }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "jdt integration misses a required resource",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "remove", "path": "/languageServers/0/hostIntegration/resources/configuration" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "jdt integration declares a resource it does not use",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/resources/indexer", "value": "language-server/indexer.jar" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "integration resource leaves the package",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/resources/lombokAgent", "value": "../lombok.jar" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "integration resource list given as a single path",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/resources/extensionBundleDirectories", "value": "language-server/java-debug" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "integration capability the integration does not provide",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/capabilities", "value": ["formatting"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "integration capability without the resource its host code reads",
+      "base": "java-support.plugin.json",
+      "edits": [{ "op": "remove", "path": "/languageServers/0/hostIntegration/resources/testRunner" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "integration capability that the plugin's execution provider already provides",
+      "base": "java-support.plugin.json",
+      "edits": [
+        { "op": "set", "path": "/permissions", "value": ["languageServer.launch", "process.run"] },
+        { "op": "set", "path": "/activationEvents", "value": ["onLanguage:java", "onRun:java"] },
+        {
+          "op": "set",
+          "path": "/executionProviders",
+          "value": [{
+            "languageID": "java",
+            "run": { "executable": { "command": "java" }, "arguments": ["${file}"] }
+          }]
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {"name": "settings on API level 1", "base": "php-support.plugin.json", "edits": [{"op": "set", "path": "/settings", "value": [{"id": "x", "type": "boolean", "title": "X", "default": true}]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "launch template names an undeclared setting", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/arguments/1", "value": "--log-level=${setting:verbosity}"}], "expectedCode": "plugin.template.invalid"},
+    {"name": "setting shapes a package path", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/launch/runtimeArguments/1", "value": "--require=${pluginDir}/language-server/${setting:logLevel}.js"}], "expectedCode": "plugin.template.invalid"},
+    {"name": "setting identifier with a separator", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/settings/0/id", "value": "heap-mb"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "duplicate setting identifier", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/settings/1/id", "value": "heapMB"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "unknown setting type", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/settings/0/type", "value": "string"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "integer setting without a range", "base": "node-runtime.plugin.json", "edits": [{"op": "remove", "path": "/settings/0/maximum"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "integer default outside its range", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/settings/0/default", "value": 100}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "integer default is not a whole number", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/settings/0/default", "value": 2048.5}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "enum default is not an option", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/settings/1/default", "value": "trace"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "enum option value could inject an argument", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/settings/1/options/0/value", "value": "error --inspect"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "boolean default is text", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/settings/2/default", "value": "false"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "setting with an unknown field", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/settings/2/scope", "value": "workspace"}], "expectedCode": "plugin.manifest.invalid"},
+    {
+      "name": "UI requires API level 2",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/pluginAPIVersion",
+          "value": 1
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI permission is required",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/permissions",
+          "value": []
+        }
+      ],
+      "expectedCode": "plugin.permission.undeclared"
+    },
+    {
+      "name": "UI activation is required",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/activationEvents",
+          "value": []
+        }
+      ],
+      "expectedCode": "plugin.activation.invalid"
+    },
+    {
+      "name": "UI rejects foreign tool identity",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/toolWindows/0/id",
+          "value": "database.workspace"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects foreign command identity",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/commands/0/id",
+          "value": "database.toggle"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects foreign command target",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/commands/0/toolWindowID",
+          "value": "database.workspace"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects executable content",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/toolWindows/0/html",
+          "value": "<script/>"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects unknown command placement",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/commands/0/placements",
+          "value": [
+            "settings"
+          ]
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects empty windows",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/toolWindows",
+          "value": []
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects toggle action collision",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/commands/0/id",
+          "value": "dev.lithe.fixture.hello.window.toggle"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI rejects placement identity collision",
+      "base": "hello-lithe.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/ui/toolWindows/0/id",
+          "value": "dev.lithe.fixture.hello.open.toolbar"
+        },
+        {
+          "op": "set",
+          "path": "/ui/commands/0/toolWindowID",
+          "value": "dev.lithe.fixture.hello.open.toolbar"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    }
+  ]
+}

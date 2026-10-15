@@ -12,7 +12,8 @@ final class MacACPAgentTransport: AgentConversationTransport {
             "args": configuration.arguments,
             "cwd": configuration.workspaceURL.path,
             "dataDirectory": configuration.dataDirectory.path,
-            "authentication": configuration.authentication.rawValue
+            "authentication": configuration.authentication.rawValue,
+            "observeModelCalls": configuration.observesModelCalls
         ]
         if configuration.authentication == .apiKey {
             configurationJSON["provider"] = [

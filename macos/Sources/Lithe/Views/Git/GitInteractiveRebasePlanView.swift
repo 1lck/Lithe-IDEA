@@ -12,6 +12,7 @@ struct GitInteractiveRebasePresentation: ViewModifier {
 }
 
 private struct GitInteractiveRebasePlanView: View {
+    @State private var stepListActive = false
     @ObservedObject var editor: GitInteractiveRebaseFeatureModel
 
     var body: some View {
@@ -35,6 +36,7 @@ private struct GitInteractiveRebasePlanView: View {
                 HStack { ProgressView().controlSize(.small); Text("Checking the branch and affected commits…") }.font(LitheTheme.uiFont(size: 12))
             }
             stepList
+                .background(LitheToolWindowActivityTracker(isActive: $stepListActive))
             messageEditor
             Text("\(editor.steps.count) affected commits → \(editor.outputCommitCount) commits. Core creates a recovery reference before starting.")
                 .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
@@ -77,7 +79,7 @@ private struct GitInteractiveRebasePlanView: View {
                             .disabled(index == editor.steps.count - 1).help("Move commit later").accessibilityLabel("Move commit later").lithePointer()
                     }
                     .font(LitheTheme.uiFont(size: 12)).controlSize(.small).padding(6)
-                    .background(editor.selectedHash == step.hash ? LitheTheme.accent.opacity(0.13) : Color.clear)
+                    .litheSelectionRow(isSelected: editor.selectedHash == step.hash, isFocused: stepListActive)
                     .contentShape(Rectangle()).onTapGesture { editor.selectedHash = step.hash }
                     .accessibilityAddTraits(editor.selectedHash == step.hash ? .isSelected : [])
                 }

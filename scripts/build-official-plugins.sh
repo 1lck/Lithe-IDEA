@@ -2,13 +2,26 @@
 
 set -euo pipefail
 
+# Assembles official declarative plugin packages (plugin contract v1). A
+# package holds plugin.json plus the resources it declares; it contains no
+# host-loaded code and is not rebuilt against a particular Lithe binary. A
+# package that ships its own runtime (Java Support) is assembled for the
+# architectures given by --arch; every other package is identical for all. See
+# .agents/notes/implemented/architecture/2026-10-12-declarative-language-plugins.md.
+
 ROOT_DIR="${0:A:h:h}"
 CONFIGURATION="debug"
 TRIPLE=""
 OUTPUT_DIR=""
-SIGNING_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}"
 PLUGIN_ID=""
 BUNDLED_ONLY=false
+# Architectures a package's own runtime is assembled for: arm64, x86_64, or
+# universal. Defaults to the architecture of --triple.
+RUNTIME_ARCH=""
+# Development builds of Lithe accept unsigned packages installed from disk.
+# This flag builds publisher-signed plugins without the release key for that
+# local path only; release configuration rejects it.
+DEVELOPMENT_UNSIGNED=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -17,7 +30,9 @@ while [[ $# -gt 0 ]]; do
         --output) OUTPUT_DIR="$2"; shift 2 ;;
         --bundled-only) BUNDLED_ONLY=true; shift ;;
         --plugin-id) PLUGIN_ID="$2"; shift 2 ;;
-        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id]"; exit 2 ;;
+        --arch) RUNTIME_ARCH="$2"; shift 2 ;;
+        --development-unsigned) DEVELOPMENT_UNSIGNED=true; shift ;;
+        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id] [--arch arm64|x86_64|universal] [--bundled-only] [--development-unsigned]"; exit 2 ;;
     esac
 done
 
@@ -25,10 +40,23 @@ if [[ "$CONFIGURATION" != "debug" && "$CONFIGURATION" != "release" ]]; then
     print -u2 -- "Unsupported configuration: $CONFIGURATION"
     exit 2
 fi
+if [[ "$DEVELOPMENT_UNSIGNED" == true && "$CONFIGURATION" != "debug" ]]; then
+    print -u2 -- "--development-unsigned is only available for debug plugin builds"
+    exit 2
+fi
+# The triple only selects the SwiftPM layout for the default output directory
+# and the package signer; plugin packages themselves are architecture-neutral.
 case "$TRIPLE" in
-    arm64-apple-macosx) TARGET="arm64-apple-macosx13.0" ;;
-    x86_64-apple-macosx) TARGET="x86_64-apple-macosx13.0" ;;
+    arm64-apple-macosx|x86_64-apple-macosx) ;;
     *) print -u2 -- "Unsupported macOS Swift triple: $TRIPLE"; exit 2 ;;
+esac
+
+if [[ -z "$RUNTIME_ARCH" ]]; then
+    RUNTIME_ARCH="${TRIPLE%%-*}"
+fi
+case "$RUNTIME_ARCH" in
+    arm64|x86_64|universal) ;;
+    *) print -u2 -- "Unsupported runtime architecture: $RUNTIME_ARCH"; exit 2 ;;
 esac
 
 SWIFT_LAYOUT_ARGS=(
@@ -36,26 +64,8 @@ SWIFT_LAYOUT_ARGS=(
     --configuration "$CONFIGURATION"
 )
 SWIFT_BIN_PATH=$(swift build --show-bin-path "${SWIFT_LAYOUT_ARGS[@]}")
-if [[ -e "$SWIFT_BIN_PATH/Modules/LitheModuleAPI.swiftmodule" && \
-      -e "$SWIFT_BIN_PATH/Modules/LitheCoreContracts.swiftmodule" ]]; then
-    MODULE_DIR="$SWIFT_BIN_PATH/Modules"
-else
-    # SwiftPM 6.4 places package modules directly beside the executable.
-    MODULE_DIR="$SWIFT_BIN_PATH"
-fi
-if [[ ! -e "$MODULE_DIR/LitheModuleAPI.swiftmodule" || ! -e "$MODULE_DIR/LitheCoreContracts.swiftmodule" ]]; then
-    print -u2 -- "Build Lithe for $TRIPLE ($CONFIGURATION) before packaging official plugins"
-    exit 1
-fi
-
 if [[ -z "$OUTPUT_DIR" ]]; then
     OUTPUT_DIR="$SWIFT_BIN_PATH/OfficialPlugins"
-fi
-# Match the host build's explicit SDK when multiple SDKs are installed.
-SDK_PATH="${SDKROOT:-$(/usr/bin/xcrun --sdk macosx --show-sdk-path)}"
-if ! SWIFT_COMPILER=$(command -v swiftc); then
-    print -u2 -- "Swift compiler is not available on PATH"
-    exit 1
 fi
 
 mkdir -p "$OUTPUT_DIR"
@@ -67,8 +77,7 @@ matched=0
 signer_binary=""
 for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     manifest="$plugin_source/plugin.json"
-    info_plist="$plugin_source/Info.plist"
-    [[ -f "$manifest" && -f "$info_plist" ]] || continue
+    [[ -f "$manifest" ]] || continue
     package_id=$(/usr/bin/plutil -extract id raw "$manifest")
     if [[ -n "$PLUGIN_ID" && "$package_id" != "$PLUGIN_ID" ]]; then
         continue
@@ -76,72 +85,57 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     if [[ "$BUNDLED_ONLY" == true ]] && ! node "$ROOT_DIR/scripts/official-plugin-distribution.mjs" "$package_id"; then
         continue
     fi
+    schema_version=$(/usr/bin/plutil -extract schemaVersion raw "$manifest")
+    if [[ "$schema_version" != "2" ]]; then
+        print -u2 -- "Official plugin $package_id must use the declarative manifest (schemaVersion 2)"
+        exit 1
+    fi
     signature_requirement=$(/usr/bin/plutil -extract vendor.signatureRequirement raw "$manifest")
-    if [[ "$signature_requirement" == "publisherPackage" && -z "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
+    publisher_signed=false
+    if [[ "$signature_requirement" == "publisherPackage" && "$DEVELOPMENT_UNSIGNED" == false ]]; then
+        publisher_signed=true
+    fi
+    if [[ "$publisher_signed" == true && -z "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
         if [[ "$CONFIGURATION" == "release" ]]; then
             print -u2 -- "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY for publisher-signed plugin packages"
             exit 1
         fi
-        print -u2 -- "Skipping publisher-signed debug plugin package $package_id; set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY to build it"
+        print -u2 -- "Skipping publisher-signed debug plugin package $package_id; set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY or pass --development-unsigned to build it"
         continue
     fi
     matched=$((matched + 1))
-    module_suffix="${plugin_source:t}"
-    source_dir="$plugin_source/Sources/Lithe${module_suffix}Module"
-    source_files=("$source_dir"/**/*.swift(N))
-    if (( ${#source_files[@]} == 0 )); then
-        print -u2 -- "Official plugin $package_id has no Swift sources at $source_dir"
-        exit 1
-    fi
-    bundle_name=$(/usr/bin/plutil -extract entrypoint.bundlePath raw "$manifest")
-    executable_name=$(/usr/bin/plutil -extract CFBundleExecutable raw "$info_plist")
     package_dir="$OUTPUT_DIR/$package_id"
-    bundle_dir="$package_dir/$bundle_name"
-    executable_dir="$bundle_dir/Contents/MacOS"
 
     rm -rf "$package_dir"
-    mkdir -p "$executable_dir"
+    mkdir -p "$package_dir"
     cp "$manifest" "$package_dir/plugin.json"
-    if [[ "$package_id" == "dev.lithe.plugin.php-support" ]]; then
-        language_server_manifest="$plugin_source/language-server.json"
-        [[ -f "$language_server_manifest" ]] || {
-            print -u2 -- "PHP Support is missing its language-server manifest: $language_server_manifest"
-            exit 1
-        }
+    # A pinned language-server source is fetched, checksum-verified, and
+    # assembled at build time. The installed package is never modified.
+    language_server_manifest="$plugin_source/language-server.json"
+    if [[ -f "$language_server_manifest" ]]; then
         cp "$language_server_manifest" "$package_dir/language-server.json"
-    fi
-    cp "$info_plist" "$bundle_dir/Contents/Info.plist"
-
-    "$SWIFT_COMPILER" \
-        -emit-library \
-        -parse-as-library \
-        -module-name "Lithe${module_suffix}Plugin" \
-        -swift-version 6 \
-        -target "$TARGET" \
-        -sdk "$SDK_PATH" \
-        -I "$MODULE_DIR" \
-        -Xlinker -undefined \
-        -Xlinker dynamic_lookup \
-        "${source_files[@]}" \
-        -o "$executable_dir/$executable_name"
-
-    if [[ "$package_id" == "dev.lithe.plugin.php-support" ]]; then
         "$ROOT_DIR/scripts/prepare-php-language-server.sh" \
-            --manifest "$plugin_source/language-server.json" \
-            --output "$bundle_dir/Contents/Resources/LanguageServers/php" >&2
+            --manifest "$language_server_manifest" \
+            --output "$package_dir/language-server" >&2
     fi
 
-    /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" "$bundle_dir"
+    # A plugin that needs more than one pinned archive keeps its assembly
+    # next to its manifest, so the steps that are specific to one plugin are
+    # not spread through shared build scripts.
+    package_assembler="$plugin_source/assemble-package.sh"
+    if [[ -x "$package_assembler" ]]; then
+        "$package_assembler" --output "$package_dir" --arch "$RUNTIME_ARCH" >&2
+    fi
 
-    if [[ "$signature_requirement" == "publisherPackage" ]]; then
+    if [[ "$signature_requirement" == "publisherPackage" && "$publisher_signed" == false ]]; then
+        print -u2 -- "Built unsigned development package $package_id; only development builds of Lithe can install it"
+    fi
+    if [[ "$publisher_signed" == true ]]; then
         if [[ -z "$signer_binary" ]]; then
             swift build \
                 "${SWIFT_LAYOUT_ARGS[@]}" \
                 --product LithePluginPackageSigner >&2
-            signer_bin_dir=$(swift build \
-                "${SWIFT_LAYOUT_ARGS[@]}" \
-                --show-bin-path)
-            signer_binary="$signer_bin_dir/LithePluginPackageSigner"
+            signer_binary="$SWIFT_BIN_PATH/LithePluginPackageSigner"
             [[ -x "$signer_binary" ]] || {
                 print -u2 -- "Plugin package signer was not built: $signer_binary"
                 exit 1

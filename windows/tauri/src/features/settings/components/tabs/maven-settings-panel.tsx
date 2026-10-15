@@ -7,10 +7,8 @@ import { WorkspaceStoreScopeContext } from "@/features/workspace/stores/create-w
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
+import Input from "@/ui/input";
 import { FolderIcon, TrashIcon } from "@/ui/icons";
-
-const controlClassName =
-  "h-8 rounded-md border border-input bg-background px-2.5 text-foreground outline-none focus:border-primary";
 
 // The settings dialog renders each category from a self-contained panel; this
 // group mirrors the container the sibling panels define.
@@ -63,9 +61,7 @@ function MavenSettingsForm() {
   const javaHomePath = useMavenStore((state) => state.javaHomePath);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
   const effectiveConfiguration = useMavenStore((state) => state.effectiveConfiguration);
-  const effectiveConfigurationStatus = useMavenStore(
-    (state) => state.effectiveConfigurationStatus,
-  );
+  const effectiveConfigurationStatus = useMavenStore((state) => state.effectiveConfigurationStatus);
   const saveLocalConfiguration = useMavenStore((state) => state.actions.saveLocalConfiguration);
   const resolveEffectiveConfiguration = useMavenStore(
     (state) => state.actions.resolveEffectiveConfiguration,
@@ -123,8 +119,8 @@ function MavenSettingsForm() {
         <label key={field} className="flex flex-col gap-1.5 ui-text-sm text-foreground">
           {label}
           <div className="flex gap-2">
-            <input
-              className={`${controlClassName} min-w-0 flex-1 font-mono`}
+            <Input
+              className="min-w-0 flex-1 font-mono"
               value={draft[field]}
               placeholder={t("maven.automatic")}
               disabled={!project}

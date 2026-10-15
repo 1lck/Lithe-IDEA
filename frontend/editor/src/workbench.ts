@@ -811,6 +811,16 @@ export function mountWorkbench(host: WorkbenchHost) {
       activation = activation.then(() => activate(payload)).catch(fail);
       return activation;
     },
+    setFocused(focused: boolean) {
+      activation = activation.then(() => {
+        if (focused) editor.focus();
+        else {
+          const element = document.activeElement;
+          if (element instanceof HTMLElement && editor.getDomNode()?.contains(element)) element.blur();
+        }
+      }).catch(fail);
+      return activation;
+    },
     showSecondary(payload: any) {
       let container = document.getElementById("secondary-editor");
       if (!container) {

@@ -282,6 +282,12 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 if markdownScrollRequests.count > (body["after"] as? Int ?? 0) {
                     replyHandler(["requests": markdownScrollRequests], nil)
                 } else { markdownScrollWaiter = replyHandler }
+            case "replaceFixture":
+                guard let id = body["id"] as? String, let fixture = fixtureDocuments[id],
+                      let replacement = body["text"] as? String,
+                      body["previousRevision"] as? Int == fixture.revision else { throw ProbeError.invalid("Stale fixture replacement") }
+                fixtureDocuments[id] = (replacement, fixture.revision + 1)
+                replyHandler(["revision": fixture.revision + 1], nil)
             case "fixtureSnapshot":
                 guard let id = body["id"] as? String, let fixture = fixtureDocuments[id] else { throw ProbeError.invalid("Missing fixture") }
                 replyHandler(["text": fixture.text, "revision": fixture.revision, "commandCount": actionCommandCount], nil)

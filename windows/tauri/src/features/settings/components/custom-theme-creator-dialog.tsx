@@ -16,7 +16,7 @@ import Dialog from "@/ui/dialog";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/ui/field";
 import { BracketsCurlyIcon } from "@/ui/icons";
 import Input from "@/ui/input";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import Textarea from "@/ui/textarea";
 import { toast } from "sonner";
 
@@ -199,7 +199,7 @@ export function CustomThemeCreatorDialog({
 
         <Field>
           <FieldLabel htmlFor="custom-theme-base">{t("customTheme.baseTheme")}</FieldLabel>
-          <Select
+          <SettingsSelect
             id="custom-theme-base"
             value={selectedBaseThemeId}
             options={themeOptions}
@@ -208,7 +208,6 @@ export function CustomThemeCreatorDialog({
               setManualJson(null);
             }}
             searchable
-            searchableTrigger="input"
           />
         </Field>
 

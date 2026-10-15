@@ -362,7 +362,7 @@ struct ModuleRuntimeTests {
         let workspacePlugin = try #require(BuiltInPluginCatalog.manifest(forModule: .workspace))
         let registry = ModuleRegistry(runtime: runtime, pluginManifests: [workspacePlugin])
         let workspace = try #require(BuiltInModuleCatalog.manifest(for: .workspace))
-        try registry.register(ModuleFactory(manifest: workspace) {
+        try registry.register(ModuleFactory(manifest: workspace, contributions: BuiltInModuleCatalog.contributions(for: .workspace)) {
             TestModule(manifest: workspace, recorder: recorder)
         })
 
@@ -391,7 +391,7 @@ struct ModuleRuntimeTests {
     @Test
     func aiAssistanceIsBuiltInRatherThanAnOfficialDownload() {
         #expect(BuiltInPluginCatalog.manifest(forModule: .aiAssistance) != nil)
-        #expect(OfficialPluginCatalog.manifest(forModule: .aiAssistance) == nil)
+        #expect(OfficialPluginCatalog.entries.allSatisfy { $0.languageID != "ai" })
     }
 
     @Test

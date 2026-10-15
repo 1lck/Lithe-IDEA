@@ -10,12 +10,22 @@ struct PluginStartupIssue: Equatable {
 @MainActor
 struct MacPluginStartupResult {
     let installedPlugins: [InstalledPluginPackage]
-    let activeNativeManifests: [PluginManifest]
-    let factoriesByPlugin: [PluginID: [ModuleFactory]]
+    /// Accepted packages whose host-owned modules are registered for this
+    /// process. Enablement only decides whether those modules may activate,
+    /// so a package is registered even while it is disabled.
+    let registeredPlugins: [InstalledPluginPackage]
     let issues: [PluginStartupIssue]
+    var iconResources: [String: PluginUIIconResources] = [:]
+    /// `false` when the installed packages could not be scanned at all, so an
+    /// empty `installedPlugins` means "unknown" rather than "none installed".
+    var scanSucceeded = true
 
     var installedManifests: [PluginManifest] {
         installedPlugins.map(\.manifest).sorted { $0.id < $1.id }
+    }
+
+    var registeredManifests: [PluginManifest] {
+        registeredPlugins.map(\.manifest).sorted { $0.id < $1.id }
     }
 
     var installedLanguageSupports: [LanguageSupportDeclaration] {
@@ -25,35 +35,34 @@ struct MacPluginStartupResult {
     }
 }
 
-/// Establishes the native-code loading boundary for optional plugins. Static
-/// metadata and signatures are checked before a bundle or principal class is
-/// touched. Failures remain local to plugin startup and never replace the
-/// required built-in catalog.
+// Note: 声明式插件不加载任何插件代码，启动流程见 .agents/notes/implemented/architecture/2026-10-12-declarative-language-plugins.md
+/// Scans installed declarative plugins and checks their static module graph
+/// against the built-in catalog. No plugin code is loaded: accepted packages
+/// only contribute host-owned module factories. Failures stay local to plugin
+/// startup and never replace the required built-in catalog.
 @MainActor
 final class MacPluginStartupLoader {
+    /// Rejects a candidate catalog whose UI contributions cannot bind to host
+    /// actions and renderers. Those bindings live in the Views layer, so the
+    /// composition root supplies the check instead of this adapter importing it.
+    typealias UIValidator = @MainActor (ValidatedPluginCatalog) throws -> Void
+
     private let packageStore: MacPluginPackageStore
-    private let nativeLoader: MacNativePluginLoader
     private let hostVersion: PluginVersion
-    private let runtimeRecovery: MacPluginRuntimeRecoveryCoordinator?
+    private let validateUI: UIValidator
 
     init(
         packageStore: MacPluginPackageStore,
-        nativeLoader: MacNativePluginLoader? = nil,
         hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
-        runtimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil
+        validateUI: @escaping UIValidator
     ) {
         self.packageStore = packageStore
-        self.nativeLoader = nativeLoader ?? MacNativePluginLoader()
         self.hostVersion = hostVersion
-        self.runtimeRecovery = runtimeRecovery
+        self.validateUI = validateUI
     }
 
-    func load(policy: MacPluginLoadPolicy) -> MacPluginStartupResult {
-        if let recoveryStore = policy.recoveryStore, let runtimeRecovery {
-            runtimeRecovery.recoverPreviousSession(using: recoveryStore)
-        } else {
-            recoverInterruptedPluginLoad(using: policy.recoveryStore)
-        }
+    func load(recoveryStore: (any ModuleRecoveryStore)?) -> MacPluginStartupResult {
+        clearRetiredNativeLoadMarker(using: recoveryStore)
         let scan: PluginPackageScanResult
         do {
             try packageStore.prepareForLaunch()
@@ -61,76 +70,38 @@ final class MacPluginStartupLoader {
         } catch {
             return MacPluginStartupResult(
                 installedPlugins: [],
-                activeNativeManifests: [],
-                factoriesByPlugin: [:],
-                issues: [PluginStartupIssue(pluginID: nil, message: error.localizedDescription)]
+                registeredPlugins: [],
+                issues: [PluginStartupIssue(pluginID: nil, message: error.localizedDescription)],
+                scanSucceeded: false
             )
         }
 
-        var candidatePackages: [InstalledPluginPackage] = []
-        var candidateManifests: [PluginManifest] = []
-        var factoriesByPlugin: [PluginID: [ModuleFactory]] = [:]
+        var accepted: [InstalledPluginPackage] = []
+        var iconResources: [String: PluginUIIconResources] = [:]
         var issues = scan.issues.map {
             PluginStartupIssue(pluginID: $0.pluginID, message: $0.message)
         }
-
         for installed in scan.packages.sorted(by: { $0.manifest.id < $1.manifest.id }) {
-            let manifest = installed.manifest
-            guard policy.shouldLoad(manifest) else { continue }
-
+            // A removed bundled plugin stays listed so it can be restored and
+            // keeps owning its language, but none of its modules are registered.
+            guard installed.installation.status != .removed else { continue }
             do {
-                // Include all accepted candidates in the static catalog check so
-                // plugin and module ownership collisions fail before code load.
-                _ = try ValidatedPluginCatalog(
-                    manifests: BuiltInPluginCatalog.manifests + candidateManifests + [manifest],
+                // Include every accepted candidate so plugin, module, and
+                // language ownership collisions are rejected per package.
+                let catalog = try ValidatedPluginCatalog(
+                    manifests: BuiltInPluginCatalog.manifests
+                        + BundledLanguagePluginCatalog.manifests
+                        + accepted.map(\.manifest)
+                        + [installed.manifest],
                     hostVersion: hostVersion
                 )
-                candidatePackages.append(installed)
-                candidateManifests.append(manifest)
+                // Validate renderer/action bindings before any workspace can
+                // construct its UI; a rejected package remains inspectable.
+                try validateUI(catalog)
+                let icons = try MacPluginUIIconLoader.load(installed.descriptor, at: installed.packageURL)
+                iconResources.merge(icons) { _, new in new }
+                accepted.append(installed)
             } catch {
-                issues.append(PluginStartupIssue(
-                    pluginID: manifest.id,
-                    message: error.localizedDescription
-                ))
-            }
-        }
-
-        do {
-            try validateStaticGraph(
-                manifests: BuiltInPluginCatalog.manifests + candidateManifests
-            )
-        } catch {
-            issues.append(PluginStartupIssue(pluginID: nil, message: error.localizedDescription))
-            candidatePackages.removeAll()
-            candidateManifests.removeAll()
-        }
-
-        var activeNativeManifests: [PluginManifest] = []
-        for installed in candidatePackages {
-            let moduleIDs = installed.manifest.modules.map(\.manifest.id).sorted()
-            if let recoveryStore = policy.recoveryStore, let runtimeRecovery {
-                runtimeRecovery.prepareToLoad(moduleIDs, using: recoveryStore)
-            } else {
-                policy.recoveryStore?.setPendingPluginLoadModules(moduleIDs)
-            }
-            do {
-                let loaded = try nativeLoader.loadFactories(from: [installed], policy: policy)
-                guard let factories = loaded[installed.manifest.id] else {
-                    clearPendingLoad(using: policy.recoveryStore)
-                    continue
-                }
-                activeNativeManifests.append(installed.manifest)
-                factoriesByPlugin[installed.manifest.id] = factories
-                if let recoveryStore = policy.recoveryStore, let runtimeRecovery {
-                    runtimeRecovery.recordSuccessfulLoad(moduleIDs, using: recoveryStore)
-                } else {
-                    policy.recoveryStore?.setPendingPluginLoadModules([])
-                }
-            } catch {
-                for moduleID in moduleIDs {
-                    policy.recoveryStore?.setQuarantined(true, for: moduleID)
-                }
-                clearPendingLoad(using: policy.recoveryStore)
                 issues.append(PluginStartupIssue(
                     pluginID: installed.manifest.id,
                     message: error.localizedDescription
@@ -140,40 +111,43 @@ final class MacPluginStartupLoader {
 
         do {
             try validateStaticGraph(
-                manifests: BuiltInPluginCatalog.manifests + activeNativeManifests
+                manifests: BuiltInPluginCatalog.manifests
+                    + BundledLanguagePluginCatalog.manifests
+                    + accepted.map(\.manifest)
             )
         } catch {
             issues.append(PluginStartupIssue(pluginID: nil, message: error.localizedDescription))
-            activeNativeManifests.removeAll()
-            factoriesByPlugin.removeAll()
+            accepted.removeAll()
+            iconResources.removeAll()
         }
 
+        Self.log(issues)
         return MacPluginStartupResult(
             installedPlugins: scan.packages,
-            activeNativeManifests: activeNativeManifests.sorted { $0.id < $1.id },
-            factoriesByPlugin: factoriesByPlugin,
-            issues: issues
+            registeredPlugins: accepted,
+            issues: issues, iconResources: iconResources
         )
     }
 
-    private func clearPendingLoad(using recoveryStore: (any ModuleRecoveryStore)?) {
-        guard let recoveryStore else { return }
-        if let runtimeRecovery {
-            runtimeRecovery.recordFailedLoad(using: recoveryStore)
-        } else {
-            recoveryStore.setPendingPluginLoadModules([])
+    /// Rejected or failed plugins are otherwise only visible in Plugin
+    /// Management, so record them in the unified log for diagnosis.
+    private static func log(_ issues: [PluginStartupIssue]) {
+        for issue in issues {
+            NSLog(
+                "Lithe plugin startup issue [%@]: %@",
+                issue.pluginID?.rawValue ?? "-",
+                issue.message
+            )
         }
     }
 
-    private func recoverInterruptedPluginLoad(using recoveryStore: (any ModuleRecoveryStore)?) {
-        guard let recoveryStore else { return }
-        let pending = recoveryStore.pendingPluginLoadModules()
-        for moduleID in pending {
-            recoveryStore.setQuarantined(true, for: moduleID)
-        }
-        if !pending.isEmpty {
-            recoveryStore.setPendingPluginLoadModules([])
-        }
+    /// Earlier releases kept a process-lifetime marker while native plugin
+    /// code was mapped and quarantined those modules after an abnormal exit.
+    /// Declarative plugins run no code in this process, so a leftover marker
+    /// is cleared instead of quarantining the declarative replacements.
+    private func clearRetiredNativeLoadMarker(using recoveryStore: (any ModuleRecoveryStore)?) {
+        guard let recoveryStore, !recoveryStore.pendingPluginLoadModules().isEmpty else { return }
+        recoveryStore.setPendingPluginLoadModules([])
     }
 
     private func validateStaticGraph(manifests: [PluginManifest]) throws {

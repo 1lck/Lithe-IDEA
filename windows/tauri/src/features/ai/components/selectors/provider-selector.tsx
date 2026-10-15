@@ -5,6 +5,7 @@ import {
 } from "@/features/ai/hooks/use-available-providers";
 import { useTranslation } from "@/i18n/locale-provider";
 import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import { cn } from "@/utils/cn";
 
 interface ProviderSelectorProps {
@@ -35,9 +36,10 @@ export function ProviderSelector({
   const currentProvider = useProviderById(providerId);
   const isComposer = appearance === "composer";
   const iconSize = isComposer ? 12 : 14;
+  const SelectControl = isComposer ? Select : SettingsSelect;
 
   return (
-    <Select
+    <SelectControl
       value={providerId}
       onChange={onChange}
       options={providers.map((provider) => ({
@@ -54,17 +56,17 @@ export function ProviderSelector({
       placeholder={currentProvider?.name || providerId || t("ai.selectProvider")}
       aria-label={t("ai.selectAiProvider")}
       searchable
-      searchableTrigger={isComposer ? "input" : "menu"}
       hideChevron={isComposer}
-      size="xs"
-      variant={isComposer ? "ghost" : "default"}
+      {...(isComposer
+        ? { size: "xs" as const, variant: "ghost" as const, searchableTrigger: "input" as const }
+        : {})}
       disabled={disabled}
       open={open}
       onOpenChange={onOpenChange}
       tooltip={tooltip}
-      className={cn(!isComposer && "w-fit max-w-full", className)}
-      triggerClassName={cn(isComposer ? "max-w-32" : "w-fit max-w-full gap-2", triggerClassName)}
-      menuClassName="w-fit min-w-0 max-w-(--available-width) p-0"
+      className={cn(!isComposer && "w-56 max-w-full", className)}
+      triggerClassName={cn(isComposer && "max-w-32", triggerClassName)}
+      menuClassName={isComposer ? "w-fit min-w-0 max-w-(--available-width) p-0" : undefined}
       menuMinWidth={isComposer ? 220 : 0}
       menuAnimated={!isComposer}
     />

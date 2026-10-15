@@ -156,6 +156,7 @@ fn open(workspace: &std::path::Path) -> Session {
         cwd: workspace.to_path_buf(),
         data_directory,
         authentication: lithe_agent_host::AgentAuthentication::ApiKey,
+        observe_model_calls: false,
         provider: Some(ProviderCredentials {
             protocol,
             base_url: required("LITHE_ACP_E2E_BASE_URL"),
