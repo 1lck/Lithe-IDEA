@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useUpdateStore } from "@/features/settings/stores/update.store";
@@ -83,6 +83,47 @@ test("update details dialog follows the store and closes through it", async () =
       } else {
         actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
       }
+      restoreDom();
+    }
+  }
+});
+
+
+test("manual download dialog explains rolling risk and opens only through acknowledgement", async () => {
+  const restoreDom = installHappyDom();
+  const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
+  const previous = useUpdateStore.getState();
+  const open = mock(async (_acknowledged: boolean) => {});
+  const frame = spyOn(dialog, "default").mockImplementation(({ children, footer }) => <div>{children}{footer}</div>);
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  try {
+    environment.IS_REACT_ACT_ENVIRONMENT = true;
+    useUpdateStore.setState({
+      channel: "autobuild", status: "manualDownload", detailsOpen: true,
+      manualReleaseURL: "https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild",
+      updateInfo: null, operationBusy: false,
+      actions: { ...previous.actions, openReleaseDownload: open },
+    });
+    await act(async () => root.render(<LocaleProvider language="en-US"><AppUpdateDetailsDialog /></LocaleProvider>));
+    expect(container.textContent).toContain("many bugs and unfinished features");
+    expect(container.textContent).toContain(createTranslator("en-US")("update.manualDownloadExplanation"));
+    expect(container.textContent).toContain("https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild");
+    expect(open).not.toHaveBeenCalled();
+    const acknowledge = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === createTranslator("en-US")("update.acknowledgeDownload"));
+    expect(acknowledge).toBeDefined();
+    await act(async () => acknowledge?.click());
+    expect(open).toHaveBeenCalledWith(true);
+  } finally {
+    try {
+      await act(async () => root.unmount());
+    } finally {
+      useUpdateStore.setState(previous, true);
+      frame.mockRestore();
+      container.remove();
+      if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
+      else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;
       restoreDom();
     }
   }

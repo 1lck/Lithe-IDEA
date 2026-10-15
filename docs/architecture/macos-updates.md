@@ -110,69 +110,98 @@ typical startup and language-service workflow and compare the app bundle file
 list and SHA-256 values with the clean release artifact. If a workflow changes
 the bundle, fix its storage boundary before generating another delta.
 
-## Follow the preview channel
+## Choose Stable or AutoBuild
 
-The scheduled macOS Preview workflow builds the `preview` branch daily. It pins
-one source revision and build timestamp for both architectures. The build number
-is `<workflow run number>.<run attempt>`, so rebuilding a failed run produces a
-new identity even when the display version stays the same. Re-running only the
-publish job after partially uploading assets is not supported; re-run all jobs
-to allocate a new identity. A stale or duplicate build cannot replace the feed.
+Update settings default to **Stable (Recommended)**, regardless of the installed
+channel. Selecting **AutoBuild Rolling** requires risk confirmation. A persistent
+warning explains that nightly builds may contain unfinished features, serious bugs,
+or other problems and recommends stable releases for most users. Invalid saved
+preferences fall back to Stable. Channel preference and installed identity are
+separate; changing the preference does not replace the installed application.
 
-GitHub executes scheduled workflows from the default branch (`main`). After
-review on `preview`, the updated workflow must also reach `main` for the daily
-schedule to use it. A manual dispatch using this workflow revision can exercise
-the new path earlier. Changing only the checked-out application source does not
-change the workflow definition used by the schedule.
+The scheduled workflow runs from the default branch (`main`), pins one `preview`
+source SHA, and captures one whole-second UTC timestamp for macOS and Windows.
+The numeric Sparkle identity `20261015.124354` encodes exactly
+`2026-10-15T12:43:54Z`. Welcome, Settings, update offers, the release title, and
+release notes show **AutoBuild — Built at 2026-10-15 12:43:54 UTC** (localized
+as **AutoBuild — 构建自 … UTC**). Workflow run/attempt counters do not order
+versions. Equal or older times cannot replace a published build. Retrying
+publication retains the artifact's original time instead of relabeling old bytes.
 
-Preview apps embed `LitheUpdateChannel=preview` and use
-`appcast-preview-<architecture>.xml` under the rolling Preview release tag.
-Stable apps continue to use the stable feed; no update-channel selector or
-automatic channel switch is introduced. Preview users can explicitly return to
-stable using the full-package workflow below. Sparkle uses the embedded feed instead
-of a persisted feed override. Both channels use the same configured EdDSA key.
-Packaging also assigns separate `SUDefaultsDomain` suites:
-`app.lithe.desktop.sparkle.stable` and `app.lithe.desktop.sparkle.preview`.
-Skipped versions and automatic-check preferences cannot cross channels with
-unrelated workflow build numbers. Existing preferences are not copied into the
-new suites; users may need to reselect their update-check preferences once.
+Publication waits for both macOS architectures and the reusable Windows installer
+build, all carrying the same source, version, build and timestamp.
+The publisher checks both existing appcasts before any remote mutation: the new
+time must be strictly later than each published `pubDate`, and the numeric build
+must increase. As long as the `preview-0.3.0` release remains, its appcasts also
+pass the strict baseline check, even when AutoBuild exists but is empty or has only
+an incomplete checkpoint. Exact-plan recovery applies only to AutoBuild. Legacy builds
+such as `58.1` remain readable baselines; new builds
+must use timestamp identities. New publications at duplicate seconds and backward
+clocks fail without inventing a counter. Before replacing data or feeds, the publisher
+uploads `autobuild-publication.json`, binding source, version, build, timestamp and the
+sorted target asset sizes and SHA-256 hashes. A byte-identical checkpoint permits
+resuming the same publication with the original artifacts, including completing tag,
+metadata and cleanup after feed replacement. An already-current feed must match the
+local bytes exactly; older feeds still pass the strict baseline check. Missing feeds
+or empty `starter` uploads can be repaired only with this matching checkpoint.
+Changed bytes/source at the same instant and older retries against newer checkpoints
+fail before mutation. The checkpoint itself is retained and verified with the assets.
 
-The update offer shows **Preview Update**, the current and target build numbers,
-the new build's date, and a short instability notice. It has **Install Preview**,
-**Later**, and **Skip Build** actions. Preview release notes are neither displayed
-nor downloaded. The installed version in Welcome and Settings includes Preview
-and the build number. Stable release-note presentation is unchanged.
+The rolling tag stays `AutoBuild`. New packages write
+`LitheUpdateChannel=autobuild`; legacy `preview` metadata remains readable.
+The feed is `releases/download/AutoBuild/appcast-preview-<architecture>.xml`.
+Sparkle uses the selected channel's feed. Skipped versions and automatic-check
+preferences remain separate under `app.lithe.desktop.sparkle.stable` and
+`app.lithe.desktop.sparkle.autobuild`; legacy preferences are not migrated.
+Both channels retain the configured EdDSA key.
 
-Preview ZIPs use immutable names such as `Lithe-preview-142.1-arm64.zip`. The
-latest three matching ZIPs on the rolling release are differential baselines.
-Full archives and deltas are uploaded before either appcast is replaced.
-Before uploads, the publisher enumerates all release assets and retains the most
-recent 30 build identities (including failed attempts), all files referenced by
-the currently published and incoming feeds, and the latest three ZIP baselines
-per architecture. Older macOS Preview ZIPs and deltas, including orphan uploads,
-are removed. Unrelated assets such as Windows packages are never deleted.
-This bounds cached-feed compatibility to 30 builds, not 30 days; clients holding
-older offers may need to check again for the latest feed. Current published feed
-references remain protected even if they fall outside that window.
+Same-channel macOS updates retain Sparkle download, signature verification, and
+installation. Crossing channels requires a full installation and never compares
+stable semantic versions with rolling times. Old offers are dismissed before
+switching, and active work blocks channel changes. AutoBuild offers **Install
+AutoBuild**, **Later**, and **Skip Build**. Its concise risk notice replaces
+release-note downloading. The full signed **Return to Stable** remains available.
+Windows retains the native Stable-to-Stable updater; AutoBuild and cross-channel
+checks explicitly offer manual full installation from the release page because
+no signed rolling Tauri manifest is published. They never claim freshness or
+open the browser silently during scheduled checks.
 
-Cleanup runs before any DMG or update upload and rejects the publication if the
-remaining assets plus incoming filenames would exceed 900, leaving headroom
-below GitHub's 1000-asset limit. Download or parse failures stop cleanup before
-deletion. If unrelated or protected assets exhaust the reserve, maintainers must
-review those assets rather than automatically evicting them. The rolling DMGs
-retain their existing filenames for manual downloads.
+ZIPs retain compatible names such as `Lithe-preview-20261015.124354-arm64.zip`.
+AutoBuild keeps only the current full ZIP per architecture and deltas targeting
+the current build. Previous ZIPs are temporary delta inputs; older clients can
+use the current full archive after checking again. Historical cached feed URLs
+are not retained.
 
-Both architecture appcasts use the pinned build timestamp for `pubDate`, written
-before the final feed signature, so the Preview update's Built date matches the
-timestamp embedded in the app.
+The publisher runs from `github.workflow_sha`, not from the application checkout.
+It reads the official plugin registry/index with `git fetch/show` at the pinned
+application SHA, selects each registered downloadable plugin's latest numeric
+semantic version and all distinct variants, downloads existing ZIPs from indexed
+`Lithe-IDEA` organization releases, and verifies the index SHA-256 before any
+release mutation. It mirrors byte-identical signed packages plus SHA sidecars;
+no plugin key, rebuilding, re-signing or canonical marketplace URL change is needed.
+Bundled Java is excluded; current downloadable PHP and Go packages are 1.0.0.
 
-An old Preview build that predates this integration must be updated manually
-once using the rolling DMG. It does not already know about the new preview feed.
-Subsequent Preview builds can use in-app differential updates. The first run
-still needs `SPARKLE_PUBLIC_KEY` and `SPARKLE_PRIVATE_KEY` configured; it does not
-require an Apple Developer account.
+After local validation and strict published-baseline time checks, all installers, archives, deltas and plugin mirrors upload
+before either XML feed. The complete desired manifest is verified remotely using
+asset SHA-256 digests, or a bounded download when a digest is unavailable. Only
+then does the publisher explicitly force PATCH `git/refs/tags/AutoBuild` to the
+source SHA, update and verify metadata, and remove every stale AutoBuild asset,
+including obsolete installers and plugin versions. Failed download, hash,
+upload or manifest verification prevents stale-asset cleanup. GitHub does not
+provide atomic multi-file replacement; partial uploads can remain on failure.
+Stable releases and upstream plugin releases are outside this publisher's scope.
 
-## Return from Preview to stable
+Only after complete verified publication and cleanup can `preview-0.3.0` and its
+tag be retired. Clients using that old feed require one manual AutoBuild
+reinstall. A second compatibility tag is not retained. AutoBuild release notes
+warn in Chinese and English that ordinary users should use Stable.
+
+Each appcast's `pubDate` matches the app timestamp. With no eligible baseline,
+the first publication uses a full signed archive. Both Sparkle keys remain
+required; an Apple Developer account is optional. The default-branch publisher
+and preview-client changes must both be available before using the new schedule.
+
+## Return from AutoBuild to stable
 
 Preview builds expose Return to Stable in Settings and Welcome. Confirmation
 downloads the latest stable `latest-macos.json` and the architecture-specific full
