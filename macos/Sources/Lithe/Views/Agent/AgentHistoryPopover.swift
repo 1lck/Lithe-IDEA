@@ -20,6 +20,8 @@ struct AgentHistoryPopover: View {
     }
 
     var body: some View {
+        // Computed once per update; the list, empty state and reconciliation share it.
+        let sessions = sessions
         VStack(spacing: LitheDropdownMetrics.popupPadding) {
             ScrollViewReader { proxy in
                 ScrollView {

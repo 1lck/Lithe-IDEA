@@ -1341,11 +1341,15 @@ struct WorkbenchView: View {
                             .foregroundStyle(LitheTheme.toolWindowButtonText)
                             .modifier(LitheToolWindowDragButtonStyle())
                             .environment(\.colorScheme, colorScheme)).nsImage
-                    }, click: { openTool(tool) }, commit: { moveTool($0, target: $1) }, isEnabled: isToolAvailable(tool)))
+                    }, click: { openTool(tool) }, commit: { moveTool($0, target: $1) }, isEnabled: isToolAvailable(tool),
+                       openInEditor: renderer?.openInEditor.map { open in { open(model) } }))
                     .opacity(toolWindowDrag.source == tool ? 0 : 1)
                     .litheContextMenu {
                         guard isToolAvailable(tool) else { return [] }
-                        return (entry.map { contributionCustomizationItems($0) } ?? []) + DockAnchor.allCases.flatMap { anchor in
+                        let editorItems: [LitheContextMenuItem] = renderer?.openInEditor.map { open in
+                            [.action(String(localized: "Open in Editor")) { open(model) }, .separator]
+                        } ?? []
+                        return editorItems + (entry.map { contributionCustomizationItems($0) } ?? []) + DockAnchor.allCases.flatMap { anchor in
                             DockGroup.allCases.map { group in
                                 let destination = DockPosition(anchor: anchor, group: group)
                                 return LitheContextMenuItem.action(dockMoveTitle(destination), action: {
@@ -1538,7 +1542,22 @@ struct WorkbenchView: View {
 
     @ViewBuilder
     private var toolWindowDropOverlay: some View {
-        if toolWindowDrag.source != nil, let target = toolWindowDrag.target {
+        if toolWindowDrag.source != nil, toolWindowDrag.targetsEditor {
+            GeometryReader { geometry in
+                let leading = hasVisibleTool(on: .left) ? min(sidebarWidth, geometry.size.width) : 0
+                let trailing = hasVisibleTool(on: .right) ? min(mavenPaneWidth, geometry.size.width - leading) : 0
+                let height = isBottomToolVisible ? min(topPaneHeight ?? geometry.size.height * 2 / 3, geometry.size.height)
+                    : geometry.size.height
+                Rectangle().fill(LitheTheme.toolWindowDropArea)
+                    .overlay {
+                        Text("Open in Editor")
+                            .font(LitheTheme.uiFont(size: 12))
+                            .padding(8).background(LitheTheme.raised).cornerRadius(6)
+                    }
+                    .frame(width: max(0, geometry.size.width - leading - trailing), height: height)
+                    .position(x: leading + (geometry.size.width - leading - trailing) / 2, y: height / 2)
+            }
+        } else if toolWindowDrag.source != nil, let target = toolWindowDrag.target {
             GeometryReader { geometry in
                 let position = target.position
                 let counterpart: DockGroup = position.group == .primary ? .secondary : .primary
