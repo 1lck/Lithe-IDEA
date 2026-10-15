@@ -1,6 +1,6 @@
 # Plugin contract v1: declarative plugins
 
-A declarative plugin describes language support as data. The host reads
+A declarative plugin currently describes language support or first-stage UI contributions as data. The host reads
 `plugin.json`, validates it, verifies the package signature, and launches the
 declared external processes itself. The host never loads plugin code into its
 own process, so a package does not depend on the host's binary layout and does
@@ -478,3 +478,170 @@ this contract. Its adapter maps `languages[].extensions` to
 `lsp.requiredExecutables: ["node"]` to `runtimeDependencies`, and
 `runActions.manifestFiles` to `test.projectMarkers`. Composer script discovery
 is Windows-only behavior outside v1.
+
+## API level 2: first-stage host-owned workbench UI
+
+`pluginAPIVersion: 2` adds optional `ui` contributions and the `ui.contribute`
+permission. API level 1 language packages continue to work. UI-only packages may
+omit `languages`; every package must still declare a language provider or a
+nonempty UI catalog. See `fixtures/hello-lithe.plugin.json` and the UI cases in
+`fixtures/invalid-manifests.json`.
+
+- `ui.toolWindows`: 1–64 entries with stable `id`, `title`, initial `placement`
+  (`left`, `bottom` or `right`), integer `order` (default 0), and plain `text`.
+- `ui.commands`: up to 128 entries with stable `id`, `title`, `toolWindowID`,
+  integer `order` (default 0), and nonempty `placements` (`commandPalette`,
+  `toolbar`, `menu`). A command opens one of the same plugin's tool windows.
+- IDs use the plugin ID followed by a dot and a suffix. Duplicate or foreign
+  identities, invalid references, unsupported placements and executable UI
+  fields are rejected with `plugin.manifest.invalid`.
+- Titles are at most 256 UTF-8 bytes and window text at most 65536 UTF-8 bytes.
+  Text is displayed literally; it is never evaluated as HTML or a script.
+- Declare `onView:<window-id>` and `onCommand:<command-id>` for every window and
+  command, plus `ui.contribute`. The existing permission and activation error
+  codes apply. IDs and presentation order are normalized deterministically.
+- The host exposes metadata without instantiating the module. Opening an
+  entry activates the plugin's UI module on demand; a disabled, quarantined
+  or safe-mode-suppressed module has no executable UI entries. Disabling it
+  removes the entries and closes its visible content.
+- The host owns header controls, widgets, menus, theme, ordering and layout.
+  Saved workspace preferences override a declaration's initial placement and
+  order. Moving or hiding content does not create a new module or session.
+  Unknown and temporarily absent contributions never execute an action;
+  placement/order preferences remain available if the plugin returns.
+
+API level 2 is the first UI Contribution infrastructure stage. Its static text
+windows and open-own-window commands are a supported subset, not the final public
+extension API. The required window/text/command-target fields and rejection of
+packages without language or UI contributions remain unchanged for v2 compatibility.
+The macOS host supports mouse docking through the existing shared dock state;
+that presentation behavior does not grant additional plugin execution capabilities.
+
+### Future public extension direction (not implemented in API level 2)
+
+- Third-party UI uses a separately versioned JSON component tree (Tree/List/Form/
+  Input/Button, data sources and events) rendered by native platform adapters.
+  Plugin UI does not use HTML, Webviews or third-party frontend frameworks.
+  Built-in or trusted native modules may register Native View/Renderer Factories
+  under the same host window management. This does not restore arbitrary dynamic
+  third-party Swift Bundle loading; ABI, signing and isolation need separate design.
+- Actions declare handlers and availability/context conditions independently of
+  Tool Windows. Commands, menus/context menus, toolbars, status bars and settings
+  contributions must not require dummy windows. Opening a window is one action kind.
+- A new, explicitly versioned Extension Contract will cover Language/LSP,
+  BuildSystem/Task, RunConfiguration/Test, DebugAdapter and ServiceProvider,
+  including pure Build/Debug/Services packages with no UI or language declaration.
+  Exact version numbers, handler transport and fields are not published here.
+- Built-in and plugin providers should use the same typed domain registries.
+  Providers supply behavior/processes/data; hosts own scheduling, permission,
+  presentation and lifecycle. Reuse existing language, build, run/test and DAP
+  backends instead of duplicating them or branching by plugin name in composition.
+- Services will accept general resources with provider/descriptor/instance/status/
+  actions/logs semantics. Disabling unregisters contributions and releases
+  plugin-owned resources; it must not implicitly stop independently running
+  external services. An explicit stop action requires its own authorization.
+- API level 2 remains supported unchanged. UI Schema evolves independently;
+  domain extension points need a new contract version and compatibility fixtures.
+  Windows implements its own host adapter over shared data, not SwiftUI types.
+
+Planned end-to-end samples are a native Tree with an independent refresh command,
+Build Task in existing Build, ServiceProvider in Services, and third-party DAP in
+existing Debug UI. Each must verify disable/re-enable, resource ownership and
+restoration; view-bearing samples also verify layout persistence. These samples
+are future acceptance criteria, not claims about current runtime support.
+
+The design source is the [proposed public Extension Contract and Provider API](../../../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md).
+Current runtime behavior is recorded in the [first-stage workbench UI Note](../../../../.agents/notes/implemented/architecture/2026-10-12-workbench-ui-contributions.md).
+
+### Current Windows availability
+Windows can validate API level 2 through Rust Core but its UI adapter has not
+implemented this contract yet. Its marketplace must filter unsupported API
+levels until that adapter is available.
+
+### Existing community store and Lua template
+
+The community index is [Lithe Store](https://github.com/Lithe-IDEA/Lithe-store).
+The [Lua plugin template](https://github.com/Lithe-IDEA/lithe-plugin-lua) uses
+schema 2 / API level 1 for language-server and run providers; those declarations
+remain valid. To add a host-rendered view to that template:
+
+1. Set `pluginAPIVersion` to 2. Keep the existing language and execution fields.
+2. Add `ui.contribute` to the existing permissions and the new `onView` /
+   `onCommand` events to the existing activation events.
+3. Add `ui.toolWindows` and `ui.commands`; prefix every ID with the plugin ID,
+   for example `io.github.lithe-idea.lua-support.tools`.
+4. Keep `vendor.signatureRequirement: "none"` for community packages. The
+   existing package checksum, user install review and content digest still
+   apply; UI does not bypass them.
+5. Set the new Store version entry's `pluginAPIVersion` to 2. The index schema,
+   release archive format and SHA-256 rules stay unchanged. Only list platforms
+   with an implemented API level 2 UI host (currently macOS).
+
+`fixtures/hello-lithe.plugin.json` is a contract fixture in the reserved test
+namespace, not a ready-to-publish community package. Change its ID and all
+references to your own namespace before using it in Lithe Store.
+
+### UI icons (macOS host)
+
+API level 2 tool windows and commands accept an optional `icon`. Prefer a stable
+host icon ID; it resolves through Lithe's existing icon library, not SF Symbols:
+
+```json
+"icon": { "host": "database" }
+```
+
+Supported host IDs: `tool-window`, `plugin`, `database`, `services`, `terminal`,
+`search`, `refresh`, `run`, `debug`, `settings`, `add`, `remove`, `git`, `problems`.
+These IDs are public; bundled SVG paths remain implementation details.
+
+Custom SVG and PNG icons are relative to the plugin package root:
+
+```json
+"icon": {
+  "path": "icons/database.svg",
+  "darkPath": "icons/database-dark.svg",
+  "mode": "template"
+}
+```
+
+`mode` defaults to `template`: the host tints the image using the containing
+control's theme and selected/hover state. `original` preserves brand colors;
+control backgrounds and disabled opacity still follow the host. `darkPath` is
+optional; without it the same resource is used in both themes. Brand authors
+must make that resource legible in both themes or provide a dark variant.
+`host` cannot be combined with resource paths or original-color mode.
+
+The host owns icon size: 20pt tool-window rail, 16pt actions/menus/palette, 13pt
+window header. Aspect ratio is preserved inside that slot. Plugin-specified
+size, color, stroke, arbitrary style, remote URLs and SF Symbol names are rejected.
+Stroke geometry belongs to the asset; authors should follow the host icon
+weight, rather than expecting the host to rewrite paths or PNG pixels.
+
+Window and toolbar management submenus reuse the same declared icons at the
+host menu size. Template icons in the command palette use the host selected-text token on the
+selected row; brand icons retain their theme variant when keyboard selection moves.
+
+Files must be regular files inside the verified package, without symbolic links
+in their path. Each resource is limited to 256 KiB and 1024×1024; unique icon
+bytes per package are limited to 8 MiB, with at most 4,194,304 total image pixels. PNG is decoded as a single image. SVG
+accepts static shapes, groups, gradients, clip paths and the standard SVG version attribute; scripts, event handlers,
+external references, embedded images, style elements/attributes, entities and
+DOCTYPEs are refused. Use explicit presentation attributes for SVG colors.
+Unknown fields and unsupported formats are rejected at installation and launch.
+
+Window entries without an icon use the shared generic tool-window icon. Commands
+without an icon remain text actions (palette retains its existing action marker).
+Missing/unreadable declared resources reject the package instead of silently
+using a different image. Assets are read-only and held in process memory; no
+runtime disk cache or app-bundle write is created. Installed icon bytes follow
+the existing package signature/digest, update and rollback lifecycle.
+
+macOS 宿主布局菜单允许把已注册工具窗口移到左侧、右侧或底部，并保存入口
+顺序与显隐；`ui.toolWindows[].placement` 仍只声明首次使用的 `bottom`/`right`
+位置，未新增插件契约值。项目、提交和搜索采用相同的工具窗口注册路径，
+原生业务内容保持宿主所有；左侧恢复插件窗口仍按 `onView` 激活所属模块。
+
+macOS 动作的可见、可用、勾选和激活中状态由宿主计算，不接受清单中的可执行
+条件脚本。窗口尚在激活时，其打开命令在工具栏、菜单和命令面板禁用；窗口入口
+仍可取消显示。多个窗口同时请求同一插件模块时只构造一次；禁用或关闭会取消
+并清理在途激活，旧的菜单或命令引用不能重新调用已禁用的贡献。

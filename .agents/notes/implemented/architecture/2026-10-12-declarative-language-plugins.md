@@ -8,6 +8,8 @@
 
 对日常开发的直接影响：新增语言插件时写 `plugin.json`，不要写 Swift 入口类；声明格式和语义以 `shared/contracts/plugins/v1/` 为准，校验与命令模板展开只在 `rust/lithe-core/src/plugins/declarative.rs` 实现一次。
 
+通用工作台 UI 已通过 API level 2 扩展，见 [宿主管理的工作台 UI 贡献](2026-10-12-workbench-ui-contributions.md)。语言插件的 API level 1 和进程归属保持兼容。
+
 ## 问题
 
 原来的原生插件由 `scripts/build-official-plugins.sh` 用宿主当次构建产出的 `.swiftmodule` 编译，并用 `-undefined dynamic_lookup` 链接。`Package.swift` 没有开启 library evolution（库演进模式，保证二进制接口跨版本稳定的编译选项），所以插件与那一次宿主构建强绑定：宿主一改 `LitheModuleAPI` 或 `LitheCoreContracts`，旧插件在运行时就可能找不到符号甚至崩溃。插件一旦拆到独立仓库，就必须跟着每个 Lithe 版本重新编译和发布。

@@ -236,6 +236,16 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 以下目录不应直接复制或跨工作树共享：
 
+- 插件 UI 图标：包内声明的 SVG/PNG 属于安装版本的签名或社区内容摘要，
+  macOS 在安装与启动时校验路径、大小、静态 SVG 子集和原生解码。资源在安装
+  阶段随包复制，运行时只读，内存图像随当前进程目录释放；不创建磁盘缓存。
+  `excludedResources.plugin-ui-icons` 通过复用脚本已有的排除资源路由拒绝复制，
+  `scripts/test-reuse-worktree-resources.mjs` 验证该路由。
+  没有可复用的版本/平台/架构/工具链 identity stamp，不得从安装包、已签名 app
+  或其他工作树搬运图标；仓库内官方源资源从 Git 获取，构建打包时才复制。
+  校验与渲染不会修改 bundle，因而不改变代码签名或 Sparkle delta 基线。
+
+
 - 插件市场运行时状态：拉取的索引缓存 `<app-cache>/Lithe/PluginMarketplace/<source-id>/index.json`、
   用户的插件仓库列表 `<app-support>/Lithe/PluginMarketplace/sources.json`，以及下载与解压
   插件归档的临时目录 `<system-temp>/lithe-plugin-transfer-*`、`<system-temp>/lithe-plugin-download-*`。

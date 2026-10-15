@@ -120,6 +120,7 @@ struct LitheContextMenuItem: Identifiable {
     static func submenu(
         _ title: String,
         systemImage: String? = nil,
+        icon: AnyView? = nil,
         items: [LitheContextMenuItem]
     ) -> Self {
         Self(
@@ -127,6 +128,7 @@ struct LitheContextMenuItem: Identifiable {
             title: title,
             systemImage: systemImage,
             iconKind: nil,
+            icon: icon,
             shortcut: nil,
             role: .standard,
             isEnabled: true,

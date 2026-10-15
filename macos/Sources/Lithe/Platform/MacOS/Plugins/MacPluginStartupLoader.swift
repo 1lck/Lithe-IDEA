@@ -15,6 +15,7 @@ struct MacPluginStartupResult {
     /// so a package is registered even while it is disabled.
     let registeredPlugins: [InstalledPluginPackage]
     let issues: [PluginStartupIssue]
+    var iconResources: [String: PluginUIIconResources] = [:]
     /// `false` when the installed packages could not be scanned at all, so an
     /// empty `installedPlugins` means "unknown" rather than "none installed".
     var scanSucceeded = true
@@ -68,6 +69,7 @@ final class MacPluginStartupLoader {
         }
 
         var accepted: [InstalledPluginPackage] = []
+        var iconResources: [String: PluginUIIconResources] = [:]
         var issues = scan.issues.map {
             PluginStartupIssue(pluginID: $0.pluginID, message: $0.message)
         }
@@ -78,13 +80,18 @@ final class MacPluginStartupLoader {
             do {
                 // Include every accepted candidate so plugin, module, and
                 // language ownership collisions are rejected per package.
-                _ = try ValidatedPluginCatalog(
+                let catalog = try ValidatedPluginCatalog(
                     manifests: BuiltInPluginCatalog.manifests
                         + BundledLanguagePluginCatalog.manifests
                         + accepted.map(\.manifest)
                         + [installed.manifest],
                     hostVersion: hostVersion
                 )
+                // Validate renderer/action bindings before any workspace can
+                // construct its UI; a rejected package remains inspectable.
+                _ = try WorkbenchModuleUIComposition.registry(for: catalog)
+                let icons = try MacPluginUIIconLoader.load(installed.descriptor, at: installed.packageURL)
+                iconResources.merge(icons) { _, new in new }
                 accepted.append(installed)
             } catch {
                 issues.append(PluginStartupIssue(
@@ -103,13 +110,14 @@ final class MacPluginStartupLoader {
         } catch {
             issues.append(PluginStartupIssue(pluginID: nil, message: error.localizedDescription))
             accepted.removeAll()
+            iconResources.removeAll()
         }
 
         Self.log(issues)
         return MacPluginStartupResult(
             installedPlugins: scan.packages,
             registeredPlugins: accepted,
-            issues: issues
+            issues: issues, iconResources: iconResources
         )
     }
 
