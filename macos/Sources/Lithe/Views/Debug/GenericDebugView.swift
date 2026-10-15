@@ -2581,6 +2581,8 @@ private struct DebugConsoleOutputView: View {
             searchRoots: searchRoots,
             fileExists: fileExists,
             emptyMessage: "Waiting for Debug Adapter output…",
+            fontSize: LitheConsoleStyle.defaultFontSize,
+            usesIDEAConsoleStyle: true,
             onOpenLocation: onOpenLocation
         )
     }

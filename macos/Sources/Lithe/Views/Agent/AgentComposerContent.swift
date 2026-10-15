@@ -13,6 +13,8 @@ enum AgentComposerMetrics {
     static let bottomInset: CGFloat = 8
     static let horizontalInset: CGFloat = 8
     static let splitTopInset: CGFloat = 10
+    /// Horizontal inset of the editor status tab, clear of the composer's rounded corners.
+    static let statusTabInset: CGFloat = 12
 
     static func minimumHeight(hasFiles: Bool) -> CGFloat {
         contextHeight - 2 + inputMinimumHeight + bottomInset + splitTopInset + (hasFiles ? fileHeight : 0)
