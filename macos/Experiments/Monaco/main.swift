@@ -45,6 +45,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     var text = ""
     var revision = 0
     var actionCommandCount = 0
+    var javaRunActionCount = 0
     var lastContextMenu: [String: Any] = [:]
     var codeVisionActions: [String] = []
     var gitLineActions: [String] = []
@@ -154,6 +155,14 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 lastContextMenu = body
                 replyHandler(["selected": NSNull()], nil)
             case "lastContextMenu": replyHandler(lastContextMenu, nil)
+            case "javaRunMarkers":
+                let markers: [[String: Any]] = body["id"] as? String == "readonly-run-test"
+                    ? [["id": "main", "line": 1, "endLine": 1, "kind": "main", "label": "Main.main()", "status": "none"]] : []
+                replyHandler(["markers": markers, "canDebug": true], nil)
+            case "javaRunMarkerAction":
+                javaRunActionCount += 1
+                replyHandler(["ok": true], nil)
+            case "javaRunActionCount": replyHandler(["count": javaRunActionCount], nil)
             case "javaNavigation":
                 if holdNavigation {
                     holdNavigation = false

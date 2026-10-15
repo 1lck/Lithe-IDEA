@@ -7,6 +7,42 @@ import Testing
 @Suite("Workbench notifications", .serialized)
 @MainActor
 struct WorkbenchNotificationTests {
+    @Test func failureDetailsRemainLocalizableAndMergeOnlyIdenticalArguments() throws {
+        let feature = WorkbenchNotificationFeatureModel()
+        feature.setApplicationActive(false)
+        defer { feature.clear() }
+        let key = "Java service failed to start: %@"
+        feature.show(key, arguments: ["connection refused"])
+        feature.show(key, arguments: ["other failure"])
+        feature.show(key, arguments: ["connection refused"])
+        #expect(feature.notifications.count == 2)
+        let notification = try #require(feature.notifications.first)
+        #expect(notification.message == key)
+        #expect(notification.arguments == ["connection refused"])
+        #expect(notification.occurrenceCount == 2)
+        let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
+        let bundle = try #require(Bundle(url: resources))
+        for (language, expected) in [("zh-Hans", "Java 服务启动失败：connection refused（2）"),
+                                      ("en", "Java service failed to start: connection refused (2)")] {
+            #expect(WorkbenchNotificationPresentation.message(notification.message, arguments: notification.arguments,
+                occurrenceCount: notification.occurrenceCount, locale: Locale(identifier: language), bundle: bundle) == expected)
+        }
+    }
+
+    @Test func mavenRuntimeErrorUsesApplicationLanguage() throws {
+        let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
+        let bundle = try #require(Bundle(url: resources))
+        let key = "Java runtime is not ready. Retry Maven reload."
+        for (language, expected) in [(AppLanguage.simplifiedChinese, "Java 运行时尚未就绪，请重试 Maven 重新加载。"),
+                                      (.english, key)] {
+            let error = NSError(domain: "MavenReload", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: language.localizedString(key, bundle: bundle)])
+            #expect(error.localizedDescription == expected)
+        }
+    }
+
     @Test
     func notificationTimersPauseIndividuallyAndWhileTheApplicationIsInactive() async {
         let clock = NotificationTestClock()

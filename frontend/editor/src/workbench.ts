@@ -199,7 +199,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       entry.model.getVersionId() === version && state!.generation === generation;
     if (!valid()) return;
     const revision = entry.revision, language = entry.model.getLanguageId();
-    const reply = language === "java"
+    const reply = language === "java" && !entry.readonly
       ? await languageRequest({ type: "javaRunMarkers", id, revision }) : { markers: [] };
     if (!valid() || entry.revision !== revision || entry.model.getLanguageId() !== language || reply.cancelled) return;
     const markers = normalizeRunMarkers(reply.markers, entry.model.getLineCount());
@@ -336,6 +336,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     if (typeof payload.readonly === "boolean" && entry.readonly !== payload.readonly) {
       entry.readonly = payload.readonly;
       applyReadOnly(entry);
+      await refreshRunMarkers(payload.id, entry);
     }
     return entry;
   }
@@ -572,11 +573,15 @@ export function mountWorkbench(host: WorkbenchHost) {
       const [id, entry] = pair, state = runMarkerStates.get(entry);
       if (!state || entry.model.isDisposed() || entry.model.getLanguageId() !== "java" ||
           state.version !== entry.model.getVersionId() || state.revision !== entry.revision ||
-          entry.frozen || entry.closingHolds || failed) return;
+          entry.readonly || entry.frozen || entry.closingHolds || failed) return;
       return { id, state };
     };
-    const perform = (id: string, state: RunMarkerState, marker: RunMarker, action: "run" | "debug" | "editConfiguration") =>
-      languageRequest({ type: "javaRunMarkerAction", id, revision: state.revision, marker: marker.id, action });
+    const perform = (id: string, state: RunMarkerState, marker: RunMarker, action: "run" | "debug" | "editConfiguration") => {
+      const entry = entries.get(id);
+      if (!entry || entry.readonly || runMarkerStates.get(entry) !== state || entry.revision !== state.revision)
+        return Promise.resolve({ cancelled: true });
+      return languageRequest({ type: "javaRunMarkerAction", id, revision: state.revision, marker: marker.id, action });
+    };
     // Monaco action labels are fixed, so the caret's target is re-registered
     // whenever it changes, giving IDEA's "Run 'OrderTest.creates'" wording.
     let registered: { key: string; actions: monaco.IDisposable[] } | undefined;

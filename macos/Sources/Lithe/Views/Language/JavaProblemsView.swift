@@ -152,13 +152,7 @@ struct ProblemsView: View {
     }
 
     private var currentFileURL: URL? {
-        // Match FileEditorManager.selectedEditor, including non-text editor selection.
-        guard !model.isDatabaseWorkspaceSelected, !model.isRepositoryDiffSelected,
-              model.gitFeatureIfActive?.selectedChange == nil,
-              model.gitFeatureIfActive?.branchComparison == nil,
-              model.activeEditorTerminalSession == nil,
-              model.activeMediaDocument == nil else { return nil }
-        return model.activeDocument?.url.standardizedFileURL
+        ProblemsPanelScope.currentFileURL(in: model)
     }
 
     private var header: some View {
@@ -352,6 +346,17 @@ enum ProblemsPanelScope: CaseIterable {
         case .file: "File"
         case .projectErrors: "Project Errors"
         }
+    }
+
+    @MainActor
+    static func currentFileURL(in model: AppModel) -> URL? {
+        // Match FileEditorManager.selectedEditor, including non-text editor selection.
+        guard !model.isAgentEditorSelected, !model.isDatabaseWorkspaceSelected, !model.isRepositoryDiffSelected,
+              model.gitFeatureIfActive?.selectedChange == nil,
+              model.gitFeatureIfActive?.branchComparison == nil,
+              model.activeEditorTerminalSession == nil,
+              model.activeMediaDocument == nil else { return nil }
+        return model.activeDocument?.url.standardizedFileURL
     }
 
     func diagnostics(in byURL: [URL: [EditorDiagnostic]], currentFileURL: URL?) -> [EditorDiagnostic] {

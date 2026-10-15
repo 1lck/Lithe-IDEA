@@ -5,7 +5,7 @@ import Foundation
 ///
 /// The model merges repeated messages into one entry and records how often the
 /// message appeared. Turning that count into user-visible text stays in the view
-/// layer so `WorkbenchNotification.message` remains a plain localization key.
+/// layer so the model retains a stable localization key and raw arguments.
 enum WorkbenchNotificationPresentation {
     /// Resolves the stored message key in the app locale, then appends its occurrence count.
     ///
@@ -15,13 +15,16 @@ enum WorkbenchNotificationPresentation {
     /// to the format key, the same way `gitLocalizedFormat` resolves UI text.
     static func message(
         _ message: String,
+        arguments: [String] = [],
         occurrenceCount: Int,
         locale: Locale,
         bundle: Bundle = .main
     ) -> String {
         let localizedBundle = bundle.url(forResource: locale.identifier, withExtension: "lproj")
             .flatMap(Bundle.init(url:)) ?? bundle
-        let localizedMessage = localizedBundle.localizedString(forKey: message, value: message, table: nil)
+        let template = localizedBundle.localizedString(forKey: message, value: message, table: nil)
+        let localizedMessage = arguments.isEmpty ? template
+            : String(format: template, locale: locale, arguments: arguments.map { $0 as CVarArg })
         guard occurrenceCount > 1 else { return localizedMessage }
         let format = localizedBundle.localizedString(forKey: "%@ (%lld)",
             value: "%@ (%lld)",

@@ -5,6 +5,7 @@ struct WorkbenchNotificationBanner: View {
     @Environment(\.locale) private var locale
     @State private var isExpanded = false
     let message: String
+    var messageArguments: [String] = []
     var collapsedCount = 0
     /// How often the message has appeared; shown as a suffix from the second
     /// time on. Required so a caller cannot silently drop the merged count.
@@ -16,7 +17,7 @@ struct WorkbenchNotificationBanner: View {
     let dismiss: () -> Void
 
     private var displayMessage: String {
-        WorkbenchNotificationPresentation.message(message,
+        WorkbenchNotificationPresentation.message(message, arguments: messageArguments,
             occurrenceCount: occurrenceCount,
             locale: locale,
             bundle: bundle)

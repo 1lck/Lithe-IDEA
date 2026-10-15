@@ -18,6 +18,27 @@ struct ProblemsPanelPresentationTests {
         #expect(try #require(light.tiffRepresentation) != #require(dark.tiffRepresentation))
     }
 
+    @Test func fileScopeClearsForAgentEditorAndRestoresTextDocument() throws {
+        let domain = "Lithe.ProblemsSelectionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings,
+            services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let url = try #require(URL(string: "lithe-fixture://workspace/Main.java"))
+        model.documentFeature.openVirtualDocument(url, text: "class Main {}", displayPath: nil)
+        let document = try #require(model.activeDocument)
+        #expect(ProblemsPanelScope.currentFileURL(in: model) == url)
+        model.showAgentChatsInEditor()
+        #expect(model.isAgentEditorSelected)
+        #expect(model.activeDocument === document, "Agent selection retains the previous document")
+        #expect(ProblemsPanelScope.currentFileURL(in: model) == nil)
+        model.selectEditorTab(.document(document.id))
+        #expect(!model.isAgentEditorSelected)
+        #expect(ProblemsPanelScope.currentFileURL(in: model) == url)
+    }
+
     @Test
     func fileScopeFollowsSelectedURLAndKeepsWorkspaceDiagnostics() {
         let first = URL(fileURLWithPath: "/workspace/one/Main.java")

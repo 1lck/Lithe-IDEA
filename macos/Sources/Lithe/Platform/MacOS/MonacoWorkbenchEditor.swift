@@ -991,6 +991,11 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             documents: documents, workspaceURL: model.workspaceURL)
     }
 
+    func allowsMessage(_ type: String) -> Bool {
+        !isReadOnlyPreview || !["format", "codeActions", "resolveCodeAction", "executeCodeAction",
+                               "rename", "resolveCompletion", "javaRunMarkerAction"].contains(type)
+    }
+
     func receive(_ message: WKScriptMessage, reply: @escaping (Any?, String?) -> Void) {
         guard message.frameInfo.isMainFrame, message.frameInfo.securityOrigin.protocol == "lithe-editor",
               message.frameInfo.securityOrigin.host == "app", let body = message.body as? [String: Any],
@@ -1043,7 +1048,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
            locationRevision != document.locationRevision {
             reply(["cancelled": true], nil); return
         }
-        if isReadOnlyPreview, ["format", "codeActions", "resolveCodeAction", "executeCodeAction", "rename", "resolveCompletion"].contains(type) {
+        if !allowsMessage(type) {
             reply(["cancelled": true], nil); return
         }
         switch type {

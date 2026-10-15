@@ -264,3 +264,14 @@ Community revision `373dcfbaea24c627febb7e4916125fed3e5b4bc3` 的 `FileNode.kt`
 
 `ProblemsPanelPresentationTests.fileIconsHaveDistinctThemeVariantsAtNativeSize` 加载真实
 类、YAML 和启动角标资源，检查明暗变体都可读取、画布为 16×16 且实际渲染不同。
+
+
+## 审核后的交互边界补充（2026-10-15）
+
+File 的当前文件解析同时排除 Agent Conversation 编辑器标签。该标签保留上一次
+activeDocument，不能仅用文档是否存在判断用户正看的内容；切回文本标签后恢复文件范围。
+
+Problems 只读预览的原生桥拒绝 javaRunMarkerAction。共享 Monaco 在文档为只读时
+不请求 Run Marker，清除角标和 Run/Debug 动作，并在执行回调时再次检查只读状态，
+防止切换前已经保存的菜单动作启动进程。编辑器正常可写时保留原有 Run/Debug 行为。
+验证分别覆盖文本→Agent→文本、原生消息策略，以及真实 WebKit 的动作移除和过期回调。

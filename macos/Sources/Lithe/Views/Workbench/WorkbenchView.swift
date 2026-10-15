@@ -499,6 +499,7 @@ struct WorkbenchView: View {
                     // IDEA keeps the oldest balloon at the bottom; new messages grow upward.
                     ForEach(model.activeNotifications.reversed()) { notification in
                         WorkbenchNotificationBanner(message: notification.message,
+                            messageArguments: notification.arguments,
                             collapsedCount: notification.collapsedCount,
                             occurrenceCount: notification.occurrenceCount,
                             showHistory: { isNotificationCenterPresented = true }) {
@@ -1790,6 +1791,7 @@ private struct WorkbenchNotificationCenterView: View {
     private func message(for notification: WorkbenchNotification) -> String {
         WorkbenchNotificationPresentation.message(
             notification.message,
+            arguments: notification.arguments,
             occurrenceCount: notification.occurrenceCount,
             locale: locale
         )

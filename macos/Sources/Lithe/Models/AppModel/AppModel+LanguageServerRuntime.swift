@@ -262,7 +262,7 @@ extension AppModel {
                 throw NSError(domain: "MavenReload", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
             case .unprepared:
                 throw NSError(domain: "MavenReload", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "Java runtime is not ready. Retry Maven reload."
+                    NSLocalizedDescriptionKey: self.settings.language.localizedString("Java runtime is not ready. Retry Maven reload.")
                 ])
             }
             let sessions = try await self.languageSessionsForWorkspaceMaintenance()
@@ -300,12 +300,7 @@ extension AppModel {
             showNotification("Java service preparation timed out")
         case .failed(let message):
             if let message, !message.isEmpty {
-                showNotification(String(
-                    format: (Bundle.main.url(forResource: settings.language.rawValue, withExtension: "lproj")
-                        .flatMap(Bundle.init(url:)) ?? .main).localizedString(
-                            forKey: "Java service failed to start: %@", value: "Java service failed to start: %@", table: nil),
-                    message
-                ))
+                showNotification("Java service failed to start: %@", arguments: [message])
             } else {
                 showNotification("Java service failed to start")
             }
