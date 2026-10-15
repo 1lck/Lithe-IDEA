@@ -85,7 +85,7 @@ function fixture(t, options = {}) {
         fs.writeFileSync(file, args[2] === 'AutoBuild' ? remoteBytes.get(name) : args[2] === 'preview-0.3.0' ? legacyBytes.get(name) : options.badSHA ? 'corrupt ZIP' : pluginBytes);
         return '';
       }
-      if (args[1] === 'create') { exists = true; releaseTitle = args[args.indexOf('--title') + 1]; return ''; }
+      if (args[1] === 'create') { assert.equal(exists, false); exists = true; assets = []; remoteBytes.clear(); releaseTitle = args[args.indexOf('--title') + 1]; return ''; }
       if (args[1] === 'upload') {
         const file = args[3], name = path.basename(file);
         if (options.failUpload && (options.failUpload === true || name.endsWith('.xml'))) throw new Error('HTTP 422 upload failed');
@@ -429,6 +429,57 @@ await test('local appcast pubDate must equal the shared build instant', { timeou
   fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('12:43:54', '12:43:53'));
   assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /Wrong AutoBuild feed identity or timestamp/);
   assert.equal(uploads(f).length, 0); assert.equal(deletes(f).length, 0);
+});
+
+for (const failAt of ['upload:autobuild-publication.json', 'starter:autobuild-publication.json']) {
+  for (const [plan, build, timestamp, accepts] of [
+    ['older', '20261013.124354', '2026-10-13T12:43:54Z', false],
+    ['same-second', '20261014.124354', '2026-10-14T12:43:54Z', false],
+    ['original', '20261015.124354', '2026-10-15T12:43:54Z', true],
+    ['newer', '20261016.000001', '2026-10-16T00:00:01Z', true],
+  ]) await test(`interrupted migration retains the legacy baseline for ${plan} plan after ${failAt}`, { timeout: 5000 }, t => {
+    const f = fixture(t, { bootstrap: true, legacyBaselineTimestamp: '2026-10-14T12:43:54Z', failAt });
+    assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
+    assert.equal(f.assets().length, failAt.startsWith('starter:') ? 1 : 0);
+    assert.equal(f.state().legacy, true);
+    assert.deepEqual(fs.readdirSync(f.temp), []);
+    const next = fixture(t, { build, timestamp });
+    fs.cpSync(next.dist, f.dist, { recursive: true });
+    Object.assign(f.config, { build, timestamp });
+    const count = f.calls.length;
+    if (accepts) {
+      const names = publishAutoBuild(f.config, { run: f.run });
+      assert.deepEqual(f.assets().map(asset => asset.name).sort(), names);
+      assert.deepEqual(f.state(), { ref: source, legacy: false, legacyRef: false });
+    } else {
+      assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /strictly newer/);
+      assert.ok(!f.calls.slice(count).some(call => call.includes('create') || call.includes('upload') || call.includes('PATCH') || call.includes('DELETE') || call.includes('edit')));
+      assert.equal(f.state().legacy, true);
+    }
+    assert.ok(f.calls.slice(count).some(call => call[2] === 'download' && call[3] === 'preview-0.3.0'));
+    assert.deepEqual(fs.readdirSync(f.temp), []);
+  });
+}
+
+for (const failAt of ['uploaded:autobuild-publication.json', 'uploaded:appcast-preview-arm64.xml']) {
+  await test(`same plan resumes migration while legacy feeds remain after ${failAt}`, { timeout: 5000 }, t => {
+    const f = fixture(t, { bootstrap: true, legacyBaselineTimestamp: '2026-10-14T12:43:54Z', failAt });
+    assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
+    const count = f.calls.length;
+    const names = publishAutoBuild(f.config, { run: f.run });
+    assert.deepEqual(f.assets().map(asset => asset.name).sort(), names);
+    assert.deepEqual(f.state(), { ref: source, legacy: false, legacyRef: false });
+    assert.ok(f.calls.slice(count).some(call => call[2] === 'download' && call[3] === 'preview-0.3.0'));
+    assert.deepEqual(fs.readdirSync(f.temp), []);
+  });
+}
+
+await test('existing AutoBuild feeds do not bypass a newer legacy preview baseline', { timeout: 5000 }, t => {
+  const f = fixture(t, { legacyBaselineTimestamp: '2026-10-16T00:00:00Z' });
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /strictly newer/);
+  assert.equal(uploads(f).length, 0); assert.equal(deletes(f).length, 0);
+  assert.ok(!f.calls.some(call => call.includes('create') || call.includes('PATCH') || call.includes('edit')));
+  assert.deepEqual(fs.readdirSync(f.temp), []);
 });
 
 for (const [timestamp, accepts] of [['2026-10-14T12:43:54Z', true], ['2026-10-15T12:43:54Z', false], ['2026-10-16T00:00:00Z', false]]) {

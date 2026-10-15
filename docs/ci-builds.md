@@ -115,7 +115,8 @@ gh workflow run release-preview-macos.yml \
 
 发布器验证三个平台的源码、版本、build、ISO 时间完全一致，且 build 精确对应 ISO 秒。
 任何远端写入前下载双架构已有 appcast，要求新时间严格晚于每份基线且 build 数值递增；
-尚无 `AutoBuild` 时先读取旧 `preview-0.3.0` appcast，迁移也不能绕过时间顺序。
+只要旧 `preview-0.3.0` release 仍存在，就同时校验其双架构 appcast；即使 AutoBuild 已创建
+但为空或只留下未完成的检查点，也不能跳过旧入口的时间顺序。
 新发布同秒或时钟倒退直接拒绝，不补造计数。没有历史入口才允许首次发布；已有 ZIP
 却缺失 feed、损坏 feed 或时间身份不一致均拒绝发布。同一次发布的恢复由下述检查点约束，
 不能仅凭相同时间或 tag 源码放行。
@@ -336,9 +337,10 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 - AutoBuild 插件镜像与发布校验 staging：
   `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{marketplace,plugins,baselines,verification}/`。
   源码 SHA、固定索引中的 SHA-256、组织 release/tag/asset、当前 build/ISO 时间与本次发布共同决定输入；
-  根目录生成 `autobuild-publication.json`，baselines 保存从固定 AutoBuild 下载的检查点与
-  双架构 appcast，用于本次严格时间排序和精确恢复校验。检查点绑定全部目标字节，
-  不是可跨工作树复制的构建缓存；远端发布资产仅供本次调用下载验证。
+  根目录生成 `autobuild-publication.json`，`baselines/AutoBuild/` 保存当前入口的检查点与
+  双架构 appcast；旧入口仍存在时，`baselines/preview-0.3.0/` 另存其双架构 appcast。
+  两组基线用于本次严格时间排序，只有 AutoBuild 接受匹配检查点的精确恢复。
+  检查点绑定全部目标字节，不是可跨工作树复制的构建缓存；远端发布资产仅供本次调用下载验证。
   ZIP 的平台/架构由索引下载变体约束，复用现有签名，不依赖本地工具链重新构建。
   缺少可跨工作树复用的 identity stamp，`autobuild-plugin-mirror-staging` 注册在
   `excludedResources` 并由复用脚本的通用排除路由拒绝，任何复制阶段都不共享。

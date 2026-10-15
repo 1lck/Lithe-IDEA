@@ -180,9 +180,12 @@ helper，再从 prepare 的 preview SHA 用 `git fetch/show` 读取官方插件 
 `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{marketplace,plugins,baselines,verification}/`；
 没有可复用 identity stamp，通用排除路由拒绝跨工作树复制。每个子进程限时
 120 秒，暂时性故障最多三次尝试，重试前删除本次下载残片，`finally` 删除本次
-创建的精确临时目录。根目录生成目标检查点，baselines 下载旧检查点和架构 appcast；
-初次迁移尚无 AutoBuild 时读取旧 `preview-0.3.0` 的 appcast。它们只供本次排序和
-精确恢复校验，不可跨工作树复用。没有匹配检查点时，已有 ZIP 却缺少 feed 或 feed
+创建的精确临时目录。根目录生成目标检查点，`baselines/AutoBuild/` 下载当前入口的
+旧检查点和架构 appcast；只要旧 `preview-0.3.0` release 仍存在，其架构 appcast 就下载到
+`baselines/preview-0.3.0/` 并继续严格排序。不能因为 AutoBuild 已创建但为空、或只留下
+未完成的检查点而跳过旧基线；检查点的精确恢复权限只适用于 AutoBuild。
+例如创建 release 后、上传检查点前中断，重跑必须继续拒绝比旧 preview 更早或同秒的快照。
+这些文件只供本次排序和精确恢复校验，不可跨工作树复用。没有匹配检查点时，已有 ZIP 却缺少 feed 或 feed
 损坏都拒绝发布；存在检查点也不能接受损坏的已上传 feed。
 这里只处理发布期资源，不改运行时 app bundle、代码签名
 或 Sparkle 差分基线。

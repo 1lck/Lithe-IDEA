@@ -132,8 +132,10 @@ Publication waits for both macOS architectures and the reusable Windows installe
 build, all carrying the same source, version, build and timestamp.
 The publisher checks both existing appcasts before any remote mutation: the new
 time must be strictly later than each published `pubDate`, and the numeric build
-must increase. When AutoBuild does not yet exist, migration checks the old
-`preview-0.3.0` appcasts first. Legacy builds such as `58.1` remain readable baselines; new builds
+must increase. As long as the `preview-0.3.0` release remains, its appcasts also
+pass the strict baseline check, even when AutoBuild exists but is empty or has only
+an incomplete checkpoint. Exact-plan recovery applies only to AutoBuild. Legacy builds
+such as `58.1` remain readable baselines; new builds
 must use timestamp identities. New publications at duplicate seconds and backward
 clocks fail without inventing a counter. Before replacing data or feeds, the publisher
 uploads `autobuild-publication.json`, binding source, version, build, timestamp and the

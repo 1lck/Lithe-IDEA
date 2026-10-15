@@ -149,13 +149,14 @@ export function publishAutoBuild(config, { run = runCommand } = {}) {
     add(checkpointFile);
     // No mutation until every local asset and upstream ZIP passes validation.
     let release = optional(`repos/${repository}/releases/tags/${releaseTag}`);
-    const baselineRelease = release ?? optional(`repos/${repository}/releases/tags/${oldTag}`);
-    const baselineTag = release ? releaseTag : oldTag;
+    // A partially created AutoBuild release must not hide the legacy time baseline.
+    const baselines = [[releaseTag, release], [oldTag, optional(`repos/${repository}/releases/tags/${oldTag}`)]];
     let resume = false;
-    if (baselineRelease) {
+    for (const [baselineTag, baselineRelease] of baselines) {
+      if (!baselineRelease) continue;
       const assets = list(baselineRelease.id);
-      const baselineDirectory = path.join(root, 'baselines'); fs.mkdirSync(baselineDirectory);
-      const checkpoints = release ? assets.filter(asset => asset.name === checkpointName) : [];
+      const baselineDirectory = path.join(root, 'baselines', baselineTag); fs.mkdirSync(baselineDirectory, { recursive: true });
+      const checkpoints = baselineTag === releaseTag ? assets.filter(asset => asset.name === checkpointName) : [];
       if (checkpoints.length > 1) throw new Error('Invalid AutoBuild publication checkpoint');
       if (checkpoints.length === 1 && checkpoints[0].state === 'uploaded') {
         const file = path.join(baselineDirectory, checkpointName);
@@ -166,22 +167,23 @@ export function publishAutoBuild(config, { run = runCommand } = {}) {
         resume = digest(file) === files.get(checkpointName).sha256;
         if (!resume && previous.timestamp >= timestamp) throw new Error('Conflicting AutoBuild publication: checkpoint is newer or has different content at the same timestamp');
       }
+      const resumingBaseline = baselineTag === releaseTag && resume;
       for (const architecture of ['arm64', 'x86_64']) {
         const name = `appcast-preview-${architecture}.xml`;
         const matches = assets.filter(asset => asset.name === name);
         if (matches.length === 0) {
           // A prior validated checkpoint also covers a clobber interrupted after deletion.
-          if (!resume && assets.some(asset => asset.name.startsWith('Lithe-preview-') && asset.name.endsWith(`-${architecture}.zip`))) throw new Error(`Missing published appcast baseline: ${architecture}`);
+          if (!resumingBaseline && assets.some(asset => asset.name.startsWith('Lithe-preview-') && asset.name.endsWith(`-${architecture}.zip`))) throw new Error(`Missing published appcast baseline: ${architecture}`);
           continue;
         }
         if (matches.length !== 1) throw new Error(`Invalid published appcast baseline: ${architecture}`);
         if (matches[0].state !== 'uploaded') {
-          if (resume && matches[0].state === 'starter' && matches[0].size === 0) continue;
+          if (resumingBaseline && matches[0].state === 'starter' && matches[0].size === 0) continue;
           throw new Error(`Invalid published appcast baseline: ${architecture}`);
         }
         const file = path.join(baselineDirectory, name);
         ghCommand(['release', 'download', baselineTag, '--repo', repository, '--pattern', name, '--dir', baselineDirectory], run, () => fs.rmSync(file, { force: true }));
-        const mode = resume && digest(file) === files.get(name).sha256 ? '--feed' : '--baseline';
+        const mode = resumingBaseline && digest(file) === files.get(name).sha256 ? '--feed' : '--baseline';
         run('ruby', ['scripts/autobuild-identity.rb', mode, file, build, timestamp]);
       }
     }

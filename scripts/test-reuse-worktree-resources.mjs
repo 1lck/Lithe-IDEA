@@ -92,6 +92,7 @@ try {
     assert.ok(resource.locations.includes("<RUNNER_TEMP>/lithe-autobuild-<invocation>/autobuild-publication.json"));
     assert.match(resource.identity, /publication checkpoint.*sorted target asset SHA-256\/size.*exact-plan recovery/);
     assert.match(resource.identity, /build\/ISO timestamp.*strict publication-time ordering/);
+    assert.match(resource.identity, /baselines\/AutoBuild.*baselines\/preview-0\.3\.0.*legacy release remains/);
     assert.match(resource.identity, /source SHA.*SHA-256.*official organization/);
     assert.ok(resource.locations.every(location => location.startsWith("<RUNNER_TEMP>/lithe-autobuild-<invocation>/")));
     const listed = run(process.execPath, [reuseScript, "--list"]);
