@@ -1,7 +1,7 @@
 require "rexml/document"
 require "base64"
 require "uri"
-require "open3"
+require_relative "autobuild-identity"
 
 def verify_sparkle_appcast(path, build)
   document = REXML::Document.new(File.read(path))
@@ -20,16 +20,11 @@ def verify_sparkle_appcast(path, build)
     raise "Wrong asset length" unless File.size(file) == Integer(enclosure.attributes["length"])
     signature = Base64.strict_decode64(enclosure.attributes["sparkle:edSignature"].to_s)
     raise "Missing EdDSA signature" unless signature.bytesize == 64
-    public_key = ENV["LITHE_SPARKLE_PUBLIC_KEY"]
-    if public_key && !public_key.empty?
-      output, status = Open3.capture2e("node", File.join(__dir__, "verify-release-signature.mjs"),
-        file, enclosure.attributes["sparkle:edSignature"], public_key, "--inline")
-      raise "Invalid archive signature: #{output}" unless status.success?
-    end
   end
 end
 
 if $PROGRAM_NAME == __FILE__
   verify_sparkle_appcast(ARGV.fetch(0), ARGV.fetch(1))
+  verify_autobuild_feed(ARGV.fetch(0), ARGV.fetch(1), ARGV[2]) if ARGV[2]
   puts "Sparkle appcast verification passed"
 end

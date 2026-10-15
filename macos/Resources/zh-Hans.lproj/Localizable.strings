@@ -3033,3 +3033,21 @@
 "Expand JSON block" = "展开 JSON 段落";
 
 "Collapse JSON block" = "收起 JSON 段落";
+
+
+/* Explicit update channel selection. */
+"Update channel" = "更新渠道";
+"Stable (Recommended)" = "正式版（推荐）";
+"AutoBuild Rolling" = "AutoBuild 滚动版";
+"Use AutoBuild Rolling?" = "使用 AutoBuild 滚动版？";
+"Use AutoBuild" = "使用 AutoBuild";
+"AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild 每晚滚动构建，可能包含未完成的功能、严重缺陷或其他异常，普通用户建议使用正式版。";
+"Changing channels requires a full installation and may install an older version. Your projects and settings are kept, but settings from newer builds may not work in older releases." = "切换渠道需要全量安装，可能安装较旧的版本。项目和设置会保留，但较新构建中的设置可能无法在旧版本中使用。";
+"Open AutoBuild Downloads" = "打开 AutoBuild 下载页";
+"Open Stable Downloads" = "打开正式版下载页";
+"Install the selected channel" = "安装所选渠道版本";
+"Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates." = "切换渠道需要全量安装，可能安装较旧的版本。请打开所选渠道的发布页下载安装包。渠道选择已保存，用于后续更新。";
+"Install AutoBuild" = "安装 AutoBuild";
+"AutoBuild Update" = "AutoBuild 更新";
+"AutoBuild — Built at %@" = "AutoBuild — 构建自 %@";
+"The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "将全量下载最新正式版，在你确认安装后替换当前 AutoBuild。项目和设置会保留，但 AutoBuild 专有的设置可能无法在正式版中使用。";
