@@ -286,6 +286,7 @@ extension AppModel {
     func selectEditorTab(_ item: EditorTabItem) {
         editorTabOrderFeature.focus(item)
         switch item {
+        case .agentConversation: showAgentChatsInEditor()
         case .databaseOverview:
             openDatabaseWorkspace(overview: true)
         case .database(let profileID):

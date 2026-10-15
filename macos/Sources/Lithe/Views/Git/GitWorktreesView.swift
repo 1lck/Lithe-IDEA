@@ -779,29 +779,13 @@ struct GitWorktreesView: View {
     }
 
     private var staleWorktreeBanner: some View {
-        HStack(spacing: 12) {
-            LitheIDEAIcon(resourcePath: "expui/status/warning", size: 16, preservesOriginalColors: true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(String(
-                    format: gitLocalizedFormat("%lld worktree records need attention", locale: locale),
-                    feature.gitWorktrees.filter(\.isPrunable).count
-                ))
-                    .font(Visual.bodyMedium)
-                    .foregroundStyle(LitheTheme.primaryText)
-                Text("A missing checkout can make the worktree list inaccurate.")
-                    .font(Visual.metadata)
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            Spacer()
+        LitheBanner(status: .warning, layout: .editor) {
+            Text(String(
+                format: gitLocalizedFormat("%lld worktree records need attention", locale: locale),
+                feature.gitWorktrees.filter(\.isPrunable).count
+            )).litheBannerTitle()
+            Text("A missing checkout can make the worktree list inaccurate.")
             Button("Prune Stale Records") { worktreeConfirmation = .prune }
-                .buttonStyle(LitheCommitDialogButtonStyle())
-                .lithePointer()
-        }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 58)
-        .background(LitheTheme.warning.opacity(0.10))
-        .overlay(alignment: .top) {
-            Rectangle().fill(LitheTheme.warning.opacity(0.25)).frame(height: 1)
         }
     }
 

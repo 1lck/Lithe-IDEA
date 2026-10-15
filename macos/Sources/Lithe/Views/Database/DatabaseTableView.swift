@@ -213,7 +213,7 @@ struct DatabaseTableView: View {
             }
         }
         .frame(height: 30)
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .overlay(alignment: .bottom) { Rectangle().fill(gridBorder).frame(height: LitheTheme.DatabaseGrid.borderWidth) }
     }
 
@@ -353,7 +353,7 @@ struct DatabaseTableView: View {
         }
         .padding(.horizontal, 6)
         .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private var filterPopover: some View {

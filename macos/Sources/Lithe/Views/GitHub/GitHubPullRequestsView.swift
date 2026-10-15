@@ -258,7 +258,7 @@ struct GitHubPullRequestsSidebarView: View {
         }
         .padding(.horizontal, 11)
         .frame(height: 46)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var filters: some View {
@@ -584,13 +584,13 @@ struct GitHubPullRequestDetailView: View {
         case .idle:
             EmptyView()
         case .running(let message):
-            GitHubOperationBanner(icon: nil, color: LitheTheme.accent, message: message, isProgress: true)
+            GitHubOperationBanner(status: .info, message: message, isProgress: true)
         case .succeeded(let message):
-            GitHubOperationBanner(icon: "checkmark.circle.fill", color: LitheTheme.success, message: message) {
+            GitHubOperationBanner(status: .success, message: message) {
                 model.githubFeature.clearOperationStatus()
             }
         case .failed(let message):
-            GitHubOperationBanner(icon: "exclamationmark.triangle.fill", color: LitheTheme.error, message: message) {
+            GitHubOperationBanner(status: .error, message: message) {
                 model.githubFeature.clearOperationStatus()
             }
         }
@@ -678,12 +678,10 @@ struct GitHubPullRequestDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if model.githubFeature.comments.isEmpty {
-                    GitHubInlineNotice(
-                        icon: "bubble.left",
-                        color: LitheTheme.secondaryText,
-                        title: "No conversation yet",
-                        message: "Start the discussion or submit the first review."
-                    )
+                    LitheBanner(status: .neutralMuted) {
+                        Text("No conversation yet").litheBannerTitle()
+                        Text("Start the discussion or submit the first review.")
+                    }
                 } else {
                     VStack(spacing: 0) {
                         ForEach(Array(model.githubFeature.comments.enumerated()), id: \.element.id) { index, comment in
@@ -1164,87 +1162,16 @@ private struct GitHubRelativeDate: View {
 }
 
 private struct GitHubOperationBanner: View {
-    let icon: String?
-    let color: Color
+    let status: LitheBannerStatus
     let message: String
     var isProgress = false
     var dismiss: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 8) {
-            if isProgress {
-                ProgressView().controlSize(.small)
-            } else if let icon {
-                Image(systemName: icon).foregroundStyle(color)
-            }
-            Text(LocalizedStringKey(message))
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .lineLimit(2)
-            Spacer()
-            if let dismiss {
-                Button(action: dismiss) { Image(systemName: "xmark") }
-                    .litheIconButton()
-                    .help("Dismiss")
-            }
+        LitheBanner(status: status, layout: .editor, isProgress: isProgress, dismiss: dismiss) {
+            Text(LocalizedStringKey(message)).lineLimit(2)
         }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 34)
-        .background(color.opacity(0.08))
-        .overlay(alignment: .bottom) { Rectangle().fill(color.opacity(0.2)).frame(height: 1) }
         .transition(.move(edge: .top).combined(with: .opacity))
-    }
-}
-
-private struct GitHubInlineNotice<Actions: View>: View {
-    let icon: String
-    let color: Color
-    let title: String
-    let message: String
-    @ViewBuilder var actions: () -> Actions
-
-    init(
-        icon: String,
-        color: Color,
-        title: String,
-        message: String,
-        @ViewBuilder actions: @escaping () -> Actions = { EmptyView() }
-    ) {
-        self.icon = icon
-        self.color = color
-        self.title = title
-        self.message = message
-        self.actions = actions
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: icon).foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(LocalizedStringKey(title)).font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
-                localizedMessage
-                    .font(LitheTheme.uiFont(size: 10.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                actions()
-                    .padding(.top, 2)
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(color.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    @ViewBuilder
-    private var localizedMessage: some View {
-        let authorizationFailurePrefix = "GitHub authorization failed: "
-        if message.hasPrefix(authorizationFailurePrefix) {
-            Text("GitHub authorization failed:")
-                + Text(" ")
-                + Text(message.dropFirst(authorizationFailurePrefix.count))
-        } else {
-            Text(LocalizedStringKey(message))
-        }
     }
 }
 

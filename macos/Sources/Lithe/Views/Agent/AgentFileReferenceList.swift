@@ -2,6 +2,7 @@ import SwiftUI
 import LitheAgentConversationModule
 
 struct AgentFileReferenceList: View {
+    @Environment(\.locale) private var locale
     let files: [AgentFileReference]
     let onRemove: (String) -> Void
 
@@ -16,7 +17,7 @@ struct AgentFileReferenceList: View {
                             Image(systemName: "xmark").font(LitheTheme.uiFont(size: 9))
                         }
                         .buttonStyle(.litheNoPress)
-                        .accessibilityLabel(String(format: String(localized: "Remove file %@"), file.name))
+                        .accessibilityLabel(String(format: AgentLocalization.string("Remove file %@", locale: locale), file.name))
                     }
                     .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(AgentPanelStyle.text)

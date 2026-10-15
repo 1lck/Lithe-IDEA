@@ -698,37 +698,10 @@ struct GitLogView: View {
         onRestore: @escaping () async -> Void,
         onDismiss: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 7) {
-            LitheSystemIcon(systemImage: icon, size: 13)
-                .foregroundStyle(LitheTheme.warning)
-            Text(message)
-                .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            Button("Restore") {
-                Task { await onRestore() }
-            }
-            .controlSize(.small)
-            .buttonStyle(.borderedProminent)
-            .tint(LitheTheme.accent)
-            .disabled(feature.isPerformingBranchOperation)
-            .lithePointer()
-            Button {
-                onDismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            .litheIconButton()
-            .help("Dismiss")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(LitheTheme.raised)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        LitheBanner(status: .warning, layout: .editor, dismiss: onDismiss) {
+            Text(message).lineLimit(1)
+            Button("Restore") { Task { await onRestore() } }
+                .disabled(feature.isPerformingBranchOperation)
         }
     }
 
