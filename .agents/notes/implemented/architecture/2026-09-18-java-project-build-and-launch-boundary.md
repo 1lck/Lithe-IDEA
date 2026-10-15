@@ -36,11 +36,24 @@ classpath/module-path；随后 Run 模块只启动一次项目 JDK。Maven 仍�
 
 1. `vscode.java.resolveMainClass` 按生成配置记录的精确源码路径选择目标；
 2. `vscode.java.buildWorkspace` 请求构建拥有该目标的 Java 项目，并记录终态证据；
-3. `vscode.java.resolveClasspath` 返回 runtime classpath 和 module-path；即使构建终态是
+3. `vscode.java.resolveClasspath` 只传主类和项目名，不固定 scope，由上游根据主类所属源码根
+   选择 classpath 和 module-path；即使构建终态是
    `WITH_ERROR` 或 `FAILED`，只要路径可解析，也把目标和构建证据一起交给启动工作流；
 4. Rust Core 接收结构化 `javaLaunch`，生成 `project-jdk` 直启计划；
 5. Maven 项目的计划包含原生 `resources:resources` 前置步骤，测试源码入口另加
    `resources:testResources`；宿主等待资源处理成功后，按各自路径分隔符拼接参数并启动一个 JVM。
+
+Issue #379 的回归来自固定传入 `runtime`：Java Debug Server 0.53.2 的
+`ResolveClasspathsHandler.computeClassPath` 会因此主动排除测试输出与测试依赖。
+省略第三个参数时，上游通过 `findMainClassInTestFolders` 搜索测试源码根，并把
+目标资源交给 m2e（JDT 使用的 Maven 项目模型）解析完整路径。Run、Debug 和
+服务更新前的路径校验必须采用同一调用方式；例如测试目录中的 `MainTests`
+使用测试输出和 test scope 依赖，主源码入口继续排除测试输出。
+不要按 `src/test/java` 字符串判断后追加 `target/test-classes`，也不要给全部主类
+强制 `test` scope：前者绕过自定义目录与依赖，后者污染生产启动路径。
+此修复不增加下载、缓存或资源目录，输出仍由 JDT 写入项目工作区，发行包保持只读。
+上游依据：`microsoft/java-debug` 标签 `0.53.2`，
+`com.microsoft.java.debug.plugin/src/main/java/com/microsoft/java/debug/plugin/internal/ResolveClasspathsHandler.java`。
 
 Issue #1133 中，Java watcher 只转发源码和构建配置，资源变更归为 `other`，
 而 JDT 的成功构建结果不能证明 Maven 资源已更新。资源处理复用 Maven 的

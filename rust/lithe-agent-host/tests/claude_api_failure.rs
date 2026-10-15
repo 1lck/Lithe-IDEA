@@ -18,6 +18,7 @@ use lithe_agent_host::{
 const DEADLINE: Duration = Duration::from_secs(30);
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const RECOVER_AFTER_FAILURE: u16 = 202;
+const MODEL_RESTORE_PROMPT: &str = "LITHE_MODEL_RESTORE: Only reply OK. No tools.";
 
 struct Project(PathBuf);
 
@@ -29,7 +30,7 @@ impl Drop for Project {
 
 /// Consume the entire request before closing the connection, avoiding a TCP
 /// reset from unread request bytes. Every read shares the same local deadline.
-fn respond(stream: &mut TcpStream, status: u16) -> bool {
+fn respond(stream: &mut TcpStream, status: u16, models: Option<&mut Vec<String>>) -> bool {
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut request = Vec::new();
     let (headers, content_length, header_length) = loop {
@@ -84,6 +85,34 @@ fn respond(stream: &mut TcpStream, status: u16) -> bool {
         .nth(1)
         .unwrap();
     let is_message = path.split('?').next() == Some("/v1/messages");
+    let model = if is_message && models.is_some() {
+        let body: serde_json::Value =
+            serde_json::from_slice(&request[header_length..header_length + content_length])
+                .expect("native Messages request JSON");
+        let model = body["model"]
+            .as_str()
+            .expect("native request model")
+            .to_owned();
+        // Native setModel validation and automatic title generation may also
+        // call Messages. Record only the explicitly submitted workflow prompt.
+        let is_prompt = body["messages"].as_array().is_some_and(|messages| {
+            messages.iter().any(|message| {
+                message["role"] == "user"
+                    && (message["content"] == MODEL_RESTORE_PROMPT
+                        || message["content"].as_array().is_some_and(|blocks| {
+                            blocks
+                                .iter()
+                                .any(|block| block["text"] == MODEL_RESTORE_PROMPT)
+                        }))
+            })
+        });
+        if is_prompt {
+            models.unwrap().push(model.clone());
+        }
+        model
+    } else {
+        "claude-sonnet-4-6".to_owned()
+    };
     if is_message && status == 0 {
         // Closing after consuming the request is a deterministic transport
         // failure: no response arrives, rather than a response-header timeout.
@@ -95,7 +124,7 @@ fn respond(stream: &mut TcpStream, status: u16) -> bool {
             (
                 "message_start",
                 serde_json::json!({"type": "message_start", "message": {
-                    "id": "msg_local", "type": "message", "role": "assistant", "model": "claude-sonnet-4-6", "content": [],
+                    "id": "msg_local", "type": "message", "role": "assistant", "model": model, "content": [],
                     "stop_reason": null, "stop_sequence": null, "usage": {"input_tokens": 1, "output_tokens": 0}
                 }}),
             ),
@@ -233,7 +262,7 @@ fn run_local_api_turn_with(status: u16, observe_model_calls: bool) {
                     } else {
                         status
                     };
-                    requests += usize::from(respond(&mut stream, response_status));
+                    requests += usize::from(respond(&mut stream, response_status, None));
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(error) => panic!("accept local HTTP request: {error}"),
@@ -403,6 +432,146 @@ fn run_local_api_turn_with(status: u16, observe_model_calls: bool) {
     // AgentHandle owns bounded termination of the entire subprocess tree;
     // dropping it also guarantees cleanup on every assertion-failure path.
     drop(handle);
+}
+
+/// Exercise the real installed ACP and CLI, but answer Messages requests locally.
+/// Both phases share one isolated transcript store; each owns its process tree.
+fn local_model_phase(
+    listener: &TcpListener,
+    project: &Project,
+    data_directory: &std::path::Path,
+    restore: Option<&str>,
+) -> (String, Vec<String>) {
+    let (sender, events) = mpsc::channel();
+    let handle = AgentHandle::open(
+        AgentLaunch {
+            agent_id: Some("claude-acp".into()),
+            command: None,
+            args: vec![],
+            cwd: project.0.clone(),
+            data_directory: Some(data_directory.to_path_buf()),
+            authentication: AgentAuthentication::ApiKey,
+            observe_model_calls: false,
+            provider: Some(ProviderCredentials {
+                protocol: ProviderProtocol::AnthropicMessages,
+                base_url: format!("http://{}", listener.local_addr().unwrap()),
+                api_key: "invalid-test-key".into(),
+                name: Some("Local model fixture".into()),
+                model: Some("sonnet".into()),
+                allow_insecure_http: true,
+            }),
+        },
+        Arc::new(move |event| {
+            let _ = sender.send(event);
+        }),
+    )
+    .unwrap();
+    let deadline = Instant::now() + DEADLINE;
+    let mut session_id = restore.map(str::to_owned);
+    let mut models = Vec::new();
+    let mut reply = String::new();
+    loop {
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    respond(&mut stream, 201, Some(&mut models));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("accept local model request: {error}"),
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "model phase before local deadline"
+        );
+        let event = match events.recv_timeout(Duration::from_millis(10)) {
+            Ok(event) => event,
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(error) => panic!("model event channel closed: {error}"),
+        };
+        match event {
+            AgentEvent::Ready { .. } => handle
+                .send(match restore {
+                    Some(id) => AgentCommand::LoadSession {
+                        token: "load".into(),
+                        session_id: id.into(),
+                    },
+                    None => AgentCommand::NewSession {
+                        token: "new".into(),
+                    },
+                })
+                .unwrap(),
+            AgentEvent::SessionCreated { session_id: id, .. } => {
+                session_id = Some(id.clone());
+                // Public native alias: the adapter owns its canonical model ID.
+                handle
+                    .send(AgentCommand::SetConfigOption {
+                        token: "model".into(),
+                        session_id: id,
+                        config_id: "model".into(),
+                        value: "opus".into(),
+                    })
+                    .unwrap();
+            }
+            AgentEvent::SessionConfigured { session_id: id, .. }
+            | AgentEvent::SessionLoaded { session_id: id, .. } => {
+                assert_eq!(Some(&id), session_id.as_ref());
+                reply.clear(); // Replayed history is not this phase's new reply.
+                handle
+                    .send(AgentCommand::Prompt {
+                        session_id: id,
+                        text: MODEL_RESTORE_PROMPT.into(),
+                        files: vec![],
+                    })
+                    .unwrap();
+            }
+            AgentEvent::Update { update, .. }
+                if update["sessionUpdate"] == "agent_message_chunk" =>
+            {
+                reply.push_str(update["content"]["text"].as_str().unwrap_or_default());
+            }
+            AgentEvent::TurnFinished { stop_reason, .. } => {
+                assert_eq!(stop_reason, "end_turn");
+                assert_eq!(reply, "LOCAL_OK");
+                assert_eq!(models.len(), 1, "one native prompt request per phase");
+                break;
+            }
+            AgentEvent::RequestFailed { message, .. } => panic!("model workflow failed: {message}"),
+            AgentEvent::Stopped { message } => panic!("model workflow stopped: {message:?}"),
+            _ => {}
+        }
+    }
+    // Drop/close owns bounded process-tree termination on success and panic.
+    handle.close();
+    (session_id.unwrap(), models)
+}
+
+#[test]
+#[ignore = "requires an installed Claude ACP/CLI and an isolated CLAUDE_CONFIG_DIR; uses only local HTTP"]
+fn claude_restore_uses_the_last_selected_model_in_the_actual_request() {
+    assert!(
+        std::env::var_os("CLAUDE_CONFIG_DIR").is_some(),
+        "isolate native CLI state"
+    );
+    let data_directory = PathBuf::from(
+        std::env::var_os("LITHE_ACP_E2E_DATA_DIR").expect("installed adapter directory"),
+    );
+    let project =
+        Project(std::env::temp_dir().join(format!("lithe-claude-model-{}", uuid::Uuid::new_v4())));
+    std::fs::create_dir_all(&project.0).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (id, original) = local_model_phase(&listener, &project, &data_directory, None);
+    let (_, restored) = local_model_phase(&listener, &project, &data_directory, Some(&id));
+    eprintln!("selected request models: {original:?}; restored request models: {restored:?}");
+    assert!(
+        original[0].contains("opus"),
+        "explicitly selected native Opus model"
+    );
+    assert_eq!(
+        restored, original,
+        "restarted ACP must preserve the selected model on the wire"
+    );
 }
 
 #[test]

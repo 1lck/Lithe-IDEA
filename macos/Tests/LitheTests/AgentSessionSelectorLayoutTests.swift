@@ -168,10 +168,17 @@ struct AgentSessionSelectorLayoutTests {
                     try #require(await waitUntil(updating: parentContent) { !child.isVisible && parent.isVisible },
                         "Escape must close just the child before opening the next setting")
                 } else {
-                    // Use the real child keyboard route; selection must preserve the upstream ID.
+                    // A visible choice may already be hovered when keyboard navigation starts.
+                    try movePointer(NSPoint(x: scroll.contentView.bounds.midX, y: scroll.contentView.bounds.midY),
+                                    in: scroll.contentView, window: child)
+                    // Establish the first row through the native pointer route, then
+                    // wrap in both directions before confirming its upstream ID.
+                    try movePointerToFirstRow(in: document, window: child)
+                    try sendKey(126, to: child)
                     try sendKey(125, to: child)
                     try sendKey(36, to: child)
-                    #expect(await waitUntil(updating: host) { selected?.0 == "effort" && selected?.1 == "low" })
+                    #expect(await waitUntil(updating: host) { selected?.0 == "effort" && selected?.1 == "low" },
+                            "Keyboard selection must preserve the first upstream choice: rightEdge=\(atRightEdge), scheme=\(scheme), selected=\(String(describing: selected))")
                     #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "Selecting a child choice closes both menus")
                     #expect(!child.isVisible, "The child must not survive as an orphaned popup")
                 }
@@ -209,12 +216,21 @@ struct AgentSessionSelectorLayoutTests {
             let scroll = try #require(scrollView(in: content))
             let document = try #require(scroll.documentView)
             #expect(document.bounds.height > scroll.contentView.bounds.height)
-            // Up from an unnavigated menu selects its final item and scrolls it into view.
+            // Reproduce a pointer already hovering a visible choice when the
+            // keyboard takes over, without moving the user's physical cursor.
+            try movePointer(NSPoint(x: scroll.contentView.bounds.midX, y: scroll.contentView.bounds.midY),
+                            in: scroll.contentView, window: child)
+            // Establish the first row through the real pointer route. An
+            // incidental hover must not decide the keyboard's starting item.
+            try movePointerToFirstRow(in: document, window: child)
+            // Up from the first choice wraps to the final item and reveals it.
             try sendKey(126, to: child)
-            #expect(await waitUntil(updating: content) { scroll.contentView.bounds.minY > 0 }, "Keyboard navigation must reveal the final choice")
+            #expect(await waitUntil(updating: content) { scroll.contentView.bounds.minY > 0 },
+                    "Keyboard navigation must reveal the final choice: scheme=\(scheme), bounds=\(scroll.contentView.bounds)")
             try capture(content, name: "described-settings-scrolled-\(scheme)")
             try sendKey(36, to: child)
-            #expect(await waitUntil(updating: host) { selected == "choice-\(choiceCount - 1)" }, "The final upstream ID must remain selectable")
+            #expect(await waitUntil(updating: host) { selected == "choice-\(choiceCount - 1)" },
+                    "The final upstream ID must remain selectable: scheme=\(scheme), selected=\(String(describing: selected))")
             #expect(!child.isVisible)
         }
     }
@@ -387,6 +403,20 @@ struct AgentSessionSelectorLayoutTests {
         window.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
             timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "",
             charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
+    }
+
+    private func movePointer(_ point: NSPoint, in view: NSView, window: NSWindow) throws {
+        window.sendEvent(try #require(NSEvent.mouseEvent(
+            with: .mouseMoved, location: view.convert(point, to: nil), modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 1, clickCount: 0, pressure: 0
+        )))
+    }
+
+    private func movePointerToFirstRow(in document: NSView, window: NSWindow) throws {
+        let inset = LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight / 2
+        let y = document.isFlipped ? document.bounds.minY + inset : document.bounds.maxY - inset
+        try movePointer(NSPoint(x: document.bounds.midX, y: y), in: document, window: window)
     }
 
     private func waitUntil(updating view: NSView, _ condition: () -> Bool) async -> Bool {

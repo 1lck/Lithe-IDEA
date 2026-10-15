@@ -527,9 +527,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
     package func buildJavaServiceUpdate(
         target: JavaDebugLaunchTarget, fileURL: URL, rootURL: URL
     ) async throws {
+        // Match launch preparation: JDT owns test-root and dependency selection.
         let paths = try await executeJavaCommand(
             "vscode.java.resolveClasspath",
-            arguments: [.string(target.mainClass), .string(target.projectName ?? ""), .string("runtime")],
+            arguments: [.string(target.mainClass), .string(target.projectName ?? "")],
             rootURL: rootURL
         )
         guard case .array(let groups) = paths, groups.count == 2,
@@ -661,12 +662,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 report: error.javaBuildReport
             )
         }
+        // Explicit runtime scope excludes test Main classes (issue #379).
+        // Omit it so Java Debug Server selects paths from the owning project.
         let classpathValue = try await executeJavaCommand(
             "vscode.java.resolveClasspath",
             arguments: [
                 .string(selected.mainClass),
                 .string(selected.projectName ?? ""),
-                .string("runtime"),
             ],
             rootURL: normalizedRoot
         )
