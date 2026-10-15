@@ -106,3 +106,29 @@ struct AgentToolGroupPresentationTests {
         #expect(AgentToolGroupPresentation.summary([], locale: english) == "")
     }
 }
+
+@Suite("Agent tool evidence presentation")
+struct AgentToolEvidencePresentationTests {
+    @Test
+    func shellCommandsAndResultsReadAsCommandAndOutput() {
+        var details = AgentToolDetails()
+        details.input = #"{"command": ["/bin/zsh", "-lc", "git log --oneline"], "cwd": "/repo"}"#
+        details.output = #"{"exit_code": 0, "formatted_output": "a1 first\n", "stderr": ""}"#
+        details.content = [.init(title: "Terminal", text: "exec-1"), .init(title: "Output", text: "a1 first")]
+        let sections = AgentToolEvidencePresentation.sections(details)
+        #expect(sections == [
+            .init(title: "Command", detail: "/repo", text: "git log --oneline", style: .command),
+            .init(title: "Output", exitCode: 0, text: "a1 first")
+        ])
+    }
+
+    @Test
+    func unknownShapesKeepTheirRawText() {
+        var details = AgentToolDetails()
+        details.input = #"{"path": "a.swift"}"#
+        details.output = "plain result"
+        let sections = AgentToolEvidencePresentation.sections(details)
+        #expect(sections.map(\.title) == ["Input", "Result"])
+        #expect(sections.last?.text == "plain result")
+    }
+}

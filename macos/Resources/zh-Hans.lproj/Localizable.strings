@@ -2994,3 +2994,8 @@
 "Used %lld tool" = "调用了 %lld 个工具";
 "Subscription sign-in sends requests directly to the provider, so Lithe cannot see the system prompt, tool definitions and messages. Use API key mode to see the breakdown." = "订阅登录的请求直接发往服务商，不经过 Lithe 本地代理，因此无法统计系统提示词、工具定义和对话消息的占比。改用 API Key 模式即可查看明细。";
 "Subscription sign-in sends requests directly to the provider, so model calls, time to first token and output speed are not observed." = "订阅登录的请求直接发往服务商，不经过 Lithe 本地代理，因此无法统计模型调用次数、首 token 延迟和输出速度。";
+"Command" = "命令";
+"Errors" = "错误输出";
+"Exit code %lld" = "退出码 %lld";
+"Show less" = "收起";
+"Show all %lld lines" = "显示全部 %lld 行";
