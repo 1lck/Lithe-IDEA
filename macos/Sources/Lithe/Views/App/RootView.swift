@@ -582,7 +582,6 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func apply(_ layout: LitheWindowLayout, title: String?, to window: NSWindow) {
-        window.contentMinSize = layout.minimumContentSize
         if let title {
             window.title = title
             window.titlebarAppearsTransparent = true
@@ -599,6 +598,9 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         let shouldAnimate = self.layout != nil && window.isVisible
         self.layout = layout
         restoredWorkspaceFrame = nil
+        // SwiftUI also measures the native minimum. Reset the role baseline
+        // only for a new window/role, not every model update during layout.
+        window.contentMinSize = layout.minimumContentSize
 
         let currentFrame = window.frame
         let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame

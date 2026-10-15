@@ -114,6 +114,19 @@ struct ToolWindowDockingTests {
         #expect(model.toolWindowStates == before)
     }
 
+    @Test func restoringLayoutKeepsAgentClosedUntilExplicitlyOpened() {
+        let persistence = WorkbenchLayoutStore(store: DockingTestStore())
+        let workspace = URL(fileURLWithPath: "/fixture/docking/agent")
+        let model = WorkbenchFeatureModel(layoutStore: persistence)
+        model.setVisibility(.agent, isVisible: true)
+        model.saveLayout(.init(sidebarWidth: 310, topPaneHeight: nil), for: workspace)
+        let restored = WorkbenchFeatureModel(layoutStore: persistence)
+        _ = restored.loadLayout(for: workspace)
+        #expect(!restored.isVisible(.agent))
+        restored.setVisibility(.agent, isVisible: true)
+        #expect(restored.isVisible(.agent))
+    }
+
     @Test func layoutRoundTripRestoresPositionsOrderVisibilityAndGroupSizes() {
         let store = DockingTestStore()
         let persistence = WorkbenchLayoutStore(store: store)
@@ -337,6 +350,55 @@ struct ToolWindowDockingTests {
         #expect(drag.target(at: NSPoint(x: 20, y: 70))?.before == .terminal)
         replacement.dismantle()
         #expect(drag.target(at: NSPoint(x: 20, y: 70)) == nil)
+    }
+
+    /// Only tools whose renderer opens an editor tab treat the free center band
+    /// as a destination; dock bands keep winning near the edges.
+    @Test func editorCenterBandAcceptsOnlyEditorCapableTools() {
+        let drag = ToolWindowDragState()
+        drag.workspaceFrame = NSRect(x: 40, y: 20, width: 600, height: 600)
+        drag.editorTools = [.agent]
+        drag.begin(.terminal)
+        #expect(!drag.isEditorTarget(at: NSPoint(x: 340, y: 450)))
+        drag.finish()
+        drag.begin(.agent)
+        #expect(drag.isEditorTarget(at: NSPoint(x: 340, y: 450)))
+        #expect(!drag.isEditorTarget(at: NSPoint(x: 100, y: 450)))
+        #expect(!drag.isEditorTarget(at: NSPoint(x: 340, y: 100)))
+        #expect(!drag.isEditorTarget(at: NSPoint(x: 800, y: 450)))
+        drag.targetsEditor = true
+        drag.finish()
+        #expect(!drag.targetsEditor)
+        #expect(!drag.isEditorTarget(at: NSPoint(x: 340, y: 450)))
+    }
+
+    @Test func releasingOverTheEditorOpensTheToolInsteadOfMovingIt() throws {
+        let drag = ToolWindowDragState()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = try #require(window.contentView)
+        let source = ToolWindowDragSource.SourceView(frame: NSRect(x: 560, y: 500, width: 37, height: 40))
+        defer { source.dismantle(); window.contentView = nil; window.close() }
+        drag.workspaceFrame = root.bounds
+        source.tool = .agent; source.position = .init(anchor: .right, group: .primary); source.drag = drag
+        source.image = { NSImage(size: NSSize(width: 20, height: 20)) }
+        var opened = 0, moved = 0
+        source.openInEditor = { opened += 1 }
+        source.commit = { _, _ in moved += 1 }
+        root.addSubview(source); source.record()
+        #expect(drag.editorTools.contains(.agent))
+        func event(_ type: NSEvent.EventType, _ point: NSPoint, _ time: TimeInterval) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: time,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        source.mouseDown(with: try event(.leftMouseDown, NSPoint(x: 578, y: 520), 1))
+        source.mouseDragged(with: try event(.leftMouseDragged, NSPoint(x: 300, y: 400), 2))
+        #expect(drag.targetsEditor)
+        source.mouseUp(with: try event(.leftMouseUp, NSPoint(x: 300, y: 400), 3))
+        #expect(opened == 1)
+        #expect(moved == 0)
+        #expect(drag.source == nil && !drag.targetsEditor)
     }
 
     @Test func cancellingDragLeavesLayoutUnchangedAndClearsPreview() {

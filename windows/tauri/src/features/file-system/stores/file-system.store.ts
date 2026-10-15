@@ -1877,7 +1877,24 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           // An explicitly selected external editor owns decoding and size limits.
           // Only the built-in editor needs the shared document classification.
           const contentPath = wslInfo ? path : resolvedPath;
-          const loaded = await readFileOnce(`document:${contentPath}`, () => loadFileContent(contentPath));
+          let loaded: Awaited<ReturnType<typeof loadFileContent>>;
+          try {
+            loaded = await readFileOnce(`document:${contentPath}`, () =>
+              loadFileContent(contentPath),
+            );
+          } catch (error) {
+            // 读取被拒绝（例如无法解码的编码）时不能静默无响应，否则用户只会看到点击没有反应。
+            if (isStaleRequest()) return;
+            fileOpenBenchmark.cancel(path, "read-failed");
+            console.error(`Failed to read ${contentPath}:`, error);
+            toast.error(
+              getCurrentTranslator()("fileSystem.openFileFailed", {
+                file: fileName,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            );
+            return;
+          }
           if (isStaleRequest()) return;
           if (loaded.kind === "binary") {
             openBuffer(

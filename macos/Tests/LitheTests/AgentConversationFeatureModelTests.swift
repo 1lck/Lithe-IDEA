@@ -616,6 +616,8 @@ struct AgentConversationFeatureModelTests {
             #expect(feature.selectedConversation?.contextUsage == nil)
             feature.prepareConversation()
             try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Keep this session")
+            try feature.receive(event("turnFinished"))
             try feature.receive(event("usageUpdate"))
             #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
             #expect(feature.selectedConversation?.contextUsage?.capacityTokens == 258400)
@@ -630,7 +632,7 @@ struct AgentConversationFeatureModelTests {
             try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 1000, "size": 258400]]))
             #expect(feature.selectedConversation?.contextUsage?.usedTokens == 1000)
             #expect(feature.conversations["session-2"]?.contextUsage?.usedTokens == 90000)
-            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            #expect(feature.selectedConversation?.messages.map(\.role) == [.user], "Usage updates do not append transcript messages")
             feature.closeConversation("session-1")
             #expect(feature.conversations["session-1"] == nil)
         }
@@ -1097,6 +1099,9 @@ struct AgentConversationFeatureModelTests {
                 try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any,
                     "sessionId": id]))
             }
+            #expect(feature.conversations["empty-1"] == nil, "New Chat immediately drops the preceding unprompted session")
+            #expect(!feature.sessions.contains { $0.id == "empty-1" })
+            #expect(feature.openSessionIDs == ["session-2", "empty-2"])
             await feature.stop()
             #expect(feature.selectedSessionID == nil)
             #expect(feature.openSessionIDs == ["session-2"])
@@ -1684,6 +1689,86 @@ struct AgentConversationFeatureModelTests {
         #expect(included.cacheHitRate == 0.8)
     }
 
+    @Test
+    func reloadedSessionsContinueTheirPersistedStatisticsWithoutCountingTwice() async throws {
+        let persistence = InMemoryStatisticsPersistence()
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-statistics-workspace")
+        func store() -> AgentSessionStatisticsStore {
+            AgentSessionStatisticsStore(persistence: persistence, agentID: "codex", workspaceURL: { workspace },
+                                        currentDate: { Date(timeIntervalSince1970: 1_792_053_000) })
+        }
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.statisticsStore = store()
+            try feature.send("First")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("toolCall"))
+            try feature.receive(event("modelCall"))
+            try feature.receive(event("turnFinished"))
+        }
+        #expect(persistence.saves == 1)
+        // A new connection, as after relaunching, starts from the saved totals.
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.statisticsStore = store()
+            feature.selectSession("session-1")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("userMessageChunk"))
+            try feature.receive(event("agentMessageChunk"))
+            try feature.receive(event("sessionLoaded", ["token": token]))
+            let loaded = try #require(feature.selectedConversation?.sessionStatistics)
+            #expect(loaded.turnCount == 1)
+            #expect(loaded.toolCallCount == 1)
+            #expect(loaded.modelCalls?.callCount == 1)
+            #expect(loaded.modelCalls?.averageFirstToken == 0.82)
+            #expect(loaded.tokens?.source == .modelCalls)
+            #expect(feature.selectedConversation?.completedTurns.isEmpty == true)
+
+            try feature.send("Second")
+            #expect(feature.selectedConversation?.sessionStatistics.turnCount == 2)
+            try feature.receive(event("modelCall"))
+            try feature.receive(event("turnFinished"))
+            let continued = try #require(feature.selectedConversation?.sessionStatistics)
+            #expect(continued.turnCount == 2)
+            #expect(continued.modelCalls?.callCount == 2)
+            #expect(continued.tokens?.outputTokens == 1280)
+        }
+        // Disconnecting re-saves nothing new, and the record holds each turn once.
+        #expect(persistence.saves == 2)
+        let saved = try #require(store().record(for: "session-1"))
+        #expect(saved.turnCount == 2)
+        #expect(saved.toolCallCount == 1)
+        #expect(saved.modelCalls.callCount == 2)
+    }
+
+    @Test
+    func unreadableStatisticsStartFromZeroAndTheStoreKeepsTheNewestSessions() throws {
+        let persistence = InMemoryStatisticsPersistence()
+        persistence.data = Data("not json".utf8)
+        var date = Date(timeIntervalSince1970: 1_792_053_000)
+        let store = AgentSessionStatisticsStore(persistence: persistence, agentID: "codex",
+                                                workspaceURL: { URL(fileURLWithPath: "/tmp/lithe-statistics-workspace") },
+                                                currentDate: { date })
+        #expect(store.record(for: "session-0") == nil)
+        var conversation = AgentConversation()
+        store.save(conversation, sessionID: "empty")
+        #expect(persistence.saves == 0, "Sessions without turns or calls are not stored")
+        conversation.statisticsBaseline = AgentSessionStatisticsRecord(turnCount: 1)
+        for index in 0...AgentSessionStatisticsStore.maximumSessions {
+            date += 1
+            store.save(conversation, sessionID: "session-\(index)")
+        }
+        let reopened = AgentSessionStatisticsStore(persistence: persistence, agentID: "codex",
+                                                   workspaceURL: { URL(fileURLWithPath: "/tmp/lithe-statistics-workspace") })
+        #expect(reopened.record(for: "session-0") == nil)
+        #expect(reopened.record(for: "session-1")?.turnCount == 1)
+        #expect(reopened.record(for: "session-\(AgentSessionStatisticsStore.maximumSessions)") != nil)
+        // Without a bound workspace nothing is read or written.
+        let unbound = AgentSessionStatisticsStore(persistence: persistence, agentID: "codex", workspaceURL: { nil })
+        let saves = persistence.saves
+        unbound.save(conversation, sessionID: "session-x")
+        #expect(unbound.record(for: "session-1") == nil)
+        #expect(persistence.saves == saves)
+    }
+
     private func event(_ name: String, _ overrides: [String: Any] = [:]) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -1730,4 +1815,16 @@ private final class TestAgentConnection: AgentConnection {
     }
 
     func close() async { closeCount += 1 }
+}
+
+@MainActor
+private final class InMemoryStatisticsPersistence: AgentSessionStatisticsPersisting {
+    var data: Data?
+    private(set) var saves = 0
+
+    func loadStatistics(workspaceURL: URL, agentID: String) -> Data? { data }
+    func saveStatistics(_ data: Data, workspaceURL: URL, agentID: String) {
+        self.data = data
+        saves += 1
+    }
 }

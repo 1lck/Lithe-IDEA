@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "description": "Golden outcomes of plugins.declarative.checkRuntimeVersion. `request` is the command payload; `expected` is the returned `check` object, or a rejection code.",
+  "cases": [
+    { "name": "java meets a major-only requirement", "request": { "tool": "java", "minimumVersion": "21", "output": "openjdk 21.0.12 2026-07-15 LTS\nOpenJDK Runtime Environment Temurin-21.0.12+1 (build 21.0.12+1-LTS)" }, "expected": { "satisfied": true, "version": "21.0.12" } },
+    { "name": "a newer java major satisfies the requirement", "request": { "tool": "java", "minimumVersion": "21", "output": "openjdk 25 2026-09-16" }, "expected": { "satisfied": true, "version": "25" } },
+    { "name": "java older than the requirement", "request": { "tool": "java", "minimumVersion": "21", "output": "openjdk 17.0.11 2024-04-16" }, "expected": { "satisfied": false, "version": "17.0.11" } },
+    { "name": "legacy java version scheme reports its real major", "request": { "tool": "java", "minimumVersion": "11", "output": "java version \"1.8.0_402\"" }, "expected": { "satisfied": false, "version": "8.0" } },
+    { "name": "a JVM option notice before the version is not read as one", "request": { "tool": "java", "minimumVersion": "21", "output": "Picked up JAVA_TOOL_OPTIONS: -Xmx512m\nopenjdk 17.0.11 2024-04-16" }, "expected": { "satisfied": false, "version": "17.0.11" } },
+    { "name": "a JVM option notice alone carries no version", "request": { "tool": "java", "minimumVersion": "21", "output": "Picked up _JAVA_OPTIONS: -Xmx512m" }, "expected": { "satisfied": false } },
+    { "name": "node version with a leading v", "request": { "tool": "node", "minimumVersion": "18.17", "output": "v20.11.0" }, "expected": { "satisfied": true, "version": "20.11.0" } },
+    { "name": "node minor below the requirement", "request": { "tool": "node", "minimumVersion": "18.17", "output": "v18.16.1" }, "expected": { "satisfied": false, "version": "18.16.1" } },
+    { "name": "requirement names more components than the runtime reports", "request": { "tool": "java", "minimumVersion": "21.0.1", "output": "openjdk 21 2023-09-19" }, "expected": { "satisfied": false, "version": "21" } },
+    { "name": "output without a version", "request": { "tool": "java", "minimumVersion": "21", "output": "The operation could not be completed. Unable to locate a Java Runtime." }, "expected": { "satisfied": false } },
+    { "name": "a tool that cannot start an entry file", "request": { "tool": "go", "minimumVersion": "1.22", "output": "go version go1.22.3 darwin/arm64" }, "expectedCode": "plugin.runtime.unsupported" },
+    { "name": "malformed requirement", "request": { "tool": "java", "minimumVersion": "21+", "output": "openjdk 21.0.12" }, "expectedCode": "plugin.manifest.invalid" }
+  ]
+}

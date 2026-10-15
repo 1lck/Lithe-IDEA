@@ -45,82 +45,6 @@ struct JavaLanguageServerRuntimeTests {
     }
 
     @Test
-    func macRuntimeLocatorSelectsJdkForRequestedProcessArchitecture() throws {
-        let fileManager = FileManager.default
-        let resources = fileManager.temporaryDirectory
-            .appendingPathComponent("lithe-jdk-resolver-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: resources) }
-        for directory in ["jdk-arm64", "jdk-x86_64"] {
-            let java = resources
-                .appendingPathComponent("LanguageServers/\(directory)/bin/java")
-            try fileManager.createDirectory(
-                at: java.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try Data().write(to: java)
-            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: java.path)
-        }
-
-        let armHome = MacRuntimeLocator(
-            resourceURL: resources,
-            processArchitecture: .arm64
-        ).bundledJdkHome()
-        let intelHome = MacRuntimeLocator(
-            resourceURL: resources,
-            processArchitecture: .x86_64
-        ).bundledJdkHome()
-
-        #expect(armHome?.lastPathComponent == "jdk-arm64")
-        #expect(intelHome?.lastPathComponent == "jdk-x86_64")
-    }
-
-    @Test
-    func macRuntimeLocatorDoesNotUseLegacyJdkForIncompleteUniversalLayout() throws {
-        let fileManager = FileManager.default
-        let resources = fileManager.temporaryDirectory
-            .appendingPathComponent("lithe-jdk-incomplete-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: resources) }
-        let languageServers = resources.appendingPathComponent("LanguageServers", isDirectory: true)
-        let legacyJava = languageServers.appendingPathComponent("jdk/bin/java")
-        try fileManager.createDirectory(
-            at: legacyJava.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data().write(to: legacyJava)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: legacyJava.path)
-        try fileManager.createDirectory(
-            at: languageServers.appendingPathComponent("jdk-x86_64", isDirectory: true),
-            withIntermediateDirectories: true
-        )
-
-        let home = MacRuntimeLocator(
-            resourceURL: resources,
-            processArchitecture: .arm64
-        ).bundledJdkHome()
-
-        #expect(home == nil)
-    }
-
-    @Test
-    func macRuntimeLocatorSupportsSingleArchitectureJdkLayout() throws {
-        let fileManager = FileManager.default
-        let resources = fileManager.temporaryDirectory
-            .appendingPathComponent("lithe-jdk-legacy-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: resources) }
-        let java = resources.appendingPathComponent("LanguageServers/jdk/bin/java")
-        try fileManager.createDirectory(
-            at: java.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data().write(to: java)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: java.path)
-
-        let home = MacRuntimeLocator(resourceURL: resources).bundledJdkHome()
-
-        #expect(home?.lastPathComponent == "jdk")
-    }
-
-    @Test
     func macJavaLaunchPlannerFindsReleaseFileInStandardJdkHomeLayout() throws {
         let fileManager = FileManager.default
         let jdkRoot = fileManager.temporaryDirectory
@@ -135,175 +59,6 @@ struct JavaLanguageServerRuntimeTests {
             .write(to: jdkRoot.appendingPathComponent("Contents/Home/release"))
 
         #expect(RustCoreBridge.javaFeatureVersion(executable.path) == 21)
-    }
-
-    @Test
-    func macJdtlsResolverSelectsDirectLaunchResourcesDeterministically() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("lithe-jdtls-resolver-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-        for directory in [
-            "bin", "plugins", "config_mac", "config_mac_arm", "lombok", "java-debug",
-            "java-test/extensions", "java-test/runner"
-        ] {
-            try fileManager.createDirectory(
-                at: root.appendingPathComponent(directory, isDirectory: true),
-                withIntermediateDirectories: true
-            )
-        }
-        let executable = root.appendingPathComponent("bin/jdtls")
-        let firstLauncher = root.appendingPathComponent(
-            "plugins/org.eclipse.equinox.launcher_1.0.0.jar"
-        )
-        for file in [
-            executable,
-            firstLauncher,
-            root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_2.0.0.jar"),
-            root.appendingPathComponent("lombok/lombok.jar"),
-            root.appendingPathComponent("java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"),
-            root.appendingPathComponent("java-test/extensions/org.opentest4j_1.2.0.jar"),
-            root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"),
-            root.appendingPathComponent(
-                "java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
-            ),
-            root.appendingPathComponent("config_mac/config.ini"),
-            root.appendingPathComponent("config_mac_arm/config.ini")
-        ] {
-            try Data().write(to: file)
-        }
-        let configurationCache = root.deletingLastPathComponent()
-            .appendingPathComponent("lithe-jdtls-cache-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: configurationCache) }
-        let bundleSnapshotBeforeLaunch = try runtimeBundleSnapshot(at: root)
-        let resolver = MacJDTLSLaunchResourceResolver(
-            bundledJdtlsRootURL: root,
-            configurationCacheDirectoryURL: configurationCache
-        )
-
-        guard case .direct(let resources) = resolver.resolve(for: executable) else {
-            Issue.record("Expected complete bundled JDTLS resources to use direct Java launch")
-            return
-        }
-        #expect(resources.launcherJarURL == firstLauncher.standardizedFileURL)
-        #if arch(arm64)
-        #expect(resources.configurationDirectoryURL.lastPathComponent.hasPrefix("config_mac_arm-"))
-        #else
-        #expect(resources.configurationDirectoryURL.lastPathComponent.hasPrefix("config_mac-"))
-        #endif
-        #expect(resources.configurationDirectoryURL.path.hasPrefix(configurationCache.path + "/"))
-        #expect(fileManager.fileExists(atPath: root.appendingPathComponent("config_mac_arm/config.ini").path))
-        let generatedState = resources.configurationDirectoryURL
-            .appendingPathComponent("org.eclipse.core.runtime", isDirectory: true)
-        try fileManager.createDirectory(at: generatedState, withIntermediateDirectories: true)
-        #expect(!fileManager.fileExists(
-            atPath: root.appendingPathComponent("config_mac_arm/org.eclipse.core.runtime").path
-        ))
-        #expect(try runtimeBundleSnapshot(at: root) == bundleSnapshotBeforeLaunch)
-        #expect(resources.lombokAgentURL.lastPathComponent == "lombok.jar")
-        #expect(
-            resources.javaDebugBundleURL?.lastPathComponent
-                == "com.microsoft.java.debug.plugin-0.53.1.jar"
-        )
-        #expect(resources.javaExtensionBundleURLs.map(\.lastPathComponent) == [
-            "com.microsoft.java.debug.plugin-0.53.1.jar",
-            "com.microsoft.java.test.plugin-0.42.0.jar",
-            "org.opentest4j_1.2.0.jar"
-        ])
-        #expect(
-            resources.javaTestRunnerURL?.lastPathComponent
-                == "com.microsoft.java.test.runner-jar-with-dependencies.jar"
-        )
-    }
-
-    private func runtimeBundleSnapshot(at root: URL) throws -> [String: String] {
-        let fileManager = FileManager.default
-        let rootPath = root.standardizedFileURL.path
-        let urls = try #require(fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: []
-        ))
-        var snapshot: [String: String] = [:]
-        for case let url as URL in urls {
-            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
-                continue
-            }
-            let relativePath = String(url.standardizedFileURL.path.dropFirst(rootPath.count + 1))
-            let digest = SHA256.hash(data: try Data(contentsOf: url))
-                .map { String(format: "%02x", $0) }
-                .joined()
-            snapshot[relativePath] = digest
-        }
-        return snapshot
-    }
-
-    @Test
-    func macJdtlsResolverFailsBundledButKeepsExternalWrapperFallback() {
-        let bundledRoot = URL(fileURLWithPath: "/bundled/jdtls", isDirectory: true)
-        let resolver = MacJDTLSLaunchResourceResolver(bundledJdtlsRootURL: bundledRoot)
-
-        guard case .unavailable(let message) = resolver.resolve(
-            for: bundledRoot.appendingPathComponent("bin/jdtls")
-        ) else {
-            Issue.record("Expected incomplete bundled JDTLS resources to fail")
-            return
-        }
-        #expect(message.contains("Reinstall Lithe"))
-        guard case .wrapperFallback = resolver.resolve(
-            for: URL(fileURLWithPath: "/external/jdtls/bin/jdtls")
-        ) else {
-            Issue.record("Expected an external legacy JDTLS launcher to remain compatible")
-            return
-        }
-    }
-
-    @Test
-    func macJdtlsResolverRejectsConfigurationForTheWrongArchitecture() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("lithe-jdtls-architecture-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-        for directory in [
-            "bin", "plugins", "lombok", "java-debug", "java-test/extensions", "java-test/runner"
-        ] {
-            try fileManager.createDirectory(
-                at: root.appendingPathComponent(directory, isDirectory: true),
-                withIntermediateDirectories: true
-            )
-        }
-        #if arch(arm64)
-        let wrongConfigurationName = "config_mac"
-        #elseif arch(x86_64)
-        let wrongConfigurationName = "config_mac_arm"
-        #else
-        Issue.record("Unsupported macOS test architecture")
-        return
-        #endif
-        try fileManager.createDirectory(
-            at: root.appendingPathComponent(wrongConfigurationName, isDirectory: true),
-            withIntermediateDirectories: true
-        )
-        for file in [
-            root.appendingPathComponent("bin/jdtls"),
-            root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_1.0.0.jar"),
-            root.appendingPathComponent("lombok/lombok.jar"),
-            root.appendingPathComponent("java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"),
-            root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"),
-            root.appendingPathComponent(
-                "java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
-            )
-        ] {
-            try Data().write(to: file)
-        }
-        let resolver = MacJDTLSLaunchResourceResolver(bundledJdtlsRootURL: root)
-
-        guard case .unavailable = resolver.resolve(
-            for: root.appendingPathComponent("bin/jdtls")
-        ) else {
-            Issue.record("Expected bundled JDTLS with the wrong architecture configuration to fail")
-            return
-        }
     }
 
     @Test
@@ -324,16 +79,14 @@ struct JavaLanguageServerRuntimeTests {
 
     @Test
     @MainActor
-    func bundledJdtlsRuntimeIgnoresProjectRunJDK() async {
+    func pluginJavaRuntimeIgnoresProjectRunJDK() async {
         let projectRuntime = javaRuntime("/project/jdk-11", "11.0.26")
         let jdtlsRuntime = javaRuntime("/language-server/jdk-21", "21.0.10")
         let service = ProjectRuntimeService(
-            runtimeLocator: JavaLanguageServerTestRuntimeLocator(
-                runtimes: [projectRuntime, jdtlsRuntime],
-                bundledHomePath: jdtlsRuntime.homePath
-            ),
+            runtimeLocator: JavaLanguageServerTestRuntimeLocator(runtimes: [projectRuntime, jdtlsRuntime]),
             store: JavaLanguageServerTestStore()
         )
+        service.setJavaLanguageServerRuntimeHome(URL(fileURLWithPath: jdtlsRuntime.homePath, isDirectory: true))
 
         #expect(
             service.javaHomeURL(overridePath: projectRuntime.homePath)?.path
@@ -349,46 +102,43 @@ struct JavaLanguageServerRuntimeTests {
 
     @Test
     @MainActor
-    func bundledJdtlsRuntimeRejectsNonJdk21() async {
+    func pluginJavaRuntimeOlderThanJava21IsRejected() async {
         let unsupportedRuntime = javaRuntime("/jdk-17", "17.0.18")
         let service = ProjectRuntimeService(
-            runtimeLocator: JavaLanguageServerTestRuntimeLocator(
-                runtimes: [unsupportedRuntime],
-                bundledHomePath: unsupportedRuntime.homePath
-            ),
+            runtimeLocator: JavaLanguageServerTestRuntimeLocator(runtimes: [unsupportedRuntime]),
             store: JavaLanguageServerTestStore()
         )
+        service.setJavaLanguageServerRuntimeHome(URL(fileURLWithPath: unsupportedRuntime.homePath, isDirectory: true))
 
         let result = await service.prepareJavaLanguageServerRuntime()
 
         #expect(service.javaLanguageServerExecutableURL() == nil)
         guard case .failed(let message) = result else {
-            Issue.record("Expected the bundled JDK version check to fail")
+            Issue.record("Expected the plugin runtime version check to fail")
             return
         }
-        #expect(message.contains("JDK 21"))
+        #expect(message.contains("Java 21"))
     }
 
     @Test
     @MainActor
-    func missingBundledJdtlsRuntimeDoesNotUseDiscoveredJDK() async {
+    func withoutTheJavaPluginNoDiscoveredJDKIsUsed() async {
         let discoveredRuntime = javaRuntime("/system/jdk-21", "21.0.10")
         let service = ProjectRuntimeService(
-            runtimeLocator: JavaLanguageServerTestRuntimeLocator(
-                runtimes: [discoveredRuntime],
-                bundledHomePath: nil
-            ),
+            runtimeLocator: JavaLanguageServerTestRuntimeLocator(runtimes: [discoveredRuntime]),
             store: JavaLanguageServerTestStore()
         )
+        service.setJavaLanguageServerRuntimeHome(nil)
 
         let result = await service.prepareJavaLanguageServerRuntime()
 
         #expect(service.javaLanguageServerExecutableURL() == nil)
         guard case .failed(let message) = result else {
-            Issue.record("Expected a missing bundled JDK failure")
+            Issue.record("Expected a missing Java Support plugin failure")
             return
         }
-        #expect(message.contains("bundled Temurin JDK 21"))
+        // The user is told which plugin provides Java, not to reinstall Lithe.
+        #expect(message.contains("Java Support plugin"))
     }
 
     @Test
@@ -454,15 +204,6 @@ struct JavaLanguageServerRuntimeTests {
 
 private struct JavaLanguageServerTestRuntimeLocator: RuntimeLocator {
     let runtimes: [JavaRuntimeCandidate]
-    let bundledHomePath: String?
-
-    init(
-        runtimes: [JavaRuntimeCandidate],
-        bundledHomePath: String? = nil
-    ) {
-        self.runtimes = runtimes
-        self.bundledHomePath = bundledHomePath
-    }
 
     func environment() -> [String: String] { [:] }
 
@@ -484,9 +225,6 @@ private struct JavaLanguageServerTestRuntimeLocator: RuntimeLocator {
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
-    func bundledJdkHome() -> URL? {
-        bundledHomePath.map { URL(fileURLWithPath: $0, isDirectory: true) }
-    }
 }
 
 private struct JavaLanguageServerTestStore: KeyValueStore {

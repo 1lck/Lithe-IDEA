@@ -24,6 +24,7 @@
 "Build, Execution, Deployment" = "Build, Execution, Deployment";
 "Languages & Frameworks" = "Languages & Frameworks";
 "Tools" = "Tools";
+"AI" = "AI";
 "Type / to see options" = "Type / to see options";
 "Downloaded (%lld of %lld enabled)" = "Downloaded (%lld of %lld enabled)";
 "Install" = "Install";
@@ -34,6 +35,8 @@
 "Pending plugin changes: %lld" = "Pending plugin changes: %lld";
 "Uninstall" = "Uninstall";
 "Reinstall" = "Reinstall";
+"Removed. Restart Lithe to finish." = "Removed. Restart Lithe to finish.";
+"Removed. Restore it to use it again." = "Removed. Restore it to use it again.";
 "Uninstall PHP Support?" = "Uninstall PHP Support?";
 "PHP language support will be removed after restarting Lithe." = "PHP language support will be removed after restarting Lithe.";
 "Overview" = "Overview";
@@ -1214,9 +1217,9 @@
 "Codex Agents require the Responses API. Claude Agents require an Anthropic API key." = "Codex Agents require the Responses API. Claude Agents require an Anthropic API key.";
 "Wait for the Agent operation to finish before changing providers." = "Wait for the Agent operation to finish before changing providers.";
 "Provider configuration parsing is unavailable." = "Provider configuration parsing is unavailable.";
-"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider.";
-"Choose a local or custom provider in the Agent panel settings." = "Choose a local or custom provider in the Agent panel settings.";
-"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings.";
+"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "No Agent is ready yet. Open Settings > AI > Agents to install an Agent and choose a local or custom provider.";
+"Choose a local or custom provider in the Agent panel settings." = "Choose a local or custom provider in Settings > AI > Agents.";
+"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "This Agent's provider has no API key. Update its local configuration or edit the custom provider in Settings > AI > Agents.";
 "The credential store version is unsupported. Existing credentials were preserved." = "The credential store version is unsupported. Existing credentials were preserved.";
 "Add" = "Add";
 "Agent provider" = "Agent provider";
@@ -1490,7 +1493,93 @@
 
 "Failed, line %d" = "Failed, line %d";
 
+// Host-owned workbench contribution controls
+"Workbench Actions" = "Workbench Actions";
+"Tool Windows" = "Tool Windows";
+"Toolbar Actions" = "Toolbar Actions";
+"Restore Default UI Layout" = "Restore Default UI Layout";
+"Show" = "Show";
+"Hide Entry" = "Hide Entry";
+"Move to Bottom" = "Move to Bottom";
+"Move to Right" = "Move to Right";
+"Move Earlier" = "Move Earlier";
+"Move Later" = "Move Later";
+"Add tool windows and commands to the workbench" = "Add tool windows and commands to the workbench";
+
+"Move to Left" = "Move to Left";
+
+"Menu Actions" = "Menu Actions";
+
+"Show Entry" = "Show Entry";
+
+"Command Palette Actions" = "Command Palette Actions";
 /* Main toolbar settings menu. */
 "Plugins…" = "Plugins…";
 "Theme…" = "Theme…";
 "Keymap…" = "Keymap…";
+
+"Start the session by sending a message" = "Start the session by sending a message";
+"No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration." = "No Agent is ready yet. Open Settings > AI > Agents to install an Agent and fetch its local configuration.";
+"Agent conversation is turned off. Turn it on in the panel settings to send messages." = "Agent conversation is turned off. Turn it on in Settings > AI > Agents to send messages.";
+"Set the custom Agent's executable in the panel settings." = "Set the custom Agent's executable in Settings > AI > Agents.";
+"Fetch this Agent's local configuration in the panel settings." = "Fetch this Agent's local configuration in Settings > AI > Agents.";
+"Use an Agent in your project" = "Use an Agent in your project";
+"Lithe Agent" = "Lithe Agent";
+"Welcome to Lithe Agent" = "Welcome to Lithe Agent";
+"Collaborate with Claude and Codex to ask questions, run tasks, and review code changes." = "Collaborate with Claude and Codex to ask questions, run tasks, and review code changes.";
+"Claude Agent" = "Claude Agent";
+"More Agents…" = "More Agents…";
+"Use a third-party provider" = "Use a third-party provider";
+"Custom API provider" = "Custom API provider";
+"Cline, Cursor, Kilo, Mistral, and more with ACP technology" = "Cline, Cursor, Kilo, Mistral, and more with ACP technology";
+"Chat History" = "Chat History";
+"New Chat" = "New Chat";
+"Type your task or / for commands" = "Type your task or / for commands";
+
+"Conversation history is unavailable" = "Conversation history is unavailable";
+
+"Cannot create a new conversation: %@" = "Cannot create a new conversation: %@";
+
+"Rename Chat" = "Rename Chat";
+"Delete Chat" = "Delete Chat";
+"Show Toolbar" = "Show Toolbar";
+"Chat options" = "Chat options";
+
+"AI Chat" = "AI Chat";
+"Show Chats in the AI Tool Window" = "Show Chats in the AI Tool Window";
+"Show Chats in the Editor" = "Show Chats in the Editor";
+
+"Starting the Agent…" = "Starting the Agent…";
+"The Agent process starts when this panel opens." = "The Agent process starts when this panel opens.";
+
+"Activity" = "Activity";
+
+/* Declarative plugin settings (Settings › Plugins). */
+"Applies the next time the language server starts." = "Applies the next time the language server starts.";
+"Restart Language Servers" = "Restart Language Servers";
+"Reset to Default" = "Reset to Default";
+"Enter a whole number from %d to %d." = "Enter a whole number from %d to %d.";
+"Maximum memory" = "Maximum memory";
+"Upper bound of the Java language server's heap. Raise it for large multi-module projects." = "Upper bound of the Java language server's heap. Raise it for large multi-module projects.";
+"Language server log level" = "Language server log level";
+"How much the Java language server writes to its own log. Quieter levels reduce disk writes." = "How much the Java language server writes to its own log. Quieter levels reduce disk writes.";
+"All messages" = "All messages";
+"Warnings" = "Warnings";
+"Errors only" = "Errors only";
+
+/* Explicit update channel selection. */
+"Update channel" = "Update channel";
+"Stable (Recommended)" = "Stable (Recommended)";
+"AutoBuild Rolling" = "AutoBuild Rolling";
+"Use AutoBuild Rolling?" = "Use AutoBuild Rolling?";
+"Use AutoBuild" = "Use AutoBuild";
+"AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users.";
+"Changing channels requires a full installation and may install an older version. Your projects and settings are kept, but settings from newer builds may not work in older releases." = "Changing channels requires a full installation and may install an older version. Your projects and settings are kept, but settings from newer builds may not work in older releases.";
+"Open AutoBuild Downloads" = "Open AutoBuild Downloads";
+"Open Stable Downloads" = "Open Stable Downloads";
+"Install the selected channel" = "Install the selected channel";
+"Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates." = "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates.";
+"Install AutoBuild" = "Install AutoBuild";
+"AutoBuild Update" = "AutoBuild Update";
+"AutoBuild — Built at %@" = "AutoBuild — Built at %@";
+"The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";

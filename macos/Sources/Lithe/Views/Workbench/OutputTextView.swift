@@ -18,6 +18,7 @@ struct OutputTextView: View {
     /// horizontal scrolling, the historical behavior of every output pane.
     var wrapsLines = false
     var fontSize: CGFloat = 11.5
+    var usesIDEAConsoleStyle = false
     var decorateOutput: ((NSMutableAttributedString, Bool) -> Void)?
     /// Adds a soft-wrap toggle to the context menu. Callers that do not own a
     /// wrap preference leave it nil and keep the plain text menu.
@@ -37,19 +38,21 @@ struct OutputTextView: View {
             emptyMessage: emptyMessage,
             theme: LitheTheme.activeTheme,
             wrapsLines: wrapsLines,
+            fontSize: fontSize,
+            usesIDEAConsoleStyle: usesIDEAConsoleStyle,
             onToggleWrapsLines: onToggleWrapsLines,
             scrollToLatestRequest: scrollToLatestRequest,
             bottomThreshold: Self.bottomThreshold,
             copyButton: AnyView(copyButton),
             render: { source, roots, exists, dark, theme in
-                let rendered = NSMutableAttributedString(attributedString: Self.renderOutput(source, searchRoots: roots, fileExists: exists, isDark: dark, theme: theme, fontSize: fontSize))
+                let rendered = NSMutableAttributedString(attributedString: Self.renderOutput(source, searchRoots: roots, fileExists: exists, isDark: dark, theme: theme, fontSize: fontSize, usesIDEAConsoleStyle: usesIDEAConsoleStyle))
                 decorateOutput?(rendered, dark)
                 return rendered
             },
             onOpenLocation: onOpenLocation,
             onBottomStateChange: { isAtBottom = $0 }
         )
-            .background(LitheTheme.editor)
+            .litheWorkbenchSurface(LitheTheme.editor)
             .overlay(alignment: .bottomTrailing) {
                 if !isAtBottom {
                     jumpToLatestButton
@@ -60,26 +63,35 @@ struct OutputTextView: View {
 
     // MARK: - 渲染
 
-    fileprivate static func renderOutput(
+    static func renderOutput(
         _ source: String,
         searchRoots: [URL],
         fileExists: @escaping (URL) -> Bool,
         isDark: Bool,
         theme: AppColorTheme,
-        fontSize: CGFloat = 11.5
+        fontSize: CGFloat = 11.5,
+        usesIDEAConsoleStyle: Bool = false
     ) -> NSAttributedString {
-        let defaultForeground = LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
-        let parsed = ANSIOutputRenderer.parse(source, defaultForeground: defaultForeground)
+        let defaultForeground = usesIDEAConsoleStyle ? LitheConsoleStyle.foreground(dark: isDark)
+            : LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
+        let parsed = ANSIOutputRenderer.parse(source, defaultForeground: defaultForeground,
+            palette: usesIDEAConsoleStyle ? LitheConsoleStyle.palette(dark: isDark) : nil)
         guard !parsed.cleanText.isEmpty else { return NSAttributedString() }
         var result = ANSIOutputRenderer.render(parsed, fontSize: fontSize)
-        applySeverityColors(
-            to: &result,
-            text: parsed.cleanText,
-            ansiStyled: parsed.hasStyling,
-            theme: theme,
-            isDark: isDark
-        )
-        dimTimestamps(in: &result, text: parsed.cleanText, theme: theme, isDark: isDark)
+        if usesIDEAConsoleStyle {
+            result.addAttribute(.paragraphStyle, value: LitheConsoleStyle.paragraphStyle(fontSize: fontSize),
+                range: NSRange(location: 0, length: result.length))
+        }
+        if !usesIDEAConsoleStyle {
+            applySeverityColors(
+                to: &result,
+                text: parsed.cleanText,
+                ansiStyled: parsed.hasStyling,
+                theme: theme,
+                isDark: isDark
+            )
+            dimTimestamps(in: &result, text: parsed.cleanText, theme: theme, isDark: isDark)
+        }
         for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots, fileExists: fileExists) {
             let range = NSRange(location.range, in: parsed.cleanText)
             result.addAttribute(
@@ -87,11 +99,12 @@ struct OutputTextView: View {
                 value: locationURL(path: location.url.path, line: location.line, column: location.column),
                 range: range
             )
-            result.addAttribute(.foregroundColor, value: resolvedColor(
-                location.kind == .warning ? .warning : .error,
-                theme: theme,
-                isDark: isDark
-            ), range: range)
+            result.addAttribute(.foregroundColor, value: usesIDEAConsoleStyle
+                ? LitheConsoleStyle.hyperlink(dark: isDark)
+                : resolvedColor(location.kind == .warning ? .warning : .error, theme: theme, isDark: isDark), range: range)
+            if usesIDEAConsoleStyle {
+                result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            }
         }
         return result
     }
@@ -324,12 +337,9 @@ struct OutputTextView: View {
             // 复制不含 ANSI 转义码的纯文本
             pasteboard.setString(ANSIOutputRenderer.parse(output).cleanText, forType: .string)
         } label: {
-            HStack(spacing: 4) {
-                LitheIDEAIcon(resourcePath: "expui/general/copy.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
-                Text("Copy").font(LitheTheme.uiFont(size: 13))
-            }.padding(.horizontal, 4)
+            LitheIDEAIcon(resourcePath: "expui/general/copy.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
         }
-        .litheToolbarIconButton(isEnabled: !output.isEmpty, isIconOnly: false)
+        .litheToolbarIconButton(isEnabled: !output.isEmpty)
         .accessibilityLabel("Copy output")
         .help("Copy output")
     }
@@ -339,17 +349,11 @@ struct OutputTextView: View {
             scrollToLatestRequest &+= 1
             isAtBottom = true
         } label: {
-            Label("Jump to latest", systemImage: "arrow.down.to.line")
-                .font(LitheTheme.uiFont(size: 11, weight: .medium))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(LitheTheme.raised.opacity(0.92))
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(LitheTheme.panelBorder, lineWidth: 1))
+            LitheIDEAIcon(resourcePath: "expui/general/scrollDown.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .foregroundStyle(LitheTheme.primaryText)
+        .litheToolbarIconButton()
+        .accessibilityLabel("Jump to latest")
+        .help("Jump to latest")
     }
 }
 
@@ -548,6 +552,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
     let emptyMessage: String
     let theme: AppColorTheme
     let wrapsLines: Bool
+    let fontSize: CGFloat
+    let usesIDEAConsoleStyle: Bool
     let onToggleWrapsLines: (() -> Void)?
     let scrollToLatestRequest: Int
     let bottomThreshold: CGFloat
@@ -609,12 +615,20 @@ private struct OutputTextStorageView: NSViewRepresentable {
             .environment(\.colorScheme, colorScheme).environment(\.locale, context.environment.locale)
             .environment(\.isEnabled, context.environment.isEnabled).fixedSize())
         scrollView.needsLayout = true
+        if usesIDEAConsoleStyle {
+            context.coordinator.textView?.linkTextAttributes = [
+                .foregroundColor: LitheConsoleStyle.hyperlink(dark: colorScheme == .dark),
+                .underlineStyle: NSUnderlineStyle.single.rawValue
+            ]
+        }
         context.coordinator.onOpenLocation = onOpenLocation
         context.coordinator.onBottomStateChange = onBottomStateChange
         context.coordinator.bottomThreshold = bottomThreshold
         context.coordinator.onToggleWrapsLines = onToggleWrapsLines
         context.coordinator.applyWrapsLines(wrapsLines)
         context.coordinator.apply(
+            fontSize: fontSize,
+            usesIDEAConsoleStyle: usesIDEAConsoleStyle,
             output: output,
             emptyMessage: emptyMessage,
             isDark: colorScheme == .dark,
@@ -642,6 +656,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
         private var source = ""
         private var sourceHadANSI = false
         private var showingEmptyMessage = false
+        private var renderedFontSize: CGFloat?
+        private var renderedConsoleStyle: Bool?
         private var renderedTheme: AppColorTheme?
         private var renderedIsDark: Bool?
         private var isAtBottom = true
@@ -660,6 +676,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
         }
 
         func apply(
+            fontSize: CGFloat = 11.5,
+            usesIDEAConsoleStyle: Bool = false,
             output: String,
             emptyMessage: String,
             isDark: Bool,
@@ -671,13 +689,16 @@ private struct OutputTextStorageView: NSViewRepresentable {
             guard let storage = textView?.textStorage else { return }
             let wasAtBottom = isAtBottom
             let appearanceChanged = renderedTheme != theme || renderedIsDark != isDark
+                || renderedFontSize != fontSize || renderedConsoleStyle != usesIDEAConsoleStyle
             if output.isEmpty {
                 guard appearanceChanged || !showingEmptyMessage || storage.string != emptyMessage else { return }
                 storage.setAttributedString(NSAttributedString(
                     string: emptyMessage,
                     attributes: [
-                        .font: LitheTheme.editorFont(size: 11.5),
-                        .foregroundColor: LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
+                        .font: LitheTheme.editorFont(size: fontSize),
+                        .foregroundColor: usesIDEAConsoleStyle ? LitheConsoleStyle.foreground(dark: isDark)
+                            : LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark),
+                        .paragraphStyle: usesIDEAConsoleStyle ? LitheConsoleStyle.paragraphStyle(fontSize: fontSize) : NSParagraphStyle.default
                     ]
                 ))
                 source = ""
@@ -737,6 +758,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 source = output
                 showingEmptyMessage = false
             }
+            renderedFontSize = fontSize
+            renderedConsoleStyle = usesIDEAConsoleStyle
             renderedTheme = theme
             renderedIsDark = isDark
             if wasAtBottom { scrollToBottom() }
@@ -881,7 +904,8 @@ enum ANSIOutputRenderer {
 
     static func parse(
         _ source: String,
-        defaultForeground: NSColor = .labelColor
+        defaultForeground: NSColor = .labelColor,
+        palette: [NSColor]? = nil
     ) -> ParsedOutput {
         let scalars = Array(source.unicodeScalars)
         var cleanText = ""
@@ -924,7 +948,7 @@ enum ANSIOutputRenderer {
                     if end < scalars.count {
                         if scalars[end] == "m" {
                             let parameters = String(String.UnicodeScalarView(scalars[(index + 2)..<end]))
-                            applySGR(parameters, defaultForeground: defaultForeground, to: &style)
+                            applySGR(parameters, defaultForeground: defaultForeground, palette: palette, to: &style)
                             if parameters != "0" && !parameters.isEmpty { sawColorCode = true }
                         }
                         index = end + 1
@@ -959,6 +983,7 @@ enum ANSIOutputRenderer {
     private static func applySGR(
         _ parameters: String,
         defaultForeground: NSColor,
+        palette: [NSColor]?,
         to style: inout Style
     ) {
         let codes = parameters.isEmpty ? [0] : parameters.split(separator: ";").compactMap { Int($0) }
@@ -969,16 +994,19 @@ enum ANSIOutputRenderer {
             case 0: style = Style(foreground: defaultForeground)
             case 1: style.bold = true
             case 22: style.bold = false
-            case 30...37, 90...97: style.foreground = paletteColor(code)
+            case 30...37, 90...97: style.foreground = paletteColor(code, palette: palette)
             case 39: style.foreground = defaultForeground
-            case 40...47, 100...107: style.background = paletteColor(code - 10)
+            case 40...47, 100...107: style.background = paletteColor(code - 10, palette: palette)
             case 49: style.background = nil
             case 38, 48:
                 let isForeground = code == 38
                 if index + 2 < codes.count, codes[index + 1] == 5 {
-                    setColor(color256(codes[index + 2]), foreground: isForeground, style: &style)
+                    if (0...255).contains(codes[index + 2]) {
+                        setColor(color256(codes[index + 2], palette: palette), foreground: isForeground, style: &style)
+                    }
                     index += 2
                 } else if index + 4 < codes.count, codes[index + 1] == 2 {
+                    if codes[(index + 2)...(index + 4)].allSatisfy({ (0...255).contains($0) }) {
                     let color = NSColor(
                         srgbRed: Double(codes[index + 2]) / 255,
                         green: Double(codes[index + 3]) / 255,
@@ -986,6 +1014,7 @@ enum ANSIOutputRenderer {
                         alpha: 1
                     )
                     setColor(color, foreground: isForeground, style: &style)
+                    }
                     index += 4
                 }
             default: break
@@ -998,7 +1027,8 @@ enum ANSIOutputRenderer {
         if foreground { style.foreground = color } else { style.background = color }
     }
 
-    private static func paletteColor(_ code: Int) -> NSColor {
+    private static func paletteColor(_ code: Int, palette: [NSColor]? = nil) -> NSColor {
+        if let palette, palette.count == 16 { return palette[code >= 90 ? code - 90 + 8 : code - 30] }
         let values: [NSColor] = [
             .black, NSColor(srgbRed: 0.80, green: 0.27, blue: 0.29, alpha: 1),
             NSColor(srgbRed: 0.31, green: 0.72, blue: 0.39, alpha: 1),
@@ -1011,8 +1041,8 @@ enum ANSIOutputRenderer {
         return values[(code >= 90 ? code - 90 : code - 30) % values.count]
     }
 
-    private static func color256(_ value: Int) -> NSColor {
-        if value < 16 { return paletteColor(value < 8 ? value + 30 : value - 8 + 90) }
+    private static func color256(_ value: Int, palette: [NSColor]? = nil) -> NSColor {
+        if value < 16 { return paletteColor(value < 8 ? value + 30 : value - 8 + 90, palette: palette) }
         if value >= 232 {
             let component = Double(8 + (value - 232) * 10) / 255
             return NSColor(srgbRed: component, green: component, blue: component, alpha: 1)

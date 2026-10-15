@@ -73,19 +73,83 @@ These presentation actions do not add Agent Host commands or persist chat histor
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
-| Updates | normalized release metadata, state names, preference semantics, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
+| Updates | normalized release metadata, state names, validated `stable|autobuild` preference, explicit rolling consent, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
+
+### Application update channels
+
+The saved channel defaults to `stable` independently of the installed build identity.
+Invalid or missing preferences select Stable. Choosing `autobuild` requires explicit
+acknowledgement that rolling builds may contain unfinished features and serious bugs;
+both settings UIs continuously recommend Stable for ordinary users. The AutoBuild
+release is `https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild` and is built
+from one pinned `preview` commit per nightly run.
+
+Installed identity and selected channel are separate. A cross-channel switch requires
+an explicit full installation; stable semantic versions must never be compared to
+rolling workflow build numbers. Channel changes cannot race active checks, downloads,
+installation, or an outstanding switch. Existing offers must be dismissed before the
+new preference takes effect. macOS keeps its signed full Stable rollback path.
+
+Within AutoBuild, one whole-second UTC build time is captured per build and encoded
+as `YYYYMMDD.HHMMSS` for Sparkle's numeric version comparison. Its corresponding
+ISO timestamp is displayed as `AutoBuild — Built at YYYY-MM-DD HH:mm:ss UTC`
+(localized as `AutoBuild — 构建自 … UTC`). Equal or older build times are rejected;
+workflow run/attempt counters do not determine version identity. The fixed tag stays
+`AutoBuild`; its release title and notes show the refreshed build time. Commit SHA
+identifies source and SHA-256 checks bytes, neither orders releases. Date formatting
+is checked on both clients against
+[`build-time-v1.json`](../fixtures/updates/build-time-v1.json).
+Windows AutoBuild currently uses an acknowledged browser installer route because
+its rolling publisher has no signed Tauri manifest or monotonic updater version.
+That route has no target update metadata, download/install progress, or claim that
+the installed app is current; scheduled checks do not open a browser or dialog.
+Normal Stable-to-Stable checks retain each platform's existing signed updater.
+The shared scenarios live in
+[`channel-selection-v1.json`](../fixtures/updates/channel-selection-v1.json).
 
 ### Document encoding
 
 Local text documents expose the selected encoding in the editor status bar. The
-supported labels are `UTF-8`, `UTF-8 with BOM`, `GBK`, `GB18030`, `Shift JIS`,
-and `Windows-1252`. Native adapters auto-detect UTF-8/BOM and the GBK family
-when opening a file; an explicit reopen request decodes with the selected codec
+supported labels are `UTF-8`, `UTF-8 with BOM`, `UTF-16 LE with BOM`,
+`UTF-16 BE with BOM`, `UTF-16 LE`, `UTF-16 BE`, `GBK`, `GB18030`, `Big5`,
+`Shift JIS`, `EUC-JP`, `EUC-KR`, `Windows-1250`, `Windows-1251`,
+`Windows-1252`, and `KOI8-R`. Native adapters auto-detect UTF-8/BOM, UTF-16 by
+its BOM, and the GBK family when opening a file; every other encoding is
+selected explicitly because its bytes cannot be told apart reliably. An
+explicit reopen request decodes with the selected codec
 and exposes replacement characters for invalid byte sequences. “Save
 with Encoding” converts the current Unicode buffer only after the target codec
 accepts every character. Both products preserve the raw-byte identity of the
 last acknowledged disk snapshot and reject a save when another process changed
 those bytes.
+
+### macOS registered workbench tool windows
+
+The macOS host resolves tool-window actions and content from module contributions.
+Project (`workspace.project`), Changes (`git.changes`) and Search (`search.workspace`)
+use the same registry as right/bottom tools and declarative plugin windows. Left,
+right and bottom each have primary and secondary dock groups, with at most one
+visible window per group. Menu moves and pointer drops update the same dock state. Moving or hiding a tool window
+changes presentation only; module ownership and resource lifetime stay in ModuleRuntime.
+A title-bar minimize action closes its own contribution ID in its current region.
+
+Workspace layout stores entry order, visibility and placement by contribution ID.
+Left content selection and expansion have optional fields for compatibility with
+older geometry-only layouts. Legacy workspace session names (`project`, `changes`,
+`search`, `pullRequests`) map to stable IDs; other registered IDs survive as strings.
+Legacy docking enum names also map to contribution IDs without losing group or
+order. Geometry writes merge existing UI preferences. Module release and shutdown do not
+replace saved user visibility with teardown state. Restoring a declarative window
+activates its owner even if its left slot is already selected, without toggling it closed.
+These are macOS host behaviors; Windows adoption remains independent.
+
+Workbench actions share host-owned visibility, enablement, checked and pending state.
+Declarative commands cannot start a duplicate window activation while pending; the
+window entry can cancel its own display request. Invocation revalidates the complete
+current contribution and state, including old menu/palette callbacks. Built-in command
+enablement reuses the existing shortcut policy. One module's concurrent activation
+requests share construction; closing/disable cancels and joins that construction before
+resources are released. A cancelled UI waiter cannot cancel another window's waiter.
 
 ### External HTML preview
 

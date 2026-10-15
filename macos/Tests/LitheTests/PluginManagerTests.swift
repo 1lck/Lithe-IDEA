@@ -38,7 +38,9 @@ struct PluginManagerTests {
         })
         #expect(markdown.languageServerModuleID == nil)
         #expect(yaml.languageServerModuleID == .languageServerExtension("yaml"))
-        let officialLanguagePlugins = try ["GoSupport", "PhpSupport"].map {
+        // Java Support also proves that a plugin may own the Java language
+        // alongside every built-in and bundled catalog without a collision.
+        let officialLanguagePlugins = try ["GoSupport", "JavaSupport", "PhpSupport"].map {
             try DeclarativePluginTestSupport.officialDescriptor($0).pluginManifest
         }
         #expect(Set(officialLanguagePlugins.map(\.id)) == Set(OfficialPluginCatalog.entries.map(\.id)))
@@ -63,6 +65,7 @@ struct PluginManagerTests {
             packageStore: makeStore(root: root),
             moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [],
@@ -85,6 +88,7 @@ struct PluginManagerTests {
             packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [],
@@ -111,6 +115,7 @@ struct PluginManagerTests {
             packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [installed],
@@ -152,6 +157,7 @@ struct PluginManagerTests {
             packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [installed],
@@ -188,6 +194,7 @@ struct PluginManagerTests {
             packageStore: makeStore(root: root),
             moduleRuntime: runtime,
             configurationStore: configuration,
+            settings: InMemoryPluginSettings(),
             launchMode: .normal,
             startup: MacPluginStartupResult(
                 installedPlugins: [installed],

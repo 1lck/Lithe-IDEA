@@ -4,8 +4,9 @@ set -euo pipefail
 
 # Assembles official declarative plugin packages (plugin contract v1). A
 # package holds plugin.json plus the resources it declares; it contains no
-# host-loaded code, so it is identical for every architecture and is not
-# rebuilt against a particular Lithe binary. See
+# host-loaded code and is not rebuilt against a particular Lithe binary. A
+# package that ships its own runtime (Java Support) is assembled for the
+# architectures given by --arch; every other package is identical for all. See
 # .agents/notes/implemented/architecture/2026-10-12-declarative-language-plugins.md.
 
 ROOT_DIR="${0:A:h:h}"
@@ -14,6 +15,9 @@ TRIPLE=""
 OUTPUT_DIR=""
 PLUGIN_ID=""
 BUNDLED_ONLY=false
+# Architectures a package's own runtime is assembled for: arm64, x86_64, or
+# universal. Defaults to the architecture of --triple.
+RUNTIME_ARCH=""
 # Development builds of Lithe accept unsigned packages installed from disk.
 # This flag builds publisher-signed plugins without the release key for that
 # local path only; release configuration rejects it.
@@ -26,8 +30,9 @@ while [[ $# -gt 0 ]]; do
         --output) OUTPUT_DIR="$2"; shift 2 ;;
         --bundled-only) BUNDLED_ONLY=true; shift ;;
         --plugin-id) PLUGIN_ID="$2"; shift 2 ;;
+        --arch) RUNTIME_ARCH="$2"; shift 2 ;;
         --development-unsigned) DEVELOPMENT_UNSIGNED=true; shift ;;
-        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id] [--bundled-only] [--development-unsigned]"; exit 2 ;;
+        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id] [--arch arm64|x86_64|universal] [--bundled-only] [--development-unsigned]"; exit 2 ;;
     esac
 done
 
@@ -44,6 +49,14 @@ fi
 case "$TRIPLE" in
     arm64-apple-macosx|x86_64-apple-macosx) ;;
     *) print -u2 -- "Unsupported macOS Swift triple: $TRIPLE"; exit 2 ;;
+esac
+
+if [[ -z "$RUNTIME_ARCH" ]]; then
+    RUNTIME_ARCH="${TRIPLE%%-*}"
+fi
+case "$RUNTIME_ARCH" in
+    arm64|x86_64|universal) ;;
+    *) print -u2 -- "Unsupported runtime architecture: $RUNTIME_ARCH"; exit 2 ;;
 esac
 
 SWIFT_LAYOUT_ARGS=(
@@ -104,6 +117,14 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
         "$ROOT_DIR/scripts/prepare-php-language-server.sh" \
             --manifest "$language_server_manifest" \
             --output "$package_dir/language-server" >&2
+    fi
+
+    # A plugin that needs more than one pinned archive keeps its assembly
+    # next to its manifest, so the steps that are specific to one plugin are
+    # not spread through shared build scripts.
+    package_assembler="$plugin_source/assemble-package.sh"
+    if [[ -x "$package_assembler" ]]; then
+        "$package_assembler" --output "$package_dir" --arch "$RUNTIME_ARCH" >&2
     fi
 
     if [[ "$signature_requirement" == "publisherPackage" && "$publisher_signed" == false ]]; then

@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import LitheModuleAPI
 
 extension AppModel {
@@ -20,6 +21,15 @@ extension AppModel {
         ) else { return }
         do {
             try services.pluginManager.installPackage(at: packageURL)
+            objectWillChange.send()
+        } catch {
+            showNotification(error.localizedDescription)
+        }
+    }
+
+    func restorePlugin(_ pluginID: PluginID) {
+        do {
+            try services.pluginManager.restore(pluginID)
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)
@@ -60,6 +70,17 @@ extension AppModel {
         }
         objectWillChange.send()
         return appliedPluginIDs
+    }
+
+    /// Stores the user's value of a plugin setting; `nil` restores the plugin's
+    /// default. The plugin's language servers read it when they next start.
+    func setPluginSetting(_ value: ToolingJSONValue?, id settingID: String, for pluginID: PluginID) {
+        do {
+            try services.pluginManager.setSetting(value, id: settingID, for: pluginID)
+            objectWillChange.send()
+        } catch {
+            showNotification(error.localizedDescription)
+        }
     }
 
     func rollbackPlugin(_ pluginID: PluginID) {

@@ -4,6 +4,14 @@ import { create } from "zustand";
 import { getServiceUrls } from "@/config/services";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { prepareProjectTransitionWithUnsavedBuffers } from "@/features/file-system/controllers/workspace-project-transition";
+import { openExternalBrowserUrl } from "@/features/window/utils/external-navigation";
+import {
+  isUpdateChannel,
+  persistUpdateChannel,
+  readUpdateChannel,
+  resolveUpdateChannel,
+  type UpdateChannel,
+} from "../lib/update-channel";
 import { useWhatsNewStore } from "./whats-new.store";
 import {
   clearUpdatePreferencesForNewVersion,
@@ -16,6 +24,7 @@ import {
 export type UpdateStatus =
   | "idle"
   | "checking"
+  | "manualDownload"
   | "available"
   | "downloading"
   | "installing"
@@ -54,6 +63,10 @@ export interface DownloadProgress {
 }
 
 export interface UpdateState {
+  channel: UpdateChannel;
+  channelPreferenceError: boolean;
+  operationBusy: boolean;
+  manualReleaseURL: string | null;
   status: UpdateStatus;
   error: string | null;
   errorCode: UpdateErrorCode | null;
@@ -73,9 +86,11 @@ interface CheckForUpdatesOptions {
   userInitiated?: boolean;
 }
 
-export type UpdateCheckResult = "available" | "up-to-date" | "suppressed" | "failed";
+export type UpdateCheckResult = "available" | "up-to-date" | "suppressed" | "failed" | "manual-download" | "busy";
 
 interface UpdateActions {
+  setChannel: (channel: unknown, acknowledged?: boolean) => boolean;
+  openReleaseDownload: (acknowledged: boolean) => Promise<void>;
   checkForUpdates: (options?: CheckForUpdatesOptions) => Promise<UpdateCheckResult>;
   downloadAndInstall: () => Promise<void>;
   dismissUpdate: () => void;
@@ -94,6 +109,23 @@ interface UpdateStore extends UpdateState {
 let updateRef: Update | null = null;
 let updateInfoRef: UpdateInfo | null = null;
 let checkInFlight: Promise<UpdateCheckResult> | null = null;
+let installInFlight = false;
+let manualOpenInFlight = false;
+
+function clearUpdateReference() {
+  const discarded = updateRef;
+  updateRef = null;
+  updateInfoRef = null;
+  // Each Tauri Update owns a native resource; channel changes must release it.
+  if (discarded && typeof discarded.close === "function") {
+    void discarded.close().catch((error) => console.warn("Failed to close update resource", error));
+  }
+}
+
+function isBusy(state: UpdateState) {
+  return state.operationBusy || state.status === "checking" ||
+    state.status === "downloading" || state.status === "installing";
+}
 
 function readRawUpdateText(update: Update, key: string): string | undefined {
   const value = update.rawJson?.[key];
@@ -127,6 +159,10 @@ function errorMessageForPhase(phase: "check" | "install", error: unknown): strin
 }
 
 const useUpdateStore = create<UpdateStore>()((set, get) => ({
+  channel: readUpdateChannel(),
+  channelPreferenceError: false,
+  operationBusy: false,
+  manualReleaseURL: null,
   status: "idle",
   error: null,
   errorCode: null,
@@ -135,14 +171,59 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
   detailsOpen: false,
 
   actions: {
+    setChannel: (channel, acknowledged = false) => {
+      if (!isUpdateChannel(channel) || isBusy(get())) return false;
+      if (channel === get().channel) return true;
+      if (channel === "autobuild" && !acknowledged) return false;
+      if (!persistUpdateChannel(channel)) {
+        set({ channelPreferenceError: true });
+        return false;
+      }
+      get().actions.dismissUpdate();
+      set({ channel, channelPreferenceError: false });
+      return true;
+    },
+
+    openReleaseDownload: async (acknowledged) => {
+      const { channel, manualReleaseURL } = get();
+      if (!acknowledged || !manualReleaseURL || isBusy(get()) || manualOpenInFlight) return;
+      // Re-resolve rather than trusting an old dialog after a channel change.
+      if (resolveUpdateChannel(channel).releaseURL !== manualReleaseURL) return;
+      manualOpenInFlight = true;
+      set({ operationBusy: true, error: null, errorCode: null });
+      try {
+        if (!await openExternalBrowserUrl(manualReleaseURL)) throw new Error("Could not open release downloads");
+        set({ detailsOpen: false });
+      } catch (error) {
+        set({ error: errorMessageForPhase("install", error), errorCode: "download_failed" });
+      } finally {
+        manualOpenInFlight = false;
+        set({ operationBusy: false });
+      }
+    },
     checkForUpdates: async (options = {}) => {
-      if (checkInFlight) return checkInFlight;
+      if (checkInFlight) {
+        const result = await checkInFlight;
+        if (options.userInitiated && result === "available") get().actions.openDetails();
+        return result;
+      }
+      if (isBusy(get()) || installInFlight) return "busy";
+      const route = resolveUpdateChannel(get().channel);
+      if (route.method === "release-page") {
+        clearUpdateReference();
+        set({
+          status: "manualDownload", manualReleaseURL: route.releaseURL,
+          updateInfo: null, downloadProgress: null, error: null, errorCode: null,
+          detailsOpen: Boolean(options.userInitiated || get().detailsOpen),
+        });
+        return "manual-download";
+      }
 
       checkInFlight = (async () => {
-        updateRef = null;
-        updateInfoRef = null;
+        clearUpdateReference();
         set({
           status: "checking",
+          manualReleaseURL: null,
           error: null,
           errorCode: null,
           updateInfo: null,
@@ -151,12 +232,11 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
         });
 
         try {
-          const update = await check();
+          const update = await check({ timeout: 15_000 });
           updateRef = update;
 
           if (!update?.available) {
-            updateRef = null;
-            updateInfoRef = null;
+            clearUpdateReference();
             set({
               status: "upToDate",
               error: null,
@@ -175,8 +255,7 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
             !options.userInitiated &&
             shouldSuppressUpdate({ version: updateInfo.targetVersion })
           ) {
-            updateRef = null;
-            updateInfoRef = null;
+            clearUpdateReference();
             set({
               status: "idle",
               error: null,
@@ -217,13 +296,12 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
     },
 
     downloadAndInstall: async () => {
+      if (installInFlight || isBusy(get()) || resolveUpdateChannel(get().channel).method !== "tauri") return;
+      // Lock before the first await, including the unsaved-buffer prompt.
+      installInFlight = true;
       try {
-        if (!updateRef?.available) {
-          const result = await get().actions.checkForUpdates({ ignoreSuppression: true });
-          if (result !== "available" || !updateRef?.available) {
-            throw new Error("No update available");
-          }
-        }
+        if (!updateRef?.available) throw new Error("No update available");
+        set({ operationBusy: true });
 
         const update = updateRef;
         const updateInfo = updateInfoRef;
@@ -288,14 +366,18 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
           updateInfo: state.updateInfo,
           downloadProgress: null,
         }));
+      } finally {
+        installInFlight = false;
+        set({ operationBusy: false });
       }
     },
 
     dismissUpdate: () => {
-      updateRef = null;
-      updateInfoRef = null;
+      if (isBusy(get())) return;
+      clearUpdateReference();
       set({
         status: "idle",
+        manualReleaseURL: null,
         error: null,
         errorCode: null,
         updateInfo: null,
@@ -339,7 +421,7 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
     },
 
     openDetails: () => {
-      if (get().updateInfo) set({ detailsOpen: true });
+      if (get().updateInfo || get().manualReleaseURL) set({ detailsOpen: true });
     },
 
     closeDetails: () => set({ detailsOpen: false }),

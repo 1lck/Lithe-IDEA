@@ -135,28 +135,34 @@ async function assertMacJdkCacheConfiguration() {
     /LITHE_JDK_TARGET_ARCH="x86_64"/,
     "universal macOS packages must prepare an Intel JDK",
   );
+  // JDT LS and its JDK ship inside the Java Support plugin package, which
+  // its own assembler lays out with one runtime per architecture.
   assert.match(
     packageScript,
-    /LanguageServers\/jdk-arm64/,
-    "universal macOS packages must bundle the ARM JDK separately",
+    /build-official-plugins\.sh --bundled-only[\s\S]*--arch "\$ARCH"/,
+    "macOS packages must assemble bundled plugins for the package architecture",
   );
-  assert.match(
+  assert.doesNotMatch(
     packageScript,
-    /LanguageServers\/jdk-x86_64/,
-    "universal macOS packages must bundle the Intel JDK separately",
+    /Resources\/LanguageServers/,
+    "macOS packages must not copy a language server outside its plugin package",
+  );
+  const javaAssembler = await fs.readFile(
+    path.join(repositoryRoot, "Plugins/mac/Official/JavaSupport/assemble-package.sh"),
+    "utf8",
+  );
+  assert.match(javaAssembler, /prepare-jdtls\.sh/, "Java Support must assemble the pinned JDTLS");
+  assert.match(javaAssembler, /prepare-jdk\.sh/, "Java Support must assemble its JDK");
+  assert.match(
+    javaAssembler,
+    /runtime\/\$runtime_arch/,
+    "Java Support must keep each architecture's JDK in its own runtime directory",
   );
   const previewScript = await fs.readFile(path.join(repositoryRoot, "scripts/preview.sh"), "utf8");
-  assert.match(previewScript, /prepare-jdtls\.sh/, "macOS previews must prepare JDTLS");
-  assert.match(previewScript, /prepare-jdk\.sh/, "macOS previews must prepare the bundled JDK");
   assert.match(
     previewScript,
-    /Contents\/Resources\/LanguageServers\/jdtls/,
-    "macOS previews must bundle JDTLS at the runtime lookup path",
-  );
-  assert.match(
-    previewScript,
-    /Contents\/Resources\/LanguageServers\/jdk/,
-    "macOS previews must bundle the JDK at the runtime lookup path",
+    /build-official-plugins\.sh[\s\S]*--bundled-only/,
+    "macOS previews must bundle Java Support, which carries JDTLS and the JDK",
   );
   const prepareScript = await fs.readFile(path.join(repositoryRoot, "scripts/prepare-jdk.sh"), "utf8");
   assert.match(prepareScript, /TARGET_ARCH="\$\{LITHE_JDK_TARGET_ARCH:-\$\(uname -m\)\}"/);
@@ -173,12 +179,12 @@ async function assertMacJdkCacheConfiguration() {
   );
   assert.match(
     packageVerifier,
-    /LanguageServers\/jdk-arm64\/bin\/java/,
+    /runtime\/arm64\/bin\/java/,
     "macOS package verification must require the ARM JDK",
   );
   assert.match(
     packageVerifier,
-    /LanguageServers\/jdk-x86_64\/bin\/java/,
+    /runtime\/x86_64\/bin\/java/,
     "macOS package verification must require the Intel JDK",
   );
 }

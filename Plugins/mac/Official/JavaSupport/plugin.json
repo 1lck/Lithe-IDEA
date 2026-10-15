@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.plugin.java-support",
+  "displayName": "Java Support",
+  "version": "1.0.0",
+  "pluginAPIVersion": 2,
+  "vendor": {
+    "id": "dev.lithe",
+    "displayName": "Lithe",
+    "signatureRequirement": "sameTeamAsHost"
+  },
+  "permissions": ["languageServer.launch"],
+  "activationEvents": ["onLanguage:java"],
+  "languages": [
+    {
+      "id": "java",
+      "displayName": "Java",
+      "fileExtensions": ["java"],
+      "projectFileNames": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+    }
+  ],
+  "settings": [
+    {
+      "id": "heapMaxMB",
+      "type": "integer",
+      "title": "Maximum memory",
+      "description": "Upper bound of the Java language server's heap. Raise it for large multi-module projects.",
+      "default": 2048,
+      "minimum": 2048,
+      "maximum": 16384,
+      "unit": "MB"
+    },
+    {
+      "id": "logLevel",
+      "type": "enum",
+      "title": "Language server log level",
+      "description": "How much the Java language server writes to its own log. Quieter levels reduce disk writes.",
+      "default": "ALL",
+      "options": [
+        { "value": "ALL", "title": "All messages" },
+        { "value": "INFO", "title": "Information" },
+        { "value": "WARNING", "title": "Warnings" },
+        { "value": "SEVERE", "title": "Errors only" }
+      ]
+    }
+  ],
+  "languageServers": [
+    {
+      "languageID": "java",
+      "languageIdentifier": "java",
+      "launch": {
+        "kind": "runtime",
+        "tool": "java",
+        "packagedRuntime": "runtime/${arch}/bin/java",
+        "runtimeArguments": [
+          "-Xmx${setting:heapMaxMB}m",
+          "-Dlog.level=${setting:logLevel}"
+        ],
+        "entry": "language-server/plugins/org.eclipse.equinox.launcher_1.8.0.v20260804-1928.jar"
+      },
+      "hostIntegration": {
+        "id": "jdt",
+        "capabilities": ["debug", "run", "testing"],
+        "resources": {
+          "configuration": "language-server/configuration/${arch}",
+          "lombokAgent": "language-server/lombok/lombok.jar",
+          "extensionBundleDirectories": [
+            "language-server/java-debug",
+            "language-server/java-test/extensions"
+          ],
+          "testRunner": "language-server/java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
+        }
+      }
+    }
+  ]
+}

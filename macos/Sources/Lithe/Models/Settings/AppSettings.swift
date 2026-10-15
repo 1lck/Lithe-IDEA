@@ -10,6 +10,12 @@ enum JavaBuildFailurePolicy: String, Codable {
 
 @MainActor
 final class AppSettings: ObservableObject {
+    nonisolated static let agentSelectionPreferenceKey = "lithe.agent.welcomeAgentChosen"
+    var preferredConversationAgentID: String? {
+        get { defaults.object(forKey: Self.agentSelectionPreferenceKey) as? String }
+        set { defaults.set(newValue, forKey: Self.agentSelectionPreferenceKey) }
+    }
+
     private enum Key {
         static let colorTheme = "settings.colorTheme"
         static let themePreference = "settings.themePreference"

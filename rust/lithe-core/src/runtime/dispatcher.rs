@@ -163,6 +163,16 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::test_plan_command,
         ),
+        CoreCommand::PluginsDeclarativeLanguageServerLaunchPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::language_server_launch_plan_command,
+        ),
+        CoreCommand::PluginsDeclarativeCheckRuntimeVersion => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::check_runtime_version_command,
+        ),
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
             parsed.payload,

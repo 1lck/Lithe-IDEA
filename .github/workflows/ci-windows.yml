@@ -135,7 +135,9 @@ jobs:
 
       - name: Test Windows dependency install recovery
         shell: pwsh
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts
+        # Native PowerShell/Job Object startup and owned-process cleanup need
+        # headroom beyond the fixture's separate five second install deadlines.
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 60000 --suite-timeout-ms 180000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts
 
       - name: Configure isolated dependency caches
         shell: pwsh
@@ -399,12 +401,14 @@ jobs:
             "src/features/git/components/log/git-commit-table.presentation.test.tsx",
             "src/features/git/components/log/git-commit-table-keyboard-menu.test.tsx",
             "src/features/git/components/log/git-commit-table-tag.test.tsx",
+            "src/features/git/components/log/git-create-tag-dialog.test.tsx",
             "src/features/git/components/log/git-graph-row.test.ts",
             "src/features/git/components/log/git-graph-row.theme.test.tsx",
             "src/features/git/components/log/git-log-branch-actions.test.tsx",
             "src/features/git/hooks/use-git-graph-paint.test.tsx",
             "src/features/git/hooks/use-git-log-controller.integration.test.tsx",
             "src/features/git/stores/git-log-preferences.store.test.ts",
+            "src/features/git/utils/git-checkout-failure-presentation.test.ts",
             "src/features/git/utils/git-graph-colors.test.ts",
             "src/features/git/utils/git-graph-geometry.test.ts",
             "src/features/git/utils/git-graph-highlights.test.ts",

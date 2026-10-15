@@ -22,6 +22,7 @@ const onSelect = mock(
   (..._args: Parameters<React.ComponentProps<typeof GitCommitTable>["onSelect"]>) => {},
 );
 const onOpenDiff = mock((_commit: GitCommit) => {});
+let menuFinalFocus: unknown;
 const commits: GitCommit[] = ["a", "b"].map((letter, index) => ({
   hash: letter.repeat(40),
   shortHash: letter.repeat(7),
@@ -60,7 +61,10 @@ beforeEach(() => {
     spyOn(menus, "ContextMenuTrigger").mockImplementation(({ children, ...props }) => (
       <div {...(props as React.HTMLAttributes<HTMLDivElement>)}>{children as ReactNode}</div>
     )),
-    spyOn(menus, "ContextMenuContent").mockImplementation(content),
+    spyOn(menus, "ContextMenuContent").mockImplementation((props) => {
+      menuFinalFocus = props.finalFocus;
+      return content(props);
+    }),
     spyOn(menus, "ContextMenuItem").mockImplementation(({ children, disabled, onClick }) => (
       <button
         disabled={disabled}
@@ -229,4 +233,23 @@ test("Input and menu buttons retain their own arrow keys", async () => {
   await press("ArrowDown", {}, container.querySelector<HTMLInputElement>("input")!);
   await press("ArrowDown", {}, tagButtons()[0]!);
   expect(onSelect).not.toHaveBeenCalled();
+});
+
+test("closing the commit menu does not pull focus out of a dialog opened by its action", async () => {
+  await renderTable(new Set([commits[0]!.hash]));
+  const restore = menuFinalFocus as (closeType: string) => HTMLElement | boolean | null;
+  // Without an action dialog, focus returns to the stable viewport.
+  expect(restore("mouse")).toBe(viewport());
+  // New Tag focuses its field before the menu finishes closing; keep it there.
+  const dialog = document.createElement("div");
+  dialog.setAttribute("role", "dialog");
+  const field = document.createElement("input");
+  dialog.append(field);
+  document.body.append(dialog);
+  try {
+    field.focus();
+    expect(restore("mouse")).toBe(false);
+  } finally {
+    dialog.remove();
+  }
 });

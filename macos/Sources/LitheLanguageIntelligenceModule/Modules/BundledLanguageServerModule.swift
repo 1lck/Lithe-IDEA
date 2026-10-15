@@ -70,6 +70,8 @@ private final class BundledLanguageServerLifecycle: LanguageServerExtensionLifec
     private var running: @MainActor () -> Bool = { false }
     private var stopAction: @MainActor () -> Void = {}
 
+    private(set) var isRetired = false
+
     var isRunning: Bool { running() }
 
     func attach(
@@ -80,7 +82,10 @@ private final class BundledLanguageServerLifecycle: LanguageServerExtensionLifec
         stopAction = stop
     }
 
-    func stop() { stopAction() }
+    func stop() {
+        isRetired = true
+        stopAction()
+    }
 }
 
 @MainActor

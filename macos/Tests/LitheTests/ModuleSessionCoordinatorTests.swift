@@ -46,6 +46,33 @@ struct ModuleSessionCoordinatorTests {
     }
 
     @Test
+    func idleSleepKeepsAVisibleWindowOpenButShutdownClosesIt() throws {
+        let runtime = ModuleRuntime()
+        let owner = ModuleID("org.example.idle-window")
+        let contribution = ModuleContribution(id: owner.rawValue + ".window", kind: .toolWindow, title: "Idle")
+        try runtime.register(ModuleFactory(
+            manifest: .init(id: owner, displayName: "Idle", scope: .workspace),
+            contributions: [contribution]
+        ) { SessionTestModule(owner) })
+        let workbench = WorkbenchFeatureModel()
+        workbench.reconcileContributions(runtime.availableContributions())
+        let window = WorkbenchFeatureModel.ToolWindow(rawValue: contribution.id)
+        workbench.setVisibility(window, isVisible: true)
+        #expect(workbench.isVisible(window))
+        let coordinator = ModuleSessionCoordinator(
+            runtime: runtime, capabilities: ModuleCapabilityStore(), workbench: workbench,
+            onModuleReleased: { _ in }, onChange: {}
+        )
+        defer { coordinator.stopObserving() }
+
+        runtime.publish(ModuleEvent(source: owner, name: "module.sleeping"))
+        #expect(workbench.isVisible(window))
+
+        runtime.publish(ModuleEvent(source: owner, name: "module.shutdown"))
+        #expect(!workbench.isVisible(window))
+    }
+
+    @Test
     func repeatedShutdownRequestsShareWorkAndWaitersResumeAfterCleanup() async {
         let started = TestGate()
         let release = TestGate()
@@ -109,3 +136,14 @@ struct ModuleSessionCoordinatorTests {
 }
 
 private final class SessionTestCapability {}
+
+@MainActor
+private final class SessionTestModule: LitheModule {
+    let manifest: ModuleManifest
+    init(_ id: ModuleID) { manifest = .init(id: id, displayName: "Idle", scope: .workspace) }
+    func activate(context: ModuleContext) async throws {}
+    func prepareForSleep() async throws {}
+    func sleep() async {}
+    func shutdown() async {}
+    func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
+}

@@ -80,6 +80,18 @@ Bearer/OAuth/custom-header/cloud routes cleared. This avoids the adapter's
 gateway placeholder Bearer token overriding a valid `x-api-key`; it does not
 patch the adapter or change native CLI configuration files. Missing Claude
 credentials fail before session creation instead of falling back to an account.
+The provider model is a new-session default: Claude supplies it only as
+`_meta.claudeCode.options.model` on `session/new`, never as a process-wide
+`ANTHROPIC_MODEL` pin or an `options.model` override on `session/load`. On a
+Claude API-key restore, the Host re-asserts the returned model selector
+(`category: model`) through `session/set_config_option`, even if its value is
+unchanged or outside the picker. Only a matching acknowledgement publishes
+`sessionLoaded`; its complete configuration replaces the load response.
+Rejection, mismatched confirmation or timeout reports a load failure. Both
+requests share the existing 60-second load deadline. Adapters without model
+selectors and other Agent routes retain standard ACP loading; no additional
+model cache, transcript access or global CLI mutation is introduced.
+
 Claude API-key sessions also set `CLAUDE_CODE_MAX_RETRIES=0`,
 `CLAUDE_CODE_RETRY_WATCHDOG=0`, and
 `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1` in both option tiers. The native
@@ -128,7 +140,7 @@ or user configuration; this runtime helper is excluded from worktree reuse.
 The route fixture is `shared/fixtures/agent/acp-events-v1.json`'s
 `upstream.claudeSessionRouting`. The
 user's own CLI is passed as `CODEX_PATH` or `CLAUDE_CODE_EXECUTABLE`, and a
-non-empty `model` as `CODEX_CONFIG` or `ANTHROPIC_MODEL`. Without `agentId`, `command` runs
+non-empty Codex `model` as `CODEX_CONFIG`; Claude uses the per-new-session option above. Without `agentId`, `command` runs
 a user-provided agent that must support gateway sign-in with a Responses
 provider. Agents start with the executable's directory and the login shell's
 `PATH` first. API-key mode never falls back to account login. Invalid settings
@@ -615,6 +627,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
+| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server launch with host directories and architecture |
+| `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -770,7 +784,7 @@ same revision semantics in-process and never cross the Rust boundary.
 any state when a native guarded write rejects its expected disk baseline or a
 file is missing. Native document saves compare the last acknowledged raw disk
 bytes with disk inside the platform write operation; the editor may use UTF-8,
-UTF-8 with BOM, GBK, GB18030, Shift JIS, or Windows-1252 while the Core
+UTF-8 with BOM, UTF-16 LE/BE (with or without BOM), GBK, GB18030, Big5, Shift JIS, EUC-JP, EUC-KR, Windows-1250/1251/1252, or KOI8-R while the Core
 lifecycle remains encoding-agnostic. Watchers are refresh hints, not write
 authorization. Conflict resolution acknowledges only the disk snapshot
 observed by the user, and subsequent saves must validate that snapshot again. The
@@ -2434,6 +2448,26 @@ Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 `label` and `frameworkID` for tests) or `items`; refusals use the same
 `rejected` shape. Only a malformed payload is an `invalid_request` failure.
 `shared/contracts/plugins/v1/fixtures/` holds the golden cases.
+
+`plugins.declarative.languageServerLaunchPlan` uses the same envelope with the
+request `{ pluginDirectory, stateDirectory, workspaceStateDirectory,
+architecture, settings? }`. The directories are absolute host paths used only
+as substitution text; the command does not read or create them. `settings` maps
+setting IDs to the values the user stored; a missing, unknown, or no longer
+acceptable value is ignored in favor of the declared default. Success returns
+`plan` with `launch`, `arguments`, `validationArguments`,
+`runtimeRequirements`, `requiredDirectories`, `requiredPackagePaths`, and
+`initializationOptions`, `hostIntegration`, and `settings` (the effective
+values) when the plugin declares them. An unknown
+architecture or an empty directory is refused with
+`plugin.launch.invalidRequest`, a language without a server with
+`plugin.launch.unavailable`.
+
+`plugins.declarative.checkRuntimeVersion` accepts
+`{ tool, minimumVersion, output }`, where `output` is what the runtime printed
+for the plan's `launch.versionArguments`, and returns
+`{ "status": "ok", "check": { "satisfied": bool, "version"?: string } }`.
+`version` is absent when the output contains none. It takes no manifest.
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
 archives and pass the parsed JSON. `validateIndex` accepts
