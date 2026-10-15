@@ -230,7 +230,8 @@ struct ExecutionModuleTests {
             languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback)
         )
-        let loading = Task { await service.loadProject(at: root, files: [], mavenProject: nil) }
+        let snapshotID = UUID()
+        let loading = Task { await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID) }
         defer {
             loading.cancel()
             entered.continuation.finish()
@@ -248,6 +249,7 @@ struct ExecutionModuleTests {
         // This actor continues to run while the real load path awaits its port.
         #expect(runtime.synchronousToolchainCalls == 0)
         #expect(service.isLoadingProject)
+        #expect(!service.isProjectReady(for: root, snapshotID: snapshotID))
         switch outcome {
         case "reset": service.reset()
         case "switch": await service.loadProject(at: other, files: [], mavenProject: nil)
@@ -260,7 +262,9 @@ struct ExecutionModuleTests {
         case "reset": #expect(service.projectLoadState == .idle && service.configurations == [.currentFile])
         case "switch": #expect(service.projectLoadState == .bound(workspace: other) && !service.isLoadingProject)
         case "cancel": #expect(service.defaultConfigurationID == nil)
-        default: #expect(service.defaultConfigurationID == RunConfiguration.currentFileID)
+        default:
+            #expect(service.defaultConfigurationID == RunConfiguration.currentFileID)
+            #expect(service.isProjectReady(for: root, snapshotID: snapshotID))
         }
         #expect(runtime.synchronousToolchainCalls == 0)
     }

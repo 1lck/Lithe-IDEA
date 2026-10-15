@@ -157,7 +157,9 @@ package final class RunService: ObservableObject {
     /// that activate the execution module on demand use this to decide whether
     /// the project still has to be loaded.
     package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool {
-        projectLoadState.isReady(for: workspace, snapshotID: snapshotID)
+        // The inventory is assigned before toolchains and configuration selection.
+        // Do not let Run observe that intermediate state as a completed load.
+        !isLoadingProject && projectLoadState.isReady(for: workspace, snapshotID: snapshotID)
     }
 
     /// Whether a complete inventory for `workspace` is already loaded, even if a
