@@ -157,15 +157,12 @@ struct SettingsView: View {
 
             ScrollView {
                 VStack(spacing: 0) {
-                    categoryGroup("Appearance & Behavior", categories: [.general, .updates])
-                    categoryButton(.keymap)
-                    categoryButton(.editor)
-                    categoryButton(.plugins)
-                    categoryButton(.mcp)
-                    categoryGroup("Version Control", categories: [.git])
-                    categoryGroup("Build, Execution, Deployment", categories: [.project, .run])
-                    categoryGroup("Languages & Frameworks", categories: [.lsp])
-                    categoryGroup("Tools", categories: [.terminal, .ai, .providers, .diagnostics])
+                    ForEach(Array(SettingsSidebarItem.layout.enumerated()), id: \.offset) { _, item in
+                        switch item {
+                        case .group(let group): categoryGroup(group)
+                        case .page(let category): categoryButton(category)
+                        }
+                    }
 
                     if filteredCategories.isEmpty {
                         VStack(spacing: 8) {
@@ -193,8 +190,9 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func categoryGroup(_ title: String, categories: [SettingsCategory]) -> some View {
-        let visible = categories.filter { filteredCategories.contains($0) }
+    private func categoryGroup(_ group: SettingsGroup) -> some View {
+        let title = group.rawValue
+        let visible = group.categories.filter { filteredCategories.contains($0) }
         if !visible.isEmpty {
             let expanded = expandedSidebarGroups.contains(title) || !viewState.searchQuery.isEmpty
             Button {
@@ -255,14 +253,7 @@ struct SettingsView: View {
     }
 
     private func expandGroup(containing category: SettingsCategory) {
-        switch category {
-        case .general, .updates: expandedSidebarGroups.insert("Appearance & Behavior")
-        case .git: expandedSidebarGroups.insert("Version Control")
-        case .project, .run: expandedSidebarGroups.insert("Build, Execution, Deployment")
-        case .lsp: expandedSidebarGroups.insert("Languages & Frameworks")
-        case .terminal, .ai, .providers, .diagnostics: expandedSidebarGroups.insert("Tools")
-        case .keymap, .editor, .plugins, .mcp: break
-        }
+        if let group = category.group { expandedSidebarGroups.insert(group.rawValue) }
     }
 
     private var filteredCategories: [SettingsCategory] {
@@ -310,22 +301,8 @@ struct SettingsView: View {
     }
 
     private var settingsBreadcrumb: [String] {
-        switch viewState.selection {
-        case .general: ["Appearance & Behavior", "General"]
-        case .editor: ["Editor"]
-        case .keymap: ["Keymap"]
-        case .project: ["Build, Execution, Deployment", "Project · JDK & Maven"]
-        case .run: ["Build, Execution, Deployment", "Run configurations"]
-        case .terminal: ["Tools", "Terminal"]
-        case .lsp: ["Languages & Frameworks", "LSP"]
-        case .ai: ["Tools", "AI & Commit"]
-        case .providers: ["Tools", "AI Providers"]
-        case .git: ["Version Control", "Git"]
-        case .updates: ["Appearance & Behavior", "Updates"]
-        case .diagnostics: ["Tools", "Diagnostics"]
-        case .plugins: ["Plugins"]
-        case .mcp: ["MCP Configuration"]
-        }
+        let category = viewState.selection
+        return [category.group?.rawValue, category.title].compactMap { $0 }
     }
 
     @ViewBuilder
@@ -382,6 +359,9 @@ struct SettingsView: View {
                     case .project: EmptyView()
                     case .run: EmptyView()
                     case .ai: aiSettings
+                    case .agents:
+                        AgentPanelSettingsView(model: model, settings: settings, feature: model.agentManagementFeature)
+                            .id(model.settingsCategoryRequest)
                     case .providers: providersSettings
                     case .git:
                         VStack(alignment: .leading, spacing: 14) {
@@ -875,21 +855,22 @@ struct SettingsView: View {
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
 
-                    HStack(spacing: 8) {
-                        Button("Add Provider") {
-                            viewState.editingProviderID = settings.addAIProvider()
-                            syncAIProviderDraft()
-                        }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                }
 
-                        Button("Remove") {
-                            if let id = editingProvider?.id { settings.removeAIProvider(id) }
-                            viewState.editingProviderID = nil
-                            syncAIProviderDraft()
-                        }
-                        .buttonStyle(LitheSecondaryButtonStyle())
-                        .disabled(editingProvider == nil)
+                HStack(spacing: 8) {
+                    Button("Add Provider") {
+                        viewState.editingProviderID = settings.addAIProvider()
+                        syncAIProviderDraft()
                     }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+
+                    Button("Remove") {
+                        if let id = editingProvider?.id { settings.removeAIProvider(id) }
+                        viewState.editingProviderID = nil
+                        syncAIProviderDraft()
+                    }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .disabled(editingProvider == nil)
                 }
 
                 if editingProvider != nil {
@@ -957,8 +938,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(model.detectedAIConfigurations) { configuration in
                             HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(LitheTheme.success)
+                                LitheBannerIcon(status: .success)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(LocalizedStringKey(configuration.source.detectedTitle))
                                         .font(LitheTheme.uiFont(size: 12, weight: .medium))
@@ -1539,20 +1519,7 @@ struct SettingsView: View {
     }
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(LocalizedStringKey(title))
-                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize()
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            }
-            content()
-        }
-        .font(LitheTheme.uiFont(size: 12.5))
-        .foregroundStyle(LitheTheme.primaryText)
-        .padding(.top, 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        LitheSettingsSection(title, content: content)
     }
 
     private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

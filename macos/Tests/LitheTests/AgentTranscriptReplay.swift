@@ -18,7 +18,7 @@ final class TranscriptReplay {
         panel = AgentConversationFeatureModel(transport: transport)
         panel.setAgents([.init(id: "fixture", name: "Fixture")])
         host = NSHostingView(rootView: AnyView(AgentConfiguredConversationView(feature: panel, setupError: nil,
-            onSelectAgent: panel.selectAgent, onConnect: {}, onOpenSettings: {},
+            onSelectAgent: panel.selectAgent, onConnect: {}, onOpenSettings: {}, onHide: {},
             onCopySessionID: { _ in }, onOpenFile: { _ in }).environment(\.locale, Locale(identifier: "zh-Hans"))))
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 350, height: 600),
             styleMask: [.borderless], backing: .buffered, defer: false)
@@ -114,7 +114,16 @@ final class TranscriptReplay {
             try await layout("resumed-following")
         }
         try await layout("settled-bottom")
-        guard clip.documentRect.maxY - clip.bounds.maxY < 2 else { throw ReplayError.latestReplyWasNotVisible }
+        // Native bottom following is queued after viewport changes; one render
+        // transaction does not guarantee that the final follow operation ran.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while clip.documentRect.maxY - clip.bounds.maxY >= 2 {
+            guard ContinuousClock.now < deadline else {
+                throw ReplayError.latestReplyWasNotVisible(document: clip.documentRect.maxY, viewport: clip.bounds.maxY,
+                    frame: scroll.documentView?.frame.maxY ?? 0, inset: scroll.contentInsets.bottom)
+            }
+            try await layout("settling-bottom")
+        }
     }
 
     private func userScroll(_ scroll: NSScrollView, to y: CGFloat) {
@@ -176,5 +185,6 @@ private final class ReplayConnection: AgentConnection {
     func close() async {}
 }
 private enum ReplayError: Error {
-    case missingSession, missingPermission, remainingPermission, missingReply, invalidCommand, missingScrollView, historyPositionWasLost, latestReplyWasNotVisible, permissionObscuredTheLatestReply
+    case missingSession, missingPermission, remainingPermission, missingReply, invalidCommand, missingScrollView, historyPositionWasLost, permissionObscuredTheLatestReply
+    case latestReplyWasNotVisible(document: CGFloat, viewport: CGFloat, frame: CGFloat, inset: CGFloat)
 }

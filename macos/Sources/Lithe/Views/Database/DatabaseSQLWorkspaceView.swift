@@ -581,7 +581,7 @@ struct DatabaseStructureView: View {
                     Button { editor = .foreignKey } label: { LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16, preservesOriginalColors: true) }.litheToolbarIconButton().help("Add foreign key")
                     Button { Task { await feature.openTable(table) } } label: { LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: 16, preservesOriginalColors: true) }.litheToolbarIconButton().help("Refresh structure")
                 }
-                .padding(.horizontal, 8).frame(height: LitheTheme.Metrics.toolWindowHeaderHeight).background(LitheTheme.editor)
+                .padding(.horizontal, 8).frame(height: LitheTheme.Metrics.toolWindowHeaderHeight).litheWorkbenchSurface(LitheTheme.editor)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         LitheToolWindowHeader(title: "Columns")
@@ -833,7 +833,7 @@ private struct DatabaseDiagnosticsView: View {
                 }
                 Spacer()
             }
-            .padding(.horizontal, 10).frame(height: 36).background(LitheTheme.toolHeader)
+            .padding(.horizontal, 10).frame(height: 36).litheWorkbenchSurface(LitheTheme.toolHeader)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             List {
                 Section("SQL safety") {

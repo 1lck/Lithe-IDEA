@@ -82,7 +82,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
     /// An Agent conversation in this project waits for a permission decision.
     @Published var agentConversationNeedsAttention = false
-    /// Agent panel settings state, created when the settings are first shown.
+    /// Shared UI selection for the settings dropdown and conversation selector.
+    @Published var selectedAgentConversationID: String? {
+        didSet { settings.preferredConversationAgentID = selectedAgentConversationID }
+    }
+    /// Agent management state, created when Settings first shows it.
     lazy var agentManagementFeature = AgentManagementFeatureModel(
         service: services.agentManagement,
         dataDirectory: agentDataDirectory
@@ -362,6 +366,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         workbenchFeature.presentSettings(category: category)
     }
 
+    func showAgentSettings(agentID: String? = nil) {
+        if let agentID { selectAgentConversationAgent(agentID) }
+        showSettings(category: .agents)
+    }
+
     private var springFeatureObservation: AnyCancellable?
     private var mybatisFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
@@ -451,6 +460,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         featureGraph: AppModelFeatureGraph
     ) {
         self.settings = settings
+        selectedAgentConversationID = settings.preferredConversationAgentID
         self.services = services
         platformUI = services.platformUI
         self.featureGraph = featureGraph
@@ -1540,6 +1550,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         guard wasSelected else { return }
         let target = previous.flatMap { editorTabItems.contains($0) ? $0 : nil } ?? editorTabItems.last
         switch target {
+        case .agentConversation: showAgentChatsInEditor()
         case .document(let id):
             if let document = openDocuments.first(where: { $0.id == id }) { selectEditorDocument(document) }
         case .terminal(let id):

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Lithe
@@ -14,6 +15,40 @@ struct AgentTranscriptScrollTests {
     func liveToolsPermissionsAndResizingKeepFollowingTheLatestReply() async throws {
         try await verifyReplay(browsingHistory: false,
             testName: "liveToolsPermissionsAndResizingKeepFollowingTheLatestReply")
+    }
+
+    @MainActor @Test
+    func aViewportFrameChangeKeepsFollowingWithoutABoundsNotification() async throws {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+        let document = TranscriptTestDocument(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
+        let probe = AgentTranscriptScrollAnchor.Probe(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        document.addSubview(probe)
+        scroll.documentView = document
+        let window = NSWindow(contentRect: scroll.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        defer { probe.detach(); window.contentView = nil; window.close() }
+        probe.update(sessionID: "fixture", enabled: true, revision: .init(lastMessageID: "reply", lastText: "reply",
+            lastUserMessageID: "prompt", messageCount: 2, completedTurns: 1, permissionID: nil, isResponding: false))
+        func waitForBottom() async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while abs(scroll.contentView.bounds.maxY - document.frame.maxY) >= 2 {
+                try #require(ContinuousClock.now < deadline, "Viewport frame changes must follow the resized document")
+                await withCheckedContinuation { gate in
+                    DispatchQueue.main.async {
+                        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
+                        gate.resume()
+                    }
+                }
+            }
+        }
+        try await waitForBottom()
+        // Flipped coordinates match SwiftUI's document. Finish the initial
+        // follow before frame-only resizing, so it cannot satisfy this check.
+        scroll.contentView.postsBoundsChangedNotifications = false
+        document.frame.size.height = 400
+        scroll.contentView.frame.size.width = 280
+        try await waitForBottom()
     }
 
     @MainActor private func verifyReplay(browsingHistory: Bool, testName: String) async throws {
@@ -48,3 +83,8 @@ struct AgentTranscriptScrollTests {
 }
 
 private final class TranscriptReplayBundleMarker: NSObject {}
+
+@MainActor
+private final class TranscriptTestDocument: NSView {
+    override var isFlipped: Bool { true }
+}
