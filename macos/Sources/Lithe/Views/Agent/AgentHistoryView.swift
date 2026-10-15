@@ -52,13 +52,14 @@ enum AgentHistoryPresentation {
         return rows.filter { $0.id == selectedSessionID } + rows.filter { $0.id != selectedSessionID }
     }
 
+    /// Value-type styles: creating an `ISO8601DateFormatter` per call made
+    /// sorting and every history row render measurably slow.
+    private static let fractionalDateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let dateStyle = Date.ISO8601FormatStyle()
+
     static func date(_ value: String?) -> Date? {
         guard let value else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: value) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
+        return (try? fractionalDateStyle.parse(value)) ?? (try? dateStyle.parse(value))
     }
 
     static func messageCount(_ conversation: AgentConversation?) -> Int? {

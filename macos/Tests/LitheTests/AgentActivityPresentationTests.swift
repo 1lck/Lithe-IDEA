@@ -139,15 +139,21 @@ struct AgentActivityPresentationTests {
                 let scroll = try #require(scrollView(in: content))
                 let document = try #require(scroll.documentView)
                 #expect(document.bounds.height > scroll.contentView.bounds.height)
-                document.scroll(NSPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))
-                scroll.reflectScrolledClipView(scroll.contentView)
+                // Rows can finish layout after the first scroll and grow the
+                // document, so scroll to the current end on every poll.
                 try #require(await waitUntil {
-                    scroll.contentView.bounds.maxY >= document.bounds.maxY - 1
+                    document.scroll(NSPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                    return scroll.contentView.bounds.maxY >= document.bounds.maxY - 1
                 }, "The last list row must become visible")
                 try capture(content, name: "activity-long-\(panel.rawValue)-\(scheme)")
                 if panel == .edits {
-                    try click(NSPoint(x: 70, y: content.bounds.height - 20), in: content, window: popup)
-                    #expect(await waitUntil { opened == "file-39.txt" }, "The last file retains its editor callback")
+                    // SwiftUI moves hit targets one update after the clip view
+                    // scrolls; retry until the click lands on the scrolled row.
+                    #expect(await waitUntil {
+                        if opened == nil { try? click(NSPoint(x: 70, y: content.bounds.height - 20), in: content, window: popup) }
+                        return opened == "file-39.txt"
+                    }, "The last file retains its editor callback")
                 }
             }
         }

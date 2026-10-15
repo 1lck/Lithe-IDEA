@@ -189,7 +189,8 @@ final class MacServiceContainer {
                 AgentConversationModule(
                     transportFactory: { MacACPAgentTransport() },
                     historyPersistence: MacAgentHistoryPersistence(store: store),
-                    historyExporter: MacAgentHistoryExporter(storage: fileStorage)
+                    historyExporter: MacAgentHistoryExporter(storage: fileStorage),
+                    statisticsPersistence: MacAgentSessionStatisticsPersistence(store: store)
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: DatabaseModule.moduleManifest, contributions: DatabaseModule.moduleContributions) {
