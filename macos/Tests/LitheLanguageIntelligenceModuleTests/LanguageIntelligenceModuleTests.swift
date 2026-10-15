@@ -699,10 +699,13 @@ struct LanguageIntelligenceModuleTests {
         #expect(try await task.value == 5005)
     }
 
-    @Test
-    func javaDebugLaunchTargetUsesJdtlsProjectMetadataForTheCurrentFile() async throws {
+    @Test(arguments: ["src/main/java", "src/test/java", "custom/test-sources"], [false, true])
+    func javaDebugLaunchTargetUsesJdtlsProjectMetadataForTheCurrentFile(sourceRoot: String, run: Bool) async throws {
         let root = URL(fileURLWithPath: "/workspace/java-debug", isDirectory: true)
-        let source = root.appendingPathComponent("service/src/main/java/example/Main.java")
+        let source = root.appendingPathComponent("service/\(sourceRoot)/example/Main.java")
+        let classPaths = sourceRoot == "src/main/java"
+            ? ["/workspace/custom/classes"]
+            : ["/workspace/custom/test-output", "/workspace/custom/classes", "/workspace/test-only.jar"]
         let descriptor = try #require(
             LanguageProviderCatalog.compatibilityFallback.provider(for: source)
         )
@@ -715,7 +718,13 @@ struct LanguageIntelligenceModuleTests {
             )]
         )
         let task = Task {
-            try await manager.resolveJavaDebugLaunchTarget(fileURL: source, rootURL: root)
+            if run {
+                guard case .ready(let target) = try await manager.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root) else {
+                    throw CancellationError()
+                }
+                return target
+            }
+            return try await manager.resolveJavaDebugLaunchTarget(fileURL: source, rootURL: root)
         }
         defer { task.cancel() }
 
@@ -732,7 +741,7 @@ struct LanguageIntelligenceModuleTests {
                 projectName: "other"
             ),
             JavaEntrypoint(
-                sourcePath: "service/src/main/java/example/Main.java",
+                sourcePath: "service/\(sourceRoot)/example/Main.java",
                 mainClass: "service/example.Main",
                 projectName: "service"
             ),
@@ -748,19 +757,52 @@ struct LanguageIntelligenceModuleTests {
         #expect(classpathCommand.arguments == [
             .string("service/example.Main"),
             .string("service"),
-            .string("runtime"),
         ])
         session.completeExecuteReturningValue(.success(.array([
             .array([.string("/workspace/modules")]),
-            .array([.string("/workspace/classes")]),
+            .array(classPaths.map { .string($0) }),
         ])))
 
         #expect(try await task.value == JavaDebugLaunchTarget(
             mainClass: "service/example.Main",
             projectName: "service",
             modulePaths: ["/workspace/modules"],
-            classPaths: ["/workspace/classes"]
+            classPaths: classPaths
         ))
+    }
+
+    @Test
+    func javaServiceUpdateUsesTheSameAutomaticClasspathAsLaunch() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-update", isDirectory: true)
+        let source = root.appendingPathComponent("custom/tests/MainTests.java")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: source))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        // An update reuses the already-running language session.
+        _ = try manager.startLanguageServer(providerID: "java", rootURL: root)
+        try await session.waitUntilStarted()
+        session.publish(.ready)
+        let target = JavaDebugLaunchTarget(
+            mainClass: "MainTests", projectName: "service",
+            modulePaths: [], classPaths: ["/workspace/custom/test-output", "/workspace/test-only.jar"]
+        )
+        let task = Task {
+            try await manager.buildJavaServiceUpdate(target: target, fileURL: source, rootURL: root)
+        }
+        defer { task.cancel() }
+        let paths = try await session.waitForExecuteCommand()
+        #expect(paths.command == "vscode.java.resolveClasspath")
+        #expect(paths.arguments == [.string("MainTests"), .string("service")])
+        session.completeExecuteReturningValue(.success(.array([
+            .array([]), .array(target.classPaths.map { .string($0) }),
+        ])))
+        let build = try await session.waitForExecuteCommand(number: 2)
+        #expect(build.command == "vscode.java.buildWorkspace")
+        session.completeExecuteReturningValue(.success(.integer(1)))
+        try await task.value
     }
 
     @Test
