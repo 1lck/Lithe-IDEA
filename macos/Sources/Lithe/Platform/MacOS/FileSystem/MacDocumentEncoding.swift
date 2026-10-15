@@ -4,12 +4,16 @@ import Foundation
 
 /// Byte conversion stays in the native file adapter; editor and LSP buffers remain Unicode.
 enum MacDocumentEncoding {
+    private static let utf32LEBom: [UInt8] = [0xFF, 0xFE, 0x00, 0x00]
+
     static func decode(_ bytes: Data, encoding: DocumentEncoding?) throws -> DocumentReadDetails {
         let selected: DocumentEncoding
         if let encoding { selected = encoding }
         else if bytes.starts(with: bomBytes(.utf8Bom)) { selected = .utf8Bom }
-        // UTF-16 text never validates as UTF-8, so only its BOM identifies it.
-        else if bytes.starts(with: bomBytes(.utf16LEBom)) { selected = .utf16LEBom }
+        // UTF-16 text never validates as UTF-8, so only its BOM identifies it. The
+        // UTF-32 LE mark (FF FE 00 00) begins with the UTF-16 LE one; it is excluded
+        // so such a file is not decoded and rewritten as UTF-16.
+        else if bytes.starts(with: bomBytes(.utf16LEBom)), !bytes.starts(with: utf32LEBom) { selected = .utf16LEBom }
         else if bytes.starts(with: bomBytes(.utf16BEBom)) { selected = .utf16BEBom }
         else if String(data: bytes, encoding: .utf8) != nil { selected = .utf8 }
         else if let text = String(data: bytes, encoding: codec(.gb18030)) {
@@ -26,7 +30,10 @@ enum MacDocumentEncoding {
             // in the editor instead of leaving the previous decoded buffer on
             // screen. Automatic detection below remains strict.
             text = decodeLossy(payload, encoding: codec(selected))
-        } else if let decoded = String(data: payload, encoding: codec(selected)) {
+        } else if let decoded = String(data: payload, encoding: codec(selected)),
+                  // Foundation silently drops a dangling final byte of UTF-16, so a
+                  // truncated file would decode and then be saved back shorter.
+                  !(isUTF16(selected) && !payload.count.isMultiple(of: 2)) {
             text = decoded
         } else {
             throw CocoaError(.fileReadInapplicableStringEncoding)
@@ -55,6 +62,10 @@ enum MacDocumentEncoding {
         case .utf16BEBom: [0xFE, 0xFF]
         case .gbk, .gb18030, .shiftJIS, .windows1252: []
         }
+    }
+
+    private static func isUTF16(_ encoding: DocumentEncoding) -> Bool {
+        encoding == .utf16LEBom || encoding == .utf16BEBom
     }
 
     static func identity(_ bytes: Data) -> String {

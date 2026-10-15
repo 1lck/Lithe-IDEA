@@ -24,6 +24,8 @@ Lithe 把“如何解码当前编辑器文本”和“下一次写入磁盘使�
 
 前端目录位于 `windows/tauri/src/platform/document-files.ts` 的 `DOCUMENT_ENCODING_CATALOG`，macOS 契约目录位于 `macos/Sources/LitheCoreContracts/Workspace/WorkspaceFileOperations.swift` 的 `DocumentEncoding.catalog`，Windows 原生目录位于 `windows/tauri/crates/project/src/document_file.rs` 的 `DocumentEncoding::CATALOG`。三个目录的 `stableId`、能力和 BOM 策略必须保持一致；真正的字节转换仍由平台适配器负责。
 
+UTF-16 目前只支持带 BOM 的 LE/BE。自动识别只认 BOM：不带 BOM 的 UTF-16 不会被猜测，仍按不可读处理；UTF-32 LE 的 BOM（`FF FE 00 00`）以 `FF FE` 开头，自动识别会明确排除它，避免被当成 UTF-16 LE 打开并改写。这两类文件需要用户显式选择编码重新打开；若要支持无 BOM 的 UTF-16，需要新增 stableId 与对应的三处目录、契约和 fixture。
+
 ## 新增一种编码
 
 1. 在三个目录中添加同一个 `stableId`、显示名、协议标签、别名、读写能力和 BOM 策略。

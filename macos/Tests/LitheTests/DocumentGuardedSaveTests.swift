@@ -83,6 +83,30 @@ struct DocumentGuardedSaveTests {
         }
     }
 
+    @Test func documentEncodingDoesNotMistakeUTF32LEBOMForUTF16() throws {
+        try withFile { url, files in
+            // "A" as UTF-32 LE with BOM: its first two bytes equal the UTF-16 LE mark.
+            try Data([0xFF, 0xFE, 0x00, 0x00, 0x41, 0x00, 0x00, 0x00]).write(to: url)
+            #expect(throws: CocoaError.self) { _ = try files.readDocumentDetails(from: url, encoding: nil) }
+            // An explicit reopen still reaches the ambiguous UTF-16 reading.
+            let details = try files.readDocumentDetails(from: url, encoding: .utf16LEBom)
+            #expect(details?.encoding == .utf16LEBom)
+        }
+    }
+
+    @Test func documentEncodingRejectsInvalidUTF16AutomaticallyButRepairsOnExplicitReopen() throws {
+        try withFile { url, files in
+            // Odd length: a dangling byte after one complete code unit.
+            try Data([0xFF, 0xFE, 0x41, 0x00, 0x42]).write(to: url)
+            #expect(throws: CocoaError.self) { _ = try files.readDocumentDetails(from: url, encoding: nil) }
+            #expect(try files.readDocumentDetails(from: url, encoding: .utf16LEBom)?.text == "A\u{FFFD}")
+            // Unpaired high surrogate.
+            try Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: url)
+            #expect(throws: CocoaError.self) { _ = try files.readDocumentDetails(from: url, encoding: nil) }
+            #expect(try files.readDocumentDetails(from: url, encoding: .utf16LEBom)?.text == "\u{FFFD}")
+        }
+    }
+
     @Test func documentEncodingRejectsUnrepresentableTextBeforeWriting() throws {
         try withFile { url, files in
             try Data("before".utf8).write(to: url)

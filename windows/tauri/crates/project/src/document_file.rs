@@ -321,13 +321,21 @@ pub fn read_document_with_encoding(
     Ok(Some(decode_document_bytes(&bytes, encoding)?))
 }
 
+/// UTF-32 LE byte order mark; Lithe has no UTF-32 codec and must not mistake it for UTF-16 LE.
+const UTF32_LE_BOM: [u8; 4] = [0xFF, 0xFE, 0x00, 0x00];
+
 fn decode_document_bytes(bytes: &[u8], encoding: Option<&str>) -> io::Result<DocumentRead> {
     let selected = match encoding {
         Some(value) => DocumentEncoding::parse(Some(value))?,
         None if bytes.starts_with(DocumentEncoding::Utf8Bom.bom()) => DocumentEncoding::Utf8Bom,
         // UTF-16 text is full of NUL bytes and never validates as UTF-8, so only
-        // a byte order mark can identify it without guessing.
-        None if bytes.starts_with(DocumentEncoding::Utf16LeBom.bom()) => {
+        // a byte order mark can identify it without guessing. The UTF-32 LE mark
+        // (FF FE 00 00) begins with the UTF-16 LE one, so it is excluded here
+        // rather than silently decoded and rewritten as UTF-16; such a file stays
+        // unreadable unless the user picks an encoding explicitly.
+        None if bytes.starts_with(DocumentEncoding::Utf16LeBom.bom())
+            && !bytes.starts_with(&UTF32_LE_BOM) =>
+        {
             DocumentEncoding::Utf16LeBom
         }
         None if bytes.starts_with(DocumentEncoding::Utf16BeBom.bom()) => {
@@ -935,6 +943,21 @@ mod tests {
                 encoding.encode("changed").unwrap()
             );
         }
+    }
+
+    #[test]
+    fn utf32_le_bom_is_not_mistaken_for_utf16() {
+        let directory = Directory::new();
+        let path = directory.0.join("utf32.txt");
+        // "A" as UTF-32 LE with BOM: FF FE 00 00 41 00 00 00.
+        fs::write(&path, [0xFF, 0xFE, 0x00, 0x00, 0x41, 0x00, 0x00, 0x00]).unwrap();
+        assert!(read_document_with_encoding(&path, None).is_err());
+        // A UTF-16 LE file whose first character is U+0000 is the only ambiguous
+        // case, and an explicit reopen still reaches it.
+        let read = read_document_with_encoding(&path, Some("UTF-16 LE with BOM"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(read.encoding, "UTF-16 LE with BOM");
     }
 
     #[test]
