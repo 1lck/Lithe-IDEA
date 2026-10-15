@@ -21,10 +21,34 @@ struct MacAgentHistoryPersistence: AgentHistoryPersisting {
     }
 
     private func key(_ workspaceURL: URL, _ agentID: String) -> String {
-        let identity = workspaceURL.standardizedFileURL.path + "\u{0}" + agentID
-        let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
-        return "lithe.agent-history.v1.\(digest)"
+        agentScopedKey("lithe.agent-history.v1", workspaceURL, agentID)
     }
+}
+
+/// Session statistics are user state in platform preferences, beside history
+/// metadata: one bounded document per workspace and Agent, never in a bundle.
+@MainActor
+struct MacAgentSessionStatisticsPersistence: AgentSessionStatisticsPersisting {
+    let store: any KeyValueStore
+
+    func loadStatistics(workspaceURL: URL, agentID: String) -> Data? {
+        store.data(forKey: key(workspaceURL, agentID))
+    }
+
+    func saveStatistics(_ data: Data, workspaceURL: URL, agentID: String) {
+        store.set(data, forKey: key(workspaceURL, agentID))
+    }
+
+    private func key(_ workspaceURL: URL, _ agentID: String) -> String {
+        agentScopedKey("lithe.agent-statistics.v1", workspaceURL, agentID)
+    }
+}
+
+/// Preference key isolated by workspace path and configured Agent identity.
+private func agentScopedKey(_ prefix: String, _ workspaceURL: URL, _ agentID: String) -> String {
+    let identity = workspaceURL.standardizedFileURL.path + "\u{0}" + agentID
+    let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+    return "\(prefix).\(digest)"
 }
 
 /// Export destination is chosen by the user. No transcript cache or bundle writes.

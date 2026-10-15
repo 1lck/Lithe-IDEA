@@ -22,19 +22,23 @@ public final class AgentConversationModule: LitheModule {
     private var capability: AgentConversationCapability?
     private let historyPersistence: (any AgentHistoryPersisting)?
     private let historyExporter: (any AgentHistoryExporting)?
+    private let statisticsPersistence: (any AgentSessionStatisticsPersisting)?
 
     public init(transportFactory: @escaping @MainActor () -> any AgentConversationTransport,
                 historyPersistence: (any AgentHistoryPersisting)? = nil,
-                historyExporter: (any AgentHistoryExporting)? = nil) {
+                historyExporter: (any AgentHistoryExporting)? = nil,
+                statisticsPersistence: (any AgentSessionStatisticsPersisting)? = nil) {
         self.transportFactory = transportFactory
         self.historyPersistence = historyPersistence
         self.historyExporter = historyExporter
+        self.statisticsPersistence = statisticsPersistence
     }
 
     public func activate(context: ModuleContext) async throws {
         guard capability == nil else { return }
         let feature = AgentConversationFeatureModel(transport: transportFactory(), workspaceURL: context.workspaceURL,
-                                                   historyPersistence: historyPersistence, historyExporter: historyExporter)
+                                                   historyPersistence: historyPersistence, historyExporter: historyExporter,
+                                                   statisticsPersistence: statisticsPersistence)
         context.resources.register(AgentConnectionResource(feature: feature))
         capability = AgentConversationCapability(feature: feature)
     }
