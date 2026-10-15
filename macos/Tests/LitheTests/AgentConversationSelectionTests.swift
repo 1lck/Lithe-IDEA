@@ -105,7 +105,7 @@ struct AgentConversationSelectionTests {
                 model.activateAgentConversation()
                 #expect(try services.moduleRuntime.snapshot(for: .agentConversation).isInstantiated == false)
                 #expect(model.selectedAgentConversationID == nil)
-                #expect(AgentWelcomeVisit.shouldShow(defaults: defaults))
+                #expect(settings.preferredConversationAgentID == nil)
             }
             // Even an already activated module's default must not become a user choice.
             let capability = try #require(try await services.moduleRuntime.activateCapability(.agentConversation) as? AgentConversationCapability)
@@ -115,10 +115,10 @@ struct AgentConversationSelectionTests {
             #expect(model.selectedAgentConversationID == nil)
             #expect(settings.preferredConversationAgentID == nil)
             #expect(!capability.feature.hasActiveConnection)
-            #expect(AgentWelcomeVisit.shouldShow(defaults: defaults))
+            #expect(settings.preferredConversationAgentID == nil)
             model.selectAgentConversationAgent("codex-acp")
             #expect(settings.preferredConversationAgentID == "codex-acp")
-            #expect(!AgentWelcomeVisit.shouldShow(defaults: defaults))
+            #expect(AppSettings(store: store).preferredConversationAgentID == "codex-acp", "The choice must survive a restart")
         } catch {
             await model.shutdownProjectSession()
             throw error

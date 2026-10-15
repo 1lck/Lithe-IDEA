@@ -12,17 +12,13 @@ struct AgentConversationEntryPolicyTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        #expect(AgentWelcomeVisit.shouldShow(defaults: defaults))
-        #expect(AgentWelcomeVisit.shouldShow(defaults: defaults), "Opening and leaving the panel must not consume the welcome page")
+        let settings = AppSettings(store: MacUserDefaultsStore(defaults: defaults))
+        #expect(settings.preferredConversationAgentID == nil)
         defaults.set(true, forKey: AppSettings.agentSelectionPreferenceKey)
-        #expect(AgentWelcomeVisit.shouldShow(defaults: defaults), "The legacy first-open flag is not a user selection")
-        #expect(AgentWelcomeVisit.chosenAgentID(defaults: defaults) == nil,
-                "The legacy Boolean must not become a nonexistent Agent ID")
-        AgentWelcomeVisit.markAgentChosen(agentID: "codex-acp", defaults: defaults)
-        #expect(!AgentWelcomeVisit.shouldShow(defaults: defaults))
-        #expect(AgentWelcomeVisit.chosenAgentName(defaults: defaults) == "Codex")
-        AgentWelcomeVisit.markAgentChosen(agentID: "claude-acp", defaults: defaults)
-        #expect(AgentWelcomeVisit.chosenAgentName(defaults: defaults) == "Claude Agent")
+        #expect(settings.preferredConversationAgentID == nil,
+                "The legacy first-open Boolean is not a user selection and must not become a nonexistent Agent ID")
+        settings.preferredConversationAgentID = "codex-acp"
+        #expect(AppSettings(store: MacUserDefaultsStore(defaults: defaults)).preferredConversationAgentID == "codex-acp")
     }
 
     @Test

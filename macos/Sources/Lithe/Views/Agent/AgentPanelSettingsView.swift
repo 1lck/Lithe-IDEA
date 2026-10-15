@@ -100,10 +100,7 @@ private struct AgentsManagementPage: View {
                     case .custom: AgentConfiguration.customAgentID
                     }
                 },
-                set: { id in
-                    model.selectAgentConversationAgent(id)
-                    AgentWelcomeVisit.markAgentChosen(agentID: id)
-                }
+                set: { model.selectAgentConversationAgent($0) }
             ), options: agents.map(\.id) + [AgentConfiguration.customAgentID], width: 220,
                accessibilityLabel: "Agent", title: { id in
                 agents.first { $0.id == id }?.name ?? AgentLocalization.string("Custom Agent", locale: locale)

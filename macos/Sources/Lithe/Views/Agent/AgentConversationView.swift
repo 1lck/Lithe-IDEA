@@ -20,7 +20,7 @@ struct AgentConversationView: View {
     init(model: AppModel, isEditor: Bool = false) {
         self.model = model
         self.isEditor = isEditor
-        _showsWelcome = State(initialValue: model.selectedAgentConversationID == nil && AgentWelcomeVisit.shouldShow())
+        _showsWelcome = State(initialValue: model.selectedAgentConversationID == nil)
     }
 
     var body: some View {
@@ -29,7 +29,6 @@ struct AgentConversationView: View {
                 LitheToolWindowHeader(title: "Agent", usesWorkbenchSurface: true) { EmptyView() }
                 AgentWelcomeView(
                     onOpenAgent: { agentID in
-                        AgentWelcomeVisit.markAgentChosen(agentID: agentID)
                         showsWelcome = false
                         if agentID == AgentConfiguration.customAgentID { model.showAgentSettings(agentID: agentID) }
                         else { model.selectAgentConversationAgent(agentID) }
@@ -66,10 +65,9 @@ struct AgentConversationView: View {
                     onOpenSettings: openSettings,
                     onHide: hidePanel,
                     agentName: selectableAgents.first { $0.id == model.selectedAgentConversationID }?.name
-                        ?? AgentWelcomeVisit.chosenAgentName(),
+                        ?? AgentWelcomeVisit.builtInAgents.first { $0.id == model.selectedAgentConversationID }?.name,
                     agents: selectableAgents,
                     onChooseAgent: { id in
-                        AgentWelcomeVisit.markAgentChosen(agentID: id)
                         model.selectAgentConversationAgent(id)
                     }
                 )
@@ -80,18 +78,10 @@ struct AgentConversationView: View {
         .litheWorkbenchSurface(AgentPanelStyle.canvas)
         .workbenchHoverTooltipScope()
         .onAppear {
-            if !showsWelcome {
-                if model.selectedAgentConversationID == nil, let id = AgentWelcomeVisit.chosenAgentID() {
-                    model.selectAgentConversationAgent(id)
-                }
-                model.activateAgentConversation()
-            }
+            if !showsWelcome { model.activateAgentConversation() }
         }
         .onChange(of: model.selectedAgentConversationID) { id in
-            if let id {
-                AgentWelcomeVisit.markAgentChosen(agentID: id)
-                showsWelcome = false
-            }
+            if id != nil { showsWelcome = false }
         }
         .onChange(of: showsWelcome) { isVisible in
             if !isVisible { model.activateAgentConversation() }
@@ -109,25 +99,8 @@ struct AgentConversationView: View {
 
 /// Keep the welcome page until a user chooses an Agent, across projects and launches.
 enum AgentWelcomeVisit {
-    private static let key = AppSettings.agentSelectionPreferenceKey
     static let builtInAgents = [AgentOption(id: "codex-acp", name: "Codex"),
                                AgentOption(id: "claude-acp", name: "Claude Agent")]
-
-    static func shouldShow(defaults: UserDefaults = .standard) -> Bool {
-        chosenAgentID(defaults: defaults) == nil
-    }
-
-    static func markAgentChosen(agentID: String, defaults: UserDefaults = .standard) {
-        defaults.set(agentID, forKey: key)
-    }
-
-    static func chosenAgentID(defaults: UserDefaults = .standard) -> String? {
-        defaults.object(forKey: key) as? String
-    }
-
-    static func chosenAgentName(defaults: UserDefaults = .standard) -> String? {
-        builtInAgents.first { $0.id == chosenAgentID(defaults: defaults) }?.name
-    }
 }
 
 
