@@ -32,6 +32,8 @@ package struct DocumentEncodingDescriptor: Sendable {
 package enum DocumentEncodingBOM: String, Codable, Sendable {
     case none
     case utf8
+    case utf16LE
+    case utf16BE
 }
 
 /// Stable encoding IDs shared by native adapters and the editor UI.
@@ -41,18 +43,38 @@ package enum DocumentEncodingBOM: String, Codable, Sendable {
 package enum DocumentEncoding: String, CaseIterable, Codable, Sendable {
     case utf8 = "utf-8"
     case utf8Bom = "utf-8-bom"
+    case utf16LEBom = "utf-16le-bom"
+    case utf16BEBom = "utf-16be-bom"
+    case utf16LE = "utf-16le"
+    case utf16BE = "utf-16be"
     case gbk
     case gb18030
+    case big5
     case shiftJIS = "shift-jis"
+    case eucJP = "euc-jp"
+    case eucKR = "euc-kr"
+    case windows1250 = "windows-1250"
+    case windows1251 = "windows-1251"
     case windows1252 = "windows-1252"
+    case koi8R = "koi8-r"
 
     package static let catalog: [DocumentEncodingDescriptor] = [
         .init(id: .utf8, stableID: "utf-8", displayName: "UTF-8", aliases: ["utf8"]),
         .init(id: .utf8Bom, stableID: "utf-8-bom", displayName: "UTF-8 with BOM", aliases: ["utf8-bom", "utf-8-bom"], bom: .utf8),
+        .init(id: .utf16LEBom, stableID: "utf-16le-bom", displayName: "UTF-16 LE with BOM", aliases: ["utf16le-bom", "utf-16le-bom"], bom: .utf16LE),
+        .init(id: .utf16BEBom, stableID: "utf-16be-bom", displayName: "UTF-16 BE with BOM", aliases: ["utf16be-bom", "utf-16be-bom"], bom: .utf16BE),
+        .init(id: .utf16LE, stableID: "utf-16le", displayName: "UTF-16 LE", aliases: ["utf16le"]),
+        .init(id: .utf16BE, stableID: "utf-16be", displayName: "UTF-16 BE", aliases: ["utf16be"]),
         .init(id: .gbk, stableID: "gbk", displayName: "GBK", aliases: ["cp936"]),
         .init(id: .gb18030, stableID: "gb18030", displayName: "GB18030"),
+        .init(id: .big5, stableID: "big5", displayName: "Big5", aliases: ["cp950"]),
         .init(id: .shiftJIS, stableID: "shift-jis", displayName: "Shift JIS", aliases: ["shift-jis", "shift_jis"]),
-        .init(id: .windows1252, stableID: "windows-1252", displayName: "Windows-1252", aliases: ["cp1252"]),
+        .init(id: .eucJP, stableID: "euc-jp", displayName: "EUC-JP", aliases: ["eucjp"]),
+        .init(id: .eucKR, stableID: "euc-kr", displayName: "EUC-KR", aliases: ["euckr", "cp949"]),
+        .init(id: .windows1250, stableID: "windows-1250", displayName: "Windows-1250", aliases: ["cp1250"]),
+        .init(id: .windows1251, stableID: "windows-1251", displayName: "Windows-1251", aliases: ["cp1251"]),
+        .init(id: .windows1252, stableID: "windows-1252", displayName: "Windows-1252", aliases: ["cp1252", "iso-8859-1", "latin1"]),
+        .init(id: .koi8R, stableID: "koi8-r", displayName: "KOI8-R", aliases: ["koi8r"]),
     ]
 
     package var descriptor: DocumentEncodingDescriptor {

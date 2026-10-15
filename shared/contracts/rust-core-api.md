@@ -772,7 +772,7 @@ same revision semantics in-process and never cross the Rust boundary.
 any state when a native guarded write rejects its expected disk baseline or a
 file is missing. Native document saves compare the last acknowledged raw disk
 bytes with disk inside the platform write operation; the editor may use UTF-8,
-UTF-8 with BOM, GBK, GB18030, Shift JIS, or Windows-1252 while the Core
+UTF-8 with BOM, UTF-16 LE/BE (with or without BOM), GBK, GB18030, Big5, Shift JIS, EUC-JP, EUC-KR, Windows-1250/1251/1252, or KOI8-R while the Core
 lifecycle remains encoding-agnostic. Watchers are refresh hints, not write
 authorization. Conflict resolution acknowledges only the disk snapshot
 observed by the user, and subsequent saves must validate that snapshot again. The

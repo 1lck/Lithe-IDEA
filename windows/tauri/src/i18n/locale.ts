@@ -235,6 +235,7 @@ const catalogs = {
     "layout.showInActivitySidebar": "Show in Activity Sidebar",
     "layout.projectDots": "Project Dots",
     "fileSystem.openFolderFailed": "Failed to open folder: {path}",
+    "fileSystem.openFileFailed": "Failed to open file {file}: {error}",
     "fileSystem.workspaceSessionRestoreFailed":
       "Workspace opened, but saved tabs could not be restored.",
     "fileSystem.remoteSessionRestoreFailed":
@@ -4835,6 +4836,7 @@ const catalogs = {
     "layout.showInActivitySidebar": "在活动侧栏中显示",
     "layout.projectDots": "项目圆点",
     "fileSystem.openFolderFailed": "打开文件夹失败：{path}",
+    "fileSystem.openFileFailed": "打开文件 {file} 失败：{error}",
     "fileSystem.workspaceSessionRestoreFailed": "工作区已打开，但无法恢复保存的标签页。",
     "fileSystem.remoteSessionRestoreFailed": "远程工作区已打开，但无法恢复保存的标签页。",
     "fileSystem.wslSessionRestoreFailed": "WSL 工作区已打开，但无法恢复保存的标签页。",
