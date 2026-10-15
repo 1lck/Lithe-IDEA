@@ -133,7 +133,7 @@ struct AgentEditorStatusStrip: View {
             .buttonStyle(.litheNoPress)
             .lithePointer()
             .help("Show context breakdown")
-            .popover(isPresented: $showsContext, arrowEdge: .top) {
+            .litheDropdown(isPresented: $showsContext, opensUpward: true) {
                 AgentContextPanel(usage: contextUsage, composition: statistics?.modelCalls?.latestContext)
                     .environment(\.agentUsesSubscription, usesSubscription)
                     .padding(14)
