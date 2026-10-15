@@ -13,18 +13,20 @@ enum AgentSetupDiagnostics {
         case cliMissing(name: String, installHint: String)
         case cliTooOld(name: String, minimumVersion: String, found: String)
 
-        var message: String {
+        var message: String { message(bundle: .main) }
+
+        func message(bundle: Bundle) -> String {
             switch self {
             case .nodeMissing(let minimum):
-                String(format: String(localized: "Node.js %lld or later was not found. Install it, then check again."), minimum)
+                String(format: String(localized: "Node.js %lld or later was not found. Install it, then check again.", bundle: bundle), minimum)
             case .nodeTooOld(let minimum, let found):
-                String(format: String(localized: "Node.js %lld or later is required; found %@."), minimum, found)
+                String(format: String(localized: "Node.js %lld or later is required; found %@.", bundle: bundle), minimum, found)
             case .npmMissing:
-                String(localized: "npm was not found. It is normally installed with Node.js.")
+                String(localized: "npm was not found. It is normally installed with Node.js.", bundle: bundle)
             case .cliMissing(let name, let hint):
-                String(format: String(localized: "%@ was not found. Install it (for example `%@`), then check again."), name, hint)
+                String(format: String(localized: "%@ was not found. Install it (for example `%@`), then check again.", bundle: bundle), name, hint)
             case .cliTooOld(let name, let minimum, let found):
-                String(format: String(localized: "%@ %@ or later is required; found %@. Update it, then check again."), name, minimum, found)
+                String(format: String(localized: "%@ %@ or later is required; found %@. Update it, then check again.", bundle: bundle), name, minimum, found)
             }
         }
     }
@@ -115,18 +117,19 @@ extension AgentSetupDiagnostics {
     static func preflight(
         for agent: AgentCatalogStatus,
         environment: AgentRuntimeEnvironment,
-        hasProvider: Bool
+        hasProvider: Bool,
+        bundle: Bundle = .main
     ) -> [AgentPreflightCheck] {
         var checks: [AgentPreflightCheck] = []
 
-        let nodeTitle = String(format: String(localized: "Node.js %lld or later"), agent.minimumNodeMajor)
+        let nodeTitle = String(format: String(localized: "Node.js %lld or later", bundle: bundle), agent.minimumNodeMajor)
         switch environment.node {
         case nil:
             checks.append(.init(id: "node", title: nodeTitle, status: .fail,
-                                message: Issue.nodeMissing(minimumMajor: agent.minimumNodeMajor).message))
+                                message: Issue.nodeMissing(minimumMajor: agent.minimumNodeMajor).message(bundle: bundle)))
         case let node? where majorVersion(of: node.version) < agent.minimumNodeMajor:
             checks.append(.init(id: "node", title: nodeTitle, status: .fail,
-                                message: Issue.nodeTooOld(minimumMajor: agent.minimumNodeMajor, found: node.version).message))
+                                message: Issue.nodeTooOld(minimumMajor: agent.minimumNodeMajor, found: node.version).message(bundle: bundle)))
         case let node?:
             checks.append(.init(id: "node", title: nodeTitle, status: .pass, message: "\(node.version) · \(node.path)"))
         }
@@ -134,11 +137,11 @@ extension AgentSetupDiagnostics {
         if let npm = environment.npm {
             checks.append(.init(id: "npm", title: "npm", status: .pass, message: "\(npm.version) · \(npm.path)"))
         } else {
-            checks.append(.init(id: "npm", title: "npm", status: .fail, message: Issue.npmMissing.message))
+            checks.append(.init(id: "npm", title: "npm", status: .fail, message: Issue.npmMissing.message(bundle: bundle)))
         }
 
         if let cli = agent.cli {
-            let title = String(format: String(localized: "%@ %@ or later"), cli.name, cli.minimumVersion)
+            let title = String(format: String(localized: "%@ %@ or later", bundle: bundle), cli.name, cli.minimumVersion)
             let canUpdate = cli.installation?.canUpdate ?? true
             if let detected = cli.detected {
                 if isVersion(detected.version, atLeast: cli.minimumVersion) {
@@ -149,8 +152,14 @@ extension AgentSetupDiagnostics {
                     var message = "\(detected.version) · \(detected.path)"
                     if cli.command == "codex" {
                         switch cli.installation?.updateAvailable {
-                        case false?: statusTitle += " · " + String(localized: "Up to date.")
-                        case nil: message += "\n" + String(localized: "Could not check for updates.")
+                        case false?:
+                            if cli.installation?.source == .homebrew {
+                                statusTitle += " · " + String(localized: "No updates found in the local Homebrew index.", bundle: bundle)
+                                message += "\n" + String(localized: "Run `brew update` manually, then check again for updates.", bundle: bundle)
+                            } else {
+                                statusTitle += " · " + String(localized: "Up to date.", bundle: bundle)
+                            }
+                        case nil: message += "\n" + String(localized: "Could not check for updates.", bundle: bundle)
                         case true?: break
                         }
                     }
@@ -159,12 +168,12 @@ extension AgentSetupDiagnostics {
                                         fix: canUpdate && updateAvailable ? .updateCli : nil))
                 } else {
                     checks.append(.init(id: "cli", title: title, status: .warn,
-                                        message: Issue.cliTooOld(name: cli.name, minimumVersion: cli.minimumVersion, found: detected.version).message,
+                                        message: Issue.cliTooOld(name: cli.name, minimumVersion: cli.minimumVersion, found: detected.version).message(bundle: bundle),
                                         fix: canUpdate ? .updateCli : nil))
                 }
             } else {
                 checks.append(.init(id: "cli", title: title, status: .fail,
-                                    message: Issue.cliMissing(name: cli.name, installHint: cli.installHint).message,
+                                    message: Issue.cliMissing(name: cli.name, installHint: cli.installHint).message(bundle: bundle),
                                     fix: canUpdate ? .installCli : nil))
             }
             if let installation = cli.installation, let index = checks.firstIndex(where: { $0.id == "cli" }) {
@@ -172,12 +181,12 @@ extension AgentSetupDiagnostics {
                 let source: String = switch installation.source {
                 case .npm: "npm"
                 case .homebrew: "Homebrew"
-                case .native: String(localized: "Native installer")
-                case .missing: String(localized: "Not installed")
-                case .unknown: String(localized: "Unknown source")
+                case .native: String(localized: "Native installer", bundle: bundle)
+                case .missing: String(localized: "Not installed", bundle: bundle)
+                case .unknown: String(localized: "Unknown source", bundle: bundle)
                 }
-                let provenance = String(format: String(localized: "Installation: %@"), source)
-                let hint = NSLocalizedString(installation.updateHint, comment: "CLI update guidance")
+                let provenance = String(format: String(localized: "Installation: %@", bundle: bundle), source)
+                let hint = NSLocalizedString(installation.updateHint, bundle: bundle, comment: "CLI update guidance")
                 let showHint = cli.command != "codex" || installation.updateAvailable != false || check.status != .pass
                 checks[index] = .init(id: check.id, title: check.title, status: check.status,
                                      message: "\(check.message)\n\(provenance)" + (showHint ? "\n\(hint)" : ""),
@@ -188,28 +197,28 @@ extension AgentSetupDiagnostics {
         // The adapter only needs Node.js and npm; the user's CLI is checked
         // separately and does not block installing the adapter.
         let canInstallAdapter = !checks.contains { ($0.id == "node" || $0.id == "npm") && $0.status == .fail }
-        let adapterTitle = String(localized: "ACP adapter")
+        let adapterTitle = String(localized: "ACP adapter", bundle: bundle)
         switch agent.installedVersion {
         case nil:
             checks.append(.init(id: "adapter", title: adapterTitle, status: .fail,
-                                message: String(format: String(localized: "%@ is not installed. Lithe installs it with your npm into its application data."), "\(agent.package)@\(agent.version)"),
+                                message: String(format: String(localized: "%@ is not installed. Lithe installs it with your npm into its application data.", bundle: bundle), "\(agent.package)@\(agent.version)"),
                                 fix: canInstallAdapter ? .install : nil))
         case let installed? where installed != agent.version:
             checks.append(.init(id: "adapter", title: adapterTitle, status: .warn,
-                                message: String(format: String(localized: "Installed %@ · update to %@ available"), installed, agent.version),
+                                message: String(format: String(localized: "Installed %@ · update to %@ available", bundle: bundle), installed, agent.version),
                                 fix: canInstallAdapter ? .update : nil))
         case let installed?:
             checks.append(.init(id: "adapter", title: adapterTitle, status: .pass,
-                                message: String(format: String(localized: "Installed %@"), installed)))
+                                message: String(format: String(localized: "Installed %@", bundle: bundle), installed)))
         }
 
         checks.append(.init(
             id: "provider",
-            title: String(localized: "Agent provider"),
+            title: String(localized: "Agent provider", bundle: bundle),
             status: hasProvider ? .pass : .fail,
             message: hasProvider
-                ? String(localized: "Signed in through the ACP gateway with the API key from your local configuration.")
-                : String(localized: "Choose a local or custom provider so the Agent can sign in."),
+                ? String(localized: "Signed in through the ACP gateway with the API key from your local configuration.", bundle: bundle)
+                : String(localized: "Choose a local or custom provider so the Agent can sign in.", bundle: bundle),
             fix: hasProvider ? nil : .fetchLocalConfiguration
         ))
         return checks
