@@ -14,6 +14,10 @@ import { DownloadIcon, OpenExternalIcon } from "@/ui/icons";
 export function AppUpdateDetailsDialog() {
   const {
     detailsOpen,
+    channel,
+    manualReleaseURL,
+    operationBusy,
+    openReleaseDownload,
     updateInfo,
     error: updateError,
     downloading,
@@ -24,9 +28,28 @@ export function AppUpdateDetailsDialog() {
     skipVersion,
   } = useUpdater(false);
   const { t } = useTranslation();
-  const updateBusy = downloading || installing;
+  const updateBusy = operationBusy || downloading || installing;
 
-  if (!detailsOpen || !updateInfo) return null;
+  if (!detailsOpen) return null;
+  if (manualReleaseURL) return (
+    <AppDialog
+      title={t("update.manualDownloadTitle")}
+      onClose={closeDetails}
+      size="sm"
+      footer={<Button disabled={updateBusy} onClick={() => void openReleaseDownload(true)}>
+        {t("update.acknowledgeDownload")}
+      </Button>}
+    >
+      <div className="flex flex-col gap-3 ui-text-sm">
+        <p>{channel === "autobuild" ? "AutoBuild" : t("update.channelStable")}</p>
+        {channel === "autobuild" ? <p>{t("update.autobuildWarning")}</p> : null}
+        <p>{t("update.manualDownloadExplanation")}</p>
+        <p className="break-all text-subtle-foreground">{manualReleaseURL}</p>
+        {updateError ? <p role="alert">{updateError}</p> : null}
+      </div>
+    </AppDialog>
+  );
+  if (!updateInfo) return null;
 
   return (
     <AppDialog

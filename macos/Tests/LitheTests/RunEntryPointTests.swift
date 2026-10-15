@@ -135,11 +135,14 @@ struct RunEntryPointTests {
     /// == .ready` as soon as it is bound, which used to be enough to launch. With
     /// a provisional inventory the Maven project is absent, so toolchains resolve
     /// without it. Readiness has to be checked before the configuration status.
-    @Test
-    func runWithExistingConfigurationLaunchesOnlyAfterTheSnapshotArrives() async throws {
+    @Test(arguments: [0, 4])
+    func runWithExistingConfigurationLaunchesOnlyAfterTheSnapshotArrives(earlyRefreshes: Int) async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
-        let workspaceOperations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        // Refresh count is not a synchronization boundary: native watchers can
+        // scan again before Run starts. Keep every scan unavailable until the
+        // test explicitly publishes its inventory.
+        let workspaceOperations = SequencedWorkspaceOperations(snapshots: [])
         let runConfigurations = ReadyRunConfigurationOperations()
         let model = makeAppModel(
             workspaceOperations: workspaceOperations,
@@ -147,10 +150,13 @@ struct RunEntryPointTests {
         )
 
         model.openProjectDirectly(workspace.root)
+        for _ in 0..<earlyRefreshes { await model.workspaceFeature.refreshCurrent() }
+        try #require(model.workspaceFeature.appliedSnapshot == nil,
+                     "Background refreshes must not publish the snapshot before the test releases it")
         model.runSelectedConfiguration()
 
         let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
-        #expect(deferred, "Run must be deferred while the file inventory is provisional")
+        try #require(deferred, "Run must be deferred while the file inventory is provisional")
         let runFeature = try #require(model.runFeatureIfActive)
         #expect(
             runFeature.configurationStatus == .ready,
@@ -161,13 +167,14 @@ struct RunEntryPointTests {
             "Run must not build a launch plan from a provisional inventory"
         )
 
+        workspaceOperations.publish(workspace.snapshot)
         await model.workspaceFeature.refreshCurrent()
 
         // Production clears the deferred action before it re-issues Run, so
         // waiting for the action to clear would pass even if the relaunch were
         // dropped. The launch plan request is what proves Run actually ran.
         let relaunched = await runConfigurations.launchPlanRequested(1)
-        #expect(relaunched, "the deferred Run was never actually re-issued")
+        try #require(relaunched, "the deferred Run was never actually re-issued")
         #expect(model.pendingRunAction == nil)
         // Toolbar Run must publish the application's output to the same session
         // selected by the sidebar, without starting a separate primary process.
@@ -792,6 +799,8 @@ private final class StubRunExecutableResolver: RunExecutableResolving {
 
 /// Hands out prepared scans in call order, and reports the folder as unreadable
 /// once they run out.
+/// Tests that must stay provisional across arbitrary refreshes can start with
+/// no queued scans and make a stable inventory available through `publish`.
 ///
 /// Reporting "no snapshot" is how these tests reach the pre-snapshot entry path.
 /// Suspending the scan instead would model a scan in flight, but the workspace
@@ -803,6 +812,7 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
     private let lock = NSLock()
     private let snapshots: [WorkspaceSnapshot?]
     private var scanCount = 0
+    private var publishedSnapshot: WorkspaceSnapshot?
 
     init(snapshots: [WorkspaceSnapshot?]) {
         self.snapshots = snapshots
@@ -819,11 +829,20 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
         SequencedWorkspaceOperations(snapshots: [nil, snapshot, snapshot, snapshot])
     }
 
+    /// Makes the inventory persistently available at a test-owned boundary,
+    /// regardless of how many watcher-driven scans happened beforehand.
+    func publish(_ snapshot: WorkspaceSnapshot) {
+        lock.lock()
+        defer { lock.unlock() }
+        publishedSnapshot = snapshot
+    }
+
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
         lock.lock()
+        defer { lock.unlock() }
+        if let publishedSnapshot { return publishedSnapshot }
         let ordinal = scanCount
         scanCount += 1
-        lock.unlock()
         guard ordinal < snapshots.count else { return nil }
         return snapshots[ordinal]
     }

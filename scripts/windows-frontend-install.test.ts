@@ -16,9 +16,14 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const net = require("node:net");
 const root = process.env.LITHE_INSTALL_FIXTURE_ROOT;
+const record = event => fs.appendFileSync(path.join(root, "events.jsonl"), JSON.stringify({ event, args: process.argv.slice(2) }) + "\n");
+record("started");
 if (process.argv.includes("--locker")) {
   const server = net.createServer();
-  server.listen(0, "127.0.0.1", () => process.send("locked"));
+  server.listen(0, "127.0.0.1", () => {
+    record("locked");
+    process.send("locked");
+  });
 } else if (process.argv.includes("--version")) {
   console.log("1.3.12");
 } else {
@@ -65,7 +70,25 @@ async function ownedPids(root: string) {
   }
 }
 
-async function withInstaller(mode: string, check: (root: string, result: Awaited<ReturnType<typeof runProcess>>) => Promise<void>, timeoutSeconds = 300) {
+// These native integration cases start PowerShell workers and compile the Job
+// Object helper. Bound each fake install independently, then leave startup and
+// process-tree cleanup headroom below the lane's 60 second per-case budget.
+const fixtureInstallTimeoutSeconds = 5;
+const fixtureProcessTimeoutMs = 45000;
+
+async function installerDiagnostics(root: string) {
+  const files = ["events.jsonl", "attempts.jsonl", "owned-pids", "retry-succeeded", "sealed-state"];
+  return (await Promise.all(files.map(async name => {
+    try {
+      return `${name}:\n${await fs.readFile(path.join(root, name), "utf8")}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return `${name}: not reached`;
+      throw error;
+    }
+  }))).join("\n");
+}
+
+async function withInstaller(mode: string, check: (root: string, result: Awaited<ReturnType<typeof runProcess>>) => Promise<void>, timeoutSeconds = fixtureInstallTimeoutSeconds) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lithe Windows install "));
   try {
     await fs.mkdir(path.join(root, "scripts"));
@@ -103,9 +126,11 @@ async function withInstaller(mode: string, check: (root: string, result: Awaited
         GITHUB_ACTIONS: "false",
         GITHUB_ENV: "",
       },
-      timeoutMs: 20000,
+      timeoutMs: fixtureProcessTimeoutMs,
     });
-    expect(result.timedOut, result.stdout + result.stderr).toBe(false);
+    if (result.timedOut || !result.terminationConfirmed) {
+      throw new Error(`Windows install fixture (${mode}): duration=${Math.round(result.durationMs)}ms, outerDeadline=${fixtureProcessTimeoutMs}ms, installDeadline=${timeoutSeconds}s, timedOut=${result.timedOut}, terminationConfirmed=${result.terminationConfirmed}\n${await installerDiagnostics(root)}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    }
     await check(root, result);
     expect((await ownedPids(root)).filter(isRunning)).toEqual([]);
   } finally {

@@ -1,5 +1,6 @@
 require "json"
 require "rubygems"
+require_relative "autobuild-identity"
 
 def sparkle_baselines(releases, version, architecture)
   raise "Invalid architecture" unless %w[arm64 x86_64].include?(architecture)
@@ -17,7 +18,7 @@ end
 
 def preview_sparkle_baselines(releases, build, architecture, tag)
   raise "Invalid architecture" unless %w[arm64 x86_64].include?(architecture)
-  raise "Invalid preview build" unless build.match?(/\A\d+\.\d+\z/)
+  autobuild_time(build)
   current = Gem::Version.new(build)
   release = releases.find { |item| item["tag_name"] == tag && item["prerelease"] && !item["draft"] }
   return [] unless release

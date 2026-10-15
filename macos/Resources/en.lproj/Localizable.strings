@@ -1570,3 +1570,20 @@
 "All messages" = "All messages";
 "Warnings" = "Warnings";
 "Errors only" = "Errors only";
+
+/* Explicit update channel selection. */
+"Update channel" = "Update channel";
+"Stable (Recommended)" = "Stable (Recommended)";
+"AutoBuild Rolling" = "AutoBuild Rolling";
+"Use AutoBuild Rolling?" = "Use AutoBuild Rolling?";
+"Use AutoBuild" = "Use AutoBuild";
+"AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users.";
+"Changing channels requires a full installation and may install an older version. Your projects and settings are kept, but settings from newer builds may not work in older releases." = "Changing channels requires a full installation and may install an older version. Your projects and settings are kept, but settings from newer builds may not work in older releases.";
+"Open AutoBuild Downloads" = "Open AutoBuild Downloads";
+"Open Stable Downloads" = "Open Stable Downloads";
+"Install the selected channel" = "Install the selected channel";
+"Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates." = "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates.";
+"Install AutoBuild" = "Install AutoBuild";
+"AutoBuild Update" = "AutoBuild Update";
+"AutoBuild — Built at %@" = "AutoBuild — Built at %@";
+"The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";

@@ -16,6 +16,7 @@ mod model_proxy;
 mod prompt;
 mod prompt_retry;
 mod session_defaults;
+mod session_restore;
 mod session_routing;
 mod steering;
 mod subscription;
@@ -308,13 +309,15 @@ fn resolve_with(
         .map(str::trim)
         .filter(|model| !model.is_empty())
     {
-        env.push(match agent.model_delivery {
-            ModelDelivery::CodexConfig => (
+        match agent.model_delivery {
+            ModelDelivery::CodexConfig => env.push((
                 "CODEX_CONFIG".to_owned(),
                 serde_json::json!({ "model": model }).to_string(),
-            ),
-            ModelDelivery::AnthropicEnvironment => ("ANTHROPIC_MODEL".to_owned(), model.to_owned()),
-        });
+            )),
+            // A process-wide Claude pin also overrides every restored session.
+            // New-session defaults instead travel through session_routing.
+            ModelDelivery::ClaudeSessionOptions => {}
+        }
     }
     Ok(ResolvedLaunch {
         command: install::installed_command(&data_directory, agent),
@@ -806,6 +809,15 @@ async fn run_agent(
         None
     };
     let mut command = std::process::Command::new(&launch.command);
+    if launch
+        .gateway
+        .as_ref()
+        .is_some_and(|route| route.protocol == ProviderProtocol::AnthropicMessages)
+    {
+        // An inherited model pin must not override the model restored by ACP.
+        // Keep the user's alias mappings and other native CLI settings intact.
+        command.env_remove("ANTHROPIC_MODEL");
+    }
     if launch.subscription_cli.is_some() {
         subscription::isolate_environment(&mut command);
     }
@@ -979,6 +991,7 @@ where
     let session_meta = session_routing::metadata(gateway.as_ref())?;
     let workspace = Arc::new(workspace_context::WorkspaceContext::new(&cwd)?);
     let update_workspace = workspace.clone();
+    let restored_meta = session_routing::restored_metadata(gateway.as_ref())?;
     let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     let updates = emit.clone();
     let update_turns = turns.clone();
@@ -1260,15 +1273,14 @@ where
                         let connection = connection.clone();
                         let emit = emit.clone();
                         let cwd = cwd.clone();
-                        let session_meta = session_meta.clone();
+                        let session_meta = restored_meta.clone();
+                        let confirm_model = session_meta.is_some();
                         tasks.spawn(async move {
                             let mut request = LoadSessionRequest::new(session_id.clone(), cwd);
                             request.meta = session_meta;
                             let result = request_with_timeout(
                                 LOAD_SESSION_TIMEOUT,
-                                connection
-                                    .send_request(request)
-                                    .block_task(),
+                                session_restore::load_session(&connection, request, confirm_model),
                             )
                             .await;
                             emit(match result {
