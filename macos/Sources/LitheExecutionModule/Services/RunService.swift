@@ -396,6 +396,11 @@ package final class RunService: ObservableObject {
         mavenProject: MavenProject?,
         snapshotID: UUID? = nil
     ) async {
+        // An overlapping load may still expose the initial Current File placeholder.
+        // Only a completed load owns a selection worth preserving on reload.
+        if !isLoadingProject, let currentProject = self.projectURL {
+            selectedConfigurationIDsByProject[currentProject.path] = selectedConfigurationID
+        }
         let loadID = UUID()
         let modelRevision = mavenModelRevision
         projectLoadID = loadID
@@ -415,9 +420,6 @@ package final class RunService: ObservableObject {
             }
         }
         guard !Task.isCancelled, projectLoadID == loadID else { return }
-        if let currentProject = self.projectURL {
-            selectedConfigurationIDsByProject[currentProject.path] = selectedConfigurationID
-        }
         self.projectURL = workspace
         let storedDependencies = await dependencyWriter.load(workspaceURL: workspace)
         guard !Task.isCancelled, projectLoadID == loadID else { return }
@@ -433,13 +435,6 @@ package final class RunService: ObservableObject {
         if dependenciesChanged {
             dependencyRevision &+= 1
         }
-        // Whether the existing configuration parses is `configurationStatus`, not
-        // this state. Keeping them apart is what lets a broken generated.json be
-        // regenerated: folding a parse failure in here would block generation,
-        // which is the only way to repair it.
-        projectLoadState = snapshotID
-            .map { .ready(workspace: workspace, snapshotID: $0) }
-            ?? .bound(workspace: workspace)
         // A Reload may commit while inspection is suspended. Preserve that
         // accepted model instead of restoring the caller's earlier snapshot.
         if mavenModelRevision == modelRevision {
@@ -489,6 +484,14 @@ package final class RunService: ObservableObject {
             reconcileModuleSessions(validConfigurationIDs: [])
             refreshPortConflicts()
         }
+        // Whether the existing configuration parses is `configurationStatus`, not
+        // this state. Keeping them apart is what lets a broken generated.json be
+        // regenerated: folding a parse failure in here would block generation,
+        // which is the only way to repair it.
+        // Publish readiness only after configuration and toolchain selection commit.
+        projectLoadState = snapshotID
+            .map { .ready(workspace: workspace, snapshotID: $0) }
+            ?? .bound(workspace: workspace)
     }
 
     /// Adds what JDT reports about the generated Java entries.
