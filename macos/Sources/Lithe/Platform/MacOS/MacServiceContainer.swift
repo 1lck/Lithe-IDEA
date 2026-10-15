@@ -155,8 +155,10 @@ final class MacServiceContainer {
             directories: MacPluginStateDirectories(fileStorage: fileStorage),
             settings: pluginSettings
         )
-        let pluginStartup = MacPluginStartupLoader(packageStore: pluginPackageStore)
-            .load(recoveryStore: moduleStore)
+        let pluginStartup = MacPluginStartupLoader(
+            packageStore: pluginPackageStore,
+            validateUI: { _ = try WorkbenchModuleUIComposition.registry(for: $0) }
+        ).load(recoveryStore: moduleStore)
         let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
         let moduleRegistry = ModuleRegistry(
             runtime: moduleRuntime,

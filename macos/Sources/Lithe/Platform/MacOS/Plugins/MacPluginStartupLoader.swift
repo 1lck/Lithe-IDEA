@@ -42,15 +42,23 @@ struct MacPluginStartupResult {
 /// startup and never replace the required built-in catalog.
 @MainActor
 final class MacPluginStartupLoader {
+    /// Rejects a candidate catalog whose UI contributions cannot bind to host
+    /// actions and renderers. Those bindings live in the Views layer, so the
+    /// composition root supplies the check instead of this adapter importing it.
+    typealias UIValidator = @MainActor (ValidatedPluginCatalog) throws -> Void
+
     private let packageStore: MacPluginPackageStore
     private let hostVersion: PluginVersion
+    private let validateUI: UIValidator
 
     init(
         packageStore: MacPluginPackageStore,
-        hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion
+        hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
+        validateUI: @escaping UIValidator
     ) {
         self.packageStore = packageStore
         self.hostVersion = hostVersion
+        self.validateUI = validateUI
     }
 
     func load(recoveryStore: (any ModuleRecoveryStore)?) -> MacPluginStartupResult {
@@ -89,7 +97,7 @@ final class MacPluginStartupLoader {
                 )
                 // Validate renderer/action bindings before any workspace can
                 // construct its UI; a rejected package remains inspectable.
-                _ = try WorkbenchModuleUIComposition.registry(for: catalog)
+                try validateUI(catalog)
                 let icons = try MacPluginUIIconLoader.load(installed.descriptor, at: installed.packageURL)
                 iconResources.merge(icons) { _, new in new }
                 accepted.append(installed)
