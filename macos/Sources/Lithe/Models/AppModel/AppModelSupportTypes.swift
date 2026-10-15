@@ -21,6 +21,11 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String { self == .project ? "Project · JDK & Maven" : rawValue }
 
+    /// The sidebar group that owns this page, or `nil` for a top-level page.
+    var group: SettingsGroup? {
+        SettingsGroup.allCases.first { $0.categories.contains(self) }
+    }
+
     var icon: String {
         switch self {
         case .general: "gearshape"
@@ -39,6 +44,51 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .mcp: "network"
         }
     }
+}
+
+/// Collapsible groups of the settings sidebar. A new page is declared here, in
+/// the group whose subject it configures, rather than added as a loose entry.
+/// The ownership rules are in
+/// `.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md`.
+enum SettingsGroup: String, CaseIterable, Identifiable {
+    case appearance = "Appearance & Behavior"
+    case versionControl = "Version Control"
+    case build = "Build, Execution, Deployment"
+    case languages = "Languages & Frameworks"
+    case tools = "Tools"
+    case ai = "AI"
+
+    var id: String { rawValue }
+
+    /// Pages in display order.
+    var categories: [SettingsCategory] {
+        switch self {
+        case .appearance: [.general, .updates, .editor, .keymap]
+        case .versionControl: [.git]
+        case .build: [.project, .run]
+        case .languages: [.lsp]
+        case .tools: [.terminal, .diagnostics]
+        case .ai: [.mcp, .ai, .providers]
+        }
+    }
+}
+
+/// One top-level row of the settings sidebar.
+enum SettingsSidebarItem {
+    case group(SettingsGroup)
+    case page(SettingsCategory)
+
+    /// Top-level order: plugins sit between Appearance & Behavior and the
+    /// feature groups because they extend every group below them.
+    static let layout: [SettingsSidebarItem] = [
+        .group(.appearance),
+        .page(.plugins),
+        .group(.versionControl),
+        .group(.build),
+        .group(.languages),
+        .group(.tools),
+        .group(.ai),
+    ]
 }
 
 enum JavaLaunchDecisionResolution: Equatable {
