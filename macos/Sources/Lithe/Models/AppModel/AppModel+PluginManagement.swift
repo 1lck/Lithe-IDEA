@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import LitheModuleAPI
 
 extension AppModel {
@@ -10,18 +11,15 @@ extension AppModel {
         services.pluginManager.issues
     }
 
-    func installPHPPluginPackage() {
+    /// Installs a plugin package directory chosen by the user. The package
+    /// store validates the declaration and trust; release builds only accept
+    /// signed packages from disk.
+    func installPluginPackageFromDisk() {
         guard let packageURL = platformUI.chooseDirectory(
-            title: NSLocalizedString("Install PHP Support Plugin", comment: "PHP plugin package picker title"),
+            title: NSLocalizedString("Install Plugin from Disk", comment: "Plugin package picker title"),
             prompt: "Install"
         ) else { return }
         do {
-            let manifestURL = packageURL.appendingPathComponent("plugin.json")
-            let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(contentsOf: manifestURL))
-            guard manifest.id == OfficialPluginCatalog.phpPluginID else {
-                showNotification(NSLocalizedString("Select a PHP Support plugin package.", comment: "Wrong plugin package selected"))
-                return
-            }
             try services.pluginManager.installPackage(at: packageURL)
             objectWillChange.send()
         } catch {
@@ -29,27 +27,18 @@ extension AppModel {
         }
     }
 
-    func downloadPHPPlugin() async {
+    func restorePlugin(_ pluginID: PluginID) {
         do {
-            try await services.pluginManager.download(pluginID: OfficialPluginCatalog.phpPluginID)
+            try services.pluginManager.restore(pluginID)
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)
         }
     }
 
-    func reinstallPHPPlugin() async {
+    func uninstallPlugin(_ pluginID: PluginID) async {
         do {
-            try await services.pluginManager.reinstall(pluginID: OfficialPluginCatalog.phpPluginID)
-            objectWillChange.send()
-        } catch {
-            showNotification(error.localizedDescription)
-        }
-    }
-
-    func uninstallPHPPlugin() async {
-        do {
-            try await services.pluginManager.uninstall(OfficialPluginCatalog.phpPluginID)
+            try await services.pluginManager.uninstall(pluginID)
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)
@@ -63,8 +52,9 @@ extension AppModel {
                 $0.manifest.id == .database
             } == true
         }
-        if closesDatabase, selectedSidebar == .database {
-            selectedSidebar = .project
+        if closesDatabase {
+            closeDatabaseWorkspace()
+            workbenchFeature.setVisibility(.database, isVisible: false)
             await Task.yield()
         }
 
@@ -80,6 +70,17 @@ extension AppModel {
         }
         objectWillChange.send()
         return appliedPluginIDs
+    }
+
+    /// Stores the user's value of a plugin setting; `nil` restores the plugin's
+    /// default. The plugin's language servers read it when they next start.
+    func setPluginSetting(_ value: ToolingJSONValue?, id settingID: String, for pluginID: PluginID) {
+        do {
+            try services.pluginManager.setSetting(value, id: settingID, for: pluginID)
+            objectWillChange.send()
+        } catch {
+            showNotification(error.localizedDescription)
+        }
     }
 
     func rollbackPlugin(_ pluginID: PluginID) {

@@ -120,7 +120,7 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
                     SplitHandleView(
                         axis: .horizontal,
                         showsIdleDivider: false,
-                        highlightsOnHover: false,
+
                         onDragStarted: {
                             paneDragStart = panes.position
                         },

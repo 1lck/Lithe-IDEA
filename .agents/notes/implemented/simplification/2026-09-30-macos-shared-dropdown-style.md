@@ -259,7 +259,51 @@ Lithe 使用 `BranchPopupRowView` 包装原有 SwiftUI 行，保留共享 `Lithe
 松开提交、宽高上下限、宿主尺寸和关闭恢复；项目持久化和隔离由布局测试覆盖。
 新增角落与上游列尚需完整应用的实机视觉验收，完整 Git 工作流仍按功能矩阵待验收。
 
+### Agent 历史与剩余控件
+
+Agent 历史列表使用同一弹窗外框、24pt 行高、选中和 hover。较高的历史视口
+是本产品的展示规则，参考现有列表的 20 行预算；不能声称私有 AI 插件的
+固定高度已经由 Community 源码证明。超出屏幕时仍由共享 host 收敛尺寸。
+自定义列表的键盘处理通过 `litheDropdownKeyHandler` 登记到共享 popup 的既有
+事件路径，只作用于其所在弹窗；Escape、外部点击和窗口清理由 owner 保留。
+标准设置按钮不再由 Agent 页面单独覆盖为 24pt/11.5pt，供应商操作错误使用
+共享通知；配置复选框、欢迎行文字/箭头和对话工具栏继续复用已有控件。
+未有明确上游映射的符号保留 `LitheSystemIcon` 的原生 fallback，不猜造 SVG。
+
+### 工作台壁纸与结构背景
+
+工作台页面、标题栏和内容区的结构背景使用既有 `litheWorkbenchSurface`。
+工作台根视图把当前是否有背景图作为环境值传下去，共享入口据此清除结构底色；
+移除背景图时恢复原主题颜色。背景图是否存在仍由原背景 Feature 负责，
+视图不再各自依赖整个 AppModel，也不复制壁纸透明度、调色或加载逻辑。
+独立窗口默认没有壁纸宿主，保持普通底色；表单输入、菜单、通知和模态弹窗
+保留专用背景，不因工作台壁纸变成透明控件。
+Agent 外层、标题、历史页、欢迎页和会话标签栏，以及共享输出、模块加载、
+替换预览、媒体查看、数据库结构/诊断/分页工具栏、Git 保存变更的结构背景
+必须调用该入口。共享组件新增页面时也要检查内部不透明层，不能只把外层清空。
+原生像素检查在同一个宿主里切换“无图→有图→无图”，验证 Agent、欢迎页、
+输出和模块加载的空白区域透出背景图，并确认最后恢复原色，覆盖深浅外观。
+2026-10-13 完整应用预览实测内置背景 01：Agent 标题和正文透出壁纸，
+输入框与通知保留专用底色；移除背景图后回到普通底色。设置页的 WARN/FAIL
+预检项实际点击后能隐藏详情。本轮 139 项相关检查通过，临时预览已经退出。
+
 ### 全局通知与右侧底部动作
+
+面板内通知也使用共享入口：`LitheBanner` 与 `litheBannerSurface` 拥有
+状态背景、边框、内边距、文字、官方图标和动作链接。业务页面只提供状态、
+正文、原有动作和可见条件，不再用 warning/error 的透明度各画一套提示。
+依据 Community `915c3c26029bd2f8d35907d6faf43c4a3264c5f7` 的
+`InlineBanner.kt`、`InlineBannerBase.kt`、`EditorNotificationPanel.java`、`JBUI`
+及 Islands 明暗主题：圆角提示内边距 12、图文间距 8、边框 1、圆角半径 8
+（绘制的 arc=16 是直径）；编辑器平面提示上下 10、左右 12，只画上下边框。
+原有动作按 Link.Foreground 展示，动作间距 16；有关闭动作的圆角提示沿用
+26pt 按钮与 7pt 外侧留白。没有关闭动作的提示不新增关闭入口。
+成功、警告、错误、信息与柔和信息均使用主题的 Banner 专用状态色，
+不要套浮动通知的中性底色，也不要用通用文字色或透明度近似。
+IDEA 的圆角提示与平面提示是两种控件，因此共享规则保留这两种布局。
+Git、GitHub、Maven、Run、编辑器、Database、LSP、插件和 Agent 的既有提示
+使用此入口。表单字段验证、日志内容与系统确认对话框保留各自的语义。
+这次只统一 macOS 展示，不改通知队列、协议、后端算法或 Windows 控件。
 
 全局短通知由 `WorkbenchNotificationBanner` 统一呈现，外框归
 `LitheTheme.Notification` / `litheNotificationSurface`，不让各个业务消息
@@ -422,7 +466,7 @@ Recent 也按分支命名空间分组。搜索覆盖全部引用；清空搜索�
 `GitBranchesPopupBase` 给同一 `SearchFieldWithExtension` 显式传入
 `Popup.BACKGROUND`，所以共享样式允许背景参数，分支弹窗使用弹窗底色，
 Git Log 保留原输入底色。打开菜单不强制搜索框获得焦点；点击输入后才显示
-共享蓝色焦点边框。原生面板通过 `searchOnTyping` 保持初始焦点在菜单；
+共享蓝色焦点边框。共享搜索输入沿用原生编辑器，在同窗口点击输入区域外时释放焦点；由既有编辑观察视图处理并在卸载时移除监听，避免各面板重复添加点击手势，也避免其他输入的观察器打断当前编辑。原生面板通过 `searchOnTyping` 保持初始焦点在菜单；
 开始键入或 Cmd+F 时交给原生输入框继续处理同一个事件，保留 IME，
 避免 AppKit 自动把第一个输入框染成蓝色，也避免去掉自动焦点后破坏直接搜索。
 不能仅因为复用了同名组件就忽略上游传入的背景和焦点状态。
@@ -477,7 +521,41 @@ Agent 输入区底栏的切换菜单向上展开，菜单底边锚定触发控�
 已有 `AgentBrandIcon` 的 16pt 品牌图标并保留独立勾选；此前只提交名称导致图标缺失。
 这些资源是构建时打包的只读输入，不增加运行时写入或下载。
 
+## 原生窗口布局反馈的边界
+
+SwiftUI 更新锚点时，AppKit（macOS 原生界面库）可能还在计算父窗口布局。
+此时直接创建子窗口、替换浮层内容并强制布局，会把新的尺寸计算压入同一个
+调用栈。首选内容尺寸变化后又立即调整窗口，也可能在调整尚未结束时再次进入
+尺寸回调。因此共享呈现器保留原生窗口，但把锚点请求和尺寸通知合并到主队列
+的后续执行机会；同一轮多次更新只读取最后的内容、环境和尺寸。
+
+正确做法是由共享协调器持有一个待执行请求，弱引用锚点和父窗口；卸载、移出
+窗口或关闭时使请求失效。控制器关闭后清除尺寸通知，旧通知不能调整后来打开的
+面板。不要在业务菜单里加延时常数，也不要让排队闭包强持有窗口，使已关闭的
+浮层重新出现。原生尺寸调整仍保留直接入口，防止重入；尺寸和约束相同就不重复
+赋值，变更 frame 时不立即强制显示，由 AppKit 下一次显示处理绘制。
+
+同一窗口角色的模型更新也不重新设置 `contentMinSize`（原生窗口的最小内容
+尺寸）。窗口协调器只在绑定新窗口或切换欢迎页、工作台等角色时应用角色尺寸，
+普通更新保留 SwiftUI 已测量的最小值，同时继续更新窗口标题。
+
+对照 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`platform/platform-impl/src/com/intellij/ui/WindowResizeListener.java`：上游按当前
+最小尺寸限制用户拖动后的 bounds。Lithe 保留已有尺寸限制，排队与重入保护处理
+的是 SwiftUI/AppKit 的原生反馈边界，不照搬 Swing 窗口生命周期，也不改变样式。
+
+这项约束处理 [#1138](https://github.com/1lck/Lithe-IDEA/issues/1138) 排查中发现的
+同步反馈风险。该报告已确认主线程布局递归栈溢出，但未定位具体触发控件；回归
+测试能证明上述反馈和清理边界，不能据此宣称原始会话的致命崩溃已完整复现。
+代价是浮层更新晚于当前视图更新栈；不采用禁用整个窗口自动尺寸测量的方案，以免
+破坏其他 SwiftUI 内容的布局。此改动不增加资源、缓存或 bundle 写入路径。
+
 ## 验证
+
+- `AgentActivityPresentationTests` 的切换场景先完成父视图布局，再有界等待已提交的主队列更新交付，然后检查长列表滚动、最后一个文件回调和面板复用。不能把旧面板仍然 `isVisible` 当作新内容已显示，否则下一次点击可能落到旧内容的可选文本并进入原生鼠标跟踪等待。
+- `preferredSizeChangesCoalesceWithoutReenteringTheCallback` 验证一轮尺寸变化只通知最终值，回调触发的新尺寸在后续执行机会交付，回调深度保持为一；`closingContentCancelsQueuedSizeFeedback` 验证移除回调后排队通知失效。
+- `dropdownPresentationDefersLayoutAndUsesTheLatestContent` 在深浅外观的原生父子窗口中验证延后打开、最新内容与环境、合并为一个子窗口，以及更新或首次打开尚未交付时卸载锚点不会重新出现面板。
+- `workspaceUpdatesPreserveTheHostingWindowsMeasuredMinimum` 验证同角色更新保留宿主测量的窗口最小值、标题继续更新，切换欢迎页角色仍应用声明尺寸。
 
 `ContextMenuCoverageTests.dropdownTriggerClosesItsPopupAndSwitchesToAnother` 用原生
 窗口事件覆盖深浅主题、动作及自定义菜单：重复点击原按钮关闭、另一按钮直接切换、
@@ -541,3 +619,79 @@ GitFeatureModel 写入及确认流程；只读历史/保存记录模式不提供
 差异块入口锚定该 hunk 的首个差异行；纯删除使用左栏，新版单栏也保留动作。
 分支比较、本地历史与 Agent 的嵌入式预览继续复用 `DiffPaneView` → `DiffSplitPaneView`，
 它们不承载仓库暂存操作，也不是被删除的旧工作区面板。
+
+
+### 普通选中行与窗口焦点
+
+项目树原先固定使用灰色选中底色，其余列表也有只用活动色或只用灰色的入口。
+现在普通树和列表都通过 `litheSelectionRow(isSelected:isFocused:)` 绘制选中与
+悬停表面。单行树由 `litheTreeRow` 转交；多行列表直接调用该入口，保留原行高、
+内边距、字体和圆角参数。只有“区域有焦点”且“窗口接收键盘输入”同时成立才显示
+主题活动色；失去任一条件都显示灰色。窗口是否活动由共享样式读取
+`controlActiveState == .key`，不能让每个新调用方自行决定是否检查。
+
+颜色依据 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json` 与
+`ManyIslandsLight.theme.json`：普通选中行读取 `selection-bg-active` 和
+`selection-bg-inactive`。Lithe 默认主题的深色活动/失焦色为 `#2A4371/#33353B`，
+浅色为 `#D0DFFE/#E9EAEE`；其他主题沿用既有主题定义，不逐页面复制颜色。
+
+区域焦点沿用 `LitheToolWindowActivityTracker`，应安装在列表所在区域，不能
+装在整个工作台后让多个列表同时变蓝。观察器按实际被编辑的输入框判断焦点，
+不能只比较 macOS 共用的 field editor（窗口内多个输入框共用的文本编辑器）；
+鼠标回调、焦点变化和卸载共用事件版本；延迟点击只有版本仍最新、窗口未变且
+当前 focus owner 未变时才能发布点击状态，否则按当前 responder 重算。
+卸载时立即移除观察器并使旧版本失效；清除活动状态和重新挂载同步当前可见焦点
+区域均在下一次主队列回调发布。挂载、卸载及窗口通知不得同步写 SwiftUI Binding，
+否则真实 NSHostingView 销毁期间会与 GraphHost.invalidate 发生独占访问冲突并
+触发 SIGABRT。旧挂载或较早点击的回调不能覆盖新焦点。
+
+项目树是已有键盘路由的特殊消费者：`ProjectTreeKeyboardCommands` 发布
+键盘归属变化，颜色与实际消费方向键的区域一致。通过窗口 didUpdate 及时识别
+新获得焦点的文本框，搜索框尚未输入字符时树就失焦；其他编辑器仍保留首次按键
+建立基线的异步聚焦处理。直接套用普通区域观察器会在
+文件打开后的 WebKit 异步聚焦中误判。惰性树内容的相等判断必须包含焦点，
+否则选择不变时不会刷新颜色。保留原有多选、上下键、右键和文件打开行为。
+
+SwiftUI 消费者包括 Project、Commit、Maven、Git Log 分支/比较/Rebase 计划、Run 的范围和配置
+列表、PR 列表、Redis 键、Nacos 配置、数据库 SQL 历史、本地/项目历史、Debug
+堆栈、Language Tests、Agent 历史多选、Settings 分类/项目运行时/快捷键以及
+插件市场列表。各独立列表分别观察焦点。Git Log 原生提交图谱在宿主更新时结合
+窗口活动状态；原生 Git 文件树保留 `isKeyWindow` 和 first responder（键盘
+输入接收视图）判断，并在宿主窗口状态改变时重绘。Shelf 的原位展开行沿用
+共享树色与窗口判断，不替换其已有展开 renderer（负责行绘制的组件）。
+
+正确做法是给已有多行历史行调用
+`litheSelectionRow(isSelected: selected, isFocused: historyListActive)`，再在
+历史列表区域安装已有观察器。不要写 `.background(selected ?
+LitheTheme.selection : .clear)`；这种写法无法在窗口失焦时切换灰色。
+不要把只读详情或相邻列表的活动状态传给该历史行。
+
+工具窗口标签、菜单高亮、活动栏、数据库单元格、编辑器文本选择、状态徽章、
+复选框包含状态和选定设置值有各自语义与主题，不强制与普通行的 RGB 相同。
+它们继续使用各自共享样式；没有持久选择的 Dependencies、普通 Search 结果
+也不会因此新增选择功能。Windows 本次未修改；其文件树已有
+`data-tree-focused` 在 `--selected` 与 `--border` 之间切换，不能把 macOS
+组件验证当作 Windows 实机验收。
+
+统一入口减少遗漏窗口判断和重复颜色的机会，代价是每个独立列表仍需明确提供
+区域焦点状态。没有把所有页面强制改成 24pt 树行，也没有新增第二套焦点系统。
+
+回归通过 `LitheTreeRowStyleTests` 检查真实绘制的深浅色、区域活动/失焦与
+窗口 key/inactive 状态，以及 24pt 树和 40pt 多行尺寸；
+`ProjectTreeSelectionTests` 检查方向键和多选；
+`EditorTabOrderFeatureModelTests.tabActivityFollowsNativeKeyboardFocusAcrossRegions`
+检查原生区域及共用输入编辑器之间的焦点转移、卸载失效和重新挂载同步；
+`delayedPointerActivityCannotOverrideNewerFocusOrRemount` 用可控回调队列验证
+较早鼠标写入不能覆盖新 responder（包括窗口通知尚未发布）或新挂载；
+`treeYieldsToSearchBeforeTypingButRetainsAsynchronousEditorFocus` 验证搜索框
+尚未输入即失焦，以及真实 WKWebView 异步聚焦仍保留项目树键盘归属。
+`trackerUnmountDefersBindingWritesUntilTheLifecycleCallbackReturns` 检查生命周期内
+没有同步 Binding 写入，`activityTrackerCanDestroyItsSwiftUIStateOwner` 覆盖真实
+SwiftUI State 宿主销毁和主队列清理，不能只靠手写 Binding 的组件测试推断安全。
+完整应用验收与组件回归分别记录，
+不由编译或单一页面截图推断整个产品已验证。
+
+深色新预览已通过真实鼠标验证 Settings 分类：点击分类显示主题色，点击右侧
+内容变灰，重新点击恢复。完整应用全部入口、浅色/非默认主题和跨窗口切换仍
+保留 pending；共享像素与原生焦点回归不替代这些实机验收。

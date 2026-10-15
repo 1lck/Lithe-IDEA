@@ -14,7 +14,7 @@ Windows 普通编辑器与笔记本代码区采用和现有 Diff 一样的滚轮
 例如正在编辑 `independent-commit-diff.ts` 时搜索 `independent-commit-diff`，底层文件列表包含它，结果却不显示。
 本地搜索适配器实际返回完整文件列表；把它当后台索引轮询，再为每个查询扫描整个目录，会重复读取文件系统。
 普通编辑器未配置滚轮灵敏度，与 Diff 的两倍速度不同。数值控件的固定紧凑宽度不足以同时容纳输入区与按钮。
-实际 Windows 设置窗口由 `settings-dialog.tsx` 路由到 `macos-settings-panels.tsx` 的 EditorPanel；
+实际 Windows 设置窗口由 `settings-dialog.tsx` 路由到 `settings-panels.tsx` 的 EditorPanel；
 后者原本直接使用右对齐的原生数字输入框，修改旧设置页的共享控件不会影响这个入口。
 
 ## 决策
@@ -74,6 +74,6 @@ IDEA 参考版本为 `fb72b4df43aba102479eb0502d20b03586b9c5b8`：
 - `windows/tauri/src/features/editor/notebook/notebook-code-cell-editor.tsx`
 - `windows/tauri/src/features/git/components/diff/independent-commit-diff-surface.ts`
 - `windows/tauri/src/features/settings/components/settings-section.tsx`
-- `windows/tauri/src/features/settings/components/macos-settings-panels.tsx`
+- `windows/tauri/src/features/settings/components/settings-panels.tsx`
 - `windows/tauri/src/features/settings/components/editor-settings-routing.test.tsx`
 - `windows/tauri/src/ui/number-input.tsx`

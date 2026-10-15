@@ -11,10 +11,11 @@ packaging, and other bundle-sensitive changes still select the package lane.
 Windows PR CI runs frontend and Rust validation concurrently and does not build
 an installer; Windows installers come from preview and stable release workflows.
 
-- macOS PRs selected for package verification produce separate Apple Silicon
-  (`arm64`) and Intel (`x86_64`) DMGs. The two jobs run concurrently when
-  runners are available.
-- macOS pushes to `main` and manual runs verify the default universal package,
+- macOS PRs selected for package verification produce an Apple Silicon
+  (`arm64`) DMG only. Intel (`x86_64`) compilation, linking, and packaging are
+  verified after merge by the universal package on `preview`; run **macOS CI**
+  manually on a branch when an Intel build is needed before merge.
+- macOS pushes to `preview` and manual runs verify the default universal package,
   then assemble a universal DMG with the real Java tools using the same compiled
   outputs. The packaging smoke test's temporary Java fixtures are never uploaded.
 - Windows preview and stable releases produce an NSIS `.exe` installer.
@@ -29,10 +30,34 @@ an installer; Windows installers come from preview and stable release workflows.
 
 The summary records the exact checked-out revision. For a pull request this is
 normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
-gate** for the combined test result. A failed architecture still fails the
-macOS gate; `fail-fast: false` lets the other architecture finish and upload its
-package. To request a Windows installer for a branch, manually run **Release AutoBuild** and provide that branch as `source_branch`;
-the Windows workflow is reusable and only builds an artifact for that caller.
+gate** for the combined test result. The macOS **Swift tests** job builds the
+Swift tests once and runs the main and database suites selected by the
+classifier, so **macOS CI gate** also owns the Swift database result;
+**Database CI gate** checks the Linux Rust database lane. **macOS Plugin CI**
+stays separate: it only reserves a macOS runner when the classifier selects the
+plugin lane, and otherwise **Plugin CI gate** passes on Linux in seconds.
+A failed architecture still fails the macOS gate; `fail-fast: false` lets the
+other architecture finish and upload its package. To request a Windows installer
+for a branch, manually run **Release AutoBuild** and provide that branch as
+`source_branch`; the Windows workflow is reusable and only builds an artifact
+for that caller.
+
+### macOS runner budget
+
+The `Lithe-IDEA` organization uses the GitHub Free plan, which runs at most
+five macOS jobs at a time across every workflow and pull request. Queued macOS
+jobs mean this pool is full; it is a concurrency limit, not a quota or abuse
+signal. Keep macOS jobs per push low:
+
+- Do not add a macOS job that repeats `./scripts/test-macos.sh list` for every
+  Swift change; add a filtered step to the shared **Swift tests** job instead.
+  The plugin lane is the deliberate exception because most pull requests do
+  not select it.
+- Open pull requests that are still being iterated on as drafts. Draft pull
+  requests run only the Linux lanes; marking one ready for review reruns the
+  classifier and the selected macOS and Windows lanes.
+- Each new push cancels the previous run for the same branch, so batch review
+  fixes into fewer pushes when possible.
 
 The GitHub CLI can also download a particular run's packages:
 
@@ -151,8 +176,20 @@ script outputs, and dependency outputs for both `rust/target/macos` (Core) and
 Xcode/SDK/macOS versions, build flags, dependency manifests, and build scripts.
 An architecture-specific job can restore the universal cache from its base
 branch. Final executables are not cached; Cargo still runs before packaging.
-An interrupted cache restore is discarded, leaving the existing verified
-download cache as the fallback. Swift compilation products are not cached.
+A universal build without a universal entry falls back to an arm64 or
+x86_64 entry with the same toolchain identity; single-slice builds do not fall
+back to the other slice. An interrupted cache restore is
+discarded, leaving the existing verified download cache as the fallback. Swift
+compilation products are not cached.
+
+Compilation outputs are restored by `prepare-macos-dependency-cache` and saved
+by `save-macos-cargo-build-cache` with `if: always()`. A successful job saves
+the exact key; a failed, timed-out, or superseded job saves
+`<key>-partial-<run_id>-<attempt>`, which the next build restores through the
+primary-key prefix match. Pull requests restore preview's entries without
+saving, so PR-scoped copies do not push preview's entries past the 10 GB
+repository cache quota. The macOS CI package job allows 60 minutes, enough for
+a cold universal build (about 45 minutes) on a single runner.
 
 The change classifier also keeps Git performance and Git status observation
 tests scoped to Git production code, their dedicated tests, and test-tooling
@@ -166,6 +203,25 @@ reduction in total runner minutes. It also needs two available macOS runners.
 GitHub queue delays remain outside these build steps. Compare warm-cache runs
 with these baselines before claiming a measured improvement. A runner pool
 change should be evaluated separately if queueing continues to dominate.
+
+### macOS 测试窗口的桌面隔离
+
+普通 `./scripts/test-macos.sh` 和计时测试默认使用 `LITHE_TEST_WINDOW_MODE=isolated`。
+界面用例照常运行，真实窗口的原生排序、布局、弹窗和事件处理保留，但测试进程内
+的窗口完全透明，该进程也不会主动切换前台应用。原生视图截图仍可生成。
+隔离模块只由测试目标依赖，直接运行 `swift test` 也默认隔离，不进入发行程序。
+
+需要观察测试窗口或验证真实桌面效果时显式选择：
+
+```bash
+LITHE_TEST_WINDOW_MODE=visible ./scripts/test-macos.sh --filter AgentActivityPresentationTests
+```
+
+可见模式使用原始 AppKit 行为。真实桌面合成、硬件输入和跨应用激活测试应在独立
+macOS 登录会话或虚拟机中运行可见模式。独立启动的产品进程不加载测试隔离模块。
+隔离模式不跳过现有界面测试；`alphaValue` 表示隔离后的透明度，需要断言产品
+请求的透明度时使用测试模块的 `LitheTestRequestedWindowAlpha`。
+这项功能只有测试源码与运行参数，没有新增下载或跨工作树复用资源。
 
 ### macOS Git 真实窗口性能采样
 
@@ -184,7 +240,8 @@ LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
 ```
 
 此命令会短暂显示两个有标题、不透明的普通层级测试窗口，不强制激活程序或抢占
-焦点。用例在成功、跳过或超时后关闭窗口、停止显示链接，并恢复原激活策略。
+焦点，并自动选择可见模式；同时强制 `LITHE_TEST_WINDOW_MODE=isolated` 会明确报错。
+用例在成功、跳过或超时后关闭窗口、停止显示链接，并恢复原激活策略。
 没有可用显示或没有收到显示链接回调时，用例输出未采样原因，不能将其计为真实
 帧率验证。不要在普通开发验证或无人值守 CI 中默认设置该环境变量。
 
@@ -291,6 +348,27 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   本地工作树只运行 `node --test scripts/test-publish-autobuild.mjs` 和资源复用测试，
   不复制别的工作树 staging，也不把正式发布命令当作验证命令。
 
+- 插件 UI 图标：包内声明的 SVG/PNG 属于安装版本的签名或社区内容摘要，
+  macOS 在安装与启动时校验路径、大小、静态 SVG 子集和原生解码。资源在安装
+  阶段随包复制，运行时只读，内存图像随当前进程目录释放；不创建磁盘缓存。
+  `excludedResources.plugin-ui-icons` 通过复用脚本已有的排除资源路由拒绝复制，
+  `scripts/test-reuse-worktree-resources.mjs` 验证该路由。
+  没有可复用的版本/平台/架构/工具链 identity stamp，不得从安装包、已签名 app
+  或其他工作树搬运图标；仓库内官方源资源从 Git 获取，构建打包时才复制。
+  校验与渲染不会修改 bundle，因而不改变代码签名或 Sparkle delta 基线。
+
+
+- 插件市场运行时状态：拉取的索引缓存 `<app-cache>/Lithe/PluginMarketplace/<source-id>/index.json`、
+  用户的插件仓库列表 `<app-support>/Lithe/PluginMarketplace/sources.json`，以及下载与解压
+  插件归档的临时目录 `<system-temp>/lithe-plugin-transfer-*`、`<system-temp>/lithe-plugin-download-*`。
+  索引由 Rust Core 校验，归档按索引 SHA-256 校验，但这些都是每个用户、每次运行的状态，
+  不是工作树构建产物，没有版本、平台、架构或工具链 identity stamp；
+  `excludedResources.plugin-marketplace-state` 由复用脚本直接拒绝。官方索引只从 Git 跟踪的
+  `Plugins/marketplace/index.json` 在打包阶段复制为只读的 `Contents/Resources/PluginMarketplace/index.json`，
+  运行时刷新只写 Caches，不改写 app bundle，也不影响签名和 Sparkle delta。
+  官方插件归档由 `.github/workflows/release-official-plugins.yml` 按插件独立 tag 发布，
+  不进入 app 构建或工作树缓存。
+
 - Sparkle 差分基线的单次发布临时目录：
   `<system-temp>/<sparkle-run>/archives/.baseline-<attempt>/` 保存每次 `gh`
   下载尝试，只有命令成功且文件非空才移入同次发布的 `archives/<selected-baseline>.zip`。
@@ -336,8 +414,28 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
   复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
-PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 PHP 包，指定 PHP 包 ID 的构建会失败，不会留下缺少签名文档的目录。无可靠 identity stamp，不跨工作树复制。插件安装后的 Intelephense 位于
-`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/PhpSupport.bundle/Contents/Resources/LanguageServers/php`，由插件版本目录拥有，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
+官方插件包（Go、PHP）是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关；自带运行时的 Java Support 见下文），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 PHP 和 Go 包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后的 Intelephense 位于
+`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
+
+Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行的官方插件包，
+也是唯一自带运行时的包，因此它与架构有关：
+
+- **资源路径**：组装结果在 `.build/<triple>/<configuration>/OfficialPlugins/dev.lithe.plugin.java-support/`，
+  打包后位于 `Lithe.app/Contents/Resources/OfficialPlugins/` 下。包内 `language-server/` 是固定版本的
+  JDT LS 及 Lombok、Java Debug、Java Test 扩展，`runtime/<arch>/` 是它运行所用的 JDK。
+- **组装入口**：`Plugins/mac/Official/JavaSupport/assemble-package.sh`，由
+  `scripts/build-official-plugins.sh` 调用，`--arch arm64|x86_64|universal` 决定带哪些架构的 JDK
+  和 Equinox 配置。应用本身不再包含 `Contents/Resources/LanguageServers`。
+- **是否允许跨 worktree 复用**：组装后的包不允许复用。它由 `jdtls` 和 `jdk` 两个可复用的下载缓存
+  生成，新工作树应复用这两个缓存后在本地重新组装。
+- **身份约束与校验来源**：JDT LS 的版本、下载地址和校验值来自 `third_party/jdtls/manifest.json`，
+  JDK 来自 `third_party/jdk/manifest.json`；`plugin.json` 精确写出入口 jar 的文件名，升级 JDT LS
+  后文件名不一致会在组装时失败。组装结果由 `LitheOfficialPluginVerifier` 校验：入口和各架构的
+  `bin/java` 存在，包内没有符号链接，Mach-O 只出现在清单声明的 `runtime/` 目录内。
+- **运行时状态**：语言服务器的可写状态在 `<app-support>/Lithe/PluginState/<plugin-id>/`，
+  JDT LS 的工作区索引和 Equinox 配置区仍在 `<cache>/Lithe/language-servers/`（`jdtls/`、`jdtls-configuration/`），
+  由 `jdt` 宿主集成在启动时发现没有未卸载的插件声明它后删除。两者都是单次安装的
+  可变状态，任何阶段都不得复制或跨 worktree 共享。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity

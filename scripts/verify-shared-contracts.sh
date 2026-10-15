@@ -148,6 +148,70 @@ fi
   end
 ' "$plugin_fixture"
 
+# Declarative plugin contract v1. Semantics are executed by the Rust Core
+# tests against these files; this gate keeps the contract self-consistent.
+declarative_plugin_contract="shared/contracts/plugins/v1"
+for contract_file in "$declarative_plugin_contract"/**/*.json; do
+    /usr/bin/ruby -rjson -e 'JSON.parse(File.read(ARGV.fetch(0)))' "$contract_file"
+done
+/usr/bin/ruby -rjson -e '
+  root = ARGV.fetch(0)
+  schema = JSON.parse(File.read(File.join(root, "plugin-manifest.schema.json")))
+  abort "plugin manifest schema ID mismatch" unless schema.fetch("$id").end_with?("/plugins/v1/plugin-manifest.schema.json")
+  abort "declarative manifests must use schemaVersion 2" unless schema.fetch("properties").fetch("schemaVersion").fetch("const") == 2
+  readme = File.read(File.join(root, "README.md"), encoding: "UTF-8")
+  documented = readme.scan(/`(plugin\.[a-zA-Z.]+)`/).flatten
+  manifests = Dir[File.join(root, "fixtures", "*.plugin.json")]
+  abort "declarative plugin fixtures are missing" if manifests.empty?
+  manifests.each do |path|
+    manifest = JSON.parse(File.read(path))
+    abort "#{path}: schemaVersion must be 2" unless manifest.fetch("schemaVersion") == 2
+    abort "#{path}: fixture IDs must use dev.lithe.fixture." unless manifest.fetch("id").start_with?("dev.lithe.fixture.")
+  end
+  fixture_names = manifests.map { |path| File.basename(path) }
+  invalid = JSON.parse(File.read(File.join(root, "fixtures", "invalid-manifests.json"))).fetch("cases")
+  invalid.each do |item|
+    abort "invalid case #{item.fetch("name")} uses an unknown base" unless fixture_names.include?(item.fetch("base"))
+    abort "invalid case #{item.fetch("name")} uses an undocumented code" unless documented.include?(item.fetch("expectedCode"))
+  end
+  plans = JSON.parse(File.read(File.join(root, "fixtures", "command-plans.json"))).fetch("cases")
+  plans.each do |item|
+    abort "plan case #{item.fetch("name")} uses an unknown plugin" unless fixture_names.include?(item.fetch("plugin"))
+    abort "plan case #{item.fetch("name")} uses an unknown operation" unless %w[runPlan discoverTests testPlan languageServerLaunchPlan].include?(item.fetch("operation"))
+    expected = item.fetch("expected")
+    if expected.fetch("status") == "rejected"
+      abort "plan case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("code"))
+    end
+  end
+  index_schema = JSON.parse(File.read(File.join(root, "plugin-index.schema.json")))
+  abort "plugin index schema ID mismatch" unless index_schema.fetch("$id").end_with?("/plugins/v1/plugin-index.schema.json")
+  abort "plugin indexes must use schemaVersion 1" unless index_schema.fetch("properties").fetch("schemaVersion").fetch("const") == 1
+  marketplace = File.join(root, "fixtures", "marketplace")
+  index = JSON.parse(File.read(File.join(marketplace, "index.json")))
+  abort "marketplace fixture index must use schemaVersion 1" unless index.fetch("schemaVersion") == 1
+  JSON.parse(File.read(File.join(marketplace, "index-cases.json"))).fetch("cases").each do |item|
+    abort "index case #{item.fetch("name")} uses an unknown source kind" unless %w[official thirdParty].include?(item.fetch("sourceKind"))
+    expected = item.fetch("expected")
+    codes = expected.fetch("rejected").map { |entry| entry.fetch("code") } +
+      expected.fetch("plugins").map { |entry| entry.fetch("availability")["code"] }.compact
+    codes.each do |code|
+      abort "index case #{item.fetch("name")} uses an undocumented code #{code}" unless documented.include?(code)
+    end
+  end
+  JSON.parse(File.read(File.join(marketplace, "invalid-index-entries.json"))).fetch("cases").each do |item|
+    abort "invalid index case #{item.fetch("name")} uses an undocumented code" unless documented.include?(item.fetch("expectedCode"))
+  end
+  JSON.parse(File.read(File.join(marketplace, "source-urls.json"))).fetch("cases").each do |item|
+    code = item["expectedCode"]
+    abort "source case #{item.fetch("input")} uses an undocumented code" if code && !documented.include?(code)
+  end
+  JSON.parse(File.read(File.join(marketplace, "install-reviews.json"))).fetch("cases").each do |item|
+    abort "install review case #{item.fetch("name")} uses an unknown base" unless fixture_names.include?(item.fetch("base"))
+    code = item["expectedCode"]
+    abort "install review case #{item.fetch("name")} uses an undocumented code" if code && !documented.include?(code)
+  end
+' "$declarative_plugin_contract"
+
 /usr/bin/ruby -rjson -e '
   data = JSON.parse(File.read(ARGV.fetch(0)))
   abort "GitHub fixture schema must be 1" unless data.fetch("schemaVersion") == 1

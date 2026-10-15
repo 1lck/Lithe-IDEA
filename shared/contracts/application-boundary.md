@@ -78,14 +78,46 @@ These presentation actions do not add Agent Host commands or persist chat histor
 ### Document encoding
 
 Local text documents expose the selected encoding in the editor status bar. The
-supported labels are `UTF-8`, `UTF-8 with BOM`, `GBK`, `GB18030`, `Shift JIS`,
-and `Windows-1252`. Native adapters auto-detect UTF-8/BOM and the GBK family
-when opening a file; an explicit reopen request decodes with the selected codec
+supported labels are `UTF-8`, `UTF-8 with BOM`, `UTF-16 LE with BOM`,
+`UTF-16 BE with BOM`, `UTF-16 LE`, `UTF-16 BE`, `GBK`, `GB18030`, `Big5`,
+`Shift JIS`, `EUC-JP`, `EUC-KR`, `Windows-1250`, `Windows-1251`,
+`Windows-1252`, and `KOI8-R`. Native adapters auto-detect UTF-8/BOM, UTF-16 by
+its BOM, and the GBK family when opening a file; every other encoding is
+selected explicitly because its bytes cannot be told apart reliably. An
+explicit reopen request decodes with the selected codec
 and exposes replacement characters for invalid byte sequences. “Save
 with Encoding” converts the current Unicode buffer only after the target codec
 accepts every character. Both products preserve the raw-byte identity of the
 last acknowledged disk snapshot and reject a save when another process changed
 those bytes.
+
+### macOS registered workbench tool windows
+
+The macOS host resolves tool-window actions and content from module contributions.
+Project (`workspace.project`), Changes (`git.changes`) and Search (`search.workspace`)
+use the same registry as right/bottom tools and declarative plugin windows. Left,
+right and bottom each have primary and secondary dock groups, with at most one
+visible window per group. Menu moves and pointer drops update the same dock state. Moving or hiding a tool window
+changes presentation only; module ownership and resource lifetime stay in ModuleRuntime.
+A title-bar minimize action closes its own contribution ID in its current region.
+
+Workspace layout stores entry order, visibility and placement by contribution ID.
+Left content selection and expansion have optional fields for compatibility with
+older geometry-only layouts. Legacy workspace session names (`project`, `changes`,
+`search`, `pullRequests`) map to stable IDs; other registered IDs survive as strings.
+Legacy docking enum names also map to contribution IDs without losing group or
+order. Geometry writes merge existing UI preferences. Module release and shutdown do not
+replace saved user visibility with teardown state. Restoring a declarative window
+activates its owner even if its left slot is already selected, without toggling it closed.
+These are macOS host behaviors; Windows adoption remains independent.
+
+Workbench actions share host-owned visibility, enablement, checked and pending state.
+Declarative commands cannot start a duplicate window activation while pending; the
+window entry can cancel its own display request. Invocation revalidates the complete
+current contribution and state, including old menu/palette callbacks. Built-in command
+enablement reuses the existing shortcut policy. One module's concurrent activation
+requests share construction; closing/disable cancels and joins that construction before
+resources are released. A cancelled UI waiter cannot cancel another window's waiter.
 
 ### External HTML preview
 

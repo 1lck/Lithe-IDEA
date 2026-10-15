@@ -9,8 +9,43 @@ enum ProjectRuntimeProcessKind: Sendable {
 extension ProjectRuntimeService: RunRuntimePort {}
 
 extension ProjectRuntimeService: LanguageToolRuntimePort {
-    package func languageToolProcessEnvironment() -> [String: String] {
-        processEnvironment()
+    package func languageToolProcessEnvironment(runtimeTools: [String]) -> [String: String] {
+        var environment = processEnvironment()
+        // Node-based language servers (Intelephense, TypeScript, …) start
+        // through launchers that read LITHE_NODE_PATH. An app opened from the
+        // Dock inherits launchd's PATH, which omits Homebrew and Node version
+        // managers, so pass the discovered executable explicitly.
+        // Language servers start automatically when a file opens, so a
+        // project-provided `node` must never be chosen here: an untrusted
+        // repository could otherwise run its own program.
+        if environment["LITHE_NODE_PATH"]?.isEmpty ?? true,
+           let node = executableCandidates("node").first(where: { $0.source != .project }) {
+            environment["LITHE_NODE_PATH"] = node.executableURL.path
+        }
+        // Declared runtime dependencies are also put on PATH because servers
+        // such as gopls run the tool themselves and cannot be pointed at it
+        // through a launcher variable. The same project-local exclusion applies.
+        var searchPath = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        for tool in runtimeTools {
+            let key = Self.runtimeToolEnvironmentKey(tool)
+            if environment[key]?.isEmpty ?? true,
+               let candidate = executableCandidates(tool).first(where: { $0.source != .project }) {
+                environment[key] = candidate.executableURL.path
+            }
+            guard let configured = environment[key], configured.hasPrefix("/") else { continue }
+            let directory = URL(fileURLWithPath: configured).deletingLastPathComponent().path
+            if !searchPath.contains(directory) {
+                searchPath.insert(directory, at: 0)
+            }
+        }
+        if !runtimeTools.isEmpty {
+            environment["PATH"] = searchPath.joined(separator: ":")
+        }
+        return environment
+    }
+
+    static func runtimeToolEnvironmentKey(_ tool: String) -> String {
+        LanguageToolEnvironment.runtimeToolKey(tool)
     }
 
     package func missingLanguageToolMessage(_ name: String) -> String {
@@ -49,6 +84,8 @@ final class ProjectRuntimeService: ObservableObject {
     private var discoveryTask: Task<Void, Never>?
     private var activeDiscoveryID: UUID?
     private var javaLanguageServerRuntimePreparation: JavaLanguageServerRuntimePreparation = .unprepared
+    /// JDK home shipped by the plugin that provides Java language support.
+    private var javaLanguageServerRuntimeHome: URL?
     /// Project whose runtimes `javaRuntimes` and `mavenRuntimes` describe.
     @Published private var discoveredProjectURL: URL?
 
@@ -227,6 +264,17 @@ final class ProjectRuntimeService: ObservableObject {
         javaHomeURL(overridePath: overridePath)?.appendingPathComponent("bin/java")
     }
 
+    /// The `java` a debugged JVM starts on: the same selection Run makes for
+    /// the same target, so the two never drift apart.
+    func javaExecutableURL(forDebugging runtime: DebugJavaRuntime) -> URL? {
+        switch runtime {
+        case .java(let homeOverride):
+            return javaExecutableURL(overridePath: homeOverride)
+        case .maven(let homeOverride):
+            return mavenJavaHomeURL(overridePath: homeOverride)?.appendingPathComponent("bin/java")
+        }
+    }
+
     /// Resolves only explicit project/settings/environment JDK paths.  Unlike
     /// `javaExecutableURL()`, this method never falls back to discovery or
     /// probes `java -version`, so capability checks can remain inert.
@@ -251,25 +299,38 @@ final class ProjectRuntimeService: ObservableObject {
         return false
     }
 
-    /// Probes only the application-owned Temurin 21 runtime. Project JDKs and
-    /// user environment variables never influence the language-server process.
+    /// Sets the JDK that the Java language server runs on. The composition
+    /// root reads it from the installed plugin's declaration; `nil` means no
+    /// installed plugin provides Java language support.
+    func setJavaLanguageServerRuntimeHome(_ homeURL: URL?) {
+        javaLanguageServerRuntimeHome = homeURL?.standardizedFileURL
+        javaLanguageServerRuntimePreparation = .unprepared
+    }
+
+    /// Probes only the runtime shipped by the Java Support plugin. Project JDKs
+    /// and user environment variables never influence the language-server process.
     @discardableResult
     func prepareJavaLanguageServerRuntime() async -> JavaLanguageServerRuntimePreparation {
         if javaLanguageServerRuntimePreparation != .unprepared {
             return javaLanguageServerRuntimePreparation
         }
         let runtimeLocator = runtimeLocator
+        guard let home = javaLanguageServerRuntimeHome else {
+            // Not cached: installing or restoring the plugin changes the answer.
+            return .failed(
+                message: "Java language support is provided by the Java Support plugin, which is not installed. Install or restore it in Settings > Plugins."
+            )
+        }
         let preparation = await Task.detached(priority: .utility) {
-            guard let home = runtimeLocator.bundledJdkHome(),
-                  let runtime = runtimeLocator.javaRuntime(at: home) else {
+            guard let runtime = runtimeLocator.javaRuntime(at: home) else {
                 return JavaLanguageServerRuntimePreparation.failed(
-                    message: "The bundled Temurin JDK 21 is missing or invalid. Reinstall Lithe."
+                    message: "The Java Support plugin's runtime is missing or invalid. Reinstall the plugin."
                 )
             }
-            guard runtime.majorVersion == 21,
+            guard let majorVersion = runtime.majorVersion, majorVersion >= 21,
                   let validHome = runtimeLocator.validJavaHome(path: runtime.homePath) else {
                 return JavaLanguageServerRuntimePreparation.failed(
-                    message: "The bundled JDTLS runtime must be Temurin JDK 21; found \(runtime.version). Reinstall Lithe."
+                    message: "The Java Support plugin's runtime must be Java 21 or newer; found \(runtime.version). Reinstall the plugin."
                 )
             }
             return JavaLanguageServerRuntimePreparation.ready(

@@ -7,11 +7,16 @@ description = "Shared ACP session and agent process host for Lithe"
 
 [dependencies]
 agent-client-protocol = { version = "=2.2.0", features = ["unstable_end_turn_token_usage"] }
+bytes = "1"
 futures = "0.3"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 kill_tree = { version = "0.2", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 serde_json = "1"
-tokio = { version = "1", features = ["io-util", "process", "rt", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "net", "process", "rt", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }

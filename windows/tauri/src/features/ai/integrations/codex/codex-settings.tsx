@@ -2,7 +2,7 @@ import { invoke } from "@/platform/tauri-core";
 import { useCallback, useEffect, useState } from "react";
 import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import { Spinner } from "@/ui/spinner";
 import Section, {
   SETTINGS_CONTROL_WIDTHS,
@@ -77,15 +77,10 @@ export function CodexSettings() {
   };
 
   return (
-    <Section
-      title={t("codexSettings.title")}
-      description={t("codexSettings.description")}
-    >
+    <Section title={t("codexSettings.title")} description={t("codexSettings.description")}>
       <SettingRow
         label={t("codexSettings.cli")}
-        description={
-          status?.version ?? status?.error ?? t("codexSettings.installCliDescription")
-        }
+        description={status?.version ?? status?.error ?? t("codexSettings.installCliDescription")}
       >
         <div className="flex items-center gap-2">
           <Badge variant="default">
@@ -112,7 +107,7 @@ export function CodexSettings() {
         </div>
       </SettingRow>
       <SettingRow label={t("aiSettings.model")} description={t("codexSettings.modelDescription")}>
-        <Select
+        <SettingsSelect
           value={settings.model ?? ""}
           options={models.map((model) => ({
             value: model.id ?? model.model,
@@ -124,24 +119,33 @@ export function CodexSettings() {
           searchable
         />
       </SettingRow>
-      <SettingRow label={t("codexSettings.reasoning")} description={t("codexSettings.reasoningDescription")}>
-        <Select
+      <SettingRow
+        label={t("codexSettings.reasoning")}
+        description={t("codexSettings.reasoningDescription")}
+      >
+        <SettingsSelect
           value={settings.effort ?? "medium"}
           options={effortOptions}
           onChange={(effort) => update({ effort })}
           className={SETTINGS_CONTROL_WIDTHS.wide}
         />
       </SettingRow>
-      <SettingRow label={t("codexSettings.workspaceAccess")} description={t("codexSettings.workspaceAccessDescription")}>
-        <Select
+      <SettingRow
+        label={t("codexSettings.workspaceAccess")}
+        description={t("codexSettings.workspaceAccessDescription")}
+      >
+        <SettingsSelect
           value={settings.sandbox ?? "workspace-write"}
           options={sandboxOptions}
           onChange={(sandbox) => update({ sandbox })}
           className={SETTINGS_CONTROL_WIDTHS.wide}
         />
       </SettingRow>
-      <SettingRow label={t("codexSettings.approvals")} description={t("codexSettings.approvalsDescription")}>
-        <Select
+      <SettingRow
+        label={t("codexSettings.approvals")}
+        description={t("codexSettings.approvalsDescription")}
+      >
+        <SettingsSelect
           value={settings.approvalPolicy ?? "on-request"}
           options={approvalOptions}
           onChange={(approvalPolicy) => update({ approvalPolicy })}
@@ -153,12 +157,19 @@ export function CodexSettings() {
         description={t("codexSettings.capabilitiesDescription")}
       >
         <div className="flex items-center gap-1.5">
-          <Badge variant="default">{t("codexSettings.threadsCount", { count: details.threads })}</Badge>
-          <Badge variant="default">{t("codexSettings.skillsCount", { count: details.skills })}</Badge>
+          <Badge variant="default">
+            {t("codexSettings.threadsCount", { count: details.threads })}
+          </Badge>
+          <Badge variant="default">
+            {t("codexSettings.skillsCount", { count: details.skills })}
+          </Badge>
           <Badge variant="default">{details.mcp} MCP</Badge>
         </div>
       </SettingRow>
-      <SettingRow label={t("codexSettings.account")} description={t("codexSettings.accountDescription")}>
+      <SettingRow
+        label={t("codexSettings.account")}
+        description={t("codexSettings.accountDescription")}
+      >
         <div className="flex items-center gap-2">
           <Button
             size="sm"

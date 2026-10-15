@@ -12,10 +12,10 @@ struct LSPControlCenterView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     projectSummary
-                    if let phpNotice = phpNotice {
-                        phpPluginNotice(phpNotice)
+                    ForEach(pluginNotices, id: \.self) { notice in
+                        phpPluginNotice(notice)
                     }
-                    if projectLanguageServers.isEmpty && phpNotice == nil {
+                    if projectLanguageServers.isEmpty && pluginNotices.isEmpty {
                         emptyState
                     } else {
                         ForEach(projectLanguageServers) { descriptor in
@@ -122,85 +122,86 @@ struct LSPControlCenterView: View {
     }
 
     private var degradedCatalogNotice: some View {
-        Label(
-            usesChinese ? "语言服务器配置加载异常，当前正在使用兼容配置。" : "Language server configuration is degraded; compatibility settings are in use.",
-            systemImage: "exclamationmark.triangle.fill"
-        )
-        .font(LitheTheme.uiFont(size: 11))
-        .foregroundStyle(LitheTheme.warning)
+        LitheBanner(status: .warning) {
+            Text(usesChinese ? "语言服务器配置加载异常，当前正在使用兼容配置。" : "Language server configuration is degraded; compatibility settings are in use.")
+        }
     }
 
     private var projectLanguageServers: [LanguageProviderDescriptor] {
         model.languageProviderCatalog.descriptors
             .filter { $0.capabilities.contains(.languageServer) && $0.languageServerLaunch != nil }
             .filter { descriptor in
-                descriptor.id != "php" || phpPluginIsReady
+                guard let entry = officialPluginEntry(languageID: descriptor.id) else { return true }
+                return pluginIsReady(entry)
             }
             .filter { descriptor in
                 model.projectFiles.contains { descriptor.handles(fileURL: $0) }
             }
     }
 
-    private var phpPluginSnapshot: PluginManagementSnapshot? {
-        model.pluginSnapshots.first { $0.id == OfficialPluginCatalog.phpPluginID }
+    // Languages owned by an official plugin are controlled here only once
+    // that plugin is installed, enabled, and loaded in this process.
+    private func officialPluginEntry(languageID: String) -> OfficialPluginCatalog.Entry? {
+        OfficialPluginCatalog.entries.first { $0.languageID == languageID }
     }
 
-    private var phpPluginIsReady: Bool {
-        guard let snapshot = phpPluginSnapshot else { return false }
+    private func pluginSnapshot(_ entry: OfficialPluginCatalog.Entry) -> PluginManagementSnapshot? {
+        model.pluginSnapshots.first { $0.id == entry.id }
+    }
+
+    private func pluginIsReady(_ entry: OfficialPluginCatalog.Entry) -> Bool {
+        guard let snapshot = pluginSnapshot(entry) else { return false }
         return snapshot.isEnabled && !snapshot.requiresRestart && !snapshot.isQuarantined
     }
 
-    private var hasPHPProjectFiles: Bool {
+    private func projectUses(_ entry: OfficialPluginCatalog.Entry) -> Bool {
         model.projectFiles.contains { fileURL in
-            let pathExtension = fileURL.pathExtension.lowercased()
-            return ["php", "phtml"].contains(pathExtension)
-                || fileURL.lastPathComponent.lowercased() == "composer.json"
+            entry.fileExtensions.contains(fileURL.pathExtension.lowercased())
+                || entry.projectFileNames.contains(fileURL.lastPathComponent.lowercased())
         }
     }
 
-    private var phpNotice: String? {
-        guard hasPHPProjectFiles, !phpPluginIsReady else { return nil }
-        guard let snapshot = phpPluginSnapshot else {
+    private var pluginNotices: [String] {
+        OfficialPluginCatalog.entries.compactMap { entry in
+            guard projectUses(entry), !pluginIsReady(entry) else { return nil }
+            return pluginNotice(entry)
+        }
+    }
+
+    private func pluginNotice(_ entry: OfficialPluginCatalog.Entry) -> String {
+        let name = entry.displayName
+        let language = entry.languageDisplayName
+        guard let snapshot = pluginSnapshot(entry) else {
             return usesChinese
-                ? "检测到 PHP 项目，请先在插件管理中下载并安装 PHP 支持。"
-                : "This PHP project needs PHP Support. Download and install it from Plugin Management."
+                ? "检测到 \(language) 项目，请先在插件管理中下载并安装 \(name)。"
+                : "This \(language) project needs \(name). Download and install it from Plugin Management."
+        }
+        if snapshot.installationStatus == .removed {
+            return usesChinese
+                ? "检测到 \(language) 项目，但 \(name) 已被移除。请在插件管理中恢复它，然后重启 Lithe。"
+                : "This \(language) project needs \(name), which was removed. Restore it from Plugin Management, then restart Lithe."
         }
         if snapshot.requiresRestart {
             return usesChinese
-                ? "PHP 支持已安装，重启 Lithe 后才能在这里控制语言服务器。"
-                : "PHP Support is installed. Restart Lithe before controlling its language server here."
+                ? "\(name) 已安装，重启 Lithe 后才能在这里控制语言服务器。"
+                : "\(name) is installed. Restart Lithe before controlling its language server here."
         }
         if snapshot.isQuarantined {
             return usesChinese
-                ? "PHP 支持因上次启动异常被隔离，请先在插件管理中重新启用。"
-                : "PHP Support was quarantined after its previous session. Re-enable it from Plugin Management."
+                ? "\(name) 因上次启动异常被隔离，请先在插件管理中重新启用。"
+                : "\(name) was quarantined after its previous session. Re-enable it from Plugin Management."
         }
         return usesChinese
-            ? "PHP 支持插件已禁用，请先在插件管理中启用。"
-            : "PHP Support is disabled. Enable it from Plugin Management first."
+            ? "\(name) 插件已禁用，请先在插件管理中启用。"
+            : "\(name) is disabled. Enable it from Plugin Management first."
     }
 
     private func phpPluginNotice(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(message, systemImage: "puzzlepiece.extension")
-                .font(.system(size: 12))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
+        LitheBanner(status: .info) {
+            Text(message).fixedSize(horizontal: false, vertical: true)
             Button(usesChinese ? "打开插件管理" : "Open Plugin Management") {
                 model.showSettings(category: .plugins)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
-                .fill(LitheTheme.settingsSurface)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
-                .stroke(LitheTheme.divider, lineWidth: 1)
         }
     }
 

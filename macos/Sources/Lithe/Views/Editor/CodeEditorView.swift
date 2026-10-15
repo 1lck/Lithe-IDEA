@@ -3474,11 +3474,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     private func isEditorHitTarget(at point: NSPoint) -> Bool {
-        guard let contentView = window?.contentView,
-              let hitView = contentView.hitTest(convert(point, to: contentView)) else {
-            return false
-        }
-        return hitView === self || hitView.isDescendant(of: self)
+        LitheTextViewportLayout.isPointerHitTarget(self, at: convert(point, to: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -4349,6 +4345,11 @@ final class LineNumberGutterView: NSView {
     private var foldIndicatorAnimationTimer: Timer?
     private var trackingArea: NSTrackingArea?
     private var hoveredDebugBreakpointLine: Int?
+    var usesDatabaseConsoleAppearance = false
+    var currentConsoleLine = 1
+    var consoleExecutionMarkers: [Int: String] = [:] {
+        didSet { if consoleExecutionMarkers != oldValue { needsDisplay = true } }
+    }
     private var palette = CodeEditorPalette.dark
     private var gitLineChangeMarkersByLine: [Int: GitLineChangeMarker] = [:]
     private var onShowGitLineChange: ((GitLineChangeMarker) -> Void)?
@@ -4358,6 +4359,8 @@ final class LineNumberGutterView: NSView {
     private var contextGitLineChange: GitLineChangeMarker?
     private var foldsByStartLine: [Int: [JavaFoldRegion]] = [:]
     private var gutterLayout = EditorGutterLayout(lineNumberTextWidth: 0)
+    private var consoleLineNumberRightEdge: CGFloat = 22
+    var consoleLineNumberOnlyWidth: CGFloat { consoleLineNumberRightEdge + 4 }
 
     private var editorGutterOriginX: CGFloat {
         isBlameVisible ? EditorLayoutMetrics.blameMetadataWidth : 0
@@ -4406,12 +4409,17 @@ final class LineNumberGutterView: NSView {
 
     func refreshLineNumberLayout() {
         guard let textView else { return }
-        let maximumLineNumber = max(1, (textView as? CodeTextView)?.lineCount() ?? 1)
+        let maximumLineNumber = max(1, (textView as? CodeTextView)?.lineCount() ?? textView.string.reduce(1) { $1 == "\n" ? $0 + 1 : $0 })
         let editorFont = textView.font ?? LitheTheme.editorFont(size: 13)
-        let lineNumberFont = EditorGutterLayout.lineNumberFont(for: editorFont)
+        let lineNumberFont = usesDatabaseConsoleAppearance ? editorFont : EditorGutterLayout.lineNumberFont(for: editorFont)
         let textWidth = (String(maximumLineNumber) as NSString).size(
             withAttributes: [.font: lineNumberFont]
         ).width
+        if usesDatabaseConsoleAppearance {
+            // Community New UI: 4pt empty annotation area + 4pt gap, with a 14pt breakpoint placeholder.
+            consoleLineNumberRightEdge = 8 + max(14, ceil(textWidth))
+            needsDisplay = true
+        }
         let nextLayout = EditorGutterLayout(lineNumberTextWidth: textWidth, isSearchPreview: isSearchPreview)
         guard gutterLayout != nextLayout else { return }
         gutterLayout = nextLayout
@@ -4419,7 +4427,7 @@ final class LineNumberGutterView: NSView {
         needsDisplay = true
     }
 
-    fileprivate func applyAppearance(_ palette: CodeEditorPalette, isTransparent: Bool = false) {
+    func applyAppearance(_ palette: CodeEditorPalette, isTransparent: Bool = false) {
         guard self.palette.isDark != palette.isDark
             || self.palette.theme != palette.theme
             || displaysTransparentBackground != isTransparent else { return }
@@ -4682,7 +4690,7 @@ final class LineNumberGutterView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if !displaysTransparentBackground {
-            palette.gutterBackground.setFill()
+            (usesDatabaseConsoleAppearance ? NSColor(LitheTheme.DatabaseGrid.background) : palette.gutterBackground).setFill()
             dirtyRect.fill()
         }
         guard let textView,
@@ -4691,6 +4699,14 @@ final class LineNumberGutterView: NSView {
               let textContainer = textView.textContainer else { return }
 
         let visibleRect = scrollView.documentVisibleRect
+        if usesDatabaseConsoleAppearance {
+            var line = LitheTextViewportLayout.consoleCaretLineRect(in: textView)
+            line.origin.x = bounds.minX
+            line.origin.y -= visibleRect.minY
+            line.size.width = bounds.width
+            NSColor(LitheTheme.DatabaseGrid.currentRowBackground).setFill()
+            line.intersection(dirtyRect).fill()
+        }
         let textContainerVisibleRect = NSRect(
             x: visibleRect.minX - textView.textContainerOrigin.x,
             y: visibleRect.minY - textView.textContainerOrigin.y,
@@ -4702,10 +4718,9 @@ final class LineNumberGutterView: NSView {
             in: textContainer
         )
         guard layoutManager.numberOfGlyphs > 0 else {
-            let lineHeight = max(
-                18,
-                layoutManager.defaultLineHeight(for: textView.font ?? LitheTheme.editorFont(size: 13))
-            )
+            let lineHeight = usesDatabaseConsoleAppearance
+                ? LitheTextViewportLayout.consoleLineHeight(in: textView)
+                : max(18, layoutManager.defaultLineHeight(for: textView.font ?? LitheTheme.editorFont(size: 13)))
             drawLineNumber(1, y: textView.textContainerInset.height, height: lineHeight)
             drawEditorDivider(in: dirtyRect)
             return
@@ -4749,7 +4764,7 @@ final class LineNumberGutterView: NSView {
                 lineNumber += 1
                 continue
             }
-            if lineNumber - 1 == currentLine {
+            if !usesDatabaseConsoleAppearance, lineNumber - 1 == currentLine {
                 palette.currentLine.setFill()
                 NSRect(
                     x: bounds.minX + EditorLayoutMetrics.currentLineHorizontalInset,
@@ -4818,11 +4833,18 @@ final class LineNumberGutterView: NSView {
             lineNumber += 1
         }
 
+        if usesDatabaseConsoleAppearance, layoutManager.extraLineFragmentTextContainer === textContainer {
+            let extra = layoutManager.extraLineFragmentRect
+            // TextKit's EOF fragment omits paragraph line spacing; use the same height as a typed console line.
+            drawLineNumber(TextLineIndex(source: textView.string as NSString).starts.count,
+                           y: extra.minY + textView.textContainerOrigin.y - visibleRect.minY,
+                           height: LitheTextViewportLayout.consoleLineHeight(in: textView))
+        }
         drawEditorDivider(in: dirtyRect)
     }
 
     private func drawEditorDivider(in dirtyRect: NSRect) {
-        palette.gutterDivider.setFill()
+        (usesDatabaseConsoleAppearance ? NSColor(LitheTheme.DatabaseGrid.border) : palette.gutterDivider).setFill()
         if isBlameVisible {
             NSRect(
                 x: EditorLayoutMetrics.blameMetadataWidth,
@@ -4836,7 +4858,7 @@ final class LineNumberGutterView: NSView {
                    y: dirtyRect.minY, width: 1, height: dirtyRect.height).fill()
         }
         NSRect(
-            x: bounds.width - 1,
+            x: bounds.width - (usesDatabaseConsoleAppearance ? 3 : 1),
             y: dirtyRect.minY,
             width: 1,
             height: dirtyRect.height
@@ -4854,16 +4876,18 @@ final class LineNumberGutterView: NSView {
                     size: max(8, editorFont.pointSize - 1),
                     weight: .semibold
                 )
-                : EditorGutterLayout.lineNumberFont(for: editorFont),
+                : (usesDatabaseConsoleAppearance ? editorFont : EditorGutterLayout.lineNumberFont(for: editorFont)),
             .foregroundColor: isExecutionLine
                 ? palette.link
-                : (isBreakpointLine ? palette.text : palette.lineNumber)
+                : (usesDatabaseConsoleAppearance
+                    ? NSColor(number == currentConsoleLine ? LitheTheme.DatabaseGrid.currentRowNumber : LitheTheme.DatabaseGrid.rowNumber)
+                    : (isBreakpointLine ? palette.text : palette.lineNumber))
         ]
         let size = label.size(withAttributes: attributes)
         let centeredY = y + max(0, (height - size.height) / 2)
         label.draw(
             at: NSPoint(
-                x: editorGutterOriginX + max(
+                x: usesDatabaseConsoleAppearance ? consoleLineNumberRightEdge - size.width : editorGutterOriginX + max(
                     gutterLayout.lineNumberRange.lowerBound,
                     gutterLayout.lineNumberRange.upperBound
                         - size.width
@@ -4873,6 +4897,12 @@ final class LineNumberGutterView: NSView {
             ),
             withAttributes: attributes
         )
+        if usesDatabaseConsoleAppearance, let path = consoleExecutionMarkers[number] {
+            let resource = palette.isDark ? LitheIcons.darkIdeaAssetPath(for: path) : path
+            LitheIcons.ideaImage(resourcePath: resource)?.draw(in: NSRect(x: consoleLineNumberRightEdge + 4,
+                y: y + (height - 16) / 2, width: 16, height: 16), from: .zero, operation: .sourceOver,
+                fraction: 1, respectFlipped: true, hints: nil)
+        }
     }
 
     private func drawFoldIndicator(_ region: JavaFoldRegion, y: CGFloat, height: CGFloat) {

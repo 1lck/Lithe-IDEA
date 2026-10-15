@@ -86,6 +86,13 @@ state is `interrupted`, with controls disabled until a refreshed query can
 verify it. Request cancellation terminates the process; it does not invoke
 Abort. A transport failure must be followed by session inspection before retry.
 
+Post-mutation inspection retains the request's remaining absolute deadline and
+cancellation token while that request is active. If cancellation or timeout has
+already occurred before inspection, a separate two-second cleanup deadline lets
+Core inspect the surviving state without issuing another rebase mutation. The
+original request scope is restored on exit. Cancellation or timeout during normal
+inspection uses the existing inspection warning and disabled-control fallback.
+
 Existing `git.write` operationContinue/operationSkip/operationAbort controls
 recognize an owned session and restore its editor environment, preserving
 compatibility with the existing operation banner. External Git operations use

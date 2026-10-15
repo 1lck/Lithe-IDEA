@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.php-support",
+  "displayName": "PHP Support Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 1,
+  "vendor": {
+    "id": "dev.lithe",
+    "displayName": "Lithe",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "languageServer.launch",
+    "process.run",
+    "process.test"
+  ],
+  "activationEvents": [
+    "onLanguage:php",
+    "onRun:php",
+    "onTest:php"
+  ],
+  "languages": [
+    {
+      "id": "php",
+      "displayName": "PHP",
+      "fileExtensions": [
+        "php",
+        "phtml"
+      ],
+      "projectFileNames": [
+        "composer.json"
+      ]
+    }
+  ],
+  "languageServers": [
+    {
+      "languageID": "php",
+      "languageIdentifier": "php",
+      "launch": {
+        "kind": "packaged",
+        "path": "language-server/bin/intelephense"
+      },
+      "arguments": [
+        "--stdio"
+      ],
+      "validationArguments": [],
+      "runtimeDependencies": [
+        {
+          "tool": "node"
+        }
+      ]
+    }
+  ],
+  "executionProviders": [
+    {
+      "languageID": "php",
+      "run": {
+        "executable": {
+          "command": "php"
+        },
+        "arguments": [
+          "${file}",
+          "${userArguments}"
+        ]
+      },
+      "test": {
+        "frameworkID": "phpunit",
+        "workspaceLabel": "All PHP Tests",
+        "projectMarkers": [
+          "composer.json",
+          "phpunit.xml",
+          "phpunit.xml.dist"
+        ],
+        "testFilePatterns": [
+          "*test.php"
+        ],
+        "executable": {
+          "command": "php"
+        },
+        "workspaceArguments": [
+          "vendor/bin/phpunit"
+        ],
+        "fileArguments": [
+          "vendor/bin/phpunit",
+          "${file}"
+        ],
+        "testCaseArguments": [
+          "vendor/bin/phpunit",
+          "--filter",
+          "\\b${testName:regex}\\b",
+          {
+            "value": "${file}",
+            "when": "fileSelected"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -21,19 +21,26 @@ SWIFT_BUILD_ARGS=(
 # every product also recompiles the macOS application and exposes this focused
 # check to unrelated Swift compiler failures.
 swift build "${SWIFT_BUILD_ARGS[@]}" --product LitheOfficialPluginVerifier
-PLUGIN_ROOT=$(scripts/build-official-plugins.sh \
-    --configuration debug \
-    --triple "$TRIPLE")
+# Go and PHP Support are publisher-signed. Without the release key (pull
+# request CI) build unsigned development packages instead, so their manifests
+# and packaged resources are still verified; the signed path is covered when
+# the key is available.
+BUILD_ARGS=(--configuration debug --triple "$TRIPLE")
+if [[ -z "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
+    BUILD_ARGS+=(--development-unsigned)
+fi
+PLUGIN_ROOT=$(scripts/build-official-plugins.sh "${BUILD_ARGS[@]}")
 [[ -d "$PLUGIN_ROOT" ]] || {
     print -u2 -- "Official plugin build returned an invalid package root: $PLUGIN_ROOT"
     exit 1
 }
-if [[ -n "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
-    [[ -d "$PLUGIN_ROOT/dev.lithe.plugin.php-support" ]] || {
-        print -u2 -- "Publisher key was provided but the PHP plugin package was not built"
+# A verification that sees zero packages must fail, not pass vacuously.
+for official_plugin in dev.lithe.plugin.php-support dev.lithe.plugin.go-support dev.lithe.plugin.java-support; do
+    [[ -d "$PLUGIN_ROOT/$official_plugin" ]] || {
+        print -u2 -- "Official plugin package was not built: $official_plugin"
         exit 1
     }
-fi
+done
 plugins=("$PLUGIN_ROOT"/*(/N))
 package_signer_binary=""
 for plugin in "${plugins[@]}"; do
@@ -43,12 +50,21 @@ for plugin in "${plugins[@]}"; do
             print -u2 -- "PHP plugin language-server manifest is missing: $plugin"
             exit 1
         }
-        php_launcher="$plugin/PhpSupport.bundle/Contents/Resources/LanguageServers/php/bin/intelephense"
+        php_launcher="$plugin/language-server/bin/intelephense"
         [[ -x "$php_launcher" ]] || {
             print -u2 -- "PHP plugin Intelephense launcher is missing: $php_launcher"
             exit 1
         }
-        /usr/bin/codesign --verify --deep --strict "$plugin/PhpSupport.bundle"
+    fi
+    # A package that ships inside the application is sealed by the app's code
+    # signature instead of a publisher signature.
+    signature_requirement=$(/usr/bin/plutil -extract vendor.signatureRequirement raw "$plugin/plugin.json")
+    if [[ "$signature_requirement" == "publisherPackage" \
+        && -n "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" && ! -f "$plugin/lithe-plugin-signature.json" ]]; then
+        print -u2 -- "Publisher key was provided but $plugin:t is not signed"
+        exit 1
+    fi
+    if [[ -f "$plugin/lithe-plugin-signature.json" ]]; then
         if [[ -z "$package_signer_binary" ]]; then
             swift build "${SWIFT_BUILD_ARGS[@]}" --product LithePluginPackageSigner
             signer_bin_dir=$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)
@@ -61,4 +77,4 @@ for plugin in "${plugins[@]}"; do
         "$package_signer_binary" --verify "$plugin"
     fi
 done
-print "Verified ${#plugins[@]} official native plugin package(s)"
+print "Verified ${#plugins[@]} official declarative plugin package(s)"

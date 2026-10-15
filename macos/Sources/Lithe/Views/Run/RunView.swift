@@ -8,6 +8,8 @@ struct RunView: View {
         get { feature.selectedProjectSessionID }
         nonmutating set { feature.selectedConfigurationID = newValue ?? RunConfiguration.currentFileID }
     }
+    @State private var scopeListActive = false
+    @State private var configurationListActive = false
     @State private var browser = RunBrowserState()
     @State private var contentTab: ContentTab = .console
     @State private var selectionWorkspacePath: String?
@@ -35,7 +37,6 @@ struct RunView: View {
 
             if !feature.portConflicts.isEmpty {
                 portConflictBanner
-                Rectangle().fill(LitheTheme.warning.opacity(0.35)).frame(height: 1)
             }
 
             if let notice = configurationNotice {
@@ -59,8 +60,8 @@ struct RunView: View {
             } else {
                 RunServicesSplitView(
                     isScopeCollapsed: isConfigurationListCollapsed,
-                    scopes: scopeList,
-                    configurations: applicationTypeList,
+                    scopes: scopeList.background(LitheToolWindowActivityTracker(isActive: $scopeListActive)),
+                    configurations: applicationTypeList.background(LitheToolWindowActivityTracker(isActive: $configurationListActive)),
                     content: selectedConfigurationContent
                 )
             }
@@ -209,33 +210,15 @@ struct RunView: View {
     private func configurationNoticeBanner(
         _ notice: (title: String, message: String, systemImage: String)
     ) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: notice.systemImage)
-                .foregroundStyle(LitheTheme.warning)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(notice.title)
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
-                Text(notice.message)
-                    .font(LitheTheme.uiFont(size: 11))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 8)
+        LitheBanner(status: .warning, layout: .editor) {
+            Text(notice.title).litheBannerTitle()
+            Text(notice.message).lineLimit(2)
             if feature.configurationDiagnostics.contains(where: { $0.code == "staleFingerprint" }) {
-                Button("Identify Again") {
-                    feature.requestRunConfigurationGeneration()
-                }
-                .controlSize(.small)
+                Button("Identify Again") { feature.requestRunConfigurationGeneration() }
             } else if feature.blockingToolchainDiagnostic != nil {
-                Button("Project · JDK & Maven") {
-                    model.showSettings(category: .project)
-                }
-                .controlSize(.small)
+                Button("Project · JDK & Maven") { model.showSettings(category: .project) }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(LitheTheme.warning.opacity(0.08))
     }
 
     private var configurationSetupTitle: String {
@@ -402,18 +385,11 @@ struct RunView: View {
     }
 
     private var portConflictBanner: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        LitheBanner(status: .warning, layout: .editor) {
             ForEach(feature.portConflicts) { conflict in
-                Label(conflict.title, systemImage: "exclamationmark.triangle.fill")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.warning)
-                    .lineLimit(2)
+                Text(conflict.title).lineLimit(2)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(Color.orange.opacity(0.10))
     }
 
     private var selectedModuleSession: RunSession? {
@@ -528,6 +504,7 @@ struct RunView: View {
                             isRunning: feature.isRunning,
                             exitCode: feature.lastExitCode,
                             isSelected: selectedSessionID == nil,
+                            isFocused: scopeListActive,
                             onToggle: nil
                         ) {
                             selectedSessionID = nil
@@ -563,7 +540,7 @@ struct RunView: View {
         .font(LitheTheme.uiFont(size: 11.5))
         .padding(.horizontal, 6)
         .frame(height: 30)
-        .background(browser.scope == scope ? LitheTheme.subtleSelection : .clear)
+        .litheSelectionRow(isSelected: browser.scope == scope, isFocused: scopeListActive)
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
@@ -719,6 +696,7 @@ struct RunView: View {
             isRunning: session?.isRunning ?? false,
             exitCode: session?.exitCode,
             isSelected: selectedSessionID == configuration.id,
+            isFocused: configurationListActive,
             isPinned: isPinned(configuration),
             onPin: { togglePinned(configuration) },
             onEdit: { editInSettings(configuration) },
@@ -1025,6 +1003,7 @@ struct RunView: View {
         isRunning: Bool,
         exitCode: Int32?,
         isSelected: Bool,
+        isFocused: Bool,
         isPinned: Bool = false,
         onPin: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
@@ -1122,7 +1101,7 @@ struct RunView: View {
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: 34)
-        .background(isSelected ? LitheTheme.subtleSelection : .clear)
+        .litheSelectionRow(isSelected: isSelected, isFocused: isFocused)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .contentShape(Rectangle())
         .onTapGesture(perform: action)

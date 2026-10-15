@@ -137,6 +137,35 @@
         ]
       }
     },
+    "modelCall": {
+      "kind": "modelCall",
+      "sessionId": "session-1",
+      "call": {
+        "api": "anthropicMessages", "model": "claude-sonnet", "status": 200, "streaming": true,
+        "firstTokenMs": 820, "durationMs": 6400,
+        "usage": { "inputTokens": 1200, "cacheReadTokens": 42000, "cacheWriteTokens": 800, "outputTokens": 640 },
+        "context": { "systemPromptTokens": 4500, "toolTokens": 3500, "mcpToolTokens": 14000, "messageTokens": 22000, "toolCount": 18, "mcpToolCount": 40, "scaledToUsage": true }
+      }
+    },
+    "modelCallAfterTurn": {
+      "kind": "modelCall",
+      "sessionId": "session-1",
+      "afterTurnFinished": true,
+      "call": {
+        "api": "anthropicMessages", "model": "claude-sonnet", "status": 200, "streaming": true,
+        "firstTokenMs": 820, "durationMs": 6400,
+        "usage": { "inputTokens": 1200, "cacheReadTokens": 42000, "cacheWriteTokens": 800, "outputTokens": 640 },
+        "context": { "systemPromptTokens": 4500, "toolTokens": 3500, "mcpToolTokens": 14000, "messageTokens": 22000, "toolCount": 18, "mcpToolCount": 40, "scaledToUsage": true }
+      }
+    },
+    "modelCallNonStreaming": {
+      "kind": "modelCall",
+      "sessionId": "session-1",
+      "call": {
+        "api": "responses", "status": 200, "streaming": false, "durationMs": 3000,
+        "usage": { "inputTokens": 500, "cacheReadTokens": 0, "cacheWriteTokens": 0, "outputTokens": 300, "reasoningTokens": 100 }
+      }
+    },
     "turnFinished": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn" },
     "turnFinishedWithUsage": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn", "usage": { "totalTokens": 25000, "inputTokens": 18000, "outputTokens": 2000, "thoughtTokens": 1000, "cachedReadTokens": 3000, "cachedWriteTokens": 1000 } },
     "turnCancelled": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "cancelled" },
@@ -168,7 +197,98 @@
             }
           }
         }
+      },
+      "restoredMeta": {
+        "claudeCode": {
+          "options": {
+            "env": {
+              "ANTHROPIC_BASE_URL": "https://gateway.example.com",
+              "ANTHROPIC_API_KEY": "test-key-123",
+              "ANTHROPIC_AUTH_TOKEN": "",
+              "ANTHROPIC_CUSTOM_HEADERS": "",
+              "CLAUDE_CODE_OAUTH_TOKEN": "",
+              "CLAUDE_CODE_MAX_RETRIES": "0",
+              "CLAUDE_CODE_RETRY_WATCHDOG": "0",
+              "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1",
+              "CLAUDE_CODE_USE_BEDROCK": "0",
+              "CLAUDE_CODE_USE_VERTEX": "0",
+              "CLAUDE_CODE_USE_FOUNDRY": "0",
+              "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0",
+              "ANTHROPIC_BEDROCK_BASE_URL": "",
+              "ANTHROPIC_VERTEX_BASE_URL": ""
+            },
+            "settings": {
+              "apiKeyHelper": "",
+              "env": {
+                "ANTHROPIC_BASE_URL": "https://gateway.example.com",
+                "ANTHROPIC_API_KEY": "test-key-123",
+                "ANTHROPIC_AUTH_TOKEN": "",
+                "ANTHROPIC_CUSTOM_HEADERS": "",
+                "CLAUDE_CODE_OAUTH_TOKEN": "",
+                "CLAUDE_CODE_MAX_RETRIES": "0",
+                "CLAUDE_CODE_RETRY_WATCHDOG": "0",
+                "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1",
+                "CLAUDE_CODE_USE_BEDROCK": "0",
+                "CLAUDE_CODE_USE_VERTEX": "0",
+                "CLAUDE_CODE_USE_FOUNDRY": "0",
+                "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0",
+                "ANTHROPIC_BEDROCK_BASE_URL": "",
+                "ANTHROPIC_VERTEX_BASE_URL": ""
+              }
+            }
+          }
+        }
       }
+    },
+    "claudeRestoredSession": {
+      "configOptions": [
+        {
+          "id": "restored-model-selector",
+          "name": "Model",
+          "category": "model",
+          "type": "select",
+          "currentValue": "model-restored",
+          "options": [
+            {
+              "value": "model-restored",
+              "name": "Restored"
+            },
+            {
+              "value": "model-configured",
+              "name": "Default"
+            }
+          ]
+        },
+        {
+          "id": "mode",
+          "name": "Permission mode",
+          "category": "mode",
+          "type": "select",
+          "currentValue": "manual",
+          "options": [
+            {
+              "value": "manual",
+              "name": "Manual"
+            }
+          ]
+        },
+        {
+          "id": "effort",
+          "name": "Effort",
+          "type": "select",
+          "currentValue": "medium",
+          "options": [
+            {
+              "value": "medium",
+              "name": "Medium"
+            },
+            {
+              "value": "high",
+              "name": "High"
+            }
+          ]
+        }
+      ]
     },
     "promptResponseWithUsage": { "stopReason": "end_turn", "usage": { "totalTokens": 25000, "inputTokens": 18000, "outputTokens": 2000, "thoughtTokens": 1000, "cachedReadTokens": 3000, "cachedWriteTokens": 1000 } },
     "staleModelSession": {

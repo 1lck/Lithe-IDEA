@@ -5,7 +5,10 @@
   "capability": "PHP 插件运行与 PHPUnit 测试",
   "macos": {
     "evidence": [
-      "Plugins/mac/Official/PhpSupport/Sources/LithePhpSupportModule/Capabilities/PhpExecutionCapability.swift",
+      "Plugins/mac/Official/PhpSupport/plugin.json",
+      "rust/lithe-core/src/plugins/declarative.rs",
+      "shared/contracts/plugins/v1/fixtures/command-plans.json",
+      "macos/Sources/LitheExecutionModule/Modules/BundledLanguageExecutionModule.swift",
       "macos/Tests/LitheTests/RealPhpIntegrationTests.swift"
     ],
     "implementationStatus": "implemented",
@@ -21,5 +24,5 @@
     "verificationStatus": "pending"
   },
   "owner": "PHP Support",
-  "verification": "macOS 运行 PHP 文件和单条/整套 PHPUnit；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。"
+  "verification": "macOS 运行 PHP 文件和单条/整套 PHPUnit（命令由声明式插件模板经 Rust Core 展开，与 shared/contracts/plugins/v1/fixtures/command-plans.json 一致）；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。"
 }

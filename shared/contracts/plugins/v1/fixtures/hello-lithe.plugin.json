@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.hello",
+  "displayName": "Hello Lithe",
+  "version": "1.0.0",
+  "pluginAPIVersion": 2,
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "ui.contribute"
+  ],
+  "activationEvents": [
+    "onView:dev.lithe.fixture.hello.window",
+    "onCommand:dev.lithe.fixture.hello.open"
+  ],
+  "languages": [],
+  "ui": {
+    "toolWindows": [
+      {
+        "id": "dev.lithe.fixture.hello.window",
+        "title": "Hello Lithe",
+        "placement": "right",
+        "order": 250,
+        "text": "Hello Lithe!\nThis window is registered by the plugin and rendered by the host.",
+        "icon": {
+          "host": "plugin"
+        }
+      }
+    ],
+    "commands": [
+      {
+        "id": "dev.lithe.fixture.hello.open",
+        "title": "Open Hello Lithe",
+        "toolWindowID": "dev.lithe.fixture.hello.window",
+        "placements": [
+          "commandPalette",
+          "toolbar",
+          "menu"
+        ],
+        "order": 100,
+        "icon": {
+          "host": "run"
+        }
+      }
+    ]
+  }
+}

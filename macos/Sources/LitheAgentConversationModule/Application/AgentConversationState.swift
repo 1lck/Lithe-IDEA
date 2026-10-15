@@ -88,6 +88,8 @@ public struct AgentConversation: Equatable, Sendable {
     /// Local statistics survive tab switches and disconnects, but are not fabricated
     /// when the Agent replays history without timing or usage records.
     public var completedTurns: [AgentTurnStatistics] = []
+    /// Session-wide provider requests observed by the optional Host proxy.
+    public var modelCalls = AgentModelCallTotals()
     public var isResponding = false
     public var isLoading = false
     public var isCancelling = false
@@ -127,9 +129,31 @@ public struct AgentConversation: Equatable, Sendable {
         retryMaxAttempts = nil
         responsePhase = .waiting
         guard var turn = activeTurn else { return }
-        turn.finish(at: instant, endingMessageID: messages.last?.id ?? turn.id, usage: usage)
+        turn.finish(at: instant, endingMessageID: messages.last?.id ?? turn.id, usage: usage,
+                    toolCallCount: activeTurnToolCallCount)
         completedTurns.append(turn)
         activeTurn = nil
+    }
+
+    /// Tool calls since the active turn's prompt; history may contain older tools.
+    var activeTurnToolCallCount: Int {
+        guard let turn = activeTurn, let start = messages.lastIndex(where: { $0.id == turn.id }) else { return 0 }
+        return messages[start...].filter { $0.role == .tool }.count
+    }
+
+    /// Keep the active turn's tool-wait interval in step with tools and permissions.
+    mutating func refreshTurnClock(at instant: ContinuousClock.Instant) {
+        guard var turn = activeTurn else { return }
+        let toolsRunning = messages.lastIndex(where: { $0.id == turn.id }).map { start in
+            messages[start...].contains { $0.role == .tool && ($0.toolStatus == .pending || $0.toolStatus == .inProgress) }
+        } ?? false
+        turn.setToolsRunning(toolsRunning || !pendingPermissions.isEmpty, at: instant)
+        if turn != activeTurn { activeTurn = turn }
+    }
+
+    mutating func recordModelCall(_ call: AgentModelCall, countsForActiveTurn: Bool = true) {
+        modelCalls.record(call)
+        if countsForActiveTurn { activeTurn?.recordModelCall(call) }
     }
 
     mutating func enqueuePermission(_ prompt: AgentPermissionPrompt) {

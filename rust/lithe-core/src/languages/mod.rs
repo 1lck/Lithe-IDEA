@@ -4,7 +4,9 @@ mod java;
 mod java_syntax;
 mod mybatis;
 mod spring;
+mod text;
 
 pub(crate) use java::*;
 pub(crate) use mybatis::*;
 pub(crate) use spring::*;
+pub(crate) use text::*;

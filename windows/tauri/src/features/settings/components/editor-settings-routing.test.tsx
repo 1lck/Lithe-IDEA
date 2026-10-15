@@ -23,9 +23,13 @@ test("the actual Editor settings route uses the shared font-size control and per
   const save = spyOn(persistence, "debouncedSaveSettingsToStore").mockImplementation(() => {});
   const sideEffect = spyOn(effects, "applySettingSideEffect").mockImplementation(() => {});
   // Keep the real category routing and settings store; native modal focus is outside this regression.
-  const frame = spyOn(dialog, "default").mockImplementation(({ children }) => (
-    <div>{children}</div>
+  const frame = spyOn(dialog, "default").mockImplementation(({ children, footer }) => (
+    <div>
+      {children}
+      {footer}
+    </div>
   ));
+  let closed = false;
   const host = document.createElement("div");
   let root: Root | undefined;
   try {
@@ -46,7 +50,12 @@ test("the actual Editor settings route uses the shared font-size control and per
       mountedRoot.render(
         <WorkspaceStoreScopeContext.Provider value={workspaceId}>
           <LocaleProvider language="en-US">
-            <SettingsDialog isOpen onClose={() => {}} />
+            <SettingsDialog
+              isOpen
+              onClose={() => {
+                closed = true;
+              }}
+            />
           </LocaleProvider>
         </WorkspaceStoreScopeContext.Provider>,
       ),
@@ -66,6 +75,14 @@ test("the actual Editor settings route uses the shared font-size control and per
     expect(save).toHaveBeenLastCalledWith({ fontSize: 17 });
     expect(save).toHaveBeenCalledTimes(1);
     expect(useSettingsStore.getState().settings.showMinimap).toBe(previousSettings.showMinimap);
+    const close = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "Close",
+    )!;
+    await act(async () => close.click());
+    expect(closed).toBe(true);
+    // Closing preserves the normal settings that were already persisted.
+    expect(useSettingsStore.getState().settings.fontSize).toBe(17);
+    expect(save).toHaveBeenCalledTimes(1);
   } finally {
     try {
       await act(async () => root?.unmount());

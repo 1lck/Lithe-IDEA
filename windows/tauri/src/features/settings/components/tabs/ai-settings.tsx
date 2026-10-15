@@ -31,7 +31,7 @@ import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import Switch from "@/ui/switch";
 import { ToggleGroup } from "@/ui/toggle-group";
 import { fetchAutocompleteModels } from "@/features/editor/services/editor-autocomplete-service";
@@ -606,7 +606,10 @@ export const AISettings = () => {
 
       {(isOllamaSelected || settings.ollamaBaseUrl !== DEFAULT_OLLAMA_BASE_URL) && (
         <Section title="Ollama">
-          <SettingRow label={t("aiSettings.mode")} description={t("aiSettings.ollamaModeDescription")}>
+          <SettingRow
+            label={t("aiSettings.mode")}
+            description={t("aiSettings.ollamaModeDescription")}
+          >
             <ToggleGroup
               value={isOllamaCloud ? "cloud" : "local"}
               onValueChange={(nextValue) => {
@@ -773,7 +776,7 @@ export const AISettings = () => {
                 label={option.name}
                 description={option.description || t("aiSettings.acpSessionOptionDescription")}
               >
-                <Select
+                <SettingsSelect
                   value={option.kind.currentValue}
                   options={option.kind.options.map((value) => ({
                     value: value.id,
@@ -782,10 +785,7 @@ export const AISettings = () => {
                   onChange={(value) =>
                     useAIChatStore.getState().actions.changeSessionConfigOption(option.id, value)
                   }
-                  size="md"
-                  variant="default"
                   searchable
-                  searchableTrigger="input"
                 />
               </SettingRow>
             );
@@ -893,17 +893,14 @@ export const AISettings = () => {
                       <RefreshCw />
                     )}
                   </Button>
-                  <Select
+                  <SettingsSelect
                     value={hasAutocompleteModels ? settings.aiAutocompleteModelId : ""}
                     options={autocompleteModels.map((model) => ({
                       value: model.id,
                       label: model.name,
                     }))}
                     onChange={(value) => updateSetting("aiAutocompleteModelId", value)}
-                    size="md"
-                    variant="default"
                     searchable
-                    searchableTrigger="input"
                     className={SETTINGS_CONTROL_WIDTHS.xwide}
                     disabled={isLoadingAutocompleteModels || !hasAutocompleteModels}
                     placeholder={

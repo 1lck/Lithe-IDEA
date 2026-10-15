@@ -11,7 +11,7 @@ import * as persistence from "../lib/settings-persistence";
 import { useSettingsStore } from "../stores/settings.store";
 import { useFontStore } from "../stores/font.store";
 import { FontSelector } from "./font-selector";
-import { MacSettingsPanel } from "./macos-settings-panels";
+import { SettingsPanel } from "./settings-panels";
 
 const fonts = [
   { family: "Consolas", name: "Consolas", style: "Regular", is_monospace: true },
@@ -122,14 +122,12 @@ test("active editor panel persists font choices and size steps, applies live opt
       const showEditor = (key: string) =>
         render(
           <div key={key}>
-            <MacSettingsPanel category="editor" onClose={() => {}} />
+            <SettingsPanel category="editor" onClose={() => {}} />
             <MonacoSettingsProbe />
           </div>,
         );
       await showEditor("initial");
-      const family = container.querySelector<HTMLSelectElement>(
-        'select[aria-label="Editor Font Family"]',
-      )!;
+      const family = container.querySelector<HTMLSelectElement>('select[aria-label="Font"]')!;
       expect(family).not.toBeNull();
       expect([...family.options].some((option) => option.value === "Microsoft YaHei")).toBe(true);
       await act(async () => {

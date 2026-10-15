@@ -8,6 +8,50 @@ import Testing
 @Suite("Shared search field chrome", .serialized)
 struct LitheSearchFieldStyleTests {
     @Test(arguments: [ColorScheme.dark, .light])
+    func outsideClickReleasesOnlyTheOwningSearchEditor(scheme: ColorScheme) throws {
+        let host = NSHostingView(rootView: VStack {
+            HStack {
+                LitheSearchTextField("Search", text: .constant("typed")).frame(width: 180)
+                LitheSearchTextField("Other", text: .constant("")).frame(width: 180)
+            }
+            Color.clear.frame(height: 100)
+        }.environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 160),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.makeFirstResponder(nil); window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        func descendants<T: NSView>(_ view: NSView, of type: T.Type) -> [T] {
+            (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants($0, of: type) }
+        }
+        let fields = descendants(host, of: NSTextField.self).sorted { $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX }
+        let observers = descendants(host, of: LitheTextFieldEditingView.self).sorted { $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX }
+        #expect(fields.count == 2)
+        #expect(observers.count == 2)
+        let field = try #require(fields.first)
+        let owner = try #require(observers.first)
+        let sibling = try #require(observers.last)
+        #expect(window.makeFirstResponder(field))
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        func click(at point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: 1))
+        }
+        let inside = try click(at: editor.convert(NSPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: nil))
+        owner.releaseFocusForOutsideClick(inside)
+        #expect(window.firstResponder === editor)
+        let outside = try click(at: NSPoint(x: 200, y: 20))
+        sibling.releaseFocusForOutsideClick(outside)
+        #expect(window.firstResponder === editor)
+        owner.releaseFocusForOutsideClick(outside)
+        #expect(field.currentEditor() == nil)
+        #expect(window.firstResponder !== editor)
+        #expect(field.stringValue == "typed")
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light])
     func popupSearchUsesItsSurfaceWithoutChangingSharedGeometry(scheme: ColorScheme) throws {
         let host = NSHostingView(rootView: HStack(spacing: 0) {
             LitheSearchTextField("Search", text: .constant(""))
@@ -111,8 +155,9 @@ struct LitheSearchFieldStyleTests {
         #expect(try placeholderPixels(second) == 0)
     }
 
-    @Test(arguments: [ColorScheme.dark, .light], ["", "typed"])
-    func nativeSearchFieldRendersPlaceholderAndEnteredTextColors(scheme: ColorScheme, value: String) throws {
+    @Test(arguments: [ColorScheme.dark, .light], [("", false), ("", true), ("typed", false), ("typed", true)])
+    func nativeSearchFieldRendersPlaceholderAndEnteredTextColors(scheme: ColorScheme, variant: (String, Bool)) throws {
+        let (value, multiline) = variant
         let fontURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Resources/Fonts/Inter-Regular.otf")
@@ -122,7 +167,7 @@ struct LitheSearchFieldStyleTests {
         #expect(LitheTheme.uiNSFont(size: 13).fontName == "Inter-Regular")
         // ImageRenderer cannot cover AppKit-backed text. Capture the native host
         // so a correct theme token with an ignored prompt style still fails.
-        let host = NSHostingView(rootView: LitheSearchTextField("Branch or tag", text: .constant(value))
+        let host = NSHostingView(rootView: LitheSearchTextField("Branch or tag", text: .constant(value), axis: multiline ? .vertical : nil)
             .litheSearchField()
             .frame(width: 220)
             .environment(\.colorScheme, scheme))
@@ -138,6 +183,7 @@ struct LitheSearchFieldStyleTests {
         // covered interiors; keep the palette tolerance and pixel count intact.
         let bitmap = try nativeSRGBCapture(host, scale: 4)
         let expected: UInt32 = value.isEmpty ? 0x73767C : (scheme == .dark ? 0xD1D3D9 : 0x000000)
+        #expect(abs(try #require(field.font).pointSize - (multiline ? 14 : 13)) < 0.01)
         let scale = bitmap.pixelsWide / 220
         var matchingGlyphPixels = 0
         // Ignore the border and anti-aliased edges; fully covered glyph interiors

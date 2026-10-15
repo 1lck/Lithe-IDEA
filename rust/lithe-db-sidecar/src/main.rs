@@ -3889,7 +3889,8 @@ fn row_json(row: &sqlx::any::AnyRow) -> Result<Value, (String, String)> {
         let value = if raw.is_null() {
             Value::Null
         } else {
-            typed_value(row, index, column.type_info().name())
+            // SQLite PRAGMA/expression columns may declare NULL despite a typed value.
+            typed_value(row, index, raw.type_info().name())
         };
         object.insert(column.name().to_string(), value);
     }
@@ -3995,6 +3996,46 @@ impl Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn sqlite_metadata_preserves_primary_key_ordinals() {
+        sqlx::any::install_default_drivers();
+        // In-memory metadata protects both the grid icon and keyed mutations.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let pool = AnyPoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+            sqlx::query("CREATE TABLE single_key (id INTEGER PRIMARY KEY, label TEXT)")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "CREATE TABLE composite_key (a INTEGER, b INTEGER, label TEXT, PRIMARY KEY (a, b))",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            let single = describe_table(&pool, "sqlite", "", "single_key")
+                .await
+                .unwrap();
+            let composite = describe_table(&pool, "sqlite", "", "composite_key")
+                .await
+                .unwrap();
+            pool.close().await;
+            assert_eq!(single[0]["pk"], json!(1));
+            assert_eq!(single[1]["pk"], json!(0));
+            assert_eq!(single[0]["cid"], json!(0));
+            assert_eq!(single[1]["notnull"], json!(0));
+            assert_eq!(single[1]["dflt_value"], Value::Null);
+            assert_eq!(composite[0]["pk"], json!(1));
+            assert_eq!(composite[1]["pk"], json!(2));
+            assert_eq!(composite[2]["pk"], json!(0));
+        })
+        .await
+        .expect("SQLite metadata test exceeded its local deadline");
+    }
 
     #[test]
     fn rejects_update_without_key() {

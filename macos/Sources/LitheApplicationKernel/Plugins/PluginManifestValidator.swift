@@ -2,6 +2,9 @@ import Foundation
 import LitheModuleAPI
 
 public enum PluginCatalogError: Error, Equatable, LocalizedError, Sendable {
+    case duplicateContribution(String)
+    case duplicateAction(String)
+    case duplicateRenderer(String)
     case duplicatePlugin(PluginID)
     case duplicateModule(module: ModuleID, plugins: [PluginID])
     case duplicateLanguageSupport(languageID: String, plugins: [PluginID])
@@ -18,6 +21,9 @@ public enum PluginCatalogError: Error, Equatable, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
+        case .duplicateAction(let id): "UI action \(id) is declared by multiple modules."
+        case .duplicateRenderer(let id): "UI renderer \(id) is declared by multiple modules."
+        case .duplicateContribution(let id): "UI contribution \(id) is declared more than once."
         case .duplicatePlugin(let id): "Plugin \(id) is declared more than once."
         case .duplicateModule(let module, let plugins):
             "Module \(module) is declared by multiple plugins: \(plugins.map(\.rawValue).joined(separator: ", "))."
@@ -64,6 +70,9 @@ public struct ValidatedPluginCatalog: Sendable {
         hostVersion: PluginVersion,
         supportedAPIVersion: Int = PluginManifest.currentAPIVersion
     ) throws {
+        var contributionIDs: Set<String> = []
+        var actionOwners: [String: ModuleID] = [:]
+        var rendererOwners: [String: ModuleID] = [:]
         var pluginIDs: Set<PluginID> = []
         var modules: [ModuleID: PluginModuleOwnership] = [:]
         var languageSupports: [String: PluginLanguageSupportOwnership] = [:]
@@ -71,20 +80,34 @@ public struct ValidatedPluginCatalog: Sendable {
             guard pluginIDs.insert(plugin.id).inserted else {
                 throw PluginCatalogError.duplicatePlugin(plugin.id)
             }
-            guard plugin.schemaVersion == PluginManifest.currentSchemaVersion else {
-                throw PluginCatalogError.unsupportedSchema(
-                    plugin: plugin.id,
-                    version: plugin.schemaVersion
-                )
-            }
-            guard plugin.apiVersion == supportedAPIVersion else {
-                throw PluginCatalogError.unsupportedAPI(plugin: plugin.id, version: plugin.apiVersion)
-            }
-            guard plugin.hostCompatibility.contains(hostVersion) else {
-                throw PluginCatalogError.incompatibleHost(
-                    plugin: plugin.id,
-                    hostVersion: hostVersion
-                )
+            if plugin.entrypoint.kind == .declarative {
+                // Declarative packages declare a plugin API level instead of a
+                // host version range.
+                guard plugin.schemaVersion == PluginManifest.declarativeSchemaVersion else {
+                    throw PluginCatalogError.unsupportedSchema(
+                        plugin: plugin.id,
+                        version: plugin.schemaVersion
+                    )
+                }
+                guard PluginManifest.supportedDeclarativeAPIVersions.contains(plugin.apiVersion) else {
+                    throw PluginCatalogError.unsupportedAPI(plugin: plugin.id, version: plugin.apiVersion)
+                }
+            } else {
+                guard plugin.schemaVersion == PluginManifest.currentSchemaVersion else {
+                    throw PluginCatalogError.unsupportedSchema(
+                        plugin: plugin.id,
+                        version: plugin.schemaVersion
+                    )
+                }
+                guard plugin.apiVersion == supportedAPIVersion else {
+                    throw PluginCatalogError.unsupportedAPI(plugin: plugin.id, version: plugin.apiVersion)
+                }
+                guard plugin.hostCompatibility.contains(hostVersion) else {
+                    throw PluginCatalogError.incompatibleHost(
+                        plugin: plugin.id,
+                        hostVersion: hostVersion
+                    )
+                }
             }
             guard !plugin.modules.isEmpty else {
                 throw PluginCatalogError.emptyPlugin(plugin.id)
@@ -98,14 +121,33 @@ public struct ValidatedPluginCatalog: Sendable {
                     throw PluginCatalogError.invalidEntrypoint(plugin.id)
                 }
             case .nativeBundle:
-                guard plugin.entrypoint.targetName == nil,
-                      plugin.entrypoint.bundleIdentifier?.isEmpty == false,
-                      plugin.entrypoint.principalClass?.isEmpty == false,
-                      Self.isSafeRelativePath(plugin.entrypoint.bundlePath) else {
+                // In-process native bundles are no longer hosted.
+                throw PluginCatalogError.invalidEntrypoint(plugin.id)
+            case .declarative:
+                guard plugin.entrypoint == .declarative else {
                     throw PluginCatalogError.invalidEntrypoint(plugin.id)
                 }
             }
             for declaration in plugin.modules {
+                for contribution in declaration.contributions {
+                    // Placements of one command share its action within one
+                    // module, but cannot shadow another module's binding.
+                    if let actionID = contribution.actionID {
+                        if let owner = actionOwners[actionID], owner != declaration.manifest.id {
+                            throw PluginCatalogError.duplicateAction(actionID)
+                        }
+                        actionOwners[actionID] = declaration.manifest.id
+                    }
+                    if let rendererID = contribution.rendererID {
+                        if let owner = rendererOwners[rendererID], owner != declaration.manifest.id {
+                            throw PluginCatalogError.duplicateRenderer(rendererID)
+                        }
+                        rendererOwners[rendererID] = declaration.manifest.id
+                    }
+                    guard !contribution.id.isEmpty, contributionIDs.insert(contribution.id).inserted else {
+                        throw PluginCatalogError.duplicateContribution(contribution.id)
+                    }
+                }
                 let moduleID = declaration.manifest.id
                 if let existing = modules[moduleID] {
                     throw PluginCatalogError.duplicateModule(

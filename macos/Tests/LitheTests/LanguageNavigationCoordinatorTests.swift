@@ -4,6 +4,117 @@ import Testing
 
 @Suite("Language navigation coordinator")
 struct LanguageNavigationCoordinatorTests {
+    @Test("jump targets are classified by their real location")
+    func jumpTargetsAreClassifiedByTheirRealLocation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-jump-decision-\(UUID().uuidString)", isDirectory: true)
+        let workspace = root.appendingPathComponent("project", isDirectory: true)
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let main = workspace.appendingPathComponent("main.go")
+        let secret = outside.appendingPathComponent("id_rsa")
+        let library = outside.appendingPathComponent("print.go")
+        let credentials = outside.appendingPathComponent("credentials.json")
+        for file in [main, secret, library, credentials] {
+            try Data("x\n".utf8).write(to: file)
+        }
+        let disguisedSecret = workspace.appendingPathComponent("secret.go")
+        let linkedLibrary = workspace.appendingPathComponent("vendor.go")
+        try FileManager.default.createSymbolicLink(at: disguisedSecret, withDestinationURL: secret)
+        try FileManager.default.createSymbolicLink(at: linkedLibrary, withDestinationURL: library)
+        let languageOf: (URL) -> String? = { url in
+            switch url.pathExtension {
+            case "go": "go"
+            case "json": "json"
+            default: nil
+            }
+        }
+        func decision(_ url: URL) -> ExternalNavigationDecision {
+            LanguageNavigationCoordinator.externalNavigationDecision(
+                for: url, workspaceURL: workspace, languageID: "go", languageOf: languageOf
+            )
+        }
+
+        // temporaryDirectory sits under /var, a symlink to /private/var, so
+        // this also covers a workspace URL that is itself not canonical.
+        #expect(decision(main) == .workspace)
+        #expect(decision(disguisedSecret) == .rejected)
+        #expect(decision(linkedLibrary) == .externalReadOnly)
+        #expect(decision(library) == .externalReadOnly)
+        #expect(decision(credentials) == .rejected)
+        #expect(decision(URL(string: "jdt://contents/rt.jar/java.lang/String.class")!) == .workspace)
+    }
+
+    /// `/outside/link.go -> /workspace/main.go` resolves inside the workspace,
+    /// but it is opened under its outside path, which the document layer only
+    /// accepts as an external read-only document. It must not be classified as
+    /// a plain workspace file.
+    @Test("an outside symlink to a workspace file is not a workspace file")
+    func outsideSymlinkToWorkspaceFileIsExternal() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-reverse-link-\(UUID().uuidString)", isDirectory: true)
+        let workspace = root.appendingPathComponent("project", isDirectory: true)
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let main = workspace.appendingPathComponent("main.go")
+        let notes = workspace.appendingPathComponent("notes.json")
+        try Data("package main\n".utf8).write(to: main)
+        try Data("{}\n".utf8).write(to: notes)
+        let link = outside.appendingPathComponent("link.go")
+        let jsonLink = outside.appendingPathComponent("notes.go")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: main)
+        try FileManager.default.createSymbolicLink(at: jsonLink, withDestinationURL: notes)
+        let languageOf: (URL) -> String? = { $0.pathExtension == "go" ? "go" : nil }
+        func decision(_ url: URL, language: String) -> ExternalNavigationDecision {
+            LanguageNavigationCoordinator.externalNavigationDecision(
+                for: url, workspaceURL: workspace, languageID: language, languageOf: languageOf
+            )
+        }
+
+        #expect(decision(link, language: "go") == .externalReadOnly)
+        #expect(decision(link, language: "php") == .rejected)
+        // A .go name that resolves to a non-Go file still fails the source check.
+        #expect(decision(jsonLink, language: "go") == .rejected)
+        #expect(decision(main, language: "go") == .workspace)
+    }
+
+    @Test("external jumps open only source files of the originating language")
+    func externalJumpsOnlyOpenSameLanguageSources() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-external-source-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("print.go")
+        let secret = root.appendingPathComponent("id_rsa")
+        let disguised = root.appendingPathComponent("secret.go")
+        try Data("package fmt\n".utf8).write(to: source)
+        try Data("key\n".utf8).write(to: secret)
+        try FileManager.default.createSymbolicLink(at: disguised, withDestinationURL: secret)
+        let languageOf: (URL) -> String? = { url in
+            switch url.pathExtension {
+            case "go": "go"
+            case "json": "json"
+            default: nil
+            }
+        }
+
+        #expect(LanguageNavigationCoordinator.allowsExternalSource(source, languageID: "go", languageOf: languageOf))
+        #expect(!LanguageNavigationCoordinator.allowsExternalSource(source, languageID: "php", languageOf: languageOf))
+        #expect(!LanguageNavigationCoordinator.allowsExternalSource(source, languageID: nil, languageOf: languageOf))
+        #expect(!LanguageNavigationCoordinator.allowsExternalSource(secret, languageID: "go", languageOf: languageOf))
+        #expect(!LanguageNavigationCoordinator.allowsExternalSource(disguised, languageID: "go", languageOf: languageOf))
+        #expect(!LanguageNavigationCoordinator.allowsExternalSource(
+            root.appendingPathComponent("credentials.json"), languageID: "go", languageOf: languageOf
+        ))
+        #expect(!LanguageNavigationCoordinator.allowsExternalSource(
+            URL(string: "jdt://contents/rt.jar/java.lang/String.class")!, languageID: "go", languageOf: languageOf
+        ))
+    }
+
     @Test("projects language-server locations")
     @MainActor
     func projectsLocations() {

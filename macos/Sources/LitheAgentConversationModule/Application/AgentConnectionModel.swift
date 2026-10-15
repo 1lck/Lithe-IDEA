@@ -40,6 +40,9 @@ public final class AgentConnectionModel: ObservableObject {
     @Published public private(set) var fileReviewSessionID: String?
     @Published public private(set) var fileReviewError: String?
     @Published public private(set) var fileReviewErrorSessionID: String?
+    // Drafts belong to the connection so moving its presentation does not discard unsent input.
+    @Published public var draftText = ""
+    @Published public var draftFiles: [AgentFileReference] = []
     private var fileReviewTask: Task<Void, Never>?
 
     /// Called when any conversation starts or stops waiting for a permission
@@ -142,7 +145,7 @@ public final class AgentConnectionModel: ObservableObject {
     /// Keep a cancelled login out of the idle view, which auto-connects on appear.
     public func cancelAuthentication() async {
         guard connectionState == .authenticating else { return }
-        let old = detachConnection(failure: String(localized: "ChatGPT sign-in was cancelled."))
+        let old = detachConnection(failure: "ChatGPT sign-in was cancelled.")
         if let old {
             let closing = Task { await old.close() }
             closeTask = closing
@@ -205,6 +208,9 @@ public final class AgentConnectionModel: ObservableObject {
 
     public func startNewConversation() {
         guard !isCreatingSession else { return }
+        discardUnpersistedEmptySessions()
+        draftText = ""
+        draftFiles = []
         selectedSessionID = nil
         errorMessage = nil
         prepareConversation()
@@ -315,6 +321,7 @@ public final class AgentConnectionModel: ObservableObject {
               conversations[sessionID]?.isCancelling != true else { return }
         conversations[sessionID]?.isCancelling = true
         conversations[sessionID]?.pendingPermissions.removeAll()
+        conversations[sessionID]?.refreshTurnClock(at: now())
         updateAttention()
         if !sendCommand(["kind": "cancel", "sessionId": sessionID]) {
             conversations[sessionID]?.isCancelling = false
@@ -331,6 +338,7 @@ public final class AgentConnectionModel: ObservableObject {
         guard let sessionID = selectedSessionID,
               let permission = conversations[sessionID]?.permission else { return }
         conversations[sessionID]?.pendingPermissions.removeFirst()
+        conversations[sessionID]?.refreshTurnClock(at: now())
         updateAttention()
         sendCommand([
             "kind": "permission",
@@ -406,7 +414,7 @@ public final class AgentConnectionModel: ObservableObject {
                 let confirmed = conversations[sessionID]?.configOptions.first { $0.id == id }?.currentValue
                 conversations[sessionID]?.pendingQueuedConfigID = nil
                 guard requested == confirmed else {
-                    failQueuedConfiguration(in: sessionID, message: String(localized: "The Agent did not confirm the selected session setting."))
+                    failQueuedConfiguration(in: sessionID, message: "The Agent did not confirm the selected session setting.")
                     return
                 }
                 conversations[sessionID]?.queuedConfigValues[id] = nil
@@ -439,6 +447,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID]?.isCancelling = true
             // Host-initiated cancellation has already rejected these requests.
             conversations[sessionID]?.pendingPermissions.removeAll()
+            conversations[sessionID]?.refreshTurnClock(at: now())
             updateAttention()
         case "update":
             guard let sessionID, let update = event["update"] as? [String: Any] else { return }
@@ -451,7 +460,15 @@ public final class AgentConnectionModel: ObservableObject {
             let prompt = permissionPrompt(requestID, request, sessionID: sessionID)
             markResponseProgress(.waiting, in: sessionID)
             conversations[sessionID, default: AgentConversation()].enqueuePermission(prompt)
+            conversations[sessionID]?.refreshTurnClock(at: now())
             updateAttention()
+        case "modelCall":
+            // Unattributed calls cannot be assigned to a session without guessing.
+            guard let sessionID, conversations[sessionID] != nil,
+                  let call = AgentModelCall.parse(event["call"]) else { return }
+            // A stream that outlived its turn must not count toward the next one.
+            conversations[sessionID]?.recordModelCall(call,
+                countsForActiveTurn: event["afterTurnFinished"] as? Bool != true)
         case "turnFinished":
             refreshQuota()
             guard let sessionID else { return }
@@ -465,7 +482,7 @@ public final class AgentConnectionModel: ObservableObject {
             updateAttention()
             applyQueuedConfiguration(in: sessionID)
         case "requestFailed":
-            requestFailed(token: token, sessionID: sessionID, message: event["message"] as? String ?? String(localized: "The Agent request failed."))
+            requestFailed(token: token, sessionID: sessionID, message: event["message"] as? String ?? "The Agent request failed.")
         case "stopped":
             let old = detachConnection(failure: event["message"] as? String)
             if let old {
@@ -592,6 +609,7 @@ public final class AgentConnectionModel: ObservableObject {
             guard let toolCallID = update["toolCallId"] as? String else { return }
             flushPendingText()
             upsertTool(toolCallID, update: update, in: sessionID)
+            conversations[sessionID]?.refreshTurnClock(at: now())
             markResponseProgress(.waiting, in: sessionID)
         case "session_info_update":
             // codex-acp 1.13.1 forwards retries in metadata without a title.
@@ -658,7 +676,7 @@ public final class AgentConnectionModel: ObservableObject {
                 continue
             }
             guard option.choices.contains(where: { $0.id == value }) else {
-                failQueuedConfiguration(in: sessionID, message: String(localized: "The Agent no longer supports the selected session setting."))
+                failQueuedConfiguration(in: sessionID, message: "The Agent no longer supports the selected session setting.")
                 return
             }
             let token = makeToken()
@@ -672,7 +690,7 @@ public final class AgentConnectionModel: ObservableObject {
             return
         }
         if conversations[sessionID]?.queuedConfigValues.isEmpty == false {
-            failQueuedConfiguration(in: sessionID, message: String(localized: "The Agent no longer supports the selected session setting."))
+            failQueuedConfiguration(in: sessionID, message: "The Agent no longer supports the selected session setting.")
         }
     }
 
@@ -705,7 +723,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversation.messages.append(AgentConversationMessage(
                 id: id,
                 role: .tool,
-                text: title ?? String(localized: "Tool call"),
+                text: title ?? "Tool call",
                 toolStatus: status ?? .pending
             ))
             conversation.messages[conversation.messages.count - 1].toolDetails.merge(update)
@@ -721,7 +739,7 @@ public final class AgentConnectionModel: ObservableObject {
         }
         var prompt = AgentPermissionPrompt(
             id: requestID,
-            title: tool?["title"] as? String ?? String(localized: "Allow the Agent to continue?"),
+            title: tool?["title"] as? String ?? "Allow the Agent to continue?",
             choices: options
         )
         if let tool {
@@ -770,7 +788,7 @@ public final class AgentConnectionModel: ObservableObject {
         conversation.isLoading = true
         conversations[sessionID] = conversation
         if !sendCommand(["kind": "loadSession", "token": token, "sessionId": sessionID]) {
-            requestFailed(token: token, sessionID: sessionID, message: errorMessage ?? String(localized: "The Agent request failed."))
+            requestFailed(token: token, sessionID: sessionID, message: errorMessage ?? "The Agent request failed.")
         }
     }
 
@@ -896,9 +914,9 @@ public final class AgentConnectionModel: ObservableObject {
 
     private func stopReasonMessage(_ reason: String?) -> String? {
         switch reason {
-        case "max_tokens": String(localized: "The response stopped at the model's token limit.")
-        case "max_turn_requests": String(localized: "The Agent stopped after reaching its request limit for this turn.")
-        case "refusal": String(localized: "The Agent declined to continue.")
+        case "max_tokens": "The response stopped at the model's token limit."
+        case "max_turn_requests": "The Agent stopped after reaching its request limit for this turn."
+        case "refusal": "The Agent declined to continue."
         default: nil
         }
     }
@@ -931,22 +949,23 @@ public enum AgentConversationError: LocalizedError, Equatable {
     case fileReviewChanged
     case sendFailed(String)
 
+    /// Canonical product message keys; the native view selects the interface language.
     public var errorDescription: String? {
         switch self {
-        case .featureDisabled: String(localized: "Agent conversation is turned off. Turn it on in the panel settings to send messages.")
-        case .noAgentConfigured: String(localized: "No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider.")
-        case .moduleStarting: String(localized: "The Agent module is still starting. Try again in a moment.")
-        case .missingCommand: String(localized: "Set the custom Agent's executable in the panel settings.")
-        case .missingProvider: String(localized: "Choose a local or custom provider in the Agent panel settings.")
-        case .missingAPIKey: String(localized: "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings.")
-        case .notConnected: String(localized: "The Agent is not running. Connect to start a conversation.")
-        case .sessionStopping: String(localized: "The previous Agent is still stopping. Try again shortly.")
-        case .cannotResume: String(localized: "This Agent cannot reopen earlier conversations. Start a new conversation.")
-        case .sessionBusy: String(localized: "The Agent is still responding in this conversation.")
-        case .fileReviewInProgress: String(localized: "Wait for the Agent file rollback to finish.")
-        case .fileReviewChanged: String(localized: "The reported file changes have been updated. Review them again before rolling back.")
+        case .featureDisabled: "Agent conversation is turned off. Turn it on in the panel settings to send messages."
+        case .noAgentConfigured: "No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider."
+        case .moduleStarting: "The Agent module is still starting. Try again in a moment."
+        case .missingCommand: "Set the custom Agent's executable in the panel settings."
+        case .missingProvider: "Choose a local or custom provider in the Agent panel settings."
+        case .missingAPIKey: "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings."
+        case .notConnected: "The Agent is not running. Connect to start a conversation."
+        case .sessionStopping: "The previous Agent is still stopping. Try again shortly."
+        case .cannotResume: "This Agent cannot reopen earlier conversations. Start a new conversation."
+        case .sessionBusy: "The Agent is still responding in this conversation."
+        case .fileReviewInProgress: "Wait for the Agent file rollback to finish."
+        case .fileReviewChanged: "The reported file changes have been updated. Review them again before rolling back."
         case .sendFailed(let message): message
-        case .configurationPending: String(localized: "Wait for the Agent configuration to finish updating.")
+        case .configurationPending: "Wait for the Agent configuration to finish updating."
         }
     }
 }

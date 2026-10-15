@@ -41,6 +41,11 @@ interface DialogProps {
   headerActions?: ReactNode;
   footer?: ReactNode;
   size?: "sm" | "md" | "lg";
+  /**
+   * Element focused when the dialog opens. Without it Base UI focuses the
+   * first tabbable element, which is the header close button.
+   */
+  initialFocus?: React.RefObject<HTMLElement | null>;
   headerBorder?: boolean;
   footerBorder?: boolean;
   classNames?: Partial<{
@@ -50,6 +55,7 @@ interface DialogProps {
     title: string;
     headerActions: string;
     content: string;
+    footer: string;
   }>;
 }
 
@@ -192,6 +198,7 @@ const AppDialog = ({
   headerActions,
   footer,
   size = "md",
+  initialFocus,
   classNames,
 }: DialogProps) => {
   const { t } = useTranslation();
@@ -247,6 +254,7 @@ const AppDialog = ({
 
         <DialogPrimitive.Popup
           aria-describedby={undefined}
+          initialFocus={initialFocus}
           render={
             <motion.div
               initial={popupMotion.initial}
@@ -287,7 +295,14 @@ const AppDialog = ({
           </ScrollArea>
 
           {footer && (
-            <div className="flex shrink-0 items-center justify-end gap-2 px-4 py-3">{footer}</div>
+            <div
+              className={cn(
+                "flex shrink-0 items-center justify-end gap-2 px-4 py-3",
+                classNames?.footer,
+              )}
+            >
+              {footer}
+            </div>
           )}
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
@@ -369,8 +384,7 @@ interface PrimitiveChoiceOptions<T extends string> {
   }>;
 }
 
-interface PrimitiveChoiceWithCheckboxOptions<T extends string>
-  extends PrimitiveChoiceOptions<T> {
+interface PrimitiveChoiceWithCheckboxOptions<T extends string> extends PrimitiveChoiceOptions<T> {
   checkboxLabel: string;
   checkboxDefaultChecked?: boolean;
   cancelLabel?: string;
@@ -660,7 +674,9 @@ function PrimitiveDialogHost({
             <AlertDialogTitle className="col-start-2 row-start-1 self-center">
               {defaultDialogText(dialog.title)}
             </AlertDialogTitle>
-            <AlertDialogDescription className="col-start-2">{dialog.message}</AlertDialogDescription>
+            <AlertDialogDescription className="col-start-2">
+              {dialog.message}
+            </AlertDialogDescription>
             <label className="col-start-2 flex cursor-pointer items-center gap-2 font-sans ui-text-sm text-foreground">
               <Checkbox
                 checked={choiceChecked}

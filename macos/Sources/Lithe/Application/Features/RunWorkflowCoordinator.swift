@@ -225,7 +225,7 @@ final class RunWorkflowCoordinator {
         currentFileURL: URL?,
         runFeature: RunFeatureModel
     ) async -> Bool {
-        let support = languageSupport(
+        let support = languageSupportRequiringRunExtension(
             for: configuration,
             currentFileURL: currentFileURL,
             languageSupportForFile: { [pluginCatalog] fileURL in
@@ -237,6 +237,26 @@ final class RunWorkflowCoordinator {
         )
         guard let support else { return true }
         return await activateLanguageRunExtension(support, runFeature: runFeature)
+    }
+
+    /// The package whose execution module must be active before
+    /// `configuration` runs. `nil` when the host itself runs the language,
+    /// either because no package owns it or because the owning package
+    /// declares run as a capability of its host integration.
+    func languageSupportRequiringRunExtension(
+        for configuration: RunConfiguration,
+        currentFileURL: URL?,
+        languageSupportForFile: (URL) -> LanguageSupportDeclaration?,
+        languageSupportForProvider: (String) -> LanguageSupportDeclaration?
+    ) -> LanguageSupportDeclaration? {
+        let support = languageSupport(
+            for: configuration,
+            currentFileURL: currentFileURL,
+            languageSupportForFile: languageSupportForFile,
+            languageSupportForProvider: languageSupportForProvider
+        )
+        guard let support, !support.hostCapabilities.contains(.run) else { return nil }
+        return support
     }
 
     func languageSupport(

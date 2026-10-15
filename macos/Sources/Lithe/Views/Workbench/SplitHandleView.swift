@@ -18,13 +18,10 @@ struct SplitHandleView: View {
     let trackBackground: Color
     let dividerColor: Color
     let showsIdleDivider: Bool
-    let highlightsOnHover: Bool
     let onDragStarted: () -> Void
     let onDragChanged: (CGFloat) -> Void
     let onDragEnded: (CGFloat) -> Void
 
-    @State private var isHovering = false
-    @State private var isDragging = false
     @State private var dragScheduler = LitheDragUpdateScheduler()
     @State private var dragSignpost: LitheSignpost.State?
 
@@ -33,7 +30,6 @@ struct SplitHandleView: View {
         trackBackground: Color = .clear,
         dividerColor: Color = LitheTheme.divider,
         showsIdleDivider: Bool = true,
-        highlightsOnHover: Bool = true,
         onDragStarted: @escaping () -> Void,
         onDragChanged: @escaping (CGFloat) -> Void,
         onDragEnded: @escaping (CGFloat) -> Void
@@ -42,7 +38,6 @@ struct SplitHandleView: View {
         self.trackBackground = trackBackground
         self.dividerColor = dividerColor
         self.showsIdleDivider = showsIdleDivider
-        self.highlightsOnHover = highlightsOnHover
         self.onDragStarted = onDragStarted
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
@@ -69,13 +64,7 @@ struct SplitHandleView: View {
         .overlay {
             SplitHandleInteraction(
                 axis: axis,
-                onHoverChanged: { isInside in
-                    guard highlightsOnHover else { return }
-                    guard isInside != isHovering else { return }
-                    isHovering = isInside
-                },
                 onDragStarted: {
-                    isDragging = true
                     dragSignpost = LitheSignpost.begin("split.drag")
                     onDragStarted()
                 },
@@ -91,7 +80,6 @@ struct SplitHandleView: View {
                 },
                 onDragEnded: { finalTranslation in
                     dragScheduler.cancel()
-                    isDragging = false
                     if let dragSignpost {
                         LitheSignpost.end("split.drag", dragSignpost)
                         self.dragSignpost = nil
@@ -121,16 +109,14 @@ struct SplitHandleView: View {
     @ViewBuilder
     private var dividerLine: some View {
         if showsIdleDivider {
-            let color = isDragging && highlightsOnHover ? LitheTheme.primaryText
-                : (isHovering && highlightsOnHover ? LitheTheme.secondaryText : dividerColor)
             if axis == .horizontal {
                 Rectangle()
-                    .fill(color)
+                    .fill(dividerColor)
                     .frame(width: 1)
                     .frame(maxHeight: .infinity)
             } else {
                 Rectangle()
-                    .fill(color)
+                    .fill(dividerColor)
                     .frame(height: 1)
                     .frame(maxWidth: .infinity)
             }
@@ -141,7 +127,6 @@ struct SplitHandleView: View {
 
 private struct SplitHandleInteraction: NSViewRepresentable {
     let axis: LitheSplitAxis
-    let onHoverChanged: (Bool) -> Void
     let onDragStarted: () -> Void
     let onDragChanged: (CGFloat) -> Void
     let onDragEnded: (CGFloat) -> Void
@@ -154,7 +139,6 @@ private struct SplitHandleInteraction: NSViewRepresentable {
 
     func updateNSView(_ view: SplitHandleInteractionView, context: Context) {
         view.axis = axis
-        view.onHoverChanged = onHoverChanged
         view.onDragStarted = onDragStarted
         view.onDragChanged = onDragChanged
         view.onDragEnded = onDragEnded
@@ -171,7 +155,6 @@ final class SplitHandleInteractionView: NSView {
             window?.invalidateCursorRects(for: self)
         }
     }
-    var onHoverChanged: ((Bool) -> Void)?
     var onDragStarted: (() -> Void)?
     var onDragChanged: ((CGFloat) -> Void)?
     var onDragEnded: ((CGFloat) -> Void)?
@@ -210,11 +193,6 @@ final class SplitHandleInteractionView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         resizeCursor.set()
-        onHoverChanged?(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        onHoverChanged?(false)
     }
 
     override func mouseDown(with event: NSEvent) {

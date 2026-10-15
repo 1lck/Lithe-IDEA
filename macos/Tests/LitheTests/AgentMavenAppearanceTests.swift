@@ -37,11 +37,13 @@ struct AgentMavenAppearanceTests {
                      "expui/general/collapseAll.svg", "expui/general/settings.svg",
                      "expui/build/taskGroup.svg", "expui/nodes/library.svg",
                      "expui/nodes/libraryFolder.svg", "maven/expui/build/mavenProject.svg",
-                     "maven/expui/build/mavenProfiles.svg", "maven/expui/toolwindow/maven.svg", "maven/task.svg"] {
+                     "maven/expui/build/mavenProfiles.svg", "maven/expui/toolwindow/maven.svg", "maven/task.svg",
+                     "maven/expui/toolwindow/maven@20x20.svg", "database/expui/dbms@20x20.svg"] {
             for resource in [path, LitheIcons.darkIdeaAssetPath(for: path)] {
                 let icon = try #require(NSImage(contentsOf: root.appendingPathComponent(resource)), "Missing \(resource)")
                 let width: CGFloat = path == "maven/expui/build/mavenProfiles.svg" ? 17 : 16
-                #expect(icon.size == NSSize(width: width, height: 16), "Native SVG geometry: \(resource)")
+                let nativeSize = path.contains("@20x20") ? NSSize(width: 20, height: 20) : NSSize(width: width, height: 16)
+                #expect(icon.size == nativeSize, "Native SVG geometry: \(resource)")
                 let tiff = try #require(icon.tiffRepresentation)
                 let bitmap = try #require(NSBitmapImageRep(data: tiff))
                 #expect((0..<bitmap.pixelsWide).contains { x in

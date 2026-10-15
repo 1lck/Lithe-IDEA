@@ -21,8 +21,8 @@
   </p>
 
   <p>
-    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="最新版本"></a>
-    <a href="https://github.com/1lck/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/1lck/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="累计下载量"></a>
+    <a href="https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/Lithe-IDEA/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="最新版本"></a>
+    <a href="https://github.com/Lithe-IDEA/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/Lithe-IDEA/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="累计下载量"></a>
     <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat&logo=apple&logoColor=white" alt="macOS 13+">
     <img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat&logo=windows&logoColor=white" alt="Windows x64">
     <img src="https://img.shields.io/badge/memory-300--400%20MB-159957?style=flat" alt="基础内存 300 到 400 MB">
@@ -66,7 +66,7 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 ## macOS 提示“无法打开 Lithe.app”
 
-如果 macOS 提示“Apple 无法验证 Lithe.app 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”，通常是因为手动下载的安装包尚未经过 Apple 公证。请先确认应用来自可信的 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest)，然后选择以下任一方式：
+如果 macOS 提示“Apple 无法验证 Lithe.app 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”，通常是因为手动下载的安装包尚未经过 Apple 公证。请先确认应用来自可信的 [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest)，然后选择以下任一方式：
 
 <p align="center">
   <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS 提示无法打开 Lithe.app">
@@ -157,14 +157,14 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 ## 下载与安装
 
-- **macOS 13+：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。
-- **Windows x64：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
+- **macOS 13+：**前往 [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。
+- **Windows x64：**前往 [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
 
 macOS 推荐使用 Homebrew 安装和更新：
 
 ```bash
-brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
-brew install --cask 1lck/lithe/lithe
+brew tap lithe-idea/lithe https://github.com/Lithe-IDEA/Lithe-IDEA.git
+brew install --cask lithe-idea/lithe/lithe
 brew upgrade --cask lithe
 ```
 
@@ -201,7 +201,6 @@ flowchart LR
 
 <details>
 <summary><strong>如何开发</strong></summary>
-
 
 开发环境和 CI 使用 `.swift-version` 固定的 Swift 6.3.3 与 Xcode 26.6。运行完整测试需要 Xcode；基础 SwiftPM 构建只需要匹配的 Command Line Tools。使用 Xcode 27 的开发者也可以在本地构建，构建脚本会自动识别 macOS 27 SDK 的兼容路径。`Package.swift` 仍保留 Swift 6.2 的 manifest API 下限，这不会选择编译器版本。
 
@@ -246,7 +245,7 @@ open dist/Lithe.app
 
 <p align="center">
   <a href="https://www.fastaitoken.com/">
-    <img src="./docs/assets/sponsors/fastai-qrcode.png" width="480" alt="FastAI Token 交流群二维码">
+    <img src="./docs/assets/sponsors/fastai-qrcode.png" width="720" alt="FastAI Token 交流群二维码">
   </a>
 </p>
 <p align="center">
@@ -268,16 +267,6 @@ open dist/Lithe.app
 <a href="mailto:2188718831@qq.com">想显示在下方？</a>
 
 <table>
-  <tr>
-    <td width="112" align="center">
-      <a href="https://www.fastaitoken.com/">
-        <img src="./docs/assets/sponsors/fastai.png" width="64" alt="FastAI">
-      </a>
-    </td>
-    <td>
-      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> 提供多款主流大模型的便捷中转服务，让开发者可以更轻松地把 AI 能力接入日常开发流程。其支持也帮助 Lithe 持续完善 AI 辅助体验。感谢 FastAI 对本项目的支持！
-    </td>
-  </tr>
   <tr>
     <td width="112" align="center">
       <a href="https://pateway.ai/?ch=68i69k">
@@ -316,6 +305,16 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> 提供统一 API 接入，一个密钥即可调用 Claude、GPT、Gemini 和 DeepSeek 等模型，兼容 Claude Code、Codex、Cursor 等 AI 编程工具。新用户注册可获 $5 体验额度。感谢 CCSub 对 Lithe 的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://dash.clidex.dev">
+        <img src="./docs/assets/sponsors/clidex.svg" width="64" alt="Clidex">
+      </a>
+    </td>
+    <td>
+      <a href="https://dash.clidex.dev"><strong>Clidex</strong></a> 提供为创造者而生的 AI 基础设施，面向原生 AI 命令行工具提供 API 接入，价格低至官方 API 的 0.08 折。让 AI 融入日常开发流程，为创作与编程提供更实惠的选择。感谢 Clidex 对 Lithe 的赞助，支持项目持续开发与完善！
     </td>
   </tr>
   <tr>

@@ -14,7 +14,7 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/keymaps",
-      "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
+      "windows/tauri/src/features/settings/components/settings-panels.tsx",
       "windows/tauri/src/features/settings/components/tabs/keyboard-settings.tsx",
       "windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx"
     ],
