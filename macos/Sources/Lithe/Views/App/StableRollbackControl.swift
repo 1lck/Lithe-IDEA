@@ -67,7 +67,7 @@ struct StableRollbackControl: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Download Stable Release") { updateChecker.returnToStable() }
             } message: {
-                Text("The latest stable release will be downloaded in full and replace this preview after you confirm installation. Projects and settings are kept, but preview-only settings may not work in the stable release.")
+                Text("The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.")
             }
         }
     }

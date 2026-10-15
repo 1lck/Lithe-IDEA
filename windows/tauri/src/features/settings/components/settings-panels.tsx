@@ -1,3 +1,5 @@
+import { UpdateChannelSelector } from "./update-channel-selector";
+import { getInstalledVersionLabel } from "../lib/update-channel";
 import SettingsSelect from "@/ui/settings-select";
 import { FontSelector } from "./font-selector";
 import { MIN_EDITOR_FONT_SIZE, MAX_EDITOR_FONT_SIZE } from "../lib/editor-font-size";
@@ -508,8 +510,10 @@ function UpdatesPanel() {
     downloadProgress,
     checkForUpdates,
     downloadAndInstall,
+    operationBusy,
+    openDetails,
   } = useUpdater(false);
-  const busy = checking || downloading || installing;
+  const busy = operationBusy || checking || downloading || installing;
   // An update found here is installed from this panel: the check and the
   // install action sit side by side, so no dialog opens over Settings.
   const installFailed = status === "failed" && updateInfo !== null;
@@ -522,6 +526,7 @@ function UpdatesPanel() {
   }, []);
 
   const statusMessage = () => {
+    if (status === "manualDownload") return error || t("update.manualDownloadStatus");
     if (checking) return t("settings.mac.checking");
     if (downloading) {
       return t("update.updatingProgress", { percentage: downloadProgress?.percentage ?? 0 });
@@ -538,9 +543,12 @@ function UpdatesPanel() {
   return (
     <div className="flex flex-col gap-4">
       <SettingsGroup title={t("settings.mac.softwareUpdate")}>
+        <UpdateChannelSelector />
         <SettingsRow
           label="Lithe"
-          description={t("settings.mac.currentVersion", { version: appVersion || "…" })}
+          description={t("settings.mac.currentVersion", {
+            version: getInstalledVersionLabel(appVersion || "…", t),
+          })}
         >
           <div className="flex flex-wrap justify-end gap-2">
             <Button
@@ -553,6 +561,9 @@ function UpdatesPanel() {
             >
               {checking ? t("settings.mac.checking") : t("settings.mac.checkForUpdates")}
             </Button>
+            {status === "manualDownload" ? (
+              <Button size="sm" disabled={busy} onClick={openDetails}>{t("update.viewDownloads")}</Button>
+            ) : null}
             {installable && updateInfo ? (
               <Button
                 variant="accent"

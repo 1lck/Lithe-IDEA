@@ -369,8 +369,8 @@ async function main() {
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
       // Generated matrix views, runtime snapshots, per-execution Java launch files, Sparkle baseline
-      // staging, per-launch Codex relays and isolated plugin packages take this rejection route,
-      // never a content-hash validator.
+      // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
+      // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
       if (excludedResources.some((resource) => resource.id === identifier)) {

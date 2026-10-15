@@ -8,6 +8,10 @@ const enableCodeInspector = process.env.VITE_CODE_INSPECTOR === "true";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  define: {
+    // Embed the publisher's installed identity in the packaged frontend.
+    "import.meta.env.VITE_BUILD_TIMESTAMP": JSON.stringify(process.env.LITHE_BUILD_TIMESTAMP ?? ""),
+  },
   plugins: [
     enableCodeInspector
       ? codeInspectorPlugin({
