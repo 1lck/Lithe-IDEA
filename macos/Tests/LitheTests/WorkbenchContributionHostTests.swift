@@ -56,7 +56,7 @@ struct WorkbenchContributionHostTests {
         restored.reconcileContributions(owners)
         _ = restored.loadLayout(for: workspace)
         #expect(restored.activeTool(in: position) == window)
-        #expect(restored.isVisible(.agent))
+        #expect(!restored.isVisible(.agent), "Opening a project must not relaunch the Agent panel")
         #expect(restored.groupFractions["right"] == 0.7)
         #expect(restored.state(for: window).position == position)
         restored.resetContributionPreferences()

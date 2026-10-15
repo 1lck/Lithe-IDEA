@@ -31,63 +31,56 @@ private struct GitInteractiveRebaseSessionBanner: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        LitheBanner(status: session.status == .completed ? .success : .warning, layout: .editor,
+                    dismiss: dismissAction) {
             HStack {
-                Image(systemName: session.status == .completed ? "checkmark.circle" : "arrow.triangle.branch")
-                    .foregroundStyle(session.status == .completed ? LitheTheme.accent : LitheTheme.warning)
-                Text(statusTitle).font(LitheTheme.uiFont(size: 12, weight: .semibold))
+                Text(statusTitle).litheBannerTitle()
                 Spacer(minLength: 0)
-                if !session.isActive {
-                    Button { editor.dismissSession() } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.litheNoPress).help("Dismiss rebase result").accessibilityLabel("Dismiss rebase result").lithePointer()
-                }
             }
             Text("\(session.branch) · \(session.completedSteps) of \(session.steps.count) steps processed")
-                .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
-            Text(statusDescription).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+            Text(statusDescription)
                 .fixedSize(horizontal: false, vertical: true)
             if let currentCommit = session.currentCommit {
-                Text("Current commit: \(currentCommit.prefix(12))").font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
+                Text("Current commit: \(currentCommit.prefix(12))").font(LitheTheme.uiFont(size: 13, design: .monospaced))
             }
             if let error = editor.errorMessage {
-                Text(LocalizedStringKey(error)).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.error).lineLimit(6).textSelection(.enabled)
+                Text(LocalizedStringKey(error)).foregroundStyle(LitheTheme.error).lineLimit(6).textSelection(.enabled)
             }
             ForEach(Array(editor.warnings.enumerated()), id: \.offset) { _, warning in
-                Text(LocalizedStringKey(warning.message)).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.warning)
+                Text(LocalizedStringKey(warning.message)).foregroundStyle(LitheTheme.warning)
             }
             if session.isActive {
-                HStack(spacing: 7) {
+                HStack(spacing: LitheTheme.Banner.actionGap) {
                     Button("Continue") { Task { await editor.control(.continue) } }
-                        .buttonStyle(.borderedProminent).disabled(editor.isBusy || !session.canContinue).lithePointer()
+                        .disabled(editor.isBusy || !session.canContinue)
                     if session.canSkip {
-                        Button("Skip Commit…") { pendingControl = .skip }.disabled(editor.isBusy).lithePointer()
+                        Button("Skip Commit…") { pendingControl = .skip }.disabled(editor.isBusy)
                     }
                     if session.canAbort {
-                        Button("Abort…") { pendingControl = .abort }.disabled(editor.isBusy).lithePointer()
+                        Button("Abort…") { pendingControl = .abort }.disabled(editor.isBusy)
                     }
                     if editor.isExecuting { ProgressView().controlSize(.small) }
                 }
-                .controlSize(.small).font(LitheTheme.uiFont(size: 11))
+                .controlSize(.small)
                 if session.status == .edit {
                     Button("Amend and Continue…") { amendment = Amendment(session: session) }
-                        .controlSize(.small).font(LitheTheme.uiFont(size: 11))
-                        .disabled(editor.isBusy || !session.canContinue || session.currentMessage == nil).lithePointer()
+                        .controlSize(.small)
+                        .disabled(editor.isBusy || !session.canContinue || session.currentMessage == nil)
                 }
             }
             VStack(alignment: .leading, spacing: 5) {
                 Button("Copy Recovery Reference") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(session.recoveryReference, forType: .string)
-                }.lithePointer()
+                }
                 Button("Create Recovery Branch…") {
                     recoveryName = "recovery/\(session.originalHead.prefix(9))"
                     recoveryError = nil
                     showsRecoveryDialog = true
-                }.disabled(editor.isBusy).lithePointer()
+                }.disabled(editor.isBusy)
             }
-            .controlSize(.small).font(LitheTheme.uiFont(size: 10.5))
+            .controlSize(.small)
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(LitheTheme.toolHeader)
         .confirmationDialog(LocalizedStringKey(pendingControl == .abort ? "Abort this rebase and restore its original branch?" : "Skip the current commit and its unresolved changes?"), isPresented: Binding(
             get: { pendingControl != nil }, set: { if !$0 { pendingControl = nil } }
         ), titleVisibility: .visible) {
@@ -102,6 +95,11 @@ private struct GitInteractiveRebaseSessionBanner: View {
             GitRebaseAmendDialog(editor: editor, session: request.session)
         }
         .sheet(isPresented: $showsRecoveryDialog) { recoveryDialog }
+    }
+
+    private var dismissAction: (() -> Void)? {
+        guard !session.isActive else { return nil }
+        return { editor.dismissSession() }
     }
 
     private var statusTitle: LocalizedStringKey {

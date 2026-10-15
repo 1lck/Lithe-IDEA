@@ -195,44 +195,20 @@ struct MavenView: View {
     }
 
     private var reloadBanner: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .foregroundStyle(LitheTheme.warning)
+        LitheBanner(status: .warning, layout: .editor) {
             Text(feature.isProjectReloadRequired
                  ? String(localized: "Maven POM changed")
                  : String(localized: "Maven configuration changed"))
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-            Spacer(minLength: 8)
             Button(feature.isReloading ? String(localized: "Reloading Maven...") : String(localized: "Reload")) {
                 Task { await model.reloadMavenProject(rescan: feature.isProjectReloadRequired) }
             }
-            .buttonStyle(.litheNoPress)
             .disabled(feature.isReloading)
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 32)
-        .background(LitheTheme.warning.opacity(0.1))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
         }
     }
 
     private func configurationErrorBanner(_ message: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(LitheTheme.error)
-            Text(message)
-                .font(LitheTheme.uiFont(size: 11.5))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(2)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(LitheTheme.error.opacity(0.08))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        LitheBanner(status: .error, layout: .editor) {
+            Text(message).lineLimit(2)
         }
     }
 
@@ -897,10 +873,7 @@ private struct MavenResolutionProblemsSection: View {
                 }
                 .frame(maxHeight: 120)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LitheTheme.error.opacity(0.06))
+        .litheBannerSurface(.error, layout: .editor)
         }
     }
 }

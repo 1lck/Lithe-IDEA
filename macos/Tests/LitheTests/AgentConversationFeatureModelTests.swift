@@ -616,6 +616,8 @@ struct AgentConversationFeatureModelTests {
             #expect(feature.selectedConversation?.contextUsage == nil)
             feature.prepareConversation()
             try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Keep this session")
+            try feature.receive(event("turnFinished"))
             try feature.receive(event("usageUpdate"))
             #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
             #expect(feature.selectedConversation?.contextUsage?.capacityTokens == 258400)
@@ -630,7 +632,7 @@ struct AgentConversationFeatureModelTests {
             try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 1000, "size": 258400]]))
             #expect(feature.selectedConversation?.contextUsage?.usedTokens == 1000)
             #expect(feature.conversations["session-2"]?.contextUsage?.usedTokens == 90000)
-            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            #expect(feature.selectedConversation?.messages.map(\.role) == [.user], "Usage updates do not append transcript messages")
             feature.closeConversation("session-1")
             #expect(feature.conversations["session-1"] == nil)
         }
@@ -1097,6 +1099,9 @@ struct AgentConversationFeatureModelTests {
                 try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any,
                     "sessionId": id]))
             }
+            #expect(feature.conversations["empty-1"] == nil, "New Chat immediately drops the preceding unprompted session")
+            #expect(!feature.sessions.contains { $0.id == "empty-1" })
+            #expect(feature.openSessionIDs == ["session-2", "empty-2"])
             await feature.stop()
             #expect(feature.selectedSessionID == nil)
             #expect(feature.openSessionIDs == ["session-2"])

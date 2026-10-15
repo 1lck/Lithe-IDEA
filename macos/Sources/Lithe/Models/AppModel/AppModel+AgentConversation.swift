@@ -4,6 +4,26 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 extension AppModel {
+    var agentChatsInEditor: Bool { editorTabOrderFeature.contains(.agentConversation) }
+    var isAgentEditorSelected: Bool { agentChatsInEditor && editorTabOrderFeature.focusedItem == .agentConversation }
+
+    func showAgentChatsInEditor() {
+        if !agentChatsInEditor { editorTabOrderFeature.moveToEnd(.agentConversation) }
+        selectedChange = nil
+        closeBranchComparison()
+        editorTabOrderFeature.repositoryDiffSelected = false
+        editorTabOrderFeature.databaseSelected = false
+        editorTabOrderFeature.focus(.agentConversation)
+        workbenchFeature.setVisibility(.agent, isVisible: true)
+    }
+
+    func showAgentChatsInToolWindow() {
+        let wasSelected = isAgentEditorSelected
+        editorTabOrderFeature.remove(.agentConversation)
+        if wasSelected, let next = editorTabItems.last { selectEditorTab(next) }
+        workbenchFeature.setVisibility(.agent, isVisible: true)
+    }
+
     func copyAgentSessionID(_ id: String) {
         platformUI.copyToClipboard(id)
     }
@@ -56,6 +76,7 @@ extension AppModel {
     }
 
     func activateAgentConversation() {
+        guard selectedAgentConversationID != nil else { return }
         guard isAgentConversationEnabled, agentConversationFeatureIfActive == nil else {
             connectAgentConversation()
             return
@@ -128,7 +149,7 @@ extension AppModel {
             }
             .map { id, configuration -> AgentOption in
                 let provider = settings.agentProvider(for: id)
-                let model = configuration.authentication == .codexSubscription ? String(localized: "Codex subscription") : (provider?.model.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+                let model = configuration.authentication == .codexSubscription ? "Codex subscription" : (provider?.model.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
                 return AgentOption(id: id, name: configuration.name, modelName: model.isEmpty ? provider?.name : model)
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -137,12 +158,15 @@ extension AppModel {
     /// Refresh the panel's agents and start the selected one if needed.
     func connectAgentConversation() {
         guard !isChangingAgentProvider else { return }
+        guard let selectedAgentConversationID else { return }
         guard let feature = agentConversationFeatureIfActive else { return }
         if let workspaceURL { feature.bindWorkspace(workspaceURL) }
         feature.onAttentionChanged = { [weak self] needsAttention in
             self?.agentConversationNeedsAttention = needsAttention
         }
         feature.setAgents(configuredAgentOptions)
+        guard feature.agents.contains(where: { $0.id == selectedAgentConversationID }) else { return }
+        feature.selectAgent(selectedAgentConversationID)
         guard let agentID = feature.selectedAgentID else { return }
         let connection = feature.connection(for: agentID)
         guard !connection.hasActiveConnection else { return }
@@ -158,6 +182,7 @@ extension AppModel {
     }
 
     func selectAgentConversationAgent(_ agentID: String) {
+        selectedAgentConversationID = agentID
         agentConversationFeatureIfActive?.selectAgent(agentID)
         connectAgentConversation()
     }

@@ -2241,12 +2241,12 @@
 "Untitled conversation" = "未命名对话";
 "Choose an Agent" = "选择 Agent";
 "No Agent is set up yet" = "尚未设置 Agent";
-"No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration." = "还没有可用的 Agent。请打开面板设置，安装 Agent 并获取它的本机配置。";
-"Agent conversation is turned off. Turn it on in the panel settings to send messages." = "Agent 对话功能已关闭。请在面板设置中开启后再发送消息。";
+"No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration." = "还没有可用的 Agent。请打开设置窗口的 Agent 页面，安装 Agent 并获取它的本机配置。";
+"Agent conversation is turned off. Turn it on in the panel settings to send messages." = "Agent 对话功能已关闭。请在设置窗口的 Agent 页面中开启后再发送消息。";
 "The Agent module is still starting. Try again in a moment." = "Agent 模块仍在启动，请稍后再试。";
 "The conversation is still being prepared. Try again in a moment." = "对话仍在准备中，请稍后再试。";
-"Set the custom Agent's executable in the panel settings." = "请在面板设置中填写自定义 Agent 的可执行文件。";
-"Fetch this Agent's local configuration in the panel settings." = "请在面板设置中获取该 Agent 的本机配置。";
+"Set the custom Agent's executable in the panel settings." = "请在设置窗口的 Agent 页面中填写自定义 Agent 的可执行文件。";
+"Fetch this Agent's local configuration in the panel settings." = "请在设置窗口的 Agent 页面中获取该 Agent 的本机配置。";
 "Your local configuration has no API key for this Agent. Add one, then fetch the configuration again." = "本机配置中没有该 Agent 的 API 密钥。请先添加，然后重新获取配置。";
 "The Agent is not running. Connect to start a conversation." = "Agent 未运行。请先连接再开始对话。";
 "The previous Agent is still stopping. Try again shortly." = "上一个 Agent 仍在停止，请稍后重试。";
@@ -2485,9 +2485,9 @@
 "Codex Agents require the Responses API. Claude Agents require an Anthropic API key." = "Codex Agent 需要 Responses API，Claude Agent 需要 Anthropic API 密钥。";
 "Wait for the Agent operation to finish before changing providers." = "请等待 Agent 当前操作完成后再切换供应商。";
 "Provider configuration parsing is unavailable." = "供应商配置解析暂不可用。";
-"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "尚无可用的 Agent，请在面板设置中安装 Agent，并选择本机配置或自定义供应商。";
-"Choose a local or custom provider in the Agent panel settings." = "请在 Agent 面板设置中选择本机配置或自定义供应商。";
-"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "此 Agent 的供应商未配置 API 密钥，请更新本机配置或在面板设置中编辑自定义供应商。";
+"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "尚无可用的 Agent，请在设置窗口的 Agent 页面中安装 Agent，并选择本机配置或自定义供应商。";
+"Choose a local or custom provider in the Agent panel settings." = "请在设置窗口的 Agent 页面中选择本机配置或自定义供应商。";
+"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "此 Agent 的供应商未配置 API 密钥，请更新本机配置或在设置窗口的 Agent 页面中编辑自定义供应商。";
 "The credential store version is unsupported. Existing credentials were preserved." = "凭据存储版本暂不支持，已保留原有凭据。";
 "Add" = "添加";
 "Agent provider" = "Agent 供应商";
@@ -2916,6 +2916,35 @@
 "%lld non-streaming" = "%lld 次非流式";
 "Model calls observed by the local proxy during this turn. TTFT is the average time to the first generated token." = "本轮由本机代理观测到的模型调用；首字为首个生成 token 的平均等待时间。";
 "%lld requests returned no usage, so these totals are a lower bound." = "有 %lld 次请求未返回用量，以上为最低值。";
+
+"Start the session by sending a message" = "发送消息以开始会话";
+"Use an Agent in your project" = "在项目中使用 Agent";
+"Lithe Agent" = "Lithe Agent";
+"Welcome to Lithe Agent" = "欢迎使用 Lithe Agent";
+"Collaborate with Claude and Codex to ask questions, run tasks, and review code changes." = "与 Claude、Codex 协作，提问、执行任务并审查代码修改。";
+"Claude Agent" = "Claude Agent";
+"More Agents…" = "更多 Agent…";
+"Use a third-party provider" = "使用第三方服务";
+"Custom API provider" = "自定义 API 服务";
+"Cline, Cursor, Kilo, Mistral, and more with ACP technology" = "Cline、Cursor、Kilo、Mistral，以及更多采用 ACP 技术的 Agent";
+"Chat History" = "对话历史";
+"New Chat" = "新对话";
+"Type your task or / for commands" = "输入任务，或用 / 选择命令";
+
+"Conversation history is unavailable" = "当前无法读取对话历史";
+
+"Cannot create a new conversation: %@" = "无法新建对话：%@";
+
+"Rename Chat" = "重命名对话";
+"Delete Chat" = "删除对话";
+"Show Toolbar" = "显示工具栏";
+"Chat options" = "对话选项";
+
+"AI Chat" = "AI 对话";
+"Show Chats in the AI Tool Window" = "在 AI 工具窗口中显示对话";
+"Show Chats in the Editor" = "在编辑区中显示对话";
+
+"Activity" = "活动";
 
 /* Declarative plugin settings (Settings › Plugins). */
 "Applies the next time the language server starts." = "下次启动语言服务器时生效。";

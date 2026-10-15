@@ -1055,9 +1055,7 @@ struct GenericDebugView: View {
                 }
             }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LitheTheme.error.opacity(0.06))
+        .litheBannerSurface(.error, layout: .editor)
         .accessibilityElement(children: .contain)
     }
 
