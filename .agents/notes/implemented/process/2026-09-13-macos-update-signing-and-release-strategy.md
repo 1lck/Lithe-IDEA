@@ -219,6 +219,7 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 
 ```bash
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AppUpdateChannelTests|StableRollbackTests|UpdateCheckerTests|UpdateManifestTests'
+# 在仓库根目录运行；Bun 包装器自动选择 windows/tauri 作为工作目录。
 node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-updater.json -- src/features/settings/lib/update-channel.test.ts src/features/settings/stores/update.store.test.ts src/features/settings/components/update-channel-selector.test.tsx src/features/layout/components/installed-build-label.test.tsx
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
 ./scripts/test-macos.sh

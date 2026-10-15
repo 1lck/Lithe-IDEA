@@ -29,6 +29,6 @@
   },
   "owner": "Release",
   "releaseSource": "个人仓库 1lck/Lithe-IDEA 发布正式版与固定 AutoBuild，继续使用现有 Sparkle/Tauri 应用签名；组织仓库 Lithe-IDEA/Lithe-IDEA 分发官方插件和索引，客户端保留插件 v2 信任公钥。",
-  "verification": "共享渠道和时间 fixture 分别由 Swift 与 Bun 测试消费，覆盖正式版默认值、非法偏好、风险确认、四种渠道路径、真实 UTC 时间、午夜与闰日。macOS 82 项相关 Swift 测试及 Windows 29 项前端测试通过；Windows 类型检查和生产打包时间注入检查通过。真实双架构签名升级和 Windows 原生安装/WebView 尚未验证，状态保留 pending。运行时发行包不可写。",
+  "verification": "共享渠道和时间 fixture 分别由 Swift 与 Bun 测试消费，覆盖正式版默认值、非法偏好、风险确认、四种渠道路径、真实 UTC 时间、午夜与闰日。macOS 82 项相关 Swift 测试及 Windows 29 项前端测试通过；本地 Sparkle 五个集成场景通过，覆盖真实签名、差分还原、损坏签名拒绝和六种渠道/架构打包元数据。Windows 类型检查和生产打包时间注入检查通过。真实双架构签名升级和 Windows 原生安装/WebView 尚未验证，状态保留 pending。运行时发行包不可写。",
   "notes": "设置提供正式版（推荐）和 AutoBuild；只有明确确认风险才保存 AutoBuild，持续提醒普通用户使用正式版。AutoBuild 显示构建自 YYYY-MM-DD HH:mm:ss UTC，用同一 UTC 时间的 YYYYMMDD.HHMMSS 判断先后，不使用 workflow 序号。macOS 同渠道保留 Sparkle 更新，跨渠道要求全量安装；Windows 正式版保留 Tauri 更新，AutoBuild 与跨渠道显式打开安装器下载页，因缺少签名滚动清单，不宣称已是最新版或支持自动安装。个人应用更新地址、正式回退与下载页指向个人仓库；插件市场组织地址和信任规则不变。"
 }
