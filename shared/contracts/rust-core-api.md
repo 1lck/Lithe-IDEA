@@ -80,6 +80,18 @@ Bearer/OAuth/custom-header/cloud routes cleared. This avoids the adapter's
 gateway placeholder Bearer token overriding a valid `x-api-key`; it does not
 patch the adapter or change native CLI configuration files. Missing Claude
 credentials fail before session creation instead of falling back to an account.
+The provider model is a new-session default: Claude supplies it only as
+`_meta.claudeCode.options.model` on `session/new`, never as a process-wide
+`ANTHROPIC_MODEL` pin or an `options.model` override on `session/load`. On a
+Claude API-key restore, the Host re-asserts the returned model selector
+(`category: model`) through `session/set_config_option`, even if its value is
+unchanged or outside the picker. Only a matching acknowledgement publishes
+`sessionLoaded`; its complete configuration replaces the load response.
+Rejection, mismatched confirmation or timeout reports a load failure. Both
+requests share the existing 60-second load deadline. Adapters without model
+selectors and other Agent routes retain standard ACP loading; no additional
+model cache, transcript access or global CLI mutation is introduced.
+
 Claude API-key sessions also set `CLAUDE_CODE_MAX_RETRIES=0`,
 `CLAUDE_CODE_RETRY_WATCHDOG=0`, and
 `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1` in both option tiers. The native
@@ -128,7 +140,7 @@ or user configuration; this runtime helper is excluded from worktree reuse.
 The route fixture is `shared/fixtures/agent/acp-events-v1.json`'s
 `upstream.claudeSessionRouting`. The
 user's own CLI is passed as `CODEX_PATH` or `CLAUDE_CODE_EXECUTABLE`, and a
-non-empty `model` as `CODEX_CONFIG` or `ANTHROPIC_MODEL`. Without `agentId`, `command` runs
+non-empty Codex `model` as `CODEX_CONFIG`; Claude uses the per-new-session option above. Without `agentId`, `command` runs
 a user-provided agent that must support gateway sign-in with a Responses
 provider. Agents start with the executable's directory and the login shell's
 `PATH` first. API-key mode never falls back to account login. Invalid settings
