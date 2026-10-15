@@ -78,7 +78,7 @@ struct OutputCopyCursorTests {
         for width in [520.0, 360.0] {
             window.setContentSize(NSSize(width: width, height: 240)); host.layoutSubtreeIfNeeded()
             let rect = try #require(text.copyButtonRect)
-            try #require(rect.width > 40 && rect.height == LitheTheme.Metrics.toolbarIconButtonSize)
+            try #require(rect.width == LitheTheme.Metrics.toolbarIconButtonSize && rect.height == LitheTheme.Metrics.toolbarIconButtonSize)
             let cursorRects = text.textCursorRects(text.visibleRect)
             #expect(cursorRects.allSatisfy { !$0.intersects(rect) })
             #expect(abs(cursorRects.reduce(0) { $0 + $1.width * $1.height } + rect.intersection(text.visibleRect).width * rect.intersection(text.visibleRect).height

@@ -9,7 +9,8 @@ import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace
 import { saveWorkspaceBeforeLaunch } from "../services/save-workspace-before-launch";
 import { getBufferById } from "../utils/buffer-index";
 import { useBufferStore } from "./buffer.store";
-import { useEditorAppStore } from "./editor-app.store";
+import { createEditorAppStore, useEditorAppStore } from "./editor-app.store";
+import type { DocumentLifecycleDecision } from "@/platform/document-lifecycle";
 
 const WORKSPACE_A = "editor-app-test-a";
 const WORKSPACE_B = "editor-app-test-b";
@@ -368,4 +369,358 @@ test.each([false, true])("guarded save preserves conflicts and does not revive a
     save.mockRestore(); record.mockRestore(); decide.mockRestore();
     settings.useSettingsStore.setState((state) => ({ settings: { ...state.settings, formatOnSave: previousFormat } }));
   }
+});
+
+/** Debounce timers advanced by the test instead of wall-clock delays. */
+class ManualTimer {
+  private nextId = 1;
+  private readonly callbacks = new Map<number, () => void | Promise<void>>();
+
+  readonly set = (callback: () => void | Promise<void>) => {
+    const id = this.nextId++;
+    this.callbacks.set(id, callback);
+    return id as unknown as ReturnType<typeof setTimeout>;
+  };
+
+  readonly clear = (timer: ReturnType<typeof setTimeout>) => {
+    this.callbacks.delete(timer as unknown as number);
+  };
+
+  get size(): number {
+    return this.callbacks.size;
+  }
+
+  async fireNext(): Promise<void> {
+    const id = [...this.callbacks.keys()].sort((left, right) => left - right)[0];
+    if (id === undefined) throw new Error("No timer is scheduled.");
+    const callback = this.callbacks.get(id);
+    this.callbacks.delete(id);
+    await callback?.();
+  }
+}
+
+async function flushUntil(predicate: () => boolean, description: string): Promise<void> {
+  for (let attempt = 0; attempt < 64; attempt += 1) {
+    if (predicate()) return;
+    await Promise.resolve();
+  }
+  throw new Error(`Autosave never reached: ${description}`);
+}
+
+interface PendingWrite {
+  path: string;
+  content: string;
+  resolve: () => void;
+  reject: (error: Error) => void;
+}
+
+/**
+ * Autosave wiring for continuation tests: writes stay open until the test
+ * releases them, the debounce runs on a manual timer, and the shared lifecycle
+ * reducer is replaced so the tests do not depend on the Rust core.
+ */
+async function startAutosaveHarness(options: {
+  /**
+   * Runs while a claim is refused because another write still owns the
+   * document, so a test can settle that write inside the refusal window when
+   * the re-read afterwards no longer sees an owner.
+   */
+  onClaimRefusedWhileSaving?: (writes: PendingWrite[]) => Promise<void>;
+} = {}) {
+  const documentFiles = await import("@/platform/document-files");
+  const lifecycle = await import("@/platform/document-lifecycle");
+  const history = await import("@/features/local-history/api/local-history-api");
+  const settings = await import("@/features/settings/stores/settings.store");
+  const previousAutoSave = settings.useSettingsStore.getState().settings.autoSave;
+  const previousFormatOnSave = settings.useSettingsStore.getState().settings.formatOnSave;
+  settings.useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, autoSave: true, formatOnSave: false },
+  }));
+
+  const writes: PendingWrite[] = [];
+  const save = spyOn(documentFiles, "saveDocumentFile").mockImplementation(
+    async (path: string, content: string) => {
+      await new Promise<void>((resolve, reject) => {
+        writes.push({ path, content, resolve, reject });
+      });
+      return { status: "saved" };
+    },
+  );
+  const record = spyOn(history, "recordLocalHistoryFile").mockResolvedValue(null);
+  const failureToast = spyOn(toast, "error").mockImplementation(() => "test-toast");
+  const failureLog = spyOn(console, "error").mockImplementation(() => undefined);
+  const decide = spyOn(lifecycle, "decideDocumentLifecycle").mockImplementation(
+    async (state, event): Promise<DocumentLifecycleDecision> => {
+      if (event.type === "saveStarted") {
+        if (state.status !== "dirty") {
+          if (state.status === "saving") {
+            await options.onClaimRefusedWhileSaving?.(writes);
+          }
+          return { state, action: state.status === "conflict" ? "showConflict" : "none" };
+        }
+        return {
+          state: {
+            status: "saving",
+            revision: state.revision,
+            savedRevision: state.savedRevision,
+            saveRevision: state.revision,
+            operationId: event.operationId,
+          },
+          action: "writeToDisk",
+        };
+      }
+      if (event.type === "saveSucceeded") {
+        if (state.status !== "saving" || state.operationId !== event.operationId) {
+          return { state, action: "ignoreStaleResult" };
+        }
+        return {
+          state: state.revision === state.saveRevision
+            ? { status: "clean", revision: state.revision }
+            : { status: "dirty", revision: state.revision, savedRevision: state.saveRevision },
+          action: "none",
+        };
+      }
+      if (event.type === "saveFailed") {
+        if (state.status !== "saving" || state.operationId !== event.operationId) {
+          return { state, action: "reportSaveFailure" };
+        }
+        return {
+          state: { status: "dirty", revision: state.revision, savedRevision: state.savedRevision },
+          action: "reportSaveFailure",
+        };
+      }
+      throw new Error(`Unexpected transition: ${event.type}`);
+    },
+  );
+
+  const timer = new ManualTimer();
+  // Save paths outside this store resolve it through the workspace registry, so
+  // register the manual scheduler as the workspace factory to keep one instance.
+  workspaceRuntimeRegistry.registerStore("editor-app", (id: string) =>
+    createEditorAppStore(id, { setTimer: timer.set, clearTimer: timer.clear }),
+  );
+  const store = useEditorAppStore.getStore(WORKSPACE_A);
+  return {
+    timer,
+    writes,
+    store,
+    save,
+    failureToast,
+    settings: settings.useSettingsStore,
+    restore: () => {
+      for (const write of writes) write.resolve();
+      store.getState().actions.cleanup();
+      save.mockRestore();
+      record.mockRestore();
+      decide.mockRestore();
+      failureToast.mockRestore();
+      failureLog.mockRestore();
+      workspaceRuntimeRegistry.registerStore("editor-app", createEditorAppStore);
+      settings.useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, autoSave: previousAutoSave, formatOnSave: previousFormatOnSave },
+      }));
+    },
+  };
+}
+
+/** Queues one open write plus a newer edit whose debounce must wait for it. */
+async function queueWriteAndNewerEdit(
+  harness: Awaited<ReturnType<typeof startAutosaveHarness>>,
+  options: { expectsContinuation?: boolean } = {},
+) {
+  setWorkspaceBuffers(
+    WORKSPACE_A,
+    [editorBuffer("a", "first line", { path: "C:/workspace/a.txt", isVirtual: false })],
+    "a",
+  );
+  const actions = harness.store.getState().actions;
+  await actions.handleContentChange("a", "first line!");
+  await flushUntil(() => harness.timer.size === 1, "the first debounce");
+  await harness.timer.fireNext();
+  await flushUntil(() => harness.writes.length === 1, "the first write request");
+  expect(harness.writes[0]?.content).toBe("first line!");
+
+  // The burst settles while that write still owns the document, so its own
+  // debounce is refused and must be re-armed instead of dropped.
+  await actions.handleContentChange("a", "first line!!");
+  await flushUntil(() => harness.timer.size === 1, "the replacement debounce");
+  await harness.timer.fireNext();
+  if (options.expectsContinuation ?? true) {
+    await flushUntil(() => harness.timer.size === 1, "a debounce that continues the autosave");
+  } else {
+    await flushUntil(
+      () => harness.store.getState().autoSaveTasks.a === undefined,
+      "the refused continuation to be dropped",
+    );
+  }
+  expect(harness.writes).toHaveLength(1);
+  expect(getEditorBuffer(WORKSPACE_A, "a").isDirty).toBe(true);
+}
+
+describe("editor autosave continuation", () => {
+  test("continues the delayed autosave while an earlier write is still in flight", async () => {
+    const harness = await startAutosaveHarness();
+    try {
+      await queueWriteAndNewerEdit(harness);
+
+      harness.writes[0]?.resolve();
+      await flushUntil(
+        () => getEditorBuffer(WORKSPACE_A, "a").documentLifecycle?.status === "dirty",
+        "the first write to settle with newer text still pending",
+      );
+      await harness.timer.fireNext();
+      await flushUntil(() => harness.writes.length === 2, "the continued write request");
+      expect(harness.writes[1]?.content).toBe("first line!!");
+      harness.writes[1]?.resolve();
+      await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "a saved document");
+
+      expect(harness.save).toHaveBeenCalledTimes(2);
+      expect(getEditorBuffer(WORKSPACE_A, "a").savedContent).toBe("first line!!");
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
+  test("drops the queued continuation when the awaited write fails", async () => {
+    const harness = await startAutosaveHarness();
+    try {
+      await queueWriteAndNewerEdit(harness);
+
+      harness.writes[0]?.reject(new Error("disk full"));
+      await flushUntil(
+        () => getEditorBuffer(WORKSPACE_A, "a").documentLifecycle?.status === "dirty",
+        "the failed write to restore dirty ownership",
+      );
+
+      const buffer = getEditorBuffer(WORKSPACE_A, "a");
+      expect(harness.timer.size).toBe(0);
+      expect(harness.writes).toHaveLength(1);
+      expect(harness.failureToast).toHaveBeenCalledTimes(1);
+      expect(buffer.isDirty).toBe(true);
+      expect(buffer.content).toBe("first line!!");
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
+  test("drops the queued continuation once autosave is switched off", async () => {
+    const harness = await startAutosaveHarness();
+    try {
+      await queueWriteAndNewerEdit(harness);
+
+      harness.settings.setState((state) => ({ settings: { ...state.settings, autoSave: false } }));
+      harness.writes[0]?.resolve();
+      await flushUntil(
+        () => getEditorBuffer(WORKSPACE_A, "a").documentLifecycle?.status === "dirty",
+        "the first write to settle with autosave already off",
+      );
+      await harness.timer.fireNext();
+      // The queued continuation must be dropped instead of claiming a write.
+      await flushUntil(
+        () => Object.keys(harness.store.getState().autoSaveTasks).length === 0,
+        "the queued continuation to be dropped once autosave is off",
+      );
+
+      const buffer = getEditorBuffer(WORKSPACE_A, "a");
+      expect(harness.writes).toHaveLength(1);
+      expect(buffer.isDirty).toBe(true);
+      expect(buffer.content).toBe("first line!!");
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
+  test("drops the queued continuation when a manual save fails", async () => {
+    const harness = await startAutosaveHarness();
+    try {
+      setWorkspaceBuffers(
+        WORKSPACE_A,
+        [editorBuffer("a", "my edits", { isDirty: true, path: "C:/workspace/a.txt", isVirtual: false })],
+        "a",
+      );
+
+      const manualSave = harness.store.getState().actions.handleSave("a");
+      await flushUntil(
+        () => getEditorBuffer(WORKSPACE_A, "a").documentLifecycle?.status === "saving",
+        "the manual save to claim the document",
+      );
+      await flushUntil(() => harness.writes.length === 1, "the manual write request");
+      const lifecycle = getEditorBuffer(WORKSPACE_A, "a").documentLifecycle;
+      if (lifecycle?.status !== "saving") throw new Error("Expected the manual save to own the document.");
+      harness.store.setState((state) => ({
+        autoSaveTasks: {
+          ...state.autoSaveTasks,
+          a: {
+            timeoutId: 1 as unknown as ReturnType<typeof setTimeout>,
+            context: { bufferId: "a", path: "C:/workspace/a.txt", operationId: "continuation" },
+            continuesOperationId: lifecycle.operationId,
+          },
+        },
+      }));
+      expect(harness.store.getState().autoSaveTasks.a).toBeDefined();
+
+      harness.writes[0]?.reject(new Error("disk full"));
+
+      await expect(manualSave).resolves.toBe("failed");
+      expect(harness.store.getState().autoSaveTasks.a).toBeUndefined();
+      expect(getEditorBuffer(WORKSPACE_A, "a").isDirty).toBe(true);
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
+  test("continues the newer text when the awaited write settles during the refused claim", async () => {
+    const harness = await startAutosaveHarness({
+      onClaimRefusedWhileSaving: async (writes) => {
+        // The earlier write finishes inside the refusal window, so no owner is
+        // left to wait on and only its persisted revision can hand the document
+        // over to the queued continuation.
+        writes[0]?.resolve();
+        await flushUntil(
+          () => getEditorBuffer(WORKSPACE_A, "a").documentLifecycle?.status === "dirty",
+          "the awaited write to settle during the refused claim",
+        );
+      },
+    });
+    try {
+      await queueWriteAndNewerEdit(harness);
+
+      await harness.timer.fireNext();
+      await flushUntil(() => harness.writes.length === 2, "the continued write request");
+      expect(harness.writes[1]?.content).toBe("first line!!");
+      harness.writes[1]?.resolve();
+      await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "a saved document");
+
+      expect(harness.save).toHaveBeenCalledTimes(2);
+      expect(getEditorBuffer(WORKSPACE_A, "a").savedContent).toBe("first line!!");
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
+  test("drops the continuation when the awaited write fails inside the refused claim", async () => {
+    const harness = await startAutosaveHarness({
+      onClaimRefusedWhileSaving: async (writes) => {
+        // A write failing inside the refusal window must not be retried by the
+        // queued continuation.
+        writes[0]?.reject(new Error("disk full"));
+        await flushUntil(
+          () => getEditorBuffer(WORKSPACE_A, "a").documentLifecycle?.status === "dirty",
+          "the failed write to restore dirty ownership during the refused claim",
+        );
+      },
+    });
+    try {
+      await queueWriteAndNewerEdit(harness, { expectsContinuation: false });
+
+      const buffer = getEditorBuffer(WORKSPACE_A, "a");
+      expect(harness.timer.size).toBe(0);
+      expect(harness.writes).toHaveLength(1);
+      expect(harness.failureToast).toHaveBeenCalledTimes(1);
+      expect(buffer.isDirty).toBe(true);
+      expect(buffer.content).toBe("first line!!");
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
 });
