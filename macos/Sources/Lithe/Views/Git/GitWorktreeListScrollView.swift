@@ -119,7 +119,6 @@ final class GitWorktreeListNSView: NSView {
     private var onContextMenuAction: ((GitWorktreeListAction, GitWorktreeListItem) -> Void)?
     private var drawingStyle: DrawingStyle?
     private var hoveredIndex: Int?
-    private var lastLayoutWidth: CGFloat = -.greatestFiniteMagnitude
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -161,8 +160,7 @@ final class GitWorktreeListNSView: NSView {
 
     @discardableResult
     func updateLayout(width: CGFloat) -> Bool {
-        guard width.isFinite, width > 0, width != lastLayoutWidth else { return false }
-        lastLayoutWidth = width
+        guard width.isFinite, width > 0 else { return false }
         let rowStride = GitWorktreeListScrollView.rowHeight + GitWorktreeListScrollView.rowSpacing
         let rowsHeight = max(0, CGFloat(items.count) * rowStride - GitWorktreeListScrollView.rowSpacing)
         let size = CGSize(width: width, height: rowsHeight + GitWorktreeListScrollView.verticalInset * 2)
@@ -232,6 +230,7 @@ final class GitWorktreeListNSView: NSView {
         guard !items.isEmpty else { return }
         let current = items.firstIndex { $0.id == selectedWorktreeID }
         let index = min(max((current ?? (offset > 0 ? -1 : items.count)) + offset, 0), items.count - 1)
+        guard items[index].id != selectedWorktreeID else { return }
         selectedWorktreeID = items[index].id
         onSelect?(items[index].id)
         scrollToVisible(rowRect(for: index))

@@ -40,7 +40,34 @@ struct GitWorktreeAppearanceTests {
         view.moveDown(nil)
         view.moveUp(nil)
         view.moveUp(nil)
-        #expect(selections == [items[0].id, items[1].id, items[1].id, items[0].id, items[0].id])
+        #expect(selections == [items[0].id, items[1].id, items[0].id])
+    }
+
+    @Test
+    func listHeightTracksRowCountAtTheSameWidth() throws {
+        let items = (0..<20).map { item("branch-\($0)") }
+        let scroll = GitWorktreeListScrollView.makeScrollView(
+            items: [items[0]], selectedWorktreeID: nil, onSelect: { _ in })
+        scroll.frame = CGRect(x: 0, y: 0, width: 286, height: 160)
+        scroll.layoutSubtreeIfNeeded()
+        let view = try #require(scroll.documentView as? GitWorktreeListNSView)
+        let width = scroll.contentView.bounds.width
+        view.updateLayout(width: width)
+        let singleRowHeight = view.frame.height
+
+        view.update(items: items, selectedWorktreeID: nil, onSelect: { _ in })
+        #expect(view.updateLayout(width: width))
+        #expect(view.frame.height > scroll.contentView.bounds.height)
+        view.scrollToVisible(CGRect(x: 0, y: view.bounds.maxY - 1, width: 1, height: 1))
+        #expect(scroll.contentView.bounds.maxY >= view.bounds.maxY - 1)
+        #expect(!view.updateLayout(width: width))
+
+        view.update(items: [items[0]], selectedWorktreeID: nil, onSelect: { _ in })
+        #expect(view.updateLayout(width: width))
+        #expect(view.frame.height == singleRowHeight)
+        view.update(items: [], selectedWorktreeID: nil, onSelect: { _ in })
+        #expect(view.updateLayout(width: width))
+        #expect(view.frame.height == GitWorktreeListScrollView.verticalInset * 2)
     }
 
     @Test(arguments: [false, true])
