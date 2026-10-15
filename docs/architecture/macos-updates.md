@@ -128,6 +128,25 @@ as **AutoBuild — 构建自 … UTC**). Workflow run/attempt counters do not or
 versions. Equal or older times cannot replace a published build. Retrying
 publication retains the artifact's original time instead of relabeling old bytes.
 
+Publication waits for both macOS architectures and the reusable Windows installer
+build, all carrying the same source, version, build and timestamp.
+The publisher checks both existing appcasts before any remote mutation: the new
+time must be strictly later than each published `pubDate`, and the numeric build
+must increase. As long as the `preview-0.3.0` release remains, its appcasts also
+pass the strict baseline check, even when AutoBuild exists but is empty or has only
+an incomplete checkpoint. Exact-plan recovery applies only to AutoBuild. Legacy builds
+such as `58.1` remain readable baselines; new builds
+must use timestamp identities. New publications at duplicate seconds and backward
+clocks fail without inventing a counter. Before replacing data or feeds, the publisher
+uploads `autobuild-publication.json`, binding source, version, build, timestamp and the
+sorted target asset sizes and SHA-256 hashes. A byte-identical checkpoint permits
+resuming the same publication with the original artifacts, including completing tag,
+metadata and cleanup after feed replacement. An already-current feed must match the
+local bytes exactly; older feeds still pass the strict baseline check. Missing feeds
+or empty `starter` uploads can be repaired only with this matching checkpoint.
+Changed bytes/source at the same instant and older retries against newer checkpoints
+fail before mutation. The checkpoint itself is retained and verified with the assets.
+
 The rolling tag stays `AutoBuild`. New packages write
 `LitheUpdateChannel=autobuild`; legacy `preview` metadata remains readable.
 The feed is `releases/download/AutoBuild/appcast-preview-<architecture>.xml`.
@@ -148,14 +167,34 @@ no signed rolling Tauri manifest is published. They never claim freshness or
 open the browser silently during scheduled checks.
 
 ZIPs retain compatible names such as `Lithe-preview-20261015.124354-arm64.zip`.
-Previous ZIPs are temporary delta inputs. The coordinated publisher validates
-both platforms and official plugin mirrors before any mutation, uploads data
-before feeds, verifies remote bytes, then prunes to exactly the latest apps,
-current ZIPs, deltas targeting this build, and current official plugins. It
-moves the fixed tag to the pinned source SHA. Multi-file replacement is not
-atomic; cached feeds may require a fresh check. The old `preview-0.3.0`
-release/tag is retired only after verified publication; its clients need one
-manual AutoBuild installation.
+AutoBuild keeps only the current full ZIP per architecture and deltas targeting
+the current build. Previous ZIPs are temporary delta inputs; older clients can
+use the current full archive after checking again. Historical cached feed URLs
+are not retained.
+
+The publisher runs from `github.workflow_sha`, not from the application checkout.
+It reads the official plugin registry/index with `git fetch/show` at the pinned
+application SHA, selects each registered downloadable plugin's latest numeric
+semantic version and all distinct variants, downloads existing ZIPs from indexed
+`Lithe-IDEA` organization releases, and verifies the index SHA-256 before any
+release mutation. It mirrors byte-identical signed packages plus SHA sidecars;
+no plugin key, rebuilding, re-signing or canonical marketplace URL change is needed.
+Bundled Java is excluded; current downloadable PHP and Go packages are 1.0.0.
+
+After local validation and strict published-baseline time checks, all installers, archives, deltas and plugin mirrors upload
+before either XML feed. The complete desired manifest is verified remotely using
+asset SHA-256 digests, or a bounded download when a digest is unavailable. Only
+then does the publisher explicitly force PATCH `git/refs/tags/AutoBuild` to the
+source SHA, update and verify metadata, and remove every stale AutoBuild asset,
+including obsolete installers and plugin versions. Failed download, hash,
+upload or manifest verification prevents stale-asset cleanup. GitHub does not
+provide atomic multi-file replacement; partial uploads can remain on failure.
+Stable releases and upstream plugin releases are outside this publisher's scope.
+
+Only after complete verified publication and cleanup can `preview-0.3.0` and its
+tag be retired. Clients using that old feed require one manual AutoBuild
+reinstall. A second compatibility tag is not retained. AutoBuild release notes
+warn in Chinese and English that ordinary users should use Stable.
 
 Each appcast's `pubDate` matches the app timestamp. With no eligible baseline,
 the first publication uses a full signed archive. Both Sparkle keys remain

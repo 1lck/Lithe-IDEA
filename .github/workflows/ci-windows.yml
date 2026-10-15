@@ -135,7 +135,9 @@ jobs:
 
       - name: Test Windows dependency install recovery
         shell: pwsh
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts
+        # Native PowerShell/Job Object startup and owned-process cleanup need
+        # headroom beyond the fixture's separate five second install deadlines.
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 60000 --suite-timeout-ms 180000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts
 
       - name: Configure isolated dependency caches
         shell: pwsh
