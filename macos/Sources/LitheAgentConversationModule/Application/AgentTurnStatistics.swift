@@ -2,7 +2,7 @@ import Foundation
 
 /// Token counters from a prompt response. The Agent owns their accounting scope;
 /// context occupancy and subscription quota are separate measurements.
-public struct AgentTurnUsage: Decodable, Equatable, Sendable {
+public struct AgentTurnUsage: Codable, Equatable, Sendable {
     public let totalTokens: UInt64
     public let inputTokens: UInt64
     public let outputTokens: UInt64

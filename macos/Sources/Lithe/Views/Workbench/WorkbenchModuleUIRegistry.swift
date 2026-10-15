@@ -65,6 +65,9 @@ struct WorkbenchModuleUIRegistry {
         /// chiefly "still loading" versus a specific attached feature object.
         let contentIdentity: @MainActor (AppModel) -> AnyHashable
         let rightSidebarBehavior: RightSidebarBehavior
+        /// Set by tool windows whose content can also live as an editor tab.
+        /// Dropping the stripe button onto the editor area invokes it.
+        let openInEditor: (@MainActor (AppModel) -> Void)?
 
         init(
             id: String,
@@ -77,7 +80,8 @@ struct WorkbenchModuleUIRegistry {
             contentIdentity: @escaping @MainActor (AppModel) -> AnyHashable = { _ in 0 },
             rightSidebarBehavior: RightSidebarBehavior = .hover,
             isEnabled: @escaping @MainActor (AppModel) -> Bool = { _ in true },
-            help: String? = nil
+            help: String? = nil,
+            openInEditor: (@MainActor (AppModel) -> Void)? = nil
         ) {
             self.id = id
             self.ideaAssetPath = ideaAssetPath
@@ -88,6 +92,7 @@ struct WorkbenchModuleUIRegistry {
             self.content = content
             self.contentIdentity = contentIdentity
             self.rightSidebarBehavior = rightSidebarBehavior
+            self.openInEditor = openInEditor
         }
 
         /// Identity for renderers built from an optional feature object. The
