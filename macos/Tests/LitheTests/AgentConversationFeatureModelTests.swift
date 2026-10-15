@@ -9,6 +9,205 @@ import Testing
 @MainActor
 struct AgentConversationFeatureModelTests {
     @Test
+    func delayedAutoFallbackNoticeAfterSelectingPlanDoesNotPolluteTheReply() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            feature.setConfigOption("mode", value: "plan")
+            var planOptions = options
+            planOptions[1]["currentValue"] = "plan"
+            try feature.receive(event("sessionConfigured", ["token": connection.commands.last?["token"] as Any,
+                                                            "configOptions": planOptions]))
+            try feature.send("Make a plan")
+            let turn = feature.selectedConversation?.activeTurn
+            let commands = connection.commands.count
+            // Claude defers the startup fallback warning until the first prompt.
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.messages.map(\.text) == ["Make a plan"])
+            #expect(feature.selectedConversation?.configOptions[1].currentValue == "plan")
+            #expect(feature.selectedConversation?.isResponding == true)
+            #expect(feature.selectedConversation?.activeTurn == turn)
+            #expect(feature.selectedConversation?.errorMessage == nil)
+            #expect(connection.commands.count == commands)
+            try feature.receive(event("agentMessageChunk"))
+            try feature.receive(event("turnFinished"))
+            #expect(feature.selectedConversation?.messages.last?.text == "This project **builds** an IDE.")
+        }
+    }
+
+    @Test
+    func fallbackNoticeSurvivesPendingAndFailedModeChangesThenClearsOnConfirmation() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.receive(event("claudeAutoModeNotice"))
+            let notice = try #require(feature.selectedConversation?.notice)
+            #expect(notice.severity == .warning)
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            feature.setConfigOption("mode", value: "plan")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("sessionConfigured", ["token": "stale", "configOptions": []]))
+            #expect(feature.selectedConversation?.notice == notice)
+            try feature.receive(event("requestFailed", ["token": token, "message": "Mode rejected"]))
+            #expect(feature.selectedConversation?.notice == notice)
+            feature.setConfigOption("mode", value: "plan")
+            var confirmed = options
+            confirmed[1]["currentValue"] = "plan"
+            try feature.receive(event("sessionConfigured", ["token": connection.commands.last?["token"] as Any,
+                                                            "configOptions": confirmed]))
+            #expect(feature.selectedConversation?.notice == nil)
+        }
+    }
+
+    @Test
+    func aNewFallbackWarningBeforeTheConfigResultUsesTheConfirmedMode() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "plan"]]))
+            feature.setConfigOption("mode", value: "auto")
+            let token = try #require(connection.commands.last?["token"])
+            // Selecting unsupported Auto emits a notice before confirming Accept edits.
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("sessionConfigured", ["token": "stale", "configOptions": options]))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("sessionConfigured", ["token": token, "configOptions": options]))
+            #expect(feature.selectedConversation?.notice?.isClaudeAutoModeFallback == true)
+            #expect(feature.selectedConversation?.pendingModeNotice == nil)
+            #expect(feature.selectedConversation?.configOptions[1].currentValue == "acceptEdits")
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+        }
+    }
+
+    @Test
+    func modelSwitchFallbackSurvivesItsFollowingConfigUpdateAndRejectedModeDoesNotShowIt() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "auto"]]))
+            feature.setConfigOption("model", value: "another-model")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "acceptEdits"]]))
+            try feature.receive(event("claudeAutoModeNotice"))
+            var changed = options
+            changed[0]["currentValue"] = "another-model"
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "config_option_update", "configOptions": changed]]))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("sessionConfigured", ["token": token, "configOptions": changed]))
+            #expect(feature.selectedConversation?.notice?.isClaudeAutoModeFallback == true)
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "plan"]]))
+            feature.setConfigOption("mode", value: "auto")
+            try feature.receive(event("claudeAutoModeNotice"))
+            try feature.receive(event("requestFailed", ["token": connection.commands.last?["token"] as Any, "message": "Mode rejected"]))
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.pendingModeNotice == nil)
+            #expect(feature.selectedConversation?.configurationError == "Mode rejected")
+        }
+    }
+
+    @Test
+    func upstreamModeAndModelChangesClearOnlyTheObsoleteFallbackNotice() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.receive(event("claudeAutoModeNotice"))
+            let commands = connection.commands.count
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "unknown"]]))
+            #expect(feature.selectedConversation?.notice != nil)
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "plan"]]))
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(connection.commands.count == commands)
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "acceptEdits"]]))
+            try feature.receive(event("claudeAutoModeNotice"))
+            var changedModel = options
+            changedModel[0]["currentValue"] = "another-model"
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "config_option_update", "configOptions": changedModel]]))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "notice", "severity": "error", "title": "Tool connection failed"]]))
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "plan"]]))
+            #expect(feature.selectedConversation?.notice?.title == "Tool connection failed")
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice?.title == "Tool connection failed", "An obsolete advisory must not replace an unrelated error")
+        }
+    }
+
+    @Test
+    func noticeBeforeSessionAcknowledgementIsReconciledWithConfirmedMode() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            // Another session's updates can precede its creation response.
+            feature.startNewConversation()
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("claudeAutoModeNotice", ["sessionId": "session-2"]))
+            var plan = options
+            plan[1]["currentValue"] = "plan"
+            try feature.receive(event("sessionCreated", ["token": token, "sessionId": "session-2", "configOptions": plan]))
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+        }
+    }
+
+    @Test
+    func noticesAreSessionLocalDismissibleAndClearedByNextPromptAndDisconnect() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.send("First task")
+            try feature.receive(event("turnFinished"))
+            feature.startNewConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                                                        "sessionId": "session-2", "configOptions": options]))
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == nil)
+            feature.selectSession("session-1")
+            let first = try #require(feature.selectedConversation?.notice)
+            feature.dismissNotice("stale", in: "session-1")
+            #expect(feature.selectedConversation?.notice == first)
+            feature.dismissNotice(first.id, in: "session-1")
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("claudeAutoModeNotice"))
+            try feature.send("Continue")
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("claudeAutoModeNotice"))
+            let messages = feature.selectedConversation?.messages
+            await feature.stop()
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.messages == messages)
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == nil)
+        }
+    }
+
+    @Test
+    func noticeParsingIsBoundedAndNeverClassifiesAssistantText() async throws {
+        #expect(AgentSessionNotice.parse(["severity": "unknown", "title": "Warning"]) == nil)
+        #expect(AgentSessionNotice.parse(["severity": "warning", "title": " \n"]) == nil)
+        let bounded = try #require(AgentSessionNotice.parse(["severity": "info", "title": String(repeating: "x", count: 1000),
+                                                           "description": String(repeating: "y", count: 10000)]))
+        #expect(bounded.title.count == 256)
+        #expect(bounded.detail?.count == 4096)
+        try await withNoticeFeature { feature, _, _ in
+            let text = "**Auto mode unavailable:** the selected model does not support Auto mode; using Accept edits instead."
+            try feature.receive(event("agentMessageChunk", ["update": ["sessionUpdate": "agent_message_chunk", "content": ["type": "text", "text": text]]]))
+            try feature.receive(event("turnFinished"))
+            #expect(feature.selectedConversation?.messages.last?.text == text)
+            #expect(feature.selectedConversation?.notice == nil)
+        }
+    }
+
+    private func withNoticeFeature(_ run: @MainActor (AgentConnectionModel, TestAgentConnection, [[String: Any]]) async throws -> Void) async throws {
+        let transport = TestAgentTransport()
+        let feature = AgentConnectionModel(transport: transport)
+        let launch = AgentLaunchConfiguration(agentID: "claude-acp", command: "", arguments: [],
+            workspaceURL: configuration.workspaceURL, dataDirectory: configuration.dataDirectory,
+            providerProtocol: "anthropicMessages", providerEndpoint: "https://gateway.example.com/v1",
+            apiKey: "test-key", providerName: "Example", model: "", allowsInsecureHTTP: false)
+        do {
+            try feature.connect(configuration: launch)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            let connection = transport.connections[0]
+            let fixture = try #require(JSONSerialization.jsonObject(with: Data(event("sessionConfigured").utf8)) as? [String: Any])
+            var options = try #require(fixture["configOptions"] as? [[String: Any]])
+            options[0]["options"] = [["value": "example-model", "name": "Example Model"], ["value": "another-model", "name": "Another Model"]]
+            options[1]["currentValue"] = "acceptEdits"
+            options[1]["options"] = [["value": "acceptEdits", "name": "Accept edits"], ["value": "plan", "name": "Plan"], ["value": "auto", "name": "Auto"]]
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any, "configOptions": options]))
+            try await run(feature, connection, options)
+        } catch { await feature.stop(); throw error }
+        await feature.stop()
+    }
+
+    @Test
     func quietNoticeKeepsTheTurnBusyAndContinueWaitingDoesNotReplayIt() async throws {
         try await withStatisticsFeature { feature, connection, clock in
             try feature.send("Build the project")

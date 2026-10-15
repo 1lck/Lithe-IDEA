@@ -73,6 +73,7 @@ public final class AgentConnectionModel: ObservableObject {
     private var unpromptedSessionIDs: Set<String> = []
     private var historyContinuations: [String: CheckedContinuation<[AgentConversationMessage], Error>] = [:]
     private var historyRefreshToken: String?
+    private var isClaudeConnection = false
 
     public init(transport: any AgentConversationTransport, now: @escaping () -> ContinuousClock.Instant = { .now }) {
         self.transport = transport
@@ -97,6 +98,7 @@ public final class AgentConnectionModel: ObservableObject {
         guard closeTask == nil else { throw AgentConversationError.sessionStopping }
         let (events, continuation) = AsyncStream<String>.makeStream()
         errorMessage = nil
+        isClaudeConnection = configuration.agentID == "claude-acp"
         usesSubscription = configuration.authentication == .codexSubscription
         subscriptionEmail = nil
         subscriptionPlan = nil
@@ -334,6 +336,11 @@ public final class AgentConnectionModel: ObservableObject {
         conversations[sessionID]?.isQuiet = false
     }
 
+    public func dismissNotice(_ id: String, in sessionID: String) {
+        guard conversations[sessionID]?.notice?.id == id else { return }
+        conversations[sessionID]?.notice = nil
+    }
+
     public func answerPermission(optionID: String?) {
         guard let sessionID = selectedSessionID,
               let permission = conversations[sessionID]?.permission else { return }
@@ -390,7 +397,7 @@ public final class AgentConnectionModel: ObservableObject {
             isRefreshingSessions = false
         case "sessionCreated":
             guard let sessionID, let token, token == createToken else { return }
-            conversations[sessionID, default: AgentConversation()].configOptions = AgentSessionConfigOption.parse(event["configOptions"])
+            applyConfiguration(event["configOptions"], to: sessionID)
             sessionCreated(sessionID, token: token)
         case "sessionLoaded":
             guard let sessionID, let token, loadTokens.removeValue(forKey: token) != nil else { return }
@@ -400,7 +407,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID]?.isAttached = true
             conversations[sessionID]?.hasCompleteHistory = true
             loadBackups[sessionID] = nil
-            conversations[sessionID]?.configOptions = AgentSessionConfigOption.parse(event["configOptions"])
+            applyConfiguration(event["configOptions"], to: sessionID)
             historyContinuations.removeValue(forKey: sessionID)?.resume(returning: conversations[sessionID]?.messages ?? [])
             if let prompt = queuedPrompts.removeValue(forKey: sessionID) {
                 startPrompt(prompt, in: sessionID)
@@ -409,6 +416,7 @@ public final class AgentConnectionModel: ObservableObject {
             guard let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token else { return }
             applyConfiguration(event["configOptions"], to: sessionID)
             conversations[sessionID]?.pendingConfigToken = nil
+            applyPendingModeNotice(in: sessionID)
             if let id = conversations[sessionID]?.pendingQueuedConfigID {
                 let requested = conversations[sessionID]?.queuedConfigValues[id]
                 let confirmed = conversations[sessionID]?.configOptions.first { $0.id == id }?.currentValue
@@ -521,6 +529,7 @@ public final class AgentConnectionModel: ObservableObject {
             historyError = message
         } else if let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token {
             conversations[sessionID]?.pendingConfigToken = nil
+            applyPendingModeNotice(in: sessionID)
             failQueuedConfiguration(in: sessionID, message: message)
         } else if let token, token == createToken {
             queuedPrompts.removeValue(forKey: token)
@@ -570,6 +579,12 @@ public final class AgentConnectionModel: ObservableObject {
 
     private func apply(_ update: [String: Any], to sessionID: String) {
         switch update["sessionUpdate"] as? String {
+        case "notice":
+            guard connectionState == .ready, let notice = AgentSessionNotice.parse(update) else { return }
+            if isClaudeConnection, notice.isClaudeAutoModeFallback,
+               conversations[sessionID]?.pendingConfigToken != nil {
+                conversations[sessionID]?.pendingModeNotice = notice
+            } else { applyNotice(notice, to: sessionID) }
         case "usage_update":
             guard connectionState == .ready else { return }
             conversations[sessionID, default: AgentConversation()].contextUsage = AgentContextUsage.parse(update)
@@ -601,6 +616,7 @@ public final class AgentConnectionModel: ObservableObject {
                       $0.category == "mode" && $0.choices.contains { $0.id == modeID }
                   }) else { return }
             conversations[sessionID]?.configOptions[index].currentValue = modeID
+            reconcileModeNotice(in: sessionID)
         case "user_message_chunk":
             guard let text = Self.text(of: update) else { return }
             flushPendingText()
@@ -656,8 +672,35 @@ public final class AgentConnectionModel: ObservableObject {
         let newModels = options.filter { $0.category == "model" }
         if oldModels.map(\.currentValue) != newModels.map(\.currentValue) {
             conversations[sessionID]?.contextUsage = nil
+            if !oldModels.isEmpty, isClaudeConnection, conversations[sessionID]?.notice?.isClaudeAutoModeFallback == true {
+                conversations[sessionID]?.notice = nil
+            }
         }
         conversations[sessionID, default: AgentConversation()].configOptions = options
+        reconcileModeNotice(in: sessionID)
+    }
+
+    private func reconcileModeNotice(in sessionID: String) {
+        guard isClaudeConnection, conversations[sessionID]?.notice?.isClaudeAutoModeFallback == true,
+              let mode = conversations[sessionID]?.configOptions.first(where: { $0.category == "mode" }) else { return }
+        // The adapter defers its initial fallback advisory until the first prompt,
+        // even if the user has already switched to Plan in the meantime.
+        if mode.currentValue != AgentSessionNotice.claudeAutoFallbackMode {
+            conversations[sessionID]?.notice = nil
+        }
+    }
+
+    private func applyNotice(_ notice: AgentSessionNotice, to sessionID: String) {
+        if isClaudeConnection, notice.isClaudeAutoModeFallback,
+           let mode = conversations[sessionID]?.configOptions.first(where: { $0.category == "mode" }),
+           mode.currentValue != AgentSessionNotice.claudeAutoFallbackMode { return }
+        conversations[sessionID, default: AgentConversation()].notice = notice
+    }
+
+    private func applyPendingModeNotice(in sessionID: String) {
+        guard let notice = conversations[sessionID]?.pendingModeNotice else { return }
+        conversations[sessionID]?.pendingModeNotice = nil
+        applyNotice(notice, to: sessionID)
     }
 
     /// Submit next-turn choices only after the Host has released this session's prompt.
@@ -771,6 +814,7 @@ public final class AgentConnectionModel: ObservableObject {
         conversation.retryAttempt = nil
         conversation.retryMaxAttempts = nil
         conversation.errorMessage = nil
+        conversation.notice = nil
         conversations[sessionID] = conversation
         return true
     }
@@ -844,6 +888,8 @@ public final class AgentConnectionModel: ObservableObject {
         for id in conversations.keys {
             conversations[id]?.finishTurn(at: now())
             conversations[id]?.contextUsage = nil
+            conversations[id]?.notice = nil
+            conversations[id]?.pendingModeNotice = nil
             conversations[id]?.availableCommands = []
             conversations[id]?.isResponding = false
             conversations[id]?.interruptPendingTools()

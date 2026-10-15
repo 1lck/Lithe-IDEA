@@ -392,6 +392,7 @@ fn serialized_events_match_the_shared_fixture() {
         "plan",
         "availableCommands",
         "currentModeUpdate",
+        "claudeAutoModeNotice",
     ] {
         let update = &events[name]["update"];
         let parsed: agent_client_protocol::schema::v1::SessionUpdate =
@@ -530,6 +531,35 @@ async fn handshake_signs_in_through_the_gateway_with_the_user_key() {
         other => panic!("expected ready, got {other:?}"),
     }
     assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test]
+async fn negotiated_session_notices_are_forwarded_without_becoming_replies() {
+    let mut harness = Harness::start_with_route(false, Some(claude_route()));
+    let initialize = harness.agent.expect("initialize").await;
+    assert_eq!(
+        initialize["params"]["clientCapabilities"]["session"]["notices"],
+        json!({})
+    );
+    harness
+        .agent
+        .reply(&initialize, json!({"protocolVersion": 1}))
+        .await;
+    assert!(matches!(harness.event().await, AgentEvent::Ready { .. }));
+    harness.open_session("session-1").await;
+    let expected = fixture()["events"]["claudeAutoModeNotice"].clone();
+    harness
+        .agent
+        .write(json!({
+            "jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "session-1", "update": expected["update"]}
+        }))
+        .await;
+    assert_eq!(
+        serde_json::to_value(harness.event().await).unwrap(),
+        expected
+    );
+    harness.stop().await.unwrap();
 }
 
 #[test]

@@ -349,6 +349,26 @@ Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
 the agent. Permission displays combine already received tool details with the
 permission request, and distinguish allow/reject option kinds.
 
+The Host advertises `clientCapabilities.session.notices: {}` using the pinned
+SDK's `unstable_session_notices` feature. ACP `notice` updates retain their
+`severity`, plain-text `title`, and optional `description` in the existing
+`update` envelope. They are live advisories, not assistant replies or persisted
+history. macOS displays the latest notice per session through its shared Banner,
+allows dismissal, and clears it on the next submitted prompt or disconnect.
+An outstanding permission request takes presentation priority without discarding
+the notice; the notice is displayed after the user answers. Visible text is
+bounded to two title lines and three detail lines, with full text on hover.
+Claude ACP 0.81.2 may defer its initial Auto fallback warning until the first
+prompt: its structured warning title `Auto mode unavailable` is shown only
+while the confirmed mode is `acceptEdits`, and cleared when the confirmed model
+changes. A pending or failed local setting must not clear a still-applicable
+warning. Plain assistant text is never classified or removed by this rule.
+When a configuration request is pending, the matching fallback notice waits for
+that request's result before checking the confirmed mode. This preserves a new
+fallback sent before its `config_option_update` or response, while still dropping
+an obsolete startup notice after a confirmed switch to Plan.
+Windows has no consumer for this shared Host conversation API yet.
+
 The caller must close each handle
 exactly once; closing revokes callbacks and stops the process tree, force
 killing processes that do not exit after a short grace period. The callback

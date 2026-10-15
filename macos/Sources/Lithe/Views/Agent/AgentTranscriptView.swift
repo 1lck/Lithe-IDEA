@@ -65,6 +65,29 @@ enum AgentTranscriptItem: Identifiable {
     }
 }
 
+/// Live advisories stay visible without being rendered as an Agent reply.
+struct AgentSessionNoticeView: View {
+    let notice: AgentSessionNotice
+    let onDismiss: () -> Void
+
+    private var status: LitheBannerStatus {
+        switch notice.severity {
+        case .info: .info
+        case .warning: .warning
+        case .error: .error
+        }
+    }
+
+    var body: some View {
+        LitheBanner(status: status, layout: .editor, dismiss: onDismiss) {
+            Text(verbatim: notice.title).litheBannerTitle().lineLimit(2).help(notice.title)
+            if let detail = notice.detail, !detail.isEmpty { Text(verbatim: detail).lineLimit(3).help(detail) }
+        }
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("agent-session-notice")
+    }
+}
+
 /// Message list of the selected conversation, followed by the pending
 /// permission request and a summary of this turn's tool activity.
 struct AgentTranscriptView: View {
@@ -117,6 +140,7 @@ struct AgentTranscriptView: View {
                     .padding(LitheDropdownMetrics.popupPadding)
                     .frame(width: 180)
                 }
+                .safeAreaInset(edge: .bottom, spacing: 0) { advisories }
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
@@ -177,13 +201,9 @@ struct AgentTranscriptView: View {
                             permissionID: conversation?.permission?.id, isResponding: conversation?.isResponding == true)
                     ))
                 }
-                // Keep permission space owned by the scroll container. A sibling
-                // card changes the lazy stack's viewport during bottom positioning.
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if let permission = conversation?.permission {
-                        AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
-                    }
-                }
+                // Keep both cards owned by the scroll container so its native
+                // bottom-following probe sees the complete reserved inset.
+                .safeAreaInset(edge: .bottom, spacing: 0) { advisories }
             }
         }
         .onChange(of: feature.openSessionIDs) { sessionIDs in
@@ -194,6 +214,16 @@ struct AgentTranscriptView: View {
             guard let sessionID = feature.selectedSessionID, let preferences = thoughtExpansions[sessionID] else { return }
             let retainedIDs = Set(messageIDs)
             thoughtExpansions[sessionID] = preferences.filter { retainedIDs.contains($0.key) }
+        }
+    }
+
+    @ViewBuilder private var advisories: some View {
+        // Permissions need the user's next action. Keep the advisory in memory
+        // until they are answered instead of consuming the whole transcript viewport.
+        if let permission = feature.selectedConversation?.permission {
+            AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
+        } else if let sessionID = feature.selectedSessionID, let notice = feature.selectedConversation?.notice {
+            AgentSessionNoticeView(notice: notice) { feature.dismissNotice(notice.id, in: sessionID) }
         }
     }
 
