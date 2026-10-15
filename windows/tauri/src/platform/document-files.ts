@@ -1,9 +1,9 @@
 import { invoke } from "./tauri-core";
 
 /** Stable IDs exchanged with the native adapter and persisted in sessions. */
-export type FileEncoding = "UTF-8" | "UTF-8 with BOM" | "GBK" | "GB18030" | "Shift JIS" | "Windows-1252";
+export type FileEncoding = "UTF-8" | "UTF-8 with BOM" | "UTF-16 LE with BOM" | "UTF-16 BE with BOM" | "GBK" | "GB18030" | "Shift JIS" | "Windows-1252";
 
-export type DocumentEncodingBom = "none" | "utf8";
+export type DocumentEncodingBom = "none" | "utf8" | "utf16le" | "utf16be";
 
 /**
  * Single extension point for user-visible codecs. Add a descriptor here, then
@@ -24,6 +24,8 @@ export interface DocumentEncodingDescriptor {
 export const DOCUMENT_ENCODING_CATALOG: readonly DocumentEncodingDescriptor[] = [
   { id: "UTF-8", stableId: "utf-8", displayName: "UTF-8", aliases: ["utf8"], supportsRead: true, supportsWrite: true, bom: "none" },
   { id: "UTF-8 with BOM", stableId: "utf-8-bom", displayName: "UTF-8 with BOM", aliases: ["utf8-bom", "utf-8-bom"], supportsRead: true, supportsWrite: true, bom: "utf8" },
+  { id: "UTF-16 LE with BOM", stableId: "utf-16le-bom", displayName: "UTF-16 LE with BOM", aliases: ["utf16le-bom", "utf-16le-bom", "utf-16le"], supportsRead: true, supportsWrite: true, bom: "utf16le" },
+  { id: "UTF-16 BE with BOM", stableId: "utf-16be-bom", displayName: "UTF-16 BE with BOM", aliases: ["utf16be-bom", "utf-16be-bom", "utf-16be"], supportsRead: true, supportsWrite: true, bom: "utf16be" },
   { id: "GBK", stableId: "gbk", displayName: "GBK", aliases: ["cp936"], supportsRead: true, supportsWrite: true, bom: "none" },
   { id: "GB18030", stableId: "gb18030", displayName: "GB18030", aliases: [], supportsRead: true, supportsWrite: true, bom: "none" },
   { id: "Shift JIS", stableId: "shift-jis", displayName: "Shift JIS", aliases: ["shift-jis", "shift_jis"], supportsRead: true, supportsWrite: true, bom: "none" },

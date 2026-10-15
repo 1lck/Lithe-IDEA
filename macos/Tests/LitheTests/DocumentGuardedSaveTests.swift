@@ -63,6 +63,26 @@ struct DocumentGuardedSaveTests {
         }
     }
 
+    @Test(arguments: [
+        (DocumentEncoding.utf16LEBom, [UInt8]([0xFF, 0xFE])),
+        (DocumentEncoding.utf16BEBom, [UInt8]([0xFE, 0xFF])),
+    ])
+    func documentEncodingAutoDetectsUTF16ByBOMAndRoundTripsIt(encoding: DocumentEncoding, bom: [UInt8]) throws {
+        try withFile { url, files in
+            let source = "<html>数据库文档 😀</html>\n"
+            guard case .saved = try files.writeDocumentText(
+                source, to: url, expectedContent: nil, encoding: encoding, expectedIdentity: nil
+            ) else { Issue.record("Expected UTF-16 save"); return }
+            #expect(Array(try Data(contentsOf: url).prefix(2)) == bom)
+            guard let details = try files.readDocumentDetails(from: url, encoding: nil) else {
+                Issue.record("Expected auto-detected UTF-16 details")
+                return
+            }
+            #expect(details.text == source)
+            #expect(details.encoding == encoding)
+        }
+    }
+
     @Test func documentEncodingRejectsUnrepresentableTextBeforeWriting() throws {
         try withFile { url, files in
             try Data("before".utf8).write(to: url)

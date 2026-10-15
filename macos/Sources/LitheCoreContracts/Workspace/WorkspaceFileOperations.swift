@@ -32,6 +32,8 @@ package struct DocumentEncodingDescriptor: Sendable {
 package enum DocumentEncodingBOM: String, Codable, Sendable {
     case none
     case utf8
+    case utf16LE
+    case utf16BE
 }
 
 /// Stable encoding IDs shared by native adapters and the editor UI.
@@ -41,6 +43,8 @@ package enum DocumentEncodingBOM: String, Codable, Sendable {
 package enum DocumentEncoding: String, CaseIterable, Codable, Sendable {
     case utf8 = "utf-8"
     case utf8Bom = "utf-8-bom"
+    case utf16LEBom = "utf-16le-bom"
+    case utf16BEBom = "utf-16be-bom"
     case gbk
     case gb18030
     case shiftJIS = "shift-jis"
@@ -49,6 +53,8 @@ package enum DocumentEncoding: String, CaseIterable, Codable, Sendable {
     package static let catalog: [DocumentEncodingDescriptor] = [
         .init(id: .utf8, stableID: "utf-8", displayName: "UTF-8", aliases: ["utf8"]),
         .init(id: .utf8Bom, stableID: "utf-8-bom", displayName: "UTF-8 with BOM", aliases: ["utf8-bom", "utf-8-bom"], bom: .utf8),
+        .init(id: .utf16LEBom, stableID: "utf-16le-bom", displayName: "UTF-16 LE with BOM", aliases: ["utf16le-bom", "utf-16le-bom", "utf-16le"], bom: .utf16LE),
+        .init(id: .utf16BEBom, stableID: "utf-16be-bom", displayName: "UTF-16 BE with BOM", aliases: ["utf16be-bom", "utf-16be-bom", "utf-16be"], bom: .utf16BE),
         .init(id: .gbk, stableID: "gbk", displayName: "GBK", aliases: ["cp936"]),
         .init(id: .gb18030, stableID: "gb18030", displayName: "GB18030"),
         .init(id: .shiftJIS, stableID: "shift-jis", displayName: "Shift JIS", aliases: ["shift-jis", "shift_jis"]),

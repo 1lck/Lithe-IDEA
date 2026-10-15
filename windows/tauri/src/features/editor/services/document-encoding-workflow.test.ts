@@ -35,7 +35,7 @@ const details: DocumentReadDetails = {
 describe("document encoding workflow", () => {
   test("catalog exposes stable IDs independently from protocol labels", () => {
     expect(DOCUMENT_ENCODING_CATALOG.map((descriptor) => descriptor.stableId)).toEqual([
-      "utf-8", "utf-8-bom", "gbk", "gb18030", "shift-jis", "windows-1252",
+      "utf-8", "utf-8-bom", "utf-16le-bom", "utf-16be-bom", "gbk", "gb18030", "shift-jis", "windows-1252",
     ]);
   });
 

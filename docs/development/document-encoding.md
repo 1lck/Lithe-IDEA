@@ -20,7 +20,7 @@ Lithe 把“如何解码当前编辑器文本”和“下一次写入磁盘使�
 | `aliases` | 兼容命令行、旧会话或文件关联中的名称 |
 | `supportsRead` | 是否允许以该编码读取 |
 | `supportsWrite` | 是否允许以该编码写入 |
-| `bom` | BOM 策略；当前支持 `none` 和 `utf8` |
+| `bom` | BOM 策略；当前支持 `none`、`utf8`、`utf16le` 和 `utf16be` |
 
 前端目录位于 `windows/tauri/src/platform/document-files.ts` 的 `DOCUMENT_ENCODING_CATALOG`，macOS 契约目录位于 `macos/Sources/LitheCoreContracts/Workspace/WorkspaceFileOperations.swift` 的 `DocumentEncoding.catalog`，Windows 原生目录位于 `windows/tauri/crates/project/src/document_file.rs` 的 `DocumentEncoding::CATALOG`。三个目录的 `stableId`、能力和 BOM 策略必须保持一致；真正的字节转换仍由平台适配器负责。
 

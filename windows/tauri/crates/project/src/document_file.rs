@@ -1,5 +1,5 @@
 //! Native local document persistence. Disk checks and replacement share one write gate.
-use encoding_rs::{Encoding, GB18030, GBK, SHIFT_JIS, UTF_8, WINDOWS_1252};
+use encoding_rs::{Encoding, GB18030, GBK, SHIFT_JIS, UTF_8, UTF_16BE, UTF_16LE, WINDOWS_1252};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 #[cfg(windows)]
@@ -42,6 +42,8 @@ pub enum SaveOutcome {
 pub enum DocumentEncodingBom {
     None,
     Utf8,
+    Utf16Le,
+    Utf16Be,
 }
 
 /// Native side of the shared document-encoding extension point.
@@ -61,6 +63,8 @@ pub struct DocumentEncodingDescriptor {
 pub enum DocumentEncoding {
     Utf8,
     Utf8Bom,
+    Utf16LeBom,
+    Utf16BeBom,
     Gbk,
     Gb18030,
     ShiftJis,
@@ -87,6 +91,24 @@ impl DocumentEncoding {
             supports_read: true,
             supports_write: true,
             bom: DocumentEncodingBom::Utf8,
+        },
+        DocumentEncodingDescriptor {
+            id: "UTF-16 LE with BOM",
+            stable_id: "utf-16le-bom",
+            display_name: "UTF-16 LE with BOM",
+            aliases: &["utf16le-bom", "utf-16le-bom", "utf-16le"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::Utf16Le,
+        },
+        DocumentEncodingDescriptor {
+            id: "UTF-16 BE with BOM",
+            stable_id: "utf-16be-bom",
+            display_name: "UTF-16 BE with BOM",
+            aliases: &["utf16be-bom", "utf-16be-bom", "utf-16be"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::Utf16Be,
         },
         DocumentEncodingDescriptor {
             id: "GBK",
@@ -131,6 +153,8 @@ impl DocumentEncoding {
         match self {
             Self::Utf8 => "UTF-8",
             Self::Utf8Bom => "UTF-8 with BOM",
+            Self::Utf16LeBom => "UTF-16 LE with BOM",
+            Self::Utf16BeBom => "UTF-16 BE with BOM",
             Self::Gbk => "GBK",
             Self::Gb18030 => "GB18030",
             Self::ShiftJis => "Shift JIS",
@@ -141,6 +165,8 @@ impl DocumentEncoding {
     fn codec(self) -> &'static Encoding {
         match self {
             Self::Utf8 | Self::Utf8Bom => UTF_8,
+            Self::Utf16LeBom => UTF_16LE,
+            Self::Utf16BeBom => UTF_16BE,
             Self::Gbk => GBK,
             Self::Gb18030 => GB18030,
             Self::ShiftJis => SHIFT_JIS,
@@ -158,6 +184,12 @@ impl DocumentEncoding {
         {
             "utf-8" | "utf8" => Ok(Self::Utf8),
             "utf-8 with bom" | "utf8-bom" | "utf-8-bom" => Ok(Self::Utf8Bom),
+            "utf-16 le with bom" | "utf16le-bom" | "utf-16le-bom" | "utf-16le" => {
+                Ok(Self::Utf16LeBom)
+            }
+            "utf-16 be with bom" | "utf16be-bom" | "utf-16be-bom" | "utf-16be" => {
+                Ok(Self::Utf16BeBom)
+            }
             "gbk" => Ok(Self::Gbk),
             "gb18030" => Ok(Self::Gb18030),
             "shift jis" | "shift-jis" | "shift_jis" => Ok(Self::ShiftJis),
@@ -169,15 +201,27 @@ impl DocumentEncoding {
         }
     }
 
+    /// Byte order mark written by and stripped for this encoding.
+    ///
+    /// Plain UTF-8 has no mark of its own but still tolerates one, so a file
+    /// reopened as UTF-8 does not show U+FEFF at the start of the buffer.
+    fn bom(self) -> &'static [u8] {
+        match self {
+            Self::Utf8 | Self::Utf8Bom => &[0xEF, 0xBB, 0xBF],
+            Self::Utf16LeBom => &[0xFF, 0xFE],
+            Self::Utf16BeBom => &[0xFE, 0xFF],
+            Self::Gbk | Self::Gb18030 | Self::ShiftJis | Self::Windows1252 => &[],
+        }
+    }
+
+    fn strip_bom(self, bytes: &[u8]) -> &[u8] {
+        bytes.strip_prefix(self.bom()).unwrap_or(bytes)
+    }
+
     fn decode(self, bytes: &[u8]) -> io::Result<String> {
-        let bytes = if matches!(self, Self::Utf8 | Self::Utf8Bom)
-            && bytes.starts_with(&[0xEF, 0xBB, 0xBF])
-        {
-            &bytes[3..]
-        } else {
-            bytes
-        };
-        let (text, had_errors) = self.codec().decode_without_bom_handling(bytes);
+        let (text, had_errors) = self
+            .codec()
+            .decode_without_bom_handling(self.strip_bom(bytes));
         if had_errors {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -188,20 +232,26 @@ impl DocumentEncoding {
     }
 
     fn decode_lossy(self, bytes: &[u8]) -> String {
-        let bytes = if matches!(self, Self::Utf8 | Self::Utf8Bom)
-            && bytes.starts_with(&[0xEF, 0xBB, 0xBF])
-        {
-            &bytes[3..]
-        } else {
-            bytes
-        };
         self.codec()
-            .decode_without_bom_handling(bytes)
+            .decode_without_bom_handling(self.strip_bom(bytes))
             .0
             .into_owned()
     }
 
+    fn encode_utf16(self, text: &str, to_bytes: fn(u16) -> [u8; 2]) -> Vec<u8> {
+        let mut bytes = self.bom().to_vec();
+        bytes.extend(text.encode_utf16().flat_map(to_bytes));
+        bytes
+    }
+
     fn encode(self, text: &str) -> io::Result<Vec<u8>> {
+        // encoding_rs only decodes UTF-16; its encoder falls back to UTF-8, so
+        // the code units are serialized here.
+        match self {
+            Self::Utf16LeBom => return Ok(self.encode_utf16(text, u16::to_le_bytes)),
+            Self::Utf16BeBom => return Ok(self.encode_utf16(text, u16::to_be_bytes)),
+            _ => {}
+        }
         let (encoded, _, had_errors) = self.codec().encode(text);
         if had_errors {
             return Err(io::Error::new(
@@ -211,7 +261,7 @@ impl DocumentEncoding {
         }
         let mut bytes = encoded.into_owned();
         if self == Self::Utf8Bom {
-            bytes.splice(0..0, [0xEF, 0xBB, 0xBF]);
+            bytes.splice(0..0, self.bom().iter().copied());
         }
         Ok(bytes)
     }
@@ -274,7 +324,15 @@ pub fn read_document_with_encoding(
 fn decode_document_bytes(bytes: &[u8], encoding: Option<&str>) -> io::Result<DocumentRead> {
     let selected = match encoding {
         Some(value) => DocumentEncoding::parse(Some(value))?,
-        None if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) => DocumentEncoding::Utf8Bom,
+        None if bytes.starts_with(DocumentEncoding::Utf8Bom.bom()) => DocumentEncoding::Utf8Bom,
+        // UTF-16 text is full of NUL bytes and never validates as UTF-8, so only
+        // a byte order mark can identify it without guessing.
+        None if bytes.starts_with(DocumentEncoding::Utf16LeBom.bom()) => {
+            DocumentEncoding::Utf16LeBom
+        }
+        None if bytes.starts_with(DocumentEncoding::Utf16BeBom.bom()) => {
+            DocumentEncoding::Utf16BeBom
+        }
         None => match DocumentEncoding::Utf8.decode(&bytes) {
             Ok(_) => DocumentEncoding::Utf8,
             Err(_) => {
@@ -845,6 +903,60 @@ mod tests {
     }
 
     #[test]
+    fn utf16_documents_are_detected_by_bom_and_round_trip_with_it() {
+        let directory = Directory::new();
+        // The shape reported in the issue: a UTF-16 LE HTML file with a BOM.
+        let text = "<html><body>数据库文档 😀</body></html>";
+        for (name, encoding, bom) in [
+            ("le.html", DocumentEncoding::Utf16LeBom, [0xFF, 0xFE]),
+            ("be.html", DocumentEncoding::Utf16BeBom, [0xFE, 0xFF]),
+        ] {
+            let path = directory.0.join(name);
+            let bytes = encoding.encode(text).unwrap();
+            assert_eq!(bytes[..2], bom);
+            fs::write(&path, &bytes).unwrap();
+
+            let read = read_document_with_encoding(&path, None).unwrap().unwrap();
+            assert_eq!(read.encoding, encoding.label());
+            assert_eq!(read.content, text);
+
+            let outcome = save_document_with_encoding(
+                &path,
+                "changed",
+                Some(text),
+                Some(encoding.label()),
+                Some(encoding.label()),
+                Some(&read.identity),
+            )
+            .unwrap();
+            assert!(matches!(outcome, SaveOutcome::Saved { .. }));
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                encoding.encode("changed").unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn utf16_decoding_rejects_odd_lengths_and_unpaired_surrogates() {
+        assert!(
+            DocumentEncoding::Utf16LeBom
+                .decode(&[0xFF, 0xFE, 0x41])
+                .is_err()
+        );
+        assert!(
+            DocumentEncoding::Utf16LeBom
+                .decode(&[0xFF, 0xFE, 0x00, 0xD8])
+                .is_err()
+        );
+        // An explicit reopen stays lossy so a wrong choice remains visible.
+        assert_eq!(
+            DocumentEncoding::Utf16LeBom.decode_lossy(&[0xFF, 0xFE, 0x41, 0x00, 0x42]),
+            "A\u{FFFD}"
+        );
+    }
+
+    #[test]
     fn rejects_unrepresentable_text_before_publishing() {
         let directory = Directory::new();
         let path = directory.0.join("cp1252.txt");
@@ -887,7 +999,7 @@ mod tests {
     #[test]
     fn catalog_has_unique_stable_ids_and_protocol_labels() {
         let mut stable_ids = std::collections::HashSet::new();
-        assert_eq!(DocumentEncoding::CATALOG.len(), 6);
+        assert_eq!(DocumentEncoding::CATALOG.len(), 8);
         for descriptor in DocumentEncoding::CATALOG {
             assert!(stable_ids.insert(descriptor.stable_id));
             assert!(!descriptor.id.is_empty());
