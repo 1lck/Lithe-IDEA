@@ -1684,10 +1684,10 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       ) as JsonRecord;
       return result?.value;
     };
+    // Omit scope so Java Debug Server detects test roots and test dependencies.
     const paths = await execute("vscode.java.resolveClasspath", [
       target.mainClass,
       target.projectName ?? "",
-      "runtime",
     ]);
     if (JSON.stringify(paths) !== JSON.stringify([target.modulePaths, target.classPaths])) {
       throw new Error("Runtime paths changed. Restart the service to use the new dependencies.");
@@ -1787,10 +1787,11 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       buildFailure = readJavaBuildFailure(reason);
       if (!buildFailure) throw reason;
     }
+    // Explicit runtime scope excludes test Main classes (issue #379). Let JDT
+    // choose from the owning project model, including custom source/output roots.
     const paths = await execute("Resolve Java Runtime Classpath", "vscode.java.resolveClasspath", [
       selected.mainClass,
       projectName ?? "",
-      "runtime",
     ]);
     if (!Array.isArray(paths) || paths.length !== 2) {
       throw lspAdapterError(
