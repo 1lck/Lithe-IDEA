@@ -22,7 +22,11 @@ extension LitheContextMenuItem {
         .action(title, systemImage: isOn.wrappedValue ? "checkmark" : nil) { isOn.wrappedValue.toggle() }
     }
 
-    static func heading(_ title: String) -> Self { .action(title, isEnabled: false) {} }
+    static func heading(_ title: String, centered: Bool = false) -> Self {
+        var item = Self.action(title, isEnabled: false) {}
+        item.isCenteredHeading = centered
+        return item
+    }
 
     func disabled(_ value: Bool) -> Self {
         var item = self

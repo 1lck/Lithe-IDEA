@@ -37,6 +37,6 @@ struct SettingsSidebarLayoutTests {
         #expect(SettingsGroup.build.categories == [.project, .run])
         #expect(SettingsGroup.languages.categories == [.lsp])
         #expect(SettingsGroup.tools.categories == [.terminal, .diagnostics])
-        #expect(SettingsGroup.ai.categories == [.mcp, .ai, .providers])
+        #expect(SettingsGroup.ai.categories == [.mcp, .ai, .agents, .providers])
     }
 }

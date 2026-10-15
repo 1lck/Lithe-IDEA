@@ -4,6 +4,7 @@ import LitheAgentConversationModule
 /// The agent's reasoning, separate from its reply. Open while it streams and
 /// collapsed once the reply or a tool call follows; a search keeps it open.
 struct AgentThoughtRow: View {
+    @Environment(\.locale) private var locale
     let text: String
     let isStreaming: Bool
     var isSearching = false
@@ -16,24 +17,23 @@ struct AgentThoughtRow: View {
             Button { expansion.toggle(isStreaming: isStreaming, isSearching: isSearching) } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "brain")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                     Text(isStreaming ? "Thinking…" : "Thinking process")
-                        .font(.system(size: 11.5, weight: .medium))
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
+                    LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
+                                  size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
                     Spacer(minLength: 0)
                 }
                 .foregroundStyle(LitheTheme.tertiaryText)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
+            .litheToolbarIconButton(isIconOnly: false)
             .help(isExpanded ? "Hide thinking" : "Show thinking")
-            .accessibilityValue(isExpanded ? String(localized: "Expanded") : String(localized: "Collapsed"))
+            .accessibilityValue(isExpanded ? AgentLocalization.string("Expanded", locale: locale) : AgentLocalization.string("Collapsed", locale: locale))
 
             if isExpanded {
                 Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -65,6 +65,7 @@ struct AgentThoughtExpansion {
 /// Plan the agent reported for this conversation, pinned above the activity bar.
 /// Collapsed it shows progress and the current step; it stays expandable after the turn.
 struct AgentPlanView: View {
+    @Environment(\.locale) private var locale
     let plan: AgentPlan
     let isResponding: Bool
     let embedded: Bool
@@ -83,29 +84,28 @@ struct AgentPlanView: View {
                 Button { expanded.toggle() } label: {
                     HStack(spacing: 7) {
                         Image(systemName: "list.bullet.clipboard")
-                            .font(.system(size: 10.5))
+                            .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(plan.isComplete ? LitheTheme.success : LitheTheme.accent)
-                        Text(String(format: String(localized: "Plan %lld/%lld"), plan.completedCount, plan.entries.count))
-                            .font(.system(size: 11.5, weight: .semibold))
+                        Text(String(format: AgentLocalization.string("Plan %lld/%lld", locale: locale), plan.completedCount, plan.entries.count))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
                             .monospacedDigit()
                         if !expanded, let current = plan.currentEntry {
                             Text(current.content)
-                                .font(.system(size: 11.5))
+                                .font(LitheTheme.uiFont(size: 11.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
                         Spacer(minLength: 4)
-                        Image(systemName: expanded ? "chevron.down" : "chevron.up")
-                            .font(.system(size: 9))
-                            .foregroundStyle(LitheTheme.tertiaryText)
+                        LitheIDEAIcon(resourcePath: expanded ? "expui/general/chevronDown.svg" : "expui/general/chevronUp.svg",
+                                      size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
                     }
                     .padding(.horizontal, 10)
                     .frame(height: 28)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.litheNoPress)
+                .buttonStyle(LitheIconButtonStyle(size: 28, isIconOnly: false))
                 .help(expanded ? "Hide plan" : "Show plan")
             }
 
@@ -135,10 +135,10 @@ struct AgentPlanView: View {
     private func entryRow(_ entry: AgentPlan.Entry) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: icon(entry.status))
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(color(entry.status))
             Text(entry.content)
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(entry.status == .completed ? LitheTheme.tertiaryText : LitheTheme.primaryText)
                 .strikethrough(entry.status == .completed, color: LitheTheme.tertiaryText)
                 .textSelection(.enabled)
@@ -166,15 +166,16 @@ struct AgentPlanView: View {
 
     private func label(_ status: AgentPlan.Entry.Status) -> String {
         switch status {
-        case .completed: String(localized: "Completed")
-        case .inProgress: String(localized: "Running")
-        case .pending: String(localized: "Pending")
+        case .completed: AgentLocalization.string("Completed", locale: locale)
+        case .inProgress: AgentLocalization.string("Running", locale: locale)
+        case .pending: AgentLocalization.string("Pending", locale: locale)
         }
     }
 }
 
 /// Slash commands matching the draft, shown above the writing area.
 struct AgentCommandSuggestionList: View {
+    @Environment(\.locale) private var locale
     let commands: [AgentCommand]
     let highlightedIndex: Int
     let onSelect: (AgentCommand) -> Void
@@ -196,7 +197,7 @@ struct AgentCommandSuggestionList: View {
         VStack(alignment: .leading, spacing: 0) {
             if commands.isEmpty {
                 Text("No matching commands")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(AgentPanelStyle.secondary)
                     .padding(.horizontal, 10)
                     .frame(height: Self.rowHeight)
@@ -229,12 +230,12 @@ struct AgentCommandSuggestionList: View {
         Button { onSelect(command) } label: {
             HStack(spacing: 8) {
                 Text(command.invocation)
-                    .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(AgentPanelStyle.text)
                     .lineLimit(1)
                     .layoutPriority(1)
                 Text(command.description)
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(AgentPanelStyle.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -242,11 +243,9 @@ struct AgentCommandSuggestionList: View {
             }
             .padding(.horizontal, 10)
             .frame(height: Self.rowHeight)
-            .background(isHighlighted ? AgentPanelStyle.focus.opacity(0.18) : Color.clear)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.litheNoPress)
-        .litheRowHover()
+        .buttonStyle(LitheDropdownRowStyle(isSelected: isHighlighted))
         .help(command.hint.map { "\(command.invocation) \($0)" } ?? command.description)
     }
 }

@@ -8,6 +8,75 @@ import Testing
 @Suite("Agent conversation presentation")
 struct AgentConversationPresentationTests {
     @Test
+    func compactContextRingStaysImmediatelyBeforeSendInBothThemes() throws {
+        let usage = try #require(AgentContextUsage(usedTokens: 5, capacityTokens: 100))
+        let compact = NSHostingView(rootView: AgentContextUsageView(usage: usage, showsPercentage: false))
+        #expect(compact.fittingSize == NSSize(width: 22, height: 22))
+        for scheme in [ColorScheme.dark, .light] {
+            let reference = NSHostingView(rootView: AgentContextUsageView(usage: usage, showsPercentage: false)
+                .background(LitheTheme.editor).environment(\.colorScheme, scheme))
+            let referenceWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 22, height: 22),
+                                            styleMask: [.borderless], backing: .buffered, defer: false)
+            referenceWindow.isReleasedWhenClosed = false
+            defer { referenceWindow.close() }
+            referenceWindow.contentView = reference
+            reference.frame.size = NSSize(width: 22, height: 22)
+            reference.layoutSubtreeIfNeeded()
+            let referenceBitmap = try #require(reference.bitmapImageRepForCachingDisplay(in: reference.bounds))
+            reference.cacheDisplay(in: reference.bounds, to: referenceBitmap)
+            // The dominant non-background pixel is the native ring track,
+            // independent of antialiasing at a guessed point on the curved edge.
+            let background = try #require(referenceBitmap.colorAt(x: 0, y: 0)?.usingColorSpace(.sRGB))
+            var referenceColors: [NSColor: Int] = [:]
+            for y in 0..<referenceBitmap.pixelsHigh {
+                for x in 0..<referenceBitmap.pixelsWide {
+                    let color = try #require(referenceBitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                    if color != background { referenceColors[color, default: 0] += 1 }
+                }
+            }
+            let expected = try #require(referenceColors.max { $0.value < $1.value }?.key)
+            for width in [280.0, 417.0] {
+                for hasStatistics in [false, true] {
+                    let host = NSHostingView(rootView: AgentComposerView(
+                        agents: [], selectedAgent: nil, isResponding: false, isBlocked: false,
+                        onSend: { _, _ in }, onCancel: {}, onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                        contextUsage: usage, sessionStatistics: hasStatistics ? AgentConversation().sessionStatistics : nil)
+                        .frame(width: width, height: 150).environment(\.colorScheme, scheme))
+                    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 150),
+                                          styleMask: [.borderless], backing: .buffered, defer: false)
+                    window.isReleasedWhenClosed = false
+                    defer { window.close() }
+                    window.contentView = host
+                    host.layoutSubtreeIfNeeded()
+                    // The 22pt context slot precedes the 22pt send slot and its 4pt gap.
+                    let bottom = AgentComposerMetrics.bottomInset + (AgentComposerMetrics.contextHeight - 2) + 1
+                    let center = bottom + (AgentComposerMetrics.toolbarHeight - 2) / 2
+                    let region = NSRect(x: width - AgentComposerMetrics.horizontalInset - 5 - 22 - 4 - 22,
+                                        y: host.isFlipped ? 150 - center - 11 : center - 11, width: 22, height: 22)
+                    let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: region))
+                    host.cacheDisplay(in: region, to: bitmap)
+                    var trackPixels = 0
+                    for y in 0..<bitmap.pixelsHigh {
+                        for x in 0..<bitmap.pixelsWide {
+                            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                            if abs(color.redComponent - expected.redComponent) < 0.025,
+                               abs(color.greenComponent - expected.greenComponent) < 0.025,
+                               abs(color.blueComponent - expected.blueComponent) < 0.025 { trackPixels += 1 }
+                        }
+                    }
+                    #expect(trackPixels > 4, "The actual context ring must occupy the toolbar slot before Send: \(scheme), expected \(expected)")
+                    if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATUS_SCREENSHOTS"] {
+                        let full = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                        host.cacheDisplay(in: host.bounds, to: full)
+                        let data = try #require(full.representation(using: .png, properties: [:]))
+                        try data.write(to: URL(fileURLWithPath: folder).appendingPathComponent("context-\(scheme)-\(Int(width))-\(hasStatistics).png"))
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     func quietNoticeFitsBothAppearancesAndPreservesPermissionAndStopPriority() throws {
         for status in [AgentResponseStatus.waitingForPermission, .stopping] {
             #expect(!AgentResponseStatusRow(responseStatus: status, isQuiet: true).showsQuietNotice)
@@ -320,7 +389,7 @@ struct AgentConversationPresentationTests {
                         } composer: {
                             AgentComposerContent(files: files, commands: Array(commands.prefix(count)), highlightedIndex: 0,
                                                  onSelect: { _ in }, onRemoveFile: { _ in }, onFocus: {}) {
-                                Color.clear.frame(height: AgentComposerMetrics.contextHeight)
+                                Color.clear.frame(height: AgentComposerMetrics.contextHeight - 2)
                             } editor: {
                                 TextField("Message the Agent", text: .constant("/"), axis: .vertical)
                                     .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(1...)
@@ -328,7 +397,7 @@ struct AgentConversationPresentationTests {
                                     .padding(.horizontal, 8).padding(.vertical, 10)
                                     .frame(maxWidth: .infinity, alignment: .topLeading)
                             } toolbar: {
-                                Color.clear.frame(height: AgentComposerMetrics.toolbarHeight)
+                                Color.clear.frame(height: AgentComposerMetrics.toolbarHeight - 2)
                             }
                             .padding(.horizontal, 8).padding(.bottom, AgentComposerMetrics.bottomInset)
                             .background(AgentDraftFrameProbe { composer = $0 })
@@ -347,6 +416,10 @@ struct AgentConversationPresentationTests {
                         #expect(pane.height + AgentComposerMetrics.splitTopInset >= AgentComposerMetrics.minimumHeight(hasFiles: !files.isEmpty) - 0.5)
                         #expect(frame.height > 0, "The actual text field must survive \(count) commands and \(files.count) attachments")
                         #expect(pane.insetBy(dx: -0.5, dy: -0.5).contains(frame), "The writing line must stay inside the sized pane")
+                        if files.isEmpty, count == 0 {
+                            let inputHeight = pane.height - AgentComposerMetrics.bottomInset - (AgentComposerMetrics.contextHeight - 2)
+                            #expect(abs(inputHeight - 108) < 0.5, "Default input border height stays constant across panel sizes")
+                        }
                         let writingScroll = try #require(enclosingScroll(of: input))
                         #expect(writingScroll.bounds.height >= AgentComposerMetrics.writingLineHeight - 0.5)
                         if count > 0 {
@@ -443,13 +516,17 @@ struct AgentConversationPresentationTests {
         for scheme in [ColorScheme.dark, .light] {
             for card in [AnyView(AgentSessionSummaryCard(statistics: statistics)),
                          AnyView(AgentTokenUsageCard(tokens: try #require(statistics.tokens))),
-                         AnyView(AgentContextUsageCard(usage: usage, composition: statistics.modelCalls?.latestContext)),
-                         AnyView(AgentContextUsageCard(usage: nil, composition: nil))] {
+                         AnyView(AgentContextUsageCard(usage: usage, composition: statistics.modelCalls?.latestContext))] {
                 let host = NSHostingView(rootView: card.environment(\.colorScheme, scheme).environment(\.locale, locale))
                 let size = host.fittingSize
                 #expect(size.width == AgentStatusCardMetrics.width, "Cards keep the shared width")
                 #expect(size.height > 40 && size.height < 400, "Cards wrap footnotes without clipping")
             }
+            let emptyContext = NSHostingView(rootView: AgentContextUsageCard(usage: nil, composition: nil)
+                .environment(\.colorScheme, scheme).environment(\.locale, locale))
+            #expect(emptyContext.fittingSize.width == 240)
+            #expect(emptyContext.fittingSize.height > 30 && emptyContext.fittingSize.height < 80,
+                    "Unknown context stays compact without reserving an empty progress bar")
         }
         if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATUS_SCREENSHOTS"] {
             try captureStatusScreenshots(folder: URL(fileURLWithPath: folder))
@@ -644,6 +721,42 @@ struct AgentConversationPresentationTests {
             #expect(opaquePixels < bitmap.pixelsWide * bitmap.pixelsHigh)
         }
         #expect(AgentBrandIconLoader.image(name: "Custom") == nil)
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light])
+    func conversationBrandIconsShareTheSameVerticalAxis(scheme: ColorScheme) throws {
+        let host = NSHostingView(rootView: VStack(spacing: 0) {
+            AgentChatHeader(agentName: "Codex", onHistory: {}, onNew: {}, onOpenSettings: {}, onHide: {},
+                            conversationTitle: "New Chat")
+            AgentHeroView(agentName: "Codex", agentVersion: nil, onTap: {}).frame(height: 44)
+        }.frame(width: 320, height: 108).background(AgentPanelStyle.canvas).environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 108),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        if let directory = ProcessInfo.processInfo.environment["LITHE_AGENT_ICON_ALIGNMENT_SCREENSHOTS"] {
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: directory).appendingPathComponent("icons-\(scheme).png"))
+        }
+        let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        var centers: [CGFloat] = []
+        for band in [0..<30, 30..<64, 64..<108] {
+            var xs: [Int] = []
+            for y in Int(CGFloat(band.lowerBound) * scale)..<Int(CGFloat(band.upperBound) * scale) {
+                for x in Int(16 * scale)..<Int(42 * scale) {
+                    let color = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                    if scheme == .dark ? color.redComponent > 0.6 : color.redComponent < 0.6 { xs.append(x) }
+                }
+            }
+            #expect(xs.count > 10, "Each row must render its actual brand icon")
+            centers.append(CGFloat(try #require(xs.min()) + (try #require(xs.max()))) / (2 * scale))
+        }
+        #expect(try #require(centers.max()) - (try #require(centers.min())) <= 0.5)
+
     }
 
     @Test

@@ -120,7 +120,7 @@ struct GitSavedChangesView: View {
             .font(LitheTheme.uiFont(size: 13)).padding(.horizontal, 4)
             .frame(height: LitheTheme.Tree.rowHeight).fixedSize(horizontal: expanded, vertical: true)
             .background(selected ? (isActive && controlActiveState == .key ? LitheTheme.Tree.focusedSelection : LitheTheme.Tree.inactiveSelection) : (hovered ? LitheTheme.Tree.hover : .clear))
-            .background(LitheTheme.sidebar)
+            .litheWorkbenchSurface(LitheTheme.sidebar)
         }
         .frame(height: LitheTheme.Tree.rowHeight)
     }

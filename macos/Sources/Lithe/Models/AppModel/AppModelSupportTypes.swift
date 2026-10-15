@@ -11,6 +11,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case terminal = "Terminal"
     case lsp = "LSP"
     case ai = "AI & Commit"
+    case agents = "Agents"
     case providers = "AI Providers"
     case git = "Git"
     case updates = "Updates"
@@ -36,6 +37,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .terminal: "terminal"
         case .lsp: "server.rack"
         case .ai: "wand.and.stars"
+        case .agents: "sparkles"
         case .providers: "key"
         case .git: "arrow.triangle.branch"
         case .updates: "arrow.down.circle"
@@ -68,7 +70,7 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
         case .build: [.project, .run]
         case .languages: [.lsp]
         case .tools: [.terminal, .diagnostics]
-        case .ai: [.mcp, .ai, .providers]
+        case .ai: [.mcp, .ai, .agents, .providers]
         }
     }
 }

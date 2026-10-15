@@ -6,6 +6,7 @@ import LitheGitModule
 /// Reuses the existing comparison builder and native diff surface. Each reported
 /// excerpt stays separate; it is never presented as a complete session baseline.
 struct AgentFileDiffView: View {
+    @Environment(\.locale) private var locale
     let change: AgentFileChange
     let onOpenFile: (AgentToolDetails.Location) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -21,7 +22,7 @@ struct AgentFileDiffView: View {
             }.padding(12)
             if change.diffs.count > 1 {
                 LitheSettingsSelect(selection: $selectedIndex, options: Array(change.diffs.indices), width: 120,
-                    accessibilityLabel: String(localized: "Reported change"),
+                    accessibilityLabel: AgentLocalization.string("Reported change", locale: locale),
                     title: { "\($0 + 1)/\(change.diffs.count)" }, localizesTitles: false)
                     .padding(.horizontal, 12).padding(.bottom, 8)
             }
@@ -37,6 +38,7 @@ struct AgentFileDiffView: View {
 }
 
 private struct AgentReportedDiffView: View {
+    @Environment(\.locale) private var locale
     let diff: AgentToolDetails.Diff
     /// Family for the excerpt comparison. The Agent activity bar that presents
     /// this sheet is deliberately environment-independent (its presentation tests

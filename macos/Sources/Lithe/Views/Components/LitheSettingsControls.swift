@@ -18,11 +18,27 @@ private enum SettingsSelectMetrics {
     static let searchSpacing: CGFloat = 6
 }
 
+/// DarculaNewUIUtil.paintRectangleImpl uses an outer-minus-inner rounded path.
+private struct LitheSettingsControlBorder: Shape {
+    let cornerRadius: CGFloat
+    let lineWidth: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.addRoundedRect(in: rect, cornerSize: CGSize(width: cornerRadius, height: cornerRadius))
+            let innerRadius = max(0, cornerRadius - lineWidth)
+            path.addRoundedRect(in: rect.insetBy(dx: lineWidth, dy: lineWidth),
+                                cornerSize: CGSize(width: innerRadius, height: innerRadius))
+        }
+    }
+}
+
 private struct LitheSettingsControlChrome: ViewModifier {
     let background: Color
     let border: Color
     let cornerRadius: CGFloat
     var lineWidth: CGFloat = 1
+    var borderOutset: CGFloat = 0
 
     func body(content: Content) -> some View {
         content
@@ -31,9 +47,41 @@ private struct LitheSettingsControlChrome: ViewModifier {
                     .fill(background)
             }
             .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(border, lineWidth: lineWidth)
+                LitheSettingsControlBorder(cornerRadius: cornerRadius, lineWidth: lineWidth)
+                    .fill(border, style: FillStyle(eoFill: true))
+                    .padding(-borderOutset)
+                    .allowsHitTesting(false)
             }
+    }
+}
+
+struct LitheSettingsSection<Content: View, Accessory: View>: View {
+    let title: String
+    @ViewBuilder let accessory: Accessory
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(LocalizedStringKey(title))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize()
+                accessory
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
+            content
+        }
+        .font(LitheTheme.settingsFont)
+        .foregroundStyle(LitheTheme.primaryText)
+        .padding(.top, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+extension LitheSettingsSection where Accessory == EmptyView {
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.init(title: title, accessory: { EmptyView() }, content: content)
     }
 }
 
@@ -714,23 +762,14 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
                 } label: {
                     Text(LocalizedStringKey(title(option)))
                         .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                        .foregroundStyle(selection == option ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
-                        .frame(maxWidth: .infinity, minHeight: 24)
-                        .contentShape(Rectangle())
-                        .litheRowHover(
-                            isActive: selection == option,
-                            cornerRadius: SettingsSelectMetrics.controlCornerRadius,
-                            activeBackground: LitheTheme.settingsSelection
-                        )
+                        .litheSettingsSegmentedOption(isSelected: selection == option)
                 }
                 .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .accessibilityValue(selection == option ? Text("Selected") : Text("Not selected"))
             }
         }
-        .padding(2)
-        .frame(width: width, height: SettingsSelectMetrics.controlHeight)
-        .litheSettingsControlChrome()
+        .litheSettingsSegmentedChrome(width: width)
     }
 }
 
@@ -894,13 +933,33 @@ private struct LitheSettingsTextEditorModifier: ViewModifier {
 }
 
 extension View {
+    func litheSettingsSegmentedOption(isSelected: Bool) -> some View {
+        self
+            .foregroundStyle(isSelected ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
+            .frame(maxWidth: .infinity, minHeight: 24)
+            .contentShape(Rectangle())
+            .litheRowHover(
+                isActive: isSelected,
+                cornerRadius: SettingsSelectMetrics.controlCornerRadius,
+                activeBackground: LitheTheme.settingsSelection
+            )
+    }
+
+    func litheSettingsSegmentedChrome(width: CGFloat? = nil) -> some View {
+        padding(2)
+            .frame(width: width, height: SettingsSelectMetrics.controlHeight)
+            .litheSettingsControlChrome()
+    }
+
     func litheSettingsControlChrome(
         background: Color = LitheTheme.settingsControlBackground,
         border: Color = LitheTheme.settingsControlBorder,
         cornerRadius: CGFloat = SettingsSelectMetrics.controlCornerRadius,
-        lineWidth: CGFloat = 1
+        lineWidth: CGFloat = 1,
+        borderOutset: CGFloat = 0
     ) -> some View {
-        modifier(LitheSettingsControlChrome(background: background, border: border, cornerRadius: cornerRadius, lineWidth: lineWidth))
+        modifier(LitheSettingsControlChrome(background: background, border: border, cornerRadius: cornerRadius,
+                                           lineWidth: lineWidth, borderOutset: borderOutset))
     }
 
     func litheSettingsTextField() -> some View {

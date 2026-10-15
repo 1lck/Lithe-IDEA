@@ -37,6 +37,12 @@ struct SettingsSearchVocabularyTests {
         #expect(SettingsSearchVocabulary.matches(query: "tab", category: .editor))
     }
 
+    @Test func agentManagementPageIsSearchableSeparatelyFromAIProviders() {
+        #expect(SettingsSearchVocabulary.matches(query: "ACP adapter", category: .agents))
+        #expect(SettingsSearchVocabulary.matches(query: "Codex", category: .agents))
+        #expect(!SettingsSearchVocabulary.matches(query: "ACP adapter", category: .providers))
+    }
+
     @Test func editorPageMatchesTheNewFontQueries() {
         #expect(SettingsSearchVocabulary.matches(query: "font", category: .editor))
         #expect(SettingsSearchVocabulary.matches(query: "fonts", category: .editor))

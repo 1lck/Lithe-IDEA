@@ -359,6 +359,9 @@ struct SettingsView: View {
                     case .project: EmptyView()
                     case .run: EmptyView()
                     case .ai: aiSettings
+                    case .agents:
+                        AgentPanelSettingsView(model: model, settings: settings, feature: model.agentManagementFeature)
+                            .id(model.settingsCategoryRequest)
                     case .providers: providersSettings
                     case .git:
                         VStack(alignment: .leading, spacing: 14) {
@@ -852,21 +855,22 @@ struct SettingsView: View {
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
 
-                    HStack(spacing: 8) {
-                        Button("Add Provider") {
-                            viewState.editingProviderID = settings.addAIProvider()
-                            syncAIProviderDraft()
-                        }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                }
 
-                        Button("Remove") {
-                            if let id = editingProvider?.id { settings.removeAIProvider(id) }
-                            viewState.editingProviderID = nil
-                            syncAIProviderDraft()
-                        }
-                        .buttonStyle(LitheSecondaryButtonStyle())
-                        .disabled(editingProvider == nil)
+                HStack(spacing: 8) {
+                    Button("Add Provider") {
+                        viewState.editingProviderID = settings.addAIProvider()
+                        syncAIProviderDraft()
                     }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+
+                    Button("Remove") {
+                        if let id = editingProvider?.id { settings.removeAIProvider(id) }
+                        viewState.editingProviderID = nil
+                        syncAIProviderDraft()
+                    }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .disabled(editingProvider == nil)
                 }
 
                 if editingProvider != nil {
@@ -934,8 +938,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(model.detectedAIConfigurations) { configuration in
                             HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(LitheTheme.success)
+                                LitheBannerIcon(status: .success)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(LocalizedStringKey(configuration.source.detectedTitle))
                                         .font(LitheTheme.uiFont(size: 12, weight: .medium))
@@ -1516,20 +1519,7 @@ struct SettingsView: View {
     }
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(LocalizedStringKey(title))
-                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize()
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            }
-            content()
-        }
-        .font(LitheTheme.uiFont(size: 12.5))
-        .foregroundStyle(LitheTheme.primaryText)
-        .padding(.top, 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        LitheSettingsSection(title, content: content)
     }
 
     private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
