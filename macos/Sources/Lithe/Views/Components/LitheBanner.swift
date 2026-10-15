@@ -33,6 +33,7 @@ enum LitheBannerLayout { case inline, editor }
 struct LitheBanner<Content: View>: View {
     let status: LitheBannerStatus
     var layout: LitheBannerLayout = .inline
+    var iconStatus: LitheBannerStatus? = nil
     var isProgress = false
     var dismiss: (() -> Void)? = nil
     @ViewBuilder let content: () -> Content
@@ -42,7 +43,7 @@ struct LitheBanner<Content: View>: View {
             if isProgress {
                 ProgressView().controlSize(.small)
             } else {
-                LitheBannerIcon(status: status)
+                LitheBannerIcon(status: iconStatus ?? status)
             }
             VStack(alignment: .leading, spacing: LitheTheme.Banner.gap, content: content)
                 .frame(maxWidth: .infinity, alignment: .leading)

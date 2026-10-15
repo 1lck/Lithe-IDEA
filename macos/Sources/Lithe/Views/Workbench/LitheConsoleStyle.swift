@@ -3,7 +3,7 @@
 import AppKit
 
 /// IDEA Community c7f91397: ConsoleViewUtil, inherited Islands editor schemes.
-/// Opt-in: other output panes retain their existing presentation.
+/// Shared by Run and Debug; other output panes retain their existing presentation.
 @MainActor
 enum LitheConsoleStyle {
     static let defaultFontSize: CGFloat = 13

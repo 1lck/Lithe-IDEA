@@ -407,6 +407,13 @@ enum LitheTheme {
         })
     }
 
+    // Community bfa44e1e: ActivateRunToolWindowAction uses StatusText's
+    // Component.infoForeground and Link.Foreground.ENABLED in Islands.
+    enum RunEmptyState {
+        static let text = Color(nsColor: RGBA(0x73767C).nsColor)
+        static var link: Color { controlColor(light: 0x2F5EB9, dark: 0x71A1FE) }
+    }
+
     static var toolbarHoverBackground: Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -469,7 +476,6 @@ enum LitheTheme {
                                     : Color(red: 233/255, green: 234/255, blue: 238/255)
     }
 
-    /// ActionToolbarImpl.MySeparator → ToolBar.separatorColor → Islands toolbar-border.
     enum ActionToolbar {
         static var separator: Color {
             controlColor(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 32/255, darkAlpha: 33/255)

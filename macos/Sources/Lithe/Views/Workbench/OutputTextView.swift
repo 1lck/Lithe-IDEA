@@ -163,14 +163,14 @@ struct OutputTextView: View {
                 range: NSRange(location: 0, length: result.length))
         }
         if !usesIDEAConsoleStyle {
-        applySeverityColors(
-            to: &result,
-            text: parsed.cleanText,
-            ansiStyled: parsed.hasStyling,
-            theme: theme,
-            isDark: isDark
-        )
-        dimTimestamps(in: &result, text: parsed.cleanText, theme: theme, isDark: isDark)
+            applySeverityColors(
+                to: &result,
+                text: parsed.cleanText,
+                ansiStyled: parsed.hasStyling,
+                theme: theme,
+                isDark: isDark
+            )
+            dimTimestamps(in: &result, text: parsed.cleanText, theme: theme, isDark: isDark)
         }
         for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots, fileExists: fileExists) {
             let range = NSRange(location.range, in: parsed.cleanText)
@@ -809,6 +809,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
         context.coordinator.onToggleWrapsLines = onToggleWrapsLines
         context.coordinator.applyWrapsLines(wrapsLines)
         context.coordinator.apply(
+            fontSize: fontSize,
+            usesIDEAConsoleStyle: usesIDEAConsoleStyle,
             output: output,
             emptyMessage: emptyMessage,
             isDark: colorScheme == .dark,
@@ -980,6 +982,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
         private var source = ""
         private var sourceHadANSI = false
         private var showingEmptyMessage = false
+        private var renderedFontSize: CGFloat?
+        private var renderedConsoleStyle: Bool?
         private var renderedTheme: AppColorTheme?
         private var renderedIsDark: Bool?
         private var isAtBottom = true
@@ -1012,6 +1016,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
         }
 
         func apply(
+            fontSize: CGFloat = 11.5,
+            usesIDEAConsoleStyle: Bool = false,
             output: String,
             emptyMessage: String,
             isDark: Bool,
@@ -1025,13 +1031,16 @@ private struct OutputTextStorageView: NSViewRepresentable {
             if !output.hasPrefix(source) { lastFollowedConsoleLink = nil }
             let wasAtBottom = isAtBottom
             let appearanceChanged = renderedTheme != theme || renderedIsDark != isDark
+                || renderedFontSize != fontSize || renderedConsoleStyle != usesIDEAConsoleStyle
             if output.isEmpty {
                 guard appearanceChanged || !showingEmptyMessage || storage.string != emptyMessage else { return }
                 storage.setAttributedString(NSAttributedString(
                     string: emptyMessage,
                     attributes: [
                         .font: LitheTheme.editorFont(size: consoleFontSize),
-                        .foregroundColor: LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
+                        .foregroundColor: usesIDEAConsoleStyle ? LitheConsoleStyle.foreground(dark: isDark)
+                            : LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark),
+                        .paragraphStyle: usesIDEAConsoleStyle ? LitheConsoleStyle.paragraphStyle(fontSize: consoleFontSize) : NSParagraphStyle.default
                     ]
                 ))
                 source = ""
@@ -1097,6 +1106,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 refreshFolds(dark: isDark, force: appearanceChanged)
                 lastRender = { [weak self] in self?.refreshFolds(dark: isDark, force: true) }
             }
+            renderedFontSize = fontSize
+            renderedConsoleStyle = usesIDEAConsoleStyle
             renderedTheme = theme
             renderedIsDark = isDark
             if wasAtBottom { scrollToBottom() }
