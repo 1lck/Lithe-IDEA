@@ -40,11 +40,23 @@ PHP Support 作为独立 GitHub Release asset 发布，不再把“能否使用 
 出现自引用。Lithe 内置 `lithe-official-plugins-v1` 公钥，安装时先验证原生 bundle，
 再验证完整包清单、插件 ID 和版本，任一文件被替换都会拒绝安装。
 
-stable 和 preview 工作流都必须配置同一 repository secret
+本分支的 stable 工作流仍需配置 repository secret
 `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`。它是与客户端内置公钥匹配的 base64 编码 32 字节
-Ed25519 私钥；可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 写入 GitHub，私钥只在构建 runner 的标准输入中使用，不能写入
-仓库、release asset 或日志。公钥轮换需要先发布能识别新 key ID 的客户端，再更新
-secret 并重新生成包，不能只替换 GitHub secret。
+Ed25519 私钥；私钥只在构建 runner 的标准输入中使用，不能写入仓库、release
+asset 或日志。公钥轮换需要先发布能识别新 key ID 的客户端，再更新 secret 并
+重新生成包，不能只替换 GitHub secret。
+
+Preview 应用工作流只发布应用及其 Sparkle 更新，不构建或上传独立 PHP 插件包，
+也不注入插件私钥。当前 `preview` 源码已把 PHP/Go 插件交给组织仓库独立发布，
+个人仓库的旧插件私钥与其 v2 公钥不匹配；继续在应用发布中签插件会触发
+`SignerError.untrustedPrivateKey`，阻止本来已成功打包的应用发布。应用更新继续
+使用原有 Sparkle 密钥，不通过替换该密钥或放宽插件验签来恢复构建。
+
+每天的定时任务从默认分支 `main` 读取工作流，再检出 `preview` 源码，因此
+删除插件私钥检查、独立插件构建及其两处上传步骤的修复必须合入 `main`。
+只修改 `preview` 工作流不能修复下一次定时任务；只删除构建而保留上传也会
+因缺少插件包继续失败。手动运行时，`--ref` 选择工作流版本，`source_branch`
+只选择源码。恢复后的发布应确认两个架构与 publish job 全部成功。
 
 ### 全量与差分双轨发布
 

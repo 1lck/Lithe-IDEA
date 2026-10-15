@@ -51,6 +51,27 @@ workflows. They identify the latest published preview, rather than an arbitrary
 PR. macOS preview jobs additionally expose their own artifact links before the
 combined rolling Release publishes.
 
+### 恢复 macOS 每日预览发布
+
+定时任务使用默认分支 `main` 中的工作流，再检出 `preview` 源码。修复发布
+工作流时必须把改动合入 `main`；只修改 `preview` 不会更新每天执行的流程。
+工作流与源码的选择方式及插件签名边界见
+[应用内更新的签名与发布策略](../.agents/notes/implemented/process/2026-09-13-macos-update-signing-and-release-strategy.md)。
+
+合并修复后，可等待下一次定时任务，或由仓库所有者手动重新构建并发布：
+
+```bash
+gh workflow run release-preview-macos.yml \
+  --repo 1lck/Lithe-IDEA \
+  --ref main \
+  -f source_branch=preview
+```
+
+不要直接重跑旧的失败任务，它仍然使用旧工作流。确认两个架构的 build job
+和 publish job 均成功，再检查两个 DMG 和 `appcast-preview-*.xml` 的更新时间。
+Windows 有独立工作流，Windows 安装包更新不能证明 macOS 发布成功。滚动
+Release 会保留最初的发布日期，应通过 Actions 和各平台资产判断是否更新。
+
 Git 路径往返集成测试 `rust/lithe-core/tests/git_path_roundtrip.rs` 需要 Git 和
 Node.js 22.6+（用于直接加载实际前端 TypeScript 路径规范化函数），不需要安装
 Bun 或前端依赖。CI 复用计时脚本已使用的 runner Node.js，本地运行时需满足
