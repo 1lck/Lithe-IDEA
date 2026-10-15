@@ -156,6 +156,10 @@ const JAVA_25_ENTRYPOINT_SOURCES: &[(&str, &str)] = &[
 /// inherited method.
 const JAVA_TEST_SOURCES: &[(&str, &str)] = &[
     (
+        "src/test/java/MainTests.java",
+        "public class MainTests { public static void main(String[] args) { org.junit.jupiter.api.Assertions.assertTrue(true); System.out.println(\"test-main\"); } }\n",
+    ),
+    (
         "src/test/java/demo/FastTest.java",
         "package demo;\nimport java.lang.annotation.*;\nimport org.junit.jupiter.api.Test;\n@Retention(RetentionPolicy.RUNTIME)\n@Target(ElementType.METHOD)\n@Test\npublic @interface FastTest {}\n",
     ),
@@ -191,6 +195,7 @@ const JAVA_25_POM: &str = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
     </dependency>
   </dependencies>
   <build>
+    <testOutputDirectory>${project.basedir}/target/test-main-output</testOutputDirectory>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -443,7 +448,7 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
         .expect("real JDTLS session should be registered");
     await_real_smoke_ready(&session).unwrap_or_else(|error| panic!("{error}"));
 
-    let entrypoints = await_real_entrypoints(&engine, &session, 5);
+    let entrypoints = await_real_entrypoints(&engine, &session, 6);
     let discovered = entrypoints["entries"]
         .as_array()
         .expect("entries array")
@@ -477,6 +482,10 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
             (
                 "demo.StaticNoArgs".to_string(),
                 "src/main/java/demo/StaticNoArgs.java".to_string()
+            ),
+            (
+                "MainTests".to_string(),
+                "src/test/java/MainTests.java".to_string()
             ),
         ],
         "JDT should list exactly the launchable forms: {entrypoints}"
@@ -561,11 +570,50 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
         &session,
         json!({
             "command": "vscode.java.resolveClasspath",
-            "arguments": ["demo.StaticNoArgs", project_name, "runtime"]
+            "arguments": ["demo.StaticNoArgs", project_name]
         }),
         Duration::from_secs(60),
     )
     .unwrap_or_else(|error| panic!("the runtime classpath should resolve: {error}"));
+    // Issue #379: scope omission must keep production launches free of test
+    // output, while a default-package test Main gets custom output and test-only
+    // dependencies from m2e/JDT instead of a guessed target/test-classes path.
+    let test_paths = execute_real_command(
+        &engine,
+        &session,
+        json!({
+            "command": "vscode.java.resolveClasspath",
+            "arguments": ["MainTests", project_name]
+        }),
+        Duration::from_secs(60),
+    )
+    .unwrap_or_else(|error| panic!("the test Main classpath should resolve: {error}"));
+    let test_entries = test_paths["value"][1].as_array().expect("test classpaths");
+    let has_test_output = |entries: &[Value]| {
+        entries.iter().any(|entry| {
+            entry.as_str().is_some_and(|path| {
+                path.replace('\\', "/")
+                    .ends_with("/target/test-main-output")
+            })
+        })
+    };
+    assert!(has_test_output(test_entries), "{test_paths}");
+    assert!(
+        test_entries.iter().any(|entry| entry
+            .as_str()
+            .is_some_and(|path| path.contains("junit-jupiter-api"))),
+        "{test_paths}"
+    );
+    assert!(
+        !has_test_output(paths["value"][1].as_array().expect("main classpaths")),
+        "{paths}"
+    );
+    assert!(
+        canonical_workspace
+            .join("target/test-main-output/MainTests.class")
+            .is_file(),
+        "the test Main should have been compiled"
+    );
     // `resolveClasspath` answers `[modulePaths, classPaths]`.
     let class_path = paths["value"][1]
         .as_array()
@@ -583,21 +631,31 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
             .project_jdk
             .join("bin")
             .join(if cfg!(windows) { "java.exe" } else { "java" });
-    let output = std::process::Command::new(executable)
-        .arg("-cp")
-        .arg(&class_path)
-        .arg("demo.StaticNoArgs")
-        .output()
-        .expect("the project JDK should start");
-    assert!(
-        output.status.success(),
-        "demo.StaticNoArgs failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        "static-noargs"
-    );
+    let test_class_path = test_entries
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(if cfg!(windows) { ";" } else { ":" });
+    for (main_class, paths, expected_output) in [
+        ("demo.StaticNoArgs", class_path.as_str(), "static-noargs"),
+        ("MainTests", test_class_path.as_str(), "test-main"),
+    ] {
+        let output = std::process::Command::new(&executable)
+            .arg("-cp")
+            .arg(paths)
+            .arg(main_class)
+            .output()
+            .expect("the project JDK should start");
+        assert!(
+            output.status.success(),
+            "{main_class} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected_output
+        );
+    }
 
     // No local annotation or file-name rule can produce these answers: JDT
     // resolves the custom meta-annotation and the inherited JUnit method.
