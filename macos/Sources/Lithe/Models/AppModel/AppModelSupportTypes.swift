@@ -102,37 +102,40 @@ struct DebugBreakpointPresentationState {
     }
 }
 
-enum SidebarDestination: String, CaseIterable, Identifiable {
-    case project
-    case changes
-    case pullRequests
-    case search
+/// Legacy workspace sessions keep their original names; new tool windows use
+/// their stable contribution ID without extending a closed destination enum.
+struct SidebarDestination: RawRepresentable, Hashable, Identifiable {
+    let rawValue: String
+    init?(rawValue: String) {
+        guard !rawValue.isEmpty else { return nil }
+        self.rawValue = rawValue
+    }
+    init(contributionID: String) {
+        switch contributionID {
+        case "workspace.project": self = .project
+        case "git.changes": self = .changes
+        case "github.pull-requests": self = .pullRequests
+        case "search.workspace": self = .search
+        default: rawValue = contributionID
+        }
+    }
+    static let project = Self(rawValue: "project")!
+    static let changes = Self(rawValue: "changes")!
+    static let pullRequests = Self(rawValue: "pullRequests")!
+    static let search = Self(rawValue: "search")!
 
+    var contributionID: String {
+        switch self {
+        case .project: "workspace.project"
+        case .changes: "git.changes"
+        case .pullRequests: "github.pull-requests"
+        case .search: "search.workspace"
+        default: rawValue
+        }
+    }
     var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .project: "Project"
-        case .changes: "Changes"
-        case .pullRequests: "Pull Requests"
-        case .search: "Search"
-        }
-    }
-    var ideaAssetPath: String {
-        switch self {
-        case .project: "expui/toolwindows/project@20x20.svg"
-        case .changes: "expui/toolwindows/commit@20x20.svg"
-        case .pullRequests: "expui/toolwindows/vcs@20x20.svg"
-        case .search: "expui/toolwindows/find@20x20.svg"
-        }
-    }
-
     var isAvailable: Bool {
-        switch self {
-        case .pullRequests:
-            LitheFeatureAvailability.githubPullRequests
-        case .project, .changes, .search:
-            true
-        }
+        self != .pullRequests || LitheFeatureAvailability.githubPullRequests
     }
 }
 

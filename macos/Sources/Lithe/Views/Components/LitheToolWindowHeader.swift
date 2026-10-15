@@ -7,6 +7,7 @@ struct LitheToolWindowHeader<Actions: View>: View {
     let title: String
     let systemImage: String?
     let ideaAssetPath: String?
+    let icon: AnyView?
     let subtitle: String?
     let actions: Actions
     let onMinimize: (() -> Void)?
@@ -15,6 +16,7 @@ struct LitheToolWindowHeader<Actions: View>: View {
         title: String,
         systemImage: String? = nil,
         ideaAssetPath: String? = nil,
+        icon: AnyView? = nil,
         subtitle: String? = nil,
         onMinimize: (() -> Void)? = nil,
         @ViewBuilder actions: () -> Actions
@@ -22,6 +24,7 @@ struct LitheToolWindowHeader<Actions: View>: View {
         self.title = title
         self.systemImage = systemImage
         self.ideaAssetPath = ideaAssetPath
+        self.icon = icon
         self.subtitle = subtitle
         self.actions = actions()
         self.onMinimize = onMinimize
@@ -29,7 +32,9 @@ struct LitheToolWindowHeader<Actions: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if let ideaAssetPath {
+            if let icon {
+                icon.foregroundStyle(LitheTheme.toolWindowText)
+            } else if let ideaAssetPath {
                 LitheIDEAIcon(
                     resourcePath: ideaAssetPath,
                     size: 13,

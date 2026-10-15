@@ -5,7 +5,7 @@
   "description": "Shape of plugin.json for a declarative plugin. Semantic rules that JSON Schema cannot express (cross references, permissions, activation events, template variables) are defined in README.md and enforced by plugins.declarative.validate.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "id", "displayName", "version", "pluginAPIVersion", "vendor", "languages"],
+  "required": ["schemaVersion", "id", "displayName", "version", "pluginAPIVersion", "vendor"],
   "properties": {
     "schemaVersion": { "const": 2 },
     "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
@@ -24,15 +24,15 @@
     },
     "permissions": {
       "type": "array",
-      "items": { "enum": ["languageServer.launch", "process.run", "process.test"] }
+      "items": { "enum": ["languageServer.launch", "process.run", "process.test", "ui.contribute"] }
     },
     "activationEvents": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^(onLanguage|onRun|onTest):[a-z0-9+_-]+$" }
+      "items": { "type": "string", "pattern": "^(onLanguage|onRun|onTest|onView|onCommand):[a-z0-9.+_-]+$" }
     },
     "languages": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "items": { "$ref": "#/$defs/language" }
     },
     "languageServers": {
@@ -43,6 +43,104 @@
       "type": "array",
       "items": { "$ref": "#/$defs/executionProvider" }
     },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "toolWindows"
+      ],
+      "properties": {
+        "toolWindows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "title",
+              "placement",
+              "text"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]+$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "placement": {
+                "enum": [
+                  "left",
+                  "bottom",
+                  "right"
+                ]
+              },
+              "order": {
+                "type": "integer"
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "icon": {
+                "$ref": "#/$defs/uiIcon"
+              }
+            }
+          }
+        },
+        "commands": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "title",
+              "toolWindowID",
+              "placements"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]+$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "toolWindowID": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]+$"
+              },
+              "order": {
+                "type": "integer"
+              },
+              "placements": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "enum": [
+                    "commandPalette",
+                    "toolbar",
+                    "menu"
+                  ]
+                }
+              },
+              "icon": {
+                "$ref": "#/$defs/uiIcon"
+              }
+            }
+          }
+        }
+      }
+    },
     "settings": {
       "type": "array",
       "maxItems": 32,
@@ -50,6 +148,88 @@
     }
   },
   "$defs": {
+    "uiIcon": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "host"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "path"
+                ]
+              },
+              {
+                "required": [
+                  "darkPath"
+                ]
+              },
+              {
+                "properties": {
+                  "mode": {
+                    "const": "original"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "path"
+          ],
+          "not": {
+            "required": [
+              "host"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "host": {
+          "enum": [
+            "tool-window",
+            "plugin",
+            "database",
+            "services",
+            "terminal",
+            "search",
+            "refresh",
+            "run",
+            "debug",
+            "settings",
+            "add",
+            "remove",
+            "git",
+            "problems"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^:\\\\]+\\.(svg|png)$"
+        },
+        "darkPath": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^:\\\\]+\\.(svg|png)$"
+        },
+        "mode": {
+          "enum": [
+            "template",
+            "original"
+          ],
+          "default": "template"
+        }
+      }
+    },
     "setting": {
       "type": "object",
       "additionalProperties": false,

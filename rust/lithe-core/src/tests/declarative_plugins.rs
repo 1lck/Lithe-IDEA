@@ -15,6 +15,7 @@ macro_rules! contract_file {
 }
 
 const PHP_FIXTURE: &str = contract_file!("fixtures/php-support.plugin.json");
+const HELLO_FIXTURE: &str = contract_file!("fixtures/hello-lithe.plugin.json");
 const GO_FIXTURE: &str = contract_file!("fixtures/go-support.plugin.json");
 const JAVA_FIXTURE: &str = contract_file!("fixtures/java-support.plugin.json");
 const NODE_RUNTIME_FIXTURE: &str = contract_file!("fixtures/node-runtime.plugin.json");
@@ -38,6 +39,7 @@ fn fixture(name: &str) -> Value {
     let source = match name {
         "php-support.plugin.json" => PHP_FIXTURE,
         "go-support.plugin.json" => GO_FIXTURE,
+        "hello-lithe.plugin.json" => HELLO_FIXTURE,
         "java-support.plugin.json" => JAVA_FIXTURE,
         "node-runtime.plugin.json" => NODE_RUNTIME_FIXTURE,
         other => panic!("unknown fixture {other}"),
@@ -54,10 +56,11 @@ fn contract_fixtures_and_official_plugins_validate() {
     for source in [
         PHP_FIXTURE,
         GO_FIXTURE,
-        JAVA_FIXTURE,
-        NODE_RUNTIME_FIXTURE,
+        HELLO_FIXTURE,
         OFFICIAL_PHP,
         OFFICIAL_GO,
+        JAVA_FIXTURE,
+        NODE_RUNTIME_FIXTURE,
         OFFICIAL_JAVA,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());
@@ -368,5 +371,79 @@ fn apply_edit(manifest: &mut Value, edit: &Value) {
             parent.as_object_mut().unwrap().remove(key);
         }
         other => panic!("unknown edit op {other}"),
+    }
+}
+
+/// Data-only UI must activate by stable identity, normalize presentation order,
+/// and stay unable to invoke a foreign window or inject executable content.
+#[test]
+fn ui_contributions_are_normalized_without_interpreting_text() {
+    let mut manifest = fixture("hello-lithe.plugin.json");
+    manifest["ui"]["commands"][0]["placements"] =
+        json!(["menu", "toolbar", "menu", "commandPalette"]);
+    manifest["ui"]["toolWindows"][0]["text"] = json!("<script>not executable</script>");
+    let outcome = validate(manifest);
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(
+        outcome["plugin"]["ui"]["commands"][0]["placements"],
+        json!(["commandPalette", "toolbar", "menu"])
+    );
+    assert_eq!(
+        outcome["plugin"]["ui"]["toolWindows"][0]["text"],
+        "<script>not executable</script>"
+    );
+    for placement in ["left", "bottom", "right"] {
+        let mut manifest = fixture("hello-lithe.plugin.json");
+        manifest["ui"]["toolWindows"][0]["placement"] = json!(placement);
+        let result = validate(manifest);
+        assert_eq!(result["status"], "ok", "{result}");
+        assert_eq!(
+            result["plugin"]["ui"]["toolWindows"][0]["placement"],
+            placement
+        );
+    }
+}
+
+/// Icon trust boundaries are shared; native decoding remains with the macOS host.
+#[test]
+fn ui_icon_declarations_validate_and_preserve_theme_resources() {
+    for icon in [
+        json!({"host":"database"}),
+        json!({"path":"icons/mark.svg"}),
+        json!({"path":"icons/mark.png", "darkPath":"icons/mark-dark.png", "mode":"original"}),
+    ] {
+        let mut manifest = fixture("hello-lithe.plugin.json");
+        manifest["ui"]["toolWindows"][0]["icon"] = icon.clone();
+        manifest["ui"]["commands"][0]["icon"] = icon.clone();
+        let result = validate(manifest);
+        assert_eq!(result["status"], "ok", "{result}");
+        let mut expected = icon;
+        if expected.get("mode").is_none() {
+            expected["mode"] = json!("template");
+        }
+        assert_eq!(result["plugin"]["ui"]["toolWindows"][0]["icon"], expected);
+        assert_eq!(result["plugin"]["ui"]["commands"][0]["icon"], expected);
+    }
+    for icon in [
+        json!({}),
+        json!({"host":"unknown"}),
+        json!({"host":"run","path":"a.svg"}),
+        json!({"host":"run","mode":"original"}),
+        json!({"path":"../a.svg"}),
+        json!({"path":"/a.svg"}),
+        json!({"path":"https://host/a.svg"}),
+        json!({"path":"a.gif"}),
+        json!({"path":"a.svg","darkPath":"../dark.svg"}),
+        json!({"path":"a.svg","size":48}),
+        json!({"path":"a.svg","color":"red"}),
+        json!({"path":"a.svg","mode":"script"}),
+        json!({"path":"a//b.svg"}),
+        json!({"path":"a/./b.svg"}),
+    ] {
+        for target in ["toolWindows", "commands"] {
+            let mut manifest = fixture("hello-lithe.plugin.json");
+            manifest["ui"][target][0]["icon"] = icon.clone();
+            assert_eq!(validate(manifest)["status"], "rejected", "{target}: {icon}");
+        }
     }
 }
