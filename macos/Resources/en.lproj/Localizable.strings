@@ -1627,3 +1627,16 @@
 "The JVM does not expose supported heap counters through jstat." = "The JVM does not expose supported heap counters through jstat.";
 
 "Invalid JVM heap counters." = "Invalid JVM heap counters.";
+
+/* Debug variable JSON/tree presentation */
+"Show as tree" = "Show as tree";
+"Show as JSON" = "Show as JSON";
+"Copy JSON" = "Copy JSON";
+"Loading object fields…" = "Loading object fields…";
+
+"Show source file name" = "Show source file name";
+"Stack frame display options" = "Stack frame display options";
+
+"Expand JSON block" = "Expand JSON block";
+
+"Collapse JSON block" = "Collapse JSON block";

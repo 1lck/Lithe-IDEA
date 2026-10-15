@@ -3020,3 +3020,16 @@
 "The JVM does not expose supported heap counters through jstat." = "当前 JVM 未通过 jstat 提供受支持的堆计数器。";
 
 "Invalid JVM heap counters." = "JVM 堆计数器无效。";
+
+/* Debug variable JSON/tree presentation */
+"Show as tree" = "显示为树形";
+"Show as JSON" = "显示为 JSON";
+"Copy JSON" = "复制 JSON";
+"Loading object fields…" = "正在加载对象字段…";
+
+"Show source file name" = "显示源码文件名";
+"Stack frame display options" = "调用栈显示选项";
+
+"Expand JSON block" = "展开 JSON 段落";
+
+"Collapse JSON block" = "收起 JSON 段落";

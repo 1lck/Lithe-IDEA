@@ -1,4 +1,5 @@
-import CoreGraphics
+import AppKit
+import SwiftUI
 import LitheCoreContracts
 
 /// Stable IDEA-aligned ordering and icon catalog for the macOS Debug toolbar.
@@ -19,6 +20,33 @@ enum DebugToolbarActionID: String, CaseIterable, Identifiable {
 }
 
 enum DebugToolbarPresentation {
+    static func stackFrameLabel(_ frame: DebugStackFrame, showsSourceName: Bool) -> String {
+        guard showsSourceName, let source = frame.sourceURL, source.pathExtension.lowercased() == "java" else {
+            return frame.name
+        }
+        let suffix = ", " + source.deletingPathExtension().lastPathComponent
+        // ponytail: remove only an exact redundant provider suffix; richer labels need structured DAP segments.
+        return frame.name.count > suffix.count && frame.name.hasSuffix(suffix) ? String(frame.name.dropLast(suffix.count)) : frame.name
+    }
+
+    static func stackFrameText(_ frame: DebugStackFrame, showsSourceName: Bool, isDark: Bool) -> AttributedString {
+        let label = stackFrameLabel(frame, showsSourceName: showsSourceName)
+        var result = DiffSyntaxHighlighter.styled(label, fileExtension: frame.sourceURL?.pathExtension ?? "", highlight: nil)
+        guard frame.sourceURL?.pathExtension.lowercased() == "java",
+              let location = label.range(of: ":\(frame.line)", options: .backwards),
+              location.upperBound == label.endIndex || label[location.upperBound...].hasPrefix(", ") else { return result }
+        let methodAndType = label[..<location.lowerBound].prefix { $0 != "(" }
+        let method = methodAndType.split(separator: ".").last ?? methodAndType
+        guard !method.isEmpty else { return result }
+        let offset = methodAndType.count - method.count
+        let start = result.characters.index(result.startIndex, offsetBy: offset)
+        let end = result.characters.index(start, offsetBy: method.count)
+        let palette = SyntaxHighlightingColorConfiguration.bundled.palette(formatID: "java",
+            base: CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme))
+        result[start..<end].foregroundColor = Color(nsColor: palette.functionCall)
+        return result
+    }
+
     static let primaryActions: [DebugToolbarActionID] = [
         .restartOrStart,
         .stop,

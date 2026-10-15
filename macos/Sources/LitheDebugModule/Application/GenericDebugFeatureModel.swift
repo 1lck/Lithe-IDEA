@@ -1512,6 +1512,24 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         )
     }
 
+    /// Reads the selected paused scope without changing tree expansion or executing target code.
+    public func variableJSONSnapshot() async throws -> String {
+        guard state == .paused, let session = activeSession else { throw CancellationError() }
+        let generation = inspectionGeneration
+        let sessionID = activeSessionID
+        let frameID = selectedFrameID
+        let scopeID = selectedScopeID
+        let partial = !(variablePageStates[Self.rootVariablePageID]?.segments.isEmpty ?? true)
+        let loader = DebugVariableJSONSnapshot { reference, count in
+            try await DebugVariableJSONRequest.read(session: session, reference: reference, count: count)
+        }
+        let result = try await loader.render(presentedVariables, rootsArePartial: partial)
+        try Task.checkCancellation()
+        guard state == .paused, inspectionGeneration == generation, activeSessionID == sessionID,
+              selectedFrameID == frameID, selectedScopeID == scopeID else { throw CancellationError() }
+        return result
+    }
+
     public func toggleVariableExpansion(_ variable: DebugVariable) {
         guard variable.isExpandable else { return }
         if expandedVariableIDs.contains(variable.id) {

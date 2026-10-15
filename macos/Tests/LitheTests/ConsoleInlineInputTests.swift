@@ -157,7 +157,8 @@ struct ConsoleInlineInputTests {
             host.layoutSubtreeIfNeeded()
             #expect(findTextView(host) === view)
             #expect(!view.drawsBackground)
-            #expect(scroll.drawsBackground == !wallpaper)
+            // Shared SwiftUI surfaces own both solid theme and wallpaper backgrounds.
+            #expect(!scroll.drawsBackground)
             #expect(presentation.inputDraft == "draft")
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)

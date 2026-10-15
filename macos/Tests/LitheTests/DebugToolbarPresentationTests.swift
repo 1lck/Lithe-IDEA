@@ -1,11 +1,53 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 import LitheCoreContracts
 @testable import Lithe
 
 @Suite("IDEA-aligned Debug toolbar presentation")
 struct DebugToolbarPresentationTests {
+    @Test
+    func sourceNameToggleRemovesOnlyAnExactDuplicateClassSuffix() {
+        let source = URL(fileURLWithPath: "/demo/UserService.java")
+        let frame = DebugStackFrame(id: 1, name: "findUser:42, UserService", sourceURL: source, line: 42, column: 1)
+        #expect(DebugToolbarPresentation.stackFrameLabel(frame, showsSourceName: true) == "findUser:42")
+        #expect(DebugToolbarPresentation.stackFrameLabel(frame, showsSourceName: false) == frame.name)
+        for name in ["findUser:42, UserService$Inner", "findUser:42, OtherService", "example.UserService.findUser", ", UserService"] {
+            let other = DebugStackFrame(id: 2, name: name, sourceURL: source, line: 42, column: 1)
+            #expect(DebugToolbarPresentation.stackFrameLabel(other, showsSourceName: true) == name)
+        }
+        let unknown = DebugStackFrame(id: 3, name: frame.name, sourceURL: nil, line: 42, column: 1)
+        #expect(DebugToolbarPresentation.stackFrameLabel(unknown, showsSourceName: true) == frame.name)
+    }
+
+    @MainActor
+    @Test
+    func qualifiedMethodsWithMultipleParametersRetainMethodHighlighting() throws {
+        let frame = DebugStackFrame(id: 1, name: "example.UserService.findUser(java.lang.String, int):42, UserService",
+            sourceURL: URL(fileURLWithPath: "/demo/UserService.java"), line: 42, column: 1)
+        let text = DebugToolbarPresentation.stackFrameText(frame, showsSourceName: true, isDark: true)
+        let range = try #require(text.range(of: "findUser"))
+        let palette = SyntaxHighlightingColorConfiguration.bundled.palette(formatID: "java",
+            base: CodeEditorPalette(isDark: true, theme: LitheTheme.activeTheme))
+        #expect(text[range].foregroundColor == Color(nsColor: palette.functionCall))
+        #expect(String(text.characters).hasSuffix(":42"))
+    }
+
+    @MainActor
+    @Test(arguments: [false, true])
+    func stackMethodsUseTheConfiguredJavaSyntaxColor(isDark: Bool) {
+        let frame = DebugStackFrame(id: 1, name: "findUser:42, UserService",
+            sourceURL: URL(fileURLWithPath: "/demo/UserService.java"), line: 42, column: 1)
+        let text = DebugToolbarPresentation.stackFrameText(frame, showsSourceName: true, isDark: isDark)
+        #expect(String(text.characters) == "findUser:42")
+        let end = text.characters.index(text.startIndex, offsetBy: "findUser".count)
+        let palette = SyntaxHighlightingColorConfiguration.bundled.palette(formatID: "java",
+            base: CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme))
+        #expect(text[text.startIndex..<end].foregroundColor == Color(nsColor: palette.functionCall))
+        #expect(text.runs.count > 1, "Method, punctuation and line number retain separate syntax attributes")
+    }
+
     @Test
     func primaryActionsKeepTheIDEAOrderAndGrouping() {
         #expect(DebugToolbarPresentation.primaryActions == [

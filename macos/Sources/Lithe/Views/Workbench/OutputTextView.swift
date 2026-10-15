@@ -722,7 +722,6 @@ enum OutputTextUpdate: Equatable {
 
 private struct OutputTextStorageView: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.workbenchHasBackgroundImage) private var hasBackgroundImage
     let output: String
     let searchRoots: [URL]
     let fileExists: (URL) -> Bool
@@ -798,9 +797,9 @@ private struct OutputTextStorageView: NSViewRepresentable {
             .environment(\.isEnabled, context.environment.isEnabled).fixedSize())
         scrollView.needsLayout = true
         context.coordinator.configureConsole(usesIDEAConsoleStyle, fontSize: fontSize)
-        scrollView.drawsBackground = usesIDEAConsoleStyle && !hasBackgroundImage
-        scrollView.backgroundColor = scrollView.drawsBackground
-            ? LitheConsoleStyle.background(dark: colorScheme == .dark) : .clear
+        // The shared SwiftUI surface owns theme and wallpaper backgrounds for every output pane.
+        scrollView.drawsBackground = false
+        scrollView.backgroundColor = .clear
         if usesIDEAConsoleStyle {
             context.coordinator.textView?.insertionPointColor = LitheConsoleStyle.foreground(dark: colorScheme == .dark)
         }
