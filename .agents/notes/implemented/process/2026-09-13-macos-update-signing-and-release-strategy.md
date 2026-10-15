@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-更新包和独立官方插件包的真实性分别由 Sparkle EdDSA 与 Lithe Ed25519 签名保证，Developer ID 签名是可选的分发能力，不是这两类内容信任的唯一依据。stable 和 preview 完全隔离，回滚和插件安装只接受内置公钥信任的内容，避免测试版本或伪造清单影响正式用户。
+更新包和独立官方插件包的真实性分别由 Sparkle EdDSA 与 Lithe Ed25519 签名保证，Developer ID 签名是可选的分发能力，不是这两类内容信任的唯一依据。客户端默认选择正式版，用户确认风险后才能选择从 preview 分支构建的 AutoBuild；两个渠道跨版本安装和回滚不混用版本比较规则。AutoBuild 以统一 UTC 构建时间作为更新身份，界面显示“构建自”时间，回滚和插件安装仍只接受内置公钥信任的内容。
 
 ## 问题
 
@@ -104,25 +104,36 @@ Sparkle 处理和发布校验，不改变签名、哈希或 appcast 的接受条
 步骤为 30 分钟，为双架构打包和有界下载重试留出预算。Preview 工作流的
 期限不变；上述下载保护位于两个渠道共用的发布脚本内。
 
-### Stable 与 Preview 完全隔离
+### 正式版与 AutoBuild 的选择和时间身份
 
-Preview 使用独立的 `LitheUpdateChannel=preview`、独立的
-`appcast-preview-<architecture>.xml`、独立的 `SUDefaultsDomain`
-后缀（`app.lithe.desktop.sparkle.stable` /
-`.preview`）。两个渠道共用同一把 EdDSA key，但跳过版本和自动检查
-偏好不跨渠道迁移，也不提供渠道选择器或自动切换——用户从 preview
-返回 stable 是显式操作。Build 号使用
-`<workflow run number>.<run attempt>`，重跑失败的 run 会产生新的
-身份，即使展示版本不变；只重跑发布 job 不受支持，必须重跑全部 job
-才能分配新身份，防止一个陈旧或重复的 build 顶替 feed。
+更新设置只接受 `stable|autobuild`，缺省或损坏偏好始终回到正式版，不根据当前安装包
+自动替用户同意滚动更新。设置页把正式版标为推荐项；选择 AutoBuild 先确认风险，
+并持续提示每晚构建可能包含未完成功能、严重缺陷和其他异常，普通用户建议使用正式版。
+已安装渠道由签名包内的 `LitheUpdateChannel` 决定；兼容读取旧 `preview`，新包写
+`autobuild`。偏好写平台用户存储，时间元数据只读，应用运行不改写发行 bundle。
 
-发布前清理会保留最近 30 个 build 身份（含失败尝试）、当前已发布和
-即将发布 feed 引用的全部文件，以及每个架构最新三个 zip 基线，其余
-Preview zip/delta 一律删除；不触碰 Windows 等无关资产。清理在任何
-DMG/更新上传之前执行，且如果清理后剩余资产加新文件会超过 900（低于
-GitHub 1000 资产上限留出余量）就拒绝本次发布，下载/解析失败会在
-删除前终止清理。这把"缓存 feed 兼容性"的保证范围限定为最近 30 个
-build，而不是按天数保证。
+macOS 同渠道保留 Sparkle（负责签名更新的框架）的检查、下载和安装能力；独立的
+`SUDefaultsDomain` 使用 `.stable` / `.autobuild` 后缀。切换渠道必须全量安装，不能
+把正式版语义版本与滚动时间身份直接比较。切换时先终止旧更新提示，活动检查、下载、
+安装或另一次切换未结束时不接受新选择；回到正式版仍提供现有签名全量回退。
+Windows 的 AutoBuild 和跨渠道路径明确打开安装器发布页，因为当前滚动发布没有
+Tauri 签名更新清单，不伪造更新版本、下载进度或“已是最新版”；定时检查不弹浏览器。
+
+每次从固定 preview 提交构建时，只采样一次协调世界时（UTC），例如
+`2026-10-15T12:43:54Z`。macOS 的 `CFBundleVersion` 和 Sparkle 更新身份编码为
+同一时间的 `20261015.124354`，更新器按数值分段比较；界面与发布页显示
+“AutoBuild — 构建自 2026-10-15 12:43:54 UTC”。正确示例是后一天午夜的
+`20261016.000000` 大于此前任一时刻；错误示例是比较本地化时间字符串、提交 hash
+或沿用 workflow run/attempt 序号。时间不高于已发布版本时拒绝发布，不拼接计数器；
+重跑发布 job 不能给旧产物伪造新时间。旧序号身份只用于读取迁移基线，不显示给用户。
+
+固定 `AutoBuild` tag 每晚刷新，只保留当前应用、当前更新 ZIP、以当前构建为目标的
+可用 delta 和已签名官方插件镜像。配套 main 工作流先校验全部平台产物，上传数据后
+才上传 feed，远端字节验证通过后清理旧资产；旧完整 ZIP 仅作为本次差分输入。
+这放弃了历史 feed 缓存兼容窗口，旧缓存可能需要重新检查才能取得有效完整包；
+旧 `preview-0.3.0` 客户端需要手动安装 AutoBuild。固定 tag 的多文件替换不具备原子性。
+共享场景位于 `shared/fixtures/updates/channel-selection-v1.json` 和
+`shared/fixtures/updates/build-time-v1.json`，两个客户端分别验证渠道路径和严格时间格式。
 
 ### 从 Preview 回到 Stable 只走全量、且不信任下载来源的 key
 
@@ -153,10 +164,11 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   但会导致 preview 的跳过版本/自动检查偏好污染 stable，且用户可能
   在不知情的情况下从 preview 收到 stable 更新或反之，因此两个渠道
   使用独立 appcast、独立更新域和显式的 Return to Stable 操作。
-- **preview 发布只重跑发布 job 以节省 CI 时间**：能加快失败重试。
-  但发布 job 需要一个和 build job 一致的身份（build 号绑定
-  workflow run number/attempt），只重跑发布 job 会让身份和实际构建
-  内容不一致，因此要求重跑全部 job 才分配新身份。
+- **使用 workflow run number/attempt 作为滚动版本**：可以区分重跑，但用户无法从
+  序号识别构建时间，也使工作流身份影响版本先后，因此改用一次采样的 UTC 时间。
+  只重跑发布 job 必须继续使用产物原时间，不允许为旧字节重新贴新时间。
+- **保留 30 个 build 与三个历史 ZIP**：可以延长缓存兼容窗口，但不满足仅保留最新
+  应用及插件的要求，因此改为发布完整验证之后清理，仅保留当前快照。
 - **基线下载失败就发布不含该 delta 的全量 feed**：可提高表面成功率，
   但会把网络故障误判为基线不存在，悄悄减少可用差分更新；改用有界的
   暂时性错误重试，永久失败仍阻止发布。
@@ -184,12 +196,12 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   Developer ID 签名和公证仍可作为独立环节按需加入。
 - 暂时性基线下载故障可在本次运行恢复，代价是失败归档最多占用三次
   下载期限和两次退避等待；持续故障仍需修复或重跑，不能用超长等待掩盖。
-- Stable 和 Preview 用户互不干扰对方的更新节奏和偏好，代价是用户
-  从 Preview 切换回 Stable 需要一次显式操作，且可能需要重新设置
-  更新检查偏好。
-- 资产保留策略把"能提供差分更新"的窗口从"发布以来的全部版本"收窄
-  到"最近 30 个 build"，旧到超出窗口的 Preview 客户端会退回到全量
-  下载而不是 delta，这是为了不撞到 GitHub 的资产数量上限。
+- 正式版和 AutoBuild 的更新偏好与安装身份分别记录；默认推荐正式版，代价是
+  主动切换渠道需要一次全量安装，并可能遇到旧版无法识别的新设置。
+- 只保留当前快照限制了远端资产数量，代价是历史缓存 feed 和旧 tag 不再保证可用；
+  较旧安装包可从新 feed 取得完整包，已缓存旧文件链接的检查需要重新发起。
+- 时间身份让用户能直接识别构建时间，代价是需要可信的 UTC 时钟，时间倒退或同秒
+  重试必须失败，不能为“成功发布”而绕过单调时间校验。
 - 回滚路径的安全性依赖客户端内置公钥永不改变；如果需要轮换
   `SPARKLE_PRIVATE_KEY`，替换 repository secret 本身不够，必须单独
   规划迁移（重签或双签过渡期），否则旧客户端会拒绝新签名的更新。
@@ -200,14 +212,15 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   包级验签路径的产物。需要在本地验证插件时，显式使用 `--development-unsigned`
   生成开发包，并通过 debug 构建的“从磁盘安装”导入；这条路径永远不会进入
   发布产物。
-- 需要重新评估的触发条件：如果差分更新的资产数量随架构或渠道增多
-  逼近 900 的清理阈值，或者需要支持两个以上的更新渠道，当前基于
-  "30 个 build + 3 个 zip 基线"的保留规则需要重新设计。
+- 如果需要增加渠道或恢复历史兼容窗口，必须一起调整快照清单、清理验证和用户提示，
+  不能单独放宽旧资产保留或伪造时间身份。
 
 ## 验证
 
 ```bash
-./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'StableRollbackTests|UpdateCheckerTests|UpdateManifestTests'
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AppUpdateChannelTests|StableRollbackTests|UpdateCheckerTests|UpdateManifestTests'
+# 在仓库根目录运行；Bun 包装器自动选择 windows/tauri 作为工作目录。
+node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-updater.json -- src/features/settings/lib/update-channel.test.ts src/features/settings/stores/update.store.test.ts src/features/settings/components/update-channel-selector.test.tsx src/features/layout/components/installed-build-label.test.tsx
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
 ./scripts/test-macos.sh
 ./scripts/verify-macos-package.sh

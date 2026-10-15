@@ -24,6 +24,7 @@ struct UpdateInfo: Equatable, Sendable {
     var isPreview = false
     var currentBuild: String? = nil
     var targetBuild: String? = nil
+    var currentBuildDate: String? = nil
 }
 
 struct UpdateBuildIdentity: Equatable {
@@ -33,7 +34,7 @@ struct UpdateBuildIdentity: Equatable {
     let releaseURL: URL
 
     init(info: [String: Any]) {
-        isPreview = info["LitheUpdateChannel"] as? String == "preview"
+        isPreview = AppUpdateChannel.installed(info: info) == .autobuild
         build = info["CFBundleVersion"] as? String ?? "0"
         buildDate = info["LitheBuildTimestamp"] as? String
         releaseURL = (info["LitheUpdateReleaseURL"] as? String).flatMap(URL.init(string:))
@@ -45,7 +46,7 @@ struct UpdateBuildIdentity: Equatable {
         UpdateInfo(currentVersion: version, targetVersion: targetVersion,
             releaseDate: date.map { ISO8601DateFormatter().string(from: $0) },
             releaseNotes: isPreview ? nil : notes, releaseURL: infoURL ?? releaseURL,
-            isPreview: isPreview, currentBuild: build, targetBuild: targetBuild)
+            isPreview: isPreview, currentBuild: build, targetBuild: targetBuild, currentBuildDate: buildDate)
     }
 }
 
@@ -144,15 +145,25 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     let currentVersion: String
     let buildIdentity: UpdateBuildIdentity
+    @Published private(set) var selectedChannel: AppUpdateChannel
+    private let preferences: UserDefaults
+    private var pendingChannel: AppUpdateChannel?
+    var installedChannel: AppUpdateChannel { isPreview ? .autobuild : .stable }
+    var needsChannelInstallation: Bool { selectedChannel.requiresFullInstallation(from: installedChannel) }
+    var selectedReleaseURL: URL { selectedChannel.releaseURL(info: bundle.infoDictionary ?? [:]) }
+    var canChangeChannel: Bool {
+        !isBusy && !isInstalling && pendingChannel == nil
+            && (updater?.sessionInProgress != true || userDriver?.hasPendingReply == true)
+    }
     var isPreview: Bool { buildIdentity.isPreview }
     var versionDescription: String {
-        isPreview ? "\(currentVersion) Preview (\(buildIdentity.build))" : currentVersion
+        isPreview ? AutoBuildTimestamp.label(timestamp: buildIdentity.buildDate, build: buildIdentity.build) : currentVersion
     }
     let stableRollback: MacStableRollback
     private var rollbackObservation: AnyCancellable?
     private var rollbackRequested = false
     var canReturnToStable: Bool {
-        isPreview && !isChecking && !isInstalling && !stableRollback.state.isActive && !rollbackRequested
+        isPreview && pendingChannel == nil && !isChecking && !isInstalling && !stableRollback.state.isActive && !rollbackRequested
             && (updater?.sessionInProgress != true || userDriver?.hasPendingReply == true)
     }
     var isBusy: Bool { stableRollback.state.isActive || rollbackRequested || isChecking || (isInstalling && status != .waitingForTermination) }
@@ -169,9 +180,12 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     private var userDriver: LitheSparkleUserDriver?
     @Published private(set) var updateInfo: UpdateInfo?
     private var started = false
-    static let releasePageURL = URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
+    static let releasePageURL = AppUpdateChannel.stableReleaseURL
 
-    init(bundle: Bundle = .main, diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) }) {
+    init(bundle: Bundle = .main, preferences: UserDefaults = .standard,
+         diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) }) {
+        self.preferences = preferences
+        selectedChannel = AppUpdateChannel.saved(in: preferences)
         stableRollback = MacStableRollback(diagnosticSink: diagnosticSink)
         self.bundle = bundle
         buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
@@ -180,11 +194,42 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         rollbackObservation = stableRollback.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
     }
 
+    /// The caller confirms the rolling-build warning before committing consent.
+    @discardableResult
+    func selectChannel(_ channel: AppUpdateChannel, acknowledgingRisk: Bool = false) -> Bool {
+        guard canChangeChannel, channel != .autobuild || acknowledgingRisk else { return false }
+        guard channel != selectedChannel else { return true }
+        if let reply = userDriver?.takeReply() {
+            // Sparkle must finish the old offer before its feed can change.
+            pendingChannel = channel
+            reply(.dismiss)
+        } else {
+            applyChannel(channel)
+        }
+        return true
+    }
+
+    private func applyChannel(_ channel: AppUpdateChannel) {
+        selectedChannel = channel
+        preferences.set(channel.rawValue, forKey: AppUpdateChannel.preferenceKey)
+        updateInfo = nil
+        notice = nil
+        status = .idle
+        updater?.resetUpdateCycle()
+    }
+
     /// Starts an update check. `presentingDetails` opens the Software Update
     /// window when the manual check finds an update; Settings leaves it off
     /// because its install button sits next to the check button.
     func checkForUpdates(manual: Bool = false, presentingDetails: Bool = false) async {
-        guard !stableRollback.state.isActive, !rollbackRequested else { return }
+        guard !stableRollback.state.isActive, !rollbackRequested, pendingChannel == nil else { return }
+        if needsChannelInstallation {
+            guard manual else { return }
+            notice = UpdateNotice(title: String(localized: "Install the selected channel"),
+                message: String(localized: "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates."),
+                action: .open(selectedReleaseURL))
+            return
+        }
         // An offer that is still waiting for a choice is shown again rather
         // than starting another Sparkle session.
         if manual, presentingDetails, updateInfo != nil, userDriver?.hasPendingReply == true {
@@ -228,7 +273,8 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func installAvailableUpdate() async {
-        guard !stableRollback.state.isActive, !rollbackRequested else { return }
+        guard !stableRollback.state.isActive, !rollbackRequested,
+              pendingChannel == nil, !needsChannelInstallation else { return }
         if let reply = userDriver?.takeReply() { reply(.install) }
         else { await checkForUpdates(manual: true) }
     }
@@ -246,9 +292,11 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     func returnToStable() {
         guard canReturnToStable else { return }
         if let reply = userDriver?.takeReply() {
+            pendingChannel = .stable
             rollbackRequested = true
             reply(.dismiss)
         } else if updater?.sessionInProgress != true {
+            applyChannel(.stable)
             stableRollback.download(bundle: bundle)
         }
     }
@@ -262,6 +310,10 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// Records an update Sparkle offers and waits for the person's choice.
     /// Scheduled offers stay in the title bar; a manual check opens the window.
     func receiveOffer(_ item: SUAppcastItem) {
+        guard pendingChannel == nil, !needsChannelInstallation else {
+            userDriver?.takeReply()?(.dismiss)
+            return
+        }
         updateInfo = buildIdentity.updateInfo(version: currentVersion, targetVersion: item.displayVersionString,
             targetBuild: item.versionString, date: item.date, notes: item.itemDescription, infoURL: item.infoURL)
         status = .available(version: item.displayVersionString, url: item.infoURL ?? buildIdentity.releaseURL)
@@ -285,6 +337,10 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+        guard !needsChannelInstallation, pendingChannel == nil else {
+            throw NSError(domain: "app.lithe.updates", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "Install the selected channel")])
+        }
         guard !stableRollback.state.isActive, !rollbackRequested else {
             throw NSError(domain: "app.lithe.updates", code: 2,
                 userInfo: [NSLocalizedDescriptionKey: String(localized: "A stable release installation is already in progress.")])
@@ -294,9 +350,12 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func feedURLString(for updater: SPUUpdater) -> String? {
-        // The installed build owns its channel. Do not inherit a persisted feed
-        // override when the user manually installs another distribution.
-        bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String
+        #if arch(arm64)
+        let architecture = "arm64"
+        #else
+        let architecture = "x86_64"
+        #endif
+        return selectedChannel.feedURL(info: bundle.infoDictionary ?? [:], architecture: architecture)
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
@@ -332,6 +391,10 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
         defer {
+            if let channel = pendingChannel {
+                pendingChannel = nil
+                applyChannel(channel)
+            }
             if rollbackRequested {
                 rollbackRequested = false
                 stableRollback.download(bundle: bundle)
@@ -344,7 +407,9 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         isInstalling = false
         if let error {
             let nsError = error as NSError
-            if nsError.domain == SUSparkleErrorDomain && nsError.code == SUError.noUpdateError.rawValue {
+            if needsChannelInstallation || (nsError.domain == "app.lithe.updates" && nsError.code == 3) {
+                status = .idle
+            } else if nsError.domain == SUSparkleErrorDomain && nsError.code == SUError.noUpdateError.rawValue {
                 status = .upToDate(version: currentVersion)
             } else if nsError.domain == SUSparkleErrorDomain &&
                         [SUError.installationCanceledError.rawValue, SUError.installationAuthorizeLaterError.rawValue].contains(Int32(nsError.code)) {
