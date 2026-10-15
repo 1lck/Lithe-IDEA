@@ -63,6 +63,17 @@ HTTP 请求不带 ACP 会话 ID。请求开始时，如果恰好只有一个未�
 
 不要这样做：用整轮耗时除以 ACP 输出 token 得到 “TPS”；把工具调用次数叫作“步”；在没有代理数据时编造系统提示词占比。
 
+### 6. 会话合计跨连接保存，加载历史后继续累加
+
+`session/load` 只重放消息，没有耗时、工具用时和用量，以前重新打开历史会话时统计归零。现在每个会话保存一份累计记录（`AgentSessionStatisticsRecord`：轮次、工具调用数、工具用时、`AgentModelCallTotals` 聚合、最近一次 Agent 上报用量），加载时作为 `AgentConversation.statisticsBaseline`，界面显示“基线 + 本次连接的增量”。
+
+- 写入时机：轮次结束（正常完成、请求失败、断连收尾）以及轮次结束后才到达的迟到调用；运行中的轮次只在结束后计入，记录与上次相同时不重复写。
+- 不重复计数：`beginLoad` 本来就会丢弃内存里的轮次和调用重新开始，基线又已包含它们，所以同一会话反复加载不会叠加。保存失败或没有工作区时，退回只统计本次连接。
+- 所有权与位置：存储端口 `AgentSessionStatisticsPersisting`（LitheCoreContracts），格式由对话模块拥有；macOS 适配器 `MacAgentSessionStatisticsPersistence` 存进平台偏好 `lithe.agent-statistics.v1.<SHA256(工作区路径+Agent ID)>`，和历史元数据同一处。每个工作区+Agent 一份文档，最多保留最近更新的 200 个会话，最旧的先淘汰；文档损坏时当作空，下次写入覆盖。
+- 运行时只读边界：只写用户偏好，不写 app bundle、安装目录或 Agent 自己的文件，不影响代码签名和 Sparkle delta；它是用户状态，不是构建资源，不进 `scripts/worktree-resources.json`。
+- 不保存：上下文占用仍以上游 `usage_update` 为准，断连和重新加载照旧清除；每轮明细（逐轮耗时标签）只属于本次连接，回放出来的历史轮次不编造耗时。Lithe 之外创建、从未在 Lithe 中结束过一轮的会话没有记录，从当前连接开始统计。
+- Agent 没有提供删除会话的接口，Lithe 只能隐藏，因此记录靠数量上限回收，而不是随删除清理。
+
 ## 考虑过的备选方案
 
 1. **只用 ACP 数据和本地计时估算**：改动最小，但调用次数、TTFT 和上下文分类都只能猜，与 issue 的诉求不符，也和“统计口径不清”的维护者意见冲突。保留为代理关闭时的降级展示（只显示 ACP 用量与本地计时的工具用时）。
@@ -88,7 +99,7 @@ HTTP 请求不带 ACP 会话 ID。请求开始时，如果恰好只有一个未�
 ## 验证
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-agent-host model_`：三种协议的 SSE/非流式解析、格式漂移降级、上下文分配、代理透传（含 API Key 头与响应字节不变）、令牌路径隔离、上游不可达，以及会话归属与 `modelCall` 事件形状。
-- `./scripts/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|WorkbenchHoverTooltipTests"`：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、ACP 用量的缓存口径判断，以及悬停卡片布局。
+- `./scripts/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|WorkbenchHoverTooltipTests"`：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、重新加载后按已保存合计继续累加且不重复计数、损坏文档与 200 条上限、ACP 用量的缓存口径判断，以及悬停卡片布局。
 - `./scripts/verify-runtime-bundle-immutability.sh`：代理不向安装目录写入任何内容。
 
 ## 适用范围
