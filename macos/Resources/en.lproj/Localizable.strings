@@ -24,6 +24,7 @@
 "Build, Execution, Deployment" = "Build, Execution, Deployment";
 "Languages & Frameworks" = "Languages & Frameworks";
 "Tools" = "Tools";
+"AI" = "AI";
 "Type / to see options" = "Type / to see options";
 "Downloaded (%lld of %lld enabled)" = "Downloaded (%lld of %lld enabled)";
 "Install" = "Install";
@@ -1216,9 +1217,9 @@
 "Codex Agents require the Responses API. Claude Agents require an Anthropic API key." = "Codex Agents require the Responses API. Claude Agents require an Anthropic API key.";
 "Wait for the Agent operation to finish before changing providers." = "Wait for the Agent operation to finish before changing providers.";
 "Provider configuration parsing is unavailable." = "Provider configuration parsing is unavailable.";
-"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "No Agent is ready yet. Open Settings > Tools > Agents to install an Agent and choose a local or custom provider.";
-"Choose a local or custom provider in the Agent panel settings." = "Choose a local or custom provider in Settings > Tools > Agents.";
-"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "This Agent's provider has no API key. Update its local configuration or edit the custom provider in Settings > Tools > Agents.";
+"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "No Agent is ready yet. Open Settings > AI > Agents to install an Agent and choose a local or custom provider.";
+"Choose a local or custom provider in the Agent panel settings." = "Choose a local or custom provider in Settings > AI > Agents.";
+"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "This Agent's provider has no API key. Update its local configuration or edit the custom provider in Settings > AI > Agents.";
 "The credential store version is unsupported. Existing credentials were preserved." = "The credential store version is unsupported. Existing credentials were preserved.";
 "Add" = "Add";
 "Agent provider" = "Agent provider";
@@ -1518,10 +1519,10 @@
 "Keymap…" = "Keymap…";
 
 "Start the session by sending a message" = "Start the session by sending a message";
-"No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration." = "No Agent is ready yet. Open Settings > Tools > Agents to install an Agent and fetch its local configuration.";
-"Agent conversation is turned off. Turn it on in the panel settings to send messages." = "Agent conversation is turned off. Turn it on in Settings > Tools > Agents to send messages.";
-"Set the custom Agent's executable in the panel settings." = "Set the custom Agent's executable in Settings > Tools > Agents.";
-"Fetch this Agent's local configuration in the panel settings." = "Fetch this Agent's local configuration in Settings > Tools > Agents.";
+"No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration." = "No Agent is ready yet. Open Settings > AI > Agents to install an Agent and fetch its local configuration.";
+"Agent conversation is turned off. Turn it on in the panel settings to send messages." = "Agent conversation is turned off. Turn it on in Settings > AI > Agents to send messages.";
+"Set the custom Agent's executable in the panel settings." = "Set the custom Agent's executable in Settings > AI > Agents.";
+"Fetch this Agent's local configuration in the panel settings." = "Fetch this Agent's local configuration in Settings > AI > Agents.";
 "Use an Agent in your project" = "Use an Agent in your project";
 "Lithe Agent" = "Lithe Agent";
 "Welcome to Lithe Agent" = "Welcome to Lithe Agent";
