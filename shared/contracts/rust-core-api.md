@@ -226,12 +226,26 @@ delivery results never finish or reset the original logical turn. `injected`
 means upstream accepted the input, not proof that a model has already consumed it.
 Only `promptRequired` explicitly leaves the input unconsumed and permits the
 client to submit it once through normal `prompt`, after completion and staged
-configuration. Stop revokes this fallback. Unknown delivery after a thirty-second
+configuration. Stop revokes this fallback even while configuration is pending
+and no native turn is active; it leaves the configuration request intact and
+does not send a native cancel for an unstarted continuation.
+Unknown delivery after a thirty-second
 request timeout closes the connection; it never blindly replays the message.
 
+Supplementary input whose first text block starts with `/` (ignoring leading
+whitespace) is left unconsumed by the Host, with `promptRequired`, instead of
+being passed to the steering extension. This also applies when files accompany
+the command. The client waits for the original turn and staged configuration,
+then submits it once via normal `prompt`; the owned ACP response confirms
+completion even when the command never starts a model turn. Command parsing
+remains upstream-owned. Codex ACP 1.13.1 reports `startedNewTurn` for both real
+continuations and completed command-only input, so that outcome alone cannot
+establish a native lifecycle for a command.
+
 The pinned Codex ACP may instead return `startedNewTurn` at the completion
-boundary. The Host reports it as accepted and retains the same logical turn until
-Codex's explicit `_meta.codex.threadStatus` transitions end the continuation.
+boundary for ordinary supplementary messages. The Host reports it as accepted
+and retains the same logical turn until Codex's explicit
+`_meta.codex.threadStatus` transitions end the continuation.
 The original idle and the continuation's idle are distinct; duplicate idle
 updates do not complete another turn. Stop and its existing watchdog still apply.
 Original-response usage is omitted for this detached continuation because no

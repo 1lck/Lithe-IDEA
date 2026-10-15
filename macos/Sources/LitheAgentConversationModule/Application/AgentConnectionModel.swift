@@ -91,6 +91,10 @@ public final class AgentConnectionModel: ObservableObject {
         createToken.flatMap { queuedPrompts[$0]?.submittedAt }
     }
     public var hasPendingPermission: Bool { conversations.values.contains { $0.permission != nil } }
+    /// Unconsumed input can still be revoked while the next-turn configuration is pending.
+    public var hasPendingContinuation: Bool {
+        selectedSessionID.map { continuations[$0] != nil } ?? false
+    }
     public var selectedConversation: AgentConversation? {
         selectedSessionID.flatMap { conversations[$0] }
     }
@@ -340,10 +344,14 @@ public final class AgentConnectionModel: ObservableObject {
 
     public func cancel() {
         guard let sessionID = selectedSessionID,
-              conversations[sessionID]?.isResponding == true,
+              conversations[sessionID]?.isResponding == true || hasPendingContinuation,
               conversations[sessionID]?.isCancelling != true else { return }
-        conversations[sessionID]?.isCancelling = true
+        let isResponding = conversations[sessionID]?.isResponding == true
+        if isResponding { conversations[sessionID]?.isCancelling = true }
         cancelContinuation(in: sessionID)
+        // A queued continuation has no native turn to cancel. Configuration
+        // acknowledgements can continue, but must not send the revoked input.
+        guard isResponding else { return }
         conversations[sessionID]?.pendingPermissions.removeAll()
         conversations[sessionID]?.refreshTurnClock(at: now())
         updateAttention()
@@ -841,8 +849,8 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
 
-    /// Claude can leave an input unconsumed when its turn just finished. Only
-    /// this explicit response permits a normal prompt; ambiguous failures never replay.
+    /// Explicitly unconsumed input (including deferred commands) can become a
+    /// normal prompt after this turn; ambiguous delivery failures never replay.
     private func resumeContinuation(in sessionID: String) {
         guard let supplement = continuations[sessionID], let conversation = conversations[sessionID],
               !conversation.isResponding, !conversation.isCancelling, conversation.pendingConfigToken == nil,

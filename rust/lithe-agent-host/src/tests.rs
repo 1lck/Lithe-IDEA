@@ -257,6 +257,73 @@ async fn steering_when_idle_or_unsupported_never_sends_an_extension() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn steering_codex_commands_use_owned_prompts_without_a_detached_turn() {
+    for (command, files) in [
+        ("/status", json!([])),
+        ("  \n/status", json!([])),
+        ("/compact keep API details", json!([])),
+        (
+            "/status",
+            json!([{"uri":"file:///fixture/README.md", "name":"README.md"}]),
+        ),
+    ] {
+        let mut harness = Harness::start();
+        harness
+            .agent
+            .handshake_with_steering(true, "@agentclientprotocol/codex-acp")
+            .await;
+        harness.event().await;
+        harness.open_session("session-1").await;
+        harness.send(json!({"kind":"prompt", "sessionId":"session-1", "text":"Inspect"}));
+        let original = harness.agent.expect("session/prompt").await;
+
+        // Codex 1.13.1 can answer command-only steering with startedNewTurn
+        // without ever publishing active -> idle. Never send that extension:
+        // leave the command unconsumed until the original prompt completes.
+        harness.send(json!({"kind":"steer", "token":"command", "sessionId":"session-1", "text":command, "files":files}));
+        assert!(matches!(harness.event().await,
+            AgentEvent::SteeringResult { token, outcome, .. }
+                if token == "command" && outcome == "promptRequired"));
+        harness
+            .agent
+            .reply(&original, json!({"stopReason":"end_turn"}))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+
+        harness
+            .send(json!({"kind":"prompt", "sessionId":"session-1", "text":command, "files":files}));
+        // Any unexpected _session/steering would be the next wire message.
+        let prompt = harness.agent.expect("session/prompt").await;
+        assert_eq!(prompt["params"]["prompt"][0]["text"], command);
+        harness
+            .agent
+            .reply(&prompt, json!({"stopReason":"end_turn"}))
+            .await;
+        // There are no native model-turn status events for the command. Its
+        // ACP response alone must unlock the session and keep it connected.
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+        harness
+            .send(json!({"kind":"prompt", "sessionId":"session-1", "text":"Continue inspecting"}));
+        let next = harness.agent.expect("session/prompt").await;
+        harness
+            .agent
+            .reply(&next, json!({"stopReason":"end_turn"}))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+        assert_eq!(harness.stop().await, Ok(()));
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn steering_codex_detached_continuation_waits_for_its_native_idle() {
     let mut harness = Harness::start();
     harness

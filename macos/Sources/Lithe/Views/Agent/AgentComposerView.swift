@@ -20,6 +20,7 @@ struct AgentComposerView: View {
     var isCancelling = false
     var canSteer = false
     var isSendingSupplement = false
+    var hasPendingContinuation = false
     var contextUsage: AgentContextUsage?
     var sessionStatistics: AgentSessionStatistics?
     var showsSubscriptionQuota = false
@@ -153,7 +154,7 @@ struct AgentComposerView: View {
                 .help(model)
             }
             Spacer(minLength: 0)
-            if isResponding {
+            if isResponding || hasPendingContinuation {
                 Button(action: onCancel) {
                     Image(systemName: "stop.fill")
                         .font(LitheTheme.uiFont(size: 13))
@@ -176,7 +177,7 @@ struct AgentComposerView: View {
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
-            .disabled(isCancelling || isSendingSupplement || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer))
+            .disabled(isCancelling || isSendingSupplement || hasPendingContinuation || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer))
             .help(isSendingSupplement ? "Sending…" : "Send")
             .accessibilityLabel("Send")
         }
@@ -231,7 +232,7 @@ struct AgentComposerView: View {
     }
 
     private func handleCommandKey(_ key: AgentCommandCompletion.Key) -> AgentCommandCompletion.Result {
-        let result = completion.handle(key, commands: commands, isResponding: isResponding)
+        let result = completion.handle(key, commands: commands, isResponding: isResponding || hasPendingContinuation)
         switch result {
         case .send: send()
         case .cancel: onCancel()
@@ -242,7 +243,7 @@ struct AgentComposerView: View {
     }
 
     private func send() {
-        guard hasContent, !isCancelling, !isSendingSupplement, !isResponding || canSteer else { return }
+        guard hasContent, !isCancelling, !isSendingSupplement, !hasPendingContinuation, !isResponding || canSteer else { return }
         if isBlocked || isPreparingSession {
             onError(String(localized: "The conversation is still being prepared. Try again in a moment."))
             return

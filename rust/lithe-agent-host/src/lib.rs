@@ -34,7 +34,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities,
+    AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock,
     InitializeRequest, ListSessionsRequest, LoadSessionRequest, PromptRequest,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionConfigOption, SessionNotification,
@@ -1330,6 +1330,15 @@ where
                         let Some((progress, continuation_idle, retry)) = reservation else {
                             reject("Wait for the pending message or Stop acknowledgement"); continue;
                         };
+                        if matches!(content.first(), Some(ContentBlock::Text(text)) if text.text.trim_start().starts_with('/')) {
+                            // Codex ACP 1.13.1 also reports startedNewTurn for a
+                            // completed command that never starts a model turn.
+                            // Leave commands unconsumed so the client submits
+                            // them after this turn, with an owned prompt response.
+                            emit(AgentEvent::SteeringResult { token, session_id, outcome: "promptRequired".into(), message: None });
+                            progress.finish(None);
+                            continue;
+                        }
                         let (connection, emit, fatal) = (connection.clone(), emit.clone(), steering_failure_tx.clone());
                         tasks.spawn(async move {
                             let result = tokio::time::timeout(SESSION_REQUEST_TIMEOUT,

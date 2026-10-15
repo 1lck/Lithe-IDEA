@@ -6,6 +6,56 @@ import Testing
 /// Controls prompt completion and each configuration acknowledgement without a live Agent.
 @MainActor
 struct AgentNextTurnConfigurationTests {
+    @Test(arguments: [false, true])
+    func unconsumedSupplementRemainsCancellableWhileConfigurationIsPending(cancel: Bool) async throws {
+        try await withFeature { feature, connection in
+            try receive(feature, "ready", ["canSteer": true])
+            try feature.send("First turn")
+            feature.setConfigOption("model", value: "model-b")
+            feature.setConfigOption("mode", value: "auto")
+            try feature.send("Supplement")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            let messageID = try #require(feature.selectedConversation?.messages.last?.id)
+            try receive(feature, "steeringResult", ["token": token, "outcome": "promptRequired"])
+            #expect(feature.hasPendingContinuation)
+            try receive(feature, "turnFinished", ["stopReason": "end_turn"])
+            #expect(feature.selectedConversation?.isResponding == false)
+            #expect(feature.hasPendingContinuation)
+            #expect(connection.commands.last?["configId"] as? String == "model")
+            let configToken = feature.selectedConversation?.pendingConfigToken
+            let count = connection.commands.count
+
+            // Drive turnFinished -> cancel -> sessionConfigured directly. The
+            // configuration remains owned; no native turn exists to interrupt.
+            if cancel {
+                feature.cancel()
+                feature.cancel()
+                #expect(!feature.hasPendingContinuation)
+                #expect(feature.selectedConversation?.messages.last?.delivery ==
+                        .failed(String(localized: "Supplementary message cancelled.")))
+                #expect(feature.selectedConversation?.isCancelling == false)
+            }
+            #expect(connection.commands.count == count)
+            #expect(feature.selectedConversation?.pendingConfigToken == configToken)
+            try acknowledge(feature, connection, options(model: "model-b"))
+            #expect(connection.commands.last?["configId"] as? String == "mode")
+            #expect(feature.hasPendingContinuation == !cancel)
+            try acknowledge(feature, connection, options(model: "model-b", mode: "auto"))
+            #expect(!feature.hasPendingContinuation)
+            #expect(feature.selectedConversation?.pendingConfigToken == nil)
+            #expect(connection.commands.filter { $0["kind"] as? String == "prompt" }.count == (cancel ? 1 : 2))
+            if cancel {
+                #expect(feature.selectedConversation?.isResponding == false)
+                try feature.send("Replacement")
+                #expect(connection.commands.last?["text"] as? String == "Replacement")
+            } else {
+                #expect(feature.selectedConversation?.activeTurn?.id == messageID)
+                #expect(connection.commands.last?["text"] as? String == "Supplement")
+            }
+            #expect(feature.selectedConversation?.messages.filter { $0.id == messageID }.count == 1)
+        }
+    }
+
     @Test
     func respondingChoicesStayLocalUntilEveryNextTurnSettingIsConfirmed() async throws {
         try await withFeature { feature, connection in

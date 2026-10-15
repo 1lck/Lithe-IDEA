@@ -269,6 +269,7 @@ private struct AgentConnectionView: View {
                     isCancelling: feature.selectedConversation?.isCancelling == true,
                     canSteer: feature.canSteer,
                     isSendingSupplement: feature.selectedConversation?.pendingSteeringToken != nil,
+                    hasPendingContinuation: feature.hasPendingContinuation,
                     contextUsage: feature.selectedConversation?.contextUsage,
                     sessionStatistics: feature.selectedConversation?.sessionStatistics,
                     showsSubscriptionQuota: feature.usesSubscription,

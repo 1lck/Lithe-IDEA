@@ -39,7 +39,11 @@ An Agent that advertises steering can accept supplementary user input while its
 logical turn is active. Input delivery has a separate pending/received/failed
 outcome and does not replace turn ownership, permissions, timing, or Stop.
 Only an explicit unconsumed-input acknowledgement permits a normal continuation
-prompt; unknown delivery is never retried automatically. Platform UI enables
+prompt; slash commands are explicitly left unconsumed and deferred to this owned
+prompt path, whose response also completes command-only input. Pending
+continuations remain cancellable while staged configuration is awaiting its
+acknowledgement, without cancelling the configuration itself. Unknown delivery
+is never retried automatically. Platform UI enables
 this behavior from the negotiated capability, not the Agent's display name.
 
 The opened workspace, supplied by the product, defines the default meaning of
