@@ -1018,3 +1018,10 @@ Watches 标题的＋继续打开新增弹窗，已有监视的编辑菜单复用
 取消/保存复用 `LitheSecondaryButtonStyle` / `LithePrimaryButtonStyle`；不保留原生 roundedBorder 或另画输入框。
 打开后聚焦表达式，Enter 仅在非空时保存，Esc 取消；空白保护同时覆盖按钮和键盘提交。
 复验新增与编辑初值、中文输入法、深浅主题、聚焦/失焦及原有去重和暂停求值流程。
+
+
+Watch 编辑器的外层也必须经过 `litheDropdown` → `LitheContextMenuPresenter`，
+锚定 Watches 标题的＋按钮，新增和编辑共用；不能只替换输入框后继续使用系统 `.sheet`。
+共享 owner 负责8pt外框圆角、底色、1pt边框、阴影、屏幕边缘约束和无动画显示。
+内容只保留12pt留白，不再绘制第二层背景或固定高度；保存/取消显式清空编辑上下文，
+Esc及外部点击由共享呈现器关闭，重新编辑以上下文身份重置输入值。

@@ -40,15 +40,6 @@ struct GenericDebugView: View {
                 feature.setVariable(variable, value: $0)
             }
         }
-        .sheet(item: $watchEditor) { context in
-            WatchEditorView(watch: context.watch) { expression in
-                if let watch = context.watch {
-                    feature.updateWatch(watch, expression: expression)
-                } else {
-                    feature.addWatch(expression)
-                }
-            }
-        }
         .sheet(isPresented: $isJavaAttachPresented) {
             JavaAttachView { host, port in
                 model.attachJavaDebugger(host: host, port: port)
@@ -1041,6 +1032,22 @@ struct GenericDebugView: View {
             }
             .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, disabledOpacity: 1, cornerRadius: 4))
             .help("Add watch")
+            .litheDropdown(isPresented: Binding(
+                get: { watchEditor != nil },
+                set: { if !$0 { watchEditor = nil } }
+            )) {
+                if let context = watchEditor {
+                    WatchEditorView(watch: context.watch, onCancel: { watchEditor = nil }) { expression in
+                        if let watch = context.watch {
+                            feature.updateWatch(watch, expression: expression)
+                        } else {
+                            feature.addWatch(expression)
+                        }
+                        watchEditor = nil
+                    }
+                    .id(context.id)
+                }
+            }
         }
         .padding(.horizontal, 10)
         .frame(height: LitheTheme.Debugger.inspectorHeaderHeight)
@@ -2403,14 +2410,15 @@ private struct WatchEditorContext: Identifiable {
 }
 
 private struct WatchEditorView: View {
-    @Environment(\.dismiss) private var dismiss
     let watch: GenericDebugWatch?
+    let onCancel: () -> Void
     let onSave: (String) -> Void
     @State private var expression: String
     @FocusState private var expressionFocused: Bool
 
-    init(watch: GenericDebugWatch?, onSave: @escaping (String) -> Void) {
+    init(watch: GenericDebugWatch?, onCancel: @escaping () -> Void, onSave: @escaping (String) -> Void) {
         self.watch = watch
+        self.onCancel = onCancel
         self.onSave = onSave
         _expression = State(initialValue: watch?.expression ?? "")
     }
@@ -2425,7 +2433,7 @@ private struct WatchEditorView: View {
                 .onSubmit { save() }
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel", action: onCancel)
                     .buttonStyle(LitheSecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Save") { save() }
@@ -2434,16 +2442,14 @@ private struct WatchEditorView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(18)
-        .frame(width: 440, height: 150)
-        .litheWorkbenchSurface(LitheTheme.editor)
+        .padding(12)
+        .frame(width: 440)
         .onAppear { expressionFocused = true }
     }
 
     private func save() {
         guard !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         onSave(expression)
-        dismiss()
     }
 }
 
