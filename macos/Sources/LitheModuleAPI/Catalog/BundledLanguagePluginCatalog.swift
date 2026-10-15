@@ -40,10 +40,10 @@ public struct BundledLanguagePluginSpecification: Sendable {
     }
 }
 
-// Note: PHP 升级为官方原生插件后不再属于内置清单，归属与启动契约见 .agents/notes/implemented/architecture/2026-09-18-php-support-plugin-ownership-and-plans.md
+// Note: Go 与 PHP 由声明式官方插件提供，不属于内置清单，见 .agents/notes/implemented/architecture/2026-10-12-declarative-language-plugins.md
 /// Describes bundled non-Java language recognition and the process-backed
-/// features that are independently manageable as plugins. Go and PHP remain
-/// official native packages and are therefore not duplicated here.
+/// features that are independently manageable as plugins. Go and PHP are
+/// official declarative packages and are therefore not duplicated here.
 public enum BundledLanguagePluginCatalog {
     public static let specifications: [BundledLanguagePluginSpecification] = [
         .init(id: "python", displayName: "Python", fileExtensions: ["py", "pyw"], executableNames: ["basedpyright-langserver", "pyright-langserver"], arguments: ["--stdio"], supportsExecution: true),
@@ -167,31 +167,16 @@ public enum BundledLanguagePluginCatalog {
     }
 
     private static func languageServerManifest(_ specification: BundledLanguagePluginSpecification) -> ModuleManifest {
-        ModuleManifest(
-            id: .languageServerExtension(specification.id),
-            displayName: "\(specification.displayName) Language Server",
-            scope: .workspace,
-            defaultState: .disabled,
-            activationPolicy: .onDemand,
-            sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-            dependencies: [.module(.workspace)],
-            providedCapabilities: [.languageServerExtension(specification.id)]
+        LanguageExtensionModuleManifests.languageServer(
+            languageID: specification.id,
+            displayName: specification.displayName
         )
     }
 
     private static func executionManifest(_ specification: BundledLanguagePluginSpecification) -> ModuleManifest {
-        ModuleManifest(
-            id: .languageExecutionExtension(specification.id),
-            displayName: "\(specification.displayName) Execution",
-            scope: .workspace,
-            defaultState: .disabled,
-            activationPolicy: .onDemand,
-            sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-            dependencies: [.module(.workspace)],
-            providedCapabilities: [
-                .languageExecutionExtension(specification.id),
-                .languageTestingExtension(specification.id)
-            ]
+        LanguageExtensionModuleManifests.execution(
+            languageID: specification.id,
+            displayName: specification.displayName
         )
     }
 }

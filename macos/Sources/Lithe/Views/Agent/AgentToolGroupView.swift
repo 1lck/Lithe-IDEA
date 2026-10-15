@@ -3,6 +3,7 @@ import LitheAgentConversationModule
 
 /// Compact timeline for adjacent ACP tool calls in a conversation.
 struct AgentToolGroupView: View {
+    @Environment(\.locale) private var locale
     let messages: [AgentConversationMessage]
     let searchText: String
     let onOpenFile: (AgentToolDetails.Location) -> Void
@@ -34,15 +35,14 @@ struct AgentToolGroupView: View {
                             .lineLimit(1)
                         Spacer(minLength: 4)
                         summary
-                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                            .font(LitheTheme.uiFont(size: 10))
-                            .foregroundStyle(LitheTheme.tertiaryText)
+                        LitheIDEAIcon(resourcePath: expanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
+                                      size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
                     }
                     .padding(.horizontal, 10)
                     .frame(height: 34)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.litheNoPress)
+                .buttonStyle(LitheIconButtonStyle(size: 34, isIconOnly: false))
                 .help(expanded ? "Hide tool details" : "Show tool details")
             }
 
@@ -122,6 +122,7 @@ struct AgentToolGroupView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
+            .litheRowHover()
             .help(message.text)
             .accessibilityValue(statusLabel(for: message.toolStatus))
 
@@ -148,11 +149,11 @@ struct AgentToolGroupView: View {
 
     private func statusLabel(for status: AgentConversationMessage.ToolStatus?) -> String {
         switch status {
-        case .completed: String(localized: "Completed")
-        case .failed: String(localized: "Failed")
-        case .interrupted: String(localized: "Interrupted")
-        case .inProgress: String(localized: "Running")
-        case .pending, nil: String(localized: "Pending")
+        case .completed: AgentLocalization.string("Completed", locale: locale)
+        case .failed: AgentLocalization.string("Failed", locale: locale)
+        case .interrupted: AgentLocalization.string("Interrupted", locale: locale)
+        case .inProgress: AgentLocalization.string("Running", locale: locale)
+        case .pending, nil: AgentLocalization.string("Pending", locale: locale)
         }
     }
 }

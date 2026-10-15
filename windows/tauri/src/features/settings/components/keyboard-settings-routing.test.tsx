@@ -111,7 +111,9 @@ test("keyboard settings route supports searching, recording and resetting a comm
     expect(button("Import")).toBeDefined();
     expect(button("Export")).toBeDefined();
     expect(container.textContent).toContain("editor.formatDocument");
-    const search = container.querySelector("input")!;
+    const search = container.querySelector<HTMLInputElement>(
+      'input[placeholder="Search actions or shortcuts"]',
+    )!;
     expect(search).not.toBeNull();
     const setInputValue = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,

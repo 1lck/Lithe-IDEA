@@ -22,6 +22,7 @@ public final class WorkspaceFoundationCapability: NSObject {
 @MainActor
 public final class WorkspaceFoundationModule: LitheModule {
     public static let moduleManifest = BuiltInModuleCatalog.manifest(for: .workspace)!
+    public static let moduleContributions = BuiltInModuleCatalog.contributions(for: .workspace)
     public let manifest = moduleManifest
     private let makeGraph: @MainActor () -> any WorkspaceResourceGraph
     private var graph: (any WorkspaceResourceGraph)?
@@ -38,6 +39,7 @@ public final class WorkspaceFoundationModule: LitheModule {
     public func prepareForSleep() async throws {}
     public func sleep() async { await releaseGraph() }
     public func shutdown() async { await releaseGraph() }
+    public func contributions() -> [ModuleContribution] { Self.moduleContributions }
     public func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] {
         guard let capability else { return [:] }
         return [.workspaceFoundation: capability]

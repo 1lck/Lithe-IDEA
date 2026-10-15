@@ -61,6 +61,26 @@ extension AppModel {
         set { workbenchFeature.setVisibility(.debug, isVisible: newValue) }
     }
 
+    func restoreVisibleToolModules() async {
+        let workspace = workspaceURL
+        await awaitModuleRuntimeShutdown()
+        for tool in WorkbenchFeatureModel.ToolWindow.allCases where workbenchFeature.isVisible(tool) {
+            guard !Task.isCancelled, workspaceURL == workspace else { return }
+            switch tool {
+            case .terminal:
+                if await activateTerminalModule(), !Task.isCancelled, workspaceURL == workspace, activeTerminalSession == nil { _ = createTerminalSession() }
+            case .gitLog: await refreshGitHistory()
+            case .changes: _ = await activateGitModule()
+            case .search: _ = await activateSearchModule()
+            case .database, .databaseServices: _ = await databaseModuleCoordinator.activate()
+            case .agent: activateAgentConversation()
+            case .maven, .mavenOutput, .run, .tests: _ = await activateExecutionModule()
+            case .debug: _ = await activateDebugModule()
+            default: break
+            }
+        }
+    }
+
     func resetWorkbenchState() {
         workbenchFeature.reset()
     }

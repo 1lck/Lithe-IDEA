@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import Testing
 @testable import Lithe
@@ -5,6 +6,87 @@ import LitheModuleAPI
 
 @MainActor
 struct WorkbenchModuleUIRegistryTests {
+    @Test func actionInvocationRechecksPolicyAndRejectsChangedContributionMetadata() async throws {
+        let suite = "lithe-action-policy-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
+            let project = try #require(model.workbenchContributions.first { $0.id == "workspace.project" })
+            var allowed = true, visible = true, invocations = 0
+            let registry = try WorkbenchModuleUIRegistry(registrations: [.init(actions: [
+                .init(id: project.actionID!, perform: { _ in invocations += 1 },
+                      state: { _ in .init(isVisible: visible, isEnabled: allowed) })
+            ])])
+            #expect(registry.state(for: project, model: model).isEnabled)
+            allowed = false
+            registry.performAction(id: project.actionID!, model: model)
+            registry.perform(project, model: model)
+            #expect(invocations == 0)
+            allowed = true
+            visible = false
+            registry.perform(project, model: model)
+            #expect(invocations == 0)
+            visible = true
+            let stale = ModuleContribution(id: project.id, kind: project.kind, title: "Changed metadata", actionID: project.actionID)
+            registry.perform(stale, model: model)
+            #expect(invocations == 0)
+            registry.perform(project, model: model)
+            #expect(invocations == 1)
+        }
+    }
+
+    @Test func nativeSidebarEntriesHaveCompleteHostBindings() throws {
+        let catalog = [.workspace, .git, .search].flatMap { BuiltInModuleCatalog.contributions(for: $0) }
+        let registry = WorkbenchModuleUIComposition.builtIn
+        let sidebars = catalog.filter { $0.placement == .leftSidebar }
+        #expect(Set(sidebars.map(\.id)) == ["workspace.project", "git.changes", "search.workspace", "github.pull-requests"])
+        #expect(sidebars.allSatisfy { $0.actionID != nil && $0.rendererID == $0.id })
+        #expect(sidebars.allSatisfy { registry.renderer(for: $0)?.rightSidebarBehavior == .docked })
+        try registry.validate(contributions: catalog)
+    }
+
+    @Test func nativeSidebarActionsFollowHostPlacementAndModuleAvailability() async throws {
+        let suite = "lithe-sidebar-registry-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
+            let search = try #require(model.workbenchContributions.first { $0.id == "search.workspace" })
+            let project = try #require(model.workbenchContributions.first { $0.id == "workspace.project" })
+            let renderer = try #require(model.workbenchUIRegistry.renderer(for: project))
+            let identity = renderer.contentIdentity(model)
+            settings.projectTreeRowHeight += 1
+            #expect(renderer.contentIdentity(model) != identity)
+            model.workbenchFeature.customizeContribution(search.id, placement: .rightSidebar)
+            model.workbenchUIRegistry.perform(search, model: model)
+            #expect(model.workbenchFeature.isVisible(.search))
+            #expect(model.workbenchFeature.activeRightToolWindow == .search)
+            #expect(model.workbenchFeature.activeLeftToolWindow == .project)
+            let content = model.workbenchUIRegistry.selectedToolContent(from: model.rightSidebarContributions, model: model)
+            #expect(content.rendererID == search.rendererID)
+            try await scope.run("module enablement") {
+                try await container.services.moduleRuntime.setEnabled(false, for: .search)
+            }
+            #expect(model.workbenchFeature.activeRightToolWindow == nil)
+            model.workbenchUIRegistry.perform(search, model: model)
+            #expect(model.workbenchFeature.activeRightToolWindow == nil)
+            #expect(!model.leftSidebarContributions.contains { $0.id == search.id })
+            let pullRequests = try #require(model.workbenchContributions.first { $0.id == "github.pull-requests" })
+            #expect(model.workbenchUIRegistry.renderer(for: pullRequests)?.isEnabled(model) == false)
+            model.workbenchUIRegistry.perform(pullRequests, model: model)
+            #expect(!model.workbenchFeature.isVisible(.pullRequests))
+        }
+    }
+
     @Test func mavenNavigationIsDockedAndBuildOutputStaysInTheActivityBar() throws {
         let contributions = BuiltInModuleCatalog.contributions(for: .execution)
         let navigation = try #require(contributions.first { $0.id == "execution.maven" })
@@ -15,7 +97,7 @@ struct WorkbenchModuleUIRegistryTests {
         #expect(output.placement == .activityBar)
         #expect(navigation.actionID != output.actionID)
         #expect(registry.renderer(for: navigation)?.rightSidebarBehavior == .docked)
-        #expect(registry.renderer(for: navigation)?.ideaAssetPath == "maven/toolWindowMaven.svg")
+        #expect(registry.renderer(for: navigation)?.ideaAssetPath == "maven/expui/toolwindow/maven@20x20.svg")
         #expect(registry.renderer(for: output) != nil)
         try registry.validate(contributions: contributions)
     }
@@ -28,6 +110,26 @@ struct WorkbenchModuleUIRegistryTests {
         #expect(agent.placement == .rightSidebar)
         #expect(registry.renderer(for: agent)?.rightSidebarBehavior == .docked)
         try registry.validate(contributions: contributions)
+    }
+
+    @Test func databaseUsesTheRightDockWithoutReplacingTheProjectTreeOrTerminal() throws {
+        let contributions = BuiltInModuleCatalog.contributions(for: .database)
+        let database = try #require(contributions.first { $0.id == "database.workspace" })
+        let registry = WorkbenchModuleUIComposition.builtIn
+        #expect(database.placement == .rightSidebar)
+        #expect(registry.renderer(for: database)?.rightSidebarBehavior == .docked)
+        try registry.validate(contributions: contributions)
+
+        let workbench = WorkbenchFeatureModel()
+        workbench.setVisibility(.terminal, isVisible: true)
+        workbench.setVisibility(.database, isVisible: true)
+        #expect(workbench.selectedSidebar == .project)
+        #expect(workbench.isSidebarVisible)
+        #expect(workbench.activeToolWindow == .terminal)
+        #expect(workbench.activeRightToolWindow == .database)
+        workbench.setVisibility(.maven, isVisible: true)
+        #expect(!workbench.isVisible(.database))
+        #expect(workbench.isVisible(.terminal))
     }
 
     @Test func duplicateActionIDsAreRejected() {

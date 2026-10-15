@@ -8,7 +8,7 @@ use serde_json::{json, Map, Value};
 
 use crate::{GatewaySignIn, ProviderProtocol};
 
-/// Apply the same explicit route when creating or restoring a Claude session.
+/// Apply the explicit route and startup model when creating a Claude session.
 pub(crate) fn metadata(
     route: Option<&GatewaySignIn>,
 ) -> Result<Option<Map<String, Value>>, String> {
@@ -62,4 +62,21 @@ pub(crate) fn metadata(
         "claudeCode".into(),
         json!({"options": options}),
     )])))
+}
+
+/// Restore authentication without pinning the SDK to a new-session default.
+/// The upstream transcript owns the historical session's selected model.
+pub(crate) fn restored_metadata(
+    route: Option<&GatewaySignIn>,
+) -> Result<Option<Map<String, Value>>, String> {
+    let mut meta = metadata(route)?;
+    if let Some(options) = meta
+        .as_mut()
+        .and_then(|meta| meta.get_mut("claudeCode"))
+        .and_then(|claude| claude.get_mut("options"))
+        .and_then(Value::as_object_mut)
+    {
+        options.remove("model");
+    }
+    Ok(meta)
 }

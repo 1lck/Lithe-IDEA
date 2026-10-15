@@ -66,20 +66,43 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
     package let arguments: [String]
     package let validationArguments: [String]
     package let environment: [String: String]
+    package let runtimeTools: [String]
+    /// Executable pinned by the provider; see `LanguageServerExtensionConfiguration.executableURL`.
+    package let executableURL: URL?
     package let initializationOptions: ToolingJSONValue?
+    /// See `LanguageServerExtensionConfiguration.launchSource`.
+    package let launchSource: DeclarativeLanguageServerLaunchSource?
+    /// See `LanguageServerExtensionConfiguration.executableVersionRequirement`.
+    package let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
+    /// Native host integration the provider declares, such as `jdt`.
+    package let hostIntegrationID: String?
+    /// See `LanguageServerExtensionConfiguration.launchRuntimeTool`.
+    package let launchRuntimeTool: String?
 
     package init(
         executableNames: [String],
         arguments: [String] = [],
         validationArguments: [String] = [],
         environment: [String: String] = [:],
-        initializationOptions: ToolingJSONValue? = nil
+        runtimeTools: [String] = [],
+        executableURL: URL? = nil,
+        initializationOptions: ToolingJSONValue? = nil,
+        launchSource: DeclarativeLanguageServerLaunchSource? = nil,
+        executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
+        hostIntegrationID: String? = nil,
+        launchRuntimeTool: String? = nil
     ) {
         self.executableNames = executableNames
         self.arguments = arguments
         self.validationArguments = validationArguments
         self.environment = environment
+        self.runtimeTools = runtimeTools
+        self.executableURL = executableURL
         self.initializationOptions = initializationOptions
+        self.launchSource = launchSource
+        self.executableVersionRequirement = executableVersionRequirement
+        self.hostIntegrationID = hostIntegrationID
+        self.launchRuntimeTool = launchRuntimeTool
     }
 }
 

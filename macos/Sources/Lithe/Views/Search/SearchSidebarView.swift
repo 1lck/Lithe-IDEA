@@ -25,7 +25,7 @@ struct SearchSidebarView: View {
                     ProgressView().controlSize(.mini)
                 }
                 LitheSidebarHideButton(title: "Search") {
-                    model.workbenchFeature.hideSidebar()
+                    model.workbenchFeature.setVisibility(.search, isVisible: false)
                 }
             }
             .padding(.horizontal, 12)

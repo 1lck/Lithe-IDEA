@@ -660,6 +660,7 @@ mod tests {
       { name: "tests::z_hangs", status: "timeout" },
     ],
   );
+  assert.match(result.stderr, /test tests::z_hangs/, "failure details must survive report replacement in the CI log");
   const html = readFileSync(path.join(fixtureRoot, "timing.html"), "utf8");
   const junit = readFileSync(path.join(fixtureRoot, "timing.junit.xml"), "utf8");
   assert.match(html, /问题与性能优化队列/);

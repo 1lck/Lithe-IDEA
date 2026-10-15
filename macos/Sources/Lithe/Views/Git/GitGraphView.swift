@@ -192,6 +192,8 @@ struct GitGraphScrollView: NSViewRepresentable {
     var navigationHash: String? = nil
     var navigationID: UUID? = nil
 
+    @Environment(\.controlActiveState) private var controlActiveState
+
     private let rowHeight = GitGraphGeometry.rowHeight
 
     /// Keep the user's viewport stable while the document grows or is
@@ -218,7 +220,7 @@ struct GitGraphScrollView: NSViewRepresentable {
             actions: actions,
             onLoadMore: onLoadMore,
             selectedHashes: selectedHashes,
-            isFocused: isFocused
+            isFocused: isFocused && controlActiveState == .key
         )
         return scrollView
     }
@@ -274,7 +276,7 @@ struct GitGraphScrollView: NSViewRepresentable {
             actions: actions,
             onLoadMore: onLoadMore,
             selectedHashes: selectedHashes,
-            isFocused: isFocused
+            isFocused: isFocused && controlActiveState == .key
         )
         let width = max(nsView.contentView.bounds.width, 1)
         documentView.updateLayout(width: width, viewportHeight: nsView.contentView.bounds.height)

@@ -733,59 +733,67 @@ describe("Rust Core LSP adapter failures", () => {
     });
   });
 
-  test("builds the exact Java source before resolving its runtime paths", async () => {
-    scenario = "semantic-request";
-    semanticRequestResults = [
-      {
-        schemaVersion: 1,
-        entries: [
-          {
-            sourcePath: "service/src/main/java/example/Main.java",
-            mainClass: "example.Main",
-            projectName: "service",
-          },
-        ],
-        diagnostics: [],
-      },
-      { value: 1 },
-      {
-        value: [
-          ["C:/work/service/target/modules"],
-          ["C:/work/service/target/classes", "C:/repo/library.jar"],
-        ],
-      },
-    ];
-    await invokeLsp("lsp_start", {
-      workspacePath: "C:/work",
-      languageId: "java",
-      providerId: "java",
-      serverPath: "C:/Lithe/jdtls.bat",
-    });
+  test.each(["src/main/java", "src/test/java", "custom/test-sources"])(
+    "builds the exact Java source in %s and lets JDT select its classpath", async (sourceRoot) => {
+      const classPaths = sourceRoot === "src/main/java"
+        ? ["C:/work/service/custom/classes", "C:/repo/library.jar"]
+        : ["C:/work/service/custom/test-output", "C:/work/service/custom/classes", "C:/repo/test-only.jar"];
+      scenario = "semantic-request";
+      semanticRequestResults = [
+        {
+          schemaVersion: 1,
+          entries: [
+            {
+              sourcePath: `service/${sourceRoot}/example/Main.java`,
+              mainClass: "example.Main",
+              projectName: "service",
+            },
+          ],
+          diagnostics: [],
+        },
+        { value: 1 },
+        {
+          value: [
+            ["C:/work/service/target/modules"],
+            classPaths,
+          ],
+        },
+      ];
+      await invokeLsp("lsp_start", {
+        workspacePath: "C:/work",
+        languageId: "java",
+        providerId: "java",
+        serverPath: "C:/Lithe/jdtls.bat",
+      });
 
-    const target = await invokeLsp("java_prepare_run_launch", {
-      workspacePath: "C:\\work",
-      sourcePath: "C:\\work\\service\\src\\main\\java\\example\\Main.java",
-      mainClass: "example.Main",
-    });
-
-    expect(target).toEqual({
-      kind: "ready",
-      target: {
+      const target = await invokeLsp("java_prepare_run_launch", {
+        workspacePath: "C:\\work",
+        sourcePath: `C:/work/service/${sourceRoot}/example/Main.java`,
         mainClass: "example.Main",
-        projectName: "service",
-        modulePaths: ["C:/work/service/target/modules"],
-        classPaths: ["C:/work/service/target/classes", "C:/repo/library.jar"],
-      },
-    });
-    expect(
-      requestPayloads
-        .slice(-3)
-        .map(
-          (payload) =>
-            (payload.command as { command?: string } | undefined)?.command ?? payload.operation,
-        ),
-    ).toEqual(["javaEntrypoints", "vscode.java.buildWorkspace", "vscode.java.resolveClasspath"]);
-  });
+      });
+
+      expect(target).toEqual({
+        kind: "ready",
+        target: {
+          mainClass: "example.Main",
+          projectName: "service",
+          modulePaths: ["C:/work/service/target/modules"],
+          classPaths,
+        },
+      });
+      expect(
+        requestPayloads
+          .slice(-3)
+          .map(
+            (payload) =>
+              (payload.command as { command?: string } | undefined)?.command ?? payload.operation,
+          ),
+      ).toEqual(["javaEntrypoints", "vscode.java.buildWorkspace", "vscode.java.resolveClasspath"]);
+      expect(requestPayloads[requestPayloads.length - 1]?.command).toMatchObject({
+        arguments: ["example.Main", "service"],
+      });
+    },
+  );
 
   test("service update validates original paths before building the original target", async () => {
     scenario = "semantic-request";
@@ -810,6 +818,9 @@ describe("Rust Core LSP adapter failures", () => {
     expect(
       requestPayloads.slice(-2).map((payload) => (payload.command as { command: string }).command),
     ).toEqual(["vscode.java.resolveClasspath", "vscode.java.buildWorkspace"]);
+    expect(requestPayloads[requestPayloads.length - 2]?.command).toMatchObject({
+      arguments: ["example.Main", "service"],
+    });
     const build = requestPayloads[requestPayloads.length - 1]!.command as { arguments: string[] };
     expect(JSON.parse(build.arguments[0])).toEqual({
       mainClass: "example.Main",

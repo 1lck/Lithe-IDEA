@@ -182,9 +182,12 @@ public enum ModuleContributionKind: String, Codable, Sendable {
 
 public enum ModuleContributionPlacement: String, Codable, Sendable {
     case activityBar
+    case leftSidebar
     case rightSidebar
     case toolWindow
     case commandPalette
+    case toolbar
+    case menu
     case settings
     case statusBar
 }
@@ -194,10 +197,14 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
     public let kind: ModuleContributionKind
     public let title: String
     public let icon: String?
+    /// Typed icon declared by a data-only plugin; legacy `icon` remains native metadata.
+    public let uiIcon: PluginUIIcon?
     public let placement: ModuleContributionPlacement
     public let order: Int
     public let actionID: String?
     public let rendererID: String?
+    /// Plain text for a host-rendered declarative tool window. Never interpreted as code.
+    public let text: String?
     public let visibility: [String: String]
 
     public init(
@@ -209,21 +216,25 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
         order: Int = 0,
         actionID: String? = nil,
         rendererID: String? = nil,
-        visibility: [String: String] = [:]
+        visibility: [String: String] = [:],
+        text: String? = nil,
+        uiIcon: PluginUIIcon? = nil
     ) {
         self.id = id
         self.kind = kind
         self.title = title
         self.icon = icon
+        self.uiIcon = uiIcon
         self.placement = placement ?? Self.defaultPlacement(for: kind)
         self.order = order
         self.actionID = actionID
         self.rendererID = rendererID
+        self.text = text
         self.visibility = visibility
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, title, icon, placement, order, actionID, rendererID, visibility
+        case id, kind, title, icon, placement, order, actionID, rendererID, visibility, text, uiIcon
     }
 
     public init(from decoder: Decoder) throws {
@@ -233,6 +244,7 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
         self.kind = kind
         title = try container.decode(String.self, forKey: .title)
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        uiIcon = try container.decodeIfPresent(PluginUIIcon.self, forKey: .uiIcon)
         placement = try container.decodeIfPresent(
             ModuleContributionPlacement.self,
             forKey: .placement
@@ -240,6 +252,7 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
         order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
         actionID = try container.decodeIfPresent(String.self, forKey: .actionID)
         rendererID = try container.decodeIfPresent(String.self, forKey: .rendererID)
+        text = try container.decodeIfPresent(String.self, forKey: .text)
         visibility = try container.decodeIfPresent(
             [String: String].self,
             forKey: .visibility

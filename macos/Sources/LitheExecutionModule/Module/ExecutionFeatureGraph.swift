@@ -36,7 +36,8 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     }
 
     package var isActive: Bool {
-        maven.isRunning || maven.isResolvingDependencies || maven.isReloading || run.isRunning || tests.isRunning
+        maven.isRunning || maven.isResolvingDependencies || maven.isReloading
+            || run.isRunning || run.hasRunningServices || tests.isRunning
     }
     package var hasActiveExecutionWork: Bool { isActive }
     package func activate(context: ModuleContext) {
@@ -74,8 +75,11 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         }.store(in: &activityObservers)
     }
 
+    /// Ends every process this graph started. Service sessions outlive the
+    /// run that launched them, so they are stopped here as well: nothing the
+    /// IDE started may keep running after the session that owns it is gone.
     package func stop() {
-        maven.stop(); run.stop(); tests.stop()
+        maven.stop(); run.stop(); run.stopAllServices(); tests.stop()
         releaseLeases()
         activityObservers.removeAll()
     }

@@ -6,6 +6,65 @@ import Testing
 @MainActor
 @Suite("Split pane collapse")
 struct LitheSplitPaneCollapseTests {
+    @Test("Release holds the final size until the host returns its committed value",
+          arguments: [LitheSplitAxis.horizontal, .vertical])
+    func releaseWaitsForCommittedSize(axis: LitheSplitAxis) async throws {
+        let surfaces = CollapseSurfaceRecorder()
+        var committed: CGFloat?
+        func content(_ size: CGFloat) -> some View {
+            LitheSplitPaneView(axis: axis, placement: .leading,
+                defaultSize: size, minimum: 30, maximum: 600,
+                onCommit: { committed = $0 },
+                sized: { CollapseSurface(name: "primary", recorder: surfaces) },
+                flexible: { CollapseSurface(name: "terminal", recorder: surfaces) })
+        }
+        let host = NSHostingView(rootView: content(200))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 800),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let handle = try #require(descendants(host).compactMap { $0 as? SplitHandleInteractionView }.first)
+        let origin = handle.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
+        func event(_ type: NSEvent.EventType, distance: CGFloat = 0) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type,
+                location: CGPoint(x: origin.x + (axis == .horizontal ? distance : 0),
+                                  y: origin.y - (axis == .vertical ? distance : 0)),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
+        }
+        func settle(resizing: Bool) async throws {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(1))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if surfaces.resizing["primary"] == resizing { return }
+                await Task.yield()
+            } while clock.now < deadline
+            Issue.record("Split did not reach resizing=\(resizing)")
+        }
+        let primary = try #require(surfaces.views["primary"]?.first)
+        func extent() -> CGFloat { axis == .horizontal ? primary.bounds.width : primary.bounds.height }
+        handle.mouseDown(with: try event(.leftMouseDown))
+        try await settle(resizing: true)
+        handle.mouseDragged(with: try event(.leftMouseDragged, distance: 120))
+        handle.mouseUp(with: try event(.leftMouseUp, distance: 120))
+        try await settle(resizing: false)
+        #expect(committed == 320)
+        // Deliberately withhold the host echo: release must not restore the old 200pt.
+        #expect(extent() == 320)
+        host.rootView = content(try #require(committed))
+        host.layoutSubtreeIfNeeded()
+        #expect(extent() == 320)
+        host.rootView = content(360)
+        host.layoutSubtreeIfNeeded()
+        #expect(extent() == 360)
+        #expect(surfaces.views.values.allSatisfy { $0.count == 1 })
+    }
+
     @Test
     func collapseKeepsCommitAndDetailSurfacesMountedAndRestoresWidth() async throws {
         let surfaces = CollapseSurfaceRecorder()

@@ -1,10 +1,6 @@
 import Foundation
 import LitheModuleAPI
 
-public extension PluginHostServiceID {
-    static let languageExecution = PluginHostServiceID("dev.lithe.host.language-execution.v1")
-}
-
 public enum LanguageExecutionLifecycleState: String, Sendable {
     case starting
     case running
@@ -93,7 +89,26 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
     public let arguments: [String]
     public let validationArguments: [String]
     public let environment: [String: String]
+    /// Runtimes the server needs on its `PATH`, such as `go` for gopls.
+    public let runtimeTools: [String]
+    /// An executable the provider ships itself, such as a server packaged in
+    /// a plugin. When set, it is the only candidate: `executableNames` is
+    /// then used for display, never for a global lookup.
+    public let executableURL: URL?
     public let languageIdentifier: String
+    /// Declaration whose launch templates the host expands when the server
+    /// starts. When set, `arguments` are templates and are never passed to
+    /// the process as written.
+    public let launchSource: DeclarativeLanguageServerLaunchSource?
+    /// Minimum version a discovered executable must report, for a server
+    /// started by a runtime such as `java`.
+    public let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
+    /// Native host integration the provider declares, such as `jdt`.
+    public let hostIntegrationID: String?
+    /// Runtime tool, such as `node`, the host starts the server with. The
+    /// executable the host selects for it is also what the server's own
+    /// commands resolve by name.
+    public let launchRuntimeTool: String?
 
     public init(
         languageID: String,
@@ -102,7 +117,13 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         arguments: [String] = [],
         validationArguments: [String] = [],
         environment: [String: String] = [:],
-        languageIdentifier: String
+        runtimeTools: [String] = [],
+        executableURL: URL? = nil,
+        languageIdentifier: String,
+        launchSource: DeclarativeLanguageServerLaunchSource? = nil,
+        executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
+        hostIntegrationID: String? = nil,
+        launchRuntimeTool: String? = nil
     ) {
         self.languageID = languageID
         self.displayName = displayName
@@ -110,7 +131,13 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         self.arguments = arguments
         self.validationArguments = validationArguments
         self.environment = environment
+        self.runtimeTools = runtimeTools
+        self.executableURL = executableURL
         self.languageIdentifier = languageIdentifier
+        self.launchSource = launchSource
+        self.executableVersionRequirement = executableVersionRequirement
+        self.hostIntegrationID = hostIntegrationID
+        self.launchRuntimeTool = launchRuntimeTool
     }
 }
 
@@ -123,6 +150,10 @@ public protocol LanguageServerExtensionProviding: AnyObject {
 @MainActor
 public protocol LanguageServerExtensionLifecycle: AnyObject {
     var isRunning: Bool { get }
+    /// True once the owning module stopped this extension. A retired
+    /// extension never starts a server again; the module publishes a new
+    /// lifecycle when it is activated again.
+    var isRetired: Bool { get }
     func attach(
         isRunning: @escaping @MainActor () -> Bool,
         stop: @escaping @MainActor () -> Void
@@ -132,6 +163,8 @@ public protocol LanguageServerExtensionLifecycle: AnyObject {
 }
 
 public extension LanguageServerExtensionLifecycle {
+    var isRetired: Bool { false }
+
     func waitUntilStopped() async {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))

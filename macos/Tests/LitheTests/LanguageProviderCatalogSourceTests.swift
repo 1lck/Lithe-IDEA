@@ -149,6 +149,66 @@ struct LanguageProviderCatalogSourceTests {
         #expect(provider.languageServerLaunch == nil)
     }
 
+    /// Java Support ships only a language server. Running, testing, and
+    /// debugging Java stay host features, which the package declares on its
+    /// `jdt` integration; without that declaration the catalog would drop
+    /// them and the toolbar would report Java as unsupported.
+    @Test
+    func officialJavaPackageKeepsTheHostFeaturesItsIntegrationDeclares() throws {
+        let supports = try #require(
+            try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
+                .pluginManifest.languageSupports
+        )
+        #expect(supports.map(\.hostCapabilities) == [[.debug, .run, .testing]])
+        #expect(supports.languageIDs(requiringExtensionFor: .run).isEmpty)
+        #expect(supports.languageIDs(requiringExtensionFor: .testing).isEmpty)
+
+        let provider = try #require(
+            LanguageProviderCatalog.compatibilityFallback
+                .applying(languageSupports: supports)
+                .provider(for: URL(fileURLWithPath: "/tmp/Main.java"))
+        )
+        #expect(provider.capabilities.contains(.languageServer))
+        #expect(provider.capabilities.contains(.run))
+        #expect(provider.capabilities.contains(.debugAdapter))
+        #expect(provider.capabilities.contains(.testing))
+    }
+
+    /// The declaration is the only way back to a host feature: a package
+    /// that owns a language and declares nothing gets none of them, even
+    /// though the shared catalog lists them.
+    @Test
+    func packageWithoutHostCapabilitiesGetsNoHostFeature() throws {
+        let undeclared = LanguageSupportDeclaration(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"],
+            languageServerModuleID: .languageServerExtension("java")
+        )
+        let debugOnly = LanguageSupportDeclaration(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"],
+            languageServerModuleID: .languageServerExtension("java"),
+            hostCapabilities: [.debug]
+        )
+        let capabilities: (LanguageSupportDeclaration) throws -> LanguageToolingCapability = {
+            try #require(
+                LanguageProviderCatalog.compatibilityFallback
+                    .applying(languageSupports: [$0])
+                    .provider(for: URL(fileURLWithPath: "/tmp/Main.java"))
+            ).capabilities
+        }
+
+        let none = try capabilities(undeclared)
+        #expect(none.contains(.languageServer))
+        #expect(none.isDisjoint(with: [.run, .debugAdapter, .testing]))
+        let debug = try capabilities(debugOnly)
+        #expect(debug.contains(.debugAdapter))
+        #expect(debug.isDisjoint(with: [.run, .testing]))
+        #expect([undeclared].languageIDs(requiringExtensionFor: .testing) == ["java"])
+    }
+
     @Test
     func installedPackageKeepsSharedLaunchMetadataForItsControlCenter() throws {
         let source = PluginLanguageProviderCatalogSource(

@@ -1,5 +1,5 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   clearLitheLogs,
   exportDiagnosticBundle,
@@ -23,41 +23,7 @@ import { Button } from "@/ui/button";
 import { showConfirmDialog } from "@/ui/dialog";
 import Switch from "@/ui/switch";
 import { writeClipboardText } from "@/utils/clipboard";
-
-function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="overflow-clip rounded-md border border-border bg-surface/35">
-      <h3 className="border-border border-b px-3 py-2 ui-text-sm font-medium text-subtle-foreground">
-        {title}
-      </h3>
-      <div className="flex flex-col gap-3 p-3">{children}</div>
-    </section>
-  );
-}
-
-function SettingsRow({
-  label,
-  description,
-  children,
-}: {
-  label: string;
-  description?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex min-h-8 items-center gap-4">
-      <div className="min-w-0 flex-1">
-        <div className="ui-text-sm text-foreground">{label}</div>
-        {description ? (
-          <p className="mt-1 ui-text-caption leading-relaxed text-subtle-foreground">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
+import SettingsGroup, { SettingRow as SettingsRow } from "./settings-section";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -108,9 +74,7 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const finishDirectoryChange = async (
-    result: Awaited<ReturnType<typeof setLogDirectory>>,
-  ) => {
+  const finishDirectoryChange = async (result: Awaited<ReturnType<typeof setLogDirectory>>) => {
     setSettings(result.settings);
     await refreshOpenLogAfterMutation();
     if (!result.previous_custom_path || result.previous_log_bytes <= 0) return;
@@ -371,7 +335,12 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
               {settings?.configured_path ?? t("settings.logs.usingDefault")}
             </code>
             <div className="flex gap-2">
-              <Button variant="default" size="sm" disabled={busy} onClick={() => void chooseDirectory()}>
+              <Button
+                variant="default"
+                size="sm"
+                disabled={busy}
+                onClick={() => void chooseDirectory()}
+              >
                 {t("settings.logs.choose")}
               </Button>
               <Button
@@ -420,7 +389,12 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
           label={t("settings.logs.exportBundle")}
           description={t("settings.logs.diagnosticBundleDescription")}
         >
-          <Button variant="default" size="sm" disabled={busy} onClick={() => void exportDiagnostics()}>
+          <Button
+            variant="default"
+            size="sm"
+            disabled={busy}
+            onClick={() => void exportDiagnostics()}
+          >
             {t("settings.logs.exportBundleConfirm")}
           </Button>
         </SettingsRow>

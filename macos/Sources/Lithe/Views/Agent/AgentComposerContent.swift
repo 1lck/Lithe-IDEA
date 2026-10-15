@@ -4,15 +4,18 @@ import LitheAgentConversationModule
 /// Fixed strips and the flexible editor use the same sizes when computing the
 /// split minimum. Commands never increase that minimum; attachments do.
 enum AgentComposerMetrics {
-    static let contextHeight: CGFloat = 30
-    static let toolbarHeight: CGFloat = 38
+    static let contextHeight: CGFloat = 26
+    static let toolbarHeight: CGFloat = 30
     static let fileHeight: CGFloat = 34
-    static let writingLineHeight: CGFloat = 36
+    // Chat composition target from the reference UI, not a Community platform constant.
+    static let inputMinimumHeight: CGFloat = 108
+    static let writingLineHeight: CGFloat = inputMinimumHeight - (toolbarHeight - 2)
     static let bottomInset: CGFloat = 8
+    static let horizontalInset: CGFloat = 8
     static let splitTopInset: CGFloat = 10
 
     static func minimumHeight(hasFiles: Bool) -> CGFloat {
-        contextHeight + toolbarHeight + writingLineHeight + bottomInset + splitTopInset + (hasFiles ? fileHeight : 0)
+        contextHeight - 2 + inputMinimumHeight + bottomInset + splitTopInset + (hasFiles ? fileHeight : 0)
     }
 }
 
@@ -29,21 +32,31 @@ struct AgentComposerContent<Context: View, Editor: View, Toolbar: View>: View {
     let onSelect: (AgentCommand) -> Void
     let onRemoveFile: (String) -> Void
     let onFocus: () -> Void
+    var isFocused = false
     @ViewBuilder let context: () -> Context
     @ViewBuilder let editor: () -> Editor
     @ViewBuilder let toolbar: () -> Toolbar
 
     var body: some View {
         VStack(spacing: 0) {
-            context()
-            if !files.isEmpty { AgentFileReferenceList(files: files, onRemove: onRemoveFile) }
-            AgentComposerDraftArea(commands: commands, highlightedIndex: highlightedIndex, onSelect: onSelect) {
-                ScrollView { editor() }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: onFocus)
+            VStack(spacing: 0) {
+                if !files.isEmpty { AgentFileReferenceList(files: files, onRemove: onRemoveFile) }
+                AgentComposerDraftArea(commands: commands, highlightedIndex: highlightedIndex, onSelect: onSelect) {
+                    ScrollView { editor() }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: onFocus)
+                        .litheTextEditingCursor()
+                }
+                toolbar()
             }
-            toolbar()
+            .litheSettingsControlChrome(
+                background: LitheTheme.editor,
+                border: isFocused ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder,
+                lineWidth: isFocused ? 2 : 1,
+                borderOutset: isFocused ? 1 : 0
+            )
+            context()
         }
         .preference(key: AgentComposerMinimumHeightKey.self, value: AgentComposerMetrics.minimumHeight(hasFiles: !files.isEmpty))
     }

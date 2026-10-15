@@ -3,6 +3,7 @@ import { useAIModelOptions } from "@/features/ai/hooks/use-ai-model-options";
 import { Alert, AlertDescription } from "@/ui/alert";
 import { useTranslation } from "@/i18n/locale-provider";
 import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import { cn } from "@/utils/cn";
 
 interface ModelSelectorProps {
@@ -32,11 +33,12 @@ export function ModelSelector({
 }: ModelSelectorProps) {
   const { t } = useTranslation();
   const isComposer = appearance === "composer";
+  const SelectControl = isComposer ? Select : SettingsSelect;
   const { availableModels, currentModelName, isCustomProvider, modelFetchError } =
     useAIModelOptions(providerId, modelId, onChange);
 
   return (
-    <Select
+    <SelectControl
       value={modelId}
       onChange={onChange}
       options={availableModels.map((model) => ({
@@ -47,21 +49,21 @@ export function ModelSelector({
       placeholder={currentModelName}
       aria-label={t("ai.selectAiModel")}
       searchable
-      searchableTrigger={isComposer ? "input" : "menu"}
       openDirection={isComposer ? "up" : "down"}
       allowCustomValue={isCustomProvider}
       customValueLabel={(customValue) => t("ai.useCustomValue", { value: customValue })}
       emptyLabel={isCustomProvider ? t("ai.typeModelName") : t("ai.noModelsFound")}
       hideChevron={isComposer}
-      size="xs"
-      variant={isComposer ? "ghost" : "default"}
+      {...(isComposer
+        ? { size: "xs" as const, variant: "ghost" as const, searchableTrigger: "input" as const }
+        : {})}
       disabled={disabled}
       open={open}
       onOpenChange={onOpenChange}
       tooltip={tooltip}
-      className={cn(!isComposer && "w-fit max-w-full", className)}
-      triggerClassName={cn(isComposer ? "max-w-44" : "w-fit max-w-full", triggerClassName)}
-      menuClassName="w-fit min-w-0 max-w-(--available-width) p-0"
+      className={cn(!isComposer && "w-56 max-w-full", className)}
+      triggerClassName={cn(isComposer && "max-w-44", triggerClassName)}
+      menuClassName={isComposer ? "w-fit min-w-0 max-w-(--available-width) p-0" : undefined}
       menuMinWidth={isComposer ? 260 : 0}
       menuAnimated={!isComposer}
       menuHeader={

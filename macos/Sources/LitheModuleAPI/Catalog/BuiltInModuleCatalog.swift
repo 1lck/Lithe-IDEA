@@ -116,7 +116,8 @@ public enum BuiltInModuleCatalog {
             ModuleContribution(id: "ai.settings", kind: .settings, title: "AI Assistance", icon: "wand.and.stars")
         ],
         .database: [
-            ModuleContribution(id: "database.workspace", kind: .toolWindow, title: "Database", icon: "cylinder")
+            ModuleContribution(id: "database.workspace", kind: .toolWindow, title: "Database", icon: "cylinder", placement: .rightSidebar, order: 150, actionID: "database.toggle", rendererID: "database.workspace"),
+            ModuleContribution(id: "database.services", kind: .toolWindow, title: "Services", icon: "server.rack", order: 450, actionID: "database.services.toggle", rendererID: "database.services")
         ],
         .debug: [
             ModuleContribution(id: "debug.session", kind: .toolWindow, title: "Debug", icon: "ladybug", order: 700, actionID: "debug.toggle", rendererID: "debug.session")
@@ -128,23 +129,28 @@ public enum BuiltInModuleCatalog {
             ModuleContribution(id: "execution.tests", kind: .toolWindow, title: "Tests", icon: "checkmark.seal", order: 600, actionID: "execution.tests.toggle", rendererID: "execution.tests")
         ],
         .git: [
-            ModuleContribution(id: "git.changes", kind: .toolWindow, title: "Changes", icon: "arrow.triangle.branch"),
+            ModuleContribution(id: "git.changes", kind: .toolWindow, title: "Changes", icon: "arrow.triangle.branch", placement: .leftSidebar, order: 200, actionID: "git.changes.show", rendererID: "git.changes"),
             ModuleContribution(id: "git.log", kind: .toolWindow, title: "Git Log", icon: "point.3.connected.trianglepath.dotted", order: 200, actionID: "git.log.toggle", rendererID: "git.log")
         ],
         .languageIntelligence: [
             ModuleContribution(id: "language.problems", kind: .toolWindow, title: "Problems", icon: "exclamationmark.triangle", order: 300, actionID: "language.problems.toggle", rendererID: "language.problems"),
+            ModuleContribution(id: "language.references", kind: .toolWindow, title: "Usages", order: 310, actionID: "language.references.toggle", rendererID: "language.references"),
+            ModuleContribution(id: "language.spring", kind: .toolWindow, title: "Spring Endpoints", order: 320, actionID: "language.spring.toggle", rendererID: "language.spring"),
             ModuleContribution(id: "language.settings", kind: .settings, title: "Language Servers", icon: "server.rack")
         ],
         .localHistory: [
             ModuleContribution(id: "history.local", kind: .toolWindow, title: "Local History", icon: "clock.arrow.circlepath")
         ],
         .search: [
-            ModuleContribution(id: "search.workspace", kind: .toolWindow, title: "Search", icon: "magnifyingglass")
+            ModuleContribution(id: "search.workspace", kind: .toolWindow, title: "Search", icon: "magnifyingglass", placement: .leftSidebar, order: 400, actionID: "search.workspace.show", rendererID: "search.workspace")
         ],
         .terminal: [
             ModuleContribution(id: "terminal.sessions", kind: .toolWindow, title: "Terminal", icon: "terminal", order: 100, actionID: "terminal.toggle", rendererID: "terminal.sessions")
         ],
-        .workspace: []
+        .workspace: [
+            ModuleContribution(id: "workspace.project", kind: .toolWindow, title: "Project", placement: .leftSidebar, order: 100, actionID: "workspace.project.show", rendererID: "workspace.project"),
+            ModuleContribution(id: "github.pull-requests", kind: .toolWindow, title: "Pull Requests", placement: .leftSidebar, order: 300, actionID: "github.pull-requests.show", rendererID: "github.pull-requests")
+        ]
     ]
 
     public static func manifest(for id: ModuleID) -> ModuleManifest? {
@@ -205,131 +211,106 @@ public enum BuiltInPluginCatalog {
     }
 }
 
-/// Optional official packages distributed through the same native plugin path
-/// as marketplace updates. These manifests are not part of the host's static
-/// module graph and become available only when their signed package exists.
+/// Official declarative plugins the host recognizes before they are installed.
+/// The host pins each plugin's trust policy so a package cannot downgrade the
+/// signature it must carry; the package's own `plugin.json` remains the source
+/// of its language and process declarations.
 public enum OfficialPluginCatalog {
-    private static let goLanguageID = "go"
-    private static let phpLanguageID = "php"
-    public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
-    public static let publisherPackageVendor = PluginVendor(
-        id: BuiltInPluginCatalog.vendor.id,
-        displayName: BuiltInPluginCatalog.vendor.displayName,
-        signatureRequirement: .publisherPackage
-    )
+    public enum Distribution: Equatable, Sendable {
+        /// Shipped inside the application bundle and sealed by its signature.
+        case bundled
+        /// Downloaded on demand as a publisher-signed package.
+        case download
+    }
 
-    public static let manifests: [PluginManifest] = [
-        PluginManifest(
-            id: PluginID("dev.lithe.plugin.go-support"),
-            displayName: "Go Support",
-            version: BuiltInPluginCatalog.hostVersion,
-            hostCompatibility: PluginHostCompatibility(
-                minimum: BuiltInPluginCatalog.hostVersion,
-                maximumExclusive: PluginVersion(major: 0, minor: 4, patch: 0)
-            ),
-            vendor: BuiltInPluginCatalog.vendor,
-            entrypoint: PluginEntrypoint(
-                kind: .nativeBundle,
-                bundleIdentifier: "dev.lithe.plugin.go-support.bundle",
-                principalClass: "LitheGoSupportPluginEntrypoint",
-                bundlePath: "GoSupport.bundle"
-            ),
-            modules: [
-                PluginModuleDeclaration(manifest: ModuleManifest(
-                    id: .languageExecutionExtension(goLanguageID),
-                    displayName: "Go Execution",
-                    scope: .workspace,
-                    defaultState: .disabled,
-                    activationPolicy: .onDemand,
-                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-                    dependencies: [.module(.workspace)],
-                    providedCapabilities: [
-                        .languageExecutionExtension(goLanguageID),
-                        .languageTestingExtension(goLanguageID)
-                    ]
-                )),
-                PluginModuleDeclaration(manifest: ModuleManifest(
-                    id: .languageServerExtension(goLanguageID),
-                    displayName: "Go Language Server",
-                    scope: .workspace,
-                    defaultState: .disabled,
-                    activationPolicy: .onDemand,
-                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-                    dependencies: [.module(.workspace)],
-                    providedCapabilities: [.languageServerExtension(goLanguageID)]
-                ))
-            ],
-            languageSupports: [LanguageSupportDeclaration(
-                id: goLanguageID,
-                displayName: "Go",
-                fileExtensions: ["go"],
-                projectFileNames: ["go.mod", "go.work"],
-                dependencies: LanguageDependencyDeclaration(
-                    managementFileNames: ["go.mod", "go.sum", "go.work", "go.work.sum", "vendor/modules.txt"],
-                    projectDependencyPaths: ["vendor"]
-                ),
-                languageServerModuleID: .languageServerExtension(goLanguageID),
-                executionModuleID: .languageExecutionExtension(goLanguageID),
-                testingModuleID: .languageExecutionExtension(goLanguageID)
-            )]
+    public struct Entry: Equatable, Sendable {
+        public let id: PluginID
+        public let displayName: String
+        public let signatureRequirement: PluginSignatureRequirement
+        public let distribution: Distribution
+        public let languageID: String
+        public let languageDisplayName: String
+        /// Used to suggest the plugin for a project before it is installed.
+        public let fileExtensions: [String]
+        public let projectFileNames: [String]
+    }
+
+    public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
+    public static let goPluginID = PluginID("dev.lithe.plugin.go-support")
+    public static let javaPluginID = PluginID("dev.lithe.plugin.java-support")
+
+    public static let entries: [Entry] = [
+        Entry(
+            id: javaPluginID,
+            displayName: "Java Support",
+            signatureRequirement: .sameTeamAsHost,
+            distribution: .bundled,
+            languageID: "java",
+            languageDisplayName: "Java",
+            fileExtensions: ["java"],
+            projectFileNames: ["pom.xml", "build.gradle", "build.gradle.kts"]
         ),
-        PluginManifest(
+        Entry(
+            id: goPluginID,
+            displayName: "Go Support",
+            signatureRequirement: .publisherPackage,
+            distribution: .download,
+            languageID: "go",
+            languageDisplayName: "Go",
+            fileExtensions: ["go"],
+            projectFileNames: ["go.mod", "go.work"]
+        ),
+        Entry(
             id: phpPluginID,
             displayName: "PHP Support",
-            version: BuiltInPluginCatalog.hostVersion,
-            hostCompatibility: PluginHostCompatibility(
-                minimum: BuiltInPluginCatalog.hostVersion,
-                maximumExclusive: PluginVersion(major: 0, minor: 4, patch: 0)
-            ),
-            vendor: publisherPackageVendor,
-            entrypoint: PluginEntrypoint(
-                kind: .nativeBundle,
-                bundleIdentifier: "dev.lithe.plugin.php-support.bundle",
-                principalClass: "LithePhpSupportPluginEntrypoint",
-                bundlePath: "PhpSupport.bundle"
-            ),
-            modules: [
-                PluginModuleDeclaration(manifest: ModuleManifest(
-                    id: .languageExecutionExtension(phpLanguageID),
-                    displayName: "PHP Execution",
-                    scope: .workspace,
-                    defaultState: .disabled,
-                    activationPolicy: .onDemand,
-                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-                    dependencies: [.module(.workspace)],
-                    providedCapabilities: [
-                        .languageExecutionExtension(phpLanguageID),
-                        .languageTestingExtension(phpLanguageID)
-                    ]
-                )),
-                PluginModuleDeclaration(manifest: ModuleManifest(
-                    id: .languageServerExtension(phpLanguageID),
-                    displayName: "PHP Language Server",
-                    scope: .workspace,
-                    defaultState: .disabled,
-                    activationPolicy: .onDemand,
-                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-                    dependencies: [.module(.workspace)],
-                    providedCapabilities: [.languageServerExtension(phpLanguageID)]
-                ))
-            ],
-            languageSupports: [LanguageSupportDeclaration(
-                id: phpLanguageID,
-                displayName: "PHP",
-                fileExtensions: ["php", "phtml"],
-                projectFileNames: ["composer.json"],
-                languageServerModuleID: .languageServerExtension(phpLanguageID),
-                executionModuleID: .languageExecutionExtension(phpLanguageID),
-                testingModuleID: .languageExecutionExtension(phpLanguageID)
-            )]
+            signatureRequirement: .publisherPackage,
+            distribution: .download,
+            languageID: "php",
+            languageDisplayName: "PHP",
+            fileExtensions: ["php", "phtml"],
+            projectFileNames: ["composer.json"]
         )
     ]
 
-    public static func manifest(forModule id: ModuleID) -> PluginManifest? {
-        manifests.first { plugin in plugin.modules.contains { $0.manifest.id == id } }
+    public static func entry(for id: PluginID) -> Entry? {
+        entries.first { $0.id == id }
+    }
+}
+
+/// Module manifests the host synthesizes for language capabilities, shared by
+/// bundled language specifications and declarative plugins so both run under
+/// the same lifecycle policy.
+public enum LanguageExtensionModuleManifests {
+    public static func languageServer(
+        languageID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .languageServerExtension(languageID),
+            displayName: "\(displayName) Language Server",
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
+            dependencies: [.module(.workspace)],
+            providedCapabilities: [.languageServerExtension(languageID)]
+        )
     }
 
-    public static func moduleManifest(for id: ModuleID) -> ModuleManifest? {
-        manifest(forModule: id)?.modules.first { $0.manifest.id == id }?.manifest
+    public static func execution(languageID: String, displayName: String) -> ModuleManifest {
+        ModuleManifest(
+            id: .languageExecutionExtension(languageID),
+            displayName: "\(displayName) Execution",
+            scope: .workspace,
+            defaultState: .disabled,
+            activationPolicy: .onDemand,
+            sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
+            dependencies: [.module(.workspace)],
+            providedCapabilities: [
+                .languageExecutionExtension(languageID),
+                .languageTestingExtension(languageID)
+            ]
+        )
     }
 }

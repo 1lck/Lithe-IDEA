@@ -20,6 +20,7 @@ struct ChangesSidebarView: View {
     let revealInFinder: (URL) -> Void
     let copyPath: (URL, Bool) -> Void
     let showSettings: (SettingsCategory) -> Void
+    @Environment(\.controlActiveState) private var controlActiveState
     @State private var selectedTab = CommitTab.commit
     @State private var commitToolActive = false
     @State private var changelistExpanded: [String: Bool] = [:]
@@ -159,7 +160,7 @@ struct ChangesSidebarView: View {
             }
             Spacer()
             GitPatchToolbar(feature: feature)
-            LitheSidebarHideButton(title: "Commit") { workbench.hideSidebar() }
+            LitheSidebarHideButton(title: "Commit") { workbench.setVisibility(.changes, isVisible: false) }
         }
         // Islands: 4pt layout start + 4pt inset of the painted tab.
         .padding(.leading, 8)
@@ -195,7 +196,6 @@ struct ChangesSidebarView: View {
                     minimum: minimumCommitHeight,
                     maximum: maximumCommitHeight,
                     dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
-                    highlightsOnHover: false,
                     sized: {
                         CommitAreaView(feature: feature, draft: draft, commitWorkflow: commitWorkflow,
                                        hasBackgroundImage: hasBackgroundImage, showSettings: showSettings)
@@ -588,7 +588,7 @@ struct ChangesSidebarView: View {
         .padding(.trailing, 6)
         .frame(maxWidth: .infinity)
         .frame(height: changeRowHeight)
-        .litheTreeRow(isSelected: selection.ids.contains(change.id), isFocused: commitToolActive)
+        .litheTreeRow(isSelected: selection.ids.contains(change.id), isFocused: commitToolActive && controlActiveState == .key)
         .contentShape(Rectangle())
         .onTapGesture { selectRow(change) }
         .accessibilityAddTraits(selection.ids.contains(change.id) ? .isSelected : [])
@@ -794,17 +794,12 @@ private struct GitOperationBanner: View {
     let operation: GitOperationState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        LitheBanner(status: .warning, layout: .editor) {
             HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(LitheTheme.warning)
                 Text(LocalizedStringKey(operation.kind.inProgressTitle))
-                    .font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                    .foregroundStyle(LitheTheme.primaryText)
+                    .litheBannerTitle()
                 if let reference = operation.reference {
                     Text(verbatim: "— \(reference)")
-                        .font(LitheTheme.uiFont(size: 12))
-                        .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer(minLength: 0)
             }
@@ -819,42 +814,30 @@ private struct GitOperationBanner: View {
                     Text("All conflicts resolved. Continue to finish, or abort to undo.")
                 }
             }
-            .font(LitheTheme.uiFont(size: 11))
-            .foregroundStyle(LitheTheme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.Banner.actionGap) {
                 Button(LocalizedStringKey(operation.kind.continueTitle)) {
                     Task { await feature.continueGitOperation() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
                 .disabled(feature.isResolvingGitOperation || operation.hasConflicts)
-                .lithePointer()
 
                 if operation.kind.canSkip {
                     Button("Skip Commit") {
                         Task { await feature.skipGitOperationStep() }
                     }
                     .disabled(feature.isResolvingGitOperation)
-                    .lithePointer()
                 }
 
                 Button("Abort") {
                     Task { await feature.abortGitOperation() }
                 }
                 .disabled(feature.isResolvingGitOperation)
-                .lithePointer()
 
                 Spacer(minLength: 0)
             }
-            .font(LitheTheme.uiFont(size: 11))
             .controlSize(.small)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LitheTheme.raised)
     }
 
 }
@@ -865,49 +848,35 @@ private struct GitStashRestoreConflictBanner: View {
     let conflict: GitStashRestoreConflictRequest
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        LitheBanner(status: .warning, layout: .editor) {
             HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(LitheTheme.warning)
                 Text("Local changes were restored with conflicts")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
-                    .foregroundStyle(LitheTheme.primaryText)
+                    .litheBannerTitle()
                 Spacer(minLength: 0)
             }
 
             Text("Your local changes are safe in \(conflict.stashReference). The \(Text(LocalizedStringKey(conflict.operationTitle))) is incomplete. Resolve the conflicts, then drop this stash manually.")
-                .font(LitheTheme.uiFont(size: 10.5))
-                .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 7) {
+            HStack(spacing: LitheTheme.Banner.actionGap) {
                 Button("Show Conflict Files") {
                     workbench.selectedSidebar = .changes
                     feature.showStashRestoreConflictFiles()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
-                .lithePointer()
 
                 Button("View Saved Changes") {
                     workbench.selectedSidebar = .changes
                     feature.showStashRestoreConflictStash()
                 }
-                .lithePointer()
 
                 Spacer(minLength: 0)
 
                 Button("Later") {
                     feature.dismissStashRestoreConflictNotice()
                 }
-                .lithePointer()
             }
             .controlSize(.small)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LitheTheme.raised)
     }
 }
 

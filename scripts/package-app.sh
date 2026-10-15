@@ -21,25 +21,22 @@ case "$ARCH" in
 esac
 
 cd "$ROOT_DIR"
-JDTLS_ROOT=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdtls.sh")
+# Java Support assembles JDT LS and its JDK into its own plugin package later
+# in this script. They are prepared here first so a missing or invalid
+# download fails before the application is compiled.
+LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdtls.sh" > /dev/null
 if [[ "$ARCH" == "universal" ]]; then
     if [[ -n "${LITHE_JDK_ROOT:-}" ]]; then
         print -u2 -- \
             "Universal packaging requires LITHE_JDK_ARM64_ROOT and LITHE_JDK_X86_64_ROOT instead of LITHE_JDK_ROOT"
         exit 1
     fi
-    ARM64_JDK_ROOT=$( \
-        LITHE_JDK_ROOT="${LITHE_JDK_ARM64_ROOT:-}" \
-        LITHE_JDK_TARGET_ARCH="arm64" \
-        "$ROOT_DIR/scripts/prepare-jdk.sh"
-    )
-    X86_64_JDK_ROOT=$( \
-        LITHE_JDK_ROOT="${LITHE_JDK_X86_64_ROOT:-}" \
-        LITHE_JDK_TARGET_ARCH="x86_64" \
-        "$ROOT_DIR/scripts/prepare-jdk.sh"
-    )
+    LITHE_JDK_ROOT="${LITHE_JDK_ARM64_ROOT:-}" LITHE_JDK_TARGET_ARCH="arm64" \
+        "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
+    LITHE_JDK_ROOT="${LITHE_JDK_X86_64_ROOT:-}" LITHE_JDK_TARGET_ARCH="x86_64" \
+        "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
 else
-    JDK_ROOT=$(LITHE_JDK_TARGET_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdk.sh")
+    LITHE_JDK_TARGET_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
 fi
 if [[ "$ARCH" == "universal" ]]; then
     scripts/build-macos.sh --configuration release --triple "$ARM64_TRIPLE"
@@ -120,49 +117,28 @@ for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
     fi
     cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/$bundle_name"
 done
-mkdir -p "$APP_DIR/Contents/Resources/LanguageServers"
-cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
-if [[ "$ARCH" == "universal" ]]; then
-    cp -R "$ARM64_JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk-arm64"
-    cp -R "$X86_64_JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk-x86_64"
-else
-    cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
-fi
-
 OFFICIAL_PLUGIN_DESTINATION="$APP_DIR/Contents/Resources/OfficialPlugins"
 mkdir -p "$OFFICIAL_PLUGIN_DESTINATION"
+# Declarative plugin packages contain no host-loaded code. Java Support ships
+# JDT LS and the JDK it runs on inside its own package, assembled for the
+# architectures of this app; the application itself carries no language server.
 if [[ "$ARCH" == "universal" ]]; then
-    arm64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
-        --configuration release \
-        --triple "$ARM64_TRIPLE")
-    x86_64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
-        --configuration release \
-        --triple "$X86_64_TRIPLE")
-    for arm64_plugin in "$arm64_plugin_root"/*(/N); do
-        plugin_id="${arm64_plugin:t}"
-        x86_64_plugin="$x86_64_plugin_root/$plugin_id"
-        [[ -d "$x86_64_plugin" ]] || { print -u2 -- "Missing x86_64 plugin package: $plugin_id"; exit 1; }
-        cp -R "$arm64_plugin" "$OFFICIAL_PLUGIN_DESTINATION/$plugin_id"
-        bundle_path=$(/usr/bin/plutil -extract entrypoint.bundlePath raw "$arm64_plugin/plugin.json")
-        executable_name=$(/usr/bin/plutil -extract CFBundleExecutable raw "$arm64_plugin/$bundle_path/Contents/Info.plist")
-        plugin_executable="$bundle_path/Contents/MacOS/$executable_name"
-        universal_plugin=$(mktemp "$OFFICIAL_PLUGIN_DESTINATION/$plugin_id/.plugin.XXXXXX")
-        lipo -create \
-            "$arm64_plugin/$plugin_executable" \
-            "$x86_64_plugin/$plugin_executable" \
-            -output "$universal_plugin"
-        mv "$universal_plugin" "$OFFICIAL_PLUGIN_DESTINATION/$plugin_id/$plugin_executable"
-        codesign --force --sign "$SIGNING_IDENTITY" \
-            "$OFFICIAL_PLUGIN_DESTINATION/$plugin_id/$bundle_path"
-    done
+    plugin_triple="$ARM64_TRIPLE"
 else
-    plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
-        --configuration release \
-        --triple "$ARCH-apple-macosx")
-    for plugin_package in "$plugin_root"/*(/N); do
-        cp -R "$plugin_package" "$OFFICIAL_PLUGIN_DESTINATION/${plugin_package:t}"
-    done
+    plugin_triple="$ARCH-apple-macosx"
 fi
+plugin_root=$(scripts/build-official-plugins.sh --bundled-only \
+    --configuration release \
+    --arch "$ARCH" \
+    --triple "$plugin_triple")
+for plugin_package in "$plugin_root"/*(/N); do
+    cp -R "$plugin_package" "$OFFICIAL_PLUGIN_DESTINATION/${plugin_package:t}"
+done
+
+# The official marketplace index ships read-only so the catalog works
+# offline; refreshed copies are written to the user's Caches at runtime.
+mkdir -p "$APP_DIR/Contents/Resources/PluginMarketplace"
+cp "$ROOT_DIR/Plugins/marketplace/index.json" "$APP_DIR/Contents/Resources/PluginMarketplace/index.json"
 
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
 zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Button } from "@/ui/button";
+import { Checkbox } from "@/ui/checkbox";
+import Section from "@/features/settings/components/settings-section";
 import { useTranslation } from "@/i18n/locale-provider";
 import { disableMcp, enableMcp, useMcpConnections } from "./mcp-connection";
 
@@ -13,24 +15,22 @@ export function McpSettings({ workspaceID, root }: { workspaceID: string; root: 
   const [busy, setBusy] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
   return (
-    <section className="space-y-3 rounded-md border border-border p-4">
+    <Section title={t("settings.mcp.title")}>
       <p className="text-sm text-text-lighter">{t("settings.mcp.description")}</p>
       <p className="text-sm text-text-lighter">{t("settings.mcp.plugins")}</p>
       <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={connection?.api.permissions.configure ?? configure}
           disabled={!!connection || busy}
-          onChange={(e) => setConfigure(e.target.checked)}
+          onCheckedChange={setConfigure}
         />
         {t("settings.mcp.allowConfigure")}
       </label>
       <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={connection?.api.permissions.execute ?? execute}
           disabled={!!connection || busy}
-          onChange={(e) => setExecute(e.target.checked)}
+          onCheckedChange={setExecute}
         />
         {t("settings.mcp.allowExecute")}
       </label>
@@ -69,6 +69,6 @@ export function McpSettings({ workspaceID, root }: { workspaceID: string; root: 
           {error || copyError}
         </p>
       )}
-    </section>
+    </Section>
   );
 }

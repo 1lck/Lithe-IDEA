@@ -52,19 +52,24 @@ export default function Section({ title, description, children, className }: Sec
   return (
     <section
       className={cn(
-        "rounded-lg transition-[background-color,box-shadow] first:[&>.settings-section-header]:hidden data-[settings-search-section-active=true]:bg-primary/5 data-[settings-search-section-active=true]:ring-1 data-[settings-search-section-active=true]:ring-primary/25",
+        "min-w-0 data-[settings-search-section-active=true]:bg-primary/5 data-[settings-search-section-active=true]:ring-1 data-[settings-search-section-active=true]:ring-primary/25",
         className,
       )}
       data-settings-section={title}
       data-settings-section-key={getSettingSearchTargetKey(title)}
     >
-      <div className="settings-section-header mb-2 px-1 py-1.5">
-        <h4 className="font-sans ui-text-base text-foreground">{title}</h4>
+      <div className="settings-section-header mb-2.5">
+        <div className="flex items-center gap-2">
+          <h3 className="shrink-0 font-sans ui-text-sm font-medium text-subtle-foreground">
+            {title}
+          </h3>
+          <div className="h-px min-w-0 flex-1 bg-border" />
+        </div>
         {description && (
           <p className="font-sans ui-text-base text-subtle-foreground">{description}</p>
         )}
       </div>
-      <div className="space-y-2">{children}</div>
+      <div className="space-y-2.5">{children}</div>
     </section>
   );
 }
@@ -194,16 +199,16 @@ export function SettingRow({
       data-setting-row-label={label}
       tabIndex={-1}
       className={cn(
-        "flex w-full min-w-0 max-w-full items-center justify-between gap-3 rounded-lg px-1 py-2 select-none transition-[background-color,box-shadow] hover:bg-accent/40 focus-within:bg-accent/40 focus:outline-none data-[settings-search-active=true]:bg-primary/15 data-[settings-search-active=true]:ring-1 data-[settings-search-active=true]:ring-primary/50 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2 @max-[640px]/settings:flex-col @max-[640px]/settings:items-stretch @max-[640px]/settings:gap-2",
+        "flex w-full min-h-7 min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 select-none focus:outline-none data-[settings-search-active=true]:bg-primary/15 data-[settings-search-active=true]:ring-1 data-[settings-search-active=true]:ring-primary/50",
         className,
       )}
       onClick={activateOnClick ? handleRowClick : undefined}
     >
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 max-w-full">
         <div className="flex items-center gap-1.5">
           <div
             id={labelId}
-            className="font-sans ui-text-base min-w-0 cursor-default wrap-break-word text-foreground"
+            className="font-sans ui-text-sm min-w-0 cursor-default wrap-break-word text-foreground"
           >
             {label}
           </div>
@@ -225,21 +230,18 @@ export function SettingRow({
             </span>
           ) : null}
         </div>
-        {description && (
-          <div
-            id={descriptionId}
-            className="font-sans ui-text-base cursor-default leading-snug text-subtle-foreground"
-          >
-            {description}
-          </div>
-        )}
       </div>
-      <div
-        ref={controlRef}
-        className="font-sans ui-text-base min-w-0 max-w-full shrink-0 select-auto max-[640px]:w-full max-[640px]:shrink max-[640px]:[&>div]:flex-wrap max-[640px]:[&>input]:w-full max-[640px]:[&>textarea]:w-full @max-[640px]/settings:w-full @max-[640px]/settings:shrink @max-[640px]/settings:[&>div]:flex-wrap @max-[640px]/settings:[&>input]:w-full @max-[640px]/settings:[&>textarea]:w-full"
-      >
+      <div ref={controlRef} className="font-sans ui-text-sm min-w-0 max-w-full select-auto">
         {children}
       </div>
+      {description && (
+        <div
+          id={descriptionId}
+          className="w-full font-sans ui-text-sm cursor-default leading-relaxed text-subtle-foreground"
+        >
+          {description}
+        </div>
+      )}
     </div>
   );
 }

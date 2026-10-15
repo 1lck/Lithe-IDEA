@@ -1,6 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@/platform/tauri-core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IdeSettingsImportDialog } from "@/features/file-system/components/ide-settings-import-dialog";
 import { useToast } from "@/features/layout/contexts/toast-context";
 import { TypedConfirmAction } from "@/features/settings/components/typed-confirm-action";
@@ -16,7 +16,7 @@ import Command, {
   CommandList,
 } from "@/ui/command";
 import { Progress } from "@/ui/progress";
-import Select from "@/ui/select";
+import SettingsSelect from "@/ui/settings-select";
 import { writeClipboardText } from "@/utils/clipboard";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
@@ -99,7 +99,10 @@ export const GeneralSettings = () => {
       showToast({ message: result, type: "success" });
       setCliInstalled(false);
     } catch (error) {
-      showToast({ message: t("settings.general.cliUninstallFailed", { error: String(error) }), type: "error" });
+      showToast({
+        message: t("settings.general.cliUninstallFailed", { error: String(error) }),
+        type: "error",
+      });
     } finally {
       setCliInstalling(false);
     }
@@ -111,7 +114,10 @@ export const GeneralSettings = () => {
       await writeClipboardText(command);
       showToast({ message: t("settings.general.installCommandCopied"), type: "success" });
     } catch (error) {
-      showToast({ message: t("settings.general.copyCommandFailed", { error: String(error) }), type: "error" });
+      showToast({
+        message: t("settings.general.copyCommandFailed", { error: String(error) }),
+        type: "error",
+      });
     }
   };
 
@@ -153,7 +159,7 @@ export const GeneralSettings = () => {
         label={t("settings.displayLanguage")}
         description={t("settings.displayLanguageDescription")}
       >
-        <Select
+        <SettingsSelect
           value={displayLanguage}
           options={[
             { value: "en-US", label: t("settings.languageEnglish") },
@@ -161,8 +167,6 @@ export const GeneralSettings = () => {
           ]}
           onChange={(value) => updateSetting("displayLanguage", value as "en-US" | "zh-CN")}
           className={SETTINGS_CONTROL_WIDTHS.default}
-          size="md"
-          variant="default"
         />
       </SettingRow>
       <SettingRow

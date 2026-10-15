@@ -36,8 +36,8 @@ public enum AgentFileReferenceError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidURL: String(localized: "Only local files can be attached to an Agent message.")
-        case .tooManyFiles: String(localized: "Attach up to 32 files per message.")
+        case .invalidURL: "Only local files can be attached to an Agent message."
+        case .tooManyFiles: "Attach up to 32 files per message."
         }
     }
 }

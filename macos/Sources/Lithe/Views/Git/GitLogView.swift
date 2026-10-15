@@ -20,6 +20,7 @@ struct GitLogView: View {
     let worktreeActions: GitWorktreeActions
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.controlActiveState) private var controlActiveState
     @State private var localExpanded = true
     @State private var remoteExpanded = true
     @State private var tagsExpanded = true
@@ -107,7 +108,7 @@ struct GitLogView: View {
         .background(LitheToolWindowActivityTracker(isActive: $gitToolActive))
         .focusable()
         .focused($gitToolFocused)
-        .gitLogFocusEffectHidden()
+        .litheFocusEffectHidden()
         .onChange(of: [gitToolFocused, gitLogSearchFocused, gitLogCommitListFocused,
                        branchSearchFocused, gitLogPathFocused]) { focusStates in
             gitToolActive = focusStates.contains(true)
@@ -697,37 +698,10 @@ struct GitLogView: View {
         onRestore: @escaping () async -> Void,
         onDismiss: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 7) {
-            LitheSystemIcon(systemImage: icon, size: 13)
-                .foregroundStyle(LitheTheme.warning)
-            Text(message)
-                .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            Button("Restore") {
-                Task { await onRestore() }
-            }
-            .controlSize(.small)
-            .buttonStyle(.borderedProminent)
-            .tint(LitheTheme.accent)
-            .disabled(feature.isPerformingBranchOperation)
-            .lithePointer()
-            Button {
-                onDismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            .litheIconButton()
-            .help("Dismiss")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(LitheTheme.raised)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        LitheBanner(status: .warning, layout: .editor, dismiss: onDismiss) {
+            Text(message).lineLimit(1)
+            Button("Restore") { Task { await onRestore() } }
+                .disabled(feature.isPerformingBranchOperation)
         }
     }
 
@@ -966,7 +940,7 @@ struct GitLogView: View {
                             GitReferenceRowView(
                                 row: row,
                                 isSelected: selected,
-                                isFocused: selected && branchTreeActive,
+                                isFocused: selected && branchTreeActive && controlActiveState == .key,
                                 baseDepth: depth + 1,
                                 isPerformingBranchOperation: feature.isPerformingBranchOperation,
                                 currentReferenceID: currentReference?.id,
@@ -1114,7 +1088,7 @@ struct GitLogView: View {
                     selectedReferenceID: feature.selectedGitReference?.id,
                     showingAll: feature.isShowingAllGitReferences
                 ),
-                isFocused: branchTreeActive
+                isFocused: branchTreeActive && controlActiveState == .key
             )
         }
         .buttonStyle(.litheNoPress)
@@ -1310,11 +1284,11 @@ struct GitLogView: View {
                     onLoadMore: { Task { await feature.loadMoreGitHistory() } },
                     navigationHash: graphNavigationRequest?.hash,
                     navigationID: graphNavigationRequest?.id,
-                    isFocused: gitLogCommitListFocused
+                    isFocused: gitLogCommitListFocused && controlActiveState == .key
                 )
                 .focusable()
                 .focused($gitLogCommitListFocused)
-                .gitLogFocusEffectHidden()
+                .litheFocusEffectHidden()
                 .onMoveCommand { direction in
                     switch direction {
                     case .up: moveGitLogCommitSelection(by: -1)
@@ -1347,7 +1321,6 @@ struct GitLogView: View {
                 minimum: minimumFilesPaneHeight,
                 maximum: maximumFilesPaneHeight,
                 dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
-                highlightsOnHover: false,
                 sized: { files },
                 flexible: { detail }
             )
@@ -2016,16 +1989,6 @@ enum GitLogCommitSelection {
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func gitLogFocusEffectHidden() -> some View {
-        if #available(macOS 14.0, *) {
-            focusEffectDisabled()
-        } else {
-            self
-        }
-    }
-}
 
 private struct GitLogFilterTaskIdentity: Hashable {
     let searchQuery: String
@@ -3187,7 +3150,6 @@ private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, Deta
             clipsSizedPane: true,
             isSizedPaneCollapsed: branchesCollapsed,
             dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
-            highlightsOnHover: false,
             onCommit: { referenceWidth = $0 },
             sized: { referencePane },
             flexible: { commitAndDetails }
@@ -3202,7 +3164,6 @@ private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, Deta
             minimum: GitLogThreePaneMetrics.minimumDetailPaneWidth,
             maximum: detailPaneMaximum,
             dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
-            highlightsOnHover: false,
             onCommit: { detailWidth = $0 },
             sized: { detailPane },
             flexible: { commitPane }

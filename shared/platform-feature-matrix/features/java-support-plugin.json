@@ -1,0 +1,33 @@
+{
+  "id": "java-support-plugin",
+  "area": "语言支持",
+  "group": "Java",
+  "capability": "Java 语言服务器作为随应用发行的声明式插件：JDT LS、Lombok、调试与测试扩展及其 JDK 由插件包拥有，可卸载和恢复；运行、测试、调试仍由宿主内置实现提供，由插件在 jdt 集成的 capabilities 中声明",
+  "macos": {
+    "evidence": [
+      "Plugins/mac/Official/JavaSupport/plugin.json",
+      "Plugins/mac/Official/JavaSupport/assemble-package.sh",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/HostIntegrations/Jdt/MacJdtHostIntegration.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
+      "macos/Tests/LitheTests/PluginLanguageServerLaunchResolverTests.swift",
+      "macos/Tests/LitheTests/RealJavaDebugIntegrationTests.swift",
+      "shared/contracts/plugins/v1/fixtures/java-support.plugin.json",
+      "macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift",
+      "macos/Tests/LitheTests/LanguageProviderCatalogSourceTests.swift",
+      "macos/Tests/LitheTests/RunWorkflowCoordinatorTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "scripts/build-windows.ps1",
+      "shared/contracts/plugins/v1/README.md"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Java Support",
+  "verification": "macOS：全新安装后打开插件管理，确认 Java Support 已安装且默认启用；打开 Maven 项目并点开 .java 文件，确认语言服务器启动，补全、诊断、跳转到 JDK 与依赖 jar 中的类（jdt://）、Lombok 生成的方法、运行标记可用；在打包出的应用里逐项确认宿主能力：工具栏调试能停在断点并继续，测试面板列出并能运行 Java 测试，“当前文件”与 Java main 运行配置能启动（Spring Boot 等 Maven 配置走另一条路径，不能替代这一项）；用 lsof 或进程参数确认 JDT LS 及其 java 进程来自 Lithe.app/Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-support，且应用内不存在 Contents/Resources/LanguageServers。卸载 Java Support 并重启：打开 .java 文件时提示需要安装或恢复该插件，语法高亮、Maven 面板和其他语言不受影响，<app-support>/Lithe/PluginState 下该插件的目录被删除，app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。点击恢复并重启后 Java 功能恢复。从旧版本升级：首次打开 Java 项目会重建一次索引，之后正常。Windows：JDT LS 与 JDK 仍随应用安装目录分发，尚未接入该插件契约。"
+}
