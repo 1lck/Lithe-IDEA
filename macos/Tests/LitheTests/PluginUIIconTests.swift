@@ -73,7 +73,7 @@ struct PluginUIIconTests {
             validator: DeclarativePluginTestSupport.operations,
             verifier: MacOfficialPluginSignatureVerifier(allowsLocalDevelopmentPackages: true))
         let installed = try store.installPackage(from: package, origin: .localDevelopment)
-        let startup = MacPluginStartupLoader(packageStore: store).load(recoveryStore: nil)
+        let startup = MacPluginStartupLoader.withHostUIValidation(packageStore: store).load(recoveryStore: nil)
         #expect(startup.issues.isEmpty)
         #expect(startup.registeredPlugins.count == 1)
         let contributions = installed.manifest.modules.flatMap(\.contributions)

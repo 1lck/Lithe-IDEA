@@ -570,7 +570,7 @@ struct PluginPackageStoreTests {
         let moduleID = ModuleID.languageServerExtension("fixture")
         let recovery = PluginStartupRecoveryStore(pending: [moduleID])
 
-        let result = MacPluginStartupLoader(packageStore: store).load(recoveryStore: recovery)
+        let result = MacPluginStartupLoader.withHostUIValidation(packageStore: store).load(recoveryStore: recovery)
 
         #expect(result.registeredPlugins.map(\.manifest.id) == [PluginID("dev.example.plugin")])
         #expect(!recovery.isQuarantined(moduleID))
@@ -589,7 +589,7 @@ struct PluginPackageStoreTests {
             version: PluginVersion(major: 0, minor: 3, patch: 0)
         ))
 
-        let result = MacPluginStartupLoader(packageStore: store).load(recoveryStore: nil)
+        let result = MacPluginStartupLoader.withHostUIValidation(packageStore: store).load(recoveryStore: nil)
 
         // Registration only offers host-owned modules; enablement still
         // decides whether they may activate.
@@ -613,10 +613,30 @@ struct PluginPackageStoreTests {
             languageID: "python"
         ))
 
-        let result = MacPluginStartupLoader(packageStore: store).load(recoveryStore: nil)
+        let result = MacPluginStartupLoader.withHostUIValidation(packageStore: store).load(recoveryStore: nil)
 
         #expect(result.registeredPlugins.isEmpty)
         #expect(result.issues.map(\.pluginID) == [PluginID("dev.example.plugin")])
+    }
+
+    @MainActor
+    @Test
+    func packageWhoseUIFailsHostValidationIsRejectedAtStartup() throws {
+        struct Rejected: Error, LocalizedError { var errorDescription: String? { "ui rejected" } }
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = makeStore(root: root)
+        _ = try store.installPackage(from: makePackage(
+            root: root,
+            name: "ui-rejected",
+            version: PluginVersion(major: 0, minor: 3, patch: 0)
+        ))
+
+        let result = MacPluginStartupLoader(packageStore: store, validateUI: { _ in throw Rejected() }).load(recoveryStore: nil)
+
+        #expect(result.registeredPlugins.isEmpty)
+        #expect(result.installedPlugins.map(\.manifest.id) == [PluginID("dev.example.plugin")])
+        #expect(result.issues.map(\.message) == ["ui rejected"])
     }
 
     // MARK: Fixtures
@@ -765,5 +785,13 @@ private final class TestPluginSignatureVerifier: PluginPackageSignatureVerifying
         if rejectedVersions.contains(manifest.version) {
             throw TestPluginSignatureError.rejected
         }
+    }
+}
+
+extension MacPluginStartupLoader {
+    /// Mirrors the production composition: validate against the real host UI bindings.
+    @MainActor
+    static func withHostUIValidation(packageStore: MacPluginPackageStore) -> MacPluginStartupLoader {
+        MacPluginStartupLoader(packageStore: packageStore, validateUI: { _ = try WorkbenchModuleUIComposition.registry(for: $0) })
     }
 }
