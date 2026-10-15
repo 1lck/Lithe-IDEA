@@ -12,7 +12,7 @@ enum AgentSubscriptionQuotaPresentation {
         let percent = window.usedPercent.map {
             ($0 / 100).formatted(.percent.precision(.fractionLength(0)).locale(locale))
         } ?? "—"
-        return String(format: String(localized: "%@ · %@ used"), duration(window.limitSeconds), percent)
+        return String(format: AgentLocalization.string("%@ · %@ used", locale: locale), duration(window.limitSeconds), percent)
     }
 }
 
@@ -29,7 +29,7 @@ struct AgentSubscriptionQuotaView: View {
             HStack(spacing: 4) {
                 Image(systemName: stale ? "clock" : "gauge.medium")
                 Text(quota?.mostUsedWindow.map { AgentSubscriptionQuotaPresentation.usage($0, locale: locale) }
-                     ?? String(localized: "Quota —"))
+                     ?? AgentLocalization.string("Quota —", locale: locale))
                     .monospacedDigit().lineLimit(1)
             }
             .font(LitheTheme.uiFont(size: 11))
@@ -50,7 +50,7 @@ struct AgentSubscriptionQuotaView: View {
     }
 
     private func details(stale: Bool) -> String {
-        var lines = [String(localized: "Codex subscription quota")]
+        var lines = [AgentLocalization.string("Codex subscription quota", locale: locale)]
         if let account { lines.append(account) }
         for window in quota?.windows ?? [] {
             let prefix = window.name == "codex" ? "" : "\(window.name) · "
@@ -58,20 +58,20 @@ struct AgentSubscriptionQuotaView: View {
             if let reset = window.resetsAt {
                 let date = Date(timeIntervalSince1970: Double(reset))
                     .formatted(.dateTime.month().day().hour().minute().locale(locale))
-                lines.append(String(format: String(localized: "Resets: %@"), date))
+                lines.append(String(format: AgentLocalization.string("Resets: %@", locale: locale), date))
             }
         }
         if let quota {
             let date = Date(timeIntervalSince1970: Double(quota.fetchedAt))
                 .formatted(.dateTime.hour().minute().locale(locale))
-            lines.append(String(format: String(localized: "Updated: %@"), date))
+            lines.append(String(format: AgentLocalization.string("Updated: %@", locale: locale), date))
         }
         if failure == "accountChanged" || failure == "unauthorized" {
-            lines.append(String(localized: "The local Codex account changed. Reconnect to refresh quota."))
+            lines.append(AgentLocalization.string("The local Codex account changed. Reconnect to refresh quota.", locale: locale))
         } else if stale {
-            lines.append(String(localized: "Quota is temporarily unavailable. The last value may be out of date."))
+            lines.append(AgentLocalization.string("Quota is temporarily unavailable. The last value may be out of date.", locale: locale))
         } else if quota == nil {
-            lines.append(String(localized: "Waiting for subscription quota…"))
+            lines.append(AgentLocalization.string("Waiting for subscription quota…", locale: locale))
         }
         return lines.joined(separator: "\n")
     }

@@ -9,6 +9,20 @@ import LitheCoreContracts
 @MainActor
 struct AgentHistoryTests {
     @Test
+    func popupIncludesUnsubmittedOpenChatsAndHidesRemovedHistoryWithoutDuplicates() {
+        let sessions = [AgentSessionSummary(id: "saved", title: "Saved", updatedAt: "2026-09-26T10:00:00Z"),
+                        AgentSessionSummary(id: "removed", title: "Removed")]
+        var hidden = AgentHistoryMetadata()
+        hidden.isHidden = true
+        let rows = AgentHistoryPresentation.popupSessions(sessions,
+            openSessionIDs: ["saved", "removed", "new-chat"], metadata: ["removed": hidden])
+        #expect(rows.map(\.id) == ["new-chat", "saved"])
+        #expect(rows.first?.title == String(localized: "New Chat"))
+        #expect(rows.first?.updatedAt == nil, "The UI must not invent an upstream update time")
+        #expect(sessions.map(\.id) == ["saved", "removed"], "Displaying an open chat does not modify Agent-owned history")
+    }
+
+    @Test
     func annotationsSurviveReloadAndStayIsolatedFromAgentTitlesAndOtherScopes() async throws {
         try await HistoryFixture().run { fixture in
             let history = fixture.history

@@ -1307,19 +1307,11 @@ private struct DatabaseDBXImportSheet: View {
                         candidateRow(candidate)
                     }
                     if !plan.unsupportedTypes.isEmpty {
-                        HStack(alignment: .top, spacing: 10) {
-                            LitheIDEAIcon(resourcePath: "expui/status/warning.svg", size: 16, preservesOriginalColors: true)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Unsupported DBX database types")
-                                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
-                                Text(plan.unsupportedTypes.sorted(by: { $0.key < $1.key }).map { "\($0.key) × \($0.value)" }.joined(separator: ", "))
-                                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                            }
-                            Spacer()
+                        LitheBanner(status: .warning) {
+                            Text("Unsupported DBX database types").litheBannerTitle()
+                            Text(plan.unsupportedTypes.sorted(by: { $0.key < $1.key }).map { "\($0.key) × \($0.value)" }.joined(separator: ", "))
+                                .font(LitheTheme.uiFont(size: 13, design: .monospaced))
                         }
-                        .padding(12)
-                        .background(LitheTheme.warning.opacity(0.07))
                     }
                 }
                 .padding(10)

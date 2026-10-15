@@ -24,7 +24,10 @@ struct AgentBrandIconResourceTests {
 
         // Crop the real native Menu label, excluding neighboring controls and
         // the text-field caret. No visible window or image baseline is required.
-        let region = NSRect(x: 46, y: host.isFlipped ? host.bounds.height - 42 : 10, width: 28, height: 26)
+        let region = NSRect(x: AgentComposerMetrics.horizontalInset,
+                            y: host.isFlipped ? host.bounds.height - AgentComposerMetrics.bottomInset - AgentComposerMetrics.contextHeight
+                                : AgentComposerMetrics.bottomInset,
+                            width: 24, height: AgentComposerMetrics.contextHeight)
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: region))
         host.cacheDisplay(in: region, to: bitmap)
         var markPixels = 0

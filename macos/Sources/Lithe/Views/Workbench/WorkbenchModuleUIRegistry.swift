@@ -296,7 +296,7 @@ struct WorkbenchModuleUIRegistry {
                 .foregroundStyle(LitheTheme.secondaryText)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 }
 
