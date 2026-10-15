@@ -5,10 +5,12 @@
   "capability": "Worktree 管理",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Git"
+      "macos/Sources/Lithe/Views/Git",
+      "macos/Tests/LitheTests/GitWorktreeAppearanceTests.swift"
     ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "notes": "Worktrees 页接入共享搜索框、工具栏 SVG 与按钮、工具窗口标签、焦点选中态、原生滚动条及表单样式；详情采用平面分区，保留现有工作树操作与安全确认。"
   },
   "windows": {
     "evidence": [
@@ -18,5 +20,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Git",
-  "verification": "列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。"
+  "verification": "列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。 macOS 深浅主题核对搜索及清除、列表焦点/失焦和窗口失活选中态、上下键选择、详情标签、窄宽度、提交历史滚动与新建弹窗；检查右键菜单的保护/忙碌状态保持不变。"
 }

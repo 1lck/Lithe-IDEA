@@ -10,6 +10,9 @@ struct GitWorktreeCreateView: View {
     let actions: GitWorktreeActions
     let onSubmit: (GitWorktreeCreation) async -> String?
 
+    private enum Field: Hashable { case branch, revision, destination }
+    @FocusState private var focusedField: Field?
+
     @State private var mode = GitWorktreeMode.newBranch
     @State private var branchName = ""
     @State private var selectedReferenceID = ""
@@ -35,38 +38,43 @@ struct GitWorktreeCreateView: View {
                 .disabled(isSubmitting)
             } else if mode == .existingBranch {
                 Text("No available local branch. Branches already checked out in another worktree cannot be reused.")
-                    .font(LitheTheme.uiFont(size: 11.5)).foregroundStyle(LitheTheme.warning)
+                    .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.warning)
             }
             if mode == .newBranch {
-                TextField("New branch name", text: $branchName).textFieldStyle(.roundedBorder)
+                TextField("New branch name", text: $branchName)
+                    .modifier(LitheCommitDialogInputStyle(focused: focusedField == .branch))
+                    .focused($focusedField, equals: .branch)
                     .disabled(isSubmitting)
             }
             if mode != .existingBranch {
-                TextField("Starting commit (optional)", text: $revision).textFieldStyle(.roundedBorder)
+                TextField("Starting commit (optional)", text: $revision)
+                    .modifier(LitheCommitDialogInputStyle(focused: focusedField == .revision))
+                    .focused($focusedField, equals: .revision)
                     .disabled(isSubmitting)
             }
             if mode == .detached {
                 Text("The worktree will point directly to a commit. Create a branch there before keeping new commits.")
-                    .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+                    .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.secondaryText)
             }
             VStack(alignment: .leading, spacing: 6) {
-                Text("Checkout path").font(LitheTheme.uiFont(size: 11.5, weight: .medium))
+                Text("Checkout path").font(LitheTheme.uiFont(size: 13, weight: .medium))
                 HStack {
                     TextField("Worktree destination", text: Binding(
                         get: { destinationPath },
                         set: { destinationPath = $0; destinationWasEdited = true }
-                    )).textFieldStyle(.roundedBorder)
+                    )).modifier(LitheCommitDialogInputStyle(focused: focusedField == .destination))
+                        .focused($focusedField, equals: .destination)
                     Button("Choose Parent…") {
                         guard let parent = actions.chooseParentDirectory() else { return }
                         destinationPath = parent.appendingPathComponent(suggestedDirectoryName).path
                         destinationWasEdited = true
-                    }.lithePointer()
+                    }.buttonStyle(LitheCommitDialogButtonStyle())
                 }
                 .disabled(isSubmitting)
                 Toggle("Use temporary directory", isOn: $useTemporaryDirectory)
                     .toggleStyle(.checkbox).disabled(isSubmitting || actions.temporaryDirectory == nil)
                 Text("Use a persistent folder for ongoing work. Temporary checkouts may be removed by the system.")
-                    .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
+                    .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
             }
             Toggle("Create without checking out files", isOn: $noCheckout)
                 .toggleStyle(.checkbox).disabled(isSubmitting)
@@ -77,7 +85,7 @@ struct GitWorktreeCreateView: View {
             HStack {
                 if isSubmitting { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(isSubmitting).lithePointer()
+                Button("Cancel") { dismiss() }.buttonStyle(LitheCommitDialogButtonStyle()).keyboardShortcut(.cancelAction).disabled(isSubmitting).lithePointer()
                 Button("Create") {
                     guard canSubmit else { return }
                     isSubmitting = true
@@ -97,11 +105,12 @@ struct GitWorktreeCreateView: View {
                         if errorMessage == nil { dismiss() }
                     }
                 }
-                .buttonStyle(.borderedProminent).tint(LitheTheme.accent)
+                .buttonStyle(LitheCommitDialogButtonStyle(primary: true))
                 .keyboardShortcut(.defaultAction).disabled(isSubmitting || !canSubmit).lithePointer()
             }
         }
-        .padding(20).frame(width: 540).background(LitheTheme.raised)
+        .font(LitheTheme.uiFont(size: 13))
+        .padding(20).frame(width: 540).background(LitheCommitDialogStyle.background)
         .interactiveDismissDisabled(isSubmitting)
         .onAppear { chooseAvailableReference(); updateSuggestedDestination(force: true) }
         .onChange(of: mode) { _ in
