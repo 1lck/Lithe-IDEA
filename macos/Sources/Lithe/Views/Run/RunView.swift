@@ -497,8 +497,8 @@ struct RunView: View {
 
             }
             .padding(.horizontal, 8)
-            .frame(height: 36)
         }
+        .frame(height: 36)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
     }
