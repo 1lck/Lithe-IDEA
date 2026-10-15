@@ -1,4 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { getInstalledVersionLabel } from "@/features/settings/lib/update-channel";
 import { useEffect, useMemo, useState } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useRecentFoldersStore } from "@/features/file-system/stores/recent-folders.store";
@@ -20,6 +21,7 @@ export function WelcomeScreen() {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [appVersion, setAppVersion] = useState("");
+  const installedVersion = getInstalledVersionLabel(appVersion, t);
   const recentFolders = useRecentFoldersStore((state) => state.recentFolders);
   const openRecentFolder = useRecentFoldersStore((state) => state.actions.openRecentFolder);
   const removeFromRecents = useRecentFoldersStore((state) => state.actions.removeFromRecents);
@@ -57,7 +59,7 @@ export function WelcomeScreen() {
               Lithe
             </div>
             <div className="mt-0.5 ui-text-caption text-subtle-foreground">
-              {appVersion ? `${appVersion} · Windows` : "Windows"}
+              {installedVersion ? `${installedVersion} · Windows` : "Windows"}
             </div>
             <div className="mt-1">
               <AppUpdateControl showWhenIdle />

@@ -2,6 +2,7 @@ import { javaEntryChinese, javaEntryEnglish } from "./java-entry-creation";
 import { changelistsChinese, changelistsEnglish } from "./git-changelists";
 import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-commit";
 import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
+import { updateChannelEnglish, updateChannelChinese } from "./update-channel";
 export const DISPLAY_LANGUAGES = ["en-US", "zh-CN"] as const;
 
 export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
@@ -15,6 +16,7 @@ const catalogs = {
     ...aiCommitEnglish,
     ...workspaceCommitEnglish,
     ...changelistsEnglish,
+    ...updateChannelEnglish,
     "git.console.details": "Command details",
     "git.console.historyTruncated": "Earlier Git commands were truncated to limit memory use.",
   "git.console.options": "Git command options",
@@ -4617,6 +4619,7 @@ const catalogs = {
     ...aiCommitChinese,
     ...workspaceCommitChinese,
     ...changelistsChinese,
+    ...updateChannelChinese,
     "git.console.details": "命令详情",
     "git.console.historyTruncated": "为限制内存占用，较早的 Git 执行记录已截断，无法展开。",
   "git.console.options": "Git 命令选项",
