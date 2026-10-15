@@ -112,12 +112,19 @@ the bundle, fix its storage boundary before generating another delta.
 
 ## Follow the preview channel
 
-The scheduled macOS Preview workflow builds the `preview` branch daily. It pins
-one source revision and build timestamp for both architectures. The build number
-is `<workflow run number>.<run attempt>`, so rebuilding a failed run produces a
-new identity even when the display version stays the same. Re-running only the
-publish job after partially uploading assets is not supported; re-run all jobs
-to allocate a new identity. A stale or duplicate build cannot replace the feed.
+The scheduled AutoBuild workflow builds the `preview` branch daily. It pins
+one source revision, version, build number and timestamp for both macOS
+architectures and the reusable Windows installer build. Publication waits for all
+three builds. Prepare samples UTC once and derives both the compact
+`YYYYMMDD.HHMMSS` identity (for example `20261015.124354`) and canonical ISO
+`2026-10-15T12:43:54Z` from that same second. All platform identities must match.
+The publisher checks both existing appcasts before any remote mutation: the new
+time must be strictly later than each published `pubDate`, and the numeric build
+must increase. When AutoBuild does not yet exist, migration checks the old
+`preview-0.3.0` appcasts first. Legacy builds such as `58.1` remain readable baselines; new builds
+must use timestamp identities. Duplicate seconds and backward clocks fail without
+inventing a counter. After a partially published feed, rebuild all jobs to obtain
+a later identity.
 
 GitHub executes scheduled workflows from the default branch (`main`). After
 review on `preview`, the updated workflow must also reach `main` for the daily
@@ -125,42 +132,54 @@ schedule to use it. A manual dispatch using this workflow revision can exercise
 the new path earlier. Changing only the checked-out application source does not
 change the workflow definition used by the schedule.
 
-Preview apps embed `LitheUpdateChannel=preview` and use
-`appcast-preview-<architecture>.xml` under the rolling Preview release tag.
+AutoBuild apps embed `LitheUpdateChannel=autobuild` (legacy `preview` remains readable) and use
+`appcast-preview-<architecture>.xml` under the fixed `AutoBuild` release tag. The title and release body show
+`AutoBuild — 构建自 YYYY-MM-DD HH:mm:ss UTC`.
 Stable apps continue to use the stable feed; no update-channel selector or
 automatic channel switch is introduced. Preview users can explicitly return to
 stable using the full-package workflow below. Sparkle uses the embedded feed instead
 of a persisted feed override. Both channels use the same configured EdDSA key.
 Packaging also assigns separate `SUDefaultsDomain` suites:
-`app.lithe.desktop.sparkle.stable` and `app.lithe.desktop.sparkle.preview`.
+`app.lithe.desktop.sparkle.stable` and `app.lithe.desktop.sparkle.autobuild`.
 Skipped versions and automatic-check preferences cannot cross channels with
-unrelated workflow build numbers. Existing preferences are not copied into the
+different build identities. Existing preferences are not copied into the
 new suites; users may need to reselect their update-check preferences once.
 
-The update offer shows **Preview Update**, the current and target build numbers,
-the new build's date, and a short instability notice. It has **Install Preview**,
+The update offer shows **AutoBuild Update**, the current and target build numbers,
+the new build's date, and a short instability notice. It has **Install AutoBuild**,
 **Later**, and **Skip Build** actions. Preview release notes are neither displayed
-nor downloaded. The installed version in Welcome and Settings includes Preview
-and the build number. Stable release-note presentation is unchanged.
+nor downloaded. The installed version in Welcome and Settings includes AutoBuild
+and the UTC build time. Stable release-note presentation is unchanged.
 
-Preview ZIPs use immutable names such as `Lithe-preview-142.1-arm64.zip`. The
-latest three matching ZIPs on the rolling release are differential baselines.
-Full archives and deltas are uploaded before either appcast is replaced.
-Before uploads, the publisher enumerates all release assets and retains the most
-recent 30 build identities (including failed attempts), all files referenced by
-the currently published and incoming feeds, and the latest three ZIP baselines
-per architecture. Older macOS Preview ZIPs and deltas, including orphan uploads,
-are removed. Unrelated assets such as Windows packages are never deleted.
-This bounds cached-feed compatibility to 30 builds, not 30 days; clients holding
-older offers may need to check again for the latest feed. Current published feed
-references remain protected even if they fall outside that window.
+Preview ZIPs use names such as `Lithe-preview-20261015.124354-arm64.zip`. AutoBuild keeps
+only the current full ZIP per architecture and deltas targeting the current
+build. The prior surviving ZIP is the next build's baseline; older clients can
+use the current full archive after checking again. Historical cached feed URLs
+are not retained.
 
-Cleanup runs before any DMG or update upload and rejects the publication if the
-remaining assets plus incoming filenames would exceed 900, leaving headroom
-below GitHub's 1000-asset limit. Download or parse failures stop cleanup before
-deletion. If unrelated or protected assets exhaust the reserve, maintainers must
-review those assets rather than automatically evicting them. The rolling DMGs
-retain their existing filenames for manual downloads.
+The publisher runs from `github.workflow_sha`, not from the application checkout.
+It reads the official plugin registry/index with `git fetch/show` at the pinned
+application SHA, selects each registered downloadable plugin's latest numeric
+semantic version and all distinct variants, downloads existing ZIPs from indexed
+`Lithe-IDEA` organization releases, and verifies the index SHA-256 before any
+release mutation. It mirrors byte-identical signed packages plus SHA sidecars;
+no plugin key, rebuilding, re-signing or canonical marketplace URL change is needed.
+Bundled Java is excluded; current downloadable PHP and Go packages are 1.0.0.
+
+After local validation and strict published-baseline time checks, all installers, archives, deltas and plugin mirrors upload
+before either XML feed. The complete desired manifest is verified remotely using
+asset SHA-256 digests, or a bounded download when a digest is unavailable. Only
+then does the publisher explicitly force PATCH `git/refs/tags/AutoBuild` to the
+source SHA, update and verify metadata, and remove every stale AutoBuild asset,
+including obsolete installers and plugin versions. Failed download, hash,
+upload or manifest verification prevents stale-asset cleanup. GitHub does not
+provide atomic multi-file replacement; partial uploads can remain on failure.
+Stable releases and upstream plugin releases are outside this publisher's scope.
+
+Only after complete verified publication and cleanup can `preview-0.3.0` and its
+tag be retired. Clients using that old feed require one manual AutoBuild
+reinstall. A second compatibility tag is not retained. AutoBuild release notes
+warn in Chinese and English that ordinary users should use Stable.
 
 Both architecture appcasts use the pinned build timestamp for `pubDate`, written
 before the final feed signature, so the Preview update's Built date matches the

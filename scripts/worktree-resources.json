@@ -29,6 +29,18 @@
   ],
   "excludedResources": [
     {
+      "id": "autobuild-plugin-mirror-staging",
+      "reusable": false,
+      "locations": [
+        "<RUNNER_TEMP>/lithe-autobuild-<invocation>/marketplace/",
+        "<RUNNER_TEMP>/lithe-autobuild-<invocation>/plugins/",
+        "<RUNNER_TEMP>/lithe-autobuild-<invocation>/baselines/",
+        "<RUNNER_TEMP>/lithe-autobuild-<invocation>/verification/"
+      ],
+      "identity": "Exact preview source SHA, pinned marketplace index SHA-256, official organization release/tag/asset current build/ISO timestamp and this publication invocation; baselines hold architecture appcasts for strict publication-time ordering; existing signed ZIP bytes are architecture variants selected by the pinned index, independent of local toolchain. No reusable worktree identity stamp.",
+      "reason": "publish-autobuild.mjs downloads existing official plugin ZIPs through bounded gh calls and verifies index SHA-256 before release mutation; generated checksum sidecars and remote verification downloads belong only to this invocation. The helper removes this exact mkdtemp directory in finally on success or failure. Never copy or share at any worktree reuse stage; no runtime bundle, plugin key, canonical marketplace URL or upstream release is modified."
+    },
+    {
       "id": "sparkle-baseline-staging",
       "reusable": false,
       "locations": [

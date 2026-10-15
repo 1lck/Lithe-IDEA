@@ -46,17 +46,18 @@ Ed25519 私钥；私钥只在构建 runner 的标准输入中使用，不能写�
 asset 或日志。公钥轮换需要先发布能识别新 key ID 的客户端，再更新 secret 并
 重新生成包，不能只替换 GitHub secret。
 
-Preview 应用工作流只发布应用及其 Sparkle 更新，不构建或上传独立 PHP 插件包，
-也不注入插件私钥。当前 `preview` 源码已把 PHP/Go 插件交给组织仓库独立发布，
-个人仓库的旧插件私钥与其 v2 公钥不匹配；继续在应用发布中签插件会触发
-`SignerError.untrustedPrivateKey`，阻止本来已成功打包的应用发布。应用更新继续
-使用原有 Sparkle 密钥，不通过替换该密钥或放宽插件验签来恢复构建。
+Preview 应用工作流不构建或重签独立插件包，也不注入插件私钥。当前 `preview`
+源码已把 PHP/Go 插件交给组织仓库独立发布，个人仓库的旧插件私钥与其 v2 公钥
+不匹配；继续在应用发布中签插件会触发 `SignerError.untrustedPrivateKey`，阻止
+本来已成功打包的应用发布。AutoBuild 只把已发布 ZIP 原字节镜像到应用 release，
+先验证固定索引的 SHA-256，再附加 checksum sidecar。应用更新继续使用原有
+Sparkle 密钥，不通过替换该密钥或放宽插件验签来恢复构建。
 
 每天的定时任务从默认分支 `main` 读取工作流，再检出 `preview` 源码，因此
 删除插件私钥检查、独立插件构建及其两处上传步骤的修复必须合入 `main`。
 只修改 `preview` 工作流不能修复下一次定时任务；只删除构建而保留上传也会
 因缺少插件包继续失败。手动运行时，`--ref` 选择工作流版本，`source_branch`
-只选择源码。恢复后的发布应确认两个架构与 publish job 全部成功。
+只选择源码。恢复后的发布应确认两个 macOS 架构、Windows 构建与 publish job 全部成功。
 
 ### 全量与差分双轨发布
 
@@ -84,23 +85,64 @@ Sparkle 处理和发布校验，不改变签名、哈希或 appcast 的接受条
 
 ### Stable 与 Preview 完全隔离
 
-Preview 使用独立的 `LitheUpdateChannel=preview`、独立的
+AutoBuild 使用独立的 `LitheUpdateChannel=autobuild`（兼容读取旧 `preview`）、独立的
 `appcast-preview-<architecture>.xml`、独立的 `SUDefaultsDomain`
 后缀（`app.lithe.desktop.sparkle.stable` /
-`.preview`）。两个渠道共用同一把 EdDSA key，但跳过版本和自动检查
+`.autobuild`）。两个渠道共用同一把 EdDSA key，但跳过版本和自动检查
 偏好不跨渠道迁移，也不提供渠道选择器或自动切换——用户从 preview
-返回 stable 是显式操作。Build 号使用
-`<workflow run number>.<run attempt>`，重跑失败的 run 会产生新的
-身份，即使展示版本不变；只重跑发布 job 不受支持，必须重跑全部 job
-才能分配新身份，防止一个陈旧或重复的 build 顶替 feed。
+返回 stable 是显式操作。Build 号使用 UTC `YYYYMMDD.HHMMSS`，例如
+`20261015.124354`。prepare 只采样一次 UTC，同秒生成 compact build 与标准 ISO
+时间 `2026-10-15T12:43:54Z`，全部平台共享。新发布必须严格晚于双架构已有
+appcast 的 `pubDate` 且数值 build 递增；同秒重复或时钟倒退直接拒绝，不能补计数。
+旧 `58.1` 只兼容作为历史基线，新发布不能再使用计数身份。部分发布失败后应
+重跑全部 job 取得更晚身份；只重跑 publish 不会产生新的构建时间。
 
-发布前清理会保留最近 30 个 build 身份（含失败尝试）、当前已发布和
-即将发布 feed 引用的全部文件，以及每个架构最新三个 zip 基线，其余
-Preview zip/delta 一律删除；不触碰 Windows 等无关资产。清理在任何
-DMG/更新上传之前执行，且如果清理后剩余资产加新文件会超过 900（低于
-GitHub 1000 资产上限留出余量）就拒绝本次发布，下载/解析失败会在
-删除前终止清理。这把"缓存 feed 兼容性"的保证范围限定为最近 30 个
-build，而不是按天数保证。
+### AutoBuild 固定入口与最新资源清单
+
+应用公开发布固定使用大小写精确的 `AutoBuild` tag；title 与正文均显式显示
+`AutoBuild — 构建自 YYYY-MM-DD HH:mm:ss UTC`。公开渠道为 `autobuild`，基础设施
+兼容旧 `preview` 开关与 appcast 文件名。保留原工作流文件，身份顺序完全来自 UTC
+构建时间，与工作流计数无关。prepare 一次固定源码 SHA、版本、build 与时间；
+macOS 双架构和 Windows 复用工作流共同消费这些输入。Windows 只产出 artifact，
+没有独立定时任务或 release 写权限，publish 等待三个平台全部完成，并逐项检查
+artifact identity（包括时间）及 build/ISO 精确对应，避免把不同源码或 build 的安装包混在同一个入口。
+
+定时任务从 main 使用受审查的工作流；publish 按 `github.workflow_sha` 检出
+helper，再从 prepare 的 preview SHA 用 `git fetch/show` 读取官方插件 registry
+和 index，不能从 preview 工作树加载未受本次工作流审查的发布代码。按数值语义
+版本选择每个注册可下载插件的最新版本，保留所有下载变体并去重；只接受固定索引
+里 `Lithe-IDEA` 组织 GitHub Release 的 ZIP。当前 PHP/Go 为 1.0.0，内置 Java
+不属于镜像。canonical URL 和索引不变，应用 release 只提供手动下载镜像。
+
+正确做法是下载上游已签名 ZIP，验证索引 SHA-256，再生成 `.sha256` 并上传；
+错误做法是在应用工作流重建插件、注入旧私钥或把索引 URL 改指向个人仓库。
+镜像 staging 绑定源码 SHA、固定索引、release/tag/asset 和本次调用，位于
+`<RUNNER_TEMP>/lithe-autobuild-<invocation>/{marketplace,plugins,baselines,verification}/`；
+没有可复用 identity stamp，通用排除路由拒绝跨工作树复制。每个子进程限时
+120 秒，暂时性故障最多三次尝试，重试前删除本次下载残片，`finally` 删除本次
+创建的精确临时目录。baselines 是本次从 AutoBuild 下载的架构 appcast；初次迁移
+尚无 AutoBuild 时读取旧 `preview-0.3.0` 的 appcast。它们只供严格时间排序校验；
+不可跨工作树复用，已有 ZIP 却缺少 feed 或 feed 损坏都拒绝发布。
+这里只处理发布期资源，不改运行时 app bundle、代码签名
+或 Sparkle 差分基线。
+
+完整目标清单只有最新 macOS DMG、Windows 安装包及 checksum、当前 build 的
+完整 ZIP/目标 delta/feed、每个官方可下载插件的最新 ZIP 变体及 checksum。
+发布器先验证本地输入、全部插件哈希和已有双架构 appcast 的时间顺序，再上传
+所有数据，最后替换 XML。compact 历史 build 必须与 pubDate 一致，旧计数基线
+仍验证 pubDate；缺少整个历史入口才允许首次发布。远端清单
+必须逐个通过 asset SHA-256 digest 验证，缺失 digest 时有界下载并校验。之后
+显式 force PATCH `git/refs/tags/AutoBuild` 指向源码 SHA，更新并复查 release
+元数据，才按完整清单清理所有旧资产，包括旧版本 DMG、Windows 安装包和插件。
+`gh release edit --target` 本身不会移动已存在 tag，不能用它替代 Git ref 更新。
+下载、哈希、上传或清单校验失败均不清理旧资源，不能在上传前先清空 release。
+
+GitHub 固定 tag 的多文件替换不是原子操作，失败可能留下部分新文件；不承诺
+历史缓存 feed URL 一直有效。只有最新完整 ZIP 留作下次差分基线，旧客户端重新
+检查后可使用全量包。AutoBuild 全部发布、校验和清理成功之后，才删除
+`preview-0.3.0` release 与 tag；旧客户端需要手动重装一次，不保留第二兼容入口。
+Stable 和组织插件 release 不受清理影响。release 风险说明使用中英双语，明确
+普通用户应使用 Stable，自动构建可能包含缺陷或造成数据丢失。
 
 ### 从 Preview 回到 Stable 只走全量、且不信任下载来源的 key
 
@@ -133,8 +175,10 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   使用独立 appcast、独立更新域和显式的 Return to Stable 操作。
 - **preview 发布只重跑发布 job 以节省 CI 时间**：能加快失败重试。
   但发布 job 需要一个和 build job 一致的身份（build 号绑定
-  workflow run number/attempt），只重跑发布 job 会让身份和实际构建
-  内容不一致，因此要求重跑全部 job 才分配新身份。
+  同一次 prepare 的 UTC 秒），只重跑发布 job 无法产生更晚构建时间，
+  已替换 feed 后会被严格递增检查拒绝，因此重跑全部 job 才生成新身份。
+- **保留工作流计数作为新身份权威或同秒追加计数**：会让构建展示时间和排序身份
+  分裂，也不能表达用户需要的 UTC 时间顺序，因此只保留旧计数基线读取。
 - **基线下载失败就发布不含该 delta 的全量 feed**：可提高表面成功率，
   但会把网络故障误判为基线不存在，悄悄减少可用差分更新；改用有界的
   暂时性错误重试，永久失败仍阻止发布。
@@ -160,9 +204,9 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 - Stable 和 Preview 用户互不干扰对方的更新节奏和偏好，代价是用户
   从 Preview 切换回 Stable 需要一次显式操作，且可能需要重新设置
   更新检查偏好。
-- 资产保留策略把"能提供差分更新"的窗口从"发布以来的全部版本"收窄
-  到"最近 30 个 build"，旧到超出窗口的 Preview 客户端会退回到全量
-  下载而不是 delta，这是为了不撞到 GitHub 的资产数量上限。
+- 最新资源清单阻止安装包、插件和 Sparkle 历史无限累积；代价是旧缓存 feed
+  可能引用已删除文件，旧客户端需重新检查并使用全量更新，迁移旧 tag 还需一次
+  手动重装。固定 tag 多文件更新不具原子性，失败后必须修复并重跑全部构建。
 - 回滚路径的安全性依赖客户端内置公钥永不改变；如果需要轮换
   `SPARKLE_PRIVATE_KEY`，替换 repository secret 本身不够，必须单独
   规划迁移（重签或双签过渡期），否则旧客户端会拒绝新签名的更新。
@@ -171,9 +215,8 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   指定单个 PHP 包构建时也会失败。这样构建目录中不会留下缺少
   `lithe-plugin-signature.json` 的伪成功包；只有提供私钥的构建才会生成可交给
   包级验签路径的产物。
-- 需要重新评估的触发条件：如果差分更新的资产数量随架构或渠道增多
-  逼近 900 的清理阈值，或者需要支持两个以上的更新渠道，当前基于
-  "30 个 build + 3 个 zip 基线"的保留规则需要重新设计。
+- 需要重新评估的触发条件：如果需要历史版本下载、缓存 feed 长期兼容或更多
+  更新渠道，必须明确另建版本化存储与迁移方案，不能悄悄恢复 AutoBuild 历史积累。
 
 ## 验证
 
@@ -186,8 +229,9 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
 ruby scripts/test-sparkle-update.rb "$sparkle_tools"
 node scripts/test-download-sparkle-baseline.mjs
+node --test scripts/test-publish-autobuild.mjs
 node scripts/test-reuse-worktree-resources.mjs
-actionlint .github/workflows/release-macos.yml .github/workflows/release-preview-macos.yml .github/workflows/ci-macos.yml
+actionlint .github/workflows/release-macos.yml .github/workflows/release-preview-macos.yml .github/workflows/release-preview-windows.yml .github/workflows/ci-macos.yml
 ```
 
 本地 Sparkle 集成检查创建一次性 ad-hoc 签名 fixture，覆盖全量
@@ -204,6 +248,10 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 
 - `scripts/prepare-sparkle-tools.sh`
 - `scripts/create-sparkle-update.sh`
+- `scripts/publish-autobuild.mjs`
+- `scripts/test-publish-autobuild.mjs`
+- `scripts/worktree-resources.json`
+- `scripts/reuse-worktree-resources.mjs`
 - `scripts/download-sparkle-baseline.mjs`
 - `scripts/test-download-sparkle-baseline.mjs`
 - `scripts/verify-macos-package.sh`
@@ -211,6 +259,7 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 - `scripts/create-macos-update-manifest.rb`
 - `.github/workflows/release-macos.yml`
 - `.github/workflows/release-preview-macos.yml`
+- `.github/workflows/release-preview-windows.yml`
 - `scripts/build-official-plugins.sh`
 - `macos/Sources/LithePluginPackageSigning/`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`

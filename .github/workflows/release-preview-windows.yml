@@ -1,43 +1,34 @@
-name: Release Windows Preview
+name: Build Windows AutoBuild
 
 on:
-  schedule:
-    # Offset from the macOS preview so the shared rolling tag usually exists first.
-    - cron: "27 3 * * *"
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      source_branch:
-        description: "Preview branch to build"
+      source_sha:
         required: true
-        default: "preview"
+        type: string
+      version:
+        required: true
+        type: string
+      build:
+        required: true
+        type: string
+      timestamp:
+        required: true
         type: string
 
 permissions:
   contents: read
 
-concurrency:
-  group: release-preview-windows
-  cancel-in-progress: false
-
-env:
-  PREVIEW_BRANCH: preview
-  PREVIEW_VERSION: 0.3.0
-  PREVIEW_TAG: preview-0.3.0
-
 jobs:
-  release:
-    name: Build and publish Windows preview
-    if: github.actor == github.repository_owner || github.event_name == 'schedule'
+  build:
+    name: Build Windows installer
     runs-on: windows-latest
     timeout-minutes: 60
-    permissions:
-      contents: write
-
     steps:
       - name: Check out preview source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+          ref: ${{ inputs.source_sha }}
 
       - name: Record source revision
         id: source
@@ -175,7 +166,11 @@ jobs:
       - name: Package Windows installer
         shell: pwsh
         env:
-          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+          VITE_UPDATE_CHANNEL: autobuild
+          LITHE_VERSION: ${{ inputs.version }}
+          LITHE_BUILD_NUMBER: ${{ inputs.build }}
+          LITHE_BUILD_TIMESTAMP: ${{ inputs.timestamp }}
+          LITHE_BUILD_GIT_SHA: ${{ inputs.source_sha }}
           LITHE_WINDOWS_TIMESTAMP_SERVER: ${{ secrets.WINDOWS_TIMESTAMP_SERVER }}
           WINDOWS_RELEASE_SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
@@ -193,34 +188,41 @@ jobs:
       - name: Verify installer checksum
         shell: pwsh
         run: |
-          $installer = "dist/Lithe-${{ env.PREVIEW_VERSION }}-windows-x64.exe"
+          $installer = "dist/Lithe-${{ inputs.version }}-windows-x64.exe"
           $expected = ((Get-Content "$installer.sha256" -Raw) -split '\s+')[0]
           $actual = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
           if ($expected -ne $actual) { throw "Installer checksum mismatch" }
 
-      - name: Create or update rolling preview Release
+      - name: Record shared artifact identity
+        shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ env.PREVIEW_TAG }}
-          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PREVIEW_BUILD: ${{ inputs.build }}
+          LITHE_BUILD_TIMESTAMP: ${{ inputs.timestamp }}
+          LITHE_VERSION: ${{ inputs.version }}
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:SOURCE_SHA) { throw "Source SHA mismatch" }
+          @{source=$actual;build=$env:PREVIEW_BUILD;timestamp=$env:LITHE_BUILD_TIMESTAMP;version=$env:LITHE_VERSION} |
+            ConvertTo-Json -Compress | Set-Content -Encoding utf8NoBOM dist/identity-windows-x64.json
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-autobuild
+          path: |
+            dist/identity-windows-x64.json
+            dist/Lithe-${{ inputs.version }}-windows-x64.exe
+            dist/Lithe-${{ inputs.version }}-windows-x64.exe.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Remove Authenticode credentials
+        if: always()
         shell: pwsh
         run: |
-          $notes = "Rolling Preview build from $env:SOURCE_SHA. This release is replaced by the next scheduled build. The Windows installer may be unsigned until an Authenticode certificate is configured."
-          $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $env:RELEASE_TAG `
-              --repo $env:GITHUB_REPOSITORY `
-              --target $env:SOURCE_SHA `
-              --title "Lithe $env:LITHE_VERSION Preview" `
-              --notes $notes `
-              --prerelease
-            if ($LASTEXITCODE -ne 0) {
-              $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
-              if ($LASTEXITCODE -ne 0) { throw "Could not create or find preview release $env:RELEASE_TAG" }
-            }
+          if ($env:LITHE_WINDOWS_CERTIFICATE_THUMBPRINT) {
+            $certificate = "Cert:\CurrentUser\My\$env:LITHE_WINDOWS_CERTIFICATE_THUMBPRINT"
+            if (Test-Path $certificate) { Remove-Item $certificate -Force }
           }
-          gh release upload $env:RELEASE_TAG `
-            "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe" `
-            "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe.sha256" `
-            --repo $env:GITHUB_REPOSITORY --clobber
+          $pfx = Join-Path $env:RUNNER_TEMP 'lithe-signing.pfx'
+          if (Test-Path $pfx) { Remove-Item $pfx -Force }
