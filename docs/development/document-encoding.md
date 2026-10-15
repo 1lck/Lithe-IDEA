@@ -24,7 +24,9 @@ Lithe 把“如何解码当前编辑器文本”和“下一次写入磁盘使�
 
 前端目录位于 `windows/tauri/src/platform/document-files.ts` 的 `DOCUMENT_ENCODING_CATALOG`，macOS 契约目录位于 `macos/Sources/LitheCoreContracts/Workspace/WorkspaceFileOperations.swift` 的 `DocumentEncoding.catalog`，Windows 原生目录位于 `windows/tauri/crates/project/src/document_file.rs` 的 `DocumentEncoding::CATALOG`。三个目录的 `stableId`、能力和 BOM 策略必须保持一致；真正的字节转换仍由平台适配器负责。
 
-UTF-16 目前只支持带 BOM 的 LE/BE。自动识别只认 BOM：不带 BOM 的 UTF-16 不会被猜测，仍按不可读处理；UTF-32 LE 的 BOM（`FF FE 00 00`）以 `FF FE` 开头，自动识别会明确排除它，避免被当成 UTF-16 LE 打开并改写。这两类文件需要用户显式选择编码重新打开；若要支持无 BOM 的 UTF-16，需要新增 stableId 与对应的三处目录、契约和 fixture。
+当前目录共 16 种编码：UTF-8、UTF-8 with BOM、UTF-16 LE/BE with BOM、UTF-16 LE/BE（无 BOM）、GBK、GB18030、Big5、Shift JIS、EUC-JP、EUC-KR、Windows-1250、Windows-1251、Windows-1252 和 KOI8-R。`Windows-1252` 同时接受 `ISO-8859-1`/`latin1` 别名（与 WHATWG 一致）；`EUC-KR` 实际是 CP949 超集，macOS 对应 `dosKorean`，`Big5` 在两端都含 HKSCS 扩展。
+
+自动识别只覆盖 UTF-8、带 BOM 的编码和 GBK 系：其余单字节和多字节编码的字节互相重叠，无法可靠猜测，因此只能由用户显式选择编码重新打开，不会因为“看起来像”而被自动选中。无 BOM 的 UTF-16 同理；UTF-32 LE 的 BOM（`FF FE 00 00`）以 `FF FE` 开头，自动识别会明确排除它，避免被当成 UTF-16 LE 打开并改写。UTF-32 目前不在目录内。
 
 ## 新增一种编码
 

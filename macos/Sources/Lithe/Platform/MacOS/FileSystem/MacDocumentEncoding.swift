@@ -60,12 +60,17 @@ enum MacDocumentEncoding {
         case .utf8, .utf8Bom: [0xEF, 0xBB, 0xBF]
         case .utf16LEBom: [0xFF, 0xFE]
         case .utf16BEBom: [0xFE, 0xFF]
-        case .gbk, .gb18030, .shiftJIS, .windows1252: []
+        case .utf16LE, .utf16BE, .gbk, .gb18030, .big5, .shiftJIS, .eucJP, .eucKR,
+             .windows1250, .windows1251, .windows1252, .koi8R: []
         }
     }
 
     private static func isUTF16(_ encoding: DocumentEncoding) -> Bool {
-        encoding == .utf16LEBom || encoding == .utf16BEBom
+        [.utf16LEBom, .utf16BEBom, .utf16LE, .utf16BE].contains(encoding)
+    }
+
+    private static func cfEncoding(_ encoding: CFStringEncodings) -> String.Encoding {
+        String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(encoding.rawValue)))
     }
 
     static func identity(_ bytes: Data) -> String {
@@ -120,12 +125,19 @@ enum MacDocumentEncoding {
     private static func codec(_ encoding: DocumentEncoding) -> String.Encoding {
         switch encoding {
         case .utf8, .utf8Bom: .utf8
-        case .utf16LEBom: .utf16LittleEndian
-        case .utf16BEBom: .utf16BigEndian
-        case .gbk: String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GBK_95.rawValue)))
-        case .gb18030: String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        case .utf16LEBom, .utf16LE: .utf16LittleEndian
+        case .utf16BEBom, .utf16BE: .utf16BigEndian
+        case .gbk: cfEncoding(.GBK_95)
+        case .gb18030: cfEncoding(.GB_18030_2000)
+        case .big5: cfEncoding(.big5_HKSCS_1999)
         case .shiftJIS: .shiftJIS
+        case .eucJP: .japaneseEUC
+        // WHATWG "EUC-KR" is the CP949 superset, which is what Windows tooling writes.
+        case .eucKR: cfEncoding(.dosKorean)
+        case .windows1250: .windowsCP1250
+        case .windows1251: .windowsCP1251
         case .windows1252: .windowsCP1252
+        case .koi8R: cfEncoding(.KOI8_R)
         }
     }
 }

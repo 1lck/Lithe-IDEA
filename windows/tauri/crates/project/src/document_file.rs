@@ -1,5 +1,8 @@
 //! Native local document persistence. Disk checks and replacement share one write gate.
-use encoding_rs::{Encoding, GB18030, GBK, SHIFT_JIS, UTF_8, UTF_16BE, UTF_16LE, WINDOWS_1252};
+use encoding_rs::{
+    BIG5, EUC_JP, EUC_KR, Encoding, GB18030, GBK, KOI8_R, SHIFT_JIS, UTF_8, UTF_16BE, UTF_16LE,
+    WINDOWS_1250, WINDOWS_1251, WINDOWS_1252,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 #[cfg(windows)]
@@ -65,10 +68,18 @@ pub enum DocumentEncoding {
     Utf8Bom,
     Utf16LeBom,
     Utf16BeBom,
+    Utf16Le,
+    Utf16Be,
     Gbk,
     Gb18030,
+    Big5,
     ShiftJis,
+    EucJp,
+    EucKr,
+    Windows1250,
+    Windows1251,
     Windows1252,
+    Koi8R,
 }
 
 impl DocumentEncoding {
@@ -96,7 +107,7 @@ impl DocumentEncoding {
             id: "UTF-16 LE with BOM",
             stable_id: "utf-16le-bom",
             display_name: "UTF-16 LE with BOM",
-            aliases: &["utf16le-bom", "utf-16le-bom", "utf-16le"],
+            aliases: &["utf16le-bom", "utf-16le-bom"],
             supports_read: true,
             supports_write: true,
             bom: DocumentEncodingBom::Utf16Le,
@@ -105,10 +116,28 @@ impl DocumentEncoding {
             id: "UTF-16 BE with BOM",
             stable_id: "utf-16be-bom",
             display_name: "UTF-16 BE with BOM",
-            aliases: &["utf16be-bom", "utf-16be-bom", "utf-16be"],
+            aliases: &["utf16be-bom", "utf-16be-bom"],
             supports_read: true,
             supports_write: true,
             bom: DocumentEncodingBom::Utf16Be,
+        },
+        DocumentEncodingDescriptor {
+            id: "UTF-16 LE",
+            stable_id: "utf-16le",
+            display_name: "UTF-16 LE",
+            aliases: &["utf16le"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
+            id: "UTF-16 BE",
+            stable_id: "utf-16be",
+            display_name: "UTF-16 BE",
+            aliases: &["utf16be"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
         },
         DocumentEncodingDescriptor {
             id: "GBK",
@@ -129,6 +158,15 @@ impl DocumentEncoding {
             bom: DocumentEncodingBom::None,
         },
         DocumentEncodingDescriptor {
+            id: "Big5",
+            stable_id: "big5",
+            display_name: "Big5",
+            aliases: &["cp950"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
             id: "Shift JIS",
             stable_id: "shift-jis",
             display_name: "Shift JIS",
@@ -138,10 +176,55 @@ impl DocumentEncoding {
             bom: DocumentEncodingBom::None,
         },
         DocumentEncodingDescriptor {
+            id: "EUC-JP",
+            stable_id: "euc-jp",
+            display_name: "EUC-JP",
+            aliases: &["eucjp"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
+            id: "EUC-KR",
+            stable_id: "euc-kr",
+            display_name: "EUC-KR",
+            aliases: &["euckr", "cp949"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
+            id: "Windows-1250",
+            stable_id: "windows-1250",
+            display_name: "Windows-1250",
+            aliases: &["cp1250"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
+            id: "Windows-1251",
+            stable_id: "windows-1251",
+            display_name: "Windows-1251",
+            aliases: &["cp1251"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
             id: "Windows-1252",
             stable_id: "windows-1252",
             display_name: "Windows-1252",
-            aliases: &["cp1252"],
+            aliases: &["cp1252", "iso-8859-1", "latin1"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
+            id: "KOI8-R",
+            stable_id: "koi8-r",
+            display_name: "KOI8-R",
+            aliases: &["koi8r"],
             supports_read: true,
             supports_write: true,
             bom: DocumentEncodingBom::None,
@@ -155,22 +238,36 @@ impl DocumentEncoding {
             Self::Utf8Bom => "UTF-8 with BOM",
             Self::Utf16LeBom => "UTF-16 LE with BOM",
             Self::Utf16BeBom => "UTF-16 BE with BOM",
+            Self::Utf16Le => "UTF-16 LE",
+            Self::Utf16Be => "UTF-16 BE",
             Self::Gbk => "GBK",
             Self::Gb18030 => "GB18030",
+            Self::Big5 => "Big5",
             Self::ShiftJis => "Shift JIS",
+            Self::EucJp => "EUC-JP",
+            Self::EucKr => "EUC-KR",
+            Self::Windows1250 => "Windows-1250",
+            Self::Windows1251 => "Windows-1251",
             Self::Windows1252 => "Windows-1252",
+            Self::Koi8R => "KOI8-R",
         }
     }
 
     fn codec(self) -> &'static Encoding {
         match self {
             Self::Utf8 | Self::Utf8Bom => UTF_8,
-            Self::Utf16LeBom => UTF_16LE,
-            Self::Utf16BeBom => UTF_16BE,
+            Self::Utf16LeBom | Self::Utf16Le => UTF_16LE,
+            Self::Utf16BeBom | Self::Utf16Be => UTF_16BE,
             Self::Gbk => GBK,
             Self::Gb18030 => GB18030,
+            Self::Big5 => BIG5,
             Self::ShiftJis => SHIFT_JIS,
+            Self::EucJp => EUC_JP,
+            Self::EucKr => EUC_KR,
+            Self::Windows1250 => WINDOWS_1250,
+            Self::Windows1251 => WINDOWS_1251,
             Self::Windows1252 => WINDOWS_1252,
+            Self::Koi8R => KOI8_R,
         }
     }
 
@@ -184,16 +281,20 @@ impl DocumentEncoding {
         {
             "utf-8" | "utf8" => Ok(Self::Utf8),
             "utf-8 with bom" | "utf8-bom" | "utf-8-bom" => Ok(Self::Utf8Bom),
-            "utf-16 le with bom" | "utf16le-bom" | "utf-16le-bom" | "utf-16le" => {
-                Ok(Self::Utf16LeBom)
-            }
-            "utf-16 be with bom" | "utf16be-bom" | "utf-16be-bom" | "utf-16be" => {
-                Ok(Self::Utf16BeBom)
-            }
-            "gbk" => Ok(Self::Gbk),
+            "utf-16 le with bom" | "utf16le-bom" | "utf-16le-bom" => Ok(Self::Utf16LeBom),
+            "utf-16 be with bom" | "utf16be-bom" | "utf-16be-bom" => Ok(Self::Utf16BeBom),
+            "utf-16 le" | "utf-16le" | "utf16le" => Ok(Self::Utf16Le),
+            "utf-16 be" | "utf-16be" | "utf16be" => Ok(Self::Utf16Be),
+            "gbk" | "cp936" => Ok(Self::Gbk),
             "gb18030" => Ok(Self::Gb18030),
+            "big5" | "cp950" => Ok(Self::Big5),
             "shift jis" | "shift-jis" | "shift_jis" => Ok(Self::ShiftJis),
-            "windows-1252" | "cp1252" => Ok(Self::Windows1252),
+            "euc-jp" | "eucjp" => Ok(Self::EucJp),
+            "euc-kr" | "euckr" | "cp949" => Ok(Self::EucKr),
+            "windows-1250" | "cp1250" => Ok(Self::Windows1250),
+            "windows-1251" | "cp1251" => Ok(Self::Windows1251),
+            "windows-1252" | "cp1252" | "iso-8859-1" | "latin1" => Ok(Self::Windows1252),
+            "koi8-r" | "koi8r" => Ok(Self::Koi8R),
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Unsupported document encoding",
@@ -210,7 +311,18 @@ impl DocumentEncoding {
             Self::Utf8 | Self::Utf8Bom => &[0xEF, 0xBB, 0xBF],
             Self::Utf16LeBom => &[0xFF, 0xFE],
             Self::Utf16BeBom => &[0xFE, 0xFF],
-            Self::Gbk | Self::Gb18030 | Self::ShiftJis | Self::Windows1252 => &[],
+            Self::Utf16Le
+            | Self::Utf16Be
+            | Self::Gbk
+            | Self::Gb18030
+            | Self::Big5
+            | Self::ShiftJis
+            | Self::EucJp
+            | Self::EucKr
+            | Self::Windows1250
+            | Self::Windows1251
+            | Self::Windows1252
+            | Self::Koi8R => &[],
         }
     }
 
@@ -248,8 +360,12 @@ impl DocumentEncoding {
         // encoding_rs only decodes UTF-16; its encoder falls back to UTF-8, so
         // the code units are serialized here.
         match self {
-            Self::Utf16LeBom => return Ok(self.encode_utf16(text, u16::to_le_bytes)),
-            Self::Utf16BeBom => return Ok(self.encode_utf16(text, u16::to_be_bytes)),
+            Self::Utf16LeBom | Self::Utf16Le => {
+                return Ok(self.encode_utf16(text, u16::to_le_bytes));
+            }
+            Self::Utf16BeBom | Self::Utf16Be => {
+                return Ok(self.encode_utf16(text, u16::to_be_bytes));
+            }
             _ => {}
         }
         let (encoded, _, had_errors) = self.codec().encode(text);
@@ -1022,12 +1138,61 @@ mod tests {
     #[test]
     fn catalog_has_unique_stable_ids_and_protocol_labels() {
         let mut stable_ids = std::collections::HashSet::new();
-        assert_eq!(DocumentEncoding::CATALOG.len(), 8);
+        assert_eq!(DocumentEncoding::CATALOG.len(), 16);
         for descriptor in DocumentEncoding::CATALOG {
             assert!(stable_ids.insert(descriptor.stable_id));
             assert!(!descriptor.id.is_empty());
             assert!(descriptor.supports_read || descriptor.supports_write);
+            // Every name a caller may send must resolve to the descriptor it belongs to.
+            for name in [descriptor.id, descriptor.stable_id]
+                .into_iter()
+                .chain(descriptor.aliases.iter().copied())
+            {
+                assert_eq!(
+                    DocumentEncoding::parse(Some(name)).unwrap().label(),
+                    descriptor.id,
+                    "{name}"
+                );
+            }
         }
+    }
+
+    #[test]
+    fn common_legacy_and_unmarked_unicode_encodings_round_trip_explicitly() {
+        let directory = Directory::new();
+        for (label, text, expected) in [
+            ("UTF-16 LE", "A中", &[0x41, 0x00, 0x2D, 0x4E][..]),
+            ("UTF-16 BE", "A中", &[0x00, 0x41, 0x4E, 0x2D][..]),
+            ("Big5", "中文", &[0xA4, 0xA4, 0xA4, 0xE5][..]),
+            ("EUC-JP", "日本", &[0xC6, 0xFC, 0xCB, 0xDC][..]),
+            ("EUC-KR", "한글", &[0xC7, 0xD1, 0xB1, 0xDB][..]),
+            ("Windows-1250", "Łódź", &[0xA3, 0xF3, 0x64, 0x9F][..]),
+            (
+                "Windows-1251",
+                "Привет",
+                &[0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2][..],
+            ),
+            (
+                "KOI8-R",
+                "Привет",
+                &[0xF0, 0xD2, 0xC9, 0xD7, 0xC5, 0xD4][..],
+            ),
+        ] {
+            let encoding = DocumentEncoding::parse(Some(label)).unwrap();
+            let bytes = encoding.encode(text).unwrap();
+            assert_eq!(bytes, expected, "{label}");
+
+            let path = directory.0.join(format!("{}.txt", encoding.label()));
+            fs::write(&path, &bytes).unwrap();
+            let read = read_document_with_encoding(&path, Some(label))
+                .unwrap()
+                .unwrap();
+            assert_eq!(read.content, text, "{label}");
+            assert_eq!(read.encoding, label);
+        }
+        // Characters the target codec cannot hold are rejected before any bytes are produced.
+        assert!(DocumentEncoding::Windows1251.encode("中").is_err());
+        assert!(DocumentEncoding::Big5.encode("한").is_err());
     }
 
     #[cfg(windows)]

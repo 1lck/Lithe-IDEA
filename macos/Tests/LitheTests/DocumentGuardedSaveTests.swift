@@ -83,6 +83,50 @@ struct DocumentGuardedSaveTests {
         }
     }
 
+    // The byte vectors match the Windows backend's test so both platforms write identical files.
+    @Test(arguments: [
+        (DocumentEncoding.utf16LE, "A中", [UInt8]([0x41, 0x00, 0x2D, 0x4E])),
+        (DocumentEncoding.utf16BE, "A中", [UInt8]([0x00, 0x41, 0x4E, 0x2D])),
+        (DocumentEncoding.big5, "中文", [UInt8]([0xA4, 0xA4, 0xA4, 0xE5])),
+        (DocumentEncoding.eucJP, "日本", [UInt8]([0xC6, 0xFC, 0xCB, 0xDC])),
+        (DocumentEncoding.eucKR, "한글", [UInt8]([0xC7, 0xD1, 0xB1, 0xDB])),
+        (DocumentEncoding.windows1250, "Łódź", [UInt8]([0xA3, 0xF3, 0x64, 0x9F])),
+        (DocumentEncoding.windows1251, "Привет", [UInt8]([0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2])),
+        (DocumentEncoding.koi8R, "Привет", [UInt8]([0xF0, 0xD2, 0xC9, 0xD7, 0xC5, 0xD4])),
+    ])
+    func documentEncodingWritesAndReadsCommonEncodingsExplicitly(
+        encoding: DocumentEncoding, text: String, bytes: [UInt8]
+    ) throws {
+        try withFile { url, files in
+            guard case .saved = try files.writeDocumentText(
+                text, to: url, expectedContent: nil, encoding: encoding, expectedIdentity: nil
+            ) else { Issue.record("Expected \(encoding) save"); return }
+            #expect(Array(try Data(contentsOf: url)) == bytes)
+            let details = try files.readDocumentDetails(from: url, encoding: encoding)
+            #expect(details?.text == text)
+            #expect(details?.encoding == encoding)
+        }
+    }
+
+    @Test func documentEncodingRejectsCharactersMissingFromTheTargetCodec() throws {
+        try withFile { url, files in
+            for (encoding, text) in [(DocumentEncoding.windows1251, "中"), (.big5, "한")] {
+                #expect(throws: CocoaError.self) {
+                    _ = try files.writeDocumentText(
+                        text, to: url, expectedContent: nil, encoding: encoding, expectedIdentity: nil
+                    )
+                }
+            }
+        }
+    }
+
+    @Test func documentEncodingCatalogHasSixteenUniqueStableIDs() {
+        #expect(DocumentEncoding.catalog.count == 16)
+        for descriptor in DocumentEncoding.catalog {
+            #expect(DocumentEncoding.catalog.filter { $0.stableID == descriptor.stableID }.count == 1)
+        }
+    }
+
     @Test func documentEncodingDoesNotMistakeUTF32LEBOMForUTF16() throws {
         try withFile { url, files in
             // "A" as UTF-32 LE with BOM: its first two bytes equal the UTF-16 LE mark.
