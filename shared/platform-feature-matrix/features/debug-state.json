@@ -20,6 +20,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Debug",
-  "verification": "验证变量分页、异常信息、step filters、暂停/继续和 disconnect policy。 Windows验证DAP请求信封、初始断点先于launch入队、暂停线程与线程列表、继续后清空暂停状态、快速单步/失败回滚，以及并发Stop等待同一资源清理。",
+  "verification": "验证变量分页、异常信息、step filters、暂停/继续和 disconnect policy。 Windows验证DAP请求信封、初始断点先于launch入队、暂停线程与线程列表、继续后清空暂停状态、快速单步/失败回滚，以及并发Stop等待同一资源清理。macOS Debug 与 Run 复用 OutputTextView 的 IDEA 控制台入口，检查 13pt 字体、ANSI 明暗配色及源码链接高亮一致，不按日志级别给普通输出整行重新着色。",
   "notes": "Windows 真实调试产品链路仍在 #466 跟进。 本次Windows改动保留Core/JDT的DAP及Java目标所有权，仅修复前端事件、请求和资源生命周期；完整界面及跨平台验收保持pending。"
 }
