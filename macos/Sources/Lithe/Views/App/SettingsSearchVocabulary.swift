@@ -31,6 +31,8 @@ enum SettingsSearchVocabulary {
             ["LSP", "Language server"]
         case .ai:
             ["AI & Commit", "Commit message", "Pull request"]
+        case .agents:
+            ["Agents", "Agent conversation", "Codex", "Claude", "ACP adapter", "Preflight", "Providers"]
         case .providers:
             ["AI Providers", "AI provider", "Model", "API key", "Endpoint", "Responses", "Anthropic"]
         case .git:

@@ -2,51 +2,51 @@ import SwiftUI
 import LitheAgentConversationModule
 
 enum AgentTurnStatisticsPresentation {
-    static func duration(_ seconds: TimeInterval) -> String {
+    static func duration(_ seconds: TimeInterval, locale: Locale = .current) -> String {
         guard seconds.isFinite, seconds < Double(Int.max) else { return "—" }
         let total = Int(max(0, seconds.rounded(.down)))
         if total >= 3600 {
-            return String(format: String(localized: "%lldh %lldm %llds"), total / 3600, total / 60 % 60, total % 60)
+            return String(format: AgentLocalization.string("%lldh %lldm %llds", locale: locale), total / 3600, total / 60 % 60, total % 60)
         }
         if total >= 60 {
-            return String(format: String(localized: "%lldm %llds"), total / 60, total % 60)
+            return String(format: AgentLocalization.string("%lldm %llds", locale: locale), total / 60, total % 60)
         }
-        return String(format: String(localized: "%llds"), total)
+        return String(format: AgentLocalization.string("%llds", locale: locale), total)
     }
 
     static func input(_ usage: AgentTurnUsage, locale: Locale) -> String {
-        String(format: String(localized: "Input: %@"), usage.inputTokens.formatted(.number.locale(locale)))
+        String(format: AgentLocalization.string("Input: %@", locale: locale), usage.inputTokens.formatted(.number.locale(locale)))
     }
 
     static func output(_ usage: AgentTurnUsage, locale: Locale) -> String {
-        String(format: String(localized: "Output: %@"), usage.outputTokens.formatted(.number.locale(locale)))
+        String(format: AgentLocalization.string("Output: %@", locale: locale), usage.outputTokens.formatted(.number.locale(locale)))
     }
 
     /// `3 calls · TTFT 0.8s · 120 tok/s · non-streaming`, from proxy observations only.
     static func modelCalls(_ calls: AgentModelCallTotals, locale: Locale) -> String? {
         guard calls.callCount > 0 else { return nil }
-        var parts = [String(format: String(localized: "%lld model calls"), calls.callCount)]
+        var parts = [String(format: AgentLocalization.string("%lld model calls", locale: locale), calls.callCount)]
         if let firstToken = calls.averageFirstToken {
-            parts.append(String(format: String(localized: "TTFT %@"), AgentSessionStatusPresentation.latency(firstToken, locale: locale)))
+            parts.append(String(format: AgentLocalization.string("TTFT %@", locale: locale), AgentSessionStatusPresentation.latency(firstToken, locale: locale)))
         }
         if let rate = calls.outputTokensPerSecond {
             parts.append(AgentSessionStatusPresentation.rate(rate, locale: locale))
         }
         if calls.nonStreamingCount > 0 {
             parts.append(calls.nonStreamingCount == calls.callCount
-                         ? String(localized: "Non-streaming")
-                         : String(format: String(localized: "%lld non-streaming"), calls.nonStreamingCount))
+                         ? AgentLocalization.string("Non-streaming", locale: locale)
+                         : String(format: AgentLocalization.string("%lld non-streaming", locale: locale), calls.nonStreamingCount))
         }
         return parts.joined(separator: " · ")
     }
 
     static func details(_ usage: AgentTurnUsage, locale: Locale) -> String {
-        var lines = [String(localized: "Token counts reported by the Agent. Accounting scope depends on the Agent."),
+        var lines = [AgentLocalization.string("Token counts reported by the Agent. Accounting scope depends on the Agent.", locale: locale),
                      input(usage, locale: locale), output(usage, locale: locale),
-                     String(format: String(localized: "Total tokens: %@"), usage.totalTokens.formatted(.number.locale(locale)))]
-        for (label, count) in [(String(localized: "Reasoning tokens: %@"), usage.thoughtTokens),
-                               (String(localized: "Cache read tokens: %@"), usage.cachedReadTokens),
-                               (String(localized: "Cache write tokens: %@"), usage.cachedWriteTokens)] {
+                     String(format: AgentLocalization.string("Total tokens: %@", locale: locale), usage.totalTokens.formatted(.number.locale(locale)))]
+        for (label, count) in [(AgentLocalization.string("Reasoning tokens: %@", locale: locale), usage.thoughtTokens),
+                               (AgentLocalization.string("Cache read tokens: %@", locale: locale), usage.cachedReadTokens),
+                               (AgentLocalization.string("Cache write tokens: %@", locale: locale), usage.cachedWriteTokens)] {
             if let count { lines.append(String(format: label, count.formatted(.number.locale(locale)))) }
         }
         return lines.joined(separator: "\n")
@@ -55,6 +55,7 @@ enum AgentTurnStatisticsPresentation {
 
 /// Only the visible waiting row ticks; it never republishes the conversation.
 struct AgentResponseStatusRow: View {
+    @Environment(\.locale) private var locale
     var responseStatus: AgentResponseStatus = .waiting
     var startedAt: ContinuousClock.Instant?
     var hasStreamingThought = false
@@ -69,26 +70,26 @@ struct AgentResponseStatusRow: View {
     }
 
     var quietNotice: String {
-        String(localized: responseStatus == .retrying
+        AgentLocalization.string(responseStatus == .retrying
                ? "Connection recovery is taking longer. The Agent is still retrying."
-               : "No recent progress has been received. The task is still active.")
+               : "No recent progress has been received. The task is still active.", locale: locale)
     }
 
     var status: String {
         switch responseStatus {
-        case .preparing: String(localized: "Preparing conversation…")
-        case .waiting: String(localized: "Waiting for Agent response…")
-        case .thinking: String(localized: hasStreamingThought ? "Responding…" : "Thinking…")
-        case .responding: String(localized: "Responding…")
-        case .runningTools: String(localized: "Running tools…")
-        case .waitingForPermission: String(localized: "Waiting for permission…")
+        case .preparing: AgentLocalization.string("Preparing conversation…", locale: locale)
+        case .waiting: AgentLocalization.string("Waiting for Agent response…", locale: locale)
+        case .thinking: AgentLocalization.string(hasStreamingThought ? "Responding…" : "Thinking…", locale: locale)
+        case .responding: AgentLocalization.string("Responding…", locale: locale)
+        case .runningTools: AgentLocalization.string("Running tools…", locale: locale)
+        case .waitingForPermission: AgentLocalization.string("Waiting for permission…", locale: locale)
         case .retrying:
             if let retryAttempt, let retryMaxAttempts {
-                String(format: String(localized: "Reconnecting %d/%d…"), retryAttempt, retryMaxAttempts)
+                String(format: AgentLocalization.string("Reconnecting %d/%d…", locale: locale), retryAttempt, retryMaxAttempts)
             } else {
-                String(localized: "Reconnecting…")
+                AgentLocalization.string("Reconnecting…", locale: locale)
             }
-        case .stopping: String(localized: "Stopping…")
+        case .stopping: AgentLocalization.string("Stopping…", locale: locale)
         }
     }
 
@@ -100,7 +101,7 @@ struct AgentResponseStatusRow: View {
                     Text(status).accessibilityIdentifier("agent-response-status")
                     if let startedAt {
                         let elapsed = AgentTurnStatistics(id: "waiting", startedAt: startedAt).elapsed(at: .now)
-                        Text(AgentTurnStatisticsPresentation.duration(elapsed)).monospacedDigit()
+                        Text(AgentTurnStatisticsPresentation.duration(elapsed, locale: locale)).monospacedDigit()
                     }
                 }
                 .font(LitheTheme.uiFont(size: 12))
@@ -152,8 +153,8 @@ struct AgentTurnStatisticsView: View {
     }
 
     private var elapsed: some View {
-        Label(String(format: String(localized: "Elapsed: %@"),
-                     AgentTurnStatisticsPresentation.duration(statistics.duration ?? 0)), systemImage: "clock")
+        Label(String(format: AgentLocalization.string("Elapsed: %@", locale: locale),
+                     AgentTurnStatisticsPresentation.duration(statistics.duration ?? 0, locale: locale)), systemImage: "clock")
             .fixedSize()
             .help("Elapsed since sending, including tools and permission waits.")
     }

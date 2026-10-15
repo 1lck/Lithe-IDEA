@@ -181,6 +181,7 @@ struct EditorAreaView: View {
 
 
     private var activeItem: EditorTabItem? {
+        if model.isAgentEditorSelected { return .agentConversation }
         if model.isDatabaseWorkspaceSelected { return model.activeDatabaseEditorTab }
         if model.isRepositoryDiffSelected { return .repositoryDiff }
         return model.activeEditorTerminalSession.map { .terminal($0.id) }
@@ -217,28 +218,14 @@ struct EditorAreaView: View {
         if paneTerminal == nil,
            let document = paneDocument,
            document.hasExternalConflict {
-            HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(LitheTheme.warning)
+            LitheBanner(status: .warning, layout: .editor) {
                 Text(LocalizedStringKey(document.externalFileMissing ? "This file was deleted outside Lithe. Your editor content is preserved." : "This file changed outside Lithe while you had unsaved edits."))
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                Spacer()
-                Button(LocalizedStringKey(document.externalFileMissing ? "Allow Recreating File" : "Keep Editor")) { model.keepEditorVersion(of: document) }
-                    .buttonStyle(.bordered)
-                    .lithePointer()
-                    .controlSize(.small)
-                Button("Load Disk Version") { model.loadExternalVersion(of: document) }
-                    .disabled(document.externalFileMissing)
-                    .buttonStyle(.borderedProminent)
-                    .lithePointer()
-                    .tint(LitheTheme.warning)
-                    .controlSize(.small)
+                HStack(spacing: LitheTheme.Banner.actionGap) {
+                    Button(LocalizedStringKey(document.externalFileMissing ? "Allow Recreating File" : "Keep Editor")) { model.keepEditorVersion(of: document) }
+                    Button("Load Disk Version") { model.loadExternalVersion(of: document) }
+                        .disabled(document.externalFileMissing)
+                }
             }
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 12)
-            .frame(height: 42)
-            .background(Color.orange.opacity(0.10))
-            Rectangle().fill(LitheTheme.warning.opacity(0.35)).frame(height: 1)
         }
     }
 
@@ -364,6 +351,8 @@ struct EditorAreaView: View {
                     databaseTab(overview: false, profileID: profileID)
                 case let .databaseQuery(profileID, queryID):
                     databaseTab(overview: false, profileID: profileID, queryID: queryID)
+                case .agentConversation:
+                    agentConversationTab
                 case .repositoryDiff:
                     repositoryDiffTab
                 case .document(let documentID):
@@ -453,6 +442,26 @@ struct EditorAreaView: View {
         .padding(.horizontal, 4).padding(.vertical, 4)
         .onHover { updateHoveredTab(item, isHovering: $0) }
         .background { editorTabFrameReader(for: item) }
+    }
+
+    private var agentConversationTab: some View {
+        let selected = paneItem == .agentConversation
+        return HStack(spacing: 0) {
+            AgentEditorTabTitle(model: model)
+                .padding(.leading, 8).frame(height: 28).contentShape(Rectangle())
+                .onTapGesture { model.selectEditorTab(.agentConversation) }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { model.selectEditorTab(.agentConversation) }
+            LitheToolWindowTabCloseButton { model.showAgentChatsInToolWindow() }
+                .opacity(selected || hoveredTabItem == .agentConversation ? 1 : 0)
+                .allowsHitTesting(selected || hoveredTabItem == .agentConversation)
+        }
+        .foregroundStyle(selected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+        .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorGroupIsActive))
+        .padding(.horizontal, 4).padding(.vertical, 4)
+        .onHover { updateHoveredTab(.agentConversation, isHovering: $0) }
+        .background { editorTabFrameReader(for: .agentConversation) }
+        .zIndex(tabDragState.draggedItem == .agentConversation ? 1 : 0)
     }
 
     private var repositoryDiffTab: some View {
@@ -801,6 +810,7 @@ struct EditorAreaView: View {
 
     private func closeEditorTab(_ item: EditorTabItem) {
         switch item {
+        case .agentConversation: model.showAgentChatsInToolWindow()
         case .databaseOverview:
             model.closeDatabaseWorkspace(overview: true)
         case .database, .databaseQuery:
@@ -847,6 +857,7 @@ struct EditorAreaView: View {
     @ViewBuilder
     private func tabDragLabel(_ item: EditorTabItem) -> some View {
         switch item {
+        case .agentConversation: AgentEditorTabTitle(model: model)
         case .databaseOverview:
             LitheIDEAIcon(resourcePath: "database/expui/dbms@20x20.svg", size: 16)
             Text("Database Overview")
@@ -1179,7 +1190,9 @@ struct EditorAreaView: View {
                 })
             LitheToolWindowHeaderDivider()
 
-            if let item = paneItem, item.isDatabaseTab, let feature = model.databaseFeatureIfActive {
+            if paneItem == .agentConversation {
+                AgentConversationView(model: model, isEditor: true)
+            } else if let item = paneItem, item.isDatabaseTab, let feature = model.databaseFeatureIfActive {
                 Group {
                     if item == .databaseOverview { DatabaseOverviewView() }
                     else if case .databaseQuery = item { DatabaseSQLWorkspaceView() }

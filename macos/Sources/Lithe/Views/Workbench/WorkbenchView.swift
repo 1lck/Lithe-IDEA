@@ -250,6 +250,7 @@ struct WorkbenchView: View {
 
             statusBar
         }
+        .environment(\.workbenchHasBackgroundImage, model.workbenchBackgroundFeature.hasImage)
         .coordinateSpace(name: WorkbenchFrameGradient.coordinateSpace)
         .background {
             if let feature = model.gitFeatureIfActive { GitAuthenticationHost(feature: feature) }

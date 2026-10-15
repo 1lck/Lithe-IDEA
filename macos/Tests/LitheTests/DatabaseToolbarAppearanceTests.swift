@@ -57,7 +57,7 @@ struct DatabaseToolbarAppearanceTests {
             "expui/general/add.svg", "expui/actions/newFolder.svg", "expui/general/import.svg",
             "expui/general/collapseAll.svg", "expui/general/refresh.svg", "expui/fileTypes/shell.svg",
             "expui/general/history.svg", "expui/general/previewVertically.svg", "expui/general/filter.svg", "expui/general/sortBy.svg",
-            "expui/toolwindows/structure.svg", "expui/actions/checked.svg", "expui/general/undo.svg", "expui/general/moreHorizontal.svg",
+            "expui/toolwindows/structure.svg", "expui/actions/checked.svg", "expui/general/undo.svg", "expui/general/moreHorizontal.svg", "expui/general/previewVertically.svg",
             "expui/general/upload.svg", "expui/general/reset.svg", "expui/general/chevronDown.svg", "expui/general/chevronLeft.svg", "expui/general/chevronRight.svg",
             "general/arrowSplitCenterV.svg", "general/arrowUp.svg", "general/arrowDown.svg",
             "expui/general/delete.svg", "expui/general/edit.svg", "expui/status/warning.svg", "expui/nodes/dataTables.svg",
