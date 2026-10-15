@@ -174,42 +174,26 @@ extension AppModel {
         }
     }
 
-    var isDebugStandardInputAvailable: Bool {
-        guard let terminalFeature else { return false }
-        let debugSessionID = genericDebugFeatureIfActive?.activeSessionID
-        let scopedIDs = debugSessionID.flatMap { debugTerminalSessionIDsByDebugSession[$0] } ?? []
-        let candidateIDs = [debugSessionID.flatMap { activeDebugTerminalSessionIDsByDebugSession[$0] }]
-            .compactMap { $0 }
-            + scopedIDs.sorted(by: { $0.uuidString < $1.uuidString })
-            + [activeDebugTerminalSessionID].compactMap { $0 }
-            + debugTerminalSessionIDs.sorted(by: { $0.uuidString < $1.uuidString })
-        return candidateIDs.contains { sessionID in
-            guard let session = terminalFeature.terminalSessions.first(where: { $0.id == sessionID }) else {
-                return false
-            }
-            return session.isRunning && session.isReady
+    private var debugStandardInputSessionID: UUID? {
+        guard let terminalFeature else { return nil }
+        let candidateIDs: [UUID]
+        if let debugSessionID = genericDebugFeatureIfActive?.activeSessionID {
+            candidateIDs = [activeDebugTerminalSessionIDsByDebugSession[debugSessionID]].compactMap { $0 }
+                + (debugTerminalSessionIDsByDebugSession[debugSessionID] ?? []).sorted { $0.uuidString < $1.uuidString }
+        } else {
+            candidateIDs = [activeDebugTerminalSessionID].compactMap { $0 }
+                + debugTerminalSessionIDs.sorted { $0.uuidString < $1.uuidString }
+        }
+        return candidateIDs.first { id in
+            terminalFeature.terminalSessions.contains { $0.id == id && $0.isRunning && $0.isReady }
         }
     }
 
+    var isDebugStandardInputAvailable: Bool { debugStandardInputSessionID != nil }
+
     @discardableResult
     func sendDebugStandardInput(_ input: String) -> Bool {
-        guard !input.isEmpty, let terminalFeature else {
-            showNotification("No running debug process accepts standard input")
-            return false
-        }
-        let debugSessionID = genericDebugFeatureIfActive?.activeSessionID
-        let scopedIDs = debugSessionID.flatMap { debugTerminalSessionIDsByDebugSession[$0] } ?? []
-        let candidateIDs = [debugSessionID.flatMap { activeDebugTerminalSessionIDsByDebugSession[$0] }]
-            .compactMap { $0 }
-            + scopedIDs.sorted(by: { $0.uuidString < $1.uuidString })
-            + [activeDebugTerminalSessionID].compactMap { $0 }
-            + debugTerminalSessionIDs.sorted(by: { $0.uuidString < $1.uuidString })
-        guard let sessionID = candidateIDs.first(where: { sessionID in
-            guard let session = terminalFeature.terminalSessions.first(where: { $0.id == sessionID }) else {
-                return false
-            }
-            return session.isRunning && session.isReady
-        }) else {
+        guard !input.isEmpty, let terminalFeature, let sessionID = debugStandardInputSessionID else {
             showNotification("No running debug process accepts standard input")
             return false
         }

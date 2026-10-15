@@ -119,6 +119,51 @@ struct DebugModuleTests {
         #expect(feature.output == "\u{001B}[31mready\u{001B}[0m\nnext\n")
     }
 
+    @Test(arguments: [false, true], [8, 72])
+    func boundedConsoleOutputPreservesSGRAcrossChunksAndSessions(background: Bool, padding: Int) throws {
+        var adapters: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [
+            DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
+        ]) { _, _ in
+            let adapter = DeferredInspectionDebugSession()
+            adapters.append(adapter)
+            return adapter
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/workspace/bounded-output")
+        let source = root.appendingPathComponent("Main.java")
+        let configuration = DebugLaunchConfiguration(name: "Main", request: .launch, arguments: [:])
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        let first = try #require(feature.activeSessionID)
+        if background { #expect(feature.startAdditional(fileURL: source, rootURL: root, configuration: configuration)) }
+        func emit(_ text: String) { adapters[0].emit(.output(category: "stdout", output: text)) }
+        emit(String(repeating: "x", count: padding))
+        emit("\u{001B}[3")
+        emit("1m")
+        // Exercise both the old cut (10) and the reserved-prefix cut (74) inside SGR.
+        emit(String(repeating: "y", count: 400_010 - padding - "\u{001B}[31m".count))
+        if background { #expect(feature.selectSession(first)) }
+        #expect(feature.output.count <= 400_000)
+        #expect(feature.output.hasPrefix("\u{001B}[0;31m"))
+        #expect(feature.output.dropFirst("\u{001B}[0;31m".count).allSatisfy { $0 == "y" })
+    }
+
+    @Test(arguments: ["31", "38;5;196", "38;2;4;5;6"])
+    func boundedConsoleOutputRebuildsCombinedColorsAndHonorsResets(foreground: String) {
+        let feature = GenericDebugFeatureModel(sessions: DebugAdapterSessionManager(providers: []) { _, _ in nil })
+        defer { feature.reset() }
+        feature.appendDebuggeeOutput("\u{001B}[\(foreground)m\u{001B}[1m\u{001B}[48;2;1;2;3m" + String(repeating: "🙂", count: 400_000))
+        #expect(feature.output.count <= 400_000)
+        #expect(feature.output.hasPrefix("\u{001B}[0;1;\(foreground);48;2;1;2;3m"))
+        feature.appendDebuggeeOutput("\u{001B}[22;39;49m" + String(repeating: "z", count: 400_000))
+        #expect(feature.output.count <= 400_000)
+        #expect(feature.output.allSatisfy { $0 == "z" })
+        feature.clearOutput()
+        feature.appendDebuggeeOutput(String(repeating: "🙂", count: 400_010))
+        #expect(feature.output == String(repeating: "🙂", count: 400_000))
+    }
+
     @Test
     func debuggeeOutputRejectsOversizedOrPrivateCSIAndPreservesFollowingText() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }

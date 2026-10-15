@@ -2612,9 +2612,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     private func append(_ text: String) {
         output += text
-        if output.count > maximumOutputCharacters {
-            output.removeFirst(output.count - maximumOutputCharacters)
-        }
+        trimOutput(&output)
         if !hasOutput { hasOutput = true }
         outputPresentation.schedule { [weak self] in self?.output ?? "" }
     }
@@ -2639,10 +2637,59 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         return "Port \(port) is already in use. Stop the process using it or change server.port in the Run configuration."
     }
 
+    /// Trim only at complete SGR boundaries and replay the retained text's style.
+    private func trimOutput(_ output: inout String) {
+        let count = output.count
+        guard count > maximumOutputCharacters else { return }
+        // Canonical reset/bold/two RGB colors use at most 45 ASCII characters.
+        // Reserve 64 so the restored state never pushes the buffer past its cap.
+        let reserve = output.contains("\u{001B}[") ? 64 : 0
+        let boundary = output.index(output.startIndex, offsetBy: count - maximumOutputCharacters + reserve)
+        var cut = NSRange(output.startIndex..<boundary, in: output).length
+        var bold = false
+        var foreground: [Int] = []
+        var background: [Int] = []
+        let source = output as NSString
+        // ponytail: match the Console renderer's three supported style properties.
+        // Add state categories here when ANSIOutputRenderer gains more SGR attributes.
+        let expression = try! NSRegularExpression(pattern: "\u{001B}\\[([0-9;]*)m")
+        expression.enumerateMatches(in: output, range: NSRange(location: 0, length: source.length)) { match, _, stop in
+            guard let match, match.range.location < cut else { stop.pointee = true; return }
+            cut = max(cut, NSMaxRange(match.range))
+            let parameters = source.substring(with: match.range(at: 1))
+            let codes = parameters.isEmpty ? [0] : parameters.split(separator: ";").compactMap { Int($0) }
+            var index = 0
+            while index < codes.count {
+                let code = codes[index]
+                switch code {
+                case 0: bold = false; foreground = []; background = []
+                case 1: bold = true
+                case 22: bold = false
+                case 30...37, 90...97: foreground = [code]
+                case 39: foreground = []
+                case 40...47, 100...107: background = [code]
+                case 49: background = []
+                case 38, 48:
+                    let extra = index + 1 < codes.count ? (codes[index + 1] == 5 ? 2 : codes[index + 1] == 2 ? 4 : 0) : 0
+                    if extra > 0, index + extra < codes.count {
+                        if codes[(index + 2)...(index + extra)].allSatisfy({ (0...255).contains($0) }) {
+                            let color = Array(codes[index...(index + extra)])
+                            if code == 38 { foreground = color } else { background = color }
+                        }
+                        index += extra
+                    }
+                default: break
+                }
+                index += 1
+            }
+        }
+        let codes = (bold ? [1] : []) + foreground + background
+        let prefix = codes.isEmpty ? "" : "\u{001B}[0;" + codes.map(String.init).joined(separator: ";") + "m"
+        output = prefix + source.substring(from: cut)
+    }
+
     private func append(_ text: String, to output: inout String) {
         output += text
-        if output.count > maximumOutputCharacters {
-            output.removeFirst(output.count - maximumOutputCharacters)
-        }
+        trimOutput(&output)
     }
 }
