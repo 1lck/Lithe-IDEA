@@ -891,6 +891,7 @@ private enum CommitTab: String, CaseIterable, Identifiable {
 /// ChangesTreeCellRenderer uses a 24pt ThreeStateCheckBox with a 16pt painted square.
 struct GitChangeInclusionCheckbox: View {
     let state: NSControl.StateValue
+    var accessibilityTitle = "Include in commit"
     let action: () -> Void
     @Environment(\.isEnabled) private var isEnabled
     @FocusState private var isFocused: Bool
@@ -910,7 +911,7 @@ struct GitChangeInclusionCheckbox: View {
         .buttonStyle(.litheNoPress)
         .focused($isFocused)
         .accessibilityRepresentation {
-            Toggle("Include in commit", isOn: Binding(get: { state == .on }, set: { _ in action() }))
+            Toggle(LocalizedStringKey(accessibilityTitle), isOn: Binding(get: { state == .on }, set: { _ in action() }))
                 .accessibilityValue(Text(state == .mixed ? "Partially selected" : state == .on ? "Selected" : "Not selected"))
         }
     }

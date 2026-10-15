@@ -18,13 +18,15 @@ struct AgentActivityPresentationTests {
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
-        // Retain baseline windows: closed windows can otherwise deallocate and
-        // a new popup may reuse an ObjectIdentifier excluded by this snapshot.
-        let initialWindows = Set(NSApp.windows)
+        // Retain the snapshot: a released window's address can be reused by the
+        // next popup, which would then be mistaken for a pre-existing window.
+        let snapshot = NSApp.windows
+        let initialWindows = Set(snapshot.map(ObjectIdentifier.init))
         defer {
             window.contentView = nil
-            for popup in NSApp.windows where !initialWindows.contains(popup) { popup.close() }
+            for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
             window.close()
+            withExtendedLifetime(snapshot) {}
         }
         host.layoutSubtreeIfNeeded()
         try await openPanel(.edits, in: host, window: window, excluding: initialWindows)
@@ -72,11 +74,15 @@ struct AgentActivityPresentationTests {
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderFront(nil)
-            let initialWindows = Set(NSApp.windows)
+            // Retain the snapshot: a released window's address can be reused by the
+            // next popup, which would then be mistaken for a pre-existing window.
+            let snapshot = NSApp.windows
+            let initialWindows = Set(snapshot.map(ObjectIdentifier.init))
             defer {
                 window.contentView = nil
-                for popup in NSApp.windows where !initialWindows.contains(popup) { popup.close() }
+                for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
                 window.close()
+                withExtendedLifetime(snapshot) {}
             }
             for panel in AgentActivitySummaryBar.Panel.allCases {
                 host.layoutSubtreeIfNeeded()
@@ -128,11 +134,15 @@ struct AgentActivityPresentationTests {
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderFront(nil)
-            let initialWindows = Set(NSApp.windows)
+            // Retain the snapshot: a released window's address can be reused by the
+            // next popup, which would then be mistaken for a pre-existing window.
+            let snapshot = NSApp.windows
+            let initialWindows = Set(snapshot.map(ObjectIdentifier.init))
             defer {
                 window.contentView = nil
-                for popup in NSApp.windows where !initialWindows.contains(popup) { popup.close() }
+                for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
                 window.close()
+                withExtendedLifetime(snapshot) {}
             }
             for panel in AgentActivitySummaryBar.Panel.allCases {
                 host.layoutSubtreeIfNeeded()
@@ -144,15 +154,21 @@ struct AgentActivityPresentationTests {
                 let scroll = try #require(scrollView(in: content))
                 let document = try #require(scroll.documentView)
                 #expect(document.bounds.height > scroll.contentView.bounds.height)
-                document.scroll(NSPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))
-                scroll.reflectScrolledClipView(scroll.contentView)
+                // Rows can finish layout after the first scroll and grow the
+                // document, so scroll to the current end on every poll.
                 try #require(await waitUntil {
-                    scroll.contentView.bounds.maxY >= document.bounds.maxY - 1
+                    document.scroll(NSPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                    return scroll.contentView.bounds.maxY >= document.bounds.maxY - 1
                 }, "The last list row must become visible")
                 try capture(content, name: "activity-long-\(panel.rawValue)-\(scheme)")
                 if panel == .edits {
-                    try click(NSPoint(x: 70, y: content.bounds.height - 20), in: content, window: popup)
-                    #expect(await waitUntil { opened == "file-39.txt" }, "The last file retains its editor callback")
+                    // SwiftUI moves hit targets one update after the clip view
+                    // scrolls; retry until the click lands on the scrolled row.
+                    #expect(await waitUntil {
+                        if opened == nil { try? click(NSPoint(x: 70, y: content.bounds.height - 20), in: content, window: popup) }
+                        return opened == "file-39.txt"
+                    }, "The last file retains its editor callback")
                 }
             }
         }
@@ -213,8 +229,8 @@ struct AgentActivityPresentationTests {
     }
 
     private func openPanel(_ panel: AgentActivitySummaryBar.Panel, in host: NSView, window: NSWindow,
-                           excluding windows: Set<NSWindow>) async throws {
-        for popup in NSApp.windows where !windows.contains(popup) && popup.isVisible {
+                           excluding windows: Set<ObjectIdentifier>) async throws {
+        for popup in NSApp.windows where !windows.contains(ObjectIdentifier(popup)) && popup.isVisible {
             try closePopup(popup)
         }
         host.layoutSubtreeIfNeeded()
@@ -238,7 +254,7 @@ struct AgentActivityPresentationTests {
                 in: content, window: popup)
         }
         try #require(await waitUntil {
-            NSApp.windows.contains { !windows.contains($0) && $0.isVisible
+            NSApp.windows.contains { !windows.contains(ObjectIdentifier($0)) && $0.isVisible
                 && $0.frame.width >= LitheDropdownMetrics.maximumWidth - 1 }
         })
     }
@@ -254,8 +270,8 @@ struct AgentActivityPresentationTests {
         return view.subviews.lazy.compactMap { nativeButton(in: $0, titles: titles) }.first
     }
 
-    private func waitForPopup(excluding windows: Set<NSWindow>) async -> NSWindow? {
-        func popup() -> NSWindow? { NSApp.windows.first { !windows.contains($0) && $0.isVisible } }
+    private func waitForPopup(excluding windows: Set<ObjectIdentifier>) async -> NSWindow? {
+        func popup() -> NSWindow? { NSApp.windows.first { !windows.contains(ObjectIdentifier($0)) && $0.isVisible } }
         _ = await waitUntil { popup() != nil }
         return popup()
     }
