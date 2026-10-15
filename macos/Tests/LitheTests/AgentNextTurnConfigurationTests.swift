@@ -32,7 +32,7 @@ struct AgentNextTurnConfigurationTests {
                 feature.cancel()
                 #expect(!feature.hasPendingContinuation)
                 #expect(feature.selectedConversation?.messages.last?.delivery ==
-                        .failed(String(localized: "Supplementary message cancelled.")))
+                        .failed("Supplementary message cancelled."))
                 #expect(feature.selectedConversation?.isCancelling == false)
             }
             #expect(connection.commands.count == count)

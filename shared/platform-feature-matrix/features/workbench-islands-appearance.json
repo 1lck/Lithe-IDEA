@@ -5,7 +5,10 @@
   "capability": "IntelliJ Islands 外观：Islands 配色、10px 圆角面板卡片、控件 4px 圆角、卡片式查找栏与编辑器通知、Islands 滚动条颜色，窗口失焦时外框（标题栏、侧边按钮条、状态栏）降到 0.56 透明度",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/App/RootView.swift"
+      "macos/Sources/Lithe/Views/App/RootView.swift",
+      "macos/Sources/Lithe/Views/Components/WorkbenchSurfaceBackground.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+      "macos/Tests/LitheTests/WorkbenchSurfaceBackgroundTests.swift"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
@@ -30,6 +33,6 @@
     "verificationStatus": "verified"
   },
   "owner": "Workbench",
-  "notes": "Windows 的 Lithe 主题使用 IntelliJ ManyIslands 色板；其他内置主题只继承布局与圆角，标签和滚动条颜色由主题自身颜色推导。失焦置淡只作用于外框，编辑器与工具窗口内容保持不透明，与 IntelliJ IslandsInactiveFrameGraphics2D 的作用范围一致。macOS 尚未实现失焦置淡，配色未逐项对齐 Islands。 2026-10-06：用户确认 PR #1083 涉及的 Windows 功能改动均已完成实机测试，未发现问题；实机验收依据为用户反馈。",
-  "verification": "在 Windows 使用 Lithe Dark 与 Lithe Light：确认窗口底色、面板卡片、选中色与 IntelliJ Islands 一致；面板卡片为 10px 圆角，按钮与输入框为 4px 圆角；Ctrl+F 查找栏为离顶部 6px 的圆角浮动卡片；外部修改冲突提示为内缩圆角卡片；切换到其他应用后标题栏、侧边按钮条与状态栏变淡而编辑器正文不变，切回后恢复；在后台打开新窗口时一开始即为变淡状态；切换到 Dracula 或高对比主题确认标签与滚动条使用该主题自身颜色。 左右两侧按钮条的按钮为 30px 高亮区、6px 圆角、20px 图标、间隔 10px（IntelliJ StripeToolbar.Button），标题栏搜索、设置和菜单按钮为 30px、20px 图标（IntelliJ MainToolbar.Button）。 标题栏项目名和分支名常态使用主题 foreground 主文字色，深浅主题与 IDEA 主工具栏对照；悬停、菜单打开、加载禁用和窗口失焦后仍保持原有反馈，其他分支入口、箭头、图标和字重不变。 左上 Project、Commit 和左下 Run、Terminal、Problems、Git Log 选中入口在 Islands 深浅主题均为 #3871E1 蓝底、白色原始图标轮廓；悬停及键盘聚焦保留蓝底，关闭或切换侧栏、底部面板后旧入口恢复。禁用入口不显示选中蓝底，其他列表和 Search 活动项不变，第三方主题保留自己的配色与图标。"
+  "notes": "Windows 的 Lithe 主题使用 IntelliJ ManyIslands 色板；其他内置主题只继承布局与圆角，标签和滚动条颜色由主题自身颜色推导。失焦置淡只作用于外框，编辑器与工具窗口内容保持不透明，与 IntelliJ IslandsInactiveFrameGraphics2D 的作用范围一致。macOS 尚未实现失焦置淡，配色未逐项对齐 Islands。 2026-10-06：用户确认 PR #1083 涉及的 Windows 功能改动均已完成实机测试，未发现问题；实机验收依据为用户反馈。 macOS 工作台壁纸结构背景统一通过 litheWorkbenchSurface 与宿主环境值传递，Agent 的页面/标题/历史/标签背景、共享输出、模块加载、搜索替换预览、媒体查看和数据库工具栏跟随背景图变化；独立窗口没有背景宿主时恢复主题底色，输入/菜单/通知仍保留专用表面。",
+  "verification": "在 Windows 使用 Lithe Dark 与 Lithe Light：确认窗口底色、面板卡片、选中色与 IntelliJ Islands 一致；面板卡片为 10px 圆角，按钮与输入框为 4px 圆角；Ctrl+F 查找栏为离顶部 6px 的圆角浮动卡片；外部修改冲突提示为内缩圆角卡片；切换到其他应用后标题栏、侧边按钮条与状态栏变淡而编辑器正文不变，切回后恢复；在后台打开新窗口时一开始即为变淡状态；切换到 Dracula 或高对比主题确认标签与滚动条使用该主题自身颜色。 左右两侧按钮条的按钮为 30px 高亮区、6px 圆角、20px 图标、间隔 10px（IntelliJ StripeToolbar.Button），标题栏搜索、设置和菜单按钮为 30px、20px 图标（IntelliJ MainToolbar.Button）。 标题栏项目名和分支名常态使用主题 foreground 主文字色，深浅主题与 IDEA 主工具栏对照；悬停、菜单打开、加载禁用和窗口失焦后仍保持原有反馈，其他分支入口、箭头、图标和字重不变。 左上 Project、Commit 和左下 Run、Terminal、Problems、Git Log 选中入口在 Islands 深浅主题均为 #3871E1 蓝底、白色原始图标轮廓；悬停及键盘聚焦保留蓝底，关闭或切换侧栏、底部面板后旧入口恢复。禁用入口不显示选中蓝底，其他列表和 Search 活动项不变，第三方主题保留自己的配色与图标。 macOS 深浅外观在同一工作台中选择、更换和移除背景图，逐一检查 Agent 对话/欢迎/历史、Run/Maven/Tests 输出、模块加载、媒体与替换预览、数据库工具栏透出壁纸且移除后恢复底色；输入框、选择、通知及弹窗保持可读。"
 }

@@ -1,0 +1,28 @@
+{
+  "id": "agent-chat-editor-placement",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "在编辑区标签页与 AI 工具窗口之间移动对话，工具窗口展示历史列表，共享会话、标题与未发送草稿",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentConversationView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentHistoryPopover.swift",
+      "macos/Sources/Lithe/Views/Editor/EditorAreaView.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+AgentConversation.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+      "macos/Tests/LitheTests/AgentConversationSelectionTests.swift",
+      "macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "pending",
+    "evidence": [
+      "shared/contracts/application-boundary.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "深浅主题中点击三个点左侧的布局按钮，将同一对话移到共享编辑区标签页；右侧列表显示当前与历史，点击后选择原连接的会话并聚焦编辑页。重复打开不重复标签或 newSession，不重连；已输入文字与附件在移动和切换文件后保留，New Chat 清空且保留旧的非空会话；标题随首条消息、重命名和历史选择同步。移动中收到消息/权限时仍使用原会话处理。标签排序、分组拖动、非活动选择与关闭走共享 owner；关闭或反向按钮返回工具窗口，不关闭 Agent，不丢文件编辑与草稿。工具栏显示偏好仍共用，长历史列表随面板伸展并可滚到末尾。验证真实 SVG、窗口缩放、工具窗口隐藏恢复及项目关闭清理；Windows待实现。 编辑区聊天列最大716pt（截图参考目标），输入框扣除已有左右8pt后最大700pt；标题、消息和输入区居中对齐，宽窗口两侧留白均分，窄窗口自然收缩，工具窗口保持原可用宽度。原生宿主320/900/1400pt布局测试已通过，完整产品窗口缩放与真实对话视觉仍待人工验收。"
+}
