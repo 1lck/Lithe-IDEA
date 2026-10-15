@@ -40,15 +40,16 @@ The GitHub CLI can also download a particular run's packages:
 gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'
 ```
 
-AutoBuild has public download URLs after the combined publication succeeds:
-
-- [Apple Silicon preview DMG](https://github.com/1lck/Lithe-IDEA/releases/download/AutoBuild/Lithe-0.3.0-arm64.dmg)
-- [Intel preview DMG](https://github.com/1lck/Lithe-IDEA/releases/download/AutoBuild/Lithe-0.3.0-x86_64.dmg)
-- [Windows x64 preview installer](https://github.com/1lck/Lithe-IDEA/releases/download/AutoBuild/Lithe-0.3.0-windows-x64.exe)
+After the combined publication succeeds, download the latest Apple Silicon DMG,
+Intel DMG or Windows x64 installer from the fixed
+[AutoBuild release page](https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild).
 
 The release tag is exactly **AutoBuild**; its title and body display
-**AutoBuild — 构建自 YYYY-MM-DD HH:mm:ss UTC**. Installer names follow the
-caller's `PREVIEW_VERSION`; changing that version also changes these filenames.
+**AutoBuild — 构建自 YYYY-MM-DD HH:mm:ss UTC**. Prepare reads the package version
+from `windows/tauri/src-tauri/tauri.conf.json` at the pinned source revision and
+passes it to all three platform builds. Installer filenames contain that source
+version; the workflow does not maintain a separate preview version. AutoBuild
+identity and update ordering use the build timestamp.
 The release keeps only the latest two macOS DMGs and Windows x64 installer with
 checksums, current Sparkle full ZIPs and deltas targeting the current build,
 appcasts, and the latest downloadable version of each registered official plugin
