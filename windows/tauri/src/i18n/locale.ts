@@ -235,6 +235,7 @@ const catalogs = {
     "layout.showInActivitySidebar": "Show in Activity Sidebar",
     "layout.projectDots": "Project Dots",
     "fileSystem.openFolderFailed": "Failed to open folder: {path}",
+    "fileSystem.openFileFailed": "Failed to open file {file}: {error}",
     "fileSystem.workspaceSessionRestoreFailed":
       "Workspace opened, but saved tabs could not be restored.",
     "fileSystem.remoteSessionRestoreFailed":
@@ -1823,6 +1824,7 @@ const catalogs = {
     "settings.groups.build": "Build, Execution, Deployment",
     "settings.groups.languages": "Languages & Frameworks",
     "settings.groups.tools": "Tools",
+    "settings.groups.ai": "AI",
     "settings.tabs.plugins": "Plugins",
     "settings.noResults": "No settings found",
     "settings.resizeCategories": "Resize settings categories",
@@ -4835,6 +4837,7 @@ const catalogs = {
     "layout.showInActivitySidebar": "在活动侧栏中显示",
     "layout.projectDots": "项目圆点",
     "fileSystem.openFolderFailed": "打开文件夹失败：{path}",
+    "fileSystem.openFileFailed": "打开文件 {file} 失败：{error}",
     "fileSystem.workspaceSessionRestoreFailed": "工作区已打开，但无法恢复保存的标签页。",
     "fileSystem.remoteSessionRestoreFailed": "远程工作区已打开，但无法恢复保存的标签页。",
     "fileSystem.wslSessionRestoreFailed": "WSL 工作区已打开，但无法恢复保存的标签页。",
@@ -6374,6 +6377,7 @@ const catalogs = {
     "settings.groups.build": "构建、执行、部署",
     "settings.groups.languages": "语言与框架",
     "settings.groups.tools": "工具",
+    "settings.groups.ai": "AI",
     "settings.tabs.plugins": "插件",
     "settings.noResults": "未找到设置",
     "settings.resizeCategories": "调整设置分类栏宽度",

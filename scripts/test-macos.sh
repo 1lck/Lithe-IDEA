@@ -4,6 +4,22 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+# Note: .agents/notes/implemented/testing/2026-10-09-macos-test-desktop-isolation.md
+# Keep native tests running while suppressing their WindowServer presentation.
+if [[ -z "${LITHE_TEST_WINDOW_MODE+x}" ]]; then
+    LITHE_TEST_WINDOW_MODE=isolated
+    if [[ "${LITHE_RUN_GIT_COMPOSITOR_TESTS:-0}" == 1 ]]; then LITHE_TEST_WINDOW_MODE=visible; fi
+fi
+export LITHE_TEST_WINDOW_MODE
+case "$LITHE_TEST_WINDOW_MODE" in
+    isolated|visible) ;;
+    *) print -u2 -- "LITHE_TEST_WINDOW_MODE must be isolated or visible"; exit 2 ;;
+esac
+if [[ "$LITHE_TEST_WINDOW_MODE" == isolated && "${LITHE_RUN_GIT_COMPOSITOR_TESTS:-0}" == 1 ]]; then
+    print -u2 -- "Real compositor tests require LITHE_TEST_WINDOW_MODE=visible"
+    exit 2
+fi
+
 "$ROOT_DIR/scripts/verify-runtime-bundle-immutability.sh"
 
 SWIFT_ARGS=(

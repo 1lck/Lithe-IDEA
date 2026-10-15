@@ -127,6 +127,25 @@ GitHub queue delays remain outside these build steps. Compare warm-cache runs
 with these baselines before claiming a measured improvement. A runner pool
 change should be evaluated separately if queueing continues to dominate.
 
+### macOS 测试窗口的桌面隔离
+
+普通 `./scripts/test-macos.sh` 和计时测试默认使用 `LITHE_TEST_WINDOW_MODE=isolated`。
+界面用例照常运行，真实窗口的原生排序、布局、弹窗和事件处理保留，但测试进程内
+的窗口完全透明，该进程也不会主动切换前台应用。原生视图截图仍可生成。
+隔离模块只由测试目标依赖，直接运行 `swift test` 也默认隔离，不进入发行程序。
+
+需要观察测试窗口或验证真实桌面效果时显式选择：
+
+```bash
+LITHE_TEST_WINDOW_MODE=visible ./scripts/test-macos.sh --filter AgentActivityPresentationTests
+```
+
+可见模式使用原始 AppKit 行为。真实桌面合成、硬件输入和跨应用激活测试应在独立
+macOS 登录会话或虚拟机中运行可见模式。独立启动的产品进程不加载测试隔离模块。
+隔离模式不跳过现有界面测试；`alphaValue` 表示隔离后的透明度，需要断言产品
+请求的透明度时使用测试模块的 `LitheTestRequestedWindowAlpha`。
+这项功能只有测试源码与运行参数，没有新增下载或跨工作树复用资源。
+
 ### macOS Git 真实窗口性能采样
 
 普通 `./scripts/test-macos.sh` 和 `./scripts/test-git-performance-baseline.sh`
@@ -144,7 +163,8 @@ LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
 ```
 
 此命令会短暂显示两个有标题、不透明的普通层级测试窗口，不强制激活程序或抢占
-焦点。用例在成功、跳过或超时后关闭窗口、停止显示链接，并恢复原激活策略。
+焦点，并自动选择可见模式；同时强制 `LITHE_TEST_WINDOW_MODE=isolated` 会明确报错。
+用例在成功、跳过或超时后关闭窗口、停止显示链接，并恢复原激活策略。
 没有可用显示或没有收到显示链接回调时，用例输出未采样原因，不能将其计为真实
 帧率验证。不要在普通开发验证或无人值守 CI 中默认设置该环境变量。
 
