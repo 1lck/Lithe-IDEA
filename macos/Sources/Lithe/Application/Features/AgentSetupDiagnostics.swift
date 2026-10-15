@@ -178,7 +178,7 @@ extension AgentSetupDiagnostics {
                 }
                 let provenance = String(format: String(localized: "Installation: %@"), source)
                 let hint = NSLocalizedString(installation.updateHint, comment: "CLI update guidance")
-                let showHint = cli.command != "codex" || installation.updateAvailable != false
+                let showHint = cli.command != "codex" || installation.updateAvailable != false || check.status != .pass
                 checks[index] = .init(id: check.id, title: check.title, status: check.status,
                                      message: "\(check.message)\n\(provenance)" + (showHint ? "\n\(hint)" : ""),
                                      fix: check.fix)

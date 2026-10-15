@@ -125,8 +125,9 @@ pub(crate) fn codex_update_available(
     if plan.installation.source == CliSource::Homebrew {
         probe.env("HOMEBREW_NO_AUTO_UPDATE", "1");
     }
-    let (success, output) =
-        environment::run_bounded_status(&mut probe, Duration::from_secs(5), cancel).ok()?;
+    let (success, output, _diagnostics) =
+        environment::run_bounded_status_separated(&mut probe, Duration::from_secs(5), cancel)
+            .ok()?;
     let available = parse_codex_update_available(&plan.installation.source, installed, &output)?;
     // Homebrew exits nonzero when a named package is outdated. Only a valid
     // positive result explains that exit; other failures remain unknown.
@@ -136,7 +137,14 @@ pub(crate) fn codex_update_available(
 fn parse_codex_update_available(source: &CliSource, installed: &str, output: &str) -> Option<bool> {
     match source {
         CliSource::Npm => {
-            let latest: String = serde_json::from_str(output.trim()).ok()?;
+            let value: serde_json::Value = serde_json::from_str(output.trim()).ok()?;
+            let latest = match &value {
+                serde_json::Value::String(version) => version.as_str(),
+                serde_json::Value::Array(versions) if versions.len() == 1 => {
+                    versions[0].as_str()?
+                }
+                _ => return None,
+            };
             let components: Vec<_> = latest.split('.').collect();
             if components.len() != 3 || components.iter().any(|part| part.parse::<u64>().is_err()) {
                 return None;
@@ -144,10 +152,10 @@ fn parse_codex_update_available(source: &CliSource, installed: &str, output: &st
             // The existing numeric comparison ignores pre-release suffixes;
             // an installed prerelease of the same numeric version is older.
             Some(
-                !environment::version_at_least(installed, &latest)
+                !environment::version_at_least(installed, latest)
                     || (installed.contains('-')
                         && !latest.contains('-')
-                        && environment::version_at_least(&latest, installed)),
+                        && environment::version_at_least(latest, installed)),
             )
         }
         CliSource::Homebrew => {
@@ -398,6 +406,18 @@ mod codex_update_tests {
 
     #[test]
     fn confirmed_codex_updates_only_when_the_owner_reports_one() {
+        for output in [r#""0.160.0""#, r#"["0.160.0"]"#] {
+            assert_eq!(
+                parse_codex_update_available(&CliSource::Npm, "0.159.3", output),
+                Some(true)
+            );
+        }
+        for output in ["[]", r#"["0.159.3","0.160.0"]"#, "[42]", r#"["invalid"]"#] {
+            assert_eq!(
+                parse_codex_update_available(&CliSource::Npm, "0.159.3", output),
+                None
+            );
+        }
         assert_eq!(
             parse_codex_update_available(&CliSource::Npm, "0.159.3", "\"0.159.3\""),
             Some(false)

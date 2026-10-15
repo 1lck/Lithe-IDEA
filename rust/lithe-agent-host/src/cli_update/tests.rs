@@ -84,10 +84,12 @@ fn codex_update_probe_accepts_homebrew_outdated_exit_but_not_other_failures() {
         ),
         (CliSource::Homebrew, "unavailable", 1, None),
         (CliSource::Npm, r#""0.160.0""#, 1, None),
+        (CliSource::Npm, r#""0.160.0""#, 0, Some(true)),
+        (CliSource::Npm, r#"["0.160.0"]"#, 0, Some(true)),
     ] {
         let executable = fixture.file(
             "manager",
-            &format!("#!/bin/sh\nprintf '%s\\n' '{output}'\nexit {exit}\n"),
+            &format!("#!/bin/sh\nprintf '%s\\n' 'nonfatal warning' >&2\nprintf '%s\\n' '{output}'\nexit {exit}\n"),
         );
         let plan = UpdatePlan::automatic(
             source,

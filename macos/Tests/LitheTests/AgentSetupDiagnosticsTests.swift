@@ -34,22 +34,24 @@ struct AgentSetupDiagnosticsTests {
         }
     }
 
-    @Test(arguments: [false, true, nil] as [Bool?])
-    func currentCodexOnlyOffersConfirmedUpdate(updateAvailable: Bool?) throws {
+    @Test(arguments: [false, true, nil] as [Bool?], ["0.159.3", "0.142.5"])
+    func currentCodexOnlyOffersConfirmedUpdate(updateAvailable: Bool?, version: String) throws {
         let installation = AgentCliInstallation(source: .npm, canUpdate: true,
                                                 updateHint: "npm install -g @openai/codex",
                                                 updateAvailable: updateAvailable)
         let agent = AgentCatalogStatus(id: "codex-acp", name: "Codex", description: "", package: "adapter",
             version: "1", installedVersion: "1", protocol: "responses", minimumNodeMajor: 20, verified: true,
             cli: .init(name: "Codex CLI", command: "codex", minimumVersion: "0.156.0", installHint: "npm install",
-                       detected: .init(version: "0.159.3", path: "/example/bin/codex"), installation: installation), issues: [])
+                       detected: .init(version: version, path: "/example/bin/codex"), installation: installation), issues: [])
         let environment = AgentRuntimeEnvironment(node: nil, npm: nil, usedLoginShell: true)
         let check = try #require(AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: true)
             .first { $0.id == "cli" })
-        #expect(check.status == .pass)
-        #expect(check.fix == (updateAvailable == true ? .updateCli : nil))
-        if updateAvailable == false { #expect(check.title.contains("Up to date.")) }
-        if updateAvailable == nil { #expect(check.message.contains("Could not check for updates.")) }
+        let compatible = AgentSetupDiagnostics.isVersion(version, atLeast: "0.156.0")
+        #expect(check.status == (compatible ? .pass : .warn))
+        #expect(check.fix == (!compatible || updateAvailable == true ? .updateCli : nil))
+        if compatible && updateAvailable == false { #expect(check.title.contains("Up to date.")) }
+        if compatible && updateAvailable == nil { #expect(check.message.contains("Could not check for updates.")) }
+        if !compatible { #expect(check.message.contains(installation.updateHint)) }
     }
 
     @Test
