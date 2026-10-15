@@ -135,7 +135,8 @@ enum WorkbenchModuleUIComposition {
                 // module is active, so the loading placeholder is not used.
                 content: { model in AnyView(AgentConversationView(model: model)) },
                 contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.agentConversationFeatureIfActive) },
-                rightSidebarBehavior: .docked
+                rightSidebarBehavior: .docked,
+                openInEditor: { $0.showAgentChatsInEditor() }
             )
         ]
     )

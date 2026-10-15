@@ -1,7 +1,62 @@
 import SwiftUI
 import LitheAgentConversationModule
 
-/// Compact timeline for adjacent ACP tool calls in a conversation.
+/// What a run of tool calls did, by ACP tool kind: "Ran 2 commands, read 3 files".
+enum AgentToolGroupPresentation {
+    enum Category: CaseIterable {
+        case execute, read, edit, search, fetch, other
+
+        init(kind: String?) {
+            switch kind {
+            case "execute": self = .execute
+            case "read": self = .read
+            case "edit", "delete", "move": self = .edit
+            case "search": self = .search
+            case "fetch": self = .fetch
+            default: self = .other
+            }
+        }
+
+        func format(count: Int) -> String {
+            let one = count == 1
+            switch self {
+            case .execute: return one ? "Ran %lld command" : "Ran %lld commands"
+            case .read: return one ? "Read %lld file" : "Read %lld files"
+            case .edit: return one ? "Edited %lld file" : "Edited %lld files"
+            case .search: return one ? "Searched %lld time" : "Searched %lld times"
+            case .fetch: return one ? "Fetched %lld page" : "Fetched %lld pages"
+            case .other: return one ? "Used %lld tool" : "Used %lld tools"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .execute: "terminal"
+            case .read: "doc.text"
+            case .edit: "pencil"
+            case .search: "magnifyingglass"
+            case .fetch: "globe"
+            case .other: "wrench.and.screwdriver"
+            }
+        }
+    }
+
+    static func summary(_ messages: [AgentConversationMessage], locale: Locale) -> String {
+        let counts = Dictionary(grouping: messages) { Category(kind: $0.toolDetails.kind) }.mapValues(\.count)
+        let parts = Category.allCases.compactMap { category in
+            counts[category].map { count in
+                String(format: AgentLocalization.string(String.LocalizationValue(category.format(count: count)), locale: locale), count)
+            }
+        }
+        return parts.dropFirst().reduce(parts.first ?? "") {
+            String(format: AgentLocalization.string("%@, %@", locale: locale), $0, $1)
+        }
+    }
+}
+
+/// Tool calls between two replies: a quiet one-line summary that expands into
+/// a rounded list, one row per call, each row opening its evidence. Rows are
+/// plain stacks; a nested scroll view per group made transcript scrolling stutter.
 struct AgentToolGroupView: View {
     @Environment(\.locale) private var locale
     let messages: [AgentConversationMessage]
@@ -11,12 +66,15 @@ struct AgentToolGroupView: View {
     /// Activity panels already have a tab label and an outer shared surface.
     var embedded = false
 
+    /// Long runs show their first rows until the user asks for the rest.
+    static let collapsedRowLimit = 8
+
     @State private var expanded = false
+    @State private var showsAllRows = false
     @State private var expandedToolID: String?
 
     private var failedCount: Int { messages.filter { $0.toolStatus == .failed }.count }
-    private var interruptedCount: Int { messages.filter { $0.toolStatus == .interrupted }.count }
-    private var completedCount: Int { messages.filter { $0.toolStatus == .completed }.count }
+    private var isRunning: Bool { messages.contains { $0.toolStatus == .inProgress || $0.toolStatus == .pending } }
     private var hasExpandedDetails: Bool {
         messages.contains { $0.id == expandedToolID && !$0.toolDetails.isEmpty }
     }
@@ -25,100 +83,105 @@ struct AgentToolGroupView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if !embedded {
-                Button { expanded.toggle() } label: {
-                    HStack(spacing: 8) {
-                        Text("Tool activity (\(messages.count))")
-                            .font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                            .foregroundStyle(LitheTheme.primaryText)
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                        summary
-                        LitheIDEAIcon(resourcePath: expanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
-                                      size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: 34)
-                    .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 6) {
+            if embedded {
+                // Activity popups keep a bounded viewport of four rows.
+                ScrollView(.vertical) { rows(displayedMessages) }
+                    .litheScrollViewChrome()
+                    .frame(height: CGFloat(min(displayedMessages.count, 4)) * 35 + (hasExpandedDetails ? 168 : 8))
+            } else {
+                header
+                if expanded {
+                    rows(showsAllRows || !searchText.isEmpty
+                         ? displayedMessages : Array(displayedMessages.prefix(Self.collapsedRowLimit)))
+                        .background(LitheTheme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8)
+                            .stroke(failedCount > 0 ? LitheTheme.error.opacity(0.5) : LitheTheme.panelBorder, lineWidth: 1))
                 }
-                .buttonStyle(LitheIconButtonStyle(size: 34, isIconOnly: false))
-                .help(expanded ? "Hide tool details" : "Show tool details")
-            }
-
-            if expanded || embedded {
-                if !embedded {
-                    Rectangle().fill(LitheTheme.panelBorder).frame(height: 1)
-                }
-                ScrollView(.vertical) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(displayedMessages) { message in
-                            toolRow(message)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                }
-                .litheScrollViewChrome()
-                .frame(height: CGFloat(min(displayedMessages.count, 4)) * 32 + (hasExpandedDetails ? 168 : 8))
             }
         }
-        .frame(maxWidth: .infinity)
-        .background(embedded ? Color.clear : LitheTheme.raised, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(embedded ? Color.clear : (failedCount > 0 ? LitheTheme.error.opacity(0.7) : LitheTheme.panelBorder), lineWidth: 1)
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear { if initiallyExpanded || !searchText.isEmpty { expanded = true } }
         .onChange(of: searchText) { _ in if !searchText.isEmpty { expanded = true } }
     }
 
-    @ViewBuilder
-    private var summary: some View {
-        if failedCount > 0 {
-            Label("\(failedCount) failed", systemImage: "exclamationmark.triangle")
-                .foregroundStyle(LitheTheme.error)
-        } else if interruptedCount > 0 {
-            Label("\(interruptedCount) interrupted", systemImage: "pause.circle")
-                .foregroundStyle(LitheTheme.warning)
-        } else if completedCount == messages.count {
-            Label("All completed", systemImage: "checkmark")
-                .foregroundStyle(LitheTheme.success)
-        } else {
-            Text("\(completedCount)/\(messages.count) completed")
-                .foregroundStyle(LitheTheme.secondaryText)
+    private var header: some View {
+        let summary = AgentToolGroupPresentation.summary(messages, locale: locale)
+        return Button { expanded.toggle() } label: {
+            HStack(spacing: 5) {
+                if isRunning { ProgressView().controlSize(.mini) }
+                Text(verbatim: summary).lineLimit(1)
+                if failedCount > 0 {
+                    Text(verbatim: "·").foregroundStyle(LitheTheme.tertiaryText)
+                    Text("\(failedCount) failed").foregroundStyle(LitheTheme.error)
+                }
+                Image(systemName: "chevron.down")
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                    .rotationEffect(.degrees(expanded ? 0 : -90))
+            }
+            .font(LitheTheme.uiFont(size: 12.5))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.litheNoPress)
+        .lithePointer()
+        .help(expanded ? "Hide tool details" : "Show tool details")
+        .accessibilityLabel(Text(verbatim: summary))
+        .accessibilityValue(expanded ? Text("Expanded") : Text("Collapsed"))
+        .accessibilityIdentifier("agent-tool-group-header")
+    }
+
+    private func rows(_ shown: [AgentConversationMessage]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(shown.enumerated()), id: \.element.id) { index, message in
+                if index > 0 { Divider().overlay(LitheTheme.panelBorder) }
+                toolRow(message)
+            }
+            if !embedded && !showsAllRows && searchText.isEmpty && displayedMessages.count > shown.count {
+                Divider().overlay(LitheTheme.panelBorder)
+                Button { showsAllRows = true } label: {
+                    Text(String(format: AgentLocalization.string("Show %lld more", locale: locale),
+                                displayedMessages.count - shown.count))
+                        .font(LitheTheme.uiFont(size: 12))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress)
+                .lithePointer()
+            }
         }
     }
 
     private func toolRow(_ message: AgentConversationMessage) -> some View {
         let isExpanded = expandedToolID == message.id
+        let hasDetails = !message.toolDetails.isEmpty
         return VStack(alignment: .leading, spacing: 0) {
             Button {
-                if !message.toolDetails.isEmpty {
-                    expandedToolID = isExpanded ? nil : message.id
-                }
+                if hasDetails { expandedToolID = isExpanded ? nil : message.id }
             } label: {
-                HStack(spacing: 7) {
-                    ZStack {
-                        Rectangle()
-                            .fill(LitheTheme.panelBorder)
-                            .frame(width: 1, height: 32)
-                        Circle()
-                            .fill(LitheTheme.tertiaryText)
-                            .frame(width: 5, height: 5)
-                    }
-                    .frame(width: 16)
+                HStack(spacing: 8) {
+                    Image(systemName: AgentToolGroupPresentation.Category(kind: message.toolDetails.kind).systemImage)
+                        .font(LitheTheme.uiFont(size: 11))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .frame(width: 14)
                     Text(message.text)
-                        .font(LitheTheme.uiFont(size: 11, design: .monospaced))
-                        .foregroundStyle(LitheTheme.primaryText)
+                        .font(LitheTheme.uiFont(size: 12.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Circle()
-                        .fill(statusColor(for: message.toolStatus))
-                        .frame(width: 7, height: 7)
+                    status(message.toolStatus)
+                    if hasDetails {
+                        Image(systemName: "chevron.right")
+                            .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
                 }
-                .frame(height: 32)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 34)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
@@ -126,24 +189,29 @@ struct AgentToolGroupView: View {
             .help(message.text)
             .accessibilityValue(statusLabel(for: message.toolStatus))
 
-            if isExpanded && !message.toolDetails.isEmpty {
+            if isExpanded && hasDetails {
                 AgentToolEvidenceView(details: message.toolDetails, onOpenFile: onOpenFile)
-                    .padding(.leading, 24)
-                    .padding(.trailing, 8)
-                    .padding(.vertical, 8)
+                    .padding(.leading, 34)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(LitheTheme.toolHeaderInactive, in: RoundedRectangle(cornerRadius: 4))
             }
         }
     }
 
-    private func statusColor(for status: AgentConversationMessage.ToolStatus?) -> Color {
+    @ViewBuilder
+    private func status(_ status: AgentConversationMessage.ToolStatus?) -> some View {
         switch status {
-        case .completed: LitheTheme.success
-        case .failed: LitheTheme.error
-        case .interrupted: LitheTheme.warning
-        case .inProgress: LitheTheme.warning
-        case .pending, nil: LitheTheme.tertiaryText
+        case .failed:
+            Image(systemName: "exclamationmark.circle").foregroundStyle(LitheTheme.error)
+                .font(LitheTheme.uiFont(size: 11))
+        case .interrupted:
+            Image(systemName: "pause.circle").foregroundStyle(LitheTheme.warning)
+                .font(LitheTheme.uiFont(size: 11))
+        case .inProgress, .pending:
+            ProgressView().controlSize(.mini)
+        case .completed, nil:
+            EmptyView()
         }
     }
 
