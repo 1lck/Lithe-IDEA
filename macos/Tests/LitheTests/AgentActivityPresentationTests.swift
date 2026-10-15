@@ -224,21 +224,16 @@ struct AgentActivityPresentationTests {
         let content = try #require(popup.contentView)
         try capture(content, name: "activity-menu")
         let index = try #require(AgentActivitySummaryBar.Panel.allCases.firstIndex(of: panel))
-        if panel == .running {
-            for code: UInt16 in [125, 125, 36] {
-                NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
-                    timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "",
-                    charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
-            }
-        } else {
-            try click(NSPoint(x: content.bounds.midX,
-                y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * (CGFloat(index) + 0.5)),
-                in: content, window: popup)
-        }
+        // Exercise every Agent menu entry through the same window-targeted mouse
+        // route; shared-menu keyboard navigation is covered by ContextMenuCoverageTests.
+        // NSApp key dispatch depends on the desktop's current focus, including in CI.
+        try click(NSPoint(x: content.bounds.midX,
+            y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * (CGFloat(index) + 0.5)),
+            in: content, window: popup)
         try #require(await waitUntil {
             NSApp.windows.contains { !windows.contains(ObjectIdentifier($0)) && $0.isVisible
                 && $0.frame.width >= LitheDropdownMetrics.maximumWidth - 1 }
-        })
+        }, "The \(panel.rawValue) detail panel must replace the activity menu")
     }
 
     private func editedFile(path: String = "a.txt") -> AgentConversationMessage {
