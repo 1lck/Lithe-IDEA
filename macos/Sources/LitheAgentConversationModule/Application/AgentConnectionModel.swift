@@ -48,6 +48,8 @@ public final class AgentConnectionModel: ObservableObject {
     /// Called when any conversation starts or stops waiting for a permission
     /// decision, so a background project can signal it.
     public var onAttentionChanged: ((Bool) -> Void)?
+    /// Persisted session totals; `nil` keeps statistics per connection only.
+    var statisticsStore: AgentSessionStatisticsStore?
 
     private let transport: any AgentConversationTransport
     private let now: () -> ContinuousClock.Instant
@@ -467,13 +469,16 @@ public final class AgentConnectionModel: ObservableObject {
             guard let sessionID, conversations[sessionID] != nil,
                   let call = AgentModelCall.parse(event["call"]) else { return }
             // A stream that outlived its turn must not count toward the next one.
-            conversations[sessionID]?.recordModelCall(call,
-                countsForActiveTurn: event["afterTurnFinished"] as? Bool != true)
+            let afterTurn = event["afterTurnFinished"] as? Bool == true
+            conversations[sessionID]?.recordModelCall(call, countsForActiveTurn: !afterTurn)
+            // Calls inside a turn are saved with it; a late one has no turn left to wait for.
+            if afterTurn || conversations[sessionID]?.activeTurn == nil { persistStatistics(sessionID) }
         case "turnFinished":
             refreshQuota()
             guard let sessionID else { return }
             flushPendingText()
             conversations[sessionID]?.finishTurn(at: now(), usage: AgentTurnUsage.parse(event["usage"]))
+            persistStatistics(sessionID)
             conversations[sessionID]?.isResponding = false
             conversations[sessionID]?.isCancelling = false
             conversations[sessionID]?.interruptPendingTools()
@@ -539,6 +544,7 @@ public final class AgentConnectionModel: ObservableObject {
         } else if let sessionID, conversations[sessionID] != nil {
             flushPendingText()
             conversations[sessionID]?.finishTurn(at: now())
+            persistStatistics(sessionID)
             conversations[sessionID]?.isResponding = false
             conversations[sessionID]?.isCancelling = false
             conversations[sessionID]?.interruptPendingTools()
@@ -775,6 +781,11 @@ public final class AgentConnectionModel: ObservableObject {
         return true
     }
 
+    private func persistStatistics(_ sessionID: String) {
+        guard let statisticsStore, let conversation = conversations[sessionID], !conversation.isLoading else { return }
+        statisticsStore.save(conversation, sessionID: sessionID)
+    }
+
     private func beginLoad(_ sessionID: String) {
         let token = makeToken()
         loadTokens[token] = sessionID
@@ -786,6 +797,8 @@ public final class AgentConnectionModel: ObservableObject {
         // evidence still has to match the acknowledged version or exact prefix.
         conversation.reviewedFileChanges = loadBackups[sessionID]?.reviewedFileChanges ?? [:]
         conversation.isLoading = true
+        // Replay carries no timing or usage; earlier connections' totals do.
+        conversation.statisticsBaseline = statisticsStore?.record(for: sessionID)
         conversations[sessionID] = conversation
         if !sendCommand(["kind": "loadSession", "token": token, "sessionId": sessionID]) {
             requestFailed(token: token, sessionID: sessionID, message: errorMessage ?? "The Agent request failed.")
@@ -843,6 +856,7 @@ public final class AgentConnectionModel: ObservableObject {
         pendingNewConversationPrompt = nil
         for id in conversations.keys {
             conversations[id]?.finishTurn(at: now())
+            persistStatistics(id)
             conversations[id]?.contextUsage = nil
             conversations[id]?.availableCommands = []
             conversations[id]?.isResponding = false
