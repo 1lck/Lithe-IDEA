@@ -49,7 +49,7 @@ struct OutputTextView: View {
             onOpenLocation: onOpenLocation,
             onBottomStateChange: { isAtBottom = $0 }
         )
-            .background(LitheTheme.editor)
+            .litheWorkbenchSurface(LitheTheme.editor)
             .overlay(alignment: .bottomTrailing) {
                 if !isAtBottom {
                     jumpToLatestButton

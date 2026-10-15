@@ -14,15 +14,19 @@ enum LitheMenuItemsBuilder {
 }
 
 extension LitheContextMenuItem {
-    static func submenu(_ title: String, @LitheMenuItemsBuilder items: () -> [Self]) -> Self {
-        submenu(title, items: items())
+    static func submenu(_ title: String, icon: AnyView? = nil, @LitheMenuItemsBuilder items: () -> [Self]) -> Self {
+        submenu(title, icon: icon, items: items())
     }
 
     static func toggle(_ title: String, isOn: Binding<Bool>) -> Self {
         .action(title, systemImage: isOn.wrappedValue ? "checkmark" : nil) { isOn.wrappedValue.toggle() }
     }
 
-    static func heading(_ title: String) -> Self { .action(title, isEnabled: false) {} }
+    static func heading(_ title: String, centered: Bool = false) -> Self {
+        var item = Self.action(title, isEnabled: false) {}
+        item.isCenteredHeading = centered
+        return item
+    }
 
     func disabled(_ value: Bool) -> Self {
         var item = self

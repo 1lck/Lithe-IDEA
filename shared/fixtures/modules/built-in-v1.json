@@ -88,7 +88,7 @@
       "dependencies": ["dev.lithe.workspace"],
       "capabilities": ["dev.lithe.capability.git-workspace"],
       "contributions": [
-        { "id": "git.changes", "kind": "toolWindow" },
+        { "id": "git.changes", "kind": "toolWindow", "actionID": "git.changes.show", "rendererID": "git.changes" },
         { "id": "git.log", "kind": "toolWindow", "actionID": "git.log.toggle", "rendererID": "git.log" }
       ],
       "required": false
@@ -132,7 +132,7 @@
       "dependencies": ["dev.lithe.workspace"],
       "capabilities": ["dev.lithe.capability.search-workspace"],
       "contributions": [
-        { "id": "search.workspace", "kind": "toolWindow" }
+        { "id": "search.workspace", "kind": "toolWindow", "actionID": "search.workspace.show", "rendererID": "search.workspace" }
       ],
       "required": false
     },
@@ -159,7 +159,10 @@
       "sleepPolicy": { "kind": "never" },
       "dependencies": [],
       "capabilities": ["dev.lithe.capability.workspace-foundation"],
-      "contributions": [],
+      "contributions": [
+        { "id": "github.pull-requests", "kind": "toolWindow", "actionID": "github.pull-requests.show", "rendererID": "github.pull-requests" },
+        { "id": "workspace.project", "kind": "toolWindow", "actionID": "workspace.project.show", "rendererID": "workspace.project" }
+      ],
       "required": true
     }
   ]

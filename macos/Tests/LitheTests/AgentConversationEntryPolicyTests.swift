@@ -1,3 +1,4 @@
+import Foundation
 import LitheApplicationKernel
 import LitheModuleAPI
 import Testing
@@ -5,6 +6,21 @@ import Testing
 
 @MainActor
 struct AgentConversationEntryPolicyTests {
+    @Test
+    func welcomeRemainsUntilAnAgentIsChosen() throws {
+        let suite = "lithe-agent-welcome-test-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settings = AppSettings(store: MacUserDefaultsStore(defaults: defaults))
+        #expect(settings.preferredConversationAgentID == nil)
+        defaults.set(true, forKey: AppSettings.agentSelectionPreferenceKey)
+        #expect(settings.preferredConversationAgentID == nil,
+                "The legacy first-open Boolean is not a user selection and must not become a nonexistent Agent ID")
+        settings.preferredConversationAgentID = "codex-acp"
+        #expect(AppSettings(store: MacUserDefaultsStore(defaults: defaults)).preferredConversationAgentID == "codex-acp")
+    }
+
     @Test
     func disabledAgentKeepsItsSetupEntryAcrossEnableAndDisableWithoutConstruction() async throws {
         let runtime = ModuleRuntime()
@@ -21,13 +37,16 @@ struct AgentConversationEntryPolicyTests {
 
         for enabled in [false, true, false] {
             try await runtime.setEnabled(enabled, for: .agentConversation)
-            let entries = AgentConversationEntryPolicy.rightSidebarContributions(
-                from: runtime.availableContributions().values.flatMap { $0 }
-            )
+            let active = runtime.availableContributions().values.flatMap { $0 }
+            let entries = AgentConversationEntryPolicy.rightSidebarContributions(from: active)
             let agent = try #require(entries.first { $0.id == "agent.conversation" })
+            let dockEntry = try #require(AgentConversationEntryPolicy.contributions(from: active)
+                .first { $0.rendererID == "agent.conversation" })
             #expect(entries.count == 1)
             #expect(agent.actionID == "agent.conversation.toggle")
             #expect(agent.rendererID == "agent.conversation")
+            #expect(dockEntry.id == agent.id)
+            #expect(WorkbenchModuleUIComposition.builtIn.renderer(for: dockEntry) != nil)
             try WorkbenchModuleUIComposition.builtIn.validate(contributions: entries)
             #expect(try runtime.snapshot(for: .agentConversation).isInstantiated == false)
             #expect(runtime.capability(.agentConversation) == nil)
@@ -47,6 +66,7 @@ struct AgentConversationEntryPolicyTests {
         #expect(entries.allSatisfy { $0.placement == .rightSidebar })
         let disabled = AgentConversationEntryPolicy.rightSidebarContributions(from: [])
         #expect(disabled.map(\.id) == ["agent.conversation"])
+        #expect(!AgentConversationEntryPolicy.contributions(from: []).contains { $0.id == "execution.maven" })
         try WorkbenchModuleUIComposition.builtIn.validate(contributions: entries)
     }
 }

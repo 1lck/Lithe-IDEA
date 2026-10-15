@@ -29,6 +29,8 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         return (documents.filter { $0 != id }, Array(documents.prefix(index)), Array(documents.dropFirst(index + 1)))
     }
 
+    var focusedItem: EditorTabItem? { focusedGroup.flatMap { groupSelections[$0] } }
+
     func selectedItem(in group: UUID) -> EditorTabItem? { groupSelections[group] }
 
     func focus(_ item: EditorTabItem) {
@@ -163,7 +165,7 @@ final class EditorTabOrderFeatureModel: ObservableObject {
                       reorderedExistingIDs.indices.contains(existingIndex) else { continue }
                 next.append(.document(reorderedExistingIDs[existingIndex]))
                 existingIndex += 1
-            case .terminal, .media, .repositoryDiff, .database, .databaseQuery, .databaseOverview:
+            case .terminal, .media, .repositoryDiff, .agentConversation, .database, .databaseQuery, .databaseOverview:
                 next.append(item)
             }
         }

@@ -240,3 +240,31 @@ fn install_review_fixtures_match_golden_outcomes() {
         assert_subset(review, &expected, name);
     }
 }
+
+/// Shared validation is not evidence of a Windows UI adapter. API level 2
+/// entries must remain unavailable there while macOS can install them.
+#[test]
+fn ui_api_availability_requires_an_implemented_platform_host() {
+    let mut index = json_file(INDEX);
+    let entry = index["plugins"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|entry| entry["id"] == "io.example.future-tools")
+        .unwrap();
+    entry["versions"][0]["pluginAPIVersion"] = json!(2);
+    entry["versions"][0]["downloads"][0]["platforms"] = json!(["darwin-arm64", "windows-x64"]);
+    for (platform, expected) in [
+        ("darwin-arm64", "available"),
+        ("windows-x64", "unsupported"),
+    ] {
+        let result = validate(index.clone(), "thirdParty", platform);
+        let plugin = result["index"]["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == "io.example.future-tools")
+            .unwrap();
+        assert_eq!(plugin["availability"]["status"], expected, "{result}");
+    }
+}

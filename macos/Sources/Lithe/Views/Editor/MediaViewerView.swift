@@ -21,7 +21,7 @@ struct MediaViewerView: View {
                 .frame(height: 1)
             viewer
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .onAppear {
             if media.kind == .video, player == nil {
                 player = AVPlayer(url: media.url)
@@ -232,7 +232,7 @@ struct MediaViewerView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 34)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 }
 

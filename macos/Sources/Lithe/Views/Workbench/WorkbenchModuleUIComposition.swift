@@ -1,30 +1,124 @@
 import SwiftUI
 import LitheModuleAPI
+import LitheApplicationKernel
 import LitheDatabaseModule
 import LitheDebugModule
 import LitheExecutionModule
 import LitheGitModule
 import LitheLanguageIntelligenceModule
 import LitheTerminalModule
+import LitheWorkspaceModule
+import LitheSearchModule
 import LitheAgentConversationModule
 
 @MainActor
 enum WorkbenchModuleUIComposition {
     static let builtIn: WorkbenchModuleUIRegistry = {
         do {
-            return try WorkbenchModuleUIRegistry(registrations: [
-                terminalRegistration,
-                agentRegistration,
-                gitRegistration,
-                languageRegistration,
-                executionRegistration,
-                databaseRegistration,
-                debugRegistration
-            ])
+            return try WorkbenchModuleUIRegistry(registrations: registrations)
         } catch {
             preconditionFailure("Invalid built-in module UI registration: \(error)")
         }
     }()
+
+    /// Application-shell actions outside the module manifests. Startup uses
+    /// the same bindings when validating a candidate plugin's UI catalog.
+    static var applicationActions: [WorkbenchModuleUIRegistry.Action] {
+        [
+            .init(id: "workbench.run-start-or-restart", perform: { model in
+                if model.runFeatureIfActive?.isSelectedConfigurationRunning == true { model.restartSelectedRun() }
+                else { model.runSelectedConfiguration() }
+            }, state: { toolbarState(for: .execution, model: $0) }),
+            .init(id: "workbench.debug-start-or-restart", perform: { $0.startOrRestartDebugging() },
+                  state: { toolbarState(for: .debug, model: $0) }),
+            .init(id: "workbench.stop-execution", perform: { model in
+                if model.genericDebugFeatureIfActive?.isSessionActive == true { model.stopDebugging() }
+                else { model.stopSelectedRun() }
+            }, state: { model in
+                let active = model.genericDebugFeatureIfActive?.isSessionActive == true
+                    || model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                return .init(isVisible: active, isEnabled: active)
+            })
+        ] + LitheCommandCatalog.commands.map { command in
+            .init(id: command.id, perform: { model in
+                LitheActionRegistry.builtInActions(for: model).first { $0.id == command.id }?.perform()
+            }, state: { model in
+                .init(isEnabled: model.canPerformShortcutCommand(id: command.id),
+                      isChecked: LitheCommandCatalog.toolWindow(for: command.id).map { model.workbenchFeature.isVisible($0) } ?? false)
+            })
+        }
+    }
+
+    private static func toolbarState(for owner: ModuleID, model: AppModel) -> WorkbenchModuleUIRegistry.ActionState {
+        .init(isVisible: model.workspaceURL != nil,
+              isEnabled: model.workspaceURL != nil && model.services.moduleRuntime.availableContributions()[owner] != nil)
+    }
+
+    static var registrations: [WorkbenchModuleUIRegistry.Registration] {
+        [workspaceRegistration, searchRegistration, terminalRegistration, agentRegistration, gitRegistration, languageRegistration,
+         executionRegistration, databaseRegistration, debugRegistration,
+         .init(contributions: WorkbenchFeatureModel.shellContributions, actions: applicationActions)]
+    }
+
+    static func registry(for catalog: ValidatedPluginCatalog, iconResources: [String: PluginUIIconResources] = [:]) throws -> WorkbenchModuleUIRegistry {
+        let declarations = catalog.manifests.filter { $0.entrypoint.kind == .declarative }
+            .flatMap(\.modules).filter { !$0.contributions.isEmpty }
+        var registry = try WorkbenchModuleUIRegistry(registrations: registrations + declarations.map {
+            WorkbenchModuleUIRegistry.declarativeRegistration($0, iconResources: iconResources)
+        })
+        registry.registerIcons(declarations.flatMap(\.contributions), resources: iconResources)
+        return registry
+    }
+
+    private static let workspaceRegistration = WorkbenchModuleUIRegistry.Registration(
+        contributions: WorkspaceFoundationModule.moduleContributions,
+        actions: [
+            .init(id: "workspace.project.show", perform: { $0.workbenchFeature.setVisibility(.project, isVisible: true) }),
+            .init(id: "github.pull-requests.show", perform: { model in
+                guard LitheFeatureAvailability.githubPullRequests else { return }
+                model.workbenchFeature.setVisibility(.pullRequests, isVisible: true)
+            })
+        ],
+        renderers: [
+            .init(id: "workspace.project", ideaAssetPath: "expui/toolwindows/project@20x20.svg",
+                isVisible: { _ in true }, isSelected: { $0.workbenchFeature.isVisible(.project) },
+                content: { AnyView(ProjectSidebarView(rowHeight: $0.settings.projectTreeRowHeight)) },
+                contentIdentity: { AnyHashable($0.settings.projectTreeRowHeight) }, rightSidebarBehavior: .docked),
+            .init(id: "github.pull-requests", ideaAssetPath: "expui/toolwindows/vcs@20x20.svg",
+                isVisible: { _ in true }, isSelected: { $0.workbenchFeature.isVisible(.pullRequests) },
+                content: { _ in
+                    if LitheFeatureAvailability.githubPullRequests { return AnyView(GitHubPullRequestsSidebarView()) }
+                    return AnyView(GitHubFeatureUnavailableView())
+                }, rightSidebarBehavior: .docked,
+                isEnabled: { _ in LitheFeatureAvailability.githubPullRequests },
+                help: LitheFeatureAvailability.githubPullRequests ? nil : "Pull Requests integration is under development")
+        ]
+    )
+
+    private static let searchRegistration = WorkbenchModuleUIRegistry.Registration(
+        contributions: SearchModule.moduleContributions,
+        actions: [.init(id: "search.workspace.show", perform: { $0.workbenchFeature.setVisibility(.search, isVisible: true) },
+            activateOwner: { await $0.activateSearchModule() != nil })],
+        renderers: [
+            .init(id: "search.workspace", ideaAssetPath: "expui/toolwindows/find@20x20.svg",
+                isVisible: { _ in true }, isSelected: { $0.workbenchFeature.isVisible(.search) },
+                content: { model in
+                    guard let feature = model.searchFeatureIfActive else {
+                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView.task { _ = await model.activateSearchModule() })
+                    }
+                    return AnyView(SearchSidebarView(
+                        feature: feature, session: model.searchSessionFeature,
+                        openReplace: { model.openProjectReplace(inheriting: $0) },
+                        openResult: { model.openSearchResult($0) },
+                        revealInFinder: { model.revealProjectItemInFinder($0) },
+                        copyPath: { model.copyProjectItemPath($0, relative: $1) },
+                        searchProject: { await model.searchProject(options: $0) }
+                    ))
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.searchFeatureIfActive) },
+                rightSidebarBehavior: .docked)
+        ]
+    )
 
     private static let agentRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: AgentConversationModule.moduleContributions,
@@ -49,7 +143,7 @@ enum WorkbenchModuleUIComposition {
     private static let terminalRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: TerminalModule.moduleContributions,
         actions: [
-            .init(id: "terminal.toggle", perform: { $0.toggleTerminal() })
+            .init(id: "terminal.toggle", perform: { $0.toggleTerminal() }, activateOwner: { await $0.activateTerminalModule() })
         ],
         renderers: [
             .init(
@@ -71,11 +165,36 @@ enum WorkbenchModuleUIComposition {
     private static let gitRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: GitModule.moduleContributions,
         actions: [
+            .init(id: "git.changes.show", perform: { $0.workbenchFeature.setVisibility(.changes, isVisible: true) },
+                activateOwner: { await $0.activateGitModule() != nil }),
             .init(id: "git.log.toggle", perform: { model in
                 Task { await model.toggleGitLog() }
-            })
+            }, activateOwner: { await $0.activateGitModule() != nil })
         ],
         renderers: [
+            .init(id: "git.changes", ideaAssetPath: "expui/toolwindows/commit@20x20.svg",
+                isVisible: { _ in true }, isSelected: { $0.workbenchFeature.isVisible(.changes) },
+                content: { model in
+                    guard let feature = model.gitFeatureIfActive else {
+                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView.task { _ = await model.activateGitModule() })
+                    }
+                    return AnyView(ChangesSidebarView(
+                        feature: feature, draft: model.commitDraftFeature,
+                        commitWorkflow: model.commitWorkflow, workbench: model.workbenchFeature,
+                        hasBackgroundImage: model.workbenchBackgroundFeature.hasImage,
+                        openSavedDiff: { model.showSavedChangesDiff($0, version: $1, file: $2) },
+                        selectChange: { model.selectChange($0) },
+                        setStaging: { model.setStaging($0, staged: $1) },
+                        openFile: { model.openFile($0, displayPath: $1) },
+                        showLocalHistory: { model.showLocalHistory(for: $0) },
+                        revealInFinder: { model.revealProjectItemInFinder($0) },
+                        copyPath: { model.copyProjectItemPath($0, relative: $1) },
+                        showSettings: { model.showSettings(category: $0) }
+                    ))
+                },
+                contentIdentity: { AnyHashable([WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.gitFeatureIfActive),
+                    AnyHashable($0.workbenchBackgroundFeature.hasImage)]) },
+                rightSidebarBehavior: .docked, help: "Commit"),
             .init(
                 id: "git.log",
                 ideaAssetPath: "expui/toolwindows/vcs@20x20.svg",
@@ -124,7 +243,9 @@ enum WorkbenchModuleUIComposition {
     private static let languageRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: LanguageIntelligenceModule.moduleContributions,
         actions: [
-            .init(id: "language.problems.toggle", perform: { $0.toggleProblems() })
+            .init(id: "language.problems.toggle", perform: { $0.toggleProblems() }),
+            .init(id: "language.references.toggle", perform: { $0.workbenchFeature.toggleVisibility(.references) }),
+            .init(id: "language.spring.toggle", perform: { $0.toggleSpringEndpoints() })
         ],
         renderers: [
             .init(
@@ -133,17 +254,25 @@ enum WorkbenchModuleUIComposition {
                 isVisible: { _ in true },
                 isSelected: { $0.workbenchFeature.isVisible(.problems) },
                 content: { _ in AnyView(ProblemsView()) }
-            )
+            ),
+            .init(id: "language.references", ideaAssetPath: "expui/toolwindows/toolWindowComponents@20x20.svg",
+                  isVisible: { $0.workbenchFeature.isVisible(.references) },
+                  isSelected: { $0.workbenchFeature.isVisible(.references) },
+                  content: { _ in AnyView(LanguageReferencesView()) }),
+            .init(id: "language.spring", ideaAssetPath: "expui/toolwindows/toolWindowComponents@20x20.svg",
+                  isVisible: { $0.workbenchFeature.isVisible(.spring) },
+                  isSelected: { $0.workbenchFeature.isVisible(.spring) },
+                  content: { _ in AnyView(SpringEndpointsView()) })
         ]
     )
 
     private static let executionRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: ExecutionModule.moduleContributions,
         actions: [
-            .init(id: "execution.maven.toggle", perform: { $0.toggleMaven() }),
-            .init(id: "execution.maven.output.toggle", perform: { $0.workbenchFeature.toggleVisibility(.mavenOutput) }),
-            .init(id: "execution.run.toggle", perform: { $0.toggleRun() }),
-            .init(id: "execution.tests.toggle", perform: { $0.toggleTests() })
+            .init(id: "execution.maven.toggle", perform: { $0.toggleMaven() }, activateOwner: { await $0.activateExecutionModule() != nil }),
+            .init(id: "execution.maven.output.toggle", perform: { $0.workbenchFeature.toggleVisibility(.mavenOutput) }, activateOwner: { await $0.activateExecutionModule() != nil }),
+            .init(id: "execution.run.toggle", perform: { $0.toggleRun() }, activateOwner: { await $0.activateExecutionModule() != nil }),
+            .init(id: "execution.tests.toggle", perform: { $0.toggleTests() }, activateOwner: { await $0.activateExecutionModule() != nil })
         ],
         renderers: [
             .init(
@@ -211,15 +340,19 @@ enum WorkbenchModuleUIComposition {
         contributions: DatabaseModule.moduleContributions,
         actions: [
             .init(id: "database.services.toggle", perform: { model in
-                _ = model.toggleToolWindow(.databaseServices)
-            }),
+                if model.workbenchFeature.isVisible(.databaseServices) {
+                    model.workbenchFeature.setVisibility(.databaseServices, isVisible: false)
+                } else {
+                    Task { await model.activateDatabaseModule(toolWindow: .databaseServices) }
+                }
+            }, activateOwner: { await $0.databaseModuleCoordinator.activate() != nil }),
             .init(id: "database.toggle", perform: { model in
                 if model.workbenchFeature.isVisible(.database) {
                     model.workbenchFeature.setVisibility(.database, isVisible: false)
                 } else {
                     Task { await model.activateDatabaseModule() }
                 }
-            })
+            }, activateOwner: { await $0.databaseModuleCoordinator.activate() != nil })
         ],
         renderers: [
             .init(id: "database.services", ideaAssetPath: "expui/toolwindows/services@20x20.svg",
@@ -250,7 +383,7 @@ enum WorkbenchModuleUIComposition {
     private static let debugRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: DebugModule.moduleContributions,
         actions: [
-            .init(id: "debug.toggle", perform: { $0.toggleDebug() })
+            .init(id: "debug.toggle", perform: { $0.toggleDebug() }, activateOwner: { await $0.activateDebugModule() != nil })
         ],
         renderers: [
             .init(
