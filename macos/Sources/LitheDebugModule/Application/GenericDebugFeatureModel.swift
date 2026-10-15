@@ -478,7 +478,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     /// Retained session content remains visible after termination, even without output.
     /// A failed launch has no session record, but must keep its diagnostics and retry action.
     public var showsEmptyState: Bool {
-        sessionSummaries.isEmpty && !isSessionActive && state != .failed
+        sessionSummaries.isEmpty && !isSessionActive && state != .failed && !hasOutput && errorMessage == nil
     }
 
     public var canControl: Bool { state == .running || state == .paused }

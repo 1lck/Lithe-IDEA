@@ -1218,7 +1218,7 @@ struct DebugModuleTests {
         feature.appendDebuggeeOutput("retained output")
         feature.stop()
         #expect(feature.hasOutput)
-        #expect(feature.showsEmptyState, "Closing the last session must hide its retained output")
+        #expect(!feature.showsEmptyState, "Stopping the last session must preserve access to retained output")
 
         session.failNextLaunch = true
         #expect(!feature.start(fileURL: source, rootURL: root, configuration: configuration))
@@ -1226,9 +1226,33 @@ struct DebugModuleTests {
         #expect(feature.state == .failed)
         #expect(feature.canRetry)
         #expect(!feature.showsEmptyState, "Failed launch diagnostics must remain accessible")
+        feature.stop()
+        feature.clearOutput()
+        #expect(feature.state == .idle)
+        #expect(feature.errorMessage != nil)
+        #expect(!feature.showsEmptyState, "Retained errors remain accessible even without output or a session")
         #expect(feature.retry())
         #expect(!feature.showsEmptyState)
         feature.reset()
+        #expect(feature.showsEmptyState)
+    }
+
+    @Test
+    func stoppingTheLastRunningSessionKeepsConsoleOutputUntilItIsCleared() {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/stop-console")
+        defer { feature.reset() }
+        session.transition(to: .running)
+        feature.appendDebuggeeOutput("retained console output\n")
+        let output = feature.output
+        feature.stop()
+        #expect(feature.sessionSummaries.isEmpty)
+        #expect(feature.state == .idle)
+        #expect(feature.hasOutput)
+        #expect(feature.output == output)
+        #expect(feature.outputPresentation.text == output)
+        #expect(!feature.showsEmptyState)
+        feature.clearOutput()
         #expect(feature.showsEmptyState)
     }
 

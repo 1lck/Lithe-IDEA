@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import LitheDebugModule
 @testable import Lithe
 
 @MainActor
@@ -265,6 +266,125 @@ struct ConsoleInlineInputTests {
         _ = target.perform(action, with: nil)
         #expect(view.selectedRange() == ranges[forward ? 0 : 2])
         #expect(opened == 5)
+    }
+
+    @Test
+    func consoleNavigationButtonsFollowSourceLinksAndIgnoreSupersededUpdates() async throws {
+        let application = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previousAccessibility = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        application.accessibilitySetValue(true, forAttribute: attribute)
+        defer { application.accessibilitySetValue(previousAccessibility, forAttribute: attribute) }
+        func content(_ output: String) -> AnyView {
+            AnyView(OutputTextView(output: output, searchRoots: [URL(fileURLWithPath: "/fixture")],
+                fileExists: { _ in true }, emptyMessage: "", showsConsoleToolbar: true,
+                usesIDEAConsoleStyle: true, onOpenLocation: { _, _, _ in })
+                .environment(\.locale, Locale(identifier: "en")))
+        }
+        let host = NSHostingView(rootView: content("plain output"))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        window.orderFront(nil)
+        func navigationMatches(_ enabled: Bool) -> Bool {
+            CFRunLoopRunInMode(.defaultMode, 0, true)
+            let buttons = accessibilityButtons(in: host).filter {
+                ["Previous Stack Trace", "Next Stack Trace"].contains(
+                    $0.accessibilityLabel?() ?? $0.accessibilityTitle?() ?? "")
+            }
+            return buttons.count == 2 && buttons.allSatisfy { $0.isAccessibilityEnabled?() == enabled }
+        }
+        func awaitNavigation(_ enabled: Bool) async -> Bool {
+            var queuedUpdatesPassed = false
+            DispatchQueue.main.async { queuedUpdatesPassed = true }
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(2))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if queuedUpdatesPassed && navigationMatches(enabled) { return true }
+                await Task.yield()
+            } while clock.now < deadline
+            return queuedUpdatesPassed && navigationMatches(enabled)
+        }
+        #expect(await awaitNavigation(false))
+        let linked = "\tat demo.Main.run(Main.java:42)\n"
+        host.rootView = content(linked)
+        #expect(await awaitNavigation(true))
+        host.rootView = content("")
+        #expect(await awaitNavigation(false))
+        // A link update superseded before queued delivery must not re-enable navigation.
+        host.rootView = content(linked)
+        host.layoutSubtreeIfNeeded()
+        host.rootView = content("")
+        host.layoutSubtreeIfNeeded()
+        #expect(await awaitNavigation(false))
+        // Dismantle with a notification pending, then mount a fresh empty Console.
+        host.rootView = content(linked)
+        host.layoutSubtreeIfNeeded()
+        host.rootView = AnyView(EmptyView())
+        host.layoutSubtreeIfNeeded()
+        host.rootView = content("")
+        #expect(await awaitNavigation(false))
+    }
+
+    @Test
+    func stoppedDebugContentCanSwitchFromVariablesBackToRetainedConsole() async throws {
+        let application = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previousAccessibility = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        application.accessibilitySetValue(true, forAttribute: attribute)
+        defer { application.accessibilitySetValue(previousAccessibility, forAttribute: attribute) }
+        let domain = "lithe.debug-retained-console.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings,
+            services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let feature = GenericDebugFeatureModel(sessions: DebugAdapterSessionManager(providers: []) { _, _ in nil })
+        defer { feature.reset() }
+        feature.appendDebuggeeOutput("retained console output\n")
+        let host = NSHostingView(rootView: GenericDebugView(feature: feature).environmentObject(model)
+            .environment(\.locale, Locale(identifier: "en")))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        window.orderFront(nil)
+        func button(_ title: String) -> AnyObject? {
+            accessibilityButtons(in: host).first { ($0.accessibilityLabel?() ?? $0.accessibilityTitle?()) == title }
+        }
+        func awaitView(_ condition: () -> Bool) async -> Bool {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(2))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if condition() { return true }
+                await Task.yield()
+            } while clock.now < deadline
+            return condition()
+        }
+        #expect(await awaitView { button("Threads & Variables") != nil })
+        let variables = try #require(button("Threads & Variables"))
+        #expect(variables.accessibilityPerformPress?() == true)
+        #expect(await awaitView { findTextView(host) == nil })
+        feature.stop()
+        #expect(await awaitView { button("Console") != nil })
+        let console = try #require(button("Console"))
+        #expect(console.accessibilityPerformPress?() == true)
+        #expect(await awaitView { findTextView(host)?.string.contains("retained console output") == true })
+    }
+
+    private func accessibilityButtons(in element: Any) -> [AnyObject] {
+        // SwiftUI nodes expose the native selectors without adopting the full
+        // NSAccessibilityProtocol. Optional dispatch also handles ignored views.
+        let accessible = element as AnyObject
+        let isButton = accessible.accessibilityRole?() == .button
+        return (isButton ? [accessible] : [])
+            + (accessible.accessibilityChildren?() ?? []).flatMap { accessibilityButtons(in: $0) }
     }
 
     private func findTextView(_ view: NSView) -> OutputNativeTextView? {

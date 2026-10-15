@@ -836,6 +836,10 @@ private struct OutputTextStorageView: NSViewRepresentable {
         }
     }
 
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var scrollView: NSScrollView?
@@ -848,6 +852,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
         var lastToolbarRequest: UUID?
         var onConsoleOccurrencesChange: ((Bool) -> Void)?
         private var lastOccurrencesAvailable = false
+        private var pendingOccurrenceNotification: (id: UUID, available: Bool)?
         private var lastFollowedConsoleLink: (range: NSRange, url: URL)?
 
         private var consoleOccurrences: [(NSRange, URL)] {
@@ -861,9 +866,19 @@ private struct OutputTextStorageView: NSViewRepresentable {
 
         func updateConsoleOccurrenceAvailability() {
             let available = !consoleOccurrences.isEmpty
+            guard pendingOccurrenceNotification?.available != available else { return }
+            pendingOccurrenceNotification = nil
             guard available != lastOccurrencesAvailable else { return }
-            lastOccurrencesAvailable = available
-            onConsoleOccurrencesChange?(available)
+            let id = UUID()
+            pendingOccurrenceNotification = (id, available)
+            // updateNSView must return before notifying SwiftUI. Only the latest
+            // render may publish, and dismantling invalidates queued delivery.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.pendingOccurrenceNotification?.id == id else { return }
+                self.pendingOccurrenceNotification = nil
+                self.lastOccurrencesAvailable = available
+                self.onConsoleOccurrencesChange?(available)
+            }
         }
 
         @objc func nextConsoleOccurrence(_ sender: Any?) { navigateConsoleOccurrence(forward: true) }
@@ -969,6 +984,17 @@ private struct OutputTextStorageView: NSViewRepresentable {
         private var renderedIsDark: Bool?
         private var isAtBottom = true
         private var boundsObserver: NSObjectProtocol?
+
+        func detach() {
+            pendingOccurrenceNotification = nil
+            onConsoleOccurrencesChange = nil
+            onBottomStateChange = nil
+            if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+            boundsObserver = nil
+            textView?.delegate = nil
+            textView = nil
+            scrollView = nil
+        }
 
         func attach(scrollView: NSScrollView, textView: NSTextView) {
             self.scrollView = scrollView

@@ -736,16 +736,19 @@ Debug 空状态沿用同一 Community revision 的
 `platform/platform-impl/src/com/intellij/ui/content/impl/ContentManagerImpl.java` 的
 `MyNonOpaquePanel` → `JBPanelWithEmptyText.isStatusVisible`：没有可见子内容才绘制空状态。
 `ToolWindowContentUi.ensureSelectedContentVisible` 在没有选中内容时移除内容组件。
-所以不能用进程是否运行、控制台是否有输出代替内容是否存在：自然结束但保留的会话继续显示，
-关闭最后一个会话后即使缓存日志仍存在也回到引导。Lithe 的启动失败可能尚未建立会话记录，
-此时保留诊断与重试界面，避免把失败当成普通空状态隐藏。
+自然结束但保留的会话继续显示。Lithe 的 Stop 停止执行，但保留 Console 输出，
+不能把它等同于关闭内容标签：停止最后会话后，已有日志或错误仍属于可查看内容，
+工具栏与 Console 标签必须保留；停留在 Threads & Variables 时仍可切回 Console。
+只有没有会话、活动、保留输出及错误时才回到引导；显式重置继续清空历史。
+Lithe 的启动失败可能尚未建立会话记录，此时保留诊断与重试界面。
 
 上游配置链接打开 `EditConfigurationsDialog`；Lithe 复用已有 Run 面板的配置入口，
 不另造配置对话框，也不自动启动调试。Lithe 尚无独立的 ChooseDebugConfiguration 快捷键，
 因此不把“开始调试”的快捷键冒充配置选择快捷键。帮助链接指向 JetBrains 公开调试文档。
 
 `DebugModuleTests.emptyStateFollowsRetainedContentRatherThanRunningStateOrOutput`
-覆盖初始空状态、活跃会话、无输出的自然结束、带缓存输出的关闭、启动失败/重试及重置。
+覆盖初始空状态、活跃会话、无输出的自然结束、带缓存输出的停止、启动失败/重试及重置。
+`stoppingTheLastRunningSessionKeepsConsoleOutputUntilItIsCleared` 验证运行中产生输出后主动 Stop 仍可查看，清空输出后才回到引导。
 完整应用还需核对明暗主题、两个文字入口及空状态/会话界面切换；模拟会话测试不替代真实 DAP 验收。
 
 Debug 空状态标题栏使用 Git Log / Terminal 已有的 41pt 工具窗口规则：
@@ -1075,3 +1078,9 @@ Console 源码导航必须区分“尚未定位”和“已定位第一条”：
 首次后退从最后一条开始，之后才按当前链接范围逐个移动并回绕。
 输出整体替换后，即使新旧源码链接的 URL 与范围完全相同，也要重新执行首次定位；
 `ConsoleInlineInputTests` 的双向原生回归保护这一边界，不能将跳过第一条写成预期。
+
+
+Console 原生视图的源码导航可用性通知在 `updateNSView` 返回后交付，按最后一次值去重，
+新渲染覆盖旧的排队通知；`dismantleNSView` 使排队通知失效并清理观察器及回调。
+不要在原生更新事务中同步修改 SwiftUI State，也不要让已卸载视图回写工具栏状态。
+导航按钮回归覆盖无链接、有链接、清空输出、快速覆盖及卸载重建。
