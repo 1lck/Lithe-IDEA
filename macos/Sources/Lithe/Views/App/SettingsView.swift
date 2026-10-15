@@ -1377,6 +1377,10 @@ struct SettingsView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
+            group("Update channel") {
+                UpdateChannelControl()
+            }
+
             group("Update status") {
                 updateStatusDescription
                 StableRollbackControl()
@@ -1415,7 +1419,7 @@ struct SettingsView: View {
                             Task { await updateChecker.installAvailableUpdate() }
                         } label: {
                             if updateChecker.isPreview {
-                                Label("Install Preview", systemImage: "arrow.down.circle.fill")
+                                Label("Install AutoBuild", systemImage: "arrow.down.circle.fill")
                             } else {
                                 Label("Update \(version)", systemImage: "arrow.down.circle.fill")
                             }
