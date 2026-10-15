@@ -223,12 +223,16 @@ struct ConsoleInlineInputTests {
         }
     }
 
-    @Test func nextAndPreviousVisitDistinctOccurrencesOfTheSameSourceLink() throws {
+    @Test(arguments: [true, false])
+    func nextAndPreviousVisitDistinctOccurrencesOfTheSameSourceLink(forward: Bool) throws {
         let output = String(repeating: "\tat demo.Main.repeat(Main.java:1)\n", count: 3)
         var opened = 0
-        let host = NSHostingView(rootView: OutputTextView(output: output,
-            searchRoots: [URL(fileURLWithPath: "/fixture")], fileExists: { _ in true }, emptyMessage: "",
-            fontSize: 13, usesIDEAConsoleStyle: true, onOpenLocation: { _, _, _ in opened += 1 }))
+        func content(_ source: String) -> OutputTextView {
+            OutputTextView(output: source,
+                searchRoots: [URL(fileURLWithPath: "/fixture")], fileExists: { _ in true }, emptyMessage: "",
+                fontSize: 13, usesIDEAConsoleStyle: true, onOpenLocation: { _, _, _ in opened += 1 })
+        }
+        let host = NSHostingView(rootView: content(output))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -248,13 +252,18 @@ struct ConsoleInlineInputTests {
         let next = NSSelectorFromString("nextConsoleOccurrence:")
         let previous = NSSelectorFromString("previousConsoleOccurrence:")
         try #require(target.responds(to: next) && target.responds(to: previous))
-        for index in [1, 2, 0] {
-            _ = target.perform(next, with: nil)
+        let action = forward ? next : previous
+        for index in forward ? [0, 1, 2, 0] : [2, 1, 0, 2] {
+            _ = target.perform(action, with: nil)
             #expect(view.selectedRange() == ranges[index])
         }
-        _ = target.perform(previous, with: nil)
-        #expect(view.selectedRange() == ranges[2])
-        #expect(opened == 4)
+        // Replace the source while retaining identical link URLs and ranges;
+        // navigation must restart rather than continue its old position.
+        host.rootView = content(output.replacingOccurrences(of: "repeat", with: "modify"))
+        host.layoutSubtreeIfNeeded()
+        _ = target.perform(action, with: nil)
+        #expect(view.selectedRange() == ranges[forward ? 0 : 2])
+        #expect(opened == 5)
     }
 
     private func findTextView(_ view: NSView) -> OutputNativeTextView? {

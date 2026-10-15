@@ -873,7 +873,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
         private func navigateConsoleOccurrence(forward: Bool) {
             let links = consoleOccurrences
             guard !links.isEmpty, let view = textView else { return }
-            let current = links.firstIndex { $0.0 == lastFollowedConsoleLink?.range && $0.1 == lastFollowedConsoleLink?.url } ?? 0
+            let current = links.firstIndex { $0.0 == lastFollowedConsoleLink?.range && $0.1 == lastFollowedConsoleLink?.url } ?? (forward ? -1 : 0)
             let next = (current + (forward ? 1 : -1) + links.count) % links.count
             let (range, url) = links[next]
             view.setSelectedRange(range)
