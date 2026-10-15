@@ -15,7 +15,6 @@ import {
   settingsCategories,
   settingsGroups,
   settingsSidebarLayout,
-  settingsTopLevelCategories,
 } from "../lib/settings-navigation";
 
 const restoreDom = installHappyDom();
@@ -52,7 +51,7 @@ test("every settings page belongs to exactly one group or is a top-level page, i
     id,
     [
       ...settingsGroups.filter((group) => (group.categories as readonly string[]).includes(id)),
-      ...settingsTopLevelCategories.filter((top) => top === id),
+      ...settingsSidebarLayout.filter((entry) => entry.type === "page" && entry.id === id),
     ].length,
   ]);
   expect(owners.filter(([, count]) => count !== 1)).toEqual([]);
@@ -64,8 +63,12 @@ test("every settings page belongs to exactly one group or is a top-level page, i
     ["tools", ["terminal", "logs"]],
     ["ai", ["mcp", "ai-commit", "ai"]],
   ]);
-  expect([...settingsTopLevelCategories]).toEqual(["plugins"]);
-  expect(settingsSidebarLayout.map(({ id }) => id)).toEqual([
+  expect(settingsSidebarLayout.flatMap((entry) => (entry.type === "page" ? [entry.id] : []))).toEqual([
+    "plugins",
+  ]);
+  expect(
+    settingsSidebarLayout.map((entry) => (entry.type === "group" ? entry.group.id : entry.id)),
+  ).toEqual([
     "appearance",
     "plugins",
     "version-control",

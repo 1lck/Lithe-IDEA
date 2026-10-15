@@ -10,35 +10,62 @@ const chineseLabel = createTranslator("zh-CN");
  * 分组与页面的归属只在这里声明；侧栏、面包屑和展开逻辑都从它推导。
  * 归属规则见 .agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md。
  */
+const appearanceGroup = {
+  id: "appearance",
+  labelKey: "settings.groups.appearance",
+  categories: ["general", "updates", "editor", "keyboard"],
+} as const;
+const versionControlGroup = {
+  id: "version-control",
+  labelKey: "settings.groups.versionControl",
+  categories: ["git"],
+} as const;
+const buildGroup = {
+  id: "build",
+  labelKey: "settings.groups.build",
+  categories: ["project", "run", "maven"],
+} as const;
+const languagesGroup = {
+  id: "languages",
+  labelKey: "settings.groups.languages",
+  categories: ["lsp"],
+} as const;
+const toolsGroup = {
+  id: "tools",
+  labelKey: "settings.groups.tools",
+  categories: ["terminal", "logs"],
+} as const;
+const aiGroup = {
+  id: "ai",
+  labelKey: "settings.groups.ai",
+  categories: ["mcp", "ai-commit", "ai"],
+} as const;
+
 export const settingsGroups = [
-  {
-    id: "appearance",
-    labelKey: "settings.groups.appearance",
-    categories: ["general", "updates", "editor", "keyboard"],
-  },
-  { id: "version-control", labelKey: "settings.groups.versionControl", categories: ["git"] },
-  { id: "build", labelKey: "settings.groups.build", categories: ["project", "run", "maven"] },
-  { id: "languages", labelKey: "settings.groups.languages", categories: ["lsp"] },
-  { id: "tools", labelKey: "settings.groups.tools", categories: ["terminal", "logs"] },
-  { id: "ai", labelKey: "settings.groups.ai", categories: ["mcp", "ai-commit", "ai"] },
+  appearanceGroup,
+  versionControlGroup,
+  buildGroup,
+  languagesGroup,
+  toolsGroup,
+  aiGroup,
 ] as const;
 
-type SettingsGroupId = (typeof settingsGroups)[number]["id"];
+export type SettingsGroup = (typeof settingsGroups)[number];
 
-/** 不属于任何分组的一级页面；只留给插件管理这类入口，普通设置页必须归入分组。 */
-export const settingsTopLevelCategories = ["plugins"] as const;
-
-/** 侧栏一级入口的顺序：插件紧跟“外观与行为”，其余分组依次排列。 */
+/**
+ * 侧栏一级入口的顺序：插件紧跟“外观与行为”，其余分组依次排列。
+ * 不属于任何分组的一级页面（目前只有插件管理）直接写成 page；普通设置页必须归入分组。
+ */
 export const settingsSidebarLayout: ReadonlyArray<
-  { type: "group"; id: SettingsGroupId } | { type: "page"; id: SettingsCategory }
+  { type: "group"; group: SettingsGroup } | { type: "page"; id: SettingsCategory }
 > = [
-  { type: "group", id: "appearance" },
+  { type: "group", group: appearanceGroup },
   { type: "page", id: "plugins" },
-  { type: "group", id: "version-control" },
-  { type: "group", id: "build" },
-  { type: "group", id: "languages" },
-  { type: "group", id: "tools" },
-  { type: "group", id: "ai" },
+  { type: "group", group: versionControlGroup },
+  { type: "group", group: buildGroup },
+  { type: "group", group: languagesGroup },
+  { type: "group", group: toolsGroup },
+  { type: "group", group: aiGroup },
 ];
 
 export const settingsCategories: Array<{

@@ -26,7 +26,7 @@ Windows 的 `settings-navigation.ts` 集中定义可见分层和检索词。2026
 | 工具 | 终端、日志 |
 | AI | MCP 配置、AI 与提交、AI 聊天与编辑 |
 
-分组与页面的归属只写在 `settingsGroups` 与 `settingsTopLevelCategories`，一级入口的顺序写在 `settingsSidebarLayout`；侧栏、面包屑、搜索时展开分组和外部分类请求展开所属分组都从它们推导，`settings-dialog.tsx` 不再写按页面分支的分组逻辑。只调整了归属与导航，页面内容、存储键和保存时机不变，仍不凑三级树，也不新增空页面。
+分组与页面的归属只写在 `settingsGroups`，一级入口的顺序（含不属于任何分组的一级页面，目前只有插件管理）写在 `settingsSidebarLayout`，分组入口直接持有分组对象而不再按 id 查找；侧栏、面包屑、搜索时展开分组和外部分类请求展开所属分组都从它们推导，`settings-dialog.tsx` 不再写按页面分支的分组逻辑。只调整了归属与导航，页面内容、存储键和保存时机不变，仍不凑三级树，也不新增空页面。
 
 保留 Windows 的 Maven、AI 聊天和日志入口。macOS 的 AI Providers 相关选项在 Windows 已由“AI 聊天与编辑”和“AI 与提交”两页负责，所以 Windows 的 AI 分组只有 MCP 配置、AI 与提交、AI 聊天与编辑三页，不增加重复的服务商设置页。插件页复用已有 `ExtensionsSidebar`，按需加载，不复制安装、市场、启用和详情逻辑；其操作仍即时生效，与 macOS 的插件草稿确认不同。
 

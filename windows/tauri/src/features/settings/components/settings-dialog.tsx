@@ -14,8 +14,8 @@ import {
   filterSettingsCategories,
   settingsCategories,
   settingsGroupForCategory,
-  settingsGroups,
   settingsSidebarLayout,
+  type SettingsGroup,
 } from "../lib/settings-navigation";
 import { SettingsPanel, type SettingsCategory } from "./settings-panels";
 
@@ -110,7 +110,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
       </li>
     );
   };
-  const groupNode = (group: (typeof settingsGroups)[number]) => {
+  const groupNode = (group: SettingsGroup) => {
     const children = group.categories.filter((id) =>
       filteredCategories.some((category) => category.id === id),
     );
@@ -211,7 +211,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
               <ul>
                 {settingsSidebarLayout.map((entry) => {
                   if (entry.type === "page") return categoryButton(entry.id);
-                  return groupNode(settingsGroups.find((group) => group.id === entry.id)!);
+                  return groupNode(entry.group);
                 })}
               </ul>
               {!filteredCategories.length && (
