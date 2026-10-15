@@ -83,7 +83,7 @@ struct UpdateControl: View {
                     updateChecker.presentDetails()
                 } label: {
                     if updateChecker.isPreview {
-                        Label("Preview Update", systemImage: "arrow.down.circle.fill")
+                        Label("AutoBuild Update", systemImage: "arrow.down.circle.fill")
                     } else {
                         Label(compact ? "Update \(version)" : "Update to \(version)",
                               systemImage: "arrow.down.circle.fill")
@@ -173,11 +173,12 @@ struct UpdateDetailsView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(LocalizedStringKey(updateChecker.isPreview ? "Preview Update" : "Software Update"))
+                    Text(LocalizedStringKey(updateChecker.isPreview ? "AutoBuild Update" : "Software Update"))
                         .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     if let updateInfo = updateChecker.updateInfo {
                         if updateInfo.isPreview {
-                            Text("Build \(updateInfo.currentBuild ?? "") → \(updateInfo.targetBuild ?? "")")
+                            Text(AutoBuildTimestamp.label(timestamp: updateInfo.currentBuildDate, build: updateInfo.currentBuild)
+                                + "\n→ " + AutoBuildTimestamp.label(build: updateInfo.targetBuild))
                                 .font(LitheTheme.smallFont)
                                 .foregroundStyle(LitheTheme.secondaryText)
                         } else {
@@ -185,16 +186,10 @@ struct UpdateDetailsView: View {
                                 .font(LitheTheme.smallFont)
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
-                        if let releaseDate = updateInfo.releaseDate {
-                            Group {
-                                if updateInfo.isPreview {
-                                    Text("Built \(formattedDate(releaseDate))")
-                                } else {
-                                    Text("Released \(formattedDate(releaseDate))")
-                                }
-                            }
-                            .font(LitheTheme.smallFont)
-                            .foregroundStyle(LitheTheme.tertiaryText)
+                        if let releaseDate = updateInfo.releaseDate, !updateInfo.isPreview {
+                            Text("Released \(formattedDate(releaseDate))")
+                                .font(LitheTheme.smallFont)
+                                .foregroundStyle(LitheTheme.tertiaryText)
                         }
                     }
                 }
@@ -210,7 +205,7 @@ struct UpdateDetailsView: View {
                 if updateInfo.isPreview {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("This preview contains changes that have not been officially released and may be unstable.")
+                            Text("AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users.")
                                 .font(LitheTheme.uiFont(size: 12.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -263,7 +258,7 @@ struct UpdateDetailsView: View {
                             dismiss()
                         }
                         .buttonStyle(LitheSecondaryButtonStyle())
-                        Button(LocalizedStringKey(updateChecker.isPreview ? "Install Preview" : "Install")) {
+                        Button(LocalizedStringKey(updateChecker.isPreview ? "Install AutoBuild" : "Install")) {
                             dismiss()
                             Task { await updateChecker.installAvailableUpdate() }
                         }

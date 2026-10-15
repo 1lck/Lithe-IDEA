@@ -174,18 +174,27 @@ end
 
 timed_test("channel feed and preference isolation") do
 Dir.mktmpdir("lithe-sparkle-channels-") do |root|
+  @fixture_home = File.join(root, "home")
+  FileUtils.mkdir_p(@fixture_home)
   key = Base64.strict_encode64("\x01" * 32)
-  %w[stable preview].product(%w[arm64 x86_64]).each do |channel, architecture|
+  %w[stable autobuild preview].product(%w[arm64 x86_64]).each do |channel, architecture|
     path = File.join(root, "#{channel}-#{architecture}.plist")
     File.write(path, '<plist version="1.0"><dict/></plist>')
-    run("env", "LITHE_UPDATE_CHANNEL=#{channel}", "LITHE_PREVIEW_TAG=AutoBuild",
+    run("env", "LITHE_UPDATE_CHANNEL=#{channel}", "LITHE_PREVIEW_TAG=ignored-legacy-tag",
       "LITHE_SPARKLE_PUBLIC_KEY=#{key}", "GITHUB_REPOSITORY=example/lithe",
       "zsh", File.join(__dir__, "configure-sparkle-app.sh"), path, architecture)
     info = JSON.parse(run("plutil", "-convert", "json", "-o", "-", path))
-    expected = channel == "preview" ? "download/AutoBuild/appcast-preview-#{architecture}.xml" : "latest/download/appcast-#{architecture}.xml"
-    expect(info["SUFeedURL"] == "https://github.com/example/lithe/releases/#{expected}", "Update channels must use separate architecture-specific feeds")
-    expect(info["LitheUpdateChannel"] == channel, "Bundle must identify its channel")
-    expect(info["SUDefaultsDomain"] == "app.lithe.desktop.sparkle.#{channel}", "Sparkle preferences must be isolated per channel")
+    normalized = channel == "preview" ? "autobuild" : channel
+    stable_feed = "https://github.com/example/lithe/releases/latest/download/appcast-#{architecture}.xml"
+    autobuild_feed = "https://github.com/example/lithe/releases/download/AutoBuild/appcast-preview-#{architecture}.xml"
+    expected = normalized == "autobuild" ? autobuild_feed : stable_feed
+    expect(info["SUFeedURL"] == expected, "Update channels must use separate architecture-specific feeds")
+    expect(info["LitheUpdateChannel"] == normalized, "Legacy preview must identify as AutoBuild")
+    expect(info["SUDefaultsDomain"] == "app.lithe.desktop.sparkle.#{normalized}", "Sparkle preferences must be isolated per channel")
+    expect(info["LitheStableFeedURL"] == stable_feed, "Stable selection must never reuse an installed AutoBuild feed")
+    expect(info["LitheAutoBuildFeedURL"] == autobuild_feed, "AutoBuild must use its fixed tag despite legacy overrides")
+    expect(info["LitheStableReleaseURL"] == "https://github.com/example/lithe/releases/latest", "Stable full installer must use the stable page")
+    expect(info["LitheAutoBuildReleaseURL"] == "https://github.com/example/lithe/releases/tag/AutoBuild", "AutoBuild full installer must use its fixed tag")
     expect(info["SUPublicEDKey"] == key, "Both channels must validate signed updates")
   end
   # Use isolated test suites derived from the actual packaged domains. Never
