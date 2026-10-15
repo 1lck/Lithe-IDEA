@@ -20,14 +20,14 @@ pub enum ProviderProtocol {
     AnthropicMessages,
 }
 
-/// How the provider's model name reaches the agent. It is not secret, so the
-/// environment is acceptable for every adapter.
+/// How the provider's default model reaches new sessions. Restored models
+/// remain owned by the adapter's session history.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModelDelivery {
     /// `CODEX_CONFIG={"model": ...}`, merged into Codex's session config.
     CodexConfig,
-    /// `ANTHROPIC_MODEL`, the Claude adapter's preferred model.
-    AnthropicEnvironment,
+    /// `_meta.claudeCode.options.model` on `session/new`, never a process pin.
+    ClaudeSessionOptions,
 }
 
 /// The agent's own command-line tool, which the user installs and updates.
@@ -109,7 +109,7 @@ pub const CATALOG: &[CatalogAgent] = &[
         bin: "claude-agent-acp",
         minimum_node_major: 22,
         protocol: ProviderProtocol::AnthropicMessages,
-        model_delivery: ModelDelivery::AnthropicEnvironment,
+        model_delivery: ModelDelivery::ClaudeSessionOptions,
         // The Claude Agent SDK pairs with Claude Code 2.1.280; its native
         // binary is an optional dependency that the install skips.
         cli: Some(AgentCli {
