@@ -310,6 +310,21 @@ struct WorkbenchNotificationTests {
 
     /// The shipped localization bundle for one language, so a captured or
     /// asserted notification renders real translations instead of format keys.
+    @Test(arguments: ["en", "zh-Hans"])
+    func notificationKeysFollowInterfaceLanguageIncludingHistoryCounts(language: String) throws {
+        let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
+        let bundle = try #require(Bundle(url: resources))
+        let locale = Locale(identifier: language)
+        let expected = language == "en" ? "Java service is ready" : "Java 服务已就绪"
+        #expect(WorkbenchNotificationPresentation.message("Java service is ready", occurrenceCount: 1,
+            locale: locale, bundle: bundle) == expected)
+        #expect(WorkbenchNotificationPresentation.message("Java service is ready", occurrenceCount: 2,
+            locale: locale, bundle: bundle) == (language == "en" ? expected + " (2)" : expected + "（2）"))
+        #expect(WorkbenchNotificationPresentation.message("External diagnostic: Example", occurrenceCount: 1,
+            locale: locale, bundle: bundle) == "External diagnostic: Example")
+    }
+
     private func notificationResourceBundle(_ language: String) throws -> Bundle {
         let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")

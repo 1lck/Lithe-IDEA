@@ -1789,7 +1789,7 @@ private struct WorkbenchNotificationCenterView: View {
     /// Repeats of one message stay a single row whose text carries the count.
     private func message(for notification: WorkbenchNotification) -> String {
         WorkbenchNotificationPresentation.message(
-            String(localized: String.LocalizationValue(notification.message), locale: locale),
+            notification.message,
             occurrenceCount: notification.occurrenceCount,
             locale: locale
         )

@@ -7,7 +7,7 @@ import Foundation
 /// message appeared. Turning that count into user-visible text stays in the view
 /// layer so `WorkbenchNotification.message` remains a plain localization key.
 enum WorkbenchNotificationPresentation {
-    /// Appends the accumulated occurrence count to an already localized message.
+    /// Resolves the stored message key in the app locale, then appends its occurrence count.
     ///
     /// A message shown once keeps its plain text; only the second and later
     /// appearances carry the `（2）`, `（3）`, … suffix. The bundle is injectable so
@@ -19,12 +19,13 @@ enum WorkbenchNotificationPresentation {
         locale: Locale,
         bundle: Bundle = .main
     ) -> String {
-        guard occurrenceCount > 1 else { return message }
         let localizedBundle = bundle.url(forResource: locale.identifier, withExtension: "lproj")
             .flatMap(Bundle.init(url:)) ?? bundle
+        let localizedMessage = localizedBundle.localizedString(forKey: message, value: message, table: nil)
+        guard occurrenceCount > 1 else { return localizedMessage }
         let format = localizedBundle.localizedString(forKey: "%@ (%lld)",
             value: "%@ (%lld)",
             table: nil)
-        return String(format: format, locale: locale, message, Int64(occurrenceCount))
+        return String(format: format, locale: locale, localizedMessage, Int64(occurrenceCount))
     }
 }

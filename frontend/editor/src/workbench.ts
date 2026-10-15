@@ -1119,7 +1119,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (!target) return;
       target.setPosition({ lineNumber: payload.line + 1, column: payload.column + 1 });
       target.revealLineInCenter(payload.line + 1);
-      target.focus();
+      if (payload.focus !== false) target.focus();
     },
   };
 

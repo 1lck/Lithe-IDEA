@@ -529,6 +529,14 @@ async function verify() {
     assert(editor.getOption(monacoEditor.EditorOption.minimap).enabled &&
       secondary.getOption(monacoEditor.EditorOption.minimap).enabled, "minimap setting did not update every editor");
     assert(secondary.getModel()?.getValue() === "right", "split lost its independent document");
+    const previewFocus = document.createElement("input");
+    document.body.appendChild(previewFocus);
+    try {
+      previewFocus.focus();
+      await window.lithe.navigate({ id: "right-layout", line: 0, column: 1, focus: false });
+      assert(document.activeElement === previewFocus, "background preview navigation stole native/list focus");
+      assert(secondary.getPosition()?.column === 2, "background preview did not reveal the diagnostic column");
+    } finally { previewFocus.remove(); }
     await window.lithe.navigate({ id: "right-layout", line: 0, column: 2 });
     assert(secondary.getPosition()?.column === 3, "navigation did not reach the secondary view");
     assert(editor.getModel()?.getValue() === "left", "secondary navigation replaced primary document");

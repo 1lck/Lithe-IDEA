@@ -165,7 +165,7 @@ extension AppModel {
             javaFeature: javaFeature,
             workspaceURL: workspaceURL,
             onReady: { [weak self] in
-                self?.showNotification(String(localized: "Java service is ready"))
+                self?.showNotification("Java service is ready")
             },
             onFailure: { [weak self] failure in
                 guard let self, let operationID, let currentWorkspaceURL else { return }
@@ -188,7 +188,7 @@ extension AppModel {
     }
 
     func showJavaLanguageServerPreparingNotification() {
-        showNotification(String(localized: "Java service is preparing"))
+        showNotification("Java service is preparing")
     }
 
     func handleWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
@@ -262,7 +262,7 @@ extension AppModel {
                 throw NSError(domain: "MavenReload", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
             case .unprepared:
                 throw NSError(domain: "MavenReload", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: String(localized: "Java runtime is not ready. Retry Maven reload.")
+                    NSLocalizedDescriptionKey: "Java runtime is not ready. Retry Maven reload."
                 ])
             }
             let sessions = try await self.languageSessionsForWorkspaceMaintenance()
@@ -297,15 +297,17 @@ extension AppModel {
         )
         switch failure {
         case .timedOut:
-            showNotification(String(localized: "Java service preparation timed out"))
+            showNotification("Java service preparation timed out")
         case .failed(let message):
             if let message, !message.isEmpty {
                 showNotification(String(
-                    format: String(localized: "Java service failed to start: %@"),
+                    format: (Bundle.main.url(forResource: settings.language.rawValue, withExtension: "lproj")
+                        .flatMap(Bundle.init(url:)) ?? .main).localizedString(
+                            forKey: "Java service failed to start: %@", value: "Java service failed to start: %@", table: nil),
                     message
                 ))
             } else {
-                showNotification(String(localized: "Java service failed to start"))
+                showNotification("Java service failed to start")
             }
         }
     }

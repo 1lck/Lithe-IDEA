@@ -1566,3 +1566,17 @@
 "All messages" = "All messages";
 "Warnings" = "Warnings";
 "Errors only" = "Errors only";
+
+"Project Errors" = "Project Errors";
+
+"Open file in editor to see problems" = "Open file in editor to see problems";
+
+"No problems in %@" = "No problems in %@";
+
+"Problems could be filtered out" = "Problems could be filtered out";
+
+"View Options" = "View Options";
+
+"Show Editor Preview" = "Show Editor Preview";
+
+"Could not load file preview" = "Could not load file preview";

@@ -15,11 +15,8 @@ struct WorkbenchNotificationBanner: View {
     var showHistory: () -> Void = {}
     let dismiss: () -> Void
 
-    private var localizedMessage: String {
-        String(localized: String.LocalizationValue(message), bundle: bundle, locale: locale)
-    }
     private var displayMessage: String {
-        WorkbenchNotificationPresentation.message(localizedMessage,
+        WorkbenchNotificationPresentation.message(message,
             occurrenceCount: occurrenceCount,
             locale: locale,
             bundle: bundle)
