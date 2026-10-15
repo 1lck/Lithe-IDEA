@@ -50,6 +50,13 @@ extension LanguageProviderCatalog {
             if support.executionModuleID != nil { capabilities.insert(.run) }
             if support.testingModuleID != nil { capabilities.insert(.testing) }
             if support.debugModuleID != nil { capabilities.insert(.debugAdapter) }
+            // A package may hand a feature back to the host's own
+            // implementation through its host integration. That is still the
+            // package's declaration, not a fallback: without it the feature
+            // stays off.
+            if support.hostCapabilities.contains(.run) { capabilities.insert(.run) }
+            if support.hostCapabilities.contains(.testing) { capabilities.insert(.testing) }
+            if support.hostCapabilities.contains(.debug) { capabilities.insert(.debugAdapter) }
 
             let descriptor = LanguageProviderDescriptor(
                 id: support.id,

@@ -44,9 +44,8 @@ struct AgentConversationEntryPolicyTests {
             let active = runtime.availableContributions().values.flatMap { $0 }
             let entries = AgentConversationEntryPolicy.rightSidebarContributions(from: active)
             let agent = try #require(entries.first { $0.id == "agent.conversation" })
-            let dockEntry = try #require(AgentConversationEntryPolicy.contribution(
-                for: "agent.conversation", from: active
-            ))
+            let dockEntry = try #require(AgentConversationEntryPolicy.contributions(from: active)
+                .first { $0.rendererID == "agent.conversation" })
             #expect(entries.count == 1)
             #expect(agent.actionID == "agent.conversation.toggle")
             #expect(agent.rendererID == "agent.conversation")
@@ -71,7 +70,7 @@ struct AgentConversationEntryPolicyTests {
         #expect(entries.allSatisfy { $0.placement == .rightSidebar })
         let disabled = AgentConversationEntryPolicy.rightSidebarContributions(from: [])
         #expect(disabled.map(\.id) == ["agent.conversation"])
-        #expect(AgentConversationEntryPolicy.contribution(for: "execution.maven", from: []) == nil)
+        #expect(!AgentConversationEntryPolicy.contributions(from: []).contains { $0.id == "execution.maven" })
         try WorkbenchModuleUIComposition.builtIn.validate(contributions: entries)
     }
 }

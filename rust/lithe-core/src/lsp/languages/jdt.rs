@@ -34,6 +34,16 @@ const ERROR_STATUS: &str = "Error";
 /// never adds Eclipse files to the user's tree. Files that already exist at a
 /// module root still take precedence; `jdt_project_metadata` removes those.
 const METADATA_AT_PROJECT_ROOT_PROPERTY: &str = "-Djava.import.generatesMetadataFilesAtProjectRoot";
+/// Heap ceiling passed to the JDT LS JVM on both launch paths.
+///
+/// JDT LS switches to a batched, memory-frugal Maven import as soon as its
+/// maximum heap is at most 1.5 GB. That path hands a `null` project to
+/// `IProject.open` when several modules share `groupId` and `artifactId`, which
+/// fails the whole Java service instead of the affected modules. Keep the
+/// ceiling above that threshold, and at the 2 GB upstream documents for the
+/// language server, so a normal multi-module workspace imports through the
+/// regular path.
+const JDTLS_MAX_HEAP_ARGUMENT: &str = "-Xmx2048m";
 
 /// JDT LS readiness transition conveyed through its `language/status`
 /// extension after the standard LSP initialize handshake.
@@ -724,11 +734,81 @@ fn is_java_provider(provider_id: &str) -> bool {
     provider_id.trim().eq_ignore_ascii_case(JAVA_PROVIDER_ID)
 }
 
+/// Maximum heap used when the plugin does not choose one, or chooses one the
+/// host cannot accept. See `JDTLS_MAX_HEAP_ARGUMENT` for why it is 2 GB.
+const DEFAULT_MAX_HEAP_ARGUMENT: &str = JDTLS_MAX_HEAP_ARGUMENT;
+/// JDT LS runs its constrained-memory import at or below this heap, so no
+/// plugin choice at or below it is accepted.
+const CONSTRAINED_HEAP_MEBIBYTES: u64 = 1536;
+const MAX_HEAP_PREFIX: &str = "-Xmx";
+/// Language-server log level used when the plugin does not choose one.
+const DEFAULT_LOG_LEVEL_ARGUMENT: &str = "-Dlog.level=ALL";
+const LOG_LEVEL_PREFIX: &str = "-Dlog.level=";
+
+/// Removes every argument starting with `prefix` and returns the last one
+/// that is acceptable. The JVM honors the last occurrence, so that is the one
+/// the plugin meant; an unacceptable value is dropped so the host default
+/// stays in force.
+fn take_plugin_choice(
+    arguments: &mut Vec<String>,
+    prefix: &str,
+    acceptable: fn(&str) -> bool,
+) -> Option<String> {
+    let choice = arguments
+        .iter()
+        .rev()
+        .find(|argument| {
+            argument
+                .strip_prefix(prefix)
+                .is_some_and(|value| acceptable(value))
+        })
+        .cloned();
+    arguments.retain(|argument| !argument.starts_with(prefix));
+    choice
+}
+
+/// A JVM heap size (digits and an optional `k`, `m`, or `g` unit) above the
+/// size at which JDT LS switches to its constrained-memory import. A smaller
+/// choice is dropped so the host default stays in force.
+fn is_heap_size(value: &str) -> bool {
+    let digits = value.trim_end_matches(['k', 'K', 'm', 'M', 'g', 'G']);
+    if digits.is_empty()
+        || value.len() - digits.len() > 1
+        || !digits.chars().all(|character| character.is_ascii_digit())
+    {
+        return false;
+    }
+    let Ok(amount) = digits.parse::<u64>() else {
+        return false;
+    };
+    let mebibytes = match value[digits.len()..].to_ascii_lowercase().as_str() {
+        "k" => amount / 1024,
+        "m" => amount,
+        "g" => amount.saturating_mul(1024),
+        _ => amount / (1024 * 1024),
+    };
+    mebibytes > CONSTRAINED_HEAP_MEBIBYTES
+}
+
+fn is_log_level(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+}
+
 fn wrapper_arguments(
     arguments: &[String],
     java_executable: Option<&Path>,
     data_directory: &Path,
 ) -> Vec<String> {
+    let mut jvm_arguments: Vec<String> = arguments
+        .iter()
+        .filter_map(|argument| argument.strip_prefix("--jvm-arg="))
+        .map(str::to_string)
+        .collect();
+    let max_heap = take_plugin_choice(&mut jvm_arguments, MAX_HEAP_PREFIX, is_heap_size)
+        .unwrap_or_else(|| DEFAULT_MAX_HEAP_ARGUMENT.to_string());
     let mut arguments = without_wrapper_owned_arguments(arguments);
     if let Some(java_executable) = java_executable {
         arguments.push("--java-executable".to_string());
@@ -736,7 +816,7 @@ fn wrapper_arguments(
     }
     arguments.extend([
         "--jvm-arg=-Xms256m".to_string(),
-        "--jvm-arg=-Xmx1024m".to_string(),
+        format!("--jvm-arg={max_heap}"),
         format!("--jvm-arg={METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
         "-data".to_string(),
         data_directory.to_string_lossy().into_owned(),
@@ -749,15 +829,19 @@ fn direct_java_arguments(
     resources: &JdtDirectLaunchResources,
     data_directory: &Path,
 ) -> Vec<String> {
-    let (custom_jvm_arguments, server_arguments) =
+    let (mut custom_jvm_arguments, server_arguments) =
         split_direct_launch_arguments(arguments, &resources.launcher_jar_path);
+    let max_heap = take_plugin_choice(&mut custom_jvm_arguments, MAX_HEAP_PREFIX, is_heap_size)
+        .unwrap_or_else(|| DEFAULT_MAX_HEAP_ARGUMENT.to_string());
+    let log_level = take_plugin_choice(&mut custom_jvm_arguments, LOG_LEVEL_PREFIX, is_log_level)
+        .unwrap_or_else(|| DEFAULT_LOG_LEVEL_ARGUMENT.to_string());
     let mut adapted = vec![
         format!(
             "-javaagent:{}",
             resources.lombok_agent_path.to_string_lossy()
         ),
         "-Xms256m".to_string(),
-        "-Xmx1024m".to_string(),
+        max_heap,
         "--add-modules=ALL-SYSTEM".to_string(),
         "--add-opens=java.base/java.util=ALL-UNNAMED".to_string(),
         "--add-opens=java.base/java.lang=ALL-UNNAMED".to_string(),
@@ -765,7 +849,7 @@ fn direct_java_arguments(
         "-Declipse.product=org.eclipse.jdt.ls.core.product".to_string(),
         "-Dosgi.bundles.defaultStartLevel=4".to_string(),
         "-Dlog.protocol=true".to_string(),
-        "-Dlog.level=ALL".to_string(),
+        log_level,
         format!("{METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
     ];
     adapted.extend(custom_jvm_arguments);
@@ -862,8 +946,9 @@ fn split_direct_launch_arguments(
 }
 
 fn is_jdt_owned_jvm_argument(argument: &str) -> bool {
+    // `-Xmx` and `-Dlog.level=` are the plugin's to choose, so they stay in
+    // the custom arguments, where `direct_java_arguments` reads them.
     argument.starts_with("-Xms")
-        || argument.starts_with("-Xmx")
         || argument == "--add-modules=ALL-SYSTEM"
         || argument == "--add-opens=java.base/java.util=ALL-UNNAMED"
         || argument == "--add-opens=java.base/java.lang=ALL-UNNAMED"
@@ -871,7 +956,6 @@ fn is_jdt_owned_jvm_argument(argument: &str) -> bool {
         || argument.starts_with("-Declipse.product=")
         || argument.starts_with("-Dosgi.bundles.defaultStartLevel=")
         || argument.starts_with("-Dlog.protocol=")
-        || argument.starts_with("-Dlog.level=")
         || is_metadata_location_argument(argument)
         || is_lombok_agent_argument(argument)
 }
@@ -1374,7 +1458,7 @@ mod tests {
                 "--java-executable",
                 "/jdk/bin/java",
                 "--jvm-arg=-Xms256m",
-                "--jvm-arg=-Xmx1024m",
+                "--jvm-arg=-Xmx2048m",
                 "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-data",
                 data_directory.to_string_lossy().as_ref()
@@ -1383,7 +1467,7 @@ mod tests {
     }
 
     #[test]
-    fn java_start_replaces_adapter_owned_arguments_and_is_stable() {
+    fn java_start_uses_the_plugins_heap_choice_and_is_stable() {
         let mut context = java_start_context();
         context.arguments = vec![
             "--java-executable".to_string(),
@@ -1404,6 +1488,15 @@ mod tests {
         assert!(first
             .arguments
             .contains(&"--jvm-arg=-Duser.language=en".to_string()));
+        // The plugin chooses the maximum heap; the initial heap stays the host's.
+        assert_eq!(
+            first
+                .arguments
+                .iter()
+                .filter(|argument| argument.starts_with("--jvm-arg=-Xm"))
+                .collect::<Vec<_>>(),
+            vec!["--jvm-arg=-Xms256m", "--jvm-arg=-Xmx4g"]
+        );
         assert!(!first.arguments.contains(&"/old/java".to_string()));
         assert!(!first.arguments.contains(&"/old/data".to_string()));
         assert_eq!(
@@ -1414,6 +1507,45 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false"]
         );
+    }
+
+    #[test]
+    fn java_start_keeps_the_heap_above_the_jdtls_constrained_memory_threshold() {
+        // JDT LS switches to a batched Maven import whose `updateProjects` path
+        // dereferences a `null` project for modules that share a build
+        // coordinate (eclipse-jdtls/eclipse.jdt.ls#3893). Staying above 1.5 GB
+        // keeps a normal multi-module workspace on the regular import path.
+        const CONSTRAINED_MEMORY_THRESHOLD_MEBIBYTES: u64 = 1536;
+
+        let mut direct_context = java_start_context();
+        direct_context.direct_launch_resources = Some(JdtDirectLaunchResources {
+            launcher_jar_path: PathBuf::from("/jdtls/plugins/equinox.jar"),
+            configuration_directory: PathBuf::from("/jdtls/config_mac"),
+            lombok_agent_path: PathBuf::from("/jdtls/lombok/lombok.jar"),
+            java_debug_bundle_path: None,
+        });
+        let wrapper = adapt_start(&java_start_context());
+        let direct = adapt_start(&direct_context);
+
+        for arguments in [&wrapper.arguments, &direct.arguments] {
+            let heap = arguments
+                .iter()
+                .find_map(|argument| {
+                    argument
+                        .strip_prefix("--jvm-arg=")
+                        .unwrap_or(argument)
+                        .strip_prefix("-Xmx")
+                })
+                .expect("both JDT LS launch paths set a maximum heap");
+            let mebibytes = heap
+                .strip_suffix('m')
+                .and_then(|value| value.parse::<u64>().ok())
+                .expect("the JDT LS maximum heap uses a mebibyte suffix");
+            assert!(
+                mebibytes > CONSTRAINED_MEMORY_THRESHOLD_MEBIBYTES,
+                "JDT LS needs more than {CONSTRAINED_MEMORY_THRESHOLD_MEBIBYTES} MiB of maximum heap, found {heap}"
+            );
+        }
     }
 
     #[test]
@@ -1433,6 +1565,7 @@ mod tests {
             "/server/extension.jar".to_string(),
             "--java-executable=/old/java".to_string(),
             "--jvm-arg=-Xmx4g".to_string(),
+            "--jvm-arg=-Dlog.level=INFO".to_string(),
             "--jvm-arg=-Duser.language=en".to_string(),
             "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=true".to_string(),
             "-data=/old/data".to_string(),
@@ -1450,7 +1583,7 @@ mod tests {
             vec![
                 "-javaagent:/jdtls/lombok/lombok.jar",
                 "-Xms256m",
-                "-Xmx1024m",
+                "-Xmx4g",
                 "--add-modules=ALL-SYSTEM",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",
@@ -1458,7 +1591,7 @@ mod tests {
                 "-Declipse.product=org.eclipse.jdt.ls.core.product",
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Dlog.protocol=true",
-                "-Dlog.level=ALL",
+                "-Dlog.level=INFO",
                 "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-Duser.language=en",
                 "-jar",
@@ -1474,7 +1607,82 @@ mod tests {
         );
         assert!(!first.arguments.contains(&"/old/java".to_string()));
         assert!(!first.arguments.contains(&"/old/data".to_string()));
-        assert!(!first.arguments.contains(&"-Xmx4g".to_string()));
+        assert!(!first.arguments.contains(&"-Dlog.level=ALL".to_string()));
+    }
+
+    #[test]
+    fn direct_start_keeps_host_defaults_without_a_choice_and_ignores_malformed_ones() {
+        let resources = JdtDirectLaunchResources {
+            launcher_jar_path: PathBuf::from("/jdtls/plugins/equinox.jar"),
+            configuration_directory: PathBuf::from("/jdtls/config_mac"),
+            lombok_agent_path: PathBuf::from("/jdtls/lombok/lombok.jar"),
+            java_debug_bundle_path: None,
+        };
+        let data = Path::new("/data");
+        let heap_and_level = |arguments: &[&str]| {
+            let arguments: Vec<String> = arguments.iter().map(|value| value.to_string()).collect();
+            let adapted = direct_java_arguments(&arguments, &resources, data);
+            (
+                adapted
+                    .iter()
+                    .filter(|argument| argument.starts_with("-Xmx"))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                adapted
+                    .iter()
+                    .filter(|argument| argument.starts_with("-Dlog.level="))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+        };
+
+        assert_eq!(
+            heap_and_level(&[]),
+            (
+                vec!["-Xmx2048m".to_string()],
+                vec!["-Dlog.level=ALL".to_string()]
+            )
+        );
+        // The last acceptable choice wins; a malformed one never reaches the JVM.
+        assert_eq!(
+            heap_and_level(&[
+                "--jvm-arg=-Xmx2g",
+                "--jvm-arg=-Xmx3072m",
+                "--jvm-arg=-Dlog.level=WARNING",
+                "--jvm-arg=-Dlog.level=SEV ERE",
+            ]),
+            (
+                vec!["-Xmx3072m".to_string()],
+                vec!["-Dlog.level=WARNING".to_string()]
+            )
+        );
+        assert_eq!(
+            heap_and_level(&[
+                "--jvm-arg=-Xmx",
+                "--jvm-arg=-Xmxlots",
+                "--jvm-arg=-Xmx1024m",
+                "--jvm-arg=-Xmx1536m",
+                "--jvm-arg=-Dlog.level=",
+            ]),
+            (
+                vec!["-Xmx2048m".to_string()],
+                vec!["-Dlog.level=ALL".to_string()]
+            )
+        );
+        // A plugin that launches the server as `java <jvm options> -jar <launcher>`
+        // puts its choices before the launcher, where they are read the same way.
+        assert_eq!(
+            heap_and_level(&[
+                "-Xmx2048m",
+                "-Dlog.level=SEVERE",
+                "-jar",
+                "/jdtls/plugins/equinox.jar",
+            ]),
+            (
+                vec!["-Xmx2048m".to_string()],
+                vec!["-Dlog.level=SEVERE".to_string()]
+            )
+        );
     }
 
     #[test]

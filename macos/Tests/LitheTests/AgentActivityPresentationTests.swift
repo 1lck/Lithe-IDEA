@@ -274,12 +274,13 @@ struct AgentActivityPresentationTests {
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool) async -> Bool {
+    private func waitUntil(updating host: NSView? = nil, _ condition: () -> Bool) async -> Bool {
         // Observe native presentation and callbacks; every wait has a local deadline.
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
         while clock.now < deadline {
             renderFrame()
+            host?.layoutSubtreeIfNeeded()
             if condition() { return true }
             await Task.yield()
         }

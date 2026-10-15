@@ -1,6 +1,54 @@
 import Darwin
 import Foundation
 
+/// Process groups this application launched and has not yet reaped.
+///
+/// The table outlives the session that started a group, so a group whose owner
+/// already let go of it is still found when the application exits.
+final class MacLiveProcessGroups: @unchecked Sendable {
+    /// Every subprocess of the running application registers here.
+    static let application = MacLiveProcessGroups()
+
+    private let lock = NSLock()
+    private var groups: [pid_t: MacProcessGroup] = [:]
+
+    func insert(_ group: MacProcessGroup) {
+        lock.withLock { groups[group.processGroupID] = group }
+    }
+
+    func remove(processGroupID: pid_t) {
+        lock.withLock { groups[processGroupID] = nil }
+    }
+
+    /// Ends every registered subprocess and waits for them.
+    ///
+    /// Application exit calls this after the ordinary session shutdown: a
+    /// child must not outlive the IDE, whether its session forgot to stop it
+    /// or its graceful termination was still pending. Blocks for at most
+    /// `gracePeriod + forcedTerminationTimeout`.
+    @discardableResult
+    func terminateAllAndWait(
+        gracePeriod: TimeInterval = 0.2,
+        forcedTerminationTimeout: TimeInterval = 1
+    ) -> Bool {
+        let live = lock.withLock { Array(groups.values) }
+        guard !live.isEmpty else { return true }
+        live.forEach { $0.send(SIGTERM) }
+        if !Self.waitUntilExited(live, timeout: gracePeriod) {
+            live.filter(\.hasRunningProcesses).forEach { $0.send(SIGKILL) }
+        }
+        return Self.waitUntilExited(live, timeout: forcedTerminationTimeout)
+    }
+
+    private static func waitUntilExited(_ groups: [MacProcessGroup], timeout: TimeInterval) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while groups.contains(where: \.hasRunningProcesses), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return !groups.contains(where: \.hasRunningProcesses)
+    }
+}
+
 /// Launches a subprocess in a dedicated process group and reaps its root PID.
 ///
 /// `Foundation.Process` cannot assign a process group before `exec`, leaving a
@@ -18,6 +66,7 @@ final class MacManagedProcess: @unchecked Sendable {
     let standardOutput: FileHandle
     let standardError: FileHandle
 
+    private let liveGroups: MacLiveProcessGroups
     private let lock = NSLock()
     private let terminationQueue = DispatchQueue(
         label: "dev.lithe.managed-process.termination",
@@ -37,8 +86,10 @@ final class MacManagedProcess: @unchecked Sendable {
         environment: [String: String]? = nil,
         standardInput: FileHandle,
         standardOutput: FileHandle,
-        standardError: FileHandle
+        standardError: FileHandle,
+        liveGroups: MacLiveProcessGroups = .application
     ) {
+        self.liveGroups = liveGroups
         self.executableURL = executableURL
         self.arguments = arguments
         self.currentDirectoryURL = currentDirectoryURL
@@ -76,6 +127,7 @@ final class MacManagedProcess: @unchecked Sendable {
             standardError: standardError.fileDescriptor
         )
         let processGroup = MacProcessGroup(processGroupID: launchedPID)
+        liveGroups.insert(processGroup)
         let processSource = DispatchSource.makeProcessSource(
             identifier: launchedPID,
             eventMask: .exit,
@@ -137,6 +189,10 @@ final class MacManagedProcess: @unchecked Sendable {
             // alive merely because they closed or retained inherited pipes.
             _ = processGroup?.terminateAndWait()
         }
+
+        // Every member is gone or was just signalled, so exit cleanup no
+        // longer needs this group. A recycled PID cannot be hit by mistake.
+        liveGroups.remove(processGroupID: processID)
 
         let callback = lock.withLock { () -> TerminationHandler? in
             status = waitResult == processID ? Self.exitCode(from: waitStatus) : 1

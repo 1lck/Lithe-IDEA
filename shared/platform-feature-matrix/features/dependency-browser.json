@@ -5,7 +5,9 @@
   "capability": "项目依赖与模块浏览",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Workspace/DependencySidebarView.swift"
+      "macos/Sources/Lithe/Views/Workspace/DependencySidebarView.swift",
+      "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
+      "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -19,5 +21,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Workspace / Java",
-  "verification": "打开 Maven 项目依赖和模块树，验证导航、刷新和空项目状态。"
+  "verification": "打开 Maven 项目依赖和模块树，验证导航、刷新和空项目状态；在 macOS 打开 /tmp 或 /var 下的 Maven 项目，Java 服务就绪后依赖树由 JDT LS 的运行时 classpath 给出第三方 JAR，JDT LS 日志中没有 java.project.getClasspaths 的 NullPointerException。"
 }

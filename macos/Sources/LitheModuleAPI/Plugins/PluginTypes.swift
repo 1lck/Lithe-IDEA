@@ -328,6 +328,27 @@ public struct LanguageDependencyDeclaration: Equatable, Codable, Sendable {
     }
 }
 
+/// A process-backed feature of a language that the host implements itself.
+///
+/// A plugin that owns a language switches the host's built-in tools for it
+/// off. It hands a feature back by declaring the capability on the host
+/// integration of its language server, which also supplies the files that
+/// implementation needs.
+public enum LanguageHostCapability: String, Codable, CaseIterable, Sendable {
+    case debug
+    case run
+    case testing
+}
+
+public extension Sequence where Element == LanguageSupportDeclaration {
+    /// Languages for which only a plugin module may provide `capability`.
+    /// The host must not run its built-in implementation for them, even when
+    /// that module is missing or disabled.
+    func languageIDs(requiringExtensionFor capability: LanguageHostCapability) -> Set<String> {
+        Set(lazy.filter { !$0.hostCapabilities.contains(capability) }.map(\.id))
+    }
+}
+
 /// Recognizes a language and routes its independently activated capabilities
 /// without loading the plugin Bundle.
 public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
@@ -342,6 +363,10 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
     public let executionModuleID: ModuleID?
     public let testingModuleID: ModuleID?
     public let debugModuleID: ModuleID?
+    /// Features the host's own implementation provides for this language, as
+    /// declared by the plugin's host integration. Never overlaps with a
+    /// capability one of the modules above provides.
+    public let hostCapabilities: Set<LanguageHostCapability>
 
     public init(
         id: String,
@@ -354,7 +379,8 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
         languageServerModuleID: ModuleID? = nil,
         executionModuleID: ModuleID? = nil,
         testingModuleID: ModuleID? = nil,
-        debugModuleID: ModuleID? = nil
+        debugModuleID: ModuleID? = nil,
+        hostCapabilities: Set<LanguageHostCapability> = []
     ) {
         self.id = id
         self.displayName = displayName
@@ -367,6 +393,7 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
         self.executionModuleID = executionModuleID
         self.testingModuleID = testingModuleID
         self.debugModuleID = debugModuleID
+        self.hostCapabilities = hostCapabilities
     }
 
     public var moduleIDs: [ModuleID] {
@@ -377,6 +404,7 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
         case id, displayName, fileExtensions, fileNames, projectFileNames
         case dependencies, virtualDocumentSchemes
         case languageServerModuleID, executionModuleID, testingModuleID, debugModuleID
+        case hostCapabilities
     }
 
     public init(from decoder: Decoder) throws {
@@ -392,8 +420,35 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
             languageServerModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .languageServerModuleID),
             executionModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .executionModuleID),
             testingModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .testingModuleID),
-            debugModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .debugModuleID)
+            debugModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .debugModuleID),
+            hostCapabilities: try values.decodeIfPresent(
+                Set<LanguageHostCapability>.self,
+                forKey: .hostCapabilities
+            ) ?? []
         )
+    }
+
+    /// Stable output: the capabilities are written in sorted order, and
+    /// omitted when there are none so existing encodings do not change.
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(displayName, forKey: .displayName)
+        try values.encode(fileExtensions, forKey: .fileExtensions)
+        try values.encode(fileNames, forKey: .fileNames)
+        try values.encode(projectFileNames, forKey: .projectFileNames)
+        try values.encodeIfPresent(dependencies, forKey: .dependencies)
+        try values.encode(virtualDocumentSchemes, forKey: .virtualDocumentSchemes)
+        try values.encodeIfPresent(languageServerModuleID, forKey: .languageServerModuleID)
+        try values.encodeIfPresent(executionModuleID, forKey: .executionModuleID)
+        try values.encodeIfPresent(testingModuleID, forKey: .testingModuleID)
+        try values.encodeIfPresent(debugModuleID, forKey: .debugModuleID)
+        if !hostCapabilities.isEmpty {
+            try values.encode(
+                hostCapabilities.sorted { $0.rawValue < $1.rawValue },
+                forKey: .hostCapabilities
+            )
+        }
     }
 
     public func handles(fileURL: URL) -> Bool {
@@ -429,7 +484,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     /// Declarative plugin API levels this host supports. Rust Core enforces
     /// the same list (`SUPPORTED_PLUGIN_API_VERSIONS`) when it validates a
     /// manifest; the Lithe application version plays no part.
-    public static let supportedDeclarativeAPIVersions: Set<Int> = [1]
+    public static let supportedDeclarativeAPIVersions: Set<Int> = [1, 2]
 
     public let schemaVersion: Int
     public let id: PluginID
@@ -514,6 +569,10 @@ public enum PluginInstallationStatus: String, Codable, Sendable {
     case installed
     case updateStaged
     case uninstallPending
+    /// The user removed a plugin that ships inside the application. Its files
+    /// stay in the read-only app bundle, but the host does not register it
+    /// until the user restores it.
+    case removed
 }
 
 public struct PluginInstallationRecord: Equatable, Codable, Sendable {
