@@ -5,8 +5,8 @@ private struct WorkbenchBackgroundImageKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// Native child views need the same wallpaper state as structural SwiftUI surfaces.
-    var hasWorkbenchBackgroundImage: Bool {
+    /// Supplied by the wallpaper host; standalone panes retain their ordinary surface.
+    var workbenchHasBackgroundImage: Bool {
         get { self[WorkbenchBackgroundImageKey.self] }
         set { self[WorkbenchBackgroundImageKey.self] = newValue }
     }
@@ -15,13 +15,12 @@ extension EnvironmentValues {
 /// Applies the workbench wallpaper treatment to structural page surfaces while
 /// preserving the normal theme color when no wallpaper is configured.
 private struct WorkbenchSurfaceBackground: ViewModifier {
-    @EnvironmentObject private var model: AppModel
+    @Environment(\.workbenchHasBackgroundImage) private var hasImage
 
     let fallback: Color
 
     func body(content: Content) -> some View {
-        content.litheWorkbenchSurface(fallback, hasBackgroundImage: model.workbenchBackgroundFeature.hasImage)
-            .environment(\.hasWorkbenchBackgroundImage, model.workbenchBackgroundFeature.hasImage)
+        content.background(hasImage ? Color.clear : fallback)
     }
 }
 

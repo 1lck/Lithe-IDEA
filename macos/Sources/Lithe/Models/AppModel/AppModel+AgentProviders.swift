@@ -44,7 +44,7 @@ extension AppModel {
         try await stopAgentsForProviderChange([agentID])
         settings.setAgentProvider(provider?.id, for: agentID, name: name)
         agentConversationFeatureIfActive?.setAgents(configuredAgentOptions)
-        if provider != nil { agentConversationFeatureIfActive?.selectAgent(agentID) }
+        if provider != nil { selectAgentConversationAgent(agentID) }
         connectAgentConversation()
     }
 
@@ -55,7 +55,7 @@ extension AppModel {
         settings.agentConfigurations["codex-acp"] = AgentConfiguration(name: "Codex", providerID: nil,
                                                                       authentication: .codexSubscription)
         agentConversationFeatureIfActive?.setAgents(configuredAgentOptions)
-        agentConversationFeatureIfActive?.selectAgent("codex-acp")
+        selectAgentConversationAgent("codex-acp")
     }
 
     func useLocalAgentProvider(source: AIConfigurationSourceKind, agentID: String, name: String) async throws {
@@ -68,7 +68,7 @@ extension AppModel {
         try await stopAgentsForProviderChange([agentID])
         if importLocalConfiguration(for: agentID, source: source, name: name) {
             agentConversationFeatureIfActive?.setAgents(configuredAgentOptions)
-            agentConversationFeatureIfActive?.selectAgent(agentID)
+            selectAgentConversationAgent(agentID)
             connectAgentConversation()
         }
     }

@@ -329,30 +329,15 @@ private struct GitStatusBanner: View {
     let snapshot: GitExecutionSettingsSnapshot
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: snapshot.executable == nil ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .font(LitheTheme.uiFont(size: 17, weight: .semibold))
-                .foregroundStyle(snapshot.executable == nil ? LitheTheme.warning : LitheTheme.success)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(LocalizedStringKey(snapshot.executable == nil ? "Git was not found" : "Git is ready"))
-                    .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
-                Group {
-                    if let executable = snapshot.executable {
-                        Text(verbatim: "\(snapshot.version) · \(executable)")
-                    } else {
-                        Text("Choose a Git executable above to continue.")
-                    }
-                }
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
+        LitheBanner(status: snapshot.executable == nil ? .warning : .success) {
+            Text(LocalizedStringKey(snapshot.executable == nil ? "Git was not found" : "Git is ready"))
+                .litheBannerTitle()
+            if let executable = snapshot.executable {
+                Text(verbatim: "\(snapshot.version) · \(executable)")
+            } else {
+                Text("Choose a Git executable above to continue.")
             }
-            Spacer(minLength: 8)
         }
-        .padding(11)
-        .background(LitheTheme.settingsSurface.opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: 7))
-        .overlay { RoundedRectangle(cornerRadius: 7).stroke(LitheTheme.inputBorder.opacity(0.7), lineWidth: 1) }
     }
 }
 

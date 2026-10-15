@@ -137,7 +137,7 @@ struct ConsoleInlineInputTests {
                 consolePresentation: presentation, standardInputSessionID: sessionID,
                 onSubmitStandardInput: { _ in true }, onOpenLocation: { _, _, _ in })
                 .environment(\.colorScheme, dark ? .dark : .light)
-                .environment(\.hasWorkbenchBackgroundImage, wallpaper)
+                .environment(\.workbenchHasBackgroundImage, wallpaper)
                 .background(Color(red: 0.8, green: 0.1, blue: 0.2))
         }
         let host = NSHostingView(rootView: content(false))

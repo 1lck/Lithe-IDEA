@@ -1216,9 +1216,9 @@
 "Codex Agents require the Responses API. Claude Agents require an Anthropic API key." = "Codex Agents require the Responses API. Claude Agents require an Anthropic API key.";
 "Wait for the Agent operation to finish before changing providers." = "Wait for the Agent operation to finish before changing providers.";
 "Provider configuration parsing is unavailable." = "Provider configuration parsing is unavailable.";
-"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider.";
-"Choose a local or custom provider in the Agent panel settings." = "Choose a local or custom provider in the Agent panel settings.";
-"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings.";
+"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "No Agent is ready yet. Open Settings > Tools > Agents to install an Agent and choose a local or custom provider.";
+"Choose a local or custom provider in the Agent panel settings." = "Choose a local or custom provider in Settings > Tools > Agents.";
+"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "This Agent's provider has no API key. Update its local configuration or edit the custom provider in Settings > Tools > Agents.";
 "The credential store version is unsupported. Existing credentials were preserved." = "The credential store version is unsupported. Existing credentials were preserved.";
 "Add" = "Add";
 "Agent provider" = "Agent provider";
@@ -1492,10 +1492,66 @@
 
 "Failed, line %d" = "Failed, line %d";
 
+// Host-owned workbench contribution controls
+"Workbench Actions" = "Workbench Actions";
+"Tool Windows" = "Tool Windows";
+"Toolbar Actions" = "Toolbar Actions";
+"Restore Default UI Layout" = "Restore Default UI Layout";
+"Show" = "Show";
+"Hide Entry" = "Hide Entry";
+"Move to Bottom" = "Move to Bottom";
+"Move to Right" = "Move to Right";
+"Move Earlier" = "Move Earlier";
+"Move Later" = "Move Later";
+"Add tool windows and commands to the workbench" = "Add tool windows and commands to the workbench";
+
+"Move to Left" = "Move to Left";
+
+"Menu Actions" = "Menu Actions";
+
+"Show Entry" = "Show Entry";
+
+"Command Palette Actions" = "Command Palette Actions";
 /* Main toolbar settings menu. */
 "Plugins…" = "Plugins…";
 "Theme…" = "Theme…";
 "Keymap…" = "Keymap…";
+
+"Start the session by sending a message" = "Start the session by sending a message";
+"No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration." = "No Agent is ready yet. Open Settings > Tools > Agents to install an Agent and fetch its local configuration.";
+"Agent conversation is turned off. Turn it on in the panel settings to send messages." = "Agent conversation is turned off. Turn it on in Settings > Tools > Agents to send messages.";
+"Set the custom Agent's executable in the panel settings." = "Set the custom Agent's executable in Settings > Tools > Agents.";
+"Fetch this Agent's local configuration in the panel settings." = "Fetch this Agent's local configuration in Settings > Tools > Agents.";
+"Use an Agent in your project" = "Use an Agent in your project";
+"Lithe Agent" = "Lithe Agent";
+"Welcome to Lithe Agent" = "Welcome to Lithe Agent";
+"Collaborate with Claude and Codex to ask questions, run tasks, and review code changes." = "Collaborate with Claude and Codex to ask questions, run tasks, and review code changes.";
+"Claude Agent" = "Claude Agent";
+"More Agents…" = "More Agents…";
+"Use a third-party provider" = "Use a third-party provider";
+"Custom API provider" = "Custom API provider";
+"Cline, Cursor, Kilo, Mistral, and more with ACP technology" = "Cline, Cursor, Kilo, Mistral, and more with ACP technology";
+"Chat History" = "Chat History";
+"New Chat" = "New Chat";
+"Type your task or / for commands" = "Type your task or / for commands";
+
+"Conversation history is unavailable" = "Conversation history is unavailable";
+
+"Cannot create a new conversation: %@" = "Cannot create a new conversation: %@";
+
+"Rename Chat" = "Rename Chat";
+"Delete Chat" = "Delete Chat";
+"Show Toolbar" = "Show Toolbar";
+"Chat options" = "Chat options";
+
+"AI Chat" = "AI Chat";
+"Show Chats in the AI Tool Window" = "Show Chats in the AI Tool Window";
+"Show Chats in the Editor" = "Show Chats in the Editor";
+
+"Starting the Agent…" = "Starting the Agent…";
+"The Agent process starts when this panel opens." = "The Agent process starts when this panel opens.";
+
+"Activity" = "Activity";
 
 /* Declarative plugin settings (Settings › Plugins). */
 "Applies the next time the language server starts." = "Applies the next time the language server starts.";

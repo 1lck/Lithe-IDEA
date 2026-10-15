@@ -155,8 +155,10 @@ final class MacServiceContainer {
             directories: MacPluginStateDirectories(fileStorage: fileStorage),
             settings: pluginSettings
         )
-        let pluginStartup = MacPluginStartupLoader(packageStore: pluginPackageStore)
-            .load(recoveryStore: moduleStore)
+        let pluginStartup = MacPluginStartupLoader(
+            packageStore: pluginPackageStore,
+            validateUI: { _ = try WorkbenchModuleUIComposition.registry(for: $0) }
+        ).load(recoveryStore: moduleStore)
         let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
         let moduleRegistry = ModuleRegistry(
             runtime: moduleRuntime,
@@ -165,7 +167,7 @@ final class MacServiceContainer {
                 + pluginStartup.registeredManifests
         )
         do {
-            try moduleRegistry.register(ModuleFactory(manifest: WorkspaceFoundationModule.moduleManifest) {
+            try moduleRegistry.register(ModuleFactory(manifest: WorkspaceFoundationModule.moduleManifest, contributions: WorkspaceFoundationModule.moduleContributions) {
                 WorkspaceFoundationModule(makeGraph: {
                     let owner = WorkspaceModuleResourceOwner()
                     return owner
@@ -241,7 +243,6 @@ final class MacServiceContainer {
         // package is disabled, quarantined, or failed to load. Only the active
         // manifests below contribute factories; keeping static ownership here
         // prevents the host from silently restoring its legacy process path.
-        let installedPluginManifests = pluginStartup.installedManifests
         let installedLanguageSupports = BundledLanguagePluginCatalog.languageSupports
             + pluginStartup.installedLanguageSupports
         let languageProviderCatalogSource = PluginLanguageProviderCatalogSource(
@@ -611,7 +612,7 @@ final class MacServiceContainer {
         let pluginCatalog: ValidatedPluginCatalog
         do {
             pluginCatalog = try ValidatedPluginCatalog(
-                manifests: BuiltInPluginCatalog.manifests + bundledLanguageManifests + installedPluginManifests,
+                manifests: BuiltInPluginCatalog.manifests + bundledLanguageManifests + pluginStartup.registeredManifests,
                 hostVersion: BuiltInPluginCatalog.hostVersion
             )
         } catch {
@@ -622,6 +623,7 @@ final class MacServiceContainer {
             pluginManager: pluginManager,
             pluginMarketplace: pluginMarketplace,
             pluginCatalog: pluginCatalog,
+            pluginUIIconResources: pluginStartup.iconResources,
             languageProviderCatalogSource: languageProviderCatalogSource,
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
@@ -745,7 +747,12 @@ final class MacServiceContainer {
                     )
                 }
             }
-            return servers + executions
+            let workbench = descriptor.pluginManifest.modules.filter { !$0.contributions.isEmpty }.map { declaration in
+                ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
+                    DeclarativeWorkbenchModule(declaration: declaration)
+                }
+            }
+            return servers + executions + workbench
         }
     }
 }

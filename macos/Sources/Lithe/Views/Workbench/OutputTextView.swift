@@ -41,7 +41,7 @@ struct ConsoleToolbarRequest {
 
 struct OutputTextView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.hasWorkbenchBackgroundImage) private var hasBackgroundImage
+    @Environment(\.workbenchHasBackgroundImage) private var hasBackgroundImage
     let output: String
     let searchRoots: [URL]
     let fileExists: (URL) -> Bool
@@ -722,7 +722,7 @@ enum OutputTextUpdate: Equatable {
 
 private struct OutputTextStorageView: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.hasWorkbenchBackgroundImage) private var hasBackgroundImage
+    @Environment(\.workbenchHasBackgroundImage) private var hasBackgroundImage
     let output: String
     let searchRoots: [URL]
     let fileExists: (URL) -> Bool

@@ -34,7 +34,7 @@ struct ProjectReplacementSourcePreview: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .task(id: file.id) {
             let loaded = await loadDocument(file.url)
             guard !Task.isCancelled else { return }

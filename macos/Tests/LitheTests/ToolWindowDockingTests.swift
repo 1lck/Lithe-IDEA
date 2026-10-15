@@ -114,6 +114,19 @@ struct ToolWindowDockingTests {
         #expect(model.toolWindowStates == before)
     }
 
+    @Test func restoringLayoutKeepsAgentClosedUntilExplicitlyOpened() {
+        let persistence = WorkbenchLayoutStore(store: DockingTestStore())
+        let workspace = URL(fileURLWithPath: "/fixture/docking/agent")
+        let model = WorkbenchFeatureModel(layoutStore: persistence)
+        model.setVisibility(.agent, isVisible: true)
+        model.saveLayout(.init(sidebarWidth: 310, topPaneHeight: nil), for: workspace)
+        let restored = WorkbenchFeatureModel(layoutStore: persistence)
+        _ = restored.loadLayout(for: workspace)
+        #expect(!restored.isVisible(.agent))
+        restored.setVisibility(.agent, isVisible: true)
+        #expect(restored.isVisible(.agent))
+    }
+
     @Test func layoutRoundTripRestoresPositionsOrderVisibilityAndGroupSizes() {
         let store = DockingTestStore()
         let persistence = WorkbenchLayoutStore(store: store)

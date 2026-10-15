@@ -2,7 +2,7 @@
   "id": "agent-entry-discoverability",
   "area": "AI",
   "group": "Agent 对话",
-  "capability": "新安装及模块关闭时仍显示 Agent 侧栏入口，面板立即提示关闭或未配置原因并提供设置入口，启停后入口不重复或消失",
+  "capability": "新安装及模块关闭时仍显示 Agent 侧栏入口，打开项目不自动恢复 Agent 面板；未选择 Agent 前反复打开均显示欢迎页，选择 Codex、Claude 或更多 Agent 后直达会话；会话顶部显示历史、新对话、设置与收缩入口，输入区沿用共享控件；设置位于主设置窗口",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -11,7 +11,14 @@
       "macos/Sources/Lithe/Views/Agent/AgentConversationView.swift",
       "macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift",
       "macos/Resources/IDEAIcons/toolwindows/toolWindowAgent.svg",
-      "macos/Sources/Lithe/Views/Workbench/WorkbenchModuleUIComposition.swift"
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchModuleUIComposition.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+      "macos/Sources/Lithe/Views/App/SettingsView.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModelSupportTypes.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentWelcomeView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentComposerView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentComposerContent.swift",
+      "macos/Sources/Lithe/Views/Components/LitheWelcomeCardStyle.swift"
     ]
   },
   "windows": {
@@ -22,5 +29,5 @@
     ]
   },
   "owner": "Agent",
-  "verification": "使用无本机模块配置的 macOS 测试账户启动并打开项目，确认 Agent 入口可见、默认开关关闭、面板显示设置指引；开启再关闭后入口和面板保留且不重复。确认读取入口不调用模块 factory、关闭状态无 Agent 连接或进程。Windows 尚无 Agent 对话 UI。 Agent 侧栏入口使用对话气泡加星光的专用线性图标；在深浅主题、选中与未选中状态下检查可辨识性。"
+  "verification": "打开保存过 Agent 面板可见布局的项目，确认面板仍关闭，点击入口后才能打开。然后在未选择 Agent 的 macOS 测试偏好域打开项目，确认点击右侧 Agent 入口显示欢迎页，直接关闭再打开、自定义 API 设置返回仍显示欢迎页。分别选择 Codex 和 Claude，重开后确认顶部显示对应 Agent 名称及品牌图标；历史菜单可打开历史与搜索，模块关闭或未配置时，新对话显示具体不可用原因并保留本地草稿，历史入口展示不可读取原因并可返回且保留草稿；已配置时新对话使用现有动作，不显示顶部面板图标，设置图标进入 Tools > Agents，共享收缩按钮关闭面板；发送、Agent 与模型/权限下拉按钮复用共享 hover/按下/禁用样式，会话标签复用共享工具窗口标签的活动/非活动样式，Agent 下拉列出现有 Codex/Claude 与配置入口，未配置选择后直接切换标题与底栏，显示配置提示且不打开设置；底栏 hover 左边界与输入框普通边框对齐，输入背景沿用编辑器表面；输入框复用共享控件边框及普通/焦点颜色，写作空白区域使用共享编辑光标，焦点边框为 2pt 并向外扩展 1pt；多行输入及占位文字复用共享输入的 14pt Regular、深浅主题 Component.infoForeground 提示色（#73767C）及输入法观察；附件/发送使用 16pt 图标和共享 22pt 按钮状态，上下文指示器使用共享字体/边框且无 hover 底色，保留详情浮层，未知用量弹窗宽 240pt、文字缩小且无空进度条并检查深浅主题、焦点描边、附件、发送、Agent 切换、命令补全及窄面板布局。关闭模块后入口不重复，未选择时不激活模块 factory；已有配置或已激活模块的默认选择不记录为用户选择，也不启动连接；旧版首次打开布尔标记仍显示欢迎页。Windows 尚无 Agent 对话 UI。 默认输入边框高度为参考布局目标 108pt，在不同面板高度保持一致；附件和手动拖动仍可增加高度。 上下文用量仅在发送按钮左侧显示16pt圆环、22pt占位，不显示行内百分比或hover底色；有无会话统计、窄宽面板和深浅主题下位置一致，悬停详情及无障碍百分比保留，底栏不重复显示。 New Chat 不再显示会话标签条，连续创建时立即清理前一个未发送消息的本地临时会话；已发送的会话与已加载空历史保留，创建等待时重复点击不发第二次请求。 系统语言与界面语言不同时，Agent启动/认证/错误/设置/状态与用量提示使用界面locale，不混入系统语言；切换英文后历史中文名称与消息保持原文。启动空态在深浅主题复用共享字型、颜色、间距和小号进度指示器。"
 }
