@@ -114,6 +114,7 @@ struct TestJFRIntegrationTests {
         try """
         plugins { id 'java' }
         dependencies { testImplementation files('junit.jar', 'hamcrest.jar') }
+        tasks.withType(JavaCompile).configureEach { options.fork = true }
         test { useJUnit(); testLogging.showStandardStreams = true }
         tasks.register('probeDaemon') { doLast { println('DAEMON:' + ProcessHandle.current().pid()) } }
         """.write(to: build, atomically: true, encoding: .utf8)
@@ -128,6 +129,9 @@ struct TestJFRIntegrationTests {
           }
         }
         """.write(to: source, atomically: true, encoding: .utf8)
+        let mainSource = directory.appendingPathComponent("src/main/java/ForkedCompile.java")
+        try FileManager.default.createDirectory(at: mainSource.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "public class ForkedCompile {}".write(to: mainSource, atomically: true, encoding: .utf8)
         let home = directory.appendingPathComponent("gradle-home").path
         let options = ["--offline", "--console=plain", "--gradle-user-home", home]
         let processEnvironment = ["JAVA_HOME": URL(fileURLWithPath: java).deletingLastPathComponent().deletingLastPathComponent().path]
@@ -169,6 +173,19 @@ struct TestJFRIntegrationTests {
             defer { discovery.cancel() }
             #expect(await discovered.waitUntilOpen(timeout: .seconds(5)))
             let worker = try #require(target)
+            let listing = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(returning: MacProcessRunner().run(ProcessRequest(
+                        executablePath: URL(fileURLWithPath: java).deletingLastPathComponent().appendingPathComponent("jps").path,
+                        arguments: ["-lm"], timeoutMilliseconds: 10_000)))
+                }
+            }
+            try #require(listing.succeeded, "\(listing.output)")
+            let owned = MacProcessMemorySampler().descendantProcessIDs(of: [root])
+            let compilerWorkers = listing.output.split(separator: "\n").filter { $0.contains("Gradle Worker Daemon ") }
+                .compactMap { Int32($0.split(separator: " ").first ?? "") }.filter { owned.contains($0) }
+            #expect(!compilerWorkers.isEmpty, "Forked compilation must coexist with the test executor: \(listing.output)")
+            #expect(!compilerWorkers.contains(worker.processID))
             #expect(worker.processID != daemonPID)
             #expect(MacProcessMemorySampler().descendantProcessIDs(of: [root]).contains(worker.processID))
             #expect(MacProcessMemorySampler().cpuSnapshot(for: daemonPID) != nil,

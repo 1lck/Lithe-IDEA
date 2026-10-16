@@ -416,3 +416,12 @@ Windows 已可用。本功能不新增下载、缓存或运行时资源路径，
 - 图标纵向对齐验证：33项测试、2组套件通过（3.204秒），原生深浅主题捕获检查会话标题、Agent名称和空态三处品牌图形中心差不超过0.5pt，活动菜单及文件操作回归仍通过；截图已查看。测试报告`/tmp/lithe-agent-icon-alignment-tests.json`，截图`/tmp/lithe-agent-icon-alignment-captures`；未启动完整产品。静态稳定性、笔记、矩阵与变更门禁、服务边界和发行资源只读检查通过。
 
 - 视口通知回归：翻转坐标夹具先完成首次定位、禁用bounds通知再重排文档及视口frame；旧实现失败，补齐frame观察后通过。43项相关测试、5组套件通过（17.175秒），报告`/tmp/lithe-pr1212-ci-repaired.json`；保留用户浏览位置、权限空间与有界原生回放，不以测试睡眠或放宽2pt断言绕过缺失通知。
+
+### 启动路径只取得PATH
+
+Agent启动的environment.search_path_with_cancel只发现并缓存PATH，
+不再调用完整detect执行Node/npm版本探测。原流程会让不存在的自定义命令
+也先等待每个工具的版本命令，Windows冷启动用例因此在Stopped事件之前超时。
+环境设置页和显式运行时检测仍使用detect，保留Node/npm版本与可用性报告；
+启动复用原缓存、Unix登录shell发现及取消边界，不引入另一套运行时解析器。
+沿用冷进程spawn_failure_reports_stopped_with_a_message回归，不延长5秒上限。

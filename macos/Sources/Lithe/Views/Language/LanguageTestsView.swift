@@ -445,7 +445,7 @@ struct LanguageTestsView: View {
     private var testConsole: some View {
         if let workspaceURL = model.workspaceURL {
             VStack(spacing: 0) {
-                testSummary
+                if service.state != .idle || service.results != nil { testSummary }
                 OutputTextView(
                     output: service.output,
                     searchRoots: [workspaceURL],
@@ -468,8 +468,12 @@ struct LanguageTestsView: View {
         HStack(spacing: LitheTheme.TestResult.summaryDescriptionGap) {
             if let results = service.results {
                 HStack(spacing: LitheTheme.TestResult.summaryIconTextGap) {
-                    LitheIDEAIcon(resourcePath: Self.summaryIcon(for: results), size: 16,
+                    LitheIDEAIcon(resourcePath: Self.summaryIcon(for: results, state: service.state), size: 16,
                                   preservesOriginalColors: true)
+                    if Self.runFailed(service.state), results.failures + results.errors == 0 {
+                        Text(LocalizedStringKey(Self.summaryText(for: service.state)))
+                            .foregroundStyle(LitheTheme.TestResult.failedText)
+                    }
                     summaryCounts(results)
                 }
                 Text(localization.number(results.testsRun == 1 ? "%lld test total" : "%lld tests total", results.testsRun))
@@ -510,6 +514,8 @@ struct LanguageTestsView: View {
     }
 
     private var resultStripeColor: Color? {
+        if Self.runFailed(service.state) { return LitheTheme.TestResult.failed }
+        if service.state == .cancelled { return nil }
         if let results = service.results {
             if results.failures + results.errors > 0 { return LitheTheme.TestResult.failed }
             return results.passed > 0 ? LitheTheme.TestResult.passed : nil
@@ -583,10 +589,17 @@ struct LanguageTestsView: View {
         return fragments.reduce(Text(""), +).font(LitheTheme.TestResult.summaryFont)
     }
 
-    static func summaryIcon(for results: MavenTestResults) -> String {
+    static func runFailed(_ state: LanguageTestRunState) -> Bool {
+        switch state {
+        case .failed, .timedOut: true
+        default: false
+        }
+    }
+
+    static func summaryIcon(for results: MavenTestResults, state: LanguageTestRunState = .idle) -> String {
         let status: String
         if results.failures > 0 { status = "Failed" }
-        else if results.errors > 0 { status = "Error" }
+        else if results.errors > 0 || runFailed(state) { status = "Error" }
         else if results.passed > 0 { status = results.skipped > 0 ? "PassedIgnored" : "Passed" }
         else { status = results.skipped > 0 ? "Ignored" : "NotRunYet" }
         return "expui/run/test\(status).svg"

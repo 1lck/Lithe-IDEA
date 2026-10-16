@@ -192,13 +192,18 @@ struct TestJVMPerformanceFeatureTests {
     @Test func upstreamWorkerMarkersExcludeBuildLaunchers() {
         for arguments in [["java", "-jar", "/tmp/module/target/surefire/surefirebooter-1.jar"],
                           ["java", "com.intellij.rt.junit.JUnitStarter"],
-                          ["java", "worker.org.gradle.process.internal.worker.GradleWorkerMain"],
+                          ["java", "worker.org.gradle.process.internal.worker.GradleWorkerMain", "Gradle Test Executor 1"],
+                          ["java", "worker.org.gradle.process.internal.worker.GradleWorkerMain", "'Gradle Test Executor 2'"],
                           ["java", "org.junit.platform.console.ConsoleLauncher"]] {
             #expect(MacTestJVMPerformance.isTestWorker(arguments: arguments))
         }
         #expect(!MacTestJVMPerformance.isTestWorker(arguments: ["java", "org.codehaus.plexus.classworlds.launcher.Launcher"]))
         #expect(!MacTestJVMPerformance.isTestWorker(arguments: ["java", "org.gradle.launcher.daemon.bootstrap.GradleDaemon"]))
         #expect(!MacTestJVMPerformance.isTestWorker(arguments: ["java", "demo.Main"]))
+        for name in [nil, "Gradle Worker Daemon 1", "Gradle Test Executor ", "Gradle Test Executor other"] as [String?] {
+            let arguments = ["java", "worker.org.gradle.process.internal.worker.GradleWorkerMain"] + (name.map { [$0] } ?? [])
+            #expect(!MacTestJVMPerformance.isTestWorker(arguments: arguments))
+        }
         #expect(MacTestJVMPerformance.quoted("/tmp/a b/\"x\".jfr") == "\"/tmp/a b/\\\"x\\\".jfr\"")
     }
 }

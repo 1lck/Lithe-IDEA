@@ -20,13 +20,17 @@ struct MacTestJVMPerformance: TestJVMPerformanceProviding {
     // recognized. Custom/in-process runners stay unavailable; replace this
     // classifier when execution providers expose exact worker identities.
     static func isTestWorker(arguments: [String]) -> Bool {
-        arguments.contains { argument in
+        // DefaultWorkerProcessBuilder appends a quoted display name as the final argument.
+        let name = arguments.last?.trimmingCharacters(in: CharacterSet(charactersIn: "'")) ?? ""
+        let gradleTest = name.hasPrefix("Gradle Test Executor ")
+            && Int(name.dropFirst("Gradle Test Executor ".count)).map { $0 > 0 } == true
+        return arguments.contains { argument in
             argument == "com.intellij.rt.junit.JUnitStarter"
                 || argument == "org.junit.platform.console.ConsoleLauncher"
                 || argument == "org.testng.TestNG"
                 || argument == "com.intellij.rt.testng.RemoteTestNGStarter"
                 || (URL(fileURLWithPath: argument).lastPathComponent.hasPrefix("junit-platform-console-standalone") && argument.hasSuffix(".jar"))
-                || argument.hasSuffix(".GradleWorkerMain")
+                || (argument.hasSuffix(".GradleWorkerMain") && gradleTest)
                 || argument == "org.apache.maven.surefire.booter.ForkedBooter"
                 || (URL(fileURLWithPath: argument).lastPathComponent.hasPrefix("surefirebooter") && argument.hasSuffix(".jar"))
         }

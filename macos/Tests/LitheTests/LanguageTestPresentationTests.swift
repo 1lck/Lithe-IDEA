@@ -85,6 +85,19 @@ struct LanguageTestPresentationTests {
         }
     }
 
+    @Test func unsuccessfulMavenRunOverridesZeroOrPassingReportCounts() {
+        for passed in [0, 3] {
+            let results = MavenTestResults(testsRun: passed, failures: 0, errors: 0, skipped: 0,
+                passed: passed, success: true, failureDetails: [])
+            for state in [LanguageTestRunState.failed(exitCode: 1), .timedOut] {
+                #expect(LanguageTestsView.runFailed(state))
+                #expect(LanguageTestsView.summaryIcon(for: results, state: state) == "expui/run/testError.svg")
+            }
+        }
+        #expect(!LanguageTestsView.runFailed(.passed))
+        #expect(!LanguageTestsView.runFailed(.cancelled))
+    }
+
     @Test func summaryIconDistinguishesMixedAndEmptyOutcomes() {
         for (failures, errors, passed, skipped, icon) in [(1, 0, 2, 1, "Failed"), (0, 1, 0, 0, "Error"),
             (0, 0, 2, 1, "PassedIgnored"), (0, 0, 1, 0, "Passed"),

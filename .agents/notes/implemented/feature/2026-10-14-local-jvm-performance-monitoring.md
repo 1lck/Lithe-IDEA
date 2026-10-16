@@ -156,3 +156,9 @@ daemon、测试进程和临时目录。该测试离线使用调用方提供的 J
 本轮原生截图使用已有 Maven 演示项目。新建 Gradle 演示项目在完整应用导入后测试提供方
 变为不可用，因此 Gradle 产品入口仍需另行验收；上面的真实集成只证明内置执行计划、
 已有 daemon 共存时的 worker 归属和原生发现，不声称覆盖整个项目导入链路。
+
+Gradle目标识别同时核对GradleWorkerMain与末尾的Gradle Test Executor正整数编号，
+兼容DefaultWorkerProcessBuilder附加的单引号displayName。仅有通用入口、
+Gradle Worker Daemon或异常名称不构成测试身份。真实集成开启fork编译，
+用目标JDK的jps -lm确认通用编译worker与测试executor同时存活且前者未被选中；
+自定义worker名称仍受既有身份识别限制，不回退到任意构建JVM。
