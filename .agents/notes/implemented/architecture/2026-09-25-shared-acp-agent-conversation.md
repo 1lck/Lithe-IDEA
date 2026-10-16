@@ -359,7 +359,7 @@ Host 必须继续等待其公开 threadStatus 中的新轮空闲事件，不能�
 
 代价是 Codex 这条兼容路径依赖固定上游的状态元数据，需要在适配器升级时
 重复验证；静默不能替代结束确认，明确停止仍由现有十秒看门狗限制。
-Windows 连接桥已接入共享 Host，面板 UI 也已落地（活动栏入口、右侧工具窗、按窗口与项目隔离的连接单例、会话标签与消息流、权限确认、供应商与适配器设置、上下文用量与订阅额度），但订阅登录、供应商切换与额度展示的真机验收尚未完成，不能把前端代码当作 Windows 已验证。本功能不新增下载、缓存或运行时资源路径，不写安装目录，
+Windows 连接桥已接入共享 Host，面板 UI 也已落地（活动栏入口、右侧工具窗、按窗口与项目隔离的连接单例、会话标签与消息流、权限确认、供应商与适配器设置、CLI 安装升级与配置导入、上下文用量与订阅额度），但订阅登录、供应商切换、CLI 升级与配置导入的真机验收尚未完成，不能把前端代码当作 Windows 已验证。本功能不新增下载、缓存或运行时资源路径，不写安装目录，
 不改变代码签名和 Sparkle 增量更新基线。
 
 验证入口：`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentConversationFeatureModelTests`
@@ -371,7 +371,7 @@ Windows 连接桥已接入共享 Host，面板 UI 也已落地（活动栏入口
 两端共享同一套协议和清理逻辑。功能关闭或没打开面板时，不会有 Agent 进程。一个项目的每种 Agent 只建立一个对话连接，会话再多也一样。订阅额度额外使用有界的短时官方查询进程，不新增常驻服务。Windows 的连接桥只多一层连接登记、事件转发和进程回收，不会成为第二份协议实现。
 
 代价：
-- Windows 已接通共享 `agent.*` 命令、安装进度通道、服务层解析和面板 UI（活动栏入口、右侧工具窗、连接单例、消息流与权限确认、供应商与适配器设置、上下文用量与订阅额度）；订阅登录、供应商切换、CLI 安装升级与真机端到端验收仍未完成；共享 host 在 Windows 上的适配器启动和进程树回收也还没有真机验收。进程树回收本身已用受控假适配器（`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`）验证：它会派生一个继承 stdout 的孙进程，模拟 codex-acp 的 app-server，只杀外层进程会留下它并占住输出管道；普通 Rust 测试由此确认“关闭连接”和“销毁窗口”两条路径都回收了整棵树。退出与窗口销毁并发的时序仍由注册表计数和可控 gate 测试覆盖，不用真实 Agent 复现。
+- Windows 已接通共享 `agent.*` 命令、安装进度通道、服务层解析和面板 UI（活动栏入口、右侧工具窗、连接单例、消息流与权限确认、供应商与适配器设置、CLI 安装升级与配置导入、上下文用量与订阅额度）；订阅登录、供应商切换、卸载与取消安装、本机 CLI 配置文件的一键读取与真机端到端验收仍未完成；共享 host 在 Windows 上的适配器启动和进程树回收也还没有真机验收。进程树回收本身已用受控假适配器（`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`）验证：它会派生一个继承 stdout 的孙进程，模拟 codex-acp 的 app-server，只杀外层进程会留下它并占住输出管道；普通 Rust 测试由此确认“关闭连接”和“销毁窗口”两条路径都回收了整棵树。退出与窗口销毁并发的时序仍由注册表计数和可控 gate 测试覆盖，不用真实 Agent 复现。
 
 - Rust C ABI 和 fixture 成为兼容面，两端界面仍要分别维护。
 - 用户需要自行安装 Node.js，适配器可以在主设置窗口中安装。
@@ -412,13 +412,13 @@ Windows 连接桥已接入共享 Host，面板 UI 也已落地（活动栏入口
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentBrandIconResourceTests`：临时安装包布局覆盖 Codex/Claude 图标加载、资源包和图标缺失时安全回退、缓存隔离，比较读取前后的文件清单与内容，确认不改写发行资源；原生输入框 Menu 的像素验证同时覆盖 Claude/Codex 和深浅主题，确保橙色/灰色标志实际可见，染色不改变共用模板。
 - 订阅新增测试覆盖旧配置兼容、显式登录、已有账号、认证通知顺序、登录取消和超时、账号变更、额度真实窗口/缺失值/多 bucket、仅查询不发送 prompt，以及临时失败保留旧值。Linux 已运行 Agent Host 的逐测试计时套件；macOS Swift 编译、真实账号登录及深浅主题/窄宽布局仍须在目标环境验证，不将代码存在等同于运行验证。
-- 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 已有共享协议、连接桥与面板 UI，但订阅登录、供应商切换和额度展示的真机验收仍未执行，连接桥还需要在 Windows 上做一次真实适配器的端到端验收。
+- 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 已有共享协议、连接桥与面板 UI，但订阅登录、供应商切换、额度展示、CLI 升级与配置导入的真机验收仍未执行，连接桥还需要在 Windows 上做一次真实适配器的端到端验收。
 
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml`
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml agent::`（Windows 连接桥：非法启动配置、空或重复连接 ID、启动失败上报、未知连接与非法命令、按窗口释放连接、跨窗口 send/close 被拒且连接仍在、关闭计数在移出连接时即生效、出口等待在有关闭时挂起并在最后一个关闭结束时返回、超时后放弃等待、退出 drain 后拒绝新连接；不需要真实 Agent 或网络。进程树回收用 `fake_acp_adapter` 假适配器覆盖两条路径——关闭连接、销毁窗口——断言外层进程和继承 stdout 的孙进程都已退出）
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml platform::`（Windows 安装进度通道：只认 `agent.install` / `agent.installCli`，安装不下发信封超时而 Git 仍保留 30 秒与交互 900 秒边界；`agentInstallProgress` 只投给 Agent 通道、`gitExecution` 只投给 Git 通道，单通道请求收不到另一种事件；不需要真实 Agent 或 npm）
 - `cd windows/tauri && bun test src/features/agent/services/agent-management.test.ts`（服务层按共享 fixture 解析 Node/npm 版本、缺失安装保留 issues 与安装来源，越界响应被拒绝而不半读；进度事件先校验 kind 与数值字段再上报，不渲染 undefined）
-- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/config/backend-capabilities.test.ts`（从仓库根目录运行，默认工作目录 `windows/tauri`；覆盖连接单例的窗口与项目隔离、会话标签与消息归并、工具证据与权限队列、上下文用量与订阅额度的过期判断、文件引用的去重与上限、供应商与适配器设置解析，以及能力开关把 `agent.*` 归到 `agent` 通道；本地 38 项通过。真机窗口、真实适配器与中英文界面验收仍未执行）
+- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/config/backend-capabilities.test.ts`（从仓库根目录运行，默认工作目录 `windows/tauri`；覆盖连接单例的窗口与项目隔离、会话标签与消息归并、工具证据与权限队列、上下文用量与订阅额度的过期判断、文件引用的去重与上限、供应商与适配器设置解析，能力开关把 `agent.*` 归到 `agent` 通道，`agent.installCli` 结果解析（版本确实提升才算成功、安装器警告单独上报）与 CLI 配置导入的协议校验，以及英文与简体中文词条一一对应；本地 45 项通过。真机窗口、真实适配器与中英文界面验收仍未执行）
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml --test claude_api_failure -- --ignored`：需提供已安装适配器的 `LITHE_ACP_E2E_DATA_DIR` 与独立临时 `CLAUDE_CONFIG_DIR`，不安装或下载 CLI；用本地 HTTP 服务和假密钥验证 400/401/402/403 直接终止、404 仅原生模型探测，408/429/500/502/503/504/529 及响应前断连总共五次短尝试。服务显式带 `Retry-After: 180` 和 `x-should-retry: true`，仍在三十秒测试边界内结束，并上报 2/5 至 5/5；另验证流式部分输出后报错不重发、正常流式完成和暂时故障后恢复成功。项目设置试图启用十次重试、watchdog 及非流式回退时也不能覆盖策略。默认跳过不能记为通过；执行者清理独立 CLI 配置，测试拥有并关闭临时工作区、监听 socket 与 Agent 进程树。确定性 Host 测试使用虚拟时钟验证二十秒重连取消、十秒未确认停止、用户在退避时停止、已有进度禁止重放和会话隔离；Swift 测试验证次数、状态、耗时和流式发布合并。
 - `cargo test -p lithe-core agent`（`agent.*` 命令与 `shared/fixtures/agent/agent-management-v1.json`）
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml --test claude_api_failure claude_restore_uses_the_last_selected_model_in_the_actual_request -- --ignored`：在独立 `CLAUDE_CONFIG_DIR` 和已安装适配器目录下，用本地 Messages 服务与假密钥先选择另一个模型完成回复，关闭整个连接，再以不同启动默认模型恢复会话；直接比较两次 HTTP 请求体的模型，不能用选择器或合成错误文本代替。测试每阶段最多三十秒，AgentHandle 负责成功和失败路径的子进程清理，执行者清理独立 CLI 配置。确定性 Host 测试覆盖新建/恢复路由分离、相同默认值也必须确认、分组和目录外当前值、上游拒绝与错误确认、完整配置响应以及六十秒共享加载期限。
