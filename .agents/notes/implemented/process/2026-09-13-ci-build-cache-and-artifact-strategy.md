@@ -61,10 +61,14 @@ Xcode 26.6 的链接器无法读取其中的 `libSystem.B.tbd`。`setup-macos-to
 自托管 runner 上把 `SDKROOT` 固定为所选 Xcode 自带的 SDK，并拒绝解析到 Xcode
 之外的 SDK。
 
-Swift 测试 lane 目前固定在托管池（选择器的 `HOSTED_ONLY_LANES`）：首轮在
-Mac mini 上运行时，`DesktopIsolationTests` 因 WindowServer 两秒内没有登记原生
-窗口而失败，这要求机器保持一个有显示器且未休眠的图形会话。机器配置好之后
-再把它从集合中移除，不要为此跳过或放宽这条测试。同一轮还暴露出编辑器字体
+首轮在 Mac mini 上运行 Swift 测试时，`DesktopIsolationTests` 因 WindowServer 两秒内
+没有登记原生窗口而失败。系统日志显示，测试查询窗口时 WindowServer 发起了一次
+TCC 权限检查，macOS 把测试进程归属到 runner 自带的
+`externals/node<N>/bin/node`，而它没有“录屏与系统音频”权限。给三个 runner 的
+node 授权并重启服务后，Swift 测试才放回动态分配。runner 升级更换自带 node
+版本后需要重新授权。授权意味着 runner 上的任何任务都能截屏，这台机器只用于
+CI，接受这一点。机器缺少某项配置时，可以用选择器的 `HOSTED_ONLY_LANES` 暂时
+把 lane 留在托管池，不要为此跳过或放宽测试。同一轮还暴露出编辑器字体
 目录把声明了等宽但拉丁字符不等宽的字体（兰亭黑 `Lantinghei TC`）列为等宽，
 那是产品缺陷，单独修复。
 

@@ -90,11 +90,15 @@ queued macOS jobs through the read-only `actions: read` token permission:
 - If the API cannot be read, routing falls back to the fixed assignment: Rust
   Core and packaging on the Mac minis, Swift and plugin tests on hosted runners.
 
-**Swift tests** stay on hosted runners for now (`HOSTED_ONLY_LANES` in the
-selector): `DesktopIsolationTests` needs a WindowServer session that publishes
-native windows, which a Mac mini without an active, awake display does not
-provide. Remove the lane from that set once the runner host keeps a display
-session (for example with a display emulator plug and display sleep disabled).
+**Swift tests** need the runner's node binary to hold the macOS **Screen &
+System Audio Recording** permission: `DesktopIsolationTests` reads its own
+window from WindowServer, and macOS attributes the test process to
+`<runner>/externals/node<N>/bin/node`. Without it the test fails with
+"WindowServer did not publish native window". Grant each runner's node in
+System Settings → Privacy & Security → Screen & System Audio Recording and
+restart the runner services; repeat after a runner update changes the bundled
+node version. `HOSTED_ONLY_LANES` in the selector can keep a lane on hosted
+runners while a Mac mini setting is missing.
 
 The job summary of **Classify changes** shows the counts and the chosen pool. The
 choice is made once: it does not see other repositories' use of the hosted pool,
