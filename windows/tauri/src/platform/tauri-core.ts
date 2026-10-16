@@ -87,8 +87,16 @@ function safeJson(value: unknown): string {
 }
 
 
-export function invoke<T>(command: string, args?: InvokeArgs, options?: Partial<InvokeOptions> & { gitExecutionSource?: "user" | "background" | "unknown" }): Promise<T> {
-  const { gitExecutionSource = "unknown", ...forwardedOptions } = options ?? {};
+export function invoke<T>(
+  command: string,
+  args?: InvokeArgs,
+  options?: Partial<InvokeOptions> & {
+    gitExecutionSource?: "user" | "background" | "unknown";
+    // An adapter install reports npm transfer progress as `platform_invoke` events.
+    agentEvents?: Channel<unknown>;
+  },
+): Promise<T> {
+  const { gitExecutionSource = "unknown", agentEvents, ...forwardedOptions } = options ?? {};
   // Execution provenance is local metadata; Tauri requires headers only when native options are supplied.
   const nativeOptions: InvokeOptions | undefined = Object.keys(forwardedOptions).length
     ? { ...forwardedOptions, headers: forwardedOptions.headers ?? {} }
@@ -122,7 +130,11 @@ export function invoke<T>(command: string, args?: InvokeArgs, options?: Partial<
       rejectAsError,
     );
   }
-  return tauriInvoke<unknown>("platform_invoke", { command, args: args ?? {} }, nativeOptions).then(
+  return tauriInvoke<unknown>(
+    "platform_invoke",
+    agentEvents === undefined ? { command, args: args ?? {} } : { command, args: args ?? {}, agentEvents },
+    nativeOptions,
+  ).then(
     (value) => adaptCoreResult<T>(command, args as Record<string, any> | undefined, value),
     rejectAsError,
   );

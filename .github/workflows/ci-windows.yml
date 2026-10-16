@@ -324,6 +324,10 @@ jobs:
         shell: pwsh
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/platform/tauri-core.test.ts,src/platform/tauri-core.routing.test.ts
 
+      - name: Test Agent management service and install progress
+        shell: pwsh
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/agent/services/agent-management.test.ts
+
       - name: Test welcome clone and modal isolation
         shell: pwsh
         run: |
