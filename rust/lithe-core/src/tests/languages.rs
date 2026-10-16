@@ -1609,13 +1609,14 @@ fn mvnd_installation_settings_reach_jdt_for_every_client_home_and_bin() {
             .root
             .join(format!("installation with spaces-{name}"));
         let bin = home.join("bin");
-        let embedded_conf = home.join("mvn/conf");
+        let embedded_conf = home.join("mvn").join("conf");
         fs::create_dir_all(&bin).unwrap();
         fs::create_dir_all(&embedded_conf).unwrap();
         fs::create_dir_all(home.join("conf")).unwrap();
         let settings = embedded_conf.join("settings.xml");
         fs::write(&settings, "<settings/>").unwrap();
-        fs::write(home.join("conf/settings.xml"), "<settings/>").unwrap();
+        let ordinary_settings = home.join("conf").join("settings.xml");
+        fs::write(&ordinary_settings, "<settings/>").unwrap();
         let launcher = bin.join(name);
         fs::write(&launcher, "").unwrap();
         let ordinary_launcher = bin.join("mvn.cmd");
@@ -1630,7 +1631,7 @@ fn mvnd_installation_settings_reach_jdt_for_every_client_home_and_bin() {
         }
         assert_eq!(
             fixture.settings_for(&ordinary_launcher),
-            Some(home.join("conf/settings.xml")),
+            Some(ordinary_settings),
             "an explicit ordinary Maven client retains its own settings"
         );
     }
