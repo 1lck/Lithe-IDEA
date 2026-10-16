@@ -11,6 +11,21 @@ import Testing
 @MainActor
 struct RunEntryPointTests {
     @Test
+    func provisionalSnapshotStaysUnavailableAcrossRefreshesUntilReleased() throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let snapshot = workspace.snapshot
+        let operations = SequencedWorkspaceOperations.unavailableThenReady(snapshot)
+        for _ in 0..<3 {
+            #expect(operations.snapshot(at: workspace.root, visibilityRules: .default) == nil)
+        }
+        operations.releaseSnapshots()
+        for _ in 0..<3 {
+            #expect(operations.snapshot(at: workspace.root, visibilityRules: .default)?.id == snapshot.id)
+        }
+    }
+
+    @Test
     func javaBuildDecisionResumesTheSamePreparedTargetAndPersistsWorkspaceChoice() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
@@ -857,8 +872,8 @@ private final class StubRunExecutableResolver: RunExecutableResolving {
     }
 }
 
-/// Hands out prepared scans in call order, and reports the folder as unreadable
-/// once they run out.
+/// Supplies scans in call order, or holds a snapshot until explicitly released.
+/// Ordered scans report the folder as unreadable once they run out.
 ///
 /// Reporting "no snapshot" is how these tests reach the pre-snapshot entry path.
 /// Suspending the scan instead would model a scan in flight, but the workspace
@@ -871,6 +886,7 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
     private let snapshots: [WorkspaceSnapshot?]
     private var scanCount = 0
     private var holdsSnapshots: Bool
+    private var heldSnapshot: WorkspaceSnapshot?
 
     init(snapshots: [WorkspaceSnapshot?], holdsSnapshots: Bool = false) {
         self.snapshots = snapshots
@@ -891,12 +907,15 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
     /// All scans stay unavailable until the test releases the inventory. Real
     /// file-watcher refreshes must not advance the scenario ahead of Run.
     static func unavailableThenReady(_ snapshot: WorkspaceSnapshot) -> SequencedWorkspaceOperations {
-        SequencedWorkspaceOperations(snapshots: [snapshot, snapshot, snapshot], holdsSnapshots: true)
+        let operations = SequencedWorkspaceOperations(snapshots: [], holdsSnapshots: true)
+        operations.heldSnapshot = snapshot
+        return operations
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
         lock.lock()
         guard !holdsSnapshots else { lock.unlock(); return nil }
+        if let heldSnapshot { lock.unlock(); return heldSnapshot }
         let ordinal = scanCount
         scanCount += 1
         lock.unlock()

@@ -70,6 +70,21 @@ Git Log 文件点击始终走历史 Diff；保存记录内的前后文件导航�
 避免用户 Git 配置影响下游文件段识别及路径剥离。
 组件与 Core 用例不能代替真实工作区深浅主题、窄宽度、弹窗和点击操作验收。
 
+### Worktrees
+
+Worktrees 的列表与提交搜索直接使用共享搜索框，新增、刷新和复制按钮使用已有
+IDEA SVG 与工具栏按钮样式；详情标签使用 `LitheToolWindowTabStyle`，新建表单与
+操作按钮复用 `LitheCommitDialogInputStyle` / `LitheCommitDialogButtonStyle`。
+详情按普通分区呈现，不另画一套卡片、搜索边框或蓝色列表描边。
+
+工作树仍保留原生多行列表和原生滚动容器，以免样式调整恢复逐行 SwiftUI 布局成本。
+列表通过自身区域的 `LitheToolWindowActivityTracker` 和窗口活动状态选择
+`LitheTheme.Tree` 的焦点/失焦背景；原生绘制缓存必须在焦点变化时失效。
+标题、路径和分支分别占一行，状态宽度按文字度量，避免窄栏中的状态覆盖名称。
+上下键移动选择并滚动到可见行；右键动作仍捕获被点击的工作树，保留保护和忙碌条件。
+`GitWorktreeAppearanceTests` 验证实际绘制的深浅选中色及键盘边界；完整页面实机验收
+与组件验证分别记录，不能把后者视为前者。
+
 ### Commit 文件树
 
 Commit 文件树参考同一 Community revision 的 `ChangesTreeCellRenderer`、

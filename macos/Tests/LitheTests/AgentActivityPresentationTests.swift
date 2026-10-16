@@ -214,10 +214,11 @@ struct AgentActivityPresentationTests {
     }
 
     private func openPanel(_ panel: AgentActivitySummaryBar.Panel, in host: NSView, window: NSWindow) async throws {
-        for popup in window.childWindows ?? [] where popup.isVisible {
-            try closePopup(popup)
-        }
-        host.layoutSubtreeIfNeeded()
+        if let popup = popup(in: window) { try closePopup(popup) }
+        try #require(await waitUntil(updating: host) {
+            guard let trigger = anchor(in: host) else { return false }
+            return self.popup(in: window) == nil && trigger.window === window && !trigger.bounds.isEmpty
+        }, "The previous panel must dismiss and the activity trigger must finish layout before clicking")
         let trigger = try #require(anchor(in: host))
         let rect = trigger.convert(trigger.bounds, to: host)
         let point = NSPoint(x: rect.midX, y: host.isFlipped ? rect.midY : host.bounds.height - rect.midY)
@@ -238,9 +239,8 @@ struct AgentActivityPresentationTests {
                 in: content, window: popup)
         }
         try #require(await waitUntil {
-            window.childWindows?.contains { $0.isVisible
-                && $0.frame.width >= LitheDropdownMetrics.maximumWidth - 1 } == true
-        }, "The \(panel.rawValue) menu selection must open its detail panel")
+            (self.popup(in: window)?.frame.width ?? 0) >= LitheDropdownMetrics.maximumWidth - 1
+        })
     }
 
     private func editedFile(path: String = "a.txt") -> AgentConversationMessage {
@@ -254,12 +254,13 @@ struct AgentActivityPresentationTests {
         return view.subviews.lazy.compactMap { nativeButton(in: $0, titles: titles) }.first
     }
 
-    private func waitForPopup(in window: NSWindow) async -> NSWindow? {
-        // Follow native ownership: addresses of released unrelated windows can be
-        // reused by a new popup, so a snapshot of ObjectIdentifiers is not stable.
-        func popup() -> NSWindow? { window.childWindows?.first { $0.isVisible } }
-        _ = await waitUntil { popup() != nil }
-        return popup()
+    private func popup(in window: NSWindow) -> NSPanel? {
+        window.childWindows?.compactMap { $0 as? NSPanel }.first { $0.isVisible }
+    }
+
+    private func waitForPopup(in window: NSWindow) async -> NSPanel? {
+        _ = await waitUntil { popup(in: window) != nil }
+        return popup(in: window)
     }
 
     private func scrollView(in view: NSView) -> NSScrollView? {
@@ -283,10 +284,10 @@ struct AgentActivityPresentationTests {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
         while clock.now < deadline {
+            await Task.yield()
             renderFrame()
             host?.layoutSubtreeIfNeeded()
             if condition() { return true }
-            await Task.yield()
         }
         return condition()
     }
