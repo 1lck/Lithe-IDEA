@@ -372,6 +372,7 @@ async function main() {
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
       // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
+      // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);

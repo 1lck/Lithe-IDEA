@@ -1675,3 +1675,25 @@
 
 "No updates found in the local Homebrew index." = "No updates found in the local Homebrew index.";
 "Run `brew update` manually, then check again for updates." = "Run `brew update` manually, then check again for updates.";
+
+// Test process performance
+"Resident Memory" = "Resident Memory";
+"Test process tree · Resident memory" = "Test process tree · Resident memory";
+"Run tests to view process performance." = "Run tests to view process performance.";
+"Waiting for process performance data…" = "Waiting for process performance data…";
+
+"Start Recording" = "Start Recording";
+
+"Stop Recording" = "Stop Recording";
+
+"Show Results" = "Show Results";
+
+"Select test JVM" = "Select test JVM";
+
+"Waiting for a local test JVM…" = "Waiting for a local test JVM…";
+
+"Performance Results" = "Performance Results";
+
+"No profiling events were recorded." = "No profiling events were recorded.";
+
+"Process Terminated" = "Process Terminated";

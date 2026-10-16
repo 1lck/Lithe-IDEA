@@ -7,7 +7,17 @@
 Performance 展示 Lithe 启动的目标 Java 进程的真实 CPU 和 JVM 堆数据。
 堆计数复用目标 JDK 的 OpenJDK `jstat -gc -t`，CPU 复用 macOS 的进程计数；
 不拿 Lithe 自身或目标进程的常驻内存冒充 JVM 堆。收起、切换、停止或销毁页面时取消采集。
-暂不支持没有本地启动 PID 的远程附加目标，也不实现录制报告或 Show Results。
+Test 的 Java 测试现在选择实际工作 JVM，以相同 jstat 端口采集 CPU 与堆内存；
+显式 JFR 录制和 Show Results 复用 JDK 的命令工具。Performance 与 Details 合并为右侧
+一个可收缩面板，以两个标签切换。非 Java 测试保留明确标注的进程树 CPU/RSS。
+这两个内容页签采用 Community `DarculaTabbedPaneUI` 的下划线模式和
+`ManyIslands{Dark,Light}.theme.json` 的颜色、圆角覆盖；保持紧凑标题字号，
+不复用工具窗口运行标签的圆角选中块，避免嵌套标题呈现两层胶囊。
+暂不支持没有本地启动 PID 的远程附加目标。
+
+Test Console 与 Debug、Run 使用相同的 `OutputTextView` / `LitheConsoleStyle`，
+统一 INFO/WARN/ERROR 级别标签的颜色，不把正文整行重涂。Maven 测试计划通过 `-Dstyle.color=always`
+保留管道模式下 Maven 自身的 ANSI 分段颜色与字重，渲染器仍按共享明暗色板显示。
 
 ## 问题
 
@@ -19,7 +29,9 @@ Performance 的 JVM 采集实现；公开 profiler API 不能证明存在可直�
 
 `jstat` 已拥有 JVM 堆统计的解释权，Lithe 只按文档列名解析年轻代和老年代的使用量与
 已提交容量，并排除元空间、压缩类空间等非堆数据。部分垃圾收集器不提供这些计数时
-明确显示不支持，不能把缺失值当零。CPU 是目标进程的累计用户/内核时间增量，除以
+明确显示不支持，不能把缺失值当零。CPU 是目标进程的累计用户/内核时间增量。Apple 的
+[XNU fill_taskprocinfo](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/bsd_kern.c)
+写入 Mach 时间计数，原生入口使用 `mach_timebase_info` 转换为纳秒后，再除以
 单调时间间隔和逻辑处理器数，表示占全机逻辑 CPU 容量的比例。
 
 ## 决策
@@ -40,6 +52,31 @@ Performance 的 JVM 采集实现；公开 profiler API 不能证明存在可直�
 正确做法是“已知启动目标 → 目标 JDK 的统计工具 → 有界原生流 → 当前可见会话”。
 不要“按 java 名称找进程 → 用 RSS 画 Heap Memory → 隐藏面板后继续运行工具”。
 
+### 测试进程树
+
+测试扩展和原生进程的 `running` 事件携带可选的真实启动 PID，`LanguageTestService`
+在匹配 operationID 后发布到当前运行；停止、结束、重跑和关闭清除 PID，关闭同时清除
+运行 ID。Test 使用独立的 `DebugPerformanceFeatureModel`，不会覆盖 Debug 会话历史。
+
+Maven/Gradle 通常派生测试 JVM，只监测启动器会漏算测试负载。原生 adapter 先限定
+在本次启动 PID 的后代内，再根据公开 JUnit、Surefire、Gradle Test Executor 入口确认
+工作 JVM；通过 macOS 原生入口查询 Java 可执行路径与启动身份，不扫描整个系统的
+java 名称。多个 worker 由用户选择，按启动身份隔离历史；没有独立 worker 的 Maven
+in-process 模式和过短测试可显示无数据，不把构建 JVM 冒充测试。
+
+`TestJVMPerformanceFeatureModel` 协调目标选择与显式录制，复用共享图表 Feature。
+收起/切换到 Details 取消 live 采样；已经手动开始的录制保持到停止、worker退出或
+120秒上限。重跑、关闭和销毁取消旧操作、停止本次命名录制并删除其临时目录。
+
+录制复用 JDK `jcmd JFR.start/stop` 与 `settings=profile`，最大64MiB、120秒，
+`dumponexit=true` 保留正常退出时的结果。JDK `jfr summary/view hot-methods/view
+allocation-by-site` 解释记录，UI 使用已有原生文本控件展示报告；没有自写 JFR 解析器
+或商用 profiler 的火焰图。JDK 21 之前缺少 `jfr view` 时保留 summary 并显示工具错误。
+工具命令各有10秒期限、取消与256KiB输出界限；仅操作PID加启动身份仍匹配的目标。
+
+原生 CPU/RSS 进程树采样仍用于非 JVM 测试。其时间轴锚定根进程年龄，收起重开不从零
+拼接；秒级采样会错过两个采样之间退出的进程，不是方法级性能归因。
+
 ## UI 与资源
 
 图表复用系统 Swift Charts，折线、面积、悬停点对应同一真实采样。最近60秒的时间窗口
@@ -47,16 +84,16 @@ Performance 的 JVM 采集实现；公开 profiler API 不能证明存在可直�
 主题色、背景图、分隔器和收起条保持与 Git Log 的对应组件一致。具体 UI 规则仍由
 `2026-09-30-macos-shared-dropdown-style.md` 的 Debug 部分持有。
 
-Java/JDK 资源保持只读。运行时没有新下载、解压或生成的应用资源目录，因此没有新增
-可在 worktree 间共享的缓存。OpenJDK 自己管理系统临时性能数据；测试 Java 源文件只在
+Java/JDK 资源保持只读。JFR仅在原生临时目录 `lithe-jfr-<uuid>` 生成单次录制，归属于当前运行，关闭/替换时
+删除；资源清单以 `test-jfr-recordings` 明确排除跨工作树复制。没有新下载或可复用缓存。OpenJDK 自己管理系统临时性能数据；测试 Java 源文件只在
 测试拥有的唯一临时目录生成并删除。应用 bundle 和安装目录不写入，不影响签名或
 Sparkle 差分更新基线。未来若打包额外工具，必须先更新资源归属和 worktree 清单。
 
 ## 考虑过的备选方案
 
 直接移植公开Community的Performance采集实现未找到可复用入口；商业或私有实现不在
-许可范围内。自行嵌入Java agent/JMX服务会增加分发、安全与连接生命周期，因此本次
-不采用；RSS不能表达堆使用量，也不采用。远程附加监控留待有明确目标身份端口后接入。
+许可范围内。自行嵌入Java agent/JMX服务会增加分发、安全与连接生命周期，因此 Debug
+不采用；RSS不能表达堆使用量，Test 仅把它作为明确命名的驻留内存指标。远程附加监控留待有明确目标身份端口后接入。
 
 ## 后果
 
@@ -73,7 +110,17 @@ Sparkle 差分更新基线。未来若打包额外工具，必须先更新资源
 - `JVMPerformanceIntegrationTests`：显式设置 `LITHE_TEST_JAVA_EXECUTABLE` 指向测试 JDK
   才运行。启动临时 Java 源程序读取真实堆和 CPU，取消后检查工具 PID 实际退出，最后
   等待目标 Java 进程停止并清理文件。常规单元测试不依赖本机安装的 JDK。
+- `TestJVMPerformanceFeatureTests` 与 `TestJFRIntegrationTests`：工作进程选择、隐藏时显式录制、worker退出、旧运行隔离；真实JDK启动、堆采样、JFR录制、热点/分配报告和临时资源清理。
+- `ProcessTreePerformanceTests`：实际 shell 启动 CPU 工作子进程，验证真实启动 PID、
+  根与子进程归属、CPU/RSS 样本和取消清理；超时关闭整组进程。
+- `ExecutionModuleTests`：内置/扩展 PID 转发、重跑拒绝旧事件、停止及关闭清理。
 - `scripts/verify-runtime-bundle-immutability.sh`、`scripts/verify-service-boundaries.sh`。
+
+本轮本机显式启用 JDK 21 的88项相关回归通过，真实 JFR 集成检查4.276秒；补充4项
+生命周期检查以及失败启动清理身份的单项回归通过，资源复用脚本14项检查通过。
+实际 Maven 演示识别 Surefire 工作 JVM，显示 CPU 和堆，手动录制后切换 Details 不丢失
+录制；正常退出自动结束，17秒 JFR 的热点报告识别演示方法占90.38%。关闭测试标签后
+录制临时目录与采集进程均无残留。组件/真实采集证据不代替其他平台或自定义 runner 验收。
 
 Windows 当前没有对应 UI/采集实现，矩阵明确标记缺失。完整用户项目的暂停、切换、
 背景和 hover 验收与组件测试分别记录；不能用真实采集单测代替整个工作台验收。

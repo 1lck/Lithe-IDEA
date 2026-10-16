@@ -403,6 +403,11 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   的排除路由。helper 不修改已安装适配器、用户配置、app bundle 或 Windows 安装
   目录，因此不改变代码签名和 Sparkle delta 的发布基线。
 
+- 测试 JFR 录制：`<system-temp>/lithe-jfr-<recording-uuid>/recording.jfr` 属于单次运行和
+  精确工作 JVM（PID 加启动身份），由该 JDK 写入，最大64MiB、最长120秒。关闭/替换
+  运行或销毁监控 Feature 时停止命名录制并删除目录；它没有版本/平台/架构/工具链构建
+  stamp，任何复制阶段都不共享。`excludedResources.test-jfr-recordings` 通过复用脚本的
+  通用排除路由拒绝，应用 bundle、插件包、签名及 Sparkle 增量基线保持只读。
 - Agent 历史注释：平台偏好设置键 `lithe.agent-history.v1.<workspace-agent-digest>` 保存收藏、自定义标题和隐藏状态，按标准化工作区与 Agent ID 隔离。它是用户可变状态，不受版本、平台、架构或工具链构建身份约束，不存在可验证的构建 stamp；Markdown 导出写到用户选择的位置。两者都禁止在任何复制阶段跨工作树复用，`excludedResources.agent-history-metadata` 由资源脚本显式拒绝。
 
 - `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；

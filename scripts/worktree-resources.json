@@ -229,6 +229,15 @@
       ],
       "identity": "Icon bytes belong to one verified plugin package version and its signature or community content digest; no worktree resource identity stamp",
       "reason": "Package installation owns copying and atomic version replacement. macOS validates package-relative static SVG/PNG and holds immutable bytes/images only in process memory. Never copy installed icons or runtime image state across worktrees; no runtime disk cache or bundle writes are allowed."
+    },
+    {
+      "id": "test-jfr-recordings",
+      "reusable": false,
+      "locations": [
+        "<system-temp>/lithe-jfr-<recording-uuid>/recording.jfr"
+      ],
+      "identity": "One test run and exact worker PID plus process start identity, target JDK and unique recording UUID; mutable JFR output has no build identity stamp.",
+      "reason": "The macOS native performance adapter creates the directory in platform temporary storage. JDK jcmd/JFR writes at most 64 MiB over 120 seconds. Closing/replacing the run or disposing the feature stops that exact named recording and deletes its directory. Never copy at any worktree reuse stage; no app bundle, plugin package, signatures or Sparkle source bytes are changed."
     }
   ]
 }

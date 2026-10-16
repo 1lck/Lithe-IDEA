@@ -296,3 +296,15 @@ expui/nodes/{class,runnableMark}.svg light/dark pairs, layered on their original
 c7f91397daa3a961b4e78bc634fe467a0a7d9ade; PlatformIconMappings.json maps
 Nodes.Class and Nodes.RunnableMark to these assets. This instance presentation
 replaces the configuration-type Application icon documented above.
+
+The Tests run tab uses the original light/dark expui/runConfigurations/junit.svg
+assets from Community revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade,
+platform/icons/src/expui/runConfigurations/. JUnitConfigurationType assigns
+AllIcons.RunConfigurations.Junit, mapped by PlatformIconMappings.json.
+
+The Tests result tree and summary use expui/run/testPassed, testFailed, and
+testIgnored light/dark SVGs from the same c7f91397 Community revision,
+platform/icons/src/expui/run/. Original geometry and colors are preserved.
+
+Test JFR recording: expui/profiler/rec.svg and rec_dark.svg copied unmodified from
+JetBrains/intellij-community c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src.

@@ -38,7 +38,7 @@ struct DebugPerformanceSamplingTests {
         defer { feature.setVisible(false) }
         let first = UUID(), second = UUID()
         for (id, pid) in [(first, Int32(101)), (second, 102)] {
-            feature.register(DebugPerformanceTarget(processID: pid, javaExecutable: URL(fileURLWithPath: "/fixture/jdk/bin/java")), sessionID: id)
+            feature.register(DebugPerformanceTarget(processID: pid, javaExecutable: id == first ? nil : URL(fileURLWithPath: "/fixture/jdk/bin/java")), sessionID: id)
         }
         feature.select(sessionID: first, isActive: true)
         feature.setVisible(true)
@@ -147,8 +147,29 @@ struct DebugPerformanceSamplingTests {
         #expect(feature.samples.isEmpty)
     }
 
+    @Test func nativeCPUConvertsMachTicksBeforeCalculatingPercentages() {
+        #expect(MacProcessMemorySampler.nanoseconds(ticks: 24_000_000, numerator: 125, denominator: 3) == 1_000_000_000)
+        #expect(MacProcessMemorySampler.nanoseconds(ticks: 1_000_000_000, numerator: 1, denominator: 1) == 1_000_000_000)
+        #expect(MacProcessMemorySampler.nanoseconds(ticks: UInt64.max, numerator: 125, denominator: 3) == UInt64.max)
+    }
+
+    @Test func testProcessTreeCPUHandlesForksExitAndPIDReuse() {
+        typealias CPU = MacProcessTreePerformanceSampler.CPU
+        let previous: [Int32: CPU] = [1: CPU(nanoseconds: 500, startedSeconds: 1, startedMicroseconds: 0),
+            2: CPU(nanoseconds: 900, startedSeconds: 2, startedMicroseconds: 0)]
+        let current: [Int32: CPU] = [1: CPU(nanoseconds: 700, startedSeconds: 1, startedMicroseconds: 0),
+            2: CPU(nanoseconds: 100, startedSeconds: 3, startedMicroseconds: 0),
+            3: CPU(nanoseconds: 200, startedSeconds: 3, startedMicroseconds: 0)]
+        #expect(MacProcessTreePerformanceSampler.cpuPercent(previous: previous, current: current,
+            elapsed: 1000, processors: 2) == 25)
+        #expect(MacProcessTreePerformanceSampler.cpuPercent(previous: current, current: [:],
+            elapsed: 1000, processors: 2) == 0)
+        #expect(MacProcessTreePerformanceSampler.cpuPercent(previous: [:], current: current,
+            elapsed: 0, processors: 2) == nil)
+    }
+
     private func sample(_ timestamp: Double) -> DebugPerformanceSample {
-        DebugPerformanceSample(timestamp: timestamp, cpuPercent: 1, heapUsedBytes: 10, heapCommittedBytes: 20)
+        DebugPerformanceSample(timestamp: timestamp, cpuPercent: 1, memoryUsedBytes: 10, memoryCapacityBytes: 20)
     }
 }
 

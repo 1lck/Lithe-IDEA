@@ -1249,7 +1249,7 @@ struct ExecutionModuleTests {
     }
 
     @Test
-    func goTestsRunThroughExtensionOwnedSession() throws {
+    func goTestsRunThroughExtensionOwnedSession() async throws {
         let builtInProcess = TestStreamingProcess()
         let extensionSession = TestLanguageExecutionSession()
         let service = LanguageTestService(
@@ -1288,8 +1288,14 @@ struct ExecutionModuleTests {
         ))
         #expect(builtInProcess.startRequests.isEmpty)
         #expect(extensionSession.startRequests.first?.arguments == ["test", "./cmd/api"])
+        let id = try #require(service.runID)
+        extensionSession.onStateChange?(LanguageExecutionLifecycleEvent(operationID: id.uuidString,
+            state: .running, processID: 201))
+        try await awaitTestValue(service.$processID, matching: { $0 == 201 })
+
 
         service.unregisterLanguageTestExtension(languageID: "go")
+        #expect(service.processID == nil)
         service.discover(workspaceURL: root, files: files)
         #expect(service.itemsByProviderID["go"] == nil)
         #expect(!service.run(
@@ -1338,7 +1344,7 @@ struct ExecutionModuleTests {
             workspaceURL: root,
             projectFiles: [pom, source]
         ))
-        #expect(firstProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
+        #expect(firstProcess.startRequests.first?.arguments == ["-Dstyle.color=always", "-Dtest=CalculatorTest", "test"])
         #expect(firstProcess.startRequests.first?.timeoutMilliseconds == 120_000)
         defer { service.reset() }
 
@@ -1358,7 +1364,87 @@ struct ExecutionModuleTests {
         #expect(service.canRerun)
 
         #expect(service.rerun())
-        #expect(secondProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
+        #expect(secondProcess.startRequests.first?.arguments == ["-Dstyle.color=always", "-Dtest=CalculatorTest", "test"])
+    }
+
+    @Test func testProcessIdentityRejectsOldRunsAndClearsOnStop() async throws {
+        let root = URL(fileURLWithPath: "/workspace/test-performance")
+        let process = TestStreamingProcess()
+        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { process })
+        defer { service.reset() }
+        #expect(service.run(providerID: "java", scope: .workspace, workspaceURL: root,
+                            projectFiles: [root.appendingPathComponent("pom.xml")]))
+        let firstID = try #require(service.runID)
+        let firstEvent = try #require(process.onStateChange)
+        firstEvent(ProcessLifecycleEvent(operationID: firstID.uuidString, state: .running,
+            exitCode: nil, message: nil, processID: 101))
+        try await awaitTestValue(service.$processID, matching: { $0 == 101 })
+        service.stop()
+        #expect(service.processID == nil)
+        #expect(service.runID == firstID)
+        #expect(service.rerun())
+        let secondID = try #require(service.runID)
+        #expect(secondID != firstID)
+        firstEvent(ProcessLifecycleEvent(operationID: firstID.uuidString, state: .running,
+            exitCode: nil, message: nil, processID: 999))
+        process.onStateChange?(ProcessLifecycleEvent(operationID: secondID.uuidString, state: .running,
+            exitCode: nil, message: nil, processID: 102))
+        try await awaitTestValue(service.$processID, matching: { $0 == 102 })
+        #expect(service.processID == 102)
+        process.onTermination?(0)
+        try await awaitTestValue(service.$state, matching: { $0 == .passed })
+        #expect(service.processID == nil)
+        #expect(service.runID == secondID)
+        #expect(!service.run(providerID: "missing-provider", scope: .workspace,
+                            workspaceURL: root, projectFiles: []))
+        #expect(service.runID == nil)
+        service.closeRun()
+        #expect(service.runID == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func closingTestRunPreservesDiscoveryAndAllowsNewRun(completed: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace/test-tab", isDirectory: true)
+        let files = [root.appendingPathComponent("pom.xml")]
+        let process = TestStreamingProcess()
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: { process }
+        )
+        defer { service.reset() }
+        service.discover(workspaceURL: root, files: files)
+        let discovered = service.itemsByProviderID
+        #expect(!discovered.isEmpty)
+        #expect(!service.hasRun(providerID: "java", scope: .workspace))
+        #expect(service.run(providerID: "java", scope: .workspace,
+                            workspaceURL: root, projectFiles: files))
+        #expect(service.activePlan != nil)
+        #expect(!service.output.isEmpty)
+        #expect(service.hasRun(providerID: "java", scope: .workspace))
+        #expect(!service.hasRun(providerID: "java", scope: .file(files[0])))
+        #expect(!service.hasRun(providerID: "go", scope: .workspace))
+        if completed {
+            process.isRunning = false
+            process.onTermination?(0)
+            try await awaitTestValue(service.$state, matching: { $0 == .passed })
+        }
+
+        service.closeRun()
+        #expect(!process.isRunning)
+        #expect(service.activePlan == nil)
+        #expect(service.state == .idle)
+        #expect(service.output.isEmpty)
+        #expect(service.results == nil)
+        #expect(service.errorMessage == nil)
+        #expect(!service.canRerun)
+        #expect(!service.hasRun(providerID: "java", scope: .workspace))
+        #expect(service.itemsByProviderID == discovered)
+
+        // Closing a result must leave the discovered scopes runnable.
+        #expect(service.run(providerID: "java", scope: .workspace,
+                            workspaceURL: root, projectFiles: files))
+        #expect(service.activePlan != nil)
+        #expect(service.isRunning)
     }
 
     @Test

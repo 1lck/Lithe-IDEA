@@ -116,7 +116,7 @@ struct DatabaseServicesView: View {
     private var output: some View {
         HStack(spacing: 0) {
             OutputTextView(output: outputText, searchRoots: [], fileExists: { _ in false }, emptyMessage: "No query output",
-                wrapsLines: wrapsOutput, fontSize: 13, decorateOutput: decorateOutput, onToggleWrapsLines: { wrapsOutput.toggle() }, onOpenLocation: { _, _, _ in })
+                wrapsLines: wrapsOutput, decorateOutput: decorateOutput, onToggleWrapsLines: { wrapsOutput.toggle() }, onOpenLocation: { _, _, _ in })
             VStack(spacing: 0) {
                 Button { wrapsOutput.toggle() } label: { LitheIDEAIcon(resourcePath: "expui/general/softWrap.svg", size: 16) }
                     .buttonStyle(LitheIconButtonStyle(size: 22, isSelected: wrapsOutput)).workbenchHoverHelp(Text("Use soft wraps"))

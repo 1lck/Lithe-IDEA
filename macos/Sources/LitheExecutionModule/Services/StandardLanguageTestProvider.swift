@@ -91,7 +91,7 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         case .maven:
             plan = SharedLaunchPlan(
                 executable: .toolchain("project-maven"),
-                arguments: javaArguments(scope: scope, root: root),
+                arguments: ["-Dstyle.color=always"] + javaArguments(scope: scope, root: root),
                 workingDirectory: "."
             )
         case .gradle:
