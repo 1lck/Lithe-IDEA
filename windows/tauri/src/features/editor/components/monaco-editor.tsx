@@ -1275,7 +1275,13 @@ export function MonacoEditor({
         event.stopPropagation();
         selectEntireModel();
       }),
-      editor.onDidChangeModelContent(() => {
+      // Listen on the model, not the editor: Monaco delivers the editor-level
+      // content event before EditorModelSource's model subscription on the
+      // undo/redo path, so reading `source.lastChange` here published a stale
+      // document (undo looked like a no-op and the save pipeline skipped the
+      // write). Model listeners run in registration order and this one is
+      // registered after the source acquired above, so `lastChange` is fresh.
+      model.onDidChangeContent(() => {
         // Monaco moves decorations before React publishes the new document.
         // Invalidate click/context targets synchronously, not just on rerender.
         javaRunMarkersRef.current = [];
