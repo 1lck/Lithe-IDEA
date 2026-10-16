@@ -94,6 +94,7 @@ const TabBar = ({
     handleTabClose,
     handleTabPin,
     handleCloseOtherTabs,
+    handleCloseSavedTabs,
     handleCloseAllTabs,
     handleCloseTabsToRight,
     reorderBuffers,
@@ -640,6 +641,7 @@ const TabBar = ({
                           if (targetBuffer) closeTab(bufferId);
                         }}
                         onCloseOthers={handleCloseOtherTabs}
+                        onCloseSaved={handleCloseSavedTabs}
                         onCloseAll={handleCloseAllTabs}
                         onCloseToRight={handleCloseTabsToRight}
                         isPaneLocked={isPaneLocked}
