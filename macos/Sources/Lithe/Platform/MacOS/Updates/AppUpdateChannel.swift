@@ -25,7 +25,8 @@ enum AppUpdateChannel: String, CaseIterable, Identifiable, Sendable, Decodable {
     func requiresFullInstallation(from installed: Self) -> Bool { self != installed }
 
     static func saved(in defaults: UserDefaults, defaultChannel: Self = .stable) -> Self {
-        guard let value = defaults.string(forKey: preferenceKey) else { return defaultChannel }
+        guard let value = defaults.object(forKey: preferenceKey) else { return defaultChannel }
+        guard let value = value as? String else { return .stable }
         return Self(rawValue: value) ?? .stable
     }
 

@@ -73,7 +73,7 @@ function memoryStorage() {
 
 test("isolated development defaults to its installed channel and preserves explicit choices", () => {
   const storage = memoryStorage();
-  expect(readUpdateChannel(storage, "autobuild")).toBe(fixture.developmentDefaultChannel);
+  expect<string>(readUpdateChannel(storage, "autobuild")).toBe(fixture.developmentDefaultChannel);
   storage.setItem(UPDATE_CHANNEL_STORAGE_KEY, "stable");
   expect(readUpdateChannel(storage, "autobuild")).toBe("stable");
   storage.setItem(UPDATE_CHANNEL_STORAGE_KEY, "invalid");

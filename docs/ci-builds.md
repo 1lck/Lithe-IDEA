@@ -261,7 +261,16 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 Logs 及临时目录下使用同名子目录；Windows 用 `app.lithe.windows.dev` 隔离
 应用数据、WebView 存储及凭据。正式版保留历史路径。资源注册表将这些位置登记为
 `distribution-runtime-state`，复用脚本的 exclusion 路由在任何复制阶段都拒绝它；
-不根据版本、架构或工具链注册 validator，也不从正式版导入状态。
+不根据版本、架构或工具链注册 validator。
+只有应用启动入口允许一次性配置迁移：首次安装的开发版尚无用户设置或工作区时，
+从正式版独立复制白名单偏好和工作区，完成后写版本化标记，已有开发版数据不合并。
+macOS 的 Application Support 临时快照 `.lithe-dev-profile-import-<transaction>/`、
+开发版根内 `.stable-profile-import-v1.plist`，以及 Windows Local AppData 开发版根内
+`.stable-profile-import-v1` / `.stable-profile-import-v1-staging/` 都是用户运行状态，
+不进入资源复用清单的可复制项。Windows 只复制关闭后的 localStorage 数据库和
+原生设置/Maven JSON，必须在创建 WebView 之前完成；占用或复制失败不写成功标记，
+中断后重试。渠道、跳过版本、旧日志位置、浏览器缓存、索引和锁不迁移。
+系统凭据不批量导出，相关登录可能需要重新认证；之后两版各自写自己的存储。
 偏好、插件状态、恢复文件和日志由所属发行身份持有，临时文件与缓存可由系统清理；
 这些目录没有可靠 identity stamp，不进入工作树缓存或安装包，不改变代码签名及增量更新基线。
 同一发行身份的多个源码工作树仍会使用同一用户域；本地测试应注入临时目录与独立偏好域。

@@ -25,7 +25,7 @@ struct UpdateChannelControl: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if updateChecker.needsChannelInstallation {
-                Text("Changing channels requires a full installation and may install an older version. Lithe and Lithe-Dev use separate settings and caches. Your project files stay in their current locations.")
+                Text("Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)

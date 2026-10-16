@@ -100,8 +100,20 @@ Preferences, credentials, default logs and app-owned runtime data/cache/temp roo
 are isolated by installed identity, never by a mutable channel preference. The
 macOS adapter inserts the development bundle ID below system writable roots;
 Windows uses Tauri's identifier-scoped app directories and credential service.
-Explicit user-selected project/tool/log paths can still be shared. No automatic
-migration imports Stable state into development. Signed bundles remain read-only.
+Explicit user-selected project/tool/log paths can still be shared. On the first
+Dev launch, if no Dev preferences or durable state exist, copy Stable settings and
+workspace records into independent Dev storage and persist a versioned completion
+marker. Existing Dev data is never merged or overwritten; subsequent launches do
+not fall back to Stable. Changing the channel alone does not switch profiles.
+Updater/channel suppression state, custom log destinations, browser caches,
+indexes, locks and runtime connections are excluded. macOS also copies its local
+AI secret file, Maven preferences and marketplace source configuration; OS-vault
+credentials remain separate and may require signing in again. Windows snapshots
+only native settings/Maven JSON and closed WebView localStorage, before creating
+any WebView; it never copies a live browser profile. A busy source or failed copy
+stops initialization with a retry message and no success marker. Published files
+and preferences resume from a staged snapshot after an interrupted commit.
+Signed bundles remain read-only.
 DMGs/ZIPs contain `Lithe-Dev.app` and Windows installers use the development product
 name, while public release asset filenames remain compatible. Pre-isolation
 AutoBuild needs a separate full installation; only matching bundle identities and

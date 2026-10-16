@@ -68,6 +68,10 @@ try {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const state = registry.excludedResources.find(item => item.id === "distribution-runtime-state");
     assert.equal(state.reusable, false);
+    assert.ok(state.locations.some(location => location.includes(".lithe-dev-profile-import-<transaction>")));
+    assert.ok(state.locations.some(location => location.endsWith(".stable-profile-import-v1.plist")));
+    assert.ok(state.locations.some(location => location.endsWith(".stable-profile-import-v1-staging/")));
+    assert.ok(state.locations.some(location => location.endsWith(".stable-profile-import-v1")));
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes(state.id));

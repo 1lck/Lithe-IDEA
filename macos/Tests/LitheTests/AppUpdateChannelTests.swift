@@ -31,6 +31,18 @@ struct AppUpdateChannelTests {
     }
 
     @Test
+    func malformedPreferenceTypesNeverUseTheDevelopmentDefault() {
+        withPreferences { preferences in
+            let malformedValues: [Any] = [["bad": "value"], ["autobuild"], 1, true]
+            for value in malformedValues {
+                preferences.set(value, forKey: AppUpdateChannel.preferenceKey)
+                #expect(AppUpdateChannel.saved(in: preferences) == .stable)
+                #expect(AppUpdateChannel.saved(in: preferences, defaultChannel: .autobuild) == .stable)
+            }
+        }
+    }
+
+    @Test
     func rollingRequiresConsentAndPersistsAcrossCheckerReplacement() {
         withPreferences { preferences in
             let checker = UpdateChecker(preferences: preferences)

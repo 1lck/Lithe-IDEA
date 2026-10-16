@@ -7,12 +7,13 @@ require "time"
 require "digest"
 require "base64"
 require "json"
+require "rbconfig"
 require_relative "select-sparkle-baselines"
 require_relative "verify-sparkle-appcast"
 
 # Integration test: uses the pinned Sparkle tools and local macOS signing tools.
 # No network, Keychain access, installed application, or production key is used.
-def run(*command, input: "", succeeds: true)
+def run(*command, input: "", succeeds: true, exit_code: nil)
   output = ""
   result = nil
   environment = {"CFFIXED_USER_HOME" => @fixture_home}
@@ -31,7 +32,9 @@ def run(*command, input: "", succeeds: true)
       end
     end
   end
-  raise "Unexpected result for #{command.first}: #{output}" unless result.success? == succeeds
+  matches = exit_code.nil? ? result.success? == succeeds : result.exitstatus == exit_code
+  expected = exit_code.nil? ? (succeeds ? "success" : "failure") : "exit #{exit_code}"
+  raise "Expected #{expected}, got #{result.inspect} for #{command.first}: #{output}" unless matches
   output
 end
 
@@ -55,7 +58,154 @@ ensure
   end
 end
 
+def baseline_plist(name: ["string", "Lithe"], identifier: ["string", "app.lithe.desktop"])
+  document = REXML::Document.new('<plist version="1.0"><dict/></plist>')
+  {"CFBundleName" => name, "CFBundleIdentifier" => identifier}.each do |key, field|
+    next unless field
+    type, value = field
+    document.root.elements["dict"].add_element("key").text = key
+    element = document.root.elements["dict"].add_element(type)
+    element.text = value unless value.nil?
+  end
+  document.to_s
+end
+
+def baseline_archive(root, entries)
+  staging = File.join(root, "contents")
+  FileUtils.mkdir_p(staging)
+  entries.each do |path, contents|
+    target = File.join(staging, path)
+    FileUtils.mkdir_p(File.dirname(target))
+    File.write(target, contents)
+  end
+  archive = File.join(root, "baseline.zip")
+  run("/usr/bin/ditto", "-c", "-k", staging, archive)
+  archive
+end
+
 tools = ARGV.fetch(0)
+metadata_path = "Lithe.app/Contents/Info.plist"
+development_metadata_path = "Lithe-Dev.app/Contents/Info.plist"
+baseline_cases = {
+  "matching identity" => [{metadata_path => baseline_plist}, 0],
+  "valid different bundle ID" => [{metadata_path => baseline_plist(identifier: ["string", "example.other"])}, 3],
+  "valid other distribution" => [{development_metadata_path => baseline_plist(name: ["string", "Lithe-Dev"], identifier: ["string", "app.lithe.desktop.dev"])}, 3],
+  "missing metadata" => [{"README" => "No application metadata"}, 1],
+  "malformed metadata" => [{metadata_path => "not a property list"}, 1],
+  "missing name" => [{metadata_path => baseline_plist(name: nil)}, 1],
+  "missing bundle ID" => [{metadata_path => baseline_plist(identifier: nil)}, 1],
+  "integer name" => [{metadata_path => baseline_plist(name: ["integer", "7"])}, 1],
+  "integer bundle ID" => [{metadata_path => baseline_plist(identifier: ["integer", "7"])}, 1],
+  "array bundle ID" => [{metadata_path => baseline_plist(identifier: ["array", nil])}, 1],
+  "empty bundle ID" => [{metadata_path => baseline_plist(identifier: ["string", ""])}, 1],
+  "empty name" => [{metadata_path => baseline_plist(name: ["string", ""])}, 1],
+  "name inconsistent with archive path" => [{metadata_path => baseline_plist(name: ["string", "Lithe-Dev"])}, 1],
+  "ambiguous applications" => [{metadata_path => baseline_plist,
+    development_metadata_path => baseline_plist(name: ["string", "Lithe-Dev"], identifier: ["string", "app.lithe.desktop.dev"])}, 1]
+}
+baseline_cases.each do |name, (entries, expected_exit)|
+  timed_test("baseline exit code: #{name}") do
+    Dir.mktmpdir("lithe-baseline-contract-") do |root|
+      @fixture_home = File.join(root, "home")
+      FileUtils.mkdir_p(@fixture_home)
+      archive = baseline_archive(root, entries)
+      run("zsh", File.join(__dir__, "verify-sparkle-baseline.sh"), archive,
+        "Lithe", "app.lithe.desktop", exit_code: expected_exit)
+    end
+  end
+end
+%w[missing-ZIP non-ZIP truncated-ZIP].each do |kind|
+  timed_test("baseline exit code: #{kind}") do
+    Dir.mktmpdir("lithe-baseline-invalid-archive-") do |root|
+      @fixture_home = File.join(root, "home")
+      FileUtils.mkdir_p(@fixture_home)
+      archive = if kind == "truncated-ZIP"
+        path = baseline_archive(root, {metadata_path => baseline_plist})
+        File.binwrite(path, File.binread(path).byteslice(0, 32))
+        path
+      else
+        path = File.join(root, "baseline.zip")
+        File.write(path, "This is not a ZIP archive") if kind == "non-ZIP"
+        path
+      end
+      run("zsh", File.join(__dir__, "verify-sparkle-baseline.sh"), archive,
+        "Lithe", "app.lithe.desktop", exit_code: 1)
+    end
+  end
+end
+
+timed_test("baseline exit code: corrupt payload with readable incompatible metadata") do
+  Dir.mktmpdir("lithe-baseline-corrupt-payload-") do |root|
+    @fixture_home = File.join(root, "home")
+    FileUtils.mkdir_p(@fixture_home)
+    archive = baseline_archive(root, {development_metadata_path => baseline_plist(name: ["string", "Lithe-Dev"], identifier: ["string", "app.lithe.desktop.dev"])})
+    payload = "unique-uncompressed-baseline-payload"
+    payload_path = File.join(root, "payload.txt")
+    File.write(payload_path, payload)
+    run("/usr/bin/zip", "-0", "-q", "-j", archive, payload_path)
+    bytes = File.binread(archive)
+    offset = bytes.index(payload)
+    expect(!offset.nil?, "Stored fixture payload must be present in the archive")
+    bytes.setbyte(offset, bytes.getbyte(offset) ^ 0xff)
+    File.binwrite(archive, bytes)
+    run("zsh", File.join(__dir__, "verify-sparkle-baseline.sh"), archive,
+      "Lithe", "app.lithe.desktop", exit_code: 1)
+  end
+end
+
+timed_test("publisher aborts on an invalid baseline instead of skipping it") do
+  Dir.mktmpdir("lithe-baseline-publisher-") do |root|
+    @fixture_home = File.join(root, "home")
+    bin = File.join(root, "bin")
+    fixture_tools = File.join(root, "tools")
+    temporary = File.join(root, "temporary")
+    scripts = File.join(root, "scripts")
+    FileUtils.mkdir_p([@fixture_home, bin, fixture_tools, temporary, scripts])
+    %w[create-sparkle-update.sh verify-sparkle-baseline.sh select-sparkle-baselines.rb autobuild-identity.rb].each do |name|
+      FileUtils.cp(File.join(__dir__, name), File.join(scripts, name))
+    end
+    # Execute the production publisher and verifier. Only history/download/tool
+    # acquisition are replaced; no test copy of the publisher's exit-code branch.
+    File.write(File.join(scripts, "prepare-sparkle-tools.sh"), "print -r -- \"$FIXTURE_TOOLS\"\n")
+    File.write(File.join(bin, "gh"), <<~'SH')
+      #!/bin/sh
+      [ "$1" = api ] || exit 90
+      printf 'history\n' >> "$FIXTURE_EVENTS"
+      exec /bin/cat "$FIXTURE_RELEASES"
+    SH
+    File.write(File.join(bin, "node"), <<~'SH')
+      #!/bin/sh
+      [ "$#" -eq 5 ] && [ "$1" = scripts/download-sparkle-baseline.mjs ] || exit 90
+      printf 'downloaded\n' >> "$FIXTURE_EVENTS"
+      exec /bin/cp "$FIXTURE_BASELINE" "$5/$4"
+    SH
+    File.symlink(RbConfig.ruby, File.join(bin, "ruby"))
+    %w[sign_update generate_appcast].each do |name|
+      File.write(File.join(fixture_tools, name), "#!/bin/sh\nprintf '#{name}\\n' >> \"$FIXTURE_EVENTS\"\nexit 90\n")
+      FileUtils.chmod(0o755, File.join(fixture_tools, name))
+    end
+    FileUtils.chmod(0o755, [File.join(bin, "gh"), File.join(bin, "node")])
+    info = File.join(root, "dist", "Lithe-arm64.app", "Contents", "Info.plist")
+    FileUtils.mkdir_p(File.dirname(info))
+    File.write(info, baseline_plist)
+    invalid_baseline = baseline_archive(root, {"README" => "Downloaded ZIP has no application metadata"})
+    releases = File.join(root, "releases.json")
+    File.write(releases, JSON.generate([[{"tag_name" => "v1.0.1", "assets" => [{"name" => "Lithe-1.0.1-arm64.zip"}]}]]))
+    events = File.join(root, "events")
+    output = run("env", "PATH=#{bin}:/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR=#{temporary}",
+      "FIXTURE_TOOLS=#{fixture_tools}", "FIXTURE_BASELINE=#{invalid_baseline}",
+      "FIXTURE_RELEASES=#{releases}", "FIXTURE_EVENTS=#{events}",
+      "LITHE_ARCH=arm64", "LITHE_VERSION=1.0.2", "LITHE_BUILD_NUMBER=2",
+      "LITHE_UPDATE_CHANNEL=stable", "GITHUB_REPOSITORY=example/lithe",
+      "LITHE_SPARKLE_PRIVATE_KEY=fixture-unused", "zsh", File.join(scripts, "create-sparkle-update.sh"), exit_code: 1)
+    expect(output.include?("Missing baseline application metadata"), "Publisher must reach the real baseline verifier before aborting")
+    expect(!output.include?("Skipping baseline"), "Invalid archives must not be treated as a different identity")
+    expect(File.read(events) == "history\ndownloaded\n", "Invalid baseline must abort before signing or generating an appcast")
+    expect(Dir.glob(File.join(root, "dist", "sparkle-*")).empty?, "Invalid baseline must not publish update artifacts")
+    expect(Dir.children(temporary).empty?, "Publisher must remove its temporary archive directory on failure")
+  end
+end
+
 timed_test("rollback DMG signature compatibility") do
 Dir.mktmpdir("lithe-rollback-signatures-") do |root|
   @fixture_home = File.join(root, "home")
@@ -121,10 +271,10 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
     archive = File.join(archives, "Lithe-#{version}.zip")
     run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, archive)
     verifier = File.join(__dir__, "verify-sparkle-baseline.sh")
-    run("zsh", verifier, archive, app_name, plist.fetch("CFBundleIdentifier"))
-    run("zsh", verifier, archive, app_name, "example.wrong-identity", succeeds: false)
+    run("zsh", verifier, archive, app_name, plist.fetch("CFBundleIdentifier"), exit_code: 0)
+    run("zsh", verifier, archive, app_name, "example.wrong-identity", exit_code: 3)
     run("zsh", verifier, archive, preview ? "Lithe" : "Lithe-Dev",
-      preview ? "app.lithe.desktop" : "app.lithe.desktop.dev", succeeds: false)
+      preview ? "app.lithe.desktop" : "app.lithe.desktop.dev", exit_code: 3)
     if version == 1
       run(File.join(tools, "generate_appcast"), "--ed-key-file", "-", "--versions", build, "--download-url-prefix", "https://example.com/", archives, input: key + "\n")
       verify_sparkle_appcast(File.join(archives, "appcast.xml"), build)

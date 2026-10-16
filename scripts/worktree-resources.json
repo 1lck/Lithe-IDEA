@@ -33,14 +33,19 @@
       "reusable": false,
       "locations": [
         "<user-library>/Application Support/app.lithe.desktop.dev/",
+        "<user-library>/Application Support/.lithe-dev-profile-import-<transaction>/",
+        "<user-library>/Application Support/app.lithe.desktop.dev/.stable-profile-import-v1.plist",
         "<user-library>/Caches/app.lithe.desktop.dev/",
         "<user-library>/Logs/app.lithe.desktop.dev/",
         "<system-temp>/app.lithe.desktop.dev/",
         "<user-library>/Preferences/app.lithe.desktop.dev.plist",
-        "<windows-app-data>/app.lithe.windows.dev/"
+        "<windows-local-app-data>/app.lithe.windows.dev/",
+        "<windows-roaming-app-data>/app.lithe.windows.dev/",
+        "<windows-local-app-data>/app.lithe.windows.dev/.stable-profile-import-v1",
+        "<windows-local-app-data>/app.lithe.windows.dev/.stable-profile-import-v1-staging/"
       ],
       "identity": "Mutable per-user state owned by the installed app.lithe.desktop.dev or app.lithe.windows.dev identity, not by version, architecture, platform SDK or toolchain; no reusable identity stamp. Stable keeps its historical paths and credentials.",
-      "reason": "Preferences, Keychain/Credential Manager entries, caches, plugins, MCP connection locks, logs and recovery state must never be imported from Stable, copied between worktrees or packaged. No copy stage is allowed. Platform adapters resolve writable roots at runtime outside signed distribution resources; do not add a download-cache validator for user state. OS cleanup owns temporary/cache eviction; persistent state belongs to its distribution until the user removes it."
+      "reason": "Preferences, Keychain/Credential Manager entries, caches, plugins, MCP connection locks, logs, recovery state and first-launch import snapshots must never be copied between worktrees or packaged. Build copy stages always reject them. Only platform startup adapters may perform a one-time independent Stable settings/workspace import into an empty Dev profile, with a versioned completion marker; existing Dev data is preserved. OS-vault credentials, updater state, caches, indexes, logs and runtime locks are excluded from that import. Platform adapters resolve writable roots outside signed distribution resources; do not add a download-cache validator for user state. OS cleanup owns temporary/cache eviction; persistent state belongs to its distribution until the user removes it."
     },
     {
       "id": "autobuild-plugin-mirror-staging",

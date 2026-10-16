@@ -1663,7 +1663,7 @@
 "Use AutoBuild Rolling?" = "Use AutoBuild Rolling?";
 "Use AutoBuild" = "Use AutoBuild";
 "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users.";
-"Changing channels requires a full installation and may install an older version. Lithe and Lithe-Dev use separate settings and caches. Your project files stay in their current locations." = "Changing channels requires a full installation and may install an older version. Lithe and Lithe-Dev use separate settings and caches. Your project files stay in their current locations.";
+"Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations." = "Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations.";
 "Open AutoBuild Downloads" = "Open AutoBuild Downloads";
 "Open Stable Downloads" = "Open Stable Downloads";
 "Install the selected channel" = "Install the selected channel";
@@ -1672,6 +1672,10 @@
 "AutoBuild Update" = "AutoBuild Update";
 "AutoBuild — Built at %@" = "AutoBuild — Built at %@";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
+
+"Could not copy your Stable settings" = "Could not copy your Stable settings";
+"Your original settings and workspace data have been preserved. Restart Lithe-Dev to try again." = "Your original settings and workspace data have been preserved. Restart Lithe-Dev to try again.";
+"The Stable profile could not be copied safely. Its original data has been preserved." = "The Stable profile could not be copied safely. Its original data has been preserved.";
 
 "No updates found in the local Homebrew index." = "No updates found in the local Homebrew index.";
 "Run `brew update` manually, then check again for updates." = "Run `brew update` manually, then check again for updates.";
