@@ -17,7 +17,19 @@ runs:
           echo "::error::Select a complete Xcode 26.6 installation before starting the runner services"
           exit 1
         fi
-        echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+        # The Mac minis also carry Command Line Tools with a newer macOS SDK.
+        # A tool that resolves the SDK without DEVELOPER_DIR picks that SDK,
+        # whose libSystem stubs the Xcode 26.6 linker cannot read (seen when
+        # linking the x86_64 slice). Pin every compiler to Xcode's own SDK.
+        sdk_root=$(DEVELOPER_DIR="$developer_dir" xcrun --sdk macosx --show-sdk-path)
+        if [[ "$sdk_root" != "$developer_dir"/* ]]; then
+          echo "::error::The macOS SDK resolved outside the selected Xcode: $sdk_root"
+          exit 1
+        fi
+        {
+          echo "DEVELOPER_DIR=$developer_dir"
+          echo "SDKROOT=$sdk_root"
+        } >> "$GITHUB_ENV"
     - name: Verify Swift compiler
       shell: bash
       run: |

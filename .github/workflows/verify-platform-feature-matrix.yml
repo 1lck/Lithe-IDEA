@@ -5,7 +5,6 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches:
-      - main
       - preview
   workflow_dispatch:
 
