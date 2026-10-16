@@ -282,8 +282,9 @@ export function effectiveRuntimeExecutablePaths(
 function mavenSelectionMatchesRuntime(selection: string, executable: string): boolean {
   if (sameWindowsPath(selection, executable)) return true;
   const home = selection.replace(/[\\/]+$/, "");
-  return ["mvn.cmd", "mvn.bat", "mvn.exe", "mvn"].some((name) =>
-    sameWindowsPath(`${home}/bin/${name}`, executable));
+  return ["mvnd.exe", "mvnd.cmd", "mvnd.bat", "mvnd", "mvn.cmd", "mvn.bat", "mvn.exe", "mvn"].some((name) =>
+    sameWindowsPath(`${home}/bin/${name}`, executable)
+    || sameWindowsPath(`${home}/${name}`, executable));
 }
 
 function sameWindowsPath(left: string, right: string): boolean {
