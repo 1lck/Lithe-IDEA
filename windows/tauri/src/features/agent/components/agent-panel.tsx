@@ -520,7 +520,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
             ) : null}
           </div>
         }
-        composer={
+        composerPane={
           <AgentComposer
             conversation={isConfigured ? conversation : null}
             agentName={agentName}
@@ -560,10 +560,10 @@ function PanelFrame({ children }: { children: ReactNode }) {
  */
 function AgentConversationLayout({
   transcript,
-  composer,
+  composerPane,
 }: {
   transcript: ReactNode;
-  composer: ReactNode;
+  composerPane: ReactNode;
 }) {
   return (
     <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
@@ -577,7 +577,7 @@ function AgentConversationLayout({
             aria-hidden
             className="pointer-events-none absolute top-1 left-1/2 h-[3px] w-[54px] -translate-x-1/2 rounded-full bg-subtle-foreground/40"
           />
-          {composer}
+          {composerPane}
         </div>
       </ResizablePanel>
     </ResizablePanelGroup>
