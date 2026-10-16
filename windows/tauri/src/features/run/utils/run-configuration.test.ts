@@ -184,6 +184,48 @@ describe("run configuration mapping", () => {
     ]);
   });
 
+  for (const launcher of ["mvnd.exe", "mvnd.cmd", "mvnd.bat", "mvnd", "mvn.cmd", "mvn.bat", "mvn.exe", "mvn"]) {
+    for (const selection of ["d:/tools/maven/", "d:/tools/maven/BIN/", `d:/tools/maven/bin/${launcher.toUpperCase()}`]) {
+      test(`matches Maven selection ${selection} to ${launcher}`, () => {
+        expect(selectedToolchainCandidates(
+          {
+            java: [],
+            maven: [
+              { executablePath: "C:/Other/bin/mvn.cmd", version: "3.8.8" },
+              { executablePath: `D:\\Tools\\Maven\\bin\\${launcher}`, version: "3.9.9" },
+            ],
+            runtimes: [],
+          },
+          {
+            javaHomePath: "",
+            mavenExecutablePath: selection,
+            mavenJavaHomePath: "",
+            runtimeExecutablePaths: {},
+          },
+        )).toEqual([{ id: "project-maven", type: "maven", version: "3.9.9", vendor: "" }]);
+      });
+    }
+  }
+
+  test("does not match a selected mvnd home to its embedded Maven or an unrelated client", () => {
+    expect(selectedToolchainCandidates(
+      {
+        java: [],
+        maven: [
+          { executablePath: "D:/Tools/mvnd/mvn/bin/mvn.cmd", version: "3.9.9" },
+          { executablePath: "D:/Other/bin/mvnd.exe", version: "3.9.9" },
+        ],
+        runtimes: [],
+      },
+      {
+        javaHomePath: "",
+        mavenExecutablePath: "D:/Tools/mvnd",
+        mavenJavaHomePath: "",
+        runtimeExecutablePaths: {},
+      },
+    )).toEqual([]);
+  });
+
   test("shows Maven settings from the configuration requirement without discovery", () => {
     expect(configurationUsesMaven({ toolchains: { java: "project-jdk", maven: "project-maven" } })).toBe(true);
     expect(configurationUsesMaven({ toolchains: { java: "project-jdk" } })).toBe(false);
