@@ -82,4 +82,30 @@ describe("showNewTabView", () => {
     store.getState().actions.closeBuffer(active.id);
     expect(store.getState().pendingClose?.bufferId).toBe(active.id);
   });
+
+  test("keeps a dirty untitled tab instead of evicting it at the tab limit", () => {
+    const store = useBufferStore.getStore(WORKSPACE);
+    store.setState({ maxOpenTabs: 1 });
+
+    store.getState().actions.showNewTabView();
+    const first = getActiveEditor();
+    store.getState().actions.updateBufferContent(first.id, "unsaved draft");
+
+    store.getState().actions.showNewTabView();
+
+    const buffers = store.getState().buffers;
+    expect(buffers.some((buffer) => buffer.id === first.id)).toBe(true);
+    expect(buffers.filter((buffer) => buffer.path.startsWith("untitled:"))).toHaveLength(2);
+  });
+
+  test("evicts a clean untitled tab once the tab limit is reached", () => {
+    const store = useBufferStore.getStore(WORKSPACE);
+    store.setState({ maxOpenTabs: 1 });
+
+    store.getState().actions.showNewTabView();
+    const first = getActiveEditor();
+    store.getState().actions.showNewTabView();
+
+    expect(store.getState().buffers.some((buffer) => buffer.id === first.id)).toBe(false);
+  });
 });
