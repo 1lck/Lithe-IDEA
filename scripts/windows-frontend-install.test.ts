@@ -97,12 +97,13 @@ async function waitForOwnedProcesses(root: string) {
           }
         } finally { $ownedProcess.Dispose() }
       }
+      exit 0
     `],
     env: { ...process.env, LITHE_INSTALL_OWNED_PIDS: pids.join(",") },
     timeoutMs: 10000,
   });
   if (result.code !== 0 || result.timedOut || !result.terminationConfirmed) {
-    throw new Error(`Installer descendant termination was not confirmed: ${result.stdout}\n${result.stderr}\n${await installerDiagnostics(root)}`);
+    throw new Error(`Installer descendant termination was not confirmed: code=${result.code}, signal=${result.signal}, timedOut=${result.timedOut}, terminationConfirmed=${result.terminationConfirmed}\n${result.stdout}\n${result.stderr}\n${await installerDiagnostics(root)}`);
   }
 }
 
