@@ -110,6 +110,47 @@ fn codex_update_probe_accepts_homebrew_outdated_exit_but_not_other_failures() {
 }
 
 #[test]
+fn codex_update_probe_uses_the_same_latest_tag_as_the_updater() {
+    let fixture = Fixture::new();
+    let executable = fixture.npm_cli();
+    // Model an npm configuration whose default tag is beta. An unqualified
+    // query returns a prerelease even though latest has a stable update.
+    let npm = fixture.file(
+        "npm space/bin/npm",
+        r#"#!/bin/sh
+case "$1:$2" in
+  view:@openai/codex@latest) printf '"0.160.0"\n' ;;
+  view:@openai/codex) printf '"0.161.0-beta.1"\n' ;;
+  *) exit 2 ;;
+esac
+"#,
+    );
+    let plan = resolve(
+        codex(),
+        Some(&executable),
+        Some(&npm),
+        None,
+        None,
+        &|program, args| fixture.npm_probe(program, args),
+    )
+    .unwrap();
+    assert!(plan
+        .command
+        .as_ref()
+        .unwrap()
+        .arguments
+        .contains(&"@openai/codex@latest".to_string()));
+    assert_eq!(
+        codex_update_available(&plan, "0.159.3", None, &|| false),
+        Some(true)
+    );
+    assert_eq!(
+        codex_update_available(&plan, "0.160.0", None, &|| false),
+        Some(false)
+    );
+}
+
+#[test]
 fn homebrew_receipt_and_actual_target_win_over_an_unrelated_npm_install() {
     // Preserve cask/formula ownership and Claude's chosen release channel.
     for (kind, directory, package, cli) in [

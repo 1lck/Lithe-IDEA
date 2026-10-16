@@ -103,7 +103,7 @@ pub(crate) fn codex_update_available(
     let args: &[&str] = match plan.installation.source {
         CliSource::Npm => &[
             "view",
-            "@openai/codex",
+            "@openai/codex@latest",
             "version",
             "--json",
             "--fetch-retries=0",
