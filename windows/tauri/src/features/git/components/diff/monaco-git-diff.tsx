@@ -216,16 +216,22 @@ export default function MonacoGitDiff({
             // (row order is model order, newLine carries the source number).
             let landed: monaco.editor.ILineChange | undefined;
             if (reveal) {
+              // The modified-side model only contains rows with a right side;
+              // removed rows are left-only and must not consume model lines.
               const modelLines = new Set<number>();
-              latest.current.rows.forEach((row, index) => {
-                if (
-                  row.newLine !== null &&
-                  row.newLine >= reveal.startLine &&
-                  row.newLine <= reveal.endLine
-                ) {
-                  modelLines.add(index + 1);
+              let modelLine = 0;
+              for (const row of latest.current.rows) {
+                if (row.right !== null && row.right !== undefined) {
+                  modelLine += 1;
+                  if (
+                    row.newLine !== null &&
+                    row.newLine >= reveal.startLine &&
+                    row.newLine <= reveal.endLine
+                  ) {
+                    modelLines.add(modelLine);
+                  }
                 }
-              });
+              }
               landed = changes.find((candidate) => {
                 for (let line = candidate.modifiedStartLineNumber; line <= candidate.modifiedEndLineNumber; line++) {
                   if (modelLines.has(line)) return true;

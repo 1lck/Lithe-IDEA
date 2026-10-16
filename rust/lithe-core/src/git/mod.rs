@@ -3483,11 +3483,14 @@ fn line_history_translate_lines(
                 handled = true;
                 break;
             }
-            if new_count == 0 && line == new_start {
-                // Deletion boundary: the removed lines sit before this line,
-                // which itself continues on the parent side.
-                delta += old_count as i64;
-            } else if new_start + new_count <= line {
+            // A zero-count new side marks the position after the boundary
+            // row: that row itself keeps its number, later rows shift.
+            let after_hunk = if new_count == 0 {
+                line > new_start
+            } else {
+                line >= new_start + new_count
+            };
+            if after_hunk {
                 delta += old_count as i64 - new_count as i64;
             }
         }
@@ -3531,7 +3534,9 @@ fn line_history_merge_ranges(
                 "log".to_string(),
                 "--first-parent".to_string(),
                 "--format=%H".to_string(),
-                format!("{compare_base}..{walk_end}"),
+                // Exclude the merge itself: only commits after it may shift
+                // coordinates, which must stay in the merge's own frame.
+                format!("{hash}..{walk_end}"),
                 "--".to_string(),
                 path.clone(),
             ],
