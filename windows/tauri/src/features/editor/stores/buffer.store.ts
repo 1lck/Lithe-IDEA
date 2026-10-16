@@ -1561,13 +1561,13 @@ const createBufferStore = (workspaceId: string) => {
 
         showNewTabView: () => {
           const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
-          const untitledCount = get().buffers.filter((buffer) =>
-            buffer.path.startsWith("untitled:"),
-          ).length;
-          const name =
-            untitledCount === 0
-              ? t("files.untitled")
-              : t("files.untitledNumber", { number: untitledCount + 1 });
+          const usedPaths = new Set(get().buffers.map((buffer) => buffer.path));
+          let number = 1;
+          let name = t("files.untitled");
+          while (usedPaths.has(`untitled:${name}`)) {
+            number += 1;
+            name = t("files.untitledNumber", { number });
+          }
           const path = `untitled:${name}`;
           get().actions.openBuffer(path, name, "", false, undefined, false, true);
         },

@@ -45,4 +45,28 @@ describe("showNewTabView", () => {
     expect(untitled).toHaveLength(2);
     expect(new Set(untitled.map((buffer) => buffer.path)).size).toBe(2);
   });
+
+  test("opens a new blank page after the lower-numbered untitled tab was closed", () => {
+    const store = useBufferStore.getStore(WORKSPACE);
+    store.getState().actions.showNewTabView();
+    store.getState().actions.showNewTabView();
+
+    const opened = store
+      .getState()
+      .buffers.filter((buffer) => buffer.path.startsWith("untitled:"));
+    expect(opened).toHaveLength(2);
+
+    // Closing the first tab leaves a single untitled tab behind. Counting the remaining
+    // tabs used to reproduce the path of that tab, so the next new tab only focused it.
+    const remaining = opened.slice(1);
+    store.setState({ buffers: remaining, activeBufferId: remaining[0]?.id ?? null });
+
+    store.getState().actions.showNewTabView();
+
+    const untitled = store
+      .getState()
+      .buffers.filter((buffer) => buffer.path.startsWith("untitled:"));
+    expect(untitled).toHaveLength(2);
+    expect(new Set(untitled.map((buffer) => buffer.path)).size).toBe(2);
+  });
 });
