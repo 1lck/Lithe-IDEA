@@ -3475,10 +3475,14 @@ fn line_history_translate_lines(
             let new_end = new_start + new_count.saturating_sub(1);
             if new_count > 0 && line >= new_start && line <= new_end {
                 if old_count > 0 {
-                    // Clamp into the parent-side span when the replacement
-                    // changed the line count.
-                    let offset = (line - new_start).min(old_count - 1);
-                    translated.insert(old_start + offset);
+                    // A rewrite maps the new line onto the whole parent span:
+                    // when counts differ, the line may descend from any of the
+                    // replaced lines (squashing three lines into one keeps the
+                    // merge range of the middle line reachable), so relevance
+                    // intersection stays sound while remaining a superset.
+                    for old_line in old_start..=old_start + old_count - 1 {
+                        translated.insert(old_line);
+                    }
                 }
                 handled = true;
                 break;

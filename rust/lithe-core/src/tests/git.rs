@@ -5728,3 +5728,83 @@ fn git_line_history_merge_ranges_survive_later_deletions() {
 
     fs::remove_dir_all(&root).expect("line-history repository should be removable");
 }
+
+#[test]
+fn git_line_history_merge_ranges_cover_squashed_rewrites() {
+    let root = line_history_repository("line-history-squash");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    fs::write(
+        root.join("doc.txt"),
+        "A
+B
+C
+D
+E
+",
+    )
+    .expect("doc writable");
+    line_history_commit(&root, "initial");
+    // The merge rewords line 3; a point clamp of a later rewrite would map
+    // the squashed line onto line 1 and lose the merge range entirely.
+    assert!(run(&["checkout", "-qb", "side"]).status.success());
+    replace_whole_line(&root, "doc.txt", 3, "C2");
+    line_history_commit(&root, "side rewords line3");
+    assert!(run(&["checkout", "-q", "master"]).status.success());
+    assert!(run(&["merge", "-q", "--no-ff", "side", "-m", "merge side"])
+        .status
+        .success());
+    let merged = fs::read_to_string(root.join("doc.txt")).expect("doc readable");
+
+    // Variant A: query the reworded line directly at the merge.
+    let response_a = line_history_query(&root, "doc.txt", &merged, 3, 3);
+    assert_eq!(response_a["ok"], true, "{response_a:?}");
+    let merge_a = response_a["data"]["commits"]
+        .as_array()
+        .expect("commits")
+        .iter()
+        .find(|entry| entry["kind"] == "merge-first-parent")
+        .unwrap_or_else(|| panic!("merge entry missing: {response_a:?}"));
+    assert!(
+        !merge_a["relevantRanges"]
+            .as_array()
+            .expect("ranges")
+            .is_empty(),
+        "{response_a:?}"
+    );
+
+    // Variant B: after the merge, lines 1-4 are squashed into one; querying
+    // the squashed line must keep the merge range reachable, because the
+    // rewrite may descend from any line of the replaced span.
+    fs::write(
+        root.join("doc.txt"),
+        "X
+E
+",
+    )
+    .expect("doc writable");
+    line_history_commit(&root, "squash into X");
+    let squashed = fs::read_to_string(root.join("doc.txt")).expect("doc readable");
+    let response_b = line_history_query(&root, "doc.txt", &squashed, 1, 1);
+    assert_eq!(response_b["ok"], true, "{response_b:?}");
+    let merge_b = response_b["data"]["commits"]
+        .as_array()
+        .expect("commits")
+        .iter()
+        .find(|entry| entry["kind"] == "merge-first-parent")
+        .unwrap_or_else(|| panic!("merge entry missing: {response_b:?}"));
+    assert!(
+        !merge_b["relevantRanges"]
+            .as_array()
+            .expect("ranges")
+            .is_empty(),
+        "{response_b:?}"
+    );
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
