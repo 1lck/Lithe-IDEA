@@ -77,6 +77,10 @@ async function readRegistry() {
     }
     identifiers.add(resource.id);
   }
+  // Distribution-owned preferences/caches and first-launch import transactions
+  // are mutable user state, never download artifacts. Runtime profile import is
+  // owned by the platform startup adapters; this build reuse route always rejects
+  // both original state and migration snapshots and must not gain a validator.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

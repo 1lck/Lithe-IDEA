@@ -30,7 +30,9 @@ if [[ ! -d "$APP_DIR" ]]; then
     exit 1
 fi
 
-cp -R "$APP_DIR" "$STAGING_DIR/Lithe.app"
+APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP_DIR/Contents/Info.plist")
+[[ "$APP_NAME" == Lithe || "$APP_NAME" == Lithe-Dev ]] || { print -u2 -- "Unsupported app name: $APP_NAME"; exit 1; }
+cp -R "$APP_DIR" "$STAGING_DIR/$APP_NAME.app"
 ln -s /Applications "$STAGING_DIR/Applications"
 
 # Temporary diagnostics for the intermittent "hdiutil: create failed - Resource
@@ -58,7 +60,7 @@ report_disk_image_state() {
 }
 
 hdiutil_options=(
-    -volname "Lithe"
+    -volname "$APP_NAME"
     -srcfolder "$STAGING_DIR"
     -ov
     -format UDZO

@@ -1519,6 +1519,7 @@ fn maven_installation_settings_reach_jdt_for_a_home_or_a_launcher() {
 
     for configured in [
         maven_home.to_string_lossy().into_owned(),
+        maven_home.join("bin").to_string_lossy().into_owned(),
         launcher.to_string_lossy().into_owned(),
     ] {
         let configuration = jdt_configuration(
@@ -1565,6 +1566,168 @@ fn maven_installation_settings_are_absent_for_wrappers_and_bare_installations() 
         );
     }
     fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+/// Removes this test's installation and symlinks even when an assertion fails.
+struct MavenSettingsFixture {
+    root: PathBuf,
+}
+
+impl MavenSettingsFixture {
+    fn new(label: &str) -> Self {
+        Self {
+            root: maven_reactor_root(label),
+        }
+    }
+
+    // Windows accepts both separator spellings; assert the resolved path rather
+    // than its string representation, without hiding incorrect alias resolution.
+    fn settings_for(&self, configured: &Path) -> Option<PathBuf> {
+        jdt_configuration(
+            self.root.to_str().expect("fixture path should be UTF-8"),
+            maven_jdt_context(Some(configured.to_string_lossy().into_owned())),
+        )
+        .expect("Maven configuration should parse")
+        .global_settings_path
+        .map(PathBuf::from)
+    }
+}
+
+impl Drop for MavenSettingsFixture {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+#[test]
+fn mvnd_installation_settings_reach_jdt_for_every_client_home_and_bin() {
+    // Every platform launcher must read the embedded Maven configuration, never
+    // the daemon's unrelated conf directory, even when ordinary Maven coexists.
+    let fixture = MavenSettingsFixture::new("mvnd-jdt-settings");
+    for name in ["mvnd.exe", "mvnd.cmd", "mvnd.bat", "mvnd"] {
+        let home = fixture
+            .root
+            .join(format!("installation with spaces-{name}"));
+        let bin = home.join("bin");
+        let embedded_conf = home.join("mvn/conf");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(&embedded_conf).unwrap();
+        fs::create_dir_all(home.join("conf")).unwrap();
+        let settings = embedded_conf.join("settings.xml");
+        fs::write(&settings, "<settings/>").unwrap();
+        fs::write(home.join("conf/settings.xml"), "<settings/>").unwrap();
+        let launcher = bin.join(name);
+        fs::write(&launcher, "").unwrap();
+        let ordinary_launcher = bin.join("mvn.cmd");
+        fs::write(&ordinary_launcher, "").unwrap();
+        for configured in [&home, &bin, &launcher] {
+            assert_eq!(
+                fixture.settings_for(configured),
+                Some(settings.clone()),
+                "embedded settings for {}",
+                configured.display()
+            );
+        }
+        assert_eq!(
+            fixture.settings_for(&ordinary_launcher),
+            Some(home.join("conf/settings.xml")),
+            "an explicit ordinary Maven client retains its own settings"
+        );
+    }
+}
+
+#[test]
+fn mvnd_missing_embedded_settings_never_fall_back_to_distribution_conf() {
+    // A missing embedded file must not silently select the daemon's conf or
+    // ordinary Maven beside it, whether the selected path is home, bin or client.
+    let fixture = MavenSettingsFixture::new("mvnd-jdt-missing-settings");
+    let home = fixture.root.join("mvnd");
+    let bin = home.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    fs::create_dir_all(home.join("conf")).unwrap();
+    fs::write(home.join("conf/settings.xml"), "<settings/>").unwrap();
+    fs::write(bin.join("mvn"), "").unwrap();
+    let launcher = bin.join("mvnd");
+    fs::write(&launcher, "").unwrap();
+    for configured in [&home, &bin, &launcher] {
+        assert_eq!(
+            fixture.settings_for(configured),
+            None,
+            "{}",
+            configured.display()
+        );
+    }
+}
+
+#[test]
+fn maven_installation_settings_reject_missing_clients_and_wrappers_in_bin() {
+    // Nearby conf files do not make a nonexistent executable, arbitrary program
+    // or project wrapper a Maven installation. Even a wrapper under bin is not mvn.
+    let fixture = MavenSettingsFixture::new("maven-jdt-invalid-client");
+    let home = fixture.root.join("installation");
+    let bin = home.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    for conf in [home.join("conf"), home.join("mvn/conf")] {
+        fs::create_dir_all(&conf).unwrap();
+        fs::write(conf.join("settings.xml"), "<settings/>").unwrap();
+    }
+    for name in ["mvnw", "mvnw.cmd", "mvnw.bat", "unrelated"] {
+        let path = bin.join(name);
+        fs::write(&path, "").unwrap();
+        assert_eq!(fixture.settings_for(&path), None);
+    }
+    for name in ["mvn", "mvnd", "mvnd.exe", "mvnd.cmd", "mvnd.bat"] {
+        assert_eq!(fixture.settings_for(&bin.join(name)), None);
+    }
+    assert_eq!(fixture.settings_for(&home), None);
+    assert_eq!(fixture.settings_for(&bin), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn mvnd_installation_settings_follow_client_and_directory_aliases() {
+    // Homebrew exposes /prefix/bin/mvnd as a symlink into its versioned package;
+    // the global settings belong to that package, not /prefix/conf.
+    use std::os::unix::fs::symlink;
+
+    let fixture = MavenSettingsFixture::new("mvnd-jdt-symlinks");
+    let home = fixture.root.join("cellar/mvnd/version/libexec");
+    fs::create_dir_all(home.join("bin")).unwrap();
+    fs::create_dir_all(home.join("mvn/conf")).unwrap();
+    let launcher = home.join("bin/mvnd");
+    fs::write(&launcher, "").unwrap();
+    let settings = home.join("mvn/conf/settings.xml");
+    fs::write(&settings, "<settings/>").unwrap();
+    let prefix = fixture.root.join("prefix");
+    fs::create_dir_all(prefix.join("bin")).unwrap();
+    fs::create_dir_all(prefix.join("conf")).unwrap();
+    fs::write(prefix.join("conf/settings.xml"), "<settings/>").unwrap();
+    let client_alias = prefix.join("bin/mvnd");
+    symlink("../../cellar/mvnd/version/libexec/bin/mvnd", &client_alias).unwrap();
+    let home_alias = fixture.root.join("current-installation");
+    symlink(&home, &home_alias).unwrap();
+    let bin_alias = fixture.root.join("current-launchers");
+    symlink(home.join("bin"), &bin_alias).unwrap();
+    let expected = settings.canonicalize().unwrap();
+    for configured in [
+        &client_alias,
+        &home_alias,
+        &bin_alias,
+        &bin_alias.join("mvnd"),
+        &prefix,
+        &prefix.join("bin"),
+    ] {
+        assert_eq!(
+            fixture.settings_for(configured),
+            Some(expected.clone()),
+            "{}",
+            configured.display()
+        );
+    }
+    // Existing ancestors and settings must not rescue dangling explicit aliases.
+    let broken = prefix.join("bin/mvn");
+    symlink("missing-client", &broken).unwrap();
+    assert_eq!(fixture.settings_for(&broken), None);
 }
 
 /// Mirrors the shape of a real installation settings file: a documented

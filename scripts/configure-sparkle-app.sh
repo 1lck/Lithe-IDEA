@@ -11,6 +11,9 @@ stable_release_url="https://github.com/$repository/releases/latest"
 autobuild_release_url="https://github.com/$repository/releases/tag/AutoBuild"
 autobuild_feed_url="https://github.com/$repository/releases/download/AutoBuild/appcast-preview-$architecture.xml"
 if [[ "$channel" == autobuild ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName Lithe-Dev" "$plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Lithe-Dev" "$plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier app.lithe.desktop.dev" "$plist"
     release_url="$autobuild_release_url"
     feed_url="$autobuild_feed_url"
 else

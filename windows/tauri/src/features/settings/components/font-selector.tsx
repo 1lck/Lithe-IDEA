@@ -8,6 +8,7 @@ import SettingsSelect from "@/ui/settings-select";
 const BUNDLED_FONTS: FontInfo[] = [
   { name: "Geist Sans", family: "Geist Sans", style: "Regular", is_monospace: false },
   { name: "Geist Mono", family: "Geist Mono", style: "Regular", is_monospace: true },
+  { name: "JetBrains Mono", family: "JetBrains Mono", style: "Regular", is_monospace: true },
 ];
 
 interface FontSelectorProps {

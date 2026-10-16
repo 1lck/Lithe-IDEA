@@ -16,6 +16,7 @@
     },
     "windows/tauri": {
       "name": "lithe",
+      "version": "0.11.0",
       "dependencies": {
         "@base-ui/react": "^1.6.0",
         "@dnd-kit/core": "^6.3.1",
@@ -24,6 +25,7 @@
         "@dnd-kit/utilities": "^3.2.2",
         "@fontsource/geist-mono": "^5.2.8",
         "@fontsource/geist-sans": "^5.2.5",
+        "@fontsource/jetbrains-mono": "^5.3.0",
         "@lexical/react": "^0.48.0",
         "@lexical/rich-text": "^0.48.0",
         "@lithe/editor": "workspace:*",
@@ -361,6 +363,8 @@
     "@fontsource/geist-mono": ["@fontsource/geist-mono@5.2.8", "https://registry.npmmirror.com/@fontsource/geist-mono/-/geist-mono-5.2.8.tgz", {}, "sha512-YqZUb3X42GjRaHkibUNyE8K4Rk9A6I9Ez81YpJYiuJN4ggmTW2ixoQpa9EWCPfXZtIsCQJTyrDoV9OJOZO/UcA=="],
 
     "@fontsource/geist-sans": ["@fontsource/geist-sans@5.2.5", "https://registry.npmmirror.com/@fontsource/geist-sans/-/geist-sans-5.2.5.tgz", {}, "sha512-anllOHyJbElRs9fV15TeDRqAeb1IKm4bSknPl6ZMoyPTx1BBy7logudcUwpNjmQLkzn4Q0JGQLRCUKJYoyST6A=="],
+
+    "@fontsource/jetbrains-mono": ["@fontsource/jetbrains-mono@5.3.0", "https://registry.npmmirror.com/@fontsource/jetbrains-mono/-/jetbrains-mono-5.3.0.tgz", {}, "sha512-fqDfB5I9f1p1TV486aUgB9t8zP84P0O1FtQR5Ol9vjwPy+S+EIGlVYm1cvj2W5shcZMTg2nZFdVMoH5wFu8a1A=="],
 
     "@humanfs/core": ["@humanfs/core@0.19.2", "https://registry.npmmirror.com/@humanfs/core/-/core-0.19.2.tgz", { "dependencies": { "@humanfs/types": "^0.15.0" } }, "sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA=="],
 
@@ -1184,7 +1188,7 @@
 
     "devlop": ["devlop@1.1.0", "https://registry.npmmirror.com/devlop/-/devlop-1.1.0.tgz", { "dependencies": { "dequal": "^2.0.0" } }, "sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA=="],
 
-    "diff": ["diff@8.0.2", "", {}, "sha512-sSuxWU5j5SR9QQji/o2qMvqRNYRDOcBTgsJ/DeCf4iSN4gW+gNMXM7wFIP+fdXZxoNiAnHUTGjCr+TSWXdRDKg=="],
+    "diff": ["diff@8.0.2", "https://registry.npmmirror.com/diff/-/diff-8.0.2.tgz", {}, "sha512-sSuxWU5j5SR9QQji/o2qMvqRNYRDOcBTgsJ/DeCf4iSN4gW+gNMXM7wFIP+fdXZxoNiAnHUTGjCr+TSWXdRDKg=="],
 
     "dom-accessibility-api": ["dom-accessibility-api@0.5.16", "https://registry.npmmirror.com/dom-accessibility-api/-/dom-accessibility-api-0.5.16.tgz", {}, "sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg=="],
 
@@ -1780,7 +1784,7 @@
 
     "tree-sitter-dart": ["tree-sitter-dart@1.0.0", "https://registry.npmmirror.com/tree-sitter-dart/-/tree-sitter-dart-1.0.0.tgz", { "dependencies": { "nan": "^2.15.0" } }, "sha512-Ve5YMPJjjGW9LEsO+MngAOibQsw5obFp+bUT41pvwdcXWRwJImOWs3eaPi6AubEiBmc09qvhdvxeIXvxlhMnug=="],
 
-    "tree-sitter-diff": ["tree-sitter-diff@github:the-mikedavis/tree-sitter-diff#2520c3f", { "dependencies": { "node-addon-api": "^8.0.0", "node-gyp-build": "^4.8.1" }, "peerDependencies": { "tree-sitter": "^0.21.1" } }, "tree-sitter-grammars-tree-sitter-diff-2520c3f", "sha512-UU1i69jdqh9PUJYiEkLo7h9Xjs+XWoYnN8P/n2OsKQgKVbOh+HQCyvRFYeCNIrxO7C5xu6btXLbsBy9W2Cue4w=="],
+    "tree-sitter-diff": ["tree-sitter-diff@github:the-mikedavis/tree-sitter-diff#ada384a", { "dependencies": { "node-addon-api": "^8.0.0", "node-gyp-build": "^4.8.1" }, "peerDependencies": { "tree-sitter": "^0.21.1" } }, "tree-sitter-grammars-tree-sitter-diff-ada384a", "sha512-zbSHo5tqFJC46qrl7RW0Ctd59xWLd/L6BfOA9oufdWy3qVT+vRIf2C4BIgaiydy3jOMKSEOusWeawLWroGg4QA=="],
 
     "tree-sitter-elisp": ["tree-sitter-elisp@1.6.1", "https://registry.npmmirror.com/tree-sitter-elisp/-/tree-sitter-elisp-1.6.1.tgz", { "dependencies": { "node-addon-api": "^8.0.0", "node-gyp-build": "^4.8.4" }, "peerDependencies": { "tree-sitter": "^0.25.0" } }, "sha512-ALJ50YOuqu2Z/qKyQMh3RT5OhQmTRc2K/4MZzPdd1eKyFdKPaYpG0ZmPyovNTXyW14Qn63SgY960el55wLwy8Q=="],
 
@@ -1808,7 +1812,7 @@
 
     "tree-sitter-python": ["tree-sitter-python@0.25.0", "https://registry.npmmirror.com/tree-sitter-python/-/tree-sitter-python-0.25.0.tgz", { "dependencies": { "node-addon-api": "^8.5.0", "node-gyp-build": "^4.8.4" }, "peerDependencies": { "tree-sitter": "^0.25.0" }, "optionalPeers": ["tree-sitter"] }, "sha512-eCmJx6zQa35GxaCtQD+wXHOhYqBxEL+bp71W/s3fcDMu06MrtzkVXR437dRrCrbrDbyLuUDJpAgycs7ncngLXw=="],
 
-    "tree-sitter-rescript": ["tree-sitter-rescript@github:rescript-lang/tree-sitter-rescript#990214a", { "dependencies": { "nan": "^2.15.0", "node-addon-api": "^8.2.2", "node-gyp-build": "^4.8.2" }, "peerDependencies": { "tree-sitter": "^0.21.1" }, "optionalPeers": ["tree-sitter"] }, "rescript-lang-tree-sitter-rescript-990214a", "sha512-Pge/upsk1R1p1lZ75LTS9/cUWduK26DZxWdo6vkxRomaA2q/7zBjKkE1TLxkFMy2lwsLqRbK5giYQD6gitMDDw=="],
+    "tree-sitter-rescript": ["tree-sitter-rescript@github:rescript-lang/tree-sitter-rescript#90643a6", { "dependencies": { "nan": "^2.15.0", "node-addon-api": "^8.2.2", "node-gyp-build": "^4.8.2" }, "peerDependencies": { "tree-sitter": "^0.21.1" }, "optionalPeers": ["tree-sitter"] }, "rescript-lang-tree-sitter-rescript-90643a6", "sha512-o5bLluG6VJ13AlE4zuzyqUJYm/9i6lOjmxcGcrk3cyzDlYFKhOsHHnbTwE0axud4N7iPD2wqfcJ5rji4BkzJYQ=="],
 
     "tree-sitter-ruby": ["tree-sitter-ruby@0.23.1", "https://registry.npmmirror.com/tree-sitter-ruby/-/tree-sitter-ruby-0.23.1.tgz", { "dependencies": { "node-addon-api": "^8.2.2", "node-gyp-build": "^4.8.2" }, "peerDependencies": { "tree-sitter": "^0.21.1" }, "optionalPeers": ["tree-sitter"] }, "sha512-d9/RXgWjR6HanN7wTYhS5bpBQLz1VkH048Vm3CodPGyJVnamXMGb8oEhDypVCBq4QnHui9sTXuJBBP3WtCw5RA=="],
 
