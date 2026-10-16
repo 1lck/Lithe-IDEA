@@ -61,10 +61,15 @@ Xcode 26.6 的链接器无法读取其中的 `libSystem.B.tbd`。`setup-macos-to
 自托管 runner 上把 `SDKROOT` 固定为所选 Xcode 自带的 SDK，并拒绝解析到 Xcode
 之外的 SDK。
 
-Swift 测试 lane 目前固定在托管池（选择器的 `HOSTED_ONLY_LANES`）：首轮在
-Mac mini 上运行时，`DesktopIsolationTests` 因 WindowServer 两秒内没有登记原生
-窗口而失败，这要求机器保持一个有显示器且未休眠的图形会话。机器配置好之后
-再把它从集合中移除，不要为此跳过或放宽这条测试。同一轮还暴露出编辑器字体
+Swift 测试 lane 目前固定在托管池（选择器的 `HOSTED_ONLY_LANES`）。Mac mini 上
+`DesktopIsolationTests` 因 WindowServer 两秒内没有登记原生窗口而失败。逐项排查
+后确认原因是 macOS 27：在 Mac mini（macOS 27.0.1）上，`CGWindowListCopyWindowInfo`
+整体返回 NULL，连 `.optionAll` 也一样；同一段代码在 macOS 26.3.1 上没有录屏权限
+也能返回窗口。排查中给三个 runner 自带的 `externals/node<N>/bin/node`（macOS 把
+测试进程归属到它）授予了录屏权限，并关闭了远程软件断开时的锁屏，这两项都已
+确认生效（`kTCCServiceScreenCapture` 为允许，`IOConsoleLocked = No`），但都不能
+解决问题。这个接口自 macOS 15 起被弃用，产品代码没有使用它。等这条测试改为
+在 macOS 27 上也能验证（#1278）再把 lane 移出集合，不要为此跳过或放宽测试。同一轮还暴露出编辑器字体
 目录把声明了等宽但拉丁字符不等宽的字体（兰亭黑 `Lantinghei TC`）列为等宽，
 那是产品缺陷，单独修复。
 
