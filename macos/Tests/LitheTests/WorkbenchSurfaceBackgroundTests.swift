@@ -52,6 +52,26 @@ struct WorkbenchSurfaceBackgroundTests {
         }
     }
 
+    @Test(arguments: [ColorScheme.dark, .light])
+    func consoleFontStylingDoesNotOverrideTheSharedSurface(scheme: ColorScheme) throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 640),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        var samples: [NSColor] = []
+        for consoleStyle in [false, true] {
+            let host = NSHostingView(rootView:
+                OutputTextView(output: "", searchRoots: [], fileExists: { _ in false },
+                    emptyMessage: "No output", usesIDEAConsoleStyle: consoleStyle,
+                    onOpenLocation: { _, _, _ in })
+                    .environment(\.colorScheme, scheme))
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            samples.append(try sample(host))
+        }
+        #expect(samples[0] == samples[1], "Console text styling must preserve the same pane background")
+    }
+
     private func sample(_ host: NSView, y: CGFloat = 240) throws -> NSColor {
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)

@@ -484,7 +484,7 @@ struct RunEntryPointTests {
             id: UUID()
         )
 
-        let workspaceOperations = SequencedWorkspaceOperations(snapshots: [nil, first, second])
+        let workspaceOperations = SequencedWorkspaceOperations.neverScans()
         let watchContext = GatedGitWatchContextProvider()
         defer { watchContext.releaseAll() }
         let runConfigurations = ReadyRunConfigurationOperations()
@@ -506,6 +506,7 @@ struct RunEntryPointTests {
         // Each refresh is held at its watch-configuration fetch, so it runs as a
         // task the test releases; a refresh must also finish before the next one
         // starts, or the workspace feature would drop it as already refreshing.
+        workspaceOperations.publish(first)
         let firstRefresh = Task { await model.workspaceFeature.refreshCurrent() }
         #expect(await watchContext.entered(1))
         watchContext.release(1)
@@ -515,6 +516,7 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction == nil)
         _ = await firstRefresh.value
 
+        workspaceOperations.publish(second)
         let refreshTask = Task { await model.workspaceFeature.refreshCurrent() }
         #expect(await watchContext.entered(2))
         let advanced = await awaitLoadDrivenChange(on: model) {

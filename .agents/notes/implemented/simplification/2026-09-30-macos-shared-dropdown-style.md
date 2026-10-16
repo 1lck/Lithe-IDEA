@@ -718,6 +718,405 @@ SwiftUI State 宿主销毁和主队列清理，不能只靠手写 Binding 的组
 保留 pending；共享像素与原生焦点回归不替代这些实机验收。
 
 
+### Git Log 非仓库空状态的文字度量
+
+空状态复用 Lithe 的 Inter 字体入口，但不能直接用 SwiftUI 自然行高替代
+Community 的文字行容器，否则相同 13pt 字体看起来会更挤，行首破折号也可能偏离基线。
+字体和链接标签明确使用 13pt Regular，行首 `—` 与链接按首行文字基线对齐，
+保留原始字符和一个空格的宽度，不画替代短线。度量与专用颜色由
+`LitheTheme.ToolWindowEmptyState` 管理，供 Git Log 与 Debug 空状态共用，不修改普通页面文字颜色。
+
+依据 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`：
+`platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/VcsToolWindowEmptyState.kt`
+选择普通链接 `LINK_PLAIN_ATTRIBUTES`；
+`platform/platform-api/src/com/intellij/util/ui/StatusText.java` 使用标签字体和 2pt 行间距；
+`platform/platform-api/src/com/intellij/ui/SimpleColoredComponent.java` 的每行高度还包括
+上下各 1pt 内边距和上下各 1pt 边框留白。使用本机 JBR 的标准 AWT 字体度量，
+仓库 Inter-Regular 13pt 的字体高度为 17pt，因此固定基准行高为 21pt，不能遗漏这 4pt。
+`platform/platform-impl/src/com/intellij/ide/ui/laf/LafManagerImpl.kt` 明确使用 Inter 13、Font.PLAIN。
+
+灰字取 `SimpleTextAttributes.GRAYED_ATTRIBUTES` 对应的 `Component.infoForeground`，
+沿 Islands → ExperimentalDark/ExperimentalLightWithLightHeader → Darcula/IntelliJ
+继承到深色 `#787878`、浅色 `#999999`；链接取 Islands 的 `Link.activeForeground`，
+深色 `#71A1FE`、浅色 `#2F5EB9`。其他 Lithe 主题继续使用各自的语义颜色。
+IDEA 此入口默认不画链接下划线；Lithe 按用户要求保留悬停手形和主题强调色下划线，
+这是产品约定，不声称是 IDEA 的默认绘制。
+
+验证需同时查看明暗主题、单个链接悬停、移开恢复、初始化确认与设置入口；
+`BundledUIFontTests` 只确认真实字体资源和字体度量，不替代整个空状态的视觉验收。
+
+### Debug 空状态与会话内容
+
+Debug 空状态沿用同一 Community revision 的
+`platform/xdebugger-impl/src/com/intellij/execution/actions/ActivateDebugToolWindowAction.kt`：
+三行操作说明、配置文字链接、空行和 `general/contextHelp.svg` 帮助链接。
+`StatusText` 采用左对齐文本块、水平居中、纵向三分之一定位；字体、行高、颜色及产品要求的
+手形/主题色悬停下划线复用 Git Log 的共享定义。无内容时不显示配置标签、调试工具栏和 Ready 状态。
+
+可见条件追踪到 `ToolWindowImpl.getEmptyText` →
+`platform/platform-impl/src/com/intellij/ui/content/impl/ContentManagerImpl.java` 的
+`MyNonOpaquePanel` → `JBPanelWithEmptyText.isStatusVisible`：没有可见子内容才绘制空状态。
+`ToolWindowContentUi.ensureSelectedContentVisible` 在没有选中内容时移除内容组件。
+自然结束但保留的会话继续显示。Lithe 的 Stop 停止执行，但保留 Console 输出，
+不能把它等同于关闭内容标签：停止最后会话后，已有日志或错误仍属于可查看内容，
+工具栏与 Console 标签必须保留；停留在 Threads & Variables 时仍可切回 Console。
+只有没有会话、活动、保留输出及错误时才回到引导；显式重置继续清空历史。
+Lithe 的启动失败可能尚未建立会话记录，此时保留诊断与重试界面。
+
+上游配置链接打开 `EditConfigurationsDialog`；Lithe 复用已有 Run 面板的配置入口，
+不另造配置对话框，也不自动启动调试。Lithe 尚无独立的 ChooseDebugConfiguration 快捷键，
+因此不把“开始调试”的快捷键冒充配置选择快捷键。帮助链接指向 JetBrains 公开调试文档。
+
+`DebugModuleTests.emptyStateFollowsRetainedContentRatherThanRunningStateOrOutput`
+覆盖初始空状态、活跃会话、无输出的自然结束、带缓存输出的停止、启动失败/重试及重置。
+`stoppingTheLastRunningSessionKeepsConsoleOutputUntilItIsCleared` 验证运行中产生输出后主动 Stop 仍可查看，清空输出后才回到引导。
+完整应用还需核对明暗主题、两个文字入口及空状态/会话界面切换；模拟会话测试不替代真实 DAP 验收。
+
+Debug 空状态标题栏使用 Git Log / Terminal 已有的 41pt 工具窗口规则：
+13pt Bold 标题、左 12pt / 右 8pt 留白、两侧各 2pt 的 22pt 图标按钮，
+`expui/general/moreVertical.svg` 与 `expui/general/hide.svg` 原始 16pt 资源。
+底线复用 `LitheToolWindowHeaderDivider` 的主题边框颜色、1pt 高度和两侧 1pt 内缩，
+以内侧 overlay 绘制，不能再叠加普通 divider，也不使用旧 `LitheToolWindowHeader` 的 30pt 度量。
+
+标题栏源码依据同一 Community revision 的
+`platform/platform-impl/src/com/intellij/toolWindow/ToolWindowHeader.kt`：New UI 高度走
+`JBUI.CurrentTheme.ToolWindow.headerHeight`，工具栏保留原动作按钮度量，
+`paintComponent` 根据工具窗口边界绘制底线。Lithe 在已对齐的 Git Log/Terminal 入口复用对应规则，
+Debug 空状态与活动会话均使用同一标题栏规则。
+
+### Debug 活动会话布局
+
+同一 Community revision 的 `XDebugSessionTabNewUI.kt` 将顶层调试动作交给
+`RunTab.RunTabSupplier`；`SingleContentLayout.kt` 根据 `debugger.toolbar.before.tabs`
+在同一行先排工具栏、再排内容标签。Lithe 因此取消单独占一行的内容切换栏，
+只显示已有 Threads & Variables / Console，不移植 Beans、Health、Mappings 等产品没有的入口。
+
+会话及内容标签直接消费 `LitheToolWindowTabStyle`，会话关闭直接消费
+`LitheToolWindowTabCloseButton`，整个 Debug 区使用独立活动跟踪器；调用栈列表仍保留自己的
+焦点跟踪器，避免变量/控制台获得焦点时激活调用栈选中项。标题栏保持 41pt、13pt Bold，
+会话标题/内容标签为 13pt Regular，16pt 图标使用标准 22pt 工具栏命中范围，禁用透明度
+仅由共享按钮 owner 处理一次。内容标签旁不显示状态圆点和状态文字；停止位置跳转入口继续保留。
+
+控制台保留 `OutputTextView` 的 ANSI 渲染、链接定位、滚动与复制功能，只通过既有字号参数
+采用 13pt 代码字体；暂停求值、历史与程序输入继续保留，不另造调试控制台。
+变量与监视项的值/类型颜色由 `LitheTheme.Debugger` 统一保存，取 Islands 明暗主题的
+`Debugger.Variables.valueForeground/typeForeground`，不用强调色冒充普通变量值。
+普通标签、代码字段和原始图标恢复各自正常尺寸，不把所有小图标字体一并放大。
+
+验证需要区分空状态、运行中、暂停、失败和结束的布局；检查内容切换、窄窗口横向可达性、
+会话停止、断点/求值动作、明暗与焦点切换。纯布局调整不能作为 DAP 能力新增或 Java 启动成功的证据。
+
+本地验证：69 项 Debug 模块/工具栏/字体/渲染安全测试通过；最后的配置选择器与监视按钮调整后，
+再次通过 16 项相关呈现测试。实际 backend 会话已检查深浅主题下的控制台与线程/变量标签切换，
+其启动因本机 Redis 连接被拒绝而退出，不能记为服务启动成功。最终重新打开项目的原生界面检查
+连续超时，因此最终构建的真实暂停、求值、窄窗口及停止按钮交互仍待验收；不据此改变 DAP 行为。
+
+Debug 标题栏不再重复放置运行配置选择器；配置选择统一使用窗口顶部已有入口，
+标题栏只保留实际会话及其切换/停止入口。删除局部选择器，不改变配置选择或启动逻辑。
+
+### Debug 图标的 New UI 映射与 Console 呈现
+
+截图上的差异不能只靠字号或透明度补偿。Community 同一 revision 的
+`platform/icons/src/PlatformIconMappings.json` 把旧 Actions/Debugger 名称映射到
+`expui/run`。Debug 主操作现在使用这些原始 16pt 明暗 SVG，仍由共享 22pt 按钮处理命中及悬停。
+禁用时使用 `GrayFilter.java` 的 NTSC 灰度、立方亮度与对比度运算，参数沿 Islands 继承到
+Darcula `-70,-70,100` / IntelliJ `33,-35,100`；保留原 alpha，不再叠加按钮的 0.45 透明度。
+该行为通过图标和按钮的显式参数接入，不改变其他共享按钮消费者。
+
+Console 使用 `ConsoleViewUtil.updateConsoleColorScheme` 的独立控制台字体/配色语义，
+样式入口是 `LitheConsoleStyle`，通过现有 `OutputTextView` 显式启用，其他输出面板保持原样。
+`IslandSchemeDark.xml`、`Light.xml` 与 `DefaultColorSchemesManager.xml` 提供普通输出、链接、
+折叠占位和 16 色 ANSI 色板。移除调试 Console 自行淡化时间戳和按级别整行重涂的行为，
+保留生产者的 ANSI 真彩、常规/亮色和真实字重，不根据字符串猜测 stderr。
+当前纯文本快照没有完整保留 stdout/stderr 的通道信息，本次不能据此宣称完成通道语义对齐。
+
+字号操作按 `ChangeEditorFontSizeAction` 每次 1pt、8pt 下限与 `EditorFontsConstants` 的默认
+40pt 上限，提供当前 Console 的增大/减小/重置操作，不缩放工具栏或其他输出面板。
+不擅自为未映射的 IDEA 字号动作增加全局快捷键。Console 展开与字号状态由 Debug 视图持有，
+内容标签切换不会重置，实际绘制仍交给原生 NSTextView。
+
+折叠移植 `java/execution/impl/.../StackTraceFolding.kt` 与设置的默认值：保留前 8 帧，
+其余连续 Java 堆栈帧（包含 enclosed more 与 async 标记）形成外层折叠；内部行采用
+`java/java-backend/resources/META-INF/JavaPlugin.xml` 的 54 个默认子串及 Java module 前缀归一化，
+按 `SubstringConsoleFolding` 附着到前一行，作为低优先级嵌套区域。没有移植 IDEA 插件扩展系统
+或个人自定义折叠设置。点击占位文字展开/收起，右键可全部展开/收起；复制选择及全部输出均
+还原完整原文，不把占位文字写入日志，也不破坏展开后的源码链接。
+
+原始富文本与显示投影分开保存，继续使用原增量输出更新；投影只替换可见文本发生变化的尾部。
+扫描受 Debug 原有 400,000 字符上限及 100ms 发布节奏限制，并用一万帧输入验证。若扩大日志
+上限或发布频率，先把折叠扫描改为按脏行索引，不能直接提高上限后依旧全量扫描。
+测试覆盖嵌套、Unicode、8 帧边界、原文复制、ANSI 常规/亮色、缩放边界及半透明图标灰度。
+
+本次 Console 回归共 50 项通过并生成单测试计时报告；一万帧折叠投影/复制在本机记录约 34ms，
+不是整屏帧率证明。覆盖日志分块未完成的末行、只改变 ANSI 样式的替换、UTF-16 边界以及
+无效 ANSI 索引。最终预览已打包启动，但打开 backend 后原生界面检查再次超时，
+因此真实点击折叠/字体菜单和最终明暗整屏效果仍待验收，不能把上述组件测试当作完整 UI 验收。
+
+Console 行距采用 `FontPreferences.DEFAULT_LINE_SPACING = 1.2`，而不是 NSTextView 自然行高。
+`ConsoleViewUtil` 将颜色方案的 ConsoleLineSpacing 交给编辑器；`EditorView.getLineHeight`
+在默认关闭 xcode/correct.rounding 两个 registry 分支时，对字体度量高度乘行距后向上取整。
+本机参考 IDEA 的 console-font/editor-font 配置没有覆盖默认值；用 JBR 读取仓库 JetBrains Mono
+Regular 13pt，ascent/descent 为 14/4，原高度 18pt，得到 22pt 行高。Lithe 用相同字体度量规则
+设置段落最小/最大行高，折叠占位及字号改变后均更新段落样式，不只给正文添加固定行间空白。
+启动或重启调试默认选择 Console；原有断点暂停切到 Threads & Variables 的行为保留。
+
+
+## 主工具栏执行按钮的运行状态
+
+Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`platform/execution-impl/src/com/intellij/execution/ui/RedesignedRunWidget.kt`
+中 `RunWidgetButtonLook` 给运行中的执行动作和停止动作保留独立底色，
+并通过 `toStrokeIcon` 把图标转为白色。Islands 深色底分别解析为
+`#338555` / `#C54E58`，浅色为 `#4E9D6C` / `#E4656E`；
+hover/pressed 叠层按该主题的 RunWidget token 解析，不能改用普通选中蓝色。
+`JBUI.CurrentTheme.RunWidget` 提供30pt按钮和16pt图标，
+`HeaderToolbarButtonLook` 的主工具栏圆角直径12（半径6），外侧留白沿用现有入口。
+
+Lithe 在 `LitheMainToolbarButtonStyle` 增加可选执行底色，默认调用者保持原样。
+运行/调试各自按原有会话状态启用绿色底，停止使用相同外框和
+`expui/run/stop_stroke.svg`，移除停止按钮局部28pt外框及手形光标。
+保留现有动作、提示和可见条件，没有把参考图中的其他动作加进来。
+使用 `MainToolbarAppearanceTests` 验证明暗底色、按下叠层和外侧留白，
+完整工作区的启动/停止与hover仍须在预览中检查。
+
+输出区“Jump to latest”对应同一Community版本的 `ScrollToTheEndToolbarAction.java`，
+动作图标 `RunConfigurations.Scroll_down` 在 `PlatformIconMappings.json` 映射为
+`expui/general/scrollDown.svg`。复用现有16pt明暗资源和共享22pt工具栏按钮，
+不显示文字、胶囊背景与描边；仅共享hover/按下反馈，保留可访问名称与提示。
+
+
+Console日志高亮沿Community同一revision的
+`platform/platform-util-io/src/com/intellij/execution/process/AnsiEscapeDecoder.java`
+和 `platform/platform-api/src/com/intellij/execution/process/ColoredOutputTypeRegistryImpl.java`
+处理程序输出的SGR，而不是猜测日志格式后重涂时间、级别或类名。
+Debug输出清理器之前删除了所有CSI，导致Logback本身的 `%cyan`、`%highlight`、
+`%boldMagenta`失效。现只保留以数字/分号组成、最多128字节的完整SGR序列，
+保留跨分块解析状态；OSC、光标/屏幕命令、私有和超长CSI继续过滤。
+未输出颜色的普通日志仍保持普通颜色，不伪造Spring插件的高亮规则。
+
+展开后的Console折叠位置对照 `EditorGutterComponentImpl.drawDirectedBox` 的New UI路径，
+使用 `expui/gutter/fold{,_dark}.svg` 的9×9原始资源，画在正文左侧，
+不再把 `▾`作为文字插入日志。展开位置以富文本元数据保存，绘制和鼠标命中仅枚举
+可见字符，不在高频指针事件中重新扫描或重建日志。原文复制和源码链接保持不变。
+用户明确要求折叠占位hover手形；这里只给正文链接使用手形，左侧折叠图标保持箭头。
+通过原生窗口事件测试折叠占位光标和标记点击；明暗ANSI及Logback组合、跨分块和
+超长/私有CSI均有回归测试。完整应用视觉及真实SVG渲染仍需新预览验收。
+
+收起状态同样显示折叠栏：`EditorGutterComponentImpl.drawSquareWithPlusOrMinus`
+在New UI路径使用 `Gutter.Unfold`（`expui/gutter/unfold{,_dark}.svg`，9×9）。
+展开使用 `Gutter.Fold`，两种状态复用同一原生位置计算与点击处理；折叠占位文字
+仍可点击展开。回归测试覆盖两个状态标记的命中和展开后原文宽度不变。
+
+
+## Debug输入入口与Console正文
+
+Console不再常驻两个固定输入栏。表达式求值复用变量区顶部的现有入口，Enter及
+执行图标调用同一个求值动作，并切换Console查看原有结果输出；“＋”仍然添加监视。
+历史表达式复用原有会话历史，挂到求值图标的共享右键菜单，避免给输入框覆盖一套
+会吞掉原生剪切/复制/粘贴的菜单。
+
+标准输入参考Community同一revision的 `ConsoleViewImpl.insertUserText` / `doInsertUserInput`：
+输入直接跟随输出，不画另一行固定表单。`OutputTextView` 可选的标准输入回调仅由
+Debug接入；其他输出页面仍只读。原生文本控件只允许改动尚未发送的尾部，历史日志
+不会被退格、选区删除或粘贴改写。发送保留现有AppModel标准输入通道和终端所有权。
+存在活动 Debug Session 时，可用性与发送共用同一候选终端选择，只检查该会话的终端；
+找不到或终端不可输入时拒绝发送。只有没有活动 Debug Session 的旧入口才保留全局回退，
+不能因 A 的终端停止就把 A 的 Console 输入发给 B。双会话回归同时检查禁用、拒发与 B 的正常发送。
+空行也能发送；发送失败保留草稿，成功后等待既有进程输出回显，不另外合成一份日志。
+
+草稿由Debug既有视图局部呈现对象保存，不写入业务输出或持久化磁盘；会话ID改变时
+清理，内容页签切换时保留。程序输出追加后保持草稿及相对光标，IME组合期间暂缓替换
+显示投影，提交组合后应用待显示输出；切会话或关闭输入时结束旧组合，避免送给新进程。
+可编辑Console的源码/折叠链接仍可直接点击，不引入AppKit可编辑文本默认的Cmd点击门槛。
+控件复用Console字体、颜色、行高、背景及光标，不新增边框、按钮或固定工具条。
+
+取舍：日志刷新或折叠重排后，原生撤销记录中的范围会过期，因此只保留两次输出刷新之间
+的输入撤销；若需要持续输出时也保留多步撤销，应改用仅管理草稿的撤销栈，而不能让撤销
+修改历史日志。使用 `ConsoleInlineInputTests` 验证输入边界、发送成功/失败、IME、输出追加、
+会话切换、可编辑状态下的源码链接及折叠往返。完整工作区还需检查真实stdin与求值。
+
+
+### Debug面板的分隔线
+
+Debug标题、动作栏、线程选择、求值、变量/监视分组及Console诊断条统一复用
+`LitheToolWindowHeaderDivider`；Console工具栏和Performance收起边缘使用同一
+`LitheTheme.toolWindowBorder(for:)`，不再用通用`divider`近似工具窗口边界。
+线程/变量与Console/Performance的可调整边界复用`LitheSplitPaneView`，与Git Log
+使用同一分隔条、明暗颜色、调整光标和拖动结束提交规则；悬停和拖动不变亮。
+边缘由单个容器绘制，展开时不叠加收起条的边线。
+
+动作组之间的短竖线继续使用`LitheTheme.ActionToolbar.separator`；断点管理等独立
+对话框仍使用现有对话框分隔样式。没有把这些不同角色的线强行替换成工具窗口边界。
+验证复用`SplitHandleViewTests.sharedBorderKeepsItsColorDuringHoverAndDrag`的深浅主题
+像素对比和原生鼠标事件，以及`LitheSplitPaneCollapseTests`的收起/恢复与拖动边界检查。
+
+
+### Console动作栏的深色资源与禁用态
+
+Console左侧动作栏保留Git Log共享的16pt图标、22pt按钮与4pt间距，
+上下箭头必须包含Community同版本的`up_dark.svg`、`down_dark.svg`，
+否则渲染器会回退到浅色图标的`#6C707E`，在深色背景上错误变暗。
+完整深色资源使用原始`#CED0D6`；禁用状态复用现有`LitheIDEADisabledIcon`
+灰度处理，并关闭按钮的二次透明度淡化。按钮动作、可用条件和共享hover不变。
+`DebugToolbarPresentationTests.consoleActionsRenderNativeLightAndDarkAssets`
+加载全部六个动作的真实明暗SVG，检查原始16pt尺寸及不透明像素颜色，避免资源遗漏。
+
+
+### Performance图表的时间与悬停呈现
+
+性能面板原来只有折线且平分剩余高度，导致曲线下没有填充、无法读取历史点，
+并且少量样本被横向拉满。现在两项指标共用`DebugPerformanceChart`：
+每项最高160pt，底部保留指标名称和共享边框色横线，折线下绘制同色12%面积填充。
+时间轴固定显示最近60秒，最新真实采样位于右侧，新采样推进时历史向左移动；
+未采样时间保持空白，不复制或插值生成历史。
+
+两图共用悬停时间，吸附真实采样点并显示圆点、对应数值、竖向时间标记和时间。
+采样推进时保持鼠标所在的相对时间位置；离开后恢复最新点。未知CPU读数显示缺失，
+0%保留真实平线，单点仍绘制圆点；不会为了填充视觉而伪造波动。
+
+行为参考JetBrains官方CPU and memory live charts文档中的悬停数值/时间说明。
+公开Community中未找到该Performance绘图实现；此处复用系统Swift Charts的
+`AreaMark`、`LineMark`、`PointMark`与坐标转换，没有声称照搬不可得源码。
+现有OpenJDK数据采集不变。明暗主题、边框、字体使用Lithe共享入口；60秒窗口、
+160pt高度和12%面积填充是本次Lithe呈现参数，不冒充Community主题常量。
+验证：`DebugPerformanceChartTests`检查面积实际像素、深浅主题、真实采样吸附、
+未知CPU和固定时间域右端/向左移动；完整目标JVM鼠标悬停交互仍须实机验收。
+
+
+### 原生输出区域跟随工作台背景
+
+Debug外层已透明，但Console原生滚动视图、输出容器、左侧动作栏和Performance
+内部仍各自绘制固定底色，导致自定义背景在这些区域被遮挡。
+`WorkbenchSurfaceBackground`现在同时向后代传递已有背景图片状态；
+不持有`AppModel`的原生输出控件读取该环境值，SwiftUI叶子表面复用共享入口的
+显式状态重载，避免向每个Run/Build/Tests/Database输出调用者重复添加判断。
+Performance展开内容与收起条直接使用现有共享表面入口。
+
+设置背景时关闭原生`NSScrollView.drawsBackground`，移除背景后恢复Console主题底色；
+每次更新都明确设置两种状态，不能只在开启时清除，否则关闭图片后会残留透明。
+更新不替换文字控件、不重置输出/折叠/输入草稿；ANSI片段背景、选区、输入框与菜单
+继续保留其语义颜色，不属于结构底色。
+
+`ConsoleInlineInputTests.wallpaperChangesUpdateEveryConsoleLayerWithoutReplacingInput`
+在深浅主题重复关闭→开启→关闭，通过真实原生像素检查输出区及动作栏，
+并检查输入草稿和文字控件身份。该组件验证不能替代完整工作台背景选择的实机验收。
+
+
+### Console折叠图标的实际绘制边界
+
+仅验证折叠锚点与点击，不能证明9pt SVG已经画出来。真实滚动视图的像素回归
+复现了图标区域没有像素：`NSTextView.draw`遗留的正文裁剪范围遮住左侧留白。
+`OutputNativeTextView.draw`在调用原生正文绘制前保存图形状态，之后恢复原始
+裁剪再画官方Fold/Unfold图标；不改SVG几何、颜色或正文排版来掩盖问题。
+
+日志投影发生变化及滚动时显式刷新可见折叠栏；只重画左侧留白，不替换文本控件，
+也不扫描离屏全文。资源默认继续走`LitheIcons`，原生绘制器可接受资源加载闭包。
+SwiftPM测试通过该入口加载与应用同一组真实SVG，避免缺少应用资源时“空图也通过”。
+`ConsoleInlineInputTests.realScrollViewPaintsBothFoldMarkersAndTogglesThem`
+在深浅主题逐次检查折叠/展开/折叠像素及原生点击；同一测试在修复裁剪前失败、
+修复后通过，补足之前只验证锚点的漏检。
+
+
+### Threads & Variables的共享样式
+
+本页保留线程/调用栈、变量、表达式求值和监视四个已有入口，不复制IDEA的额外
+数据能力。Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`platform/xdebugger-impl/ui/src/com/intellij/xdebugger/impl/frame/`
+下`XFramesView`、`XVariablesView`、`XWatchesViewImpl`及
+`ui/tree/XDebuggerTreeRenderer`区分普通界面文字、代码内容和分角色颜色。
+`XWatchesViewImpl`为内联添加监视指定`AllIcons.Debugger.AddToWatch`，
+不能继续使用旧版带圆圈通用加号。
+
+图标依同版本`PlatformIconMappings.json`使用`expui/debugger`、`expui/nodes`
+和`expui/run/evaluateExpression`的原始16pt明暗资源。变量展开改用共享
+chevron SVG和Tree的图标槽、19pt层级缩进，保留加载与展开动作。
+原始彩色变量/监视图标不再模板着色；禁用求值/刷新只应用一次现有IDEA灰度。
+线程与作用域下拉保留共享菜单；作用域选中态使用共享checked槽，不额外绘制圆点。
+
+变量与监视标题使用13pt Regular及Tree文字色，空提示使用共享StatusText颜色，
+不局部加粗。变量名称/表达式保留13pt真实代码字型与现有值/类型专用颜色；
+多行值、错误及监视内容仍可显示，不硬塞为单行24pt树行。
+表达式输入复用`LitheSearchTextField`的占位、光标和IME观察规则，保留代码输入
+字体、Enter求值、添加监视和已有历史菜单，不新增输入框边框。
+求值行与线程行同为28pt，继承现有工具窗口布局，不将IDEA Diff的40pt工具栏
+尺寸套到这里。断点管理等独立对话框本次未调整。
+
+验证使用`DebugToolbarPresentationTests.inspectorUsesNativeNewUIAssetsInBothAppearances`
+加载实际资源并检查16pt尺寸及可见像素，运行共享输入框、树行焦点和菜单覆盖回归。
+组件与资源检查不等于完整暂停目标的实机验收。
+
+
+按用户后续要求，线程选择标题和表达式输入前的图标移除，文字不保留空图标槽；
+线程菜单项仍保留状态图标。求值历史共享右键菜单移到已有添加监视按钮，保留
+输入框原生剪贴板菜单及输入行为，不为了历史入口新增按钮。
+
+
+### Threads & Variables的StatusText和紧凑布局
+
+用户确认采用左窄右宽、简化求值与合并空提示后，调用栈默认占三分之一，
+仍使用共享分隔器并保留用户拖动后的宽度；该比例是Lithe布局选择，非IDEA源码常量。
+线程选择、求值、变量和监视标题共享28pt行高度。求值只保留输入、Enter及添加监视，
+移除重复的三角按钮；历史菜单仍位于添加监视按钮，不占用原生文本编辑菜单。
+变量与监视移除计数，无监视时隐藏不可用的刷新按钮，已有监视和变量操作均保留。
+
+同版本Community `StatusText.java`使用标签字体、`DEFAULT_ATTRIBUTES = GRAYED_ATTRIBUTES`，
+`NamedColorUtil.getInactiveTextColor`解析`Component.infoForeground`，默认深浅
+`#787878/#999999`；已核对Islands及父主题，复用现有`ToolWindowEmptyState`字体/颜色。
+`StatusText.getTextComponentBound`默认水平居中，纵向为可用高度减内容高度后除以3。
+新的共享`LitheToolWindowStatusText`复用这些度量，以固定字号、无背景、无图标的
+方式绘制；窄区域裁剪，不另造小字或换行。该组件不截获输入。
+
+调用栈空状态移出LazyVStack放到完整内容区域，显示“Frames are not available”；
+原左上角提示即使换字体也无法得到上游位置，因此没有采用只换颜色的方案。
+右侧没有变量、监视与异常时，只显示一条共享提示；暂停后提示选取栈帧，运行时提示
+暂停程序。状态文字位于标题之后的可用区域，去掉监视的重复空提示。
+`ToolWindowStatusTextTests`通过深浅主题实际文字像素检查字体行高边界、水平居中与
+三分之一高度，不把声明了13pt等同于实际可见。完整目标进程暂停交互另行验收。
+
+
+提交前审查修正Console上一处/下一处导航：相同URL可能在日志中出现多次，
+导航位置必须同时记录原生文字范围，不能只按URL找到第一处。替换输出后重置
+位置，原生动作回归验证三处相同源码链接的前进、回绕与后退。
+性能采集的数据所有权与真实进程清理规则见
+[本地JVM性能监控](../feature/2026-10-14-local-jvm-performance-monitoring.md)。
+
+
+### 添加与编辑监视表达式的弹窗
+
+内联 Add to Watch 只提交求值输入框中的非空表达式；空白时禁用，避免模型拒绝空值而按钮看似无响应。
+Watches 标题的＋继续打开新增弹窗，已有监视的编辑菜单复用同一弹窗。
+弹窗输入复用 `LitheSearchTextField` 和 `litheSearchField` 的普通字体、占位色、边框及焦点环，
+取消/保存复用 `LitheSecondaryButtonStyle` / `LithePrimaryButtonStyle`；不保留原生 roundedBorder 或另画输入框。
+打开后聚焦表达式，Enter 仅在非空时保存，Esc 取消；空白保护同时覆盖按钮和键盘提交。
+复验新增与编辑初值、中文输入法、深浅主题、聚焦/失焦及原有去重和暂停求值流程。
+
+
+Watch 编辑器的外层也必须经过 `litheDropdown` → `LitheContextMenuPresenter`，
+锚定 Watches 标题的＋按钮，新增和编辑共用；不能只替换输入框后继续使用系统 `.sheet`。
+共享 owner 负责8pt外框圆角、底色、1pt边框、阴影、屏幕边缘约束和无动画显示。
+内容只保留12pt留白，不再绘制第二层背景或固定高度；保存/取消显式清空编辑上下文，
+Esc及外部点击由共享呈现器关闭，重新编辑以上下文身份重置输入值。
+
+
+Console 源码导航必须区分“尚未定位”和“已定位第一条”：首次前进从第一条开始，
+首次后退从最后一条开始，之后才按当前链接范围逐个移动并回绕。
+输出整体替换后，即使新旧源码链接的 URL 与范围完全相同，也要重新执行首次定位；
+`ConsoleInlineInputTests` 的双向原生回归保护这一边界，不能将跳过第一条写成预期。
+
+
+Console 原生视图的源码导航可用性通知在 `updateNSView` 返回后交付，按最后一次值去重，
+新渲染覆盖旧的排队通知；`dismantleNSView` 使排队通知失效并清理观察器及回调。
+不要在原生更新事务中同步修改 SwiftUI State，也不要让已卸载视图回写工具栏状态。
+导航按钮回归覆盖无链接、有链接、清空输出、快速覆盖及卸载重建。
+
+
+Debug Console 的 400,000 字符上限同时约束前台输出与后台会话快照。
+截断必须落在完整 SGR（ANSI 颜色和字重指令）之外，并在保留文本前恢复截断处的有效样式；
+不能直接裁掉控制序列的一半，也不能把全部历史 SGR 拼回头部而让缓存无限增长。
+保留少量有界前缀空间，按现有 `ANSIOutputRenderer` 支持的粗体、前景及背景类别合并状态，
+覆盖标准色、256 色和真彩；增加渲染器样式类别时同步扩展截断状态。
+回归覆盖跨 chunk、恰好截在 SGR 内、后台会话切换、样式重置及 Unicode 长输出。
+
 ## 带参数通知与普通错误描述（2026-10-15）
 
 通知的持久内容保留消息键和原始字符串参数，气泡与历史列表共用展示层，随应用语言

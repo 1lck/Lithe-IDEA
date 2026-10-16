@@ -2959,6 +2959,81 @@
 "All messages" = "全部消息";
 "Warnings" = "警告";
 "Errors only" = "仅错误";
+/* Git Log repository empty state */
+"To track changes to code:" = "要跟踪代码更改：";
+"Initialize Git repository…" = "初始化 Git 仓库…";
+"Version control integration" = "版本控制集成";
+"Share project on" = "将项目分享至";
+"or" = "或";
+
+"To debug your code, do one of the following:" = "要调试代码，请执行以下操作之一：";
+
+"— Click the Run icon in the editor gutter" = "— 点击编辑器行号栏中的运行图标";
+
+"— Select \"Debug...\" in the editor context menu" = "— 在编辑器右键菜单中选择“调试...”";
+
+"— Launch a" = "— 启动";
+
+"run configuration" = "运行配置";
+
+"Debugging code" = "调试代码";
+
+"Increase Font Size" = "增大字号";
+
+"Decrease Font Size" = "减小字号";
+
+"Reset Font Size" = "重置字号";
+
+/* Debug expression history */
+"Expression history" = "表达式历史";
+"Previous console expression" = "上一条表达式";
+"Next console expression" = "下一条表达式";
+
+"Frames are not available" = "当前无可用栈帧";
+
+"Pause the process to inspect variables" = "暂停程序以查看变量";
+
+"Performance" = "性能";
+
+"CPU" = "CPU";
+
+"Heap Memory" = "堆内存";
+
+"Hide Performance" = "隐藏性能面板";
+
+"Waiting for JVM performance data…" = "正在等待 JVM 性能数据…";
+
+"Start a local Java debug session to view performance." = "启动本地 Java 调试会话以查看性能。";
+
+"Performance is available for local Java processes launched by Lithe." = "性能监控适用于由 Lithe 启动的本地 Java 进程。";
+
+"A running local JVM and its JDK jstat tool are required." = "需要运行中的本地 JVM 及其 JDK jstat 工具。";
+
+"JVM performance monitoring ended." = "JVM 性能监控已结束。";
+
+"No JVM performance samples received for 10 seconds." = "10 秒内未收到 JVM 性能采样。";
+
+"The monitored JVM has exited or changed." = "监控的 JVM 已退出或发生变化。";
+
+"Invalid JVM performance output." = "JVM 性能输出无效。";
+
+"The JVM does not expose supported heap counters through jstat." = "当前 JVM 未通过 jstat 提供受支持的堆计数器。";
+
+"Invalid JVM heap counters." = "JVM 堆计数器无效。";
+
+/* Debug variable JSON/tree presentation */
+"Show as tree" = "显示为树形";
+"Show as JSON" = "显示为 JSON";
+"Copy JSON" = "复制 JSON";
+"Loading object fields…" = "正在加载对象字段…";
+
+"Show source file name" = "显示源码文件名";
+"Stack frame display options" = "调用栈显示选项";
+
+"Expand JSON block" = "展开 JSON 段落";
+
+"Collapse JSON block" = "收起 JSON 段落";
+
 
 "Project Errors" = "项目错误";
 

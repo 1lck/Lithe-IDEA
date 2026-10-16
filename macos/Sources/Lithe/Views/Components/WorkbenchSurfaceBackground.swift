@@ -25,6 +25,11 @@ private struct WorkbenchSurfaceBackground: ViewModifier {
 }
 
 extension View {
+    /// Explicit state for leaf/native controls that do not own an AppModel.
+    func litheWorkbenchSurface(_ fallback: Color, hasBackgroundImage: Bool) -> some View {
+        background(hasBackgroundImage ? Color.clear : fallback)
+    }
+
     /// Use for the background of a workbench page, pane, or title bar.
     /// Inputs, selections, menus, and modal controls deliberately retain their
     /// own backgrounds so that the wallpaper never reduces their readability.

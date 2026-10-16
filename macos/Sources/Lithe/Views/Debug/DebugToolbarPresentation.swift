@@ -1,4 +1,5 @@
-import CoreGraphics
+import AppKit
+import SwiftUI
 import LitheCoreContracts
 
 /// Stable IDEA-aligned ordering and icon catalog for the macOS Debug toolbar.
@@ -19,6 +20,33 @@ enum DebugToolbarActionID: String, CaseIterable, Identifiable {
 }
 
 enum DebugToolbarPresentation {
+    static func stackFrameLabel(_ frame: DebugStackFrame, showsSourceName: Bool) -> String {
+        guard showsSourceName, let source = frame.sourceURL, source.pathExtension.lowercased() == "java" else {
+            return frame.name
+        }
+        let suffix = ", " + source.deletingPathExtension().lastPathComponent
+        // ponytail: remove only an exact redundant provider suffix; richer labels need structured DAP segments.
+        return frame.name.count > suffix.count && frame.name.hasSuffix(suffix) ? String(frame.name.dropLast(suffix.count)) : frame.name
+    }
+
+    static func stackFrameText(_ frame: DebugStackFrame, showsSourceName: Bool, isDark: Bool) -> AttributedString {
+        let label = stackFrameLabel(frame, showsSourceName: showsSourceName)
+        var result = DiffSyntaxHighlighter.styled(label, fileExtension: frame.sourceURL?.pathExtension ?? "", highlight: nil)
+        guard frame.sourceURL?.pathExtension.lowercased() == "java",
+              let location = label.range(of: ":\(frame.line)", options: .backwards),
+              location.upperBound == label.endIndex || label[location.upperBound...].hasPrefix(", ") else { return result }
+        let methodAndType = label[..<location.lowerBound].prefix { $0 != "(" }
+        let method = methodAndType.split(separator: ".").last ?? methodAndType
+        guard !method.isEmpty else { return result }
+        let offset = methodAndType.count - method.count
+        let start = result.characters.index(result.startIndex, offsetBy: offset)
+        let end = result.characters.index(start, offsetBy: method.count)
+        let palette = SyntaxHighlightingColorConfiguration.bundled.palette(formatID: "java",
+            base: CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme))
+        result[start..<end].foregroundColor = Color(nsColor: palette.functionCall)
+        return result
+    }
+
     static let primaryActions: [DebugToolbarActionID] = [
         .restartOrStart,
         .stop,
@@ -32,12 +60,9 @@ enum DebugToolbarPresentation {
     ]
 
     static let separatorsAfter: Set<DebugToolbarActionID> = [.stop, .stepOut]
-    // Keep the primary controls legible at the compact tool-window scale;
-    // IDEA's debugger gives these actions a little more visual weight than
-    // ordinary tool-window buttons.
-    static let iconSize: CGFloat = 18
+    // Standard ActionToolbar buttons retain the original 16pt IDEA glyphs.
+    static let iconSize: CGFloat = 16
     static let toolbarHeight: CGFloat = 36
-    static let sessionHeaderHeight: CGFloat = 34
 
     static func statusText(
         for state: DebugAdapterState,
@@ -79,15 +104,15 @@ enum DebugToolbarPresentation {
     ) -> String {
         switch action {
         case .restartOrStart:
-            isSessionActive ? "debugger/restartDebug.svg" : "debugger/debug.svg"
-        case .stop: "debugger/stop.svg"
-        case .resume: "debugger/resume.svg"
-        case .pause: "debugger/pause.svg"
-        case .stepOver: "debugger/stepOver.svg"
-        case .stepInto: "debugger/stepInto.svg"
-        case .stepOut: "debugger/stepOut.svg"
-        case .viewBreakpoints: "debugger/viewBreakpoints.svg"
-        case .muteBreakpoints: "debugger/muteBreakpoints.svg"
+            isSessionActive ? "expui/run/restartDebug.svg" : "expui/run/debug.svg"
+        case .stop: "expui/run/stop.svg"
+        case .resume: "expui/run/resume.svg"
+        case .pause: "expui/run/pause.svg"
+        case .stepOver: "expui/run/stepOver.svg"
+        case .stepInto: "expui/run/stepInto.svg"
+        case .stepOut: "expui/run/stepOut.svg"
+        case .viewBreakpoints: "expui/run/viewBreakpoints.svg"
+        case .muteBreakpoints: "expui/run/muteBreakpoints.svg"
         }
     }
 
