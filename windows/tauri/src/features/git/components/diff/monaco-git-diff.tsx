@@ -211,13 +211,28 @@ export default function MonacoGitDiff({
           firstDifferencePending.current = false;
           if (changes.length) {
             const reveal = revealRangeLanding.current;
-            const landed =
-              reveal &&
-              changes.find(
-                (candidate) =>
-                  candidate.modifiedEndLineNumber >= reveal.startLine &&
-                  candidate.modifiedStartLineNumber <= reveal.endLine,
-              );
+            // The reveal range speaks source line numbers while Monaco changes
+            // speak model line numbers; translate through the projection rows
+            // (row order is model order, newLine carries the source number).
+            let landed: monaco.editor.ILineChange | undefined;
+            if (reveal) {
+              const modelLines = new Set<number>();
+              latest.current.rows.forEach((row, index) => {
+                if (
+                  row.newLine !== null &&
+                  row.newLine >= reveal.startLine &&
+                  row.newLine <= reveal.endLine
+                ) {
+                  modelLines.add(index + 1);
+                }
+              });
+              landed = changes.find((candidate) => {
+                for (let line = candidate.modifiedStartLineNumber; line <= candidate.modifiedEndLineNumber; line++) {
+                  if (modelLines.has(line)) return true;
+                }
+                return false;
+              });
+            }
             const change = landed ?? changes[lastDifferenceLanding.current ? changes.length - 1 : 0];
             const lineNumber = differenceStartLine(change, editors[1].getModel()?.getLineCount() ?? 1);
             editors[1].setPosition({ lineNumber, column: 1 });

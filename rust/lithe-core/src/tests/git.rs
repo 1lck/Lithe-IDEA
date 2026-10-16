@@ -5440,12 +5440,15 @@ charlie
     line_history_commit(&root, "reword bravo");
 
     // The editor snapshot arrives with CRLF newlines while the repository
-    // stores LF; unchanged lines must still map and find their history.
-    let crlf_snapshot = "alpha
-bravo-two
-charlie
-";
-    let response = line_history_query(&root, "doc.txt", crlf_snapshot, 2, 2);
+    // stores LF; unchanged lines must still map and find their history. The
+    // carriage returns are built byte-explicitly and asserted, so the test
+    // cannot silently degrade to plain LF content.
+    let crlf_snapshot = String::from("alpha\r\nbravo-two\r\ncharlie\r\n");
+    assert!(
+        crlf_snapshot.as_bytes().iter().any(|byte| *byte == b'\r'),
+        "fixture must carry real carriage returns"
+    );
+    let response = line_history_query(&root, "doc.txt", &crlf_snapshot, 2, 2);
     assert_eq!(response["ok"], true, "{response:?}");
     assert_eq!(
         response["data"]["unmappedLines"].as_array().map(Vec::len),
@@ -5588,4 +5591,44 @@ fn replace_whole_line(root: &Path, file: &str, line_number: usize, replacement: 
         *slot = replacement.to_string();
     }
     fs::write(path, format!("{}\n", lines.join("\n"))).expect("file should be writable");
+}
+
+#[test]
+fn git_line_history_merge_ranges_disambiguate_duplicate_lines() {
+    let root = line_history_repository("line-history-duplicate");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    // Line 2 already reads SAME before the merge; the merge turns line 8
+    // into the identical text. Text anchoring would find line 2 first and
+    // drop the merge metadata, so the recovery must replay coordinates.
+    write_numbered_lines(&root.join("doc.txt"), 1, 10);
+    replace_whole_line(&root, "doc.txt", 2, "SAME");
+    line_history_commit(&root, "initial");
+    assert!(run(&["checkout", "-qb", "side"]).status.success());
+    replace_whole_line(&root, "doc.txt", 8, "SAME");
+    line_history_commit(&root, "side makes eight same");
+    assert!(run(&["checkout", "-q", "master"]).status.success());
+    assert!(run(&["merge", "-q", "--no-ff", "side", "-m", "merge same"])
+        .status
+        .success());
+
+    let content = fs::read_to_string(root.join("doc.txt")).expect("doc should be readable");
+    let response = line_history_query(&root, "doc.txt", &content, 8, 8);
+    assert_eq!(response["ok"], true, "{response:?}");
+    let commits = response["data"]["commits"].as_array().expect("commits");
+    let merge = commits
+        .iter()
+        .find(|entry| entry["kind"] == "merge-first-parent")
+        .unwrap_or_else(|| panic!("merge entry missing: {response:?}"));
+    let ranges = merge["relevantRanges"].as_array().expect("ranges");
+    assert!(!ranges.is_empty(), "{response:?}");
+    assert_eq!(ranges[0]["newStart"], 8, "{response:?}");
+    assert_eq!(ranges[0]["newEnd"], 8, "{response:?}");
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
 }

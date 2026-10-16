@@ -3459,73 +3459,161 @@ fn map_snapshot_lines(
 /// hunks that actually contain one of the traced line contents. Anchoring by
 /// content survives commits that `-L` omitted because they shifted lines or
 /// renamed the file after the merge.
-fn line_history_merge_ranges(
-    root: &str,
-    compare_base: &str,
-    hash: &str,
-    path: &str,
-    historical_paths: &[String],
-    traced_contents: &[String],
-) -> Result<Option<(Vec<GitLineHistoryRange>, Option<String>)>, CoreError> {
-    // Anchor each traced content to its line number in the merge tree. The
-    // merge may have carried an older path; probe the historical chain from
-    // newest name first, so the anchor reports the merge-time path.
-    let mut anchor_paths: Vec<String> = vec![path.to_string()];
-    for candidate in historical_paths {
-        if candidate.as_str() != path {
-            anchor_paths.push(candidate.clone());
+/// Translates one set of commit-side line numbers onto the parent side of the
+/// same commit through its `-U0` hunks. Lines inside a replacement map onto
+/// the parent-side span; lines inserted by the commit disappear; untouched
+/// lines shift by the hunk deltas.
+fn line_history_translate_lines(
+    lines: &std::collections::BTreeSet<usize>,
+    hunks: &[(usize, usize, usize, usize)],
+) -> std::collections::BTreeSet<usize> {
+    let mut translated = std::collections::BTreeSet::new();
+    for &line in lines {
+        let mut handled = false;
+        let mut delta = 0i64;
+        for &(old_start, old_count, new_start, new_count) in hunks {
+            let new_end = new_start + new_count.saturating_sub(1);
+            if new_count > 0 && line >= new_start && line <= new_end {
+                if old_count > 0 {
+                    // Clamp into the parent-side span when the replacement
+                    // changed the line count.
+                    let offset = (line - new_start).min(old_count - 1);
+                    translated.insert(old_start + offset);
+                }
+                handled = true;
+                break;
+            }
+            if new_count == 0 && line == new_start {
+                // Deletion boundary: the removed lines sit before this line,
+                // which itself continues on the parent side.
+                delta += old_count as i64;
+            } else if new_start + new_count <= line {
+                delta += old_count as i64 - new_count as i64;
+            }
+        }
+        if !handled {
+            let shifted = line as i64 + delta;
+            if shifted >= 1 {
+                translated.insert(shifted as usize);
+            }
         }
     }
-    let mut anchored: Vec<usize> = Vec::new();
-    let mut anchored_path: Option<String> = None;
-    for content in traced_contents {
-        for anchor_path in &anchor_paths {
-            let grep = readonly_command(GitCommandRequest {
+    translated
+}
+
+/// Recovers merge relevance by replaying the first-parent chain between the
+/// pinned base and the merge's first parent. Text anchoring cannot disambiguate
+/// duplicate or blank lines, so every touched commit's diff translates the
+/// traced base intervals - and renames translate the path - into the merge's
+/// coordinate system before its first-parent diff is filtered.
+fn line_history_merge_ranges(
+    root: &str,
+    base_commit: &str,
+    base_intervals: &[(usize, usize)],
+    base_path: &str,
+    compare_base: &str,
+    hash: &str,
+) -> Result<Option<(Vec<GitLineHistoryRange>, String)>, CoreError> {
+    let mut lines: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    for (start, end) in base_intervals {
+        for line in *start..=*end {
+            lines.insert(line);
+        }
+    }
+    let mut path = base_path.to_string();
+    // Walk backwards from the pinned base towards the merge's first parent,
+    // restarting the listing whenever a rename changes the path.
+    let mut walk_end = base_commit.to_string();
+    loop {
+        let listing = readonly_command(GitCommandRequest {
+            root: root.to_string(),
+            arguments: vec![
+                "log".to_string(),
+                "--first-parent".to_string(),
+                "--format=%H".to_string(),
+                format!("{compare_base}..{walk_end}"),
+                "--".to_string(),
+                path.clone(),
+            ],
+            input: None,
+        })?;
+        if listing.exit_code != 0 {
+            return Ok(None);
+        }
+        let touched: Vec<&str> = listing
+            .output
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+        if touched.is_empty() {
+            break;
+        }
+        let mut renamed_at: Option<String> = None;
+        for commit in &touched {
+            let parent = readonly_command(GitCommandRequest {
                 root: root.to_string(),
-                arguments: vec![
-                    "grep".to_string(),
-                    "-n".to_string(),
-                    "--fixed-strings".to_string(),
-                    "-F".to_string(),
-                    content.clone(),
-                    format!("{hash}:{anchor_path}"),
-                ],
+                arguments: vec!["rev-parse".to_string(), format!("{commit}^")],
                 input: None,
             });
-            if let Ok(response) = grep {
-                // Output is `<rev>:<path>:<line>:<content>`; the path itself
-                // contains no colon for ordinary traced files, so the second
-                // field from the left is the line number.
-                if response.exit_code == 0 {
-                    let columns: Vec<&str> = response
-                        .output
-                        .lines()
-                        .next()
-                        .unwrap_or_default()
-                        .split(':')
-                        .collect();
-                    if columns.len() >= 4 {
-                        if let Ok(line) = columns[2].parse::<usize>() {
-                            anchored.push(line);
-                            if anchored_path.is_none() {
-                                anchored_path = Some(anchor_path.clone());
-                            }
+            // Root commits compare against the empty tree, matching git.diff.
+            let base_revision = match parent {
+                Ok(response) if response.exit_code == 0 => response.output.trim().to_string(),
+                _ => empty_tree_oid(root)?.to_string(),
+            };
+            // The diff runs without a pathspec: restricting it to the walked
+            // path would clip renames into synthetic "new file" patches and
+            // destroy both the rename pairing and the line translation.
+            let diff = readonly_command(GitCommandRequest {
+                root: root.to_string(),
+                arguments: vec![
+                    "diff".to_string(),
+                    "--unified=0".to_string(),
+                    "--no-ext-diff".to_string(),
+                    "--no-textconv".to_string(),
+                    "--find-renames".to_string(),
+                    base_revision.clone(),
+                    commit.to_string(),
+                ],
+                input: None,
+            })?;
+            if diff.exit_code != 0 {
+                continue;
+            }
+            let mut hunks: Vec<(usize, usize, usize, usize)> = Vec::new();
+            let mut rename_target: Option<String> = None;
+            // Collect hunks only from the segment whose new side is the
+            // walked path; other files in the commit are irrelevant here.
+            let mut segment_matches = false;
+            for line in diff.output.lines() {
+                if let Some(rest) = line.strip_prefix("diff --git a/") {
+                    if let Some((old, new)) = rest.split_once(" b/") {
+                        segment_matches = new == path;
+                        if segment_matches && old != path {
+                            rename_target = Some(old.to_string());
                         }
+                    }
+                    continue;
+                }
+                if segment_matches {
+                    if let Some(hunk) = parse_line_history_hunk_header(line) {
+                        hunks.push(hunk);
                     }
                 }
             }
-            if !anchored.is_empty() {
+            lines = line_history_translate_lines(&lines, &hunks);
+            if let Some(old_name) = rename_target {
+                path = old_name;
+                renamed_at = Some(base_revision.clone());
                 break;
             }
         }
+        if renamed_at.is_none() {
+            break;
+        }
     }
-    if anchored.is_empty() {
-        return Ok(Some((Vec::new(), None)));
+    if lines.is_empty() {
+        return Ok(Some((Vec::new(), path)));
     }
-    // Diff through the path that anchored the content: at the merge the file
-    // still carried that name, so the queried name would produce an empty
-    // diff and silently drop every relevant range.
-    let diff_path = anchored_path.clone().unwrap_or_else(|| path.to_string());
     let diff = readonly_command(GitCommandRequest {
         root: root.to_string(),
         arguments: vec![
@@ -3536,7 +3624,7 @@ fn line_history_merge_ranges(
             compare_base.to_string(),
             hash.to_string(),
             "--".to_string(),
-            diff_path,
+            path.clone(),
         ],
         input: None,
     })?;
@@ -3546,10 +3634,10 @@ fn line_history_merge_ranges(
     let mut ranges = Vec::new();
     for (old_start, old_count, new_start, new_count) in parse_line_history_hunks(&diff.output) {
         let new_end = line_history_endpoint(new_start, new_count);
-        let contains_anchor = anchored
+        let intersects = lines
             .iter()
             .any(|line| *line >= new_start && *line <= new_end);
-        if contains_anchor {
+        if intersects {
             ranges.push(GitLineHistoryRange {
                 old_start,
                 old_end: line_history_endpoint(old_start, old_count),
@@ -3558,7 +3646,7 @@ fn line_history_merge_ranges(
             });
         }
     }
-    Ok(Some((ranges, anchored_path)))
+    Ok(Some((ranges, path)))
 }
 
 /// Traces which commits touched one one-based line range of an editor
@@ -3771,35 +3859,6 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
     }
 
     let mut commits: Vec<GitLineHistoryCommit> = Vec::new();
-    // Every path the file carried during this walk, from `diff --git` headers
-    // of the listed entries plus the queried name. Merge entries have no
-    // header of their own, so anchoring probes these candidates and thereby
-    // recovers the merge-time path even across later renames.
-    let mut historical_paths: Vec<String> = vec![request.path.clone()];
-    for record in log.output.split('') {
-        for line in record.lines() {
-            if let Some(rest) = line.strip_prefix("diff --git a/") {
-                if let Some((old, new)) = rest.split_once(" b/") {
-                    for name in [old, new] {
-                        if !historical_paths.iter().any(|existing| existing == name) {
-                            historical_paths.push(name.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // Traced line contents carried while walking newest-to-oldest. Anchoring
-    // merge relevance by content survives commits `-L` omitted because they
-    // shifted lines or renamed the file after the merge.
-    let snapshot_lines: Vec<&str> = snapshot.lines().collect();
-    let mut traced_contents: Vec<String> = requested
-        .clone()
-        .filter_map(|line| snapshot_lines.get(line - 1))
-        .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty())
-        .collect();
-    traced_contents.dedup();
     for record in log.output.split('\x1e') {
         let record = record.trim_start_matches('\n');
         if record.trim().is_empty() {
@@ -3843,57 +3902,22 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
         }
         if is_merge && !compare_base.is_empty() {
             // `-L` emits merge headers without hunks, so neither the path nor
-            // the ranges come from the log output. Recover both from the
-            // ordinary first-parent diff, anchored by the traced contents so
-            // post-merge line shifts and renames cannot drop the metadata.
-            if let Some((supplement, anchored_path)) = line_history_merge_ranges(
+            // the ranges come from the log output. Replay the first-parent
+            // chain from the pinned base to the merge's parent, translating
+            // the base intervals and path through every touched commit's diff;
+            // text matching could not disambiguate duplicate or blank lines.
+            if let Some((supplement, resolved_path)) = line_history_merge_ranges(
                 &request.root,
+                &base_commit,
+                &intervals,
+                &request.path,
                 &compare_base,
                 &hash,
-                &path_at_commit,
-                &historical_paths,
-                &traced_contents,
             )? {
                 ranges = supplement;
-                if let Some(actual) = anchored_path {
-                    if actual != path_at_commit {
-                        previous_path = None;
-                        path_at_commit = actual;
-                    }
-                }
-            }
-        }
-        // Walking to older entries moves the trace to the parent-side lines
-        // of this entry's own comparison, not the pinned HEAD.
-        if !ranges.is_empty() && !compare_base.is_empty() {
-            if let Ok(parent_view) = readonly_command(GitCommandRequest {
-                root: request.root.clone(),
-                arguments: vec![
-                    "show".to_string(),
-                    format!("{compare_base}:{}", path_at_commit),
-                ],
-                input: None,
-            }) {
-                if parent_view.exit_code == 0 {
-                    let parent_lines: Vec<&str> = parent_view.output.lines().collect();
-                    let mut next_contents = Vec::new();
-                    for range in &ranges {
-                        if range.old_start == 0 {
-                            continue;
-                        }
-                        let upper = range.old_end.min(parent_lines.len().max(1));
-                        for line in range.old_start..=upper {
-                            if let Some(text) = parent_lines.get(line.wrapping_sub(1)) {
-                                let trimmed = text.trim().to_string();
-                                if !trimmed.is_empty() && !next_contents.contains(&trimmed) {
-                                    next_contents.push(trimmed);
-                                }
-                            }
-                        }
-                    }
-                    if !next_contents.is_empty() {
-                        traced_contents = next_contents;
-                    }
+                if resolved_path != path_at_commit {
+                    previous_path = None;
+                    path_at_commit = resolved_path;
                 }
             }
         }

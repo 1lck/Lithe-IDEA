@@ -40,6 +40,7 @@ import { useGitBlame } from "@/features/git/hooks/use-git-blame";
 import GitLineHistoryPopup from "@/features/git/components/git-line-history-popup";
 import { gutterLineRange, type LineHistoryRange } from "@/features/git/utils/line-history-selection";
 import { isGitChangeRelevant, subscribeToGitChanges } from "@/features/git/events/git-events";
+import { useGitStore } from "@/features/git/stores/git.store";
 import { isEditorContent } from "@/features/panes/types/pane-content.types";
 import { useGitGutterBase, type GitGutterBase } from "@/features/git/hooks/use-git-gutter-base";
 import {
@@ -822,6 +823,22 @@ export function MonacoEditor({
     revision: number;
   } | null>(null);
   const pendingLineHistoryRangeRef = useRef<LineHistoryRange | null>(null);
+  // Untracked files have no committed history; the line-history entry stays
+  // disabled for them instead of opening a popup that can only ever say
+  // "newly added". Clean files do not appear in the workspace status at all,
+  // so absence from the list means tracked.
+  const lineHistoryFileUntracked = useGitStore((state) => {
+    if (!filePath) return false;
+    const files = state.workspaceGitStatus?.files ?? [];
+    const normalized = filePath.replace(/\\/g, "/");
+    return files.some((file) => {
+      if (file.status !== "untracked") return false;
+      const relative = (file.repositoryRelativePath ?? file.path).replace(/\\/g, "/");
+      const repository = file.repositoryPath?.replace(/\\/g, "/");
+      const suffix = repository ? `${repository}/${relative}` : relative;
+      return normalized === suffix || normalized.endsWith(`/${suffix}`);
+    });
+  });
   // A line-history query is only valid for the buffer revision and HEAD it
   // was issued against; either moving closes the popup, which also cancels
   // the in-flight core operation instead of showing stale results.
@@ -2625,7 +2642,11 @@ export function MonacoEditor({
             onFind={() => executeEditorCommand("workbench.showFind")}
             onGoToLine={() => executeEditorCommand("editor.goToLine")}
             onLineHistory={
-              rootFolderPath && filePath && !editorBuffer?.isVirtual && !isPreviewMode
+              rootFolderPath &&
+              filePath &&
+              !editorBuffer?.isVirtual &&
+              !isPreviewMode &&
+              !lineHistoryFileUntracked
                 ? () => {
                     const range = pendingLineHistoryRangeRef.current;
                     if (!range || !contextMenuPosition) return;
