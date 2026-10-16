@@ -87,6 +87,11 @@
       "sessionId": "session-1",
       "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "This project **builds** an IDE." } }
     },
+    "claudeAutoModeNotice": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "notice", "severity": "warning", "title": "Auto mode unavailable", "description": "The selected model does not support Auto mode; using Accept edits instead." }
+    },
     "agentThoughtChunk": {
       "kind": "update",
       "sessionId": "session-1",

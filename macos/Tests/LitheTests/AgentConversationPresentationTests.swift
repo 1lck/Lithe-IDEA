@@ -8,6 +8,33 @@ import Testing
 @Suite("Agent conversation presentation")
 struct AgentConversationPresentationTests {
     @Test
+    func liveSessionNoticeFitsNarrowAndWidePanelsInBothThemes() throws {
+        let notice = try #require(AgentSessionNotice.parse(["severity": "warning", "title": "Auto mode unavailable",
+            "description": "The selected model does not support Auto mode; using Accept edits instead."]))
+        for scheme in [ColorScheme.dark, .light] {
+            for width in [280.0, 620.0] {
+                let host = NSHostingView(rootView: AgentSessionNoticeView(notice: notice, onDismiss: {})
+                    .frame(width: width).environment(\.colorScheme, scheme))
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 180),
+                                      styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                defer { window.close() }
+                window.contentView = host
+                host.frame.size = NSSize(width: width, height: 180)
+                host.layoutSubtreeIfNeeded()
+                #expect(host.fittingSize.width <= width)
+                #expect(host.fittingSize.height <= 180, "Notice must wrap and retain the shared dismiss control")
+                if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATISTICS_SCREENSHOTS"] {
+                    let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    try #require(bitmap.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: folder).appendingPathComponent("notice-\(scheme)-\(Int(width)).png"))
+                }
+            }
+        }
+    }
+
+    @Test
     func compactContextRingStaysImmediatelyBeforeSendInBothThemes() throws {
         let usage = try #require(AgentContextUsage(usedTokens: 5, capacityTokens: 100))
         let compact = NSHostingView(rootView: AgentContextUsageView(usage: usage, showsPercentage: false))
