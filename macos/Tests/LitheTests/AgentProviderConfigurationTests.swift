@@ -120,7 +120,7 @@ struct AgentProviderConfigurationTests {
         #expect(environment["ANTHROPIC_MODEL"] == model)
     }
 
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_AGENT_PROVIDER_INTEGRATION"] == "1"))
+    @Test
     func nativeParserUsesSharedFixtureAndRoundTripsEditorTemplates() throws {
         let fixtureURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -163,8 +163,7 @@ struct AgentProviderConfigurationTests {
         }
     }
 
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_AGENT_PROVIDER_INTEGRATION"] == "1"),
-        arguments: AIConfigurationSourceKind.allCases)
+    @Test(arguments: AIConfigurationSourceKind.allCases)
     func formAndConfigurationTextUseTheActiveInputAndRoundTrip(source: AIConfigurationSourceKind) throws {
         let settings = AppSettings(store: ProviderSettingsStore())
         let keys = ProviderSecureStore()
@@ -211,8 +210,7 @@ struct AgentProviderConfigurationTests {
         #expect(!persisted.contains("secret"))
     }
 
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_AGENT_PROVIDER_INTEGRATION"] == "1"),
-        arguments: AIConfigurationSourceKind.allCases)
+    @Test(arguments: AIConfigurationSourceKind.allCases)
     func invalidFormAndTextCannotSaveOrDiscardTheDraft(source: AIConfigurationSourceKind) throws {
         let settings = AppSettings(store: ProviderSettingsStore())
         let keys = ProviderSecureStore()
@@ -247,8 +245,7 @@ struct AgentProviderConfigurationTests {
         #expect(settings.commitMessageAI == before && keys.values.isEmpty)
     }
 
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_AGENT_PROVIDER_INTEGRATION"] == "1"),
-        arguments: AIConfigurationSourceKind.allCases)
+    @Test(arguments: AIConfigurationSourceKind.allCases)
     func emptyAndIncompleteDraftsCanReturnToFormWithoutSaving(source: AIConfigurationSourceKind) throws {
         let settings = AppSettings(store: ProviderSettingsStore())
         let keys = ProviderSecureStore()
