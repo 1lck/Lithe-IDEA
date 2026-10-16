@@ -83,6 +83,9 @@ function Invoke-TimedRustTests {
             )) {
                 $arguments += @("--test-budget", "${prefix}=30000")
             }
+            # This six-commit conflict/skip/squash case reached the 30s cutoff
+            # on a hosted Windows runner without an assertion failure.
+            $arguments += @("--test-budget", "tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000")
         }
         return $arguments
     }

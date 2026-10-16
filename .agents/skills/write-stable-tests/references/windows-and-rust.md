@@ -52,6 +52,13 @@ Git subprocesses, sometimes rebuilding several repositories in one case. The
 SharedRust lane assigns the `tests::git_history_rewrite::` module and the older
 `tests::git::git_write_squashes_`, `git_write_deletes_a_local_commit_`, and
 `git_write_edits_a_local_commit_message_` scenarios a 30-second process budget.
+The specific
+`tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash`
+case gets 45 seconds in both SharedRust and real-JDT: it creates six commits,
+reorders them into a conflict, skips the conflict and checks the final squash.
+Windows run 38698271030 hit its 30-second process deadline without an assertion
+failure; a clean rerun completed the same case in 9.2 seconds. The enclosing
+suite deadline and Core's nested 20-second request deadline remain in force.
 The `tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset`
 case also gets 30 seconds because it writes and inspects a real file larger
 than the 32 MiB patch limit; Windows CI terminated it at 16.1 seconds under

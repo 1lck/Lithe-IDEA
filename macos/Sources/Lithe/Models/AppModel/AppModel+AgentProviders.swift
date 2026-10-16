@@ -23,6 +23,23 @@ extension AppModel {
         if !affected.isEmpty { connectAgentConversation() }
     }
 
+    func setLocalAgentProviderHTTP(_ allowed: Bool, provider: AIProviderProfile) async throws {
+        try beginAgentProviderChange()
+        defer { finishAgentProviderChange() }
+        guard provider.credentialSource.configurationSource != nil,
+              settings.commitMessageAI.providers.contains(provider) else {
+            throw AgentProviderConfigurationError.invalidConfiguration
+        }
+        guard provider.allowsInsecureHTTP != allowed else { return }
+        let affected = settings.agentConfigurations.filter { $0.value.providerID == provider.id }.map(\.key)
+        try await stopAgentsForProviderChange(affected)
+        // Another window may refresh or delete the shared profile while connections stop.
+        guard settings.commitMessageAI.providers.contains(provider) else {
+            throw AgentProviderConfigurationError.invalidConfiguration
+        }
+        settings.updateAIProvider(provider.id) { $0.allowsInsecureHTTP = allowed }
+    }
+
     func deleteAgentProvider(_ provider: AIProviderProfile) async throws {
         try beginAgentProviderChange()
         defer { finishAgentProviderChange() }

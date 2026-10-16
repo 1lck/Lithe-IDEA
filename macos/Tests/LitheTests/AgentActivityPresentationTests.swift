@@ -25,7 +25,7 @@ struct AgentActivityPresentationTests {
         }
         host.layoutSubtreeIfNeeded()
         try await openPanel(.edits, in: host, window: window)
-        let popup = try #require(await waitForPopup(in: window))
+        let popup = try #require(await waitForPopup(in: window, updating: host))
         let content = try #require(popup.contentView)
         try capture(content, name: "activity-edits-actions")
         let rowCenter = content.bounds.height - 22
@@ -40,7 +40,7 @@ struct AgentActivityPresentationTests {
         try #require(await waitUntil { window.attachedSheet == nil }, "Done must dismiss the comparison")
 
         try await openPanel(.edits, in: host, window: window)
-        let nextPopup = try #require(await waitForPopup(in: window))
+        let nextPopup = try #require(await waitForPopup(in: window, updating: host))
         let nextContent = try #require(nextPopup.contentView)
         try click(NSPoint(x: nextContent.bounds.width - 19, y: rowCenter), in: nextContent, window: nextPopup)
         try #require(await waitUntil { window.attachedSheet != nil }, "Rollback must ask for confirmation")
@@ -77,7 +77,7 @@ struct AgentActivityPresentationTests {
             for panel in AgentActivitySummaryBar.Panel.allCases {
                 host.layoutSubtreeIfNeeded()
                 try await openPanel(panel, in: host, window: window)
-                let popup = try #require(await waitForPopup(in: window), "The \(panel.rawValue) segment must open a native panel")
+                let popup = try #require(await waitForPopup(in: window, updating: host), "The \(panel.rawValue) segment must open a native panel")
                 let content = try #require(popup.contentView)
                 #expect(abs(popup.frame.width - LitheDropdownMetrics.maximumWidth) < 1)
                 try capture(content, name: "activity-\(panel.rawValue)-\(scheme)")
@@ -132,7 +132,7 @@ struct AgentActivityPresentationTests {
             for panel in AgentActivitySummaryBar.Panel.allCases {
                 host.layoutSubtreeIfNeeded()
                 try await openPanel(panel, in: host, window: window)
-                let popup = try #require(await waitForPopup(in: window))
+                let popup = try #require(await waitForPopup(in: window, updating: host))
                 #expect(abs(popup.frame.width - LitheDropdownMetrics.maximumWidth) < 1)
                 #expect(popup.frame.height <= 290, "Long lists use an internal viewport instead of a tall outer card")
                 let content = try #require(popup.contentView)
@@ -214,17 +214,21 @@ struct AgentActivityPresentationTests {
     }
 
     private func openPanel(_ panel: AgentActivitySummaryBar.Panel, in host: NSView, window: NSWindow) async throws {
-        if let popup = popup(in: window) { try closePopup(popup) }
+        for popup in window.childWindows ?? [] where popup is NSPanel && popup.isVisible {
+            try closePopup(popup)
+        }
         try #require(await waitUntil(updating: host) {
             guard let trigger = anchor(in: host) else { return false }
-            return self.popup(in: window) == nil && trigger.window === window && !trigger.bounds.isEmpty
+            return window.childWindows?.contains { $0 is NSPanel && $0.isVisible } != true
+                && trigger.window === window && !trigger.bounds.isEmpty
         }, "The previous panel must dismiss and the activity trigger must finish layout before clicking")
         let trigger = try #require(anchor(in: host))
         let rect = trigger.convert(trigger.bounds, to: host)
         let point = NSPoint(x: rect.midX, y: host.isFlipped ? rect.midY : host.bounds.height - rect.midY)
         try click(point, in: host, window: window)
-        let popup = try #require(await waitForPopup(in: window))
+        let popup = try #require(await waitForPopup(in: window, updating: host))
         let content = try #require(popup.contentView)
+        content.layoutSubtreeIfNeeded()
         try capture(content, name: "activity-menu")
         let index = try #require(AgentActivitySummaryBar.Panel.allCases.firstIndex(of: panel))
         if panel == .running {
@@ -238,9 +242,10 @@ struct AgentActivityPresentationTests {
                 y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * (CGFloat(index) + 0.5)),
                 in: content, window: popup)
         }
-        try #require(await waitUntil {
-            (self.popup(in: window)?.frame.width ?? 0) >= LitheDropdownMetrics.maximumWidth - 1
-        })
+        try #require(await waitUntil(updating: host) {
+            window.childWindows?.contains { $0.isVisible
+                && $0.frame.width >= LitheDropdownMetrics.maximumWidth - 1 } == true
+        }, "The \(panel.rawValue) menu action must present its activity panel")
     }
 
     private func editedFile(path: String = "a.txt") -> AgentConversationMessage {
@@ -254,13 +259,14 @@ struct AgentActivityPresentationTests {
         return view.subviews.lazy.compactMap { nativeButton(in: $0, titles: titles) }.first
     }
 
-    private func popup(in window: NSWindow) -> NSPanel? {
-        window.childWindows?.compactMap { $0 as? NSPanel }.first { $0.isVisible }
-    }
-
-    private func waitForPopup(in window: NSWindow) async -> NSPanel? {
-        _ = await waitUntil { popup(in: window) != nil }
-        return popup(in: window)
+    private func waitForPopup(in window: NSWindow, updating host: NSView) async -> NSWindow? {
+        // The dropdown is presented after SwiftUI delivers the parent layout.
+        // Drive that boundary and observe only this host's native child panel.
+        host.needsLayout = true
+        guard await waitUntil(updating: host, {
+            window.childWindows?.contains { $0 is NSPanel && $0.isVisible } == true
+        }) else { return nil }
+        return window.childWindows?.first { $0 is NSPanel && $0.isVisible }
     }
 
     private func scrollView(in view: NSView) -> NSScrollView? {
