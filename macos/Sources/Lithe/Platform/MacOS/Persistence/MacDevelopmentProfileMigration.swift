@@ -7,6 +7,13 @@ import Darwin
 struct MacDevelopmentProfileMigration {
     static let markerKey = "lithe.developmentProfileImport.v1"
     private static let transactionName = ".stable-profile-import-v1.plist"
+    // These adapters persist user configuration outside the settings/lithe namespaces.
+    // Use the same allowlist when detecting existing Dev data to avoid replacing it.
+    private static let additionalUserPreferences: Set<String> = [
+        "database.profiles.v1", "database.connection-folders.v1",
+        "database.sql-history.v1", "database.backup-schedules.v1",
+        "platform.macos.workbenchBackgroundImageAccess"
+    ]
     private static let excludedPreferences: Set<String> = [
         AppUpdateChannel.preferenceKey, "settings.customLogDirectory", markerKey,
         "lithe.modules.pending-activation", "lithe.modules.pending-activations", "lithe.plugins.pending-code-load"
@@ -81,7 +88,8 @@ struct MacDevelopmentProfileMigration {
     }
 
     private static func isUserPreference(_ key: String) -> Bool {
-        key.hasPrefix("settings.") || key.hasPrefix("lithe.") || key == AppUpdateChannel.preferenceKey
+        key.hasPrefix("settings.") || key.hasPrefix("lithe.")
+            || additionalUserPreferences.contains(key) || key == AppUpdateChannel.preferenceKey
     }
 
     private static func shouldImport(_ key: String) -> Bool {

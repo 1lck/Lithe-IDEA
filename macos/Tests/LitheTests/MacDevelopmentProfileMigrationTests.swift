@@ -42,6 +42,54 @@ struct MacDevelopmentProfileMigrationTests {
     }
 
     @Test
+    func firstLaunchCopiesDatabasePreferencesAndCustomBackgroundAccess() throws {
+        let fixture = try ProfileFixture()
+        defer { fixture.cleanup() }
+        let preferences: [String: Data] = [
+            "database.profiles.v1": Data("connection-profiles".utf8),
+            "database.connection-folders.v1": Data("connection-folders".utf8),
+            "database.sql-history.v1": Data("sql-history".utf8),
+            "database.backup-schedules.v1": Data("backup-schedules".utf8),
+            "settings.workbenchBackground": Data("custom-background-selection".utf8),
+            "platform.macos.workbenchBackgroundImageAccess": Data("opaque-image-access".utf8)
+        ]
+        fixture.defaults.setPersistentDomain(preferences, forName: fixture.sourceDomain)
+
+        #expect(try fixture.prepare() == .imported)
+        for (key, value) in preferences {
+            #expect(fixture.defaults.data(forKey: key) == value)
+        }
+        #expect(fixture.defaults.string(forKey: MacDevelopmentProfileMigration.markerKey) == "imported")
+
+        // The copied records remain independent and are not refreshed from Stable.
+        fixture.defaults.set(Data("dev-profile".utf8), forKey: "database.profiles.v1")
+        #expect(try fixture.prepare() == .existing)
+        #expect(fixture.defaults.data(forKey: "database.profiles.v1") == Data("dev-profile".utf8))
+        #expect(fixture.defaults.persistentDomain(forName: fixture.sourceDomain)?["database.profiles.v1"] as? Data == preferences["database.profiles.v1"])
+    }
+
+    @Test(arguments: [
+        "database.profiles.v1", "database.connection-folders.v1",
+        "database.sql-history.v1", "database.backup-schedules.v1",
+        "platform.macos.workbenchBackgroundImageAccess"
+    ], [false, true])
+    func existingAdapterPreferenceAlonePreventsImport(key: String, emptyDirectoryExists: Bool) throws {
+        let fixture = try ProfileFixture()
+        defer { fixture.cleanup() }
+        let existing = Data("existing-dev-configuration".utf8)
+        fixture.defaults.setPersistentDomain(["settings.theme": "stable"], forName: fixture.sourceDomain)
+        fixture.defaults.set(existing, forKey: key)
+        if emptyDirectoryExists {
+            try FileManager.default.createDirectory(at: fixture.destination, withIntermediateDirectories: true)
+        }
+
+        #expect(try fixture.prepare() == .existing)
+        #expect(fixture.defaults.data(forKey: key) == existing)
+        #expect(fixture.defaults.object(forKey: "settings.theme") == nil)
+        #expect(fixture.defaults.object(forKey: MacDevelopmentProfileMigration.markerKey) == nil)
+    }
+
+    @Test
     func existingDevelopmentPreferencesOrFilesAreNeverMerged() throws {
         let fixture = try ProfileFixture()
         defer { fixture.cleanup() }

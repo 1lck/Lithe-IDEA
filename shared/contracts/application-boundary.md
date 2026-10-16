@@ -107,12 +107,16 @@ marker. Existing Dev data is never merged or overwritten; subsequent launches do
 not fall back to Stable. Changing the channel alone does not switch profiles.
 Updater/channel suppression state, custom log destinations, browser caches,
 indexes, locks and runtime connections are excluded. macOS also copies its local
-AI secret file, Maven preferences and marketplace source configuration; OS-vault
+AI secret file, Maven preferences and marketplace source configuration, along with
+persisted database configuration/history/schedules and custom background image access
+records. These preference keys also count as existing Dev data. OS-vault
 credentials remain separate and may require signing in again. Windows snapshots
 only native settings/Maven JSON and closed WebView localStorage, before creating
 any WebView; it never copies a live browser profile. A busy source or failed copy
 stops initialization with a retry message and no success marker. Published files
-and preferences resume from a staged snapshot after an interrupted commit.
+and preferences resume from a staged snapshot after an interrupted commit. Stable
+source roots are checked only when creating a new snapshot; existing Dev data,
+completed markers and frozen snapshot recovery must work without access to Stable.
 Signed bundles remain read-only.
 DMGs/ZIPs contain `Lithe-Dev.app` and Windows installers use the development product
 name, while public release asset filenames remain compatible. Pre-isolation

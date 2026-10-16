@@ -34,6 +34,13 @@ impl Fixture {
     fn prepare(&self) -> io::Result<bool> {
         prepare_paths(&self.stable_local, &self.local, &self.stable_data, &self.data)
     }
+
+    fn prepare_with_unavailable_stable(&self) -> io::Result<bool> {
+        // An embedded NUL makes any source metadata access fail on every OS,
+        // without relying on ACLs, symlink privileges or external processes.
+        let unavailable = self.root.join("unavailable\0stable");
+        prepare_paths(&unavailable, &self.local, &unavailable, &self.data)
+    }
 }
 
 impl Drop for Fixture {
@@ -81,6 +88,53 @@ fn existing_development_state_is_preserved_without_merging_stable_settings() {
     assert!(!fixture.prepare().unwrap());
     assert_eq!(fs::read(fixture.data.join("settings.json")).unwrap(), br#"{"theme":"dev"}"#);
     assert_eq!(fs::read_to_string(fixture.local.join(MARKER)).unwrap(), "existing");
+}
+
+#[test]
+fn completed_profiles_do_not_access_unavailable_stable_roots() {
+    for outcome in ["imported", "existing", "fresh"] {
+        let fixture = Fixture::new();
+        fixture.write(&format!("local/dev/{MARKER}"), outcome.as_bytes());
+        fixture.write("roaming/dev/settings.json", br#"{"theme":"dev"}"#);
+
+        assert_eq!(fixture.prepare_with_unavailable_stable().unwrap(), outcome == "imported");
+        assert_eq!(fs::read_to_string(fixture.local.join(MARKER)).unwrap(), outcome);
+        assert_eq!(fs::read(fixture.data.join("settings.json")).unwrap(), br#"{"theme":"dev"}"#);
+    }
+}
+
+#[test]
+fn existing_development_state_does_not_require_access_to_stable() {
+    let fixture = Fixture::new();
+    fixture.write("roaming/dev/settings.json", br#"{"theme":"dev"}"#);
+
+    assert!(!fixture.prepare_with_unavailable_stable().unwrap());
+    assert_eq!(fs::read_to_string(fixture.local.join(MARKER)).unwrap(), "existing");
+    assert_eq!(fs::read(fixture.data.join("settings.json")).unwrap(), br#"{"theme":"dev"}"#);
+}
+
+#[test]
+fn frozen_snapshot_recovers_without_accessing_stable_roots() {
+    let fixture = Fixture::new();
+    fixture.write(&format!("local/dev/{MARKER}"), b"pending");
+    fixture.write(&format!("local/dev/{STAGING}/data/settings.json"), br#"{"theme":"snapshot"}"#);
+    fixture.write(&format!("local/dev/{STAGING}/ready"), b"imported");
+    fixture.write("roaming/dev/settings.json", b"partially-installed-file");
+
+    assert!(fixture.prepare_with_unavailable_stable().unwrap());
+    assert_eq!(fs::read(fixture.data.join("settings.json")).unwrap(), br#"{"theme":"snapshot"}"#);
+    assert_eq!(fs::read_to_string(fixture.local.join(MARKER)).unwrap(), "imported");
+    assert!(!fixture.local.join(STAGING).exists());
+}
+
+#[test]
+fn new_snapshot_still_rejects_unavailable_stable_roots() {
+    let fixture = Fixture::new();
+
+    assert!(fixture.prepare_with_unavailable_stable().is_err());
+    assert_eq!(fs::read_to_string(fixture.local.join(MARKER)).unwrap(), "pending");
+    assert!(!fixture.data.exists());
+    assert!(!fixture.local.join(STAGING).exists());
 }
 
 #[test]

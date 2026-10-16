@@ -45,7 +45,7 @@ pub fn prepare(_app: &tauri::AppHandle) -> Result<bool, String> {
 }
 
 fn prepare_paths(stable_local: &Path, local: &Path, stable_data: &Path, data: &Path) -> io::Result<bool> {
-    for root in [stable_local, local, stable_data, data] {
+    for root in [local, data] {
         reject_existing_path(root)?;
     }
     let marker = local.join(MARKER);
@@ -71,6 +71,11 @@ fn prepare_paths(stable_local: &Path, local: &Path, stable_data: &Path, data: &P
     reject_existing_path(&staging)?;
     let ready = staging.join("ready");
     if !ready.try_exists()? {
+        // Completed Dev profiles and frozen snapshots no longer depend on Stable.
+        // Validate the source only when a new snapshot actually needs to read it.
+        for root in [stable_local, stable_data] {
+            reject_existing_path(root)?;
+        }
         if staging.try_exists()? {
             reject_links(&staging)?;
             fs::remove_dir_all(&staging)?;
