@@ -1196,8 +1196,8 @@ Tests 选择右侧；不要复制一套按钮、导航定位或打印代码。�
 
 右侧 Details 复用 Git Log/Debug 的 `LitheCollapsedActionStripe`、`ActionStripe` 度量和
 `LitheSplitPaneView`，默认收起。展开后可调整宽度，拖动结束才持久化，隐藏不处置运行。
-其中显示已有 Scope、Command、失败详情和源码定位。本次为布局复用，测试进程尚无 JVM
-性能目标，不能把 Debug 的活动会话或历史曲线借来当成测试性能数据。
+其中显示已有 Scope、Command、失败详情和源码定位；Performance 已接入本次测试 worker 的
+独立 JVM 目标及 JFR，不能把 Debug 的活动会话或历史曲线借来当成测试性能数据。
 
 `LanguageTestPresentationTests` 验证结果分组、方法匹配和树折叠边界；
 `ConsoleInlineInputTests.wallpaperChangesUpdateEveryConsoleLayerWithoutReplacingInput`
@@ -1248,3 +1248,7 @@ DarculaProgressBarUI 的确定进度绘制，状态条为3pt、两端半圆，�
 即 #BD5757/#57965C，不能直接用 Dark 的 accent-error-bg/accent-success-bg 替代。
 
 状态条右端与控制台文本区对齐：扣除 OutputTextView 尾侧共享 ActionStripe.width 及其1pt分隔线，不延伸到控制台工具栏或 Performance 折叠条。
+
+没有 Maven 结构化报告时，结果摘要按 LanguageTestService.state 保留通过、失败、取消及
+超时；仅 idle 使用未运行提示，不把 Go/Python/Node/Rust/Gradle 的结束状态丢掉。
+无报告的通过/失败仍使用同一状态条，取消不冒充成功。

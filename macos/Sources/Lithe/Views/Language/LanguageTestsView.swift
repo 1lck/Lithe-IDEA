@@ -464,7 +464,7 @@ struct LanguageTestsView: View {
                 if results.skipped > 0 { resultCount("Skipped", results.skipped, color: LitheTheme.warning) }
                 Text(localization.count("Tests", results.testsRun)).foregroundStyle(LitheTheme.secondaryText)
             } else {
-                Text(service.isRunning ? "Running tests…" : "Run a test to see its results.")
+                Text(LocalizedStringKey(Self.summaryText(for: service.state)))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer(minLength: 0)
@@ -474,13 +474,36 @@ struct LanguageTestsView: View {
         .frame(height: LitheTheme.Metrics.toolbarIconButtonSize + 2 * LitheTheme.ActionStripe.topInset)
         .litheWorkbenchSurface(LitheTheme.editor)
         .overlay(alignment: .bottom) {
-            if let results = service.results, results.failures + results.errors > 0 || results.passed > 0 {
+            if let color = resultStripeColor {
                 Capsule()
-                    .fill(results.failures + results.errors > 0 ? LitheTheme.TestResult.failed : LitheTheme.TestResult.passed)
+                    .fill(color)
                     .frame(height: LitheTheme.TestResult.stripeHeight)
                     .padding(.trailing, LitheTheme.ActionStripe.width + 1)
                     .allowsHitTesting(false)
             }
+        }
+    }
+
+    static func summaryText(for state: LanguageTestRunState) -> String {
+        switch state {
+        case .idle: "Run a test to see its results."
+        case .running: "Running"
+        case .passed: "Passed"
+        case .failed: "Failed"
+        case .timedOut: "Timed Out"
+        case .cancelled: "Cancelled"
+        }
+    }
+
+    private var resultStripeColor: Color? {
+        if let results = service.results {
+            if results.failures + results.errors > 0 { return LitheTheme.TestResult.failed }
+            return results.passed > 0 ? LitheTheme.TestResult.passed : nil
+        }
+        switch service.state {
+        case .passed: return LitheTheme.TestResult.passed
+        case .failed, .timedOut: return LitheTheme.TestResult.failed
+        default: return nil
         }
     }
 

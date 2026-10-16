@@ -64,9 +64,19 @@ Maven/Gradle 通常派生测试 JVM，只监测启动器会漏算测试负载。
 java 名称。多个 worker 由用户选择，按启动身份隔离历史；没有独立 worker 的 Maven
 in-process 模式和过短测试可显示无数据，不把构建 JVM 冒充测试。
 
+内置 Gradle 测试计划对本次调用传 `--no-daemon`，已有常驻 daemon 不会被停止或复用。
+Gradle 可按上游规则创建一次性 daemon，仍属于本次客户端的后代；因此现有 PID 与启动
+身份验证继续有效，不扫描或附加其他任务的 worker。代价是每次 Gradle 测试额外启动 JVM，
+普通构建保持原策略。自定义测试扩展若复用既有 daemon 且不提供当前操作的 worker 身份，
+仍不受支持，应显示无可用目标，不能猜测同名进程。
+依据：[Gradle Daemon](https://docs.gradle.org/current/userguide/gradle_daemon.html)。
+
 `TestJVMPerformanceFeatureModel` 协调目标选择与显式录制，复用共享图表 Feature。
 收起/切换到 Details 取消 live 采样；已经手动开始的录制保持到停止、worker退出或
-120秒上限。重跑、关闭和销毁取消旧操作、停止本次命名录制并删除其临时目录。
+120秒上限。停止请求失败时保留录制中状态和重试入口，禁止 Show Results 及开始新录制；
+只有停止成功或 provider 确认目标退出后才结束。所有异步操作完成或失败后统一重新协调
+发现轮询：隐藏且没有录制或忙碌操作时取消。重跑、关闭和销毁取消旧操作、停止本次
+命名录制并删除其临时目录。
 
 录制复用 JDK `jcmd JFR.start/stop` 与 `settings=profile`，最大64MiB、120秒，
 `dumponexit=true` 保留正常退出时的结果。JDK `jfr summary/view hot-methods/view
@@ -133,3 +143,15 @@ Windows 当前没有对应 UI/采集实现，矩阵明确标记缺失。完整�
 - `macos/Sources/Lithe/Views/Debug/DebugPerformancePane.swift`
 - `macos/Tests/LitheTests/DebugPerformanceSamplingTests.swift`
 - `macos/Tests/LitheTests/JVMPerformanceIntegrationTests.swift`
+
+审核回归增加非 Maven 成功/失败/取消、停止失败后重试、隐藏期间报告成功/失败与录制
+启动失败。Gradle 真实集成测试显式设置 LITHE_TEST_GRADLE_EXECUTABLE、
+LITHE_TEST_JAVA_EXECUTABLE、LITHE_TEST_JUNIT_JAR、LITHE_TEST_HAMCREST_JAR；
+私有临时 Gradle user home 内先启动兼容常驻 daemon，再由产品测试计划启动实际 JUnit
+测试，验证发现的 worker 属于本次客户端且既有 daemon 未被采样或停止，最后清理私有
+daemon、测试进程和临时目录。该测试离线使用调用方提供的 JUnit/Hamcrest，不下载依赖，
+单测试120秒、suite240秒；默认关闭，不依赖个人缓存路径。
+
+本轮原生截图使用已有 Maven 演示项目。新建 Gradle 演示项目在完整应用导入后测试提供方
+变为不可用，因此 Gradle 产品入口仍需另行验收；上面的真实集成只证明内置执行计划、
+已有 daemon 共存时的 worker 归属和原生发现，不声称覆盖整个项目导入链路。

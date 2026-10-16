@@ -74,8 +74,13 @@ final class TestJVMPerformanceFeatureModel: ObservableObject {
     func setVisible(_ value: Bool) {
         visible = value
         metrics.setVisible(value)
-        if value { discover() }
-        else if !isRecording && !isBusy { discovery?.cancel(); discovery = nil }
+        reconcileDiscovery()
+    }
+
+    private func reconcileDiscovery() {
+        if !visible && !isRecording && !isBusy {
+            discovery?.cancel(); discovery = nil
+        } else { discover() }
     }
 
     func select(_ process: TestJVMProcess) {
@@ -144,6 +149,7 @@ final class TestJVMPerformanceFeatureModel: ObservableObject {
             } catch {
                 guard let self, generation == current else { return }
                 isBusy = false; errorMessage = error.localizedDescription
+                reconcileDiscovery()
             }
         }
     }
@@ -151,19 +157,22 @@ final class TestJVMPerformanceFeatureModel: ObservableObject {
     func stopRecording() {
         guard let recording, let provider, isRecording, !isBusy else { return }
         let current = generation
-        isBusy = true
+        isBusy = true; errorMessage = nil
         operation = Task { [weak self] in
             do { try await provider.stopRecording(recording) }
             catch {
                 guard let self, generation == current else { return }
                 errorMessage = error.localizedDescription
+                isBusy = false
+                reconcileDiscovery()
+                return
             }
             guard let self, generation == current else { return }
             recordingDuration = min(120, max(0, Date().timeIntervalSince(recording.startedAt)))
             isRecording = false; isBusy = false
             if let first = processes.first, selectedProcess.map({ !processes.contains($0) }) ?? true { selectedProcess = first }
             selectMetrics(active: active)
-            if !visible { discovery?.cancel(); discovery = nil }
+            reconcileDiscovery()
         }
     }
 
@@ -176,9 +185,11 @@ final class TestJVMPerformanceFeatureModel: ObservableObject {
                 let result = try await provider.report(recording)
                 guard let self, !Task.isCancelled, generation == current else { return }
                 report = result; isBusy = false
+                reconcileDiscovery()
             } catch {
                 guard let self, generation == current else { return }
                 errorMessage = error.localizedDescription; isBusy = false
+                reconcileDiscovery()
             }
         }
     }

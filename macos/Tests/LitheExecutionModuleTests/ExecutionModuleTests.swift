@@ -2021,8 +2021,8 @@ struct ExecutionModuleTests {
         #expect(!service.isRunning)
     }
 
-    @Test
-    func nonMavenLanguageTestsDoNotParseMavenResults() async throws {
+    @Test(arguments: [LanguageTestRunState.passed, .failed(exitCode: 7), .cancelled])
+    func nonMavenLanguageTestsDoNotParseMavenResults(expectedState: LanguageTestRunState) async throws {
         let root = URL(fileURLWithPath: "/workspace/gradle-tests", isDirectory: true)
         let source = root.appendingPathComponent(
             "src/test/java/com/example/CalculatorTest.java"
@@ -2051,11 +2051,14 @@ struct ExecutionModuleTests {
             projectFiles: [buildFile, source]
         ))
         #expect(service.activePlan?.frameworkID == "gradle")
+        #expect(service.activePlan?.launchPlan.arguments.contains("--no-daemon") == true)
         defer { service.reset() }
 
-        process.onTermination?(0)
-        try await awaitTestValue(service.$state, matching: { $0 == .passed })
-        #expect(service.state == .passed)
+        if expectedState == .cancelled { service.stop() }
+        if case .failed(let code) = expectedState { process.onTermination?(code) }
+        else { process.onTermination?(0) }
+        try await awaitTestValue(service.$state, matching: { $0 == expectedState })
+        #expect(service.state == expectedState)
         #expect(service.results == nil)
         #expect(parser.calls == 0)
     }

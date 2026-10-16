@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheExecutionModule
 import Testing
 @testable import Lithe
 
@@ -35,6 +36,15 @@ struct LanguageTestPresentationTests {
         #expect(LanguageTestsView.visibleItems(items, collapsed: ["nested"]).map(\.id)
             == ["first", "method", "nested", "second", "otherMethod"])
         #expect(LanguageTestsView.visibleItems(items, collapsed: []).map(\.id) == items.map(\.id))
+    }
+
+    @Test func summaryPreservesUnstructuredRunStates() {
+        let states: [(LanguageTestRunState, String)] = [(.idle, "Run a test to see its results."),
+            (.running, "Running"), (.passed, "Passed"), (.failed(exitCode: 7), "Failed"),
+            (.cancelled, "Cancelled"), (.timedOut, "Timed Out")]
+        for (state, expected) in states {
+            #expect(LanguageTestsView.summaryText(for: state) == expected)
+        }
     }
 
     private func testItem(_ id: String, selector: String? = nil, depth: Int) -> LanguageTestItem {

@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheExecutionModule
 import Testing
 @testable import Lithe
 
@@ -96,6 +97,93 @@ struct TestJFRIntegrationTests {
             throw error
         }
     }
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_TEST_GRADLE_EXECUTABLE"] != nil))
+    func gradleTestWorkerIsOwnedEvenWithAnExistingDaemon() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let gradle = try #require(environment["LITHE_TEST_GRADLE_EXECUTABLE"])
+        let java = try #require(environment["LITHE_TEST_JAVA_EXECUTABLE"])
+        let junit = try #require(environment["LITHE_TEST_JUNIT_JAR"])
+        let hamcrest = try #require(environment["LITHE_TEST_HAMCREST_JAR"])
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-gradle-\(UUID().uuidString)")
+        let source = directory.appendingPathComponent("src/test/java/OwnedWorkerTest.java")
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.copyItem(atPath: junit, toPath: directory.appendingPathComponent("junit.jar").path)
+        try FileManager.default.copyItem(atPath: hamcrest, toPath: directory.appendingPathComponent("hamcrest.jar").path)
+        let build = directory.appendingPathComponent("build.gradle")
+        try """
+        plugins { id 'java' }
+        dependencies { testImplementation files('junit.jar', 'hamcrest.jar') }
+        test { useJUnit(); testLogging.showStandardStreams = true }
+        tasks.register('probeDaemon') { doLast { println('DAEMON:' + ProcessHandle.current().pid()) } }
+        """.write(to: build, atomically: true, encoding: .utf8)
+        try """
+        import org.junit.Test;
+        import java.nio.file.*;
+        public class OwnedWorkerTest {
+          @Test public void holdsWorker() throws Exception {
+            System.out.println("READY");
+            long deadline = System.nanoTime() + 30000000000L;
+            while (!Files.exists(Paths.get("release")) && System.nanoTime() < deadline) { Thread.onSpinWait(); }
+          }
+        }
+        """.write(to: source, atomically: true, encoding: .utf8)
+        let home = directory.appendingPathComponent("gradle-home").path
+        let options = ["--offline", "--console=plain", "--gradle-user-home", home]
+        let processEnvironment = ["JAVA_HOME": URL(fileURLWithPath: java).deletingLastPathComponent().deletingLastPathComponent().path]
+        func runGradle(_ arguments: [String]) async -> ProcessResult {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(returning: MacProcessRunner().run(ProcessRequest(
+                        executablePath: gradle, arguments: options + arguments, workingDirectory: directory.path,
+                        environment: processEnvironment, timeoutMilliseconds: 60_000)))
+                }
+            }
+        }
+        let process = MacStreamingProcess()
+        defer { process.stop() }
+        do {
+            let warmup = await runGradle(["--daemon", "probeDaemon"])
+            try #require(warmup.succeeded, "\(warmup.output)")
+            let daemonPID = try #require(warmup.output.split(separator: "\n")
+                .first(where: { $0.hasPrefix("DAEMON:") }).flatMap { Int32($0.dropFirst(7)) })
+            #expect(MacProcessMemorySampler().cpuSnapshot(for: daemonPID) != nil)
+            let descriptor = LanguageProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"],
+                capabilities: [.testing], activationPolicy: .onDemand)
+            let plan = try StandardLanguageTestProvider(descriptor: descriptor).testPlan(scope: .workspace,
+                context: LanguageTestContext(workspaceURL: directory, projectFiles: [build, source]))
+            let probe = JFRWorkerProbe()
+            process.onOutput = { probe.receive($0) }
+            process.onStateChange = { if $0.state == .running { probe.processID = $0.processID } }
+            try process.start(ProcessRequest(executablePath: gradle, arguments: options + plan.launchPlan.arguments,
+                workingDirectory: directory.path, environment: processEnvironment, timeoutMilliseconds: 60_000))
+            #expect(await probe.ready.waitUntilOpen(timeout: .seconds(40)))
+            let root = try #require(probe.processID)
+            let discovered = TestGate()
+            var target: TestJVMProcess?
+            let discovery = Task { @MainActor in
+                for try await workers in MacTestJVMPerformance(processRegistry: nil).processes(rootProcessID: root) {
+                    if let worker = workers.first { target = worker; discovered.open(); break }
+                }
+            }
+            defer { discovery.cancel() }
+            #expect(await discovered.waitUntilOpen(timeout: .seconds(5)))
+            let worker = try #require(target)
+            #expect(worker.processID != daemonPID)
+            #expect(MacProcessMemorySampler().descendantProcessIDs(of: [root]).contains(worker.processID))
+            #expect(MacProcessMemorySampler().cpuSnapshot(for: daemonPID) != nil,
+                    "The pre-existing daemon must be left running and untouched")
+            try Data().write(to: directory.appendingPathComponent("release"))
+            #expect(await process.stopAndWait())
+            let stopped = await runGradle(["--stop"])
+            #expect(stopped.succeeded, "\(stopped.output)")
+        } catch {
+            _ = await process.stopAndWait()
+            _ = await runGradle(["--stop"])
+            throw error
+        }
+    }
+
 }
 
 private final class JFRWorkerProbe: @unchecked Sendable {
