@@ -36,6 +36,12 @@ const FALLBACK_FONTS: FontInfo[] = [
     style: "Regular",
     is_monospace: true,
   },
+  {
+    name: "JetBrains Mono",
+    family: "JetBrains Mono",
+    style: "Regular",
+    is_monospace: true,
+  },
 ];
 
 interface FontCache {
