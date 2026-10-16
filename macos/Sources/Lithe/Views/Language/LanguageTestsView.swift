@@ -473,7 +473,14 @@ struct LanguageTestsView: View {
         .padding(.horizontal, 8)
         .frame(height: LitheTheme.Metrics.toolbarIconButtonSize + 2 * LitheTheme.ActionStripe.topInset)
         .litheWorkbenchSurface(LitheTheme.editor)
-        .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
+        .overlay(alignment: .bottom) {
+            if let results = service.results, results.failures + results.errors > 0 || results.passed > 0 {
+                Capsule()
+                    .fill(results.failures + results.errors > 0 ? LitheTheme.TestResult.failed : LitheTheme.TestResult.passed)
+                    .frame(height: LitheTheme.TestResult.stripeHeight)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     private func testDetail(_ item: LanguageTestItem) -> some View {

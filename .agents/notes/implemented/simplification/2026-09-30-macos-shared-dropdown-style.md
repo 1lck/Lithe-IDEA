@@ -1237,3 +1237,12 @@ Show Results 的结果窗口同时复用 Git Patch 等表单的 `LitheCenteredPo
 由共享 presenter 提供原生标题栏、父窗口居中、关闭和事件隔离；内容继续使用统一
 OutputTextView。关闭动作放在对话框底部，采用现有对话框按钮与 Esc，移除独立 sheet
 标题行和工作台表面，避免系统 sheet 圆角背景与产品对话框混用。
+
+Test 结果摘要下方不再画普通分隔线：有失败/错误时红色，否则有通过项时绿色；
+无结果、运行准备中或全部跳过不画。重跑沿用服务清空 results 的生命周期。
+依据同 revision 的 TestStatusLine `ProgressBar.stripeWidth=3` 与
+DarculaProgressBarUI 的确定进度绘制，状态条为3pt、两端半圆，颜色由共享
+`LitheTheme.TestResult` 持有。Light 的 ProgressBar.failedColor/passedColor 解析为
+#E4656E/#4E9D6C；Dark 主题中的 failedcolor/passedcolor 是小写键，UITheme
+按大小写精确写入 UIDefaults，因此实际取 ExperimentalDark 父主题 Red6/Green6，
+即 #BD5757/#57965C，不能直接用 Dark 的 accent-error-bg/accent-success-bg 替代。

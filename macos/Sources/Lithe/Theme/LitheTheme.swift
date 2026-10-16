@@ -729,6 +729,14 @@ enum LitheTheme {
     static var linkColor: Color { link }
 
     /// Shared by Git Log branch actions and Console actions.
+    enum TestResult {
+        // Community TestStatusLine stripeWidth + DarculaProgressBarUI determinate capsule.
+        static let stripeHeight: CGFloat = 3
+        // Exact ProgressBar.passedColor/failedColor: Islands Light; ExperimentalDark parent.
+        static var passed: Color { controlColor(light: 0x4E9D6C, dark: 0x57965C) }
+        static var failed: Color { controlColor(light: 0xE4656E, dark: 0xBD5757) }
+    }
+
     enum ActionStripe {
         // Community UIUtil.SMALL + Islands text-default; compact pane titles.
         static var titleFont: Font { LitheTheme.uiFont(size: 11) }
