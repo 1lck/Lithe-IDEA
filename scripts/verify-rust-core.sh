@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/macos-swift-build-options.sh"
 
 mkdir -p .artifacts/test-stability
 node --test --test-reporter=spec --test-reporter-destination=stdout \
@@ -42,7 +43,7 @@ if ! /usr/bin/xcrun ld -help 2>&1 | /usr/bin/grep -q -- '-no_warn_duplicate_libr
     SWIFT_LINKER_ARGS=(-Xswiftc "-ld-path=$ROOT_DIR/scripts/ld-macos13-compat.sh")
 fi
 
-SWIFT_BUILD_ARGS=(build --disable-sandbox --triple "$TRIPLE" "${SWIFT_LINKER_ARGS[@]}")
+SWIFT_BUILD_ARGS=(build --disable-sandbox "${LITHE_SWIFT_BUILD_ARGS[@]}" --triple "$TRIPLE" "${SWIFT_LINKER_ARGS[@]}")
 SWIFT_BIN_PATH="$(swift build --show-bin-path --configuration debug --triple "$TRIPLE")"
 if [[ "$SWIFT_BIN_PATH" == */out/Products/* ]]; then
     # Newer SwiftPM layouts put all --triple products below .build/out. Use a

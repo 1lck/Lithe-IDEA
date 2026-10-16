@@ -8,7 +8,7 @@ CI 缓存的是经过版本和依赖约束的中间构建结果，不缓存最�
 PR 先通过编译和测试获得快速反馈；macOS 仅在包敏感改动时生成测试包，
 Windows PR 不再生成安装包。Windows 安装包由 preview 和稳定版发布工作流
 负责，避免发布产物阻塞日常代码验证。组织使用 GitHub Free 计划，全组织同时
-最多运行 5 个 macOS job，所以每次推送占用的 macOS runner 数量本身就是
+最多运行 5 个 GitHub 托管 macOS job，另有自建 Mac mini 的三个槽位。每次推送占用的 macOS runner 数量本身就是
 需要控制的成本：同一份 Swift 测试编译只做一次，PR 只打 arm64 包，Draft PR
 不占 macOS/Windows runner。
 
@@ -20,12 +20,37 @@ Rust Core、数据库辅助 crate 和前端构建的耗时来源不同；如果�
 
 ## 决策
 
-macOS CI 与发布工作流统一使用 `macos-26` runner 上的 Xcode 26.6，编译器
+macOS CI 与发布工作流统一使用 Xcode 26.6，编译器
 固定为 `.swift-version` 中的 Swift 6.3.3。共用的 `setup-macos-toolchain` action
 选择 Xcode 后校验实际编译器版本；不一致就立即失败，不能悄悄使用 runner 的
 默认版本。SwiftPM 缓存键与完整性校验都读取这个版本文件。这个基线不能因为
 某台开发机升级了 Xcode 27 而改变，否则仍在 macOS 15 上工作的开发者会被迫
 升级开发环境。
+
+日常 CI 的 Rust Core/Swift bridge 和应用打包验证迁到带有
+`lithe-mac-mini` 标签的自托管执行器，包括 fork 提交到本仓库的 PR。
+同一台 M4/16 GB Mac mini 注册三个独立 runner，各自占用独立工作目录，
+提供三个任务槽位。Swift 主测试、插件测试和发布流程保留 GitHub 托管执行器，
+因此自建机器承担最重的两类任务，官方池仍能并行处理其他验证。
+
+三个 runner 共用物理资源，不等于三台机器。自建任务通过
+`prepare-macos-ci-runner` 安装 Node 24，检查系统工具并记录整机资源快照；
+设置 `CARGO_BUILD_JOBS=2` 与 `LITHE_SWIFT_BUILD_JOBS=2`，SwiftPM 入口统一
+加载 `scripts/macos-swift-build-options.sh`，本地和官方任务未设置变量时保持原并发。
+这限制编译器调度，不限制所有测试子进程，也不放宽原有测试期限。
+自建 Xcode 由管理员预先选择，CI 只校验固定版本并设置 job 内的
+`DEVELOPER_DIR`，不让三个任务并发修改机器级 Xcode 选择。
+
+正确做法：三个 runner 都带同一标签、分别使用自己的 checkout、构建输出和
+临时目录。不要这样做：把 `.build`、`rust/target` 或整个 `.artifacts` 链接为
+共享目录来省磁盘，这会把不同 PR 的可变状态混在一起。现有 checkout 清理和
+缓存身份验证不变，没有新增可复用资源或跨 runner 编译状态共享。
+
+此分配没有自动溢出：自建池满或离线时，指定该池的任务等待，不会借用官方
+槽位。保留 `pull_request` 事件、只读仓库权限及原有审批策略，不改为
+`pull_request_target`，不向 fork 提供发布密钥。三个服务共用登录用户的桌面，
+首轮真机并发仍需确认 WebKit、DMG 和集成测试的资源竞争及内存压力；本地静态
+检查不能证明三并发已经稳定。
 
 此前在旧 runner 上通过 Swiftly 安装独立工具链失败，测试未能启动。因此继续
 使用完整 Xcode，让 Swift、链接器和 SDK 保持匹配。Xcode 27/SDK 27 只作为
@@ -250,6 +275,8 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - 构建工作流调整时必须同步检查缓存键、包架构、gate 依赖和 artifact 保留期。
 
 ## 验证
+
+- `node --test scripts/macos-swift-build-options.test.mjs`：覆盖默认并发、有效预算及无效输入。
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-database.yml .github/workflows/ci-plugins.yml`
 - `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane 的用例。
