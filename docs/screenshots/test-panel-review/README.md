@@ -15,4 +15,4 @@
 ## 测试发现列表
 
 - `discovery-dark.png`、`discovery-light.png`：本次重建应用中的真实未运行列表，显示工作区分组、共享Java文件、类与方法原始图标。已检查运行后通过/错误/失败/跳过状态、关闭运行后回到发现树，以及主题恢复为深色。
-- `LanguageTestPresentationTests` 6项通过，覆盖明暗原始资源尺寸、发现分组与方法图标、结果状态优先和共享文件类型分类；没有推送或更新PR。
+- `LanguageTestPresentationTests` 6项通过，覆盖明暗原始资源尺寸、发现分组与方法图标、结果状态优先和共享文件类型分类。
