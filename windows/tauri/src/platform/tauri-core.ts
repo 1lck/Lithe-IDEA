@@ -168,7 +168,6 @@ function capabilityForCommand(command: string): BackendCapability | null {
   }
   if (
     command.includes("acp_") ||
-    command.includes("codex_") ||
     command.includes("ai_provider") ||
     command.includes("_chat") ||
     command === "get_available_agents"

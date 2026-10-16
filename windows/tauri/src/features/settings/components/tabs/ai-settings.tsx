@@ -57,7 +57,6 @@ import {
   removeProviderApiToken,
   storeProviderApiToken,
 } from "@/features/ai/services/ai-token-service";
-import { CodexSettings } from "@/features/ai/integrations/codex/codex-settings";
 import { useTranslation } from "@/i18n/locale-provider";
 const DEFAULT_AUTOCOMPLETE_MODEL_ID = "mistralai/devstral-small";
 
@@ -436,7 +435,6 @@ export const AISettings = () => {
 
   return (
     <SettingsView>
-      <CodexSettings />
       <Section title="Lithe Agent">
         <SettingRow
           label={t("aiSettings.provider")}
