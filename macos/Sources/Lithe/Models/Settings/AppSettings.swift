@@ -910,6 +910,11 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         }
     }
 
+    func localizedString(_ key: String, bundle: Bundle = .main) -> String {
+        (bundle.url(forResource: rawValue, withExtension: "lproj").flatMap(Bundle.init(url:)) ?? bundle)
+            .localizedString(forKey: key, value: key, table: nil)
+    }
+
     var locale: Locale {
         Locale(identifier: rawValue)
     }

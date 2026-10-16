@@ -167,7 +167,7 @@ struct RunEntryPointTests {
         model.runSelectedConfiguration()
 
         let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
-        #expect(deferred, "Run must be deferred while the file inventory is provisional")
+        try #require(deferred, "Run must be deferred while the file inventory is provisional")
         let runFeature = try #require(model.runFeatureIfActive)
         #expect(
             runFeature.configurationStatus == .ready,
