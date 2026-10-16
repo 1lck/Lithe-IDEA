@@ -1,0 +1,37 @@
+name: Prepare shared macOS CI runner
+description: Supply Node and bound compilation on the three runners sharing one Mac mini.
+runs:
+  using: composite
+  steps:
+    - name: Set up Node for CI tooling
+      uses: actions/setup-node@v4
+      with:
+        node-version: "24"
+    - name: Verify Swift compilation budget handling
+      shell: bash
+      run: |
+        mkdir -p .artifacts/test-stability
+        node --test --test-reporter=spec --test-reporter-destination=stdout \
+          --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/macos-build-budget.xml \
+          scripts/macos-swift-build-options.test.mjs
+    - name: Configure per-job resource budget
+      shell: bash
+      run: |
+        {
+          echo 'LITHE_SWIFT_BUILD_JOBS=2'
+          echo 'CARGO_BUILD_JOBS=2'
+        } >> "$GITHUB_ENV"
+        for tool in git python3 ruby; do
+          command -v "$tool" > /dev/null || {
+            echo "::error::Required CI tool is missing: $tool"
+            exit 1
+          }
+        done
+        node --version
+        python3 --version
+        ruby --version
+        # Whole-host snapshots help assess three-job contention. They are not
+        # per-job memory measurements because all runners share the same host.
+        sysctl hw.memsize hw.logicalcpu
+        sysctl vm.swapusage
+        df -h "$GITHUB_WORKSPACE"

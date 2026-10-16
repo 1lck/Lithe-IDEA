@@ -280,7 +280,7 @@ jobs:
     name: Rust Core and Swift bridge tests
     needs: changes
     if: needs.changes.outputs.rust_core == 'true'
-    runs-on: macos-26
+    runs-on: [self-hosted, macOS, ARM64, lithe-mac-mini]
     # Cold Rust and Swift builds can consume 30 minutes before report upload.
     # Individual test harness deadlines still bound the integration suites.
     timeout-minutes: 40
@@ -288,6 +288,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+
+      - name: Prepare shared Mac mini runner
+        uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
@@ -323,7 +326,7 @@ jobs:
     name: Release package verification (${{ matrix.architecture }})
     needs: changes
     if: needs.changes.outputs.macos_release == 'true'
-    runs-on: macos-26
+    runs-on: [self-hosted, macOS, ARM64, lithe-mac-mini]
     # A universal build without a Cargo compilation cache takes about 45
     # minutes: Rust and Swift compile once per slice before packaging twice.
     timeout-minutes: 60
@@ -338,6 +341,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+
+      - name: Prepare shared Mac mini runner
+        uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Bun for shared editor assets
         uses: oven-sh/setup-bun@v2

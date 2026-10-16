@@ -18,6 +18,7 @@ if [[ "$CONFIGURATION" != "debug" && "$CONFIGURATION" != "release" ]]; then
 fi
 
 cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/macos-swift-build-options.sh"
 "$ROOT_DIR/scripts/verify-macos-app-build-safety.sh"
 "$ROOT_DIR/scripts/build-editor.sh"
 
@@ -63,7 +64,7 @@ if [[ -n "$RUST_TARGET" ]]; then
 fi
 RUST_LIBRARY="$(scripts/build-rust-core.sh "${RUST_BUILD_ARGS[@]}")"
 
-SWIFT_ARGS=(build --disable-sandbox)
+SWIFT_ARGS=(build --disable-sandbox "${LITHE_SWIFT_BUILD_ARGS[@]}")
 if [[ -n "$TRIPLE" ]]; then
     # Newer SwiftPM layouts put all --triple products below .build/out. Use a
     # per-architecture scratch path only for that layout; SwiftPM versions
