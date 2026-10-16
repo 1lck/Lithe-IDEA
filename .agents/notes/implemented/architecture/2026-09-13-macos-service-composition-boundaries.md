@@ -158,6 +158,8 @@ Core 和 Application 代码不得 import SwiftUI、AppKit、CoreServices 或具�
 stdio、JSON-RPC 状态、文档版本、请求 deadline、诊断和消息归一化的唯一
 所有者。
 
+Run 的项目就绪判断由 `RunService.isProjectReady` 统一提供：快照匹配且整次加载结束后才能返回就绪。文件清单会先于工具链和配置选择写入，因此加载中的快照不能作为启动许可；否则调用者刚选择的 Current File 会被稍后返回的默认配置覆盖。Run、Debug 和重运行入口均复用此判断，不在各自入口添加等待或延长超时。回归通过 `ExecutionModuleTests.projectLoadAwaitsToolchainProbesWithoutBlockingOrApplyingStaleResults` 暂停工具链加载，断言加载期间不可启动、完成后才就绪；`RunEntryPointTests` 的延迟快照由测试显式放行，后台扫描不能推进测试阶段。
+
 View 只接收 `AppModel` 或专门的 UI Feature Model，不得接收具体的
 workflow service、直接调用 Rust C ABI 或构造平台适配器。
 
