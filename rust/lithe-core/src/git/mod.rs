@@ -3306,6 +3306,23 @@ pub fn blame(request: GitBlameRequest) -> Result<GitBlameResponse, CoreError> {
     Ok(GitBlameResponse { lines })
 }
 
+/// Normalizes CRLF and bare CR newlines to LF. Line numbers are preserved,
+/// so mapping stays valid while both comparison sides share one newline
+/// semantics regardless of repository autocrlf settings.
+fn normalize_line_history_newlines(content: &str) -> String {
+    if content.contains('\r') {
+        content.replace("\r\n", "\n").replace('\r', "\n")
+    } else {
+        content.to_string()
+    }
+}
+
+/// Counts lines the way editors do: a trailing newline starts one final,
+/// empty line that Rust's `lines()` does not yield.
+fn line_history_line_count(content: &str) -> usize {
+    content.lines().count() + usize::from(content.ends_with('\n'))
+}
+
 /// Removes one line-history scratch directory on every exit path.
 struct ScopedLineHistoryDirectory(std::path::PathBuf);
 
@@ -3510,8 +3527,13 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
         .limit
         .unwrap_or(LINE_HISTORY_DEFAULT_LIMIT)
         .clamp(1, LINE_HISTORY_MAX_LIMIT);
-    let snapshot_line_count = request.content.lines().count();
-    if request.end_line > snapshot_line_count.max(1) {
+    let snapshot = normalize_line_history_newlines(&request.content);
+    // Range validation uses the editor's line count, where a trailing newline
+    // starts one final empty line; the mapping walk uses the physical line
+    // count because that final line has no counterpart in any diff.
+    let editor_line_count = line_history_line_count(&snapshot);
+    let snapshot_line_count = snapshot.lines().count();
+    if request.end_line > editor_line_count.max(1) {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Git line history range exceeds the snapshot",
@@ -3520,15 +3542,24 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
 
     // Pin one revision so the snapshot mapping and the history walk cannot
     // observe different HEADs when a commit lands mid-query.
-    let base_commit = readonly_command(GitCommandRequest {
+    let base_commit = match readonly_command(GitCommandRequest {
         root: request.root.clone(),
         arguments: vec!["rev-parse".to_string(), "HEAD".to_string()],
         input: None,
-    })
-    .ok()
-    .filter(|response| response.exit_code == 0)
-    .map(|response| response.output.trim().to_string())
-    .unwrap_or_default();
+    }) {
+        Ok(response) if response.exit_code == 0 => response.output.trim().to_string(),
+        // Only a repository without commits has no line history; every other
+        // failure (invalid root, timeout, cancellation) must surface.
+        Ok(response) if response.output.contains("unknown revision") => String::new(),
+        Ok(response) => {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Git line history could not resolve HEAD",
+            )
+            .with_details(response.output))
+        }
+        Err(error) => return Err(error),
+    };
     let unmapped_new_lines = || {
         (request.start_line..=request.end_line)
             .map(|line| GitLineHistoryUnmappedLine {
@@ -3557,8 +3588,9 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
     });
     let head_content = match head_content {
         Ok(response) if response.exit_code == 0 => response.output,
-        // The pinned revision does not contain the file: every queried line is new.
-        _ => {
+        // Only a path absent from the pinned revision counts as new; other
+        // failures must propagate rather than fabricate "new" lines.
+        Ok(response) if response.output.contains("does not exist") => {
             return Ok(GitLineHistoryResponse {
                 base_commit,
                 unmapped_lines: unmapped_new_lines(),
@@ -3566,13 +3598,22 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
                 truncated: false,
             })
         }
+        Ok(response) => {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Git line history could not read the pinned revision",
+            )
+            .with_details(response.output))
+        }
+        Err(error) => return Err(error),
     };
 
     let scratch = create_line_history_scratch()?;
     let head_path = scratch.0.join("head.txt");
     let snapshot_path = scratch.0.join("snapshot.txt");
+    let head_content = normalize_line_history_newlines(&head_content);
     std::fs::write(&head_path, &head_content).map_err(line_history_io_error)?;
-    std::fs::write(&snapshot_path, &request.content).map_err(line_history_io_error)?;
+    std::fs::write(&snapshot_path, &snapshot).map_err(line_history_io_error)?;
 
     // Exit code 1 only reports differences between the two scratch files;
     // anything above that is a genuine failure. Driver overrides keep the
@@ -3612,7 +3653,7 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
             _ => intervals.push((revision_line, revision_line)),
         }
     }
-    let unmapped_lines = unmapped
+    let mut unmapped_lines = unmapped
         .into_iter()
         .filter(|(line, _)| requested.contains(line))
         .map(|(line, inserted)| GitLineHistoryUnmappedLine {
@@ -3620,6 +3661,15 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
             kind: if inserted { "new" } else { "unreliable" }.to_string(),
         })
         .collect::<Vec<_>>();
+    // The editor's trailing virtual line exists only for display; it never
+    // maps onto committed content and is reported as newly added.
+    for line in requested.clone().filter(|line| *line > snapshot_line_count) {
+        unmapped_lines.push(GitLineHistoryUnmappedLine {
+            line,
+            kind: "new".to_string(),
+        });
+    }
+    unmapped_lines.sort_unstable_by_key(|entry| entry.line);
     if intervals.is_empty() {
         return Ok(GitLineHistoryResponse {
             base_commit,

@@ -5416,3 +5416,79 @@ fn git_line_history_rejects_snapshots_beyond_the_size_budget() {
 
     fs::remove_dir_all(&root).expect("line-history repository should be removable");
 }
+
+#[test]
+fn git_line_history_normalizes_crlf_snapshots() {
+    let root = line_history_repository("line-history-crlf");
+    fs::write(root.join("doc.txt"), "alpha
+bravo
+charlie
+")
+        .expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+    fs::write(root.join("doc.txt"), "alpha
+bravo-two
+charlie
+")
+        .expect("line-history file should be writable");
+    line_history_commit(&root, "reword bravo");
+
+    // The editor snapshot arrives with CRLF newlines while the repository
+    // stores LF; unchanged lines must still map and find their history.
+    let crlf_snapshot = "alpha
+bravo-two
+charlie
+";
+    let response = line_history_query(&root, "doc.txt", crlf_snapshot, 2, 2);
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["unmappedLines"].as_array().map(Vec::len),
+        Some(0),
+        "{response:?}"
+    );
+    assert_eq!(
+        line_history_subjects(&response["data"]),
+        vec!["reword bravo", "initial"],
+        "{response:?}"
+    );
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_accepts_trailing_empty_line_queries() {
+    let root = line_history_repository("line-history-trailing");
+    fs::write(root.join("doc.txt"), "a
+b
+c
+")
+        .expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+
+    // Editors count the final newline as a fourth, empty line; querying it
+    // must answer "new" instead of rejecting the range.
+    let response = line_history_query(&root, "doc.txt", "a
+b
+c
+", 4, 4);
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["unmappedLines"],
+        serde_json::json!([{ "line": 4, "kind": "new" }]),
+        "{response:?}"
+    );
+    assert_eq!(
+        response["data"]["commits"].as_array().map(Vec::len),
+        Some(0)
+    );
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_propagates_repository_failures() {
+    let missing = std::env::temp_dir().join("lithe-line-history-missing-root");
+    let response = line_history_query(&missing, "doc.txt", "one
+", 1, 1);
+    assert_eq!(response["ok"], false, "{response:?}");
+}
