@@ -36,11 +36,11 @@ export const STATIC_POOLS = Object.freeze({
   plugins: 'hosted',
 });
 
-// Lanes that stay on hosted runners until the Mac minis can run them. Swift
-// tests need a WindowServer session that publishes native windows
-// (DesktopIsolationTests); a Mac mini without an active display does not.
-// Remove the lane here once the runner host keeps a display session awake.
-export const HOSTED_ONLY_LANES = new Set(['swift']);
+// Lanes that always stay on hosted runners while the Mac minis cannot run them.
+// A run can add lanes through LITHE_HOSTED_ONLY_LANES: the classifier keeps
+// Swift tests on hosted macOS 26 when the test isolation code changes, because
+// the Mac minis' macOS 27 skips its WindowServer alpha check (#1278).
+export const HOSTED_ONLY_LANES = new Set();
 
 // Lanes claim free runners in this order. Swift tests own the longest critical
 // path once they also verify the Rust bridge, so they get the faster pool first.
@@ -80,7 +80,7 @@ export function countBusyRunners(jobs) {
 // other group, then a free hosted runner. Pushes and manual runs stay on the
 // Mac minis even when they are busy, so a merge never takes a hosted runner
 // that a pull request is waiting for.
-export function assignPools({ lanes, busy, capacity, macMiniOnly }) {
+export function assignPools({ lanes, busy, capacity, macMiniOnly, hostedOnly = HOSTED_ONLY_LANES }) {
   const used = { 'mac-mini': busy['mac-mini'], hosted: busy.hosted, groups: { ...(busy.groups ?? {}) } };
   for (const group of Object.keys(MAC_MINI_GROUPS)) used.groups[group] ??= 0;
   const groupHasRoom = (group) => used['mac-mini'] < capacity['mac-mini']
@@ -91,7 +91,7 @@ export function assignPools({ lanes, busy, capacity, macMiniOnly }) {
     const preferred = LANE_GROUP[lane];
     const other = Object.keys(MAC_MINI_GROUPS).find((group) => group !== preferred);
     let pool;
-    if (HOSTED_ONLY_LANES.has(lane)) {
+    if (hostedOnly.has(lane)) {
       pool = 'hosted';
     } else if (groupHasRoom(preferred)) {
       pool = miniPool(preferred);
@@ -177,11 +177,12 @@ export async function selectRunners(env, fetchImpl = fetch) {
     hosted: positiveInteger('LITHE_HOSTED_MACOS_CAPACITY', env.LITHE_HOSTED_MACOS_CAPACITY, 5),
   };
   const macMiniOnly = env.GITHUB_EVENT_NAME !== 'pull_request';
+  const hostedOnly = new Set([...HOSTED_ONLY_LANES, ...parseLanes(env.LITHE_HOSTED_ONLY_LANES)]);
   if (lanes.length === 0) {
     return { runners: runnersFor({}), pools: {}, busy: null, reason: 'no macOS lane selected' };
   }
   if (macMiniOnly) {
-    const pools = assignPools({ lanes, busy: { 'mac-mini': 0, hosted: 0 }, capacity, macMiniOnly });
+    const pools = assignPools({ lanes, busy: { 'mac-mini': 0, hosted: 0 }, capacity, macMiniOnly, hostedOnly });
     return { runners: runnersFor(pools), pools, busy: null, reason: `${env.GITHUB_EVENT_NAME} runs use the Mac minis only` };
   }
   try {
@@ -194,7 +195,7 @@ export async function selectRunners(env, fetchImpl = fetch) {
       fetchImpl,
     });
     const busy = countBusyRunners(jobs);
-    const pools = assignPools({ lanes, busy, capacity, macMiniOnly });
+    const pools = assignPools({ lanes, busy, capacity, macMiniOnly, hostedOnly });
     return { runners: runnersFor(pools), pools, busy, reason: 'chosen from active jobs' };
   } catch (error) {
     const pools = Object.fromEntries(lanes.map((lane) => [lane, STATIC_POOLS[lane]]));

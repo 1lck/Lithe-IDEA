@@ -8,6 +8,7 @@
 
 pub mod catalog;
 pub mod cli_update;
+mod codex_context;
 mod codex_retry;
 pub mod environment;
 pub mod install;
@@ -59,6 +60,11 @@ const CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_CALL_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 /// Upper bound on `session/list` pages so a misbehaving cursor cannot loop forever.
 const MAX_SESSION_LIST_PAGES: usize = 50;
+/// Windows flag that runs the adapter with a console it cannot display. The
+/// desktop shell is a GUI process without a console, so a console-subsystem
+/// adapter would otherwise open a visible console window on every launch.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Bytes of agent stderr kept for failure reports; older output is discarded.
 const STDERR_TAIL_BYTES: usize = 16 * 1024;
 const STDERR_TAIL_LINES: usize = 20;
@@ -88,8 +94,8 @@ pub struct AgentLaunch {
     #[serde(default)]
     pub authentication: AgentAuthentication,
     pub provider: Option<ProviderCredentials>,
-    /// Route API-key provider traffic through the loopback observation proxy
-    /// and emit `modelCall` events. Ignored for subscription connections.
+    /// Observe API-key or Codex subscription inference through the loopback
+    /// proxy and emit model-call measurements without retaining request bodies.
     #[serde(default)]
     pub observe_model_calls: bool,
 }
@@ -763,8 +769,22 @@ async fn run_agent(
     }
     let turns: RunningTurns = Arc::new(Mutex::new(HashMap::new()));
     let calls_in_flight = Arc::new(model_proxy::CallsInFlight::default());
-    let _model_calls = match launch.gateway.as_mut().filter(|_| observe_model_calls) {
-        Some(route) => {
+    let observation_upstream = observe_model_calls
+        .then(|| {
+            launch
+                .gateway
+                .as_ref()
+                .map(|route| route.base_url.clone())
+                .or_else(|| {
+                    launch
+                        .subscription_cli
+                        .as_ref()
+                        .map(|_| subscription::INFERENCE_ORIGIN.to_owned())
+                })
+        })
+        .flatten();
+    let _model_calls = match observation_upstream {
+        Some(upstream) => {
             let running = turns.clone();
             let session: model_proxy::SessionResolver =
                 Arc::new(move || sole_running_session(&running));
@@ -779,32 +799,97 @@ async fn run_agent(
                 });
             // Statistics are optional. A proxy that cannot start leaves the
             // configured endpoint in place rather than blocking the Agent.
-            match model_proxy::start(&route.base_url, session, sink, calls_in_flight.clone()).await
-            {
+            match model_proxy::start(&upstream, session, sink, calls_in_flight.clone()).await {
                 Ok(proxy) => {
-                    route.base_url = proxy.base_url().to_owned();
-                    Some(proxy)
+                    let configured = if let Some(route) = launch.gateway.as_mut() {
+                        route.base_url = proxy.base_url().to_owned();
+                        true
+                    } else {
+                        subscription::observe_model_calls(&mut launch, proxy.base_url()).is_ok()
+                    };
+                    if configured {
+                        Some(proxy)
+                    } else {
+                        eprintln!("Codex subscription statistics are unavailable");
+                        None
+                    }
                 }
-                Err(_) => None,
+                Err(_) => {
+                    eprintln!("Agent model-call statistics could not start");
+                    None
+                }
             }
         }
         None => None,
     };
-    let _relay = if launch
+    let native_recovery = launch
         .gateway
         .as_ref()
-        .is_some_and(|route| route.native_recovery)
+        .is_some_and(|route| route.native_recovery);
+    let codex_executable = if native_recovery {
+        Some(
+            launch
+                .env
+                .iter()
+                .find(|(name, _)| name == "CODEX_PATH")
+                .map(|(_, value)| PathBuf::from(value))
+                .ok_or("Codex executable is unavailable")?,
+        )
+    } else {
+        launch.subscription_cli.clone()
+    };
+    let mut context_recovery = if codex_executable.is_some() {
+        match codex_context::Recovery::start().await {
+            Ok(recovery) => Some(Arc::new(recovery)),
+            Err(_) => {
+                eprintln!("Codex history context reporting is unavailable");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let _relay = if let Some(executable) = codex_executable
+        .filter(|_| native_recovery || context_recovery.is_some() || _model_calls.is_some())
     {
-        let executable = launch
-            .env
-            .iter()
-            .find(|(name, _)| name == "CODEX_PATH")
-            .map(|(_, value)| PathBuf::from(value))
-            .ok_or("Codex executable is unavailable")?;
-        let (relay, env) = codex_retry::Relay::create(&executable)?;
-        launch.env.retain(|(name, _)| name != "CODEX_PATH");
-        launch.env.extend(env);
-        Some(relay)
+        match codex_retry::Relay::create(&executable, native_recovery) {
+            Ok((relay, mut env)) => {
+                if let Some(recovery) = &context_recovery {
+                    env.push(("LITHE_CODEX_CONTEXT_URL".into(), recovery.url().into()));
+                }
+                if launch.subscription_cli.is_some() {
+                    if let Some(proxy) = &_model_calls {
+                        env.push((
+                            "LITHE_CODEX_OBSERVATION_BASE".into(),
+                            format!("{}/backend-api/codex", proxy.base_url()),
+                        ));
+                    }
+                }
+                launch.env.retain(|(name, _)| name != "CODEX_PATH");
+                launch.env.extend(env);
+                Some(relay)
+            }
+            Err(error) if native_recovery => return Err(error),
+            Err(_) => {
+                eprintln!("Could not prepare Codex history context reporting");
+                context_recovery = None;
+                // Without the native account-routing guard, retain direct
+                // inference rather than bypassing managed residency rules.
+                if launch.subscription_cli.is_some() {
+                    if let Some((_, config)) = launch
+                        .env
+                        .iter_mut()
+                        .find(|(name, _)| name == "CODEX_CONFIG")
+                    {
+                        let mut value: serde_json::Value = serde_json::from_str(config)
+                            .map_err(|_| "Codex subscription configuration is unavailable")?;
+                        value["openai_base_url"] = serde_json::json!("");
+                        *config = value.to_string();
+                    }
+                }
+                None
+            }
+        }
     } else {
         None
     };
@@ -839,6 +924,10 @@ async fn run_agent(
         command.process_group(0);
     }
     let mut command = tokio::process::Command::from(command);
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -877,6 +966,7 @@ async fn run_agent(
         launch.cwd,
         launch.gateway,
         launch.subscription_cli,
+        context_recovery,
         controls,
         TurnActivity {
             permissions,
@@ -975,6 +1065,7 @@ async fn run_connection<OB, IB>(
     cwd: PathBuf,
     gateway: Option<GatewaySignIn>,
     subscription_cli: Option<PathBuf>,
+    context_recovery: Option<Arc<codex_context::Recovery>>,
     mut controls: async_mpsc::UnboundedReceiver<Control>,
     activity: TurnActivity,
     emit: Emit,
@@ -994,6 +1085,7 @@ where
     let restored_meta = session_routing::restored_metadata(gateway.as_ref())?;
     let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     let updates = emit.clone();
+    let context_updates = context_recovery.clone();
     let update_turns = turns.clone();
     let requests = emit.clone();
     let permission_turns = turns.clone();
@@ -1017,6 +1109,9 @@ where
                         return Ok(());
                     };
                     let session_id = notification.session_id.0.to_string();
+                    if update["sessionUpdate"] == "usage_update" {
+                        if let Some(recovery) = &context_updates { recovery.prefer_upstream_report(&session_id); }
+                    }
                     let mut reconnect = None;
                     if let Ok(turns) = update_turns.lock() {
                         if let Some(turn) = turns.get(&session_id) {
@@ -1277,6 +1372,7 @@ where
                         let cwd = cwd.clone();
                         let session_meta = restored_meta.clone();
                         let confirm_model = session_meta.is_some();
+                        let capture = context_recovery.as_ref().and_then(|recovery| recovery.capture(&session_id));
                         tasks.spawn(async move {
                             let mut request = LoadSessionRequest::new(session_id.clone(), cwd);
                             request.meta = session_meta;
@@ -1285,6 +1381,13 @@ where
                                 session_restore::load_session(&connection, request, confirm_model),
                             )
                             .await;
+                            if result.is_ok() {
+                                if let Some(capture) = capture {
+                                    if let Some(update) = capture.finish().await {
+                                        emit(AgentEvent::Update { session_id: session_id.clone(), update });
+                                    }
+                                }
+                            }
                             emit(match result {
                                 Ok(response) => AgentEvent::SessionLoaded { token, session_id, config_options: response.config_options },
                                 Err(message) => failed(Some(token), Some(session_id), message),

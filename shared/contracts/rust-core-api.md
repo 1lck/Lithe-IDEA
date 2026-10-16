@@ -132,7 +132,8 @@ quota/context/budget exhaustion is permanent. No other Codex terminal failure
 automatically resubmits a prompt. Subscription sessions preserve native login,
 refresh and retry policy; custom ACP commands receive no Codex configuration.
 
-Each API-key Codex launch owns `<system-temp>/lithe-codex-retry-<UUID>/` until its
+Each Codex launch requiring retry compatibility, history recovery or guarded
+subscription observation owns `<system-temp>/lithe-codex-retry-<UUID>/` until its
 process tree stops. Its script comes from embedded first-party source and holds
 no credential. Preparation/spawn failure, cancellation and completion remove
 the directory. The host does not write installed packages, bundles, CLI settings
@@ -152,7 +153,7 @@ and launch failures are reported as a `stopped` event with a message.
 inherited API-key, endpoint, token and gateway overrides are removed for this
 child only. Session configuration also clears `openai_base_url` and selects the
 official `chatgpt_base_url`, preventing saved custom routes from overriding the
-subscription selection. The quota probe receives the same route overrides. No Lithe HTTP provider, stored API key or configured provider model
+subscription selection. The quota probe always keeps the official account route; optional inference observation never changes login or quota routing. No Lithe HTTP provider, stored API key or configured provider model
 is consulted. Codex owns login, token refresh and session model options.
 The pinned ACP adapter's `_auth/status_update` notification confirms the account.
 An existing account proceeds to `account` then `ready`; otherwise
@@ -180,9 +181,15 @@ not imply five hours. Unknown usage remains null. `quotaFailed.code` is
 `unavailable`, `timeout`, `unparsable`, `unauthorized`, or `accountChanged`.
 Consumers retain the last snapshot as stale for transient errors, clear it on
 identity failures/disconnect, and never reinterpret unknown as zero. The macOS
-composer shows a small chip to the right of context usage, refreshes while
-visible and active, and requests a throttled refresh after turns. Hover details
-include all windows and reset times; API-key connections show no quota chip.
+composer refreshes while visible and active, and requests a throttled refresh
+after turns. Hover details include all windows and reset times; API-key
+connections show no quota control.
+macOS keeps a compact icon and text quota summary in the composer top strip,
+preferring the actual five-hour window and falling back to the actual seven-day
+window. Details appear only on hover and show
+separate used percentages, gray-track progress bars and reset times. Known usage
+is green through 60%, yellow above 60% through 90%, and red above 90%; unknown
+or stale data remains gray. Window duration and missing values are never invented.
 
 `lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
 `listSessions`, `setConfigOption`, `prompt`, `steer`, `cancel`, `permission`, `authenticate`,
@@ -375,7 +382,21 @@ by `sessionId`. Consumers replace the previous snapshot, allowing usage to drop
 after compaction; these values are not cumulative billing tokens. Missing or
 invalid data and a zero capacity represent unknown usage, not an empty window.
 The macOS indicator clears stale capacity on disconnect or confirmed model
-changes and waits for a new report; it does not infer limits from model names.
+changes; it does not infer limits from model names. A consumer may retain the
+last actual report in its existing workspace/Agent/session-scoped store, bound
+to confirmed raw model option IDs and values. Restore it only after loading
+confirms the same nonempty model selection. Preserve the historical source
+in state; the macOS UI omits source labels and shows only the usage figures.
+A new valid or invalid replay report takes precedence. Model changes
+invalidate stored occupancy; historical messages without a report remain unknown.
+For the pinned Codex adapter, the Host may recover its missing history report
+from the existing native App Server connection during the same load. The relay
+uses an authenticated, bounded, per-launch loopback channel and per-load tickets;
+no second thread writer, prompt or private history parsing is used. The Host
+emits the same `usage_update` shape before `sessionLoaded`, with
+`_meta.lithe.contextUsageSource: "history"` to identify a last-reported snapshot.
+Standard ACP reports take precedence; cancelled/replaced loads cannot publish
+a late native report. Failure or absent native usage never blocks history loading.
 
 `turnFinished` optionally includes the ACP prompt response's `usage` object:
 required unsigned `totalTokens`, `inputTokens`, `outputTokens`, and optional
@@ -388,15 +409,18 @@ They must not derive these counters from context occupancy or subscription quota
 `acp-events-v1.json` covers completion both with and without usage.
 
 The launch JSON's optional `observeModelCalls` (default `false`) asks the host to
-start a loopback proxy for API-key gateway connections and hand the Agent
+start a loopback proxy for API-key gateways or Codex subscription inference and hand the Agent
 `http://127.0.0.1:<port>/lithe-<token>` instead of the configured endpoint.
 Requests and responses are forwarded unchanged; requests other than generation
 endpoints stream through without buffering, and generation bodies over 32 MiB
 are forwarded without composition. Same-origin `Location` headers are mapped
-back onto the proxy path; cross-origin targets are left unchanged. Subscription
-connections and a proxy that fails to start keep the configured endpoint. Each generation request
+back onto the proxy path; cross-origin targets are left unchanged. A proxy that
+fails to start leaves the native route unchanged. Codex subscriptions retain the
+official OpenAI provider and receive a process-only openai_base_url ending in
+/backend-api/codex; Codex owns account credentials, refresh and retries. Each generation request
 (`.../messages`, `.../responses`, `.../chat/completions`) then produces one
-`modelCall` event with `call.api`, optional `model`, HTTP `status`, `streaming`,
+`modelCall` event with `call.api`, optional `model`, HTTP `status` (200 for
+WebSocket completion or an explicit upstream error status), `streaming`,
 optional `firstTokenMs`, `durationMs`, optional provider `usage`
 (`inputTokens` excluding cache reads and writes for every protocol, `cacheReadTokens`, `cacheWriteTokens`,
 `outputTokens`, optional `reasoningTokens`) and optional estimated prompt
@@ -408,6 +432,29 @@ a turn's attributed calls to report before emitting its `turnFinished`, so they
 arrive first. A call still open after that bound carries `afterTurnFinished: true`
 and counts for the session only, never for a later turn. Redirect (3xx) hops are
 forwarded but are not model calls; only the followed request is reported.
+Responses WebSocket upgrades preserve the original handshake and wire bytes,
+including masking, fragments, compression, control frames and close frames.
+Observation parses copies with a 32 MiB limit for each frame/assembled or
+inflated message, preserving each negotiated deflate dictionary lifetime.
+Each response.create inference has one observation; generate=false prewarm,
+handshakes and control frames never count. previous_response_id inherits only
+verified cached numeric section sizes and completed output sizes. One previous
+response ID (at most 256 bytes) and at most 1024 output item sizes are retained
+per connection. Unknown previous IDs omit composition rather than treating a
+delta as the whole context. Malformed, overlapping or over-budget messages
+stop observation only; forwarding continues. All upgraded sockets and tasks
+are closed with the owning launch. Bodies and credentials are never persisted.
+The existing native relay permits subscription observation only after a current
+account/read confirms workspaceRouting with backendOrigin https://chatgpt.com
+and accountRoutingOverride NO_CONSTRAINT. Missing/failed/managed routing keeps
+the native default inference endpoint. Account/login change notifications revoke
+confirmed routing and pending discovery requests, so a late response cannot
+authorize the new account or workspace even when its email is unchanged. A fresh
+native query is required; an account change also closes an already observed
+connection. Login, workspace discovery and quota routing remain native.
+Old subscription histories retain actual native context occupancy but cannot
+acquire missing request composition retroactively.
+
 Calls without `usage` make session token sums a lower bound, which consumers
 must label as such. Unparsable provider data omits the
 optional fields and never affects forwarding. Without these events, consumers do
@@ -516,6 +563,16 @@ credentials or credential-presence flags. Configuration text is limited to
 API keys, validate Agent protocol compatibility, and persist credentials in their
 native vault. This operation does not discover or write local CLI files.
 
+The optional `allowIncomplete: true` is for switching an editor draft back to
+form fields. It accepts syntactically valid incomplete or blank input, preserves
+missing endpoint/model fields as empty strings, and does not inject CLI defaults.
+Claude metadata uses `apiKey` authentication when no credential is present;
+an explicit auth token still uses `bearer`. Credential extraction remains
+host-owned and may return an empty key only in this draft mode. Malformed text
+and the 64 KiB limit still fail with redacted errors. Omitting this flag keeps
+the existing parser behavior; saving still requires all fields, a compatible
+protocol and explicit consent for HTTP.
+
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
@@ -527,11 +584,16 @@ CLI found on that `PATH` with its minimum version; they are installed with
 with the user's CLI through the adapter's variable (`CODEX_PATH`,
 `CLAUDE_CODE_EXECUTABLE`). A missing or
 too old CLI is an issue for the user to resolve, never installed by Lithe.
-For Codex, `cli.installation.updateAvailable` is `true` only when the verified
+For every catalog CLI, `cli.installation.updateAvailable` is `true` only when the verified
 installation owner reports a newer release, `false` when no newer release is found
 (npm's published version or Homebrew's local index), and absent when the check is
 unavailable. It does not change `canUpdate`, which only describes whether Lithe can
-safely invoke that owner. Homebrew checks do not refresh the local index automatically.
+safely invoke that owner. npm checks query the verified update target, including
+its explicit `@latest` tag; Homebrew checks query the verified owning package and
+do not refresh the local index automatically. Native installers without a
+read-only version protocol report an absent value; checks never execute an
+updater or substitute a different release channel. New catalog CLIs reuse this
+source-based check without command-name branches.
 `agent.install` runs `npm install` into a staging directory
 and replaces the previous install only after the adapter executable exists; it
 honors `operationId` cancellation and `timeoutMilliseconds`. Failures use
@@ -567,12 +629,12 @@ only when `canUpdate` is true. The hint is never executable input. Absent fields
 remain backward compatible with older hosts. Windows installer/shim ownership
 has not been verified; unrecognized installations use the manual path.
 The minimum CLI version is a compatibility requirement, not a latest-version
-check. For compatible Codex CLIs, macOS offers Update only when `canUpdate` and
+check. For all compatible CLIs, macOS offers Update only when `canUpdate` and
 `updateAvailable` are both true, including when the preflight row is collapsed.
 A false or absent `updateAvailable` hides that action. Too-old CLIs retain the
 upgrade repair action when `canUpdate` is true, regardless of `updateAvailable`;
-manual guidance remains available for owners Lithe cannot update. Other CLIs keep
-the owner-permitted update action.
+manual guidance remains available when a version check is unknown or an owner
+cannot be updated safely.
 After a successful update, users reconnect the Agent to start the updated CLI
 and obtain its model catalog; existing conversations are not interrupted automatically.
 

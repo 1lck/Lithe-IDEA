@@ -2874,7 +2874,6 @@
 "Keymap…" = "快捷键…";
 /* Agent session status (issue #22) */
 "Model call statistics" = "模型调用统计";
-"Routes API-key Agent requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and keys are forwarded unchanged and never stored. Applies after reconnecting; subscription sign-in is not observed." = "通过本机本地代理转发 API Key 模式的 Agent 请求，用于显示模型调用次数、首 token 延迟、输出速度和上下文构成。请求与密钥原样转发，不会保存。重新连接后生效；订阅登录不统计。";
 "%@ tok" = "%@ tok";
 "%@ tok/s" = "%@ tok/s";
 "%@s" = "%@秒";
@@ -3086,8 +3085,6 @@
 "Searched %lld time" = "搜索了 %lld 次";
 "Fetched %lld page" = "获取了 %lld 个网页";
 "Used %lld tool" = "调用了 %lld 个工具";
-"Subscription sign-in sends requests directly to the provider, so Lithe cannot see the system prompt, tool definitions and messages. Use API key mode to see the breakdown." = "订阅登录的请求直接发往服务商，不经过 Lithe 本地代理，因此无法统计系统提示词、工具定义和对话消息的占比。改用 API Key 模式即可查看明细。";
-"Subscription sign-in sends requests directly to the provider, so model calls, time to first token and output speed are not observed." = "订阅登录的请求直接发往服务商，不经过 Lithe 本地代理，因此无法统计模型调用次数、首 token 延迟和输出速度。";
 "Command" = "命令";
 "Errors" = "错误输出";
 "Exit code %lld" = "退出码 %lld";
@@ -3116,3 +3113,23 @@
 
 "No updates found in the local Homebrew index." = "当前 Homebrew 索引未发现更新。";
 "Run `brew update` manually, then check again for updates." = "请手动运行 `brew update`，然后重新检查更新。";
+"%@ · %@ / %@ context used" = "%@ · %@ / %@ 上下文已使用";
+"Breakdown unavailable" = "分项暂不可用";
+"Turn on Model call statistics, reconnect and send a message to see the breakdown." = "开启“模型调用统计”，重新连接并发送消息后可查看分项。";
+"Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting." = "通过本机本地代理转发 API Key 和 Codex 订阅请求，用于显示模型调用次数、首 token 延迟、输出速度和上下文构成。请求与凭据原样转发，不会保存。重新连接后生效。";
+"5 hours" = "5 小时";
+"7 days" = "7 天";
+
+// Agent provider form
+"Use form" = "使用表单";
+"Edit configuration text" = "编辑配置文本";
+"API request URL" = "API 请求地址";
+"Enter API key" = "填写 API Key";
+"Enter model ID" = "填写模型 ID";
+"Show API key" = "显示密钥";
+"Hide API key" = "隐藏密钥";
+"Base URL for a service compatible with the OpenAI Responses API." = "填写兼容 OpenAI Responses API 的服务端基础地址。";
+"Base URL for an Anthropic Messages API service." = "填写兼容 Anthropic Messages API 的服务端基础地址。";
+"Use a model ID supported by your provider." = "填写该服务商支持的模型 ID。";
+"Enter a model ID supported by your provider." = "请填写该服务商支持的模型 ID。";
+"The API key is stored separately from settings. Your local CLI configuration is not changed." = "密钥与设置分开存储，不会修改本机 CLI 配置。";

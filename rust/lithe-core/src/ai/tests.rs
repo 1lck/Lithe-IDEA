@@ -40,12 +40,52 @@ fn agent_provider_configuration_errors_are_bounded_and_redacted() {
         json!({"source":"codex", "configuration":"x".repeat(65 * 1024)}),
         json!({"source":"codex", "configuration": null}),
     ] {
-        let error = parse_provider_configuration(payload).unwrap_err();
-        let value = serde_json::to_string(&error).unwrap();
-        assert!(value.contains("invalid_request"));
-        assert!(!value.contains("fixture-secret"));
-        assert!(!value.contains("details"));
+        for allow_incomplete in [false, true] {
+            let mut payload = payload.clone();
+            payload["allowIncomplete"] = allow_incomplete.into();
+            let error = parse_provider_configuration(payload).unwrap_err();
+            let value = serde_json::to_string(&error).unwrap();
+            assert!(value.contains("invalid_request"));
+            assert!(!value.contains("fixture-secret"));
+            assert!(!value.contains("details"));
+        }
     }
+}
+
+#[test]
+fn agent_provider_drafts_preserve_missing_fields_without_credentials_or_cli_defaults() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/provider-configuration-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["draftCases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&crate::execute_json(&json!({
+            "id": "draft-fixture", "command": "agent.parseProviderConfiguration",
+            "payload": {"source": case["source"], "configuration": case["configuration"], "allowIncomplete": true}
+        }).to_string())).unwrap();
+        assert_eq!(response["ok"], true, "{}", case["id"]);
+        for (key, value) in case["expected"].as_object().unwrap() {
+            assert_eq!(&response["data"][key], value, "{}", case["id"]);
+        }
+        assert!(!response.to_string().contains("fixture-secret"));
+        assert!(response["data"].get("credential").is_none());
+        assert!(response["data"].get("hasCredential").is_none());
+    }
+    // The editor-only flag must not relax the existing strict/default CLI parser.
+    let strict_codex = parse_provider_configuration(
+        json!({"source":"codex", "configuration":"model = 'draft-model'"}),
+    )
+    .unwrap();
+    assert_eq!(strict_codex["endpoint"], "https://api.openai.com/v1");
+    assert!(parse_provider_configuration(
+        json!({"source":"codex", "configuration":"model_provider = 'custom'"})
+    )
+    .is_err());
+    let strict =
+        parse_provider_configuration(json!({"source":"claude", "configuration":"{}"})).unwrap();
+    assert_eq!(strict["endpoint"], "https://api.anthropic.com/v1");
+    assert_eq!(strict["model"], "claude-sonnet-4-5");
+    assert_eq!(strict["authentication"], "bearer");
 }
 
 fn fixture() -> (Provider, CommitOptions, Vec<CommitFile>, Value) {

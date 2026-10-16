@@ -7,9 +7,13 @@ struct AgentProviderDraft: Identifiable {
     var providerID: UUID?
     var source: AIConfigurationSourceKind
     var name: String = ""
+    var endpoint: String = ""
+    var model: String = ""
+    var apiKey: String = ""
     var configuration: String
     var authentication: String
     var allowsInsecureHTTP = false
+    var isEditingConfigurationText = false
 }
 
 /// Coordinates metadata persistence and secure credentials without altering CLI files.
@@ -23,38 +27,60 @@ struct AgentProviderConfiguration {
         let endpoint = provider?.endpoint ?? ""
         let model = provider?.model ?? source.newProviderModel
         let key = provider.flatMap { secureStore.read(key: $0.apiKeyIdentifier) } ?? ""
-        let configuration: String
-        let authentication: String
-        switch source {
+        var draft = AgentProviderDraft(providerID: provider?.id, source: source, name: provider?.name ?? "",
+            endpoint: endpoint, model: model, apiKey: key, configuration: "", authentication: "",
+            allowsInsecureHTTP: provider?.allowsInsecureHTTP ?? false)
+        let text = try configurationText(for: draft)
+        draft.configuration = text.configuration
+        draft.authentication = text.authentication
+        return draft
+    }
+
+    /// Switch the active input once, so hidden fields never overwrite configuration text.
+    func setConfigurationTextEditing(_ enabled: Bool, draft: inout AgentProviderDraft) throws {
+        guard enabled != draft.isEditingConfigurationText else { return }
+        if enabled {
+            let text = try configurationText(for: draft)
+            draft.configuration = text.configuration
+            draft.authentication = text.authentication
+        } else {
+            // Parse before changing the draft: invalid pasted text remains available to correct.
+            let snapshot = try parser.parse(source: draft.source, configuration: draft.configuration,
+                authentication: draft.authentication, allowIncomplete: true)
+            let expected: CommitMessageAPIProtocol = draft.source == .codex ? .responses : .anthropicMessages
+            guard snapshot.apiProtocol == expected else { throw AgentProviderConfigurationError.unsupportedProtocol }
+            draft.endpoint = snapshot.endpoint
+            draft.model = snapshot.model
+            draft.apiKey = snapshot.apiKey ?? ""
+        }
+        draft.isEditingConfigurationText = enabled
+    }
+
+    private func configurationText(for draft: AgentProviderDraft) throws -> (configuration: String, authentication: String) {
+        switch draft.source {
         case .codex:
-            configuration = """
-            model = \(try quoted(model))
+            let configuration = """
+            model = \(try quoted(draft.model.trimmingCharacters(in: .whitespacesAndNewlines)))
             model_provider = "custom"
 
             [model_providers.custom]
             name = "custom"
-            base_url = \(try quoted(endpoint))
+            base_url = \(try quoted(draft.endpoint.trimmingCharacters(in: .whitespacesAndNewlines)))
             wire_api = "responses"
             requires_openai_auth = true
             """
-            authentication = try json(["OPENAI_API_KEY": key])
+            return (configuration, try json(["OPENAI_API_KEY": draft.apiKey]))
         case .claude:
-            configuration = try json(["env": ["ANTHROPIC_BASE_URL": endpoint,
-                "ANTHROPIC_MODEL": model, "ANTHROPIC_API_KEY": key]])
-            authentication = ""
+            return (try json(["env": ["ANTHROPIC_BASE_URL": draft.endpoint.trimmingCharacters(in: .whitespacesAndNewlines),
+                "ANTHROPIC_MODEL": draft.model.trimmingCharacters(in: .whitespacesAndNewlines), "ANTHROPIC_API_KEY": draft.apiKey]]), "")
         }
-        return AgentProviderDraft(providerID: provider?.id, source: source, name: provider?.name ?? "",
-            configuration: configuration, authentication: authentication,
-            allowsInsecureHTTP: provider?.allowsInsecureHTTP ?? false)
     }
 
     /// Validate before stopping a connection or changing saved state.
     func validate(_ draft: AgentProviderDraft) throws -> (AIProviderProfile, String) {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw AgentProviderConfigurationError.invalidName }
-        let snapshot = try parser.parse(source: draft.source, configuration: draft.configuration, authentication: draft.authentication)
-        let expected: CommitMessageAPIProtocol = draft.source == .codex ? .responses : .anthropicMessages
-        guard snapshot.apiProtocol == expected else { throw AgentProviderConfigurationError.unsupportedProtocol }
+        let snapshot = try configurationSnapshot(for: draft)
         let existing = draft.providerID.flatMap { id in settings.commitMessageAI.providers.first { $0.id == id } }
         // Imported profiles stay linked to their CLI; stale editor drafts cannot recreate deleted profiles.
         guard draft.providerID == nil || existing?.credentialSource == .local else {
@@ -74,6 +100,29 @@ struct AgentProviderConfiguration {
         let key = snapshot.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !key.isEmpty else { throw AgentProviderConfigurationError.missingAPIKey }
         return (provider, key)
+    }
+
+    private func configurationSnapshot(for draft: AgentProviderDraft) throws -> AIConfigurationSnapshot {
+        let text: (configuration: String, authentication: String)
+        if draft.isEditingConfigurationText {
+            text = (draft.configuration, draft.authentication)
+        } else {
+            // CLI parsing may supply defaults; an explicit form must require the user's values.
+            guard !draft.endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw AgentProviderConfigurationError.invalidEndpoint
+            }
+            guard !draft.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw AgentProviderConfigurationError.missingModel
+            }
+            guard !draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw AgentProviderConfigurationError.missingAPIKey
+            }
+            text = try configurationText(for: draft)
+        }
+        let snapshot = try parser.parse(source: draft.source, configuration: text.configuration, authentication: text.authentication)
+        let expected: CommitMessageAPIProtocol = draft.source == .codex ? .responses : .anthropicMessages
+        guard snapshot.apiProtocol == expected else { throw AgentProviderConfigurationError.unsupportedProtocol }
+        return snapshot
     }
 
     func save(_ provider: AIProviderProfile, key: String, replacing previous: AIProviderProfile?) throws {

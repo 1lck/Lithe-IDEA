@@ -3,30 +3,32 @@ import LitheAgentConversationModule
 
 enum AgentContextUsagePresentation {
     static func percentage(_ usage: AgentContextUsage?, locale: Locale, precise: Bool = false) -> String {
-        let fraction = usage?.fraction ?? 0
-        return fraction.formatted(.percent.precision(.fractionLength(precise ? 1 : 0)).locale(locale))
+        guard let usage else { return "—" }
+        return usage.fraction.formatted(.percent.precision(.fractionLength(precise ? 1 : 0)).locale(locale))
     }
 
     static func details(_ usage: AgentContextUsage?, locale: Locale) -> String {
-        guard let usage, usage.usedTokens > 0 else {
-            return String(format: AgentLocalization.string("Context: %@", locale: locale), percentage(usage, locale: locale, precise: true))
+        guard let usage else {
+            return AgentLocalization.string("The Agent has not reported context usage yet.", locale: locale)
         }
-        let format = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(0...1)).locale(locale)
-        let tokens = { (count: UInt64) in
-            count >= 1_000 ? (Double(count) / 1_000).formatted(format) + "k" : count.formatted(.number.locale(locale))
-        }
-        return String(format: AgentLocalization.string("%@ · %@ / %@ context tokens", locale: locale),
-                      percentage(usage, locale: locale, precise: true), tokens(usage.usedTokens), tokens(usage.capacityTokens))
+        return String(format: AgentLocalization.string("%@ · %@ / %@ context used", locale: locale),
+                      percentage(usage, locale: locale, precise: true), tokens(usage.usedTokens, locale: locale),
+                      tokens(usage.capacityTokens, locale: locale))
+    }
+
+    static func tokens(_ count: UInt64, locale: Locale) -> String {
+        let format = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(1)).locale(locale)
+        return count >= 1_000 ? (Double(count) / 1_000).formatted(format) + "K" : count.formatted(.number.locale(locale))
     }
 }
 
-/// Compact context ring with a zero placeholder until the Agent reports usage.
+/// Compact context ring; absent reports remain unknown rather than displaying zero.
 struct AgentContextUsageView: View {
     let usage: AgentContextUsage?
     /// Estimated prompt composition from the optional model call proxy.
     var composition: AgentModelCall.Context?
     var showsPercentage = true
-    /// Off where a click opens the interactive breakdown instead.
+    /// Inline detail consumers can suppress the compact hover tooltip.
     var showsHoverCard = true
     @Environment(\.locale) private var locale
     private var ringStroke: CGFloat { showsPercentage ? 1.5 : 2 }
@@ -64,7 +66,8 @@ struct AgentContextUsageView: View {
         .frame(width: showsPercentage ? nil : LitheTheme.Metrics.toolbarIconButtonSize,
                height: LitheTheme.Metrics.toolbarIconButtonSize)
         .fixedSize()
-        .modifier(AgentContextHoverCard(isEnabled: showsHoverCard, usage: usage, composition: composition))
+        .contentShape(Rectangle())
+        .modifier(AgentContextHoverCard(isEnabled: showsHoverCard, usage: usage))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Context usage")
         .accessibilityValue(AgentContextUsagePresentation.details(usage, locale: locale))
@@ -75,14 +78,13 @@ struct AgentContextUsageView: View {
 private struct AgentContextHoverCard: ViewModifier {
     let isEnabled: Bool
     let usage: AgentContextUsage?
-    let composition: AgentModelCall.Context?
-    @Environment(\.agentUsesSubscription) private var usesSubscription
+    @Environment(\.locale) private var locale
 
     func body(content: Content) -> some View {
         if isEnabled {
-            content.workbenchHoverCard(placement: .above, maximumWidth: AgentStatusCardMetrics.width) {
-                AgentContextUsageCard(usage: usage, composition: composition)
-                    .environment(\.agentUsesSubscription, usesSubscription)
+            content.workbenchHoverCard(placement: .above, maximumWidth: LitheDropdownMetrics.maximumWidth) {
+                WorkbenchHoverTooltipLabel(title: Text(verbatim:
+                    AgentContextUsagePresentation.details(usage, locale: locale)))
             }
         } else {
             content

@@ -61,7 +61,7 @@ fn claude() -> &'static AgentCli {
 }
 
 #[test]
-fn codex_update_probe_accepts_homebrew_outdated_exit_but_not_other_failures() {
+fn update_probe_accepts_homebrew_outdated_exit_but_not_other_failures() {
     let fixture = Fixture::new();
     for (source, output, exit, expected) in [
         (
@@ -99,18 +99,15 @@ fn codex_update_probe_accepts_homebrew_outdated_exit_but_not_other_failures() {
             false,
         );
         assert_eq!(
-            codex_update_available(&plan, "0.159.3", None, &|| false),
+            update_available(&plan, "0.159.3", None, &|| false),
             expected
         );
-        assert_eq!(
-            codex_update_available(&plan, "0.159.3", None, &|| true),
-            None
-        );
+        assert_eq!(update_available(&plan, "0.159.3", None, &|| true), None);
     }
 }
 
 #[test]
-fn codex_update_probe_uses_the_same_latest_tag_as_the_updater() {
+fn update_probe_uses_the_same_latest_tag_as_the_updater() {
     let fixture = Fixture::new();
     let executable = fixture.npm_cli();
     // Model an npm configuration whose default tag is beta. An unqualified
@@ -141,12 +138,112 @@ esac
         .arguments
         .contains(&"@openai/codex@latest".to_string()));
     assert_eq!(
-        codex_update_available(&plan, "0.159.3", None, &|| false),
+        update_available(&plan, "0.159.3", None, &|| false),
         Some(true)
     );
     assert_eq!(
-        codex_update_available(&plan, "0.160.0", None, &|| false),
+        update_available(&plan, "0.160.0", None, &|| false),
         Some(false)
+    );
+}
+
+#[test]
+fn every_catalog_package_uses_its_verified_update_target() {
+    let fixture = Fixture::new();
+    let future = AgentCli {
+        command: "future-agent",
+        name: "Future Agent",
+        minimum_version: "1.0.0",
+        path_env: "FUTURE_AGENT_PATH",
+        install_hint: "npm install -g @example/agent",
+        package: "@example/agent",
+        brew_packages: &["future-agent"],
+    };
+    for cli in [codex(), claude(), &future] {
+        for source in [CliSource::Npm, CliSource::Homebrew] {
+            let packages = if source == CliSource::Npm {
+                vec![format!("{}@latest", cli.package)]
+            } else {
+                cli.brew_packages
+                    .iter()
+                    .map(|package| (*package).to_owned())
+                    .collect()
+            };
+            for package in packages {
+                let (arguments, expected_args, output) = if source == CliSource::Npm {
+                    (
+                        vec!["install".into(), "-g".into(), package.clone()],
+                        format!(
+                            "view {package} version --json --fetch-retries=0 --fetch-timeout=2500"
+                        ),
+                        r#""3.0.0""#.to_owned(),
+                    )
+                } else {
+                    (
+                        vec!["upgrade".into(), "--cask".into(), package.clone()],
+                        format!("outdated --cask --json=v2 {package}"),
+                        format!(r#"{{"casks":[{{"name":"{package}"}}],"formulae":[]}}"#),
+                    )
+                };
+                let executable = fixture.file(
+                    "manager",
+                    &format!(
+                    "#!/bin/sh\n[ \"$*\" = '{expected_args}' ] || exit 2\nprintf '%s' '{output}'\n"
+                ),
+                );
+                let plan = UpdatePlan::automatic(
+                    source.clone(),
+                    String::new(),
+                    &executable,
+                    arguments,
+                    false,
+                );
+                assert_eq!(
+                    update_available(&plan, "2.0.0", None, &|| false),
+                    Some(true),
+                    "{} {package}",
+                    cli.command
+                );
+                if source == CliSource::Npm {
+                    for installed in ["3.0.0", "4.0.0"] {
+                        assert_eq!(
+                            update_available(&plan, installed, None, &|| false),
+                            Some(false),
+                            "{} {package}",
+                            cli.command
+                        );
+                    }
+                }
+                assert_eq!(
+                    parse_update_available(
+                        &CliSource::Homebrew,
+                        &package,
+                        "2.0.0",
+                        r#"{"casks":[{"name":"unrelated"}],"formulae":[]}"#
+                    ),
+                    Some(false)
+                );
+            }
+        }
+    }
+    // Even an updatable native installation must not execute its updater while
+    // checking status. Unknown is distinct from both current and outdated.
+    let marker = fixture.0.join("native-was-run");
+    let executable = fixture.file(
+        "native",
+        &format!("#!/bin/sh\nprintf mutated > '{}'\n", marker.display()),
+    );
+    let plan = UpdatePlan::automatic(
+        CliSource::Native,
+        String::new(),
+        &executable,
+        vec!["update".into()],
+        false,
+    );
+    assert_eq!(update_available(&plan, "2.0.0", None, &|| false), None);
+    assert!(
+        !marker.exists(),
+        "checking status must never execute the native updater"
     );
 }
 
