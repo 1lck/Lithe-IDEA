@@ -279,6 +279,26 @@ pub(crate) fn run_bounded_status_observed(
     cancel: &dyn Fn() -> bool,
     observe: &mut dyn FnMut(&str),
 ) -> Result<(bool, String), RunError> {
+    run_bounded_streams(command, timeout, cancel, observe, false)
+        .map(|(success, output, _)| (success, output))
+}
+
+/// Capture structured stdout separately from bounded stderr diagnostics.
+pub(crate) fn run_bounded_status_separated(
+    command: &mut Command,
+    timeout: Duration,
+    cancel: &dyn Fn() -> bool,
+) -> Result<(bool, String, String), RunError> {
+    run_bounded_streams(command, timeout, cancel, &mut |_| {}, true)
+}
+
+fn run_bounded_streams(
+    command: &mut Command,
+    timeout: Duration,
+    cancel: &dyn Fn() -> bool,
+    observe: &mut dyn FnMut(&str),
+    separate_stderr: bool,
+) -> Result<(bool, String, String), RunError> {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -293,7 +313,7 @@ pub(crate) fn run_bounded_status_observed(
     let mut child = command
         .spawn()
         .map_err(|error| RunError::Start(error.to_string()))?;
-    let (output_tx, output_rx) = std::sync::mpsc::sync_channel::<Option<Vec<u8>>>(32);
+    let (output_tx, output_rx) = std::sync::mpsc::sync_channel::<(usize, Option<Vec<u8>>)>(32);
     let readers: Vec<_> = [
         child
             .stdout
@@ -305,8 +325,9 @@ pub(crate) fn run_bounded_status_observed(
             .map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
     ]
     .into_iter()
-    .flatten()
-    .map(|pipe| {
+    .enumerate()
+    .filter_map(|(stream, pipe)| pipe.map(|pipe| (stream, pipe)))
+    .map(|(stream, pipe)| {
         let sender = output_tx.clone();
         std::thread::spawn(move || {
             let mut reader = BufReader::new(pipe);
@@ -318,22 +339,23 @@ pub(crate) fn run_bounded_status_observed(
                     .read_until(b'\n', &mut bytes);
                 match read {
                     Ok(0) | Err(_) => break,
-                    Ok(_) if sender.send(Some(bytes)).is_err() => return,
+                    Ok(_) if sender.send((stream, Some(bytes))).is_err() => return,
                     _ => {}
                 }
             }
-            let _ = sender.send(None);
+            let _ = sender.send((stream, None));
         })
     })
     .collect();
     let reader_count = readers.len();
     drop(output_tx);
-    let mut output = String::new();
+    let mut outputs = [String::new(), String::new()];
     let ended = std::cell::Cell::new(0);
-    let mut collect = |event: Option<Vec<u8>>| {
+    let mut collect = |(stream, event): (usize, Option<Vec<u8>>)| {
         if let Some(bytes) = event {
             let text = String::from_utf8_lossy(&bytes);
             observe(&text);
+            let output = &mut outputs[if separate_stderr { stream } else { 0 }];
             output.push_str(&text);
             if output.len() > 65536 {
                 let mut first = output.len() - 65536;
@@ -386,7 +408,8 @@ pub(crate) fn run_bounded_status_observed(
     for reader in readers {
         let _ = reader.join();
     }
-    outcome.map(|success| (success, output))
+    let [stdout, stderr] = outputs;
+    outcome.map(|success| (success, stdout, stderr))
 }
 
 #[cfg(test)]
@@ -465,6 +488,13 @@ mod tests {
         echo.args(["-c", "echo out; echo err >&2"]);
         let output = run_bounded(echo, Duration::from_secs(10), &|| false).unwrap();
         assert!(output.contains("out") && output.contains("err"));
+        let mut separated = Command::new("sh");
+        separated.args(["-c", "printf out; printf err >&2"]);
+        assert_eq!(
+            run_bounded_status_separated(&mut separated, Duration::from_secs(5), &|| false)
+                .unwrap(),
+            (true, "out".to_string(), "err".to_string())
+        );
     }
 
     #[cfg(unix)]

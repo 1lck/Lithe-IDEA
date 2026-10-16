@@ -25,6 +25,8 @@ export const useUpdater = (checkOnMount = true) => {
     checking: state.status === "checking",
     downloading: state.status === "downloading",
     installing: state.status === "installing",
+    setChannel: actions.setChannel,
+    openReleaseDownload: actions.openReleaseDownload,
     checkForUpdates: actions.checkForUpdates,
     downloadAndInstall: actions.downloadAndInstall,
     dismissUpdate: actions.dismissUpdate,

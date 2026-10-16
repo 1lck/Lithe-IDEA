@@ -22,10 +22,9 @@
 
   <p>
     <a href="https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/Lithe-IDEA/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="Latest release"></a>
-    <a href="https://github.com/Lithe-IDEA/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/Lithe-IDEA/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="Total downloads"></a>
+    <a href="https://github.com/1lck/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/1lck/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="Total downloads"></a>
     <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat&logo=apple&logoColor=white" alt="macOS 13+">
     <img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat&logo=windows&logoColor=white" alt="Windows x64">
-    <img src="https://img.shields.io/badge/memory-300--400%20MB-159957?style=flat" alt="300 to 400 MB baseline memory">
     <a href="#download-and-install"><img src="https://img.shields.io/badge/Homebrew-Install-FBB040?style=flat&logo=homebrew&logoColor=black" alt="Install with Homebrew"></a>
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=flat&label=license" alt="Apache License 2.0"></a>
   </p>
@@ -202,7 +201,6 @@ flowchart LR
 <details>
 <summary><strong>Develop Lithe</strong></summary>
 
-
 Development and CI use Swift 6.3.3, pinned in `.swift-version`, with Xcode 26.6. Running the complete test suite requires Xcode; basic SwiftPM builds only need matching Command Line Tools. Developers using Xcode 27 may also build locally; the macOS 27 SDK compatibility path is detected by the build scripts. `Package.swift` keeps its Swift 6.2 manifest API minimum; this does not select the compiler version.
 
 Run the development build from the repository root:
@@ -250,7 +248,7 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
 
 <p align="center">
   <a href="https://www.fastaitoken.com/">
-    <img src="./docs/assets/sponsors/fastai-qrcode.png" width="480" alt="FastAI Token community chat group QR code">
+    <img src="./docs/assets/sponsors/fastai-qrcode.png" width="720" alt="FastAI Token community chat group QR code">
   </a>
 </p>
 <p align="center">
@@ -272,16 +270,6 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
 <a href="mailto:2188718831@qq.com">Want to be featured below?</a>
 
 <table>
-  <tr>
-    <td width="112" align="center">
-      <a href="https://www.fastaitoken.com/">
-        <img src="./docs/assets/sponsors/fastai.png" width="64" alt="FastAI">
-      </a>
-    </td>
-    <td>
-      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> provides convenient relay access to a range of leading large language models, making it easier to connect AI capabilities to everyday development workflows. Its support helps Lithe continue improving its AI-assisted experience. Thank you to FastAI for supporting this project!
-    </td>
-  </tr>
   <tr>
     <td width="112" align="center">
       <a href="https://pateway.ai/?ch=68i69k">
@@ -320,6 +308,16 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
     <td>
       <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> provides access to Claude, GPT, Gemini, and DeepSeek through one API key, with support for Claude Code, Codex, Cursor, and other AI coding tools. New users receive $5 in trial credit. Thank you to CCSub for supporting Lithe!
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://dash.clidex.dev">
+        <img src="./docs/assets/sponsors/clidex.svg" width="64" alt="Clidex">
+      </a>
+    </td>
+    <td>
+      <a href="https://dash.clidex.dev"><strong>Clidex</strong></a> builds AI infrastructure for creators, with API access for native AI command-line tools at just 0.8% of official API pricing. Bring AI into your daily development workflow with Clidex. Thank you to Clidex for supporting Lithe and its continued development!
     </td>
   </tr>
   <tr>

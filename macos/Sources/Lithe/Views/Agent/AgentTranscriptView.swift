@@ -68,6 +68,7 @@ enum AgentTranscriptItem: Identifiable {
 /// Message list of the selected conversation, followed by the pending
 /// permission request and a summary of this turn's tool activity.
 struct AgentTranscriptView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: AgentConnectionModel
     let agentName: String?
     let agentVersion: String?
@@ -85,8 +86,9 @@ struct AgentTranscriptView: View {
         let conversation = feature.selectedConversation
         let sessionID = feature.selectedSessionID
         let messages = conversation?.messages ?? []
-        let transcript = AgentTranscriptItem.grouped(messages, turns: conversation?.completedTurns ?? [])
-            .filter { $0.matches(searchText) }
+        // A load replays the whole history one event at a time. Building rows
+        // for every intermediate state is quadratic, so rows wait for the replay to end.
+        let isReplaying = conversation?.isLoading == true
         // Only reasoning that is still streaming opens by default.
         let liveThoughtID = conversation?.responseStatus == .thinking && messages.last?.role == .thought
             ? messages.last?.id : nil
@@ -125,28 +127,22 @@ struct AgentTranscriptView: View {
                                 Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
                             }
                         }
-                        if !searchText.isEmpty && transcript.isEmpty {
-                            Text("No matching messages")
-                                .foregroundStyle(AgentPanelStyle.secondary)
-                        }
-                        ForEach(transcript) { item in
-                            Group {
-                                switch item {
-                                case .message(let message):
-                                    AgentMessageRow(
-                                        message: message,
-                                        isStreamingThought: liveThoughtID == message.id,
-                                        isSearching: !searchText.isEmpty,
-                                        thoughtExpansion: thoughtExpansion(for: message.id),
-                                        onOpenFile: onOpenFile
-                                    )
-                                case .toolGroup(let tools):
-                                    AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile)
-                                case .turnSummary(let turn):
-                                    AgentTurnStatisticsView(statistics: turn)
-                                }
-                            }
-                            .id(item.id)
+                        // A load replays the whole history one event at a time. Building rows
+                        // for every intermediate state is quadratic, so rows wait for the replay to end.
+                        if !isReplaying {
+                            AgentTranscriptRows(
+                                messages: messages,
+                                completedTurns: conversation?.completedTurns ?? [],
+                                searchText: searchText,
+                                liveThoughtID: liveThoughtID,
+                                thoughtExpansions: sessionID.flatMap { thoughtExpansions[$0] } ?? [:],
+                                setThoughtExpansion: { id, value in
+                                    guard let sessionID else { return }
+                                    thoughtExpansions[sessionID, default: [:]][id] = value
+                                },
+                                onOpenFile: onOpenFile
+                            )
+                            .equatable()
                         }
                         if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
                             AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
@@ -184,85 +180,102 @@ struct AgentTranscriptView: View {
                     }
                 }
             }
-            AgentActivitySummaryBar(
-                messages: messages, plan: conversation?.plan,
-                reviewed: conversation?.reviewedFileChanges ?? [:],
-                isResponding: conversation?.isResponding == true,
-                isReviewing: feature.fileReviewSessionID != nil,
-                reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
-                onOpenFile: onOpenFile,
-                onKeep: { changes in
-                    if let sessionID { feature.keepFileChanges(changes, in: sessionID) }
-                },
-                onRestore: { changes in
-                    if let sessionID {
-                        await feature.restoreFileChanges(changes, in: sessionID, restore: onRestoreFile)
-                    }
-                }
-            )
-            .id(feature.selectedSessionID)
         }
         .onChange(of: feature.openSessionIDs) { sessionIDs in
             thoughtExpansions = thoughtExpansions.filter { sessionIDs.contains($0.key) }
         }
-        .onChange(of: messages.map(\.id)) { messageIDs in
+        .onChange(of: messages.count) { _ in
             // Use unfiltered messages: changing the search must never discard preferences.
             guard let sessionID = feature.selectedSessionID, let preferences = thoughtExpansions[sessionID] else { return }
-            let retainedIDs = Set(messageIDs)
+            let retainedIDs = Set((feature.selectedConversation?.messages ?? []).map(\.id))
             thoughtExpansions[sessionID] = preferences.filter { retainedIDs.contains($0.key) }
         }
     }
+}
 
-    private func thoughtExpansion(for messageID: String) -> Binding<AgentThoughtExpansion> {
-        guard let sessionID = feature.selectedSessionID else { return .constant(AgentThoughtExpansion()) }
-        return Binding(
-            get: { thoughtExpansions[sessionID]?[messageID] ?? AgentThoughtExpansion() },
-            set: { thoughtExpansions[sessionID, default: [:]][messageID] = $0 }
-        )
+/// Transcript rows as a value of the conversation data. The owning view is
+/// re-evaluated for every published model change (quota, sessions, statistics);
+/// comparing these inputs keeps scrolling from re-diffing every row each time.
+private struct AgentTranscriptRows: View, Equatable {
+    let messages: [AgentConversationMessage]
+    let completedTurns: [AgentTurnStatistics]
+    let searchText: String
+    let liveThoughtID: String?
+    let thoughtExpansions: [String: AgentThoughtExpansion]
+    let setThoughtExpansion: (String, AgentThoughtExpansion) -> Void
+    let onOpenFile: (AgentToolDetails.Location) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.messages == rhs.messages && lhs.completedTurns == rhs.completedTurns
+            && lhs.searchText == rhs.searchText && lhs.liveThoughtID == rhs.liveThoughtID
+            && lhs.thoughtExpansions == rhs.thoughtExpansions
+    }
+
+    var body: some View {
+        let transcript = AgentTranscriptItem.grouped(messages, turns: completedTurns).filter { $0.matches(searchText) }
+        if !searchText.isEmpty && transcript.isEmpty {
+            Text("No matching messages")
+                .foregroundStyle(AgentPanelStyle.secondary)
+        }
+        ForEach(transcript) { item in
+            Group {
+                switch item {
+                case .message(let message):
+                    AgentMessageRow(
+                        message: message,
+                        isStreamingThought: liveThoughtID == message.id,
+                        isSearching: !searchText.isEmpty,
+                        thoughtExpansion: Binding(
+                            get: { thoughtExpansions[message.id] ?? AgentThoughtExpansion() },
+                            set: { setThoughtExpansion(message.id, $0) }
+                        ),
+                        onOpenFile: onOpenFile
+                    )
+                case .toolGroup(let tools):
+                    AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile)
+                case .turnSummary(let turn):
+                    AgentTurnStatisticsView(statistics: turn)
+                }
+            }
+            .id(item.id)
+        }
     }
 }
 
-/// Centered agent mark with its version; tapping it switches agents.
+/// Compact empty-conversation hint; the composer and this icon both switch agents.
 struct AgentHeroView: View {
+    @Environment(\.locale) private var locale
     let agentName: String?
     let agentVersion: String?
     let onTap: () -> Void
-    @State private var isHovering = false
 
     var body: some View {
-        VStack(spacing: 16) {
+        HStack(spacing: 8) {
             Button(action: onTap) {
-                AgentBrandIcon(name: agentName, size: 60)
-                    .foregroundStyle(isHovering ? AgentPanelStyle.secondary : AgentPanelStyle.logo)
+                AgentBrandIcon(name: agentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
             }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
+            .litheToolbarIconButton()
             .accessibilityLabel("Switch Agent")
-            .onHover { isHovering = $0 }
-            .overlay(alignment: .topLeading) {
-                if let agentVersion, !agentVersion.isEmpty {
-                    Text("v\(agentVersion)")
-                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .foregroundStyle(AgentPanelStyle.versionText)
-                        .background(AgentPanelStyle.versionAccent.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(AgentPanelStyle.versionAccent.opacity(0.4)))
-                        .fixedSize()
-                        .offset(x: 70, y: -2)
-                }
-            }
-            Text(agentName.map { String(format: String(localized: "Send a message to %@"), $0) }
-                 ?? String(localized: "Choose an Agent to start"))
-                .font(LitheTheme.uiFont(size: 14))
+            Text("Start the session by sending a message")
+                .font(LitheTheme.uiFont(size: 13))
                 .foregroundStyle(AgentPanelStyle.logo)
+            Spacer(minLength: 0)
+            if let agentVersion, !agentVersion.isEmpty {
+                Text("v\(agentVersion)")
+                    .font(LitheTheme.uiFont(size: 10, weight: .medium))
+                    .foregroundStyle(AgentPanelStyle.secondary)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.leading, AgentPanelStyle.iconButtonLeadingInset)
+        .padding(.trailing, 20)
+        .padding(.top, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .help("Switch Agent")
     }
 }
 
 private struct AgentPermissionCard: View {
+    @Environment(\.locale) private var locale
     let permission: AgentPermissionPrompt
     let answer: (String?) -> Void
     let onOpenFile: (AgentToolDetails.Location) -> Void
@@ -311,17 +324,22 @@ private struct AgentPermissionCard: View {
 }
 
 private struct AgentMessageRow: View {
+    @Environment(\.locale) private var locale
     let message: AgentConversationMessage
     var isStreamingThought = false
     var isSearching = false
     var thoughtExpansion: Binding<AgentThoughtExpansion> = .constant(AgentThoughtExpansion())
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
+    @State private var isHovered = false
 
     var body: some View {
         switch message.role {
         case .user:
-            HStack {
+            HStack(alignment: .bottom, spacing: 4) {
                 Spacer(minLength: 40)
+                AgentCopyButton(text: message.text, help: "Copy message")
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
                 Text(message.text)
                     .font(LitheTheme.uiFont(size: 13))
                     .textSelection(.enabled)
@@ -329,162 +347,22 @@ private struct AgentMessageRow: View {
                     .padding(.vertical, 8)
                     .background(LitheTheme.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 10))
             }
+            .onHover { isHovered = $0 }
         case .agent:
-            AgentMarkdownMessage(text: message.text)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                AgentMarkdownMessage(text: message.text)
+                    .equatable()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                AgentCopyButton(text: message.text, help: "Copy message")
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+            }
+            .onHover { isHovered = $0 }
         case .thought:
             AgentThoughtRow(text: message.text, isStreaming: isStreamingThought, isSearching: isSearching,
                             expansion: thoughtExpansion)
         case .tool:
             AgentToolGroupView(messages: [message], searchText: "", onOpenFile: onOpenFile)
         }
-    }
-}
-
-struct AgentToolEvidenceView: View {
-    let details: AgentToolDetails
-    let onOpenFile: (AgentToolDetails.Location) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(details.locations.enumerated()), id: \.offset) { _, location in
-                Button { onOpenFile(location) } label: {
-                    Label(location.path + (location.line.map { ":\($0)" } ?? ""), systemImage: "doc")
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                }
-                    .buttonStyle(.litheNoPress)
-                    .font(LitheTheme.uiFont(size: 11, design: .monospaced))
-                    .help(location.path)
-            }
-            if let input = details.input { evidence("Input", text: input) }
-            ForEach(Array(details.content.enumerated()), id: \.offset) { _, content in
-                evidence(content.title, text: content.text)
-            }
-            if let output = details.output { evidence("Result", text: output) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func evidence(_ title: String, text: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(LitheTheme.uiFont(size: 11, weight: .medium)).foregroundStyle(LitheTheme.secondaryText)
-            ScrollView([.horizontal, .vertical]) {
-                Text(text)
-                    .font(LitheTheme.uiFont(size: 11, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: 160)
-        }
-    }
-}
-
-/// Splits the reply into prose and fenced code blocks. Prose uses inline
-/// Markdown; code blocks get a monospaced box with a copy button.
-private struct AgentMarkdownMessage: View {
-    let text: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(Self.segments(of: text).enumerated()), id: \.offset) { _, segment in
-                switch segment {
-                case .prose(let prose):
-                    Text(Self.markdown(prose))
-                        .font(LitheTheme.uiFont(size: 13))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                case .code(let language, let code):
-                    AgentCodeBlock(language: language, code: code)
-                }
-            }
-        }
-    }
-
-    enum Segment: Equatable {
-        case prose(String)
-        case code(language: String, code: String)
-    }
-
-    /// Fences that have not been closed yet (still streaming) are treated as code.
-    static func segments(of text: String) -> [Segment] {
-        var segments: [Segment] = []
-        var prose = ""
-        var code = ""
-        var language = ""
-        var inCode = false
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("```") {
-                if inCode {
-                    segments.append(.code(language: language, code: code.trimmingCharacters(in: .newlines)))
-                    code = ""
-                    inCode = false
-                } else {
-                    if !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        segments.append(.prose(prose.trimmingCharacters(in: .newlines)))
-                    }
-                    prose = ""
-                    language = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                    inCode = true
-                }
-                continue
-            }
-            if inCode { code += line + "\n" } else { prose += line + "\n" }
-        }
-        if inCode {
-            segments.append(.code(language: language, code: code.trimmingCharacters(in: .newlines)))
-        } else if !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            segments.append(.prose(prose.trimmingCharacters(in: .newlines)))
-        }
-        return segments
-    }
-
-    private static func markdown(_ text: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
-    }
-}
-
-private struct AgentCodeBlock: View {
-    let language: String
-    let code: String
-    @State private var didCopy = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(language.isEmpty ? String(localized: "code") : language)
-                    .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-                Spacer()
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(code, forType: .string)
-                    didCopy = true
-                    Task { try? await Task.sleep(for: .seconds(1.5)); didCopy = false }
-                } label: {
-                    Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
-                        .font(LitheTheme.uiFont(size: 10.5))
-                }
-                .buttonStyle(.litheNoPress)
-                .lithePointer()
-                .foregroundStyle(didCopy ? LitheTheme.success : LitheTheme.tertiaryText)
-                .help("Copy code")
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(LitheTheme.toolHeaderInactive)
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
-                    .font(LitheTheme.codeFont)
-                    .textSelection(.enabled)
-                    .padding(10)
-            }
-        }
-        .background(LitheTheme.raised)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder, lineWidth: 1))
     }
 }

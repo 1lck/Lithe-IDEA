@@ -47,6 +47,7 @@ const checkout = mock(async (..._args: Parameters<typeof branchApi.checkoutGitRe
 }));
 const pull = mock(async () => ({ status: "pulled" as const }));
 const success = mock(() => "toast");
+const failure = mock((..._args: Parameters<typeof toast.error>) => "toast");
 const pendingUpdates: Array<() => void> = [];
 const operations: Promise<unknown>[] = [];
 const update = mock((...args: Parameters<typeof updates.updateGitLogBranch>) => {
@@ -80,6 +81,7 @@ beforeEach(() => {
   update.mockClear();
   pull.mockClear();
   success.mockClear();
+  failure.mockClear();
   // Keep the real action owner; stub unrelated data loading and rendering, so
   // this test exercises checkout confirmation and update dispatch without Git or layout timers.
   spies.push(
@@ -170,6 +172,7 @@ beforeEach(() => {
     spyOn(inspector, "GitCommitInspector").mockImplementation(() => <></>),
     spyOn(title, "GitLogTitleBar").mockImplementation(() => <></>),
     spyOn(toast, "success").mockImplementation(success),
+    spyOn(toast, "error").mockImplementation(failure),
   );
   container = document.createElement("div");
   document.body.append(container);
@@ -223,6 +226,27 @@ test.each([
   expect(success).toHaveBeenCalledWith(message);
   expect(confirm).not.toHaveBeenCalled();
   expect(checkout.mock.calls).toEqual([["C:/repo-a", action === "checkout" ? reference : remoteReference]]);
+  expect(refresh).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  ["en-US", "Could not checkout topic"],
+  ["zh-CN", "无法签出 topic"],
+] as const)("Checkout failure uses the IDEA sticky error balloon in %s", async (language, title) => {
+  checkout.mockImplementationOnce(async () => ({
+    success: false,
+    hasChanges: false,
+    message: "fatal: 'topic' is already used by worktree at 'C:/wt/topic'",
+  }));
+  await render(language);
+  await act(async () => button("checkout").click());
+  expect(success).not.toHaveBeenCalled();
+  expect(failure).toHaveBeenCalledTimes(1);
+  const [message, options] = failure.mock.calls[0]!;
+  expect(message).toBe(title);
+  expect(options?.description).toBe("'topic' is already used by worktree at 'C:/wt/topic'");
+  expect(options?.duration).toBe(Number.POSITIVE_INFINITY);
+  expect(options?.icon).toBeTruthy();
   expect(refresh).toHaveBeenCalledTimes(1);
 });
 

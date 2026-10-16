@@ -66,6 +66,18 @@ Windows store 在配置解析成功后立即发布 `ready` 状态，再等待完
 macOS 同步修正了三处主线程上的全量检查：生成后、保存配置后、新建配置后都改为
 `checkFingerprint: false`。编辑 `.lithe` 不改变项目输入，已有的过期提示原样保留。
 
+### macOS 重叠加载的就绪边界
+
+macOS 的工作区快照加载与按下 Run 触发的加载可以重叠。`RunService`
+必须在工具链和配置选择提交后才发布 `.ready` 或 `.bound`，否则入口会把初始的
+Current File 当作最终配置执行。配置文档可读不等于运行项目已就绪。
+仅完成加载的选择可以在下一次加载开始时保存；不要在异步检查返回后保存仍在
+加载的临时选择。用户明确选择的 Current File 仍然需要保留。
+
+`overlappingProjectLoadsDoNotPersistTheProvisionalCurrentFileSelection` 用可控制的
+工具链探测暂停首个加载，验证加载中不能启动、重叠加载选用配置默认项，以及
+完成后的用户选择能够保留。不要通过增加 CI 等待时间掩盖这类状态提交竞态。
+
 ## 考虑过的备选方案
 
 - 持久化大小和修改时间以复用摘要：同大小文件可在保留时间戳时发生内容变化，

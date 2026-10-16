@@ -4,7 +4,7 @@ import Foundation
 /// Shape fixed by the `modelCall` event in `shared/fixtures/agent/acp-events-v1.json`.
 public struct AgentModelCall: Decodable, Equatable, Sendable {
     /// Provider counters normalized to disjoint input buckets.
-    public struct Usage: Decodable, Equatable, Sendable {
+    public struct Usage: Codable, Equatable, Sendable {
         public let inputTokens: UInt64
         public let cacheReadTokens: UInt64
         public let cacheWriteTokens: UInt64
@@ -15,7 +15,7 @@ public struct AgentModelCall: Decodable, Equatable, Sendable {
     }
 
     /// Estimated split of the request prompt; see `scaledToUsage`.
-    public struct Context: Decodable, Equatable, Sendable {
+    public struct Context: Codable, Equatable, Sendable {
         public let systemPromptTokens: UInt64
         public let toolTokens: UInt64
         public let mcpToolTokens: UInt64
@@ -46,7 +46,7 @@ public struct AgentModelCall: Decodable, Equatable, Sendable {
 }
 
 /// Bounded aggregate of observed model calls for a turn or a session.
-public struct AgentModelCallTotals: Equatable, Sendable {
+public struct AgentModelCallTotals: Codable, Equatable, Sendable {
     public private(set) var callCount = 0
     public private(set) var failedCount = 0
     public private(set) var nonStreamingCount = 0
@@ -81,6 +81,27 @@ public struct AgentModelCallTotals: Equatable, Sendable {
     /// Output rate while streaming, excluding the wait for the first token.
     public var outputTokensPerSecond: Double? {
         generationTime > 0 && generatedTokens > 0 ? Double(generatedTokens) / generationTime : nil
+    }
+
+    /// Adds a later period's totals, e.g. this connection's calls onto the
+    /// persisted history of the session. The later composition wins.
+    mutating func add(_ later: AgentModelCallTotals) {
+        callCount += later.callCount
+        failedCount += later.failedCount
+        nonStreamingCount += later.nonStreamingCount
+        duration += later.duration
+        inputTokens += later.inputTokens
+        cacheReadTokens += later.cacheReadTokens
+        cacheWriteTokens += later.cacheWriteTokens
+        outputTokens += later.outputTokens
+        if let reasoning = later.reasoningTokens { reasoningTokens = (reasoningTokens ?? 0) + reasoning }
+        callsWithUsage += later.callsWithUsage
+        if let context = later.latestContext { latestContext = context }
+        sendsTools = sendsTools || later.sendsTools
+        firstTokenTotal += later.firstTokenTotal
+        firstTokenCount += later.firstTokenCount
+        generationTime += later.generationTime
+        generatedTokens += later.generatedTokens
     }
 
     mutating func record(_ call: AgentModelCall) {

@@ -131,3 +131,24 @@ enum DeclarativePluginTestSupport {
         )
     }
 }
+
+/// Plugin settings that live only in memory, for tests that do not exercise
+/// persistence.
+final class InMemoryPluginSettings: PluginSettingsStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var records: [String: [String: ToolingJSONValue]]
+
+    init(_ records: [String: [String: ToolingJSONValue]] = [:]) {
+        self.records = records
+    }
+
+    func values(forPlugin pluginID: String) -> [String: ToolingJSONValue] {
+        lock.lock(); defer { lock.unlock() }
+        return records[pluginID] ?? [:]
+    }
+
+    func setValue(_ value: ToolingJSONValue?, forSetting settingID: String, plugin pluginID: String) {
+        lock.lock(); defer { lock.unlock() }
+        records[pluginID, default: [:]][settingID] = value
+    }
+}

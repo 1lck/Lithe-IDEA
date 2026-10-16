@@ -21,6 +21,15 @@ public protocol AgentHistoryPersisting {
     func save(_ metadata: [String: AgentHistoryMetadata], workspaceURL: URL, agentID: String) throws
 }
 
+/// Lithe-owned session statistics, stored as one opaque document per workspace
+/// and Agent. The conversation module owns the format; a missing or unreadable
+/// document only means statistics start from the current connection.
+@MainActor
+public protocol AgentSessionStatisticsPersisting {
+    func loadStatistics(workspaceURL: URL, agentID: String) -> Data?
+    func saveStatistics(_ data: Data, workspaceURL: URL, agentID: String)
+}
+
 /// Native save dialog and file writing. A cancelled dialog returns nil.
 @MainActor
 public protocol AgentHistoryExporting {

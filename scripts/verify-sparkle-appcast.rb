@@ -1,6 +1,7 @@
 require "rexml/document"
 require "base64"
 require "uri"
+require_relative "autobuild-identity"
 require "open3"
 
 def verify_sparkle_appcast(path, build)
@@ -31,5 +32,6 @@ end
 
 if $PROGRAM_NAME == __FILE__
   verify_sparkle_appcast(ARGV.fetch(0), ARGV.fetch(1))
+  verify_autobuild_feed(ARGV.fetch(0), ARGV.fetch(1), ARGV[2]) if ARGV[2]
   puts "Sparkle appcast verification passed"
 end

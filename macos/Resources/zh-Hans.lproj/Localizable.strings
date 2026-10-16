@@ -11,6 +11,7 @@
 "Languages & Frameworks" = "语言与框架";
 "Version Control" = "版本控制";
 "Tools" = "工具";
+"AI" = "AI";
 "Appearance" = "外观";
 "Theme" = "主题";
 "Color theme" = "配色主题";
@@ -1374,6 +1375,8 @@
 "Pending plugin changes: %lld" = "待确认的插件修改：%lld";
 "Uninstall" = "卸载";
 "Reinstall" = "重新安装";
+"Removed. Restart Lithe to finish." = "已移除，重启 Lithe 后完成。";
+"Removed. Restore it to use it again." = "已移除，恢复后可再次使用。";
 "Uninstall PHP Support?" = "卸载 PHP 支持？";
 "PHP language support will be removed after restarting Lithe." = "重启 Lithe 后将移除 PHP 语言支持。";
 "Overview" = "概览";
@@ -2239,12 +2242,12 @@
 "Untitled conversation" = "未命名对话";
 "Choose an Agent" = "选择 Agent";
 "No Agent is set up yet" = "尚未设置 Agent";
-"No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration." = "还没有可用的 Agent。请打开面板设置，安装 Agent 并获取它的本机配置。";
-"Agent conversation is turned off. Turn it on in the panel settings to send messages." = "Agent 对话功能已关闭。请在面板设置中开启后再发送消息。";
+"No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration." = "还没有可用的 Agent。请打开设置窗口的 Agent 页面，安装 Agent 并获取它的本机配置。";
+"Agent conversation is turned off. Turn it on in the panel settings to send messages." = "Agent 对话功能已关闭。请在设置窗口的 Agent 页面中开启后再发送消息。";
 "The Agent module is still starting. Try again in a moment." = "Agent 模块仍在启动，请稍后再试。";
 "The conversation is still being prepared. Try again in a moment." = "对话仍在准备中，请稍后再试。";
-"Set the custom Agent's executable in the panel settings." = "请在面板设置中填写自定义 Agent 的可执行文件。";
-"Fetch this Agent's local configuration in the panel settings." = "请在面板设置中获取该 Agent 的本机配置。";
+"Set the custom Agent's executable in the panel settings." = "请在设置窗口的 Agent 页面中填写自定义 Agent 的可执行文件。";
+"Fetch this Agent's local configuration in the panel settings." = "请在设置窗口的 Agent 页面中获取该 Agent 的本机配置。";
 "Your local configuration has no API key for this Agent. Add one, then fetch the configuration again." = "本机配置中没有该 Agent 的 API 密钥。请先添加，然后重新获取配置。";
 "The Agent is not running. Connect to start a conversation." = "Agent 未运行。请先连接再开始对话。";
 "The previous Agent is still stopping. Try again shortly." = "上一个 Agent 仍在停止，请稍后重试。";
@@ -2483,9 +2486,9 @@
 "Codex Agents require the Responses API. Claude Agents require an Anthropic API key." = "Codex Agent 需要 Responses API，Claude Agent 需要 Anthropic API 密钥。";
 "Wait for the Agent operation to finish before changing providers." = "请等待 Agent 当前操作完成后再切换供应商。";
 "Provider configuration parsing is unavailable." = "供应商配置解析暂不可用。";
-"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "尚无可用的 Agent，请在面板设置中安装 Agent，并选择本机配置或自定义供应商。";
-"Choose a local or custom provider in the Agent panel settings." = "请在 Agent 面板设置中选择本机配置或自定义供应商。";
-"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "此 Agent 的供应商未配置 API 密钥，请更新本机配置或在面板设置中编辑自定义供应商。";
+"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "尚无可用的 Agent，请在设置窗口的 Agent 页面中安装 Agent，并选择本机配置或自定义供应商。";
+"Choose a local or custom provider in the Agent panel settings." = "请在设置窗口的 Agent 页面中选择本机配置或自定义供应商。";
+"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "此 Agent 的供应商未配置 API 密钥，请更新本机配置或在设置窗口的 Agent 页面中编辑自定义供应商。";
 "The credential store version is unsupported. Existing credentials were preserved." = "凭据存储版本暂不支持，已保留原有凭据。";
 "Add" = "添加";
 "Agent provider" = "Agent 供应商";
@@ -2757,6 +2760,7 @@
 "Update required" = "需要更新";
 
 "Adds PHP language-server integration, formatting, running, and test support." = "提供 PHP 语言服务器集成、格式化、运行和测试支持。";
+"Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime." = "通过 Eclipse JDT 语言服务器提供 Java 代码智能，并支持 Lombok、调试和测试。自带 Java 运行时。";
 
 "Adds Go language-server integration through gopls, running, and test support. Install gopls and Go separately." = "通过 gopls 提供 Go 语言服务器集成、运行和测试支持。需要另行安装 gopls 和 Go。";
 
@@ -2844,6 +2848,26 @@
 "Latest Version" = "最新版本";
 "%@ (not available for this Lithe or Mac)" = "%@（当前 Lithe 或这台 Mac 无法使用）";
 
+// Host-owned workbench contribution controls
+"Workbench Actions" = "工作台操作";
+"Tool Windows" = "工具窗口";
+"Toolbar Actions" = "工具栏操作";
+"Restore Default UI Layout" = "恢复默认 UI 布局";
+"Show" = "显示";
+"Hide Entry" = "隐藏入口";
+"Move to Bottom" = "移至底部";
+"Move to Right" = "移至右侧";
+"Move Earlier" = "向前移动";
+"Move Later" = "向后移动";
+"Add tool windows and commands to the workbench" = "向工作台添加工具窗口和命令";
+
+"Move to Left" = "移到左侧";
+
+"Menu Actions" = "菜单命令";
+
+"Show Entry" = "显示入口";
+
+"Command Palette Actions" = "命令面板入口";
 /* Main toolbar settings menu. */
 "Plugins…" = "插件…";
 "Theme…" = "主题…";
@@ -2893,3 +2917,194 @@
 "%lld non-streaming" = "%lld 次非流式";
 "Model calls observed by the local proxy during this turn. TTFT is the average time to the first generated token." = "本轮由本机代理观测到的模型调用；首字为首个生成 token 的平均等待时间。";
 "%lld requests returned no usage, so these totals are a lower bound." = "有 %lld 次请求未返回用量，以上为最低值。";
+
+"Start the session by sending a message" = "发送消息以开始会话";
+"Use an Agent in your project" = "在项目中使用 Agent";
+"Lithe Agent" = "Lithe Agent";
+"Welcome to Lithe Agent" = "欢迎使用 Lithe Agent";
+"Collaborate with Claude and Codex to ask questions, run tasks, and review code changes." = "与 Claude、Codex 协作，提问、执行任务并审查代码修改。";
+"Claude Agent" = "Claude Agent";
+"More Agents…" = "更多 Agent…";
+"Use a third-party provider" = "使用第三方服务";
+"Custom API provider" = "自定义 API 服务";
+"Cline, Cursor, Kilo, Mistral, and more with ACP technology" = "Cline、Cursor、Kilo、Mistral，以及更多采用 ACP 技术的 Agent";
+"Chat History" = "对话历史";
+"New Chat" = "新对话";
+"Type your task or / for commands" = "输入任务，或用 / 选择命令";
+
+"Conversation history is unavailable" = "当前无法读取对话历史";
+
+"Cannot create a new conversation: %@" = "无法新建对话：%@";
+
+"Rename Chat" = "重命名对话";
+"Delete Chat" = "删除对话";
+"Show Toolbar" = "显示工具栏";
+"Chat options" = "对话选项";
+
+"AI Chat" = "AI 对话";
+"Show Chats in the AI Tool Window" = "在 AI 工具窗口中显示对话";
+"Show Chats in the Editor" = "在编辑区中显示对话";
+
+"Activity" = "活动";
+
+/* Declarative plugin settings (Settings › Plugins). */
+"Applies the next time the language server starts." = "下次启动语言服务器时生效。";
+"Restart Language Servers" = "重启语言服务器";
+"Reset to Default" = "恢复默认值";
+"Enter a whole number from %d to %d." = "请输入 %d 到 %d 之间的整数。";
+"Maximum memory" = "最大内存";
+"Upper bound of the Java language server's heap. Raise it for large multi-module projects." = "Java 语言服务器的堆内存上限。大型多模块项目可适当调高。";
+"Language server log level" = "语言服务器日志级别";
+"How much the Java language server writes to its own log. Quieter levels reduce disk writes." = "Java 语言服务器写入自身日志的详细程度；较安静的级别可减少磁盘写入。";
+"All messages" = "全部消息";
+"Warnings" = "警告";
+"Errors only" = "仅错误";
+/* Git Log repository empty state */
+"To track changes to code:" = "要跟踪代码更改：";
+"Initialize Git repository…" = "初始化 Git 仓库…";
+"Version control integration" = "版本控制集成";
+"Share project on" = "将项目分享至";
+"or" = "或";
+
+"To debug your code, do one of the following:" = "要调试代码，请执行以下操作之一：";
+
+"— Click the Run icon in the editor gutter" = "— 点击编辑器行号栏中的运行图标";
+
+"— Select \"Debug...\" in the editor context menu" = "— 在编辑器右键菜单中选择“调试...”";
+
+"— Launch a" = "— 启动";
+
+"run configuration" = "运行配置";
+
+"Debugging code" = "调试代码";
+
+"Increase Font Size" = "增大字号";
+
+"Decrease Font Size" = "减小字号";
+
+"Reset Font Size" = "重置字号";
+
+/* Debug expression history */
+"Expression history" = "表达式历史";
+"Previous console expression" = "上一条表达式";
+"Next console expression" = "下一条表达式";
+
+"Frames are not available" = "当前无可用栈帧";
+
+"Pause the process to inspect variables" = "暂停程序以查看变量";
+
+"Performance" = "性能";
+
+"CPU" = "CPU";
+
+"Heap Memory" = "堆内存";
+
+"Hide Performance" = "隐藏性能面板";
+
+"Waiting for JVM performance data…" = "正在等待 JVM 性能数据…";
+
+"Start a local Java debug session to view performance." = "启动本地 Java 调试会话以查看性能。";
+
+"Performance is available for local Java processes launched by Lithe." = "性能监控适用于由 Lithe 启动的本地 Java 进程。";
+
+"A running local JVM and its JDK jstat tool are required." = "需要运行中的本地 JVM 及其 JDK jstat 工具。";
+
+"JVM performance monitoring ended." = "JVM 性能监控已结束。";
+
+"No JVM performance samples received for 10 seconds." = "10 秒内未收到 JVM 性能采样。";
+
+"The monitored JVM has exited or changed." = "监控的 JVM 已退出或发生变化。";
+
+"Invalid JVM performance output." = "JVM 性能输出无效。";
+
+"The JVM does not expose supported heap counters through jstat." = "当前 JVM 未通过 jstat 提供受支持的堆计数器。";
+
+"Invalid JVM heap counters." = "JVM 堆计数器无效。";
+
+/* Debug variable JSON/tree presentation */
+"Show as tree" = "显示为树形";
+"Show as JSON" = "显示为 JSON";
+"Copy JSON" = "复制 JSON";
+"Loading object fields…" = "正在加载对象字段…";
+
+"Show source file name" = "显示源码文件名";
+"Stack frame display options" = "调用栈显示选项";
+
+"Expand JSON block" = "展开 JSON 段落";
+
+"Collapse JSON block" = "收起 JSON 段落";
+
+
+"Project Errors" = "项目错误";
+
+"Open file in editor to see problems" = "在编辑器中打开文件以查看问题";
+
+"No problems in %@" = "%@ 中没有问题";
+
+"Problems could be filtered out" = "问题可能已被筛选隐藏";
+
+"View Options" = "视图选项";
+
+"Show Editor Preview" = "显示编辑器预览";
+
+"Could not load file preview" = "无法加载文件预览";
+
+
+/* Agent conversation as an editor tab */
+"Open in Editor" = "在编辑器中打开";
+"Hide Session Details" = "隐藏会话详情";
+"Show Session Details" = "显示会话详情";
+"MCP" = "MCP";
+"Session" = "会话";
+"Context tokens" = "上下文 Token";
+"Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request." = "在 Agent 设置中开启模型调用统计并重新连接后，可查看每次请求携带的 MCP 工具。";
+"This conversation has not edited any files." = "本对话尚未编辑任何文件。";
+"Agent edits" = "Agent 编辑";
+"Edited files" = "已编辑文件";
+"Changed files" = "变更文件";
+"Used %@" = "已使用 %@";
+"Tools sent" = "发送的工具";
+"MCP tools sent" = "发送的 MCP 工具";
+"Show context breakdown" = "查看上下文明细";
+"Copy message" = "复制消息";
+"Copy Conversation" = "复制对话";
+"Ran %lld commands" = "运行了 %lld 个命令";
+"Read %lld files" = "读取了 %lld 个文件";
+"Edited %lld files" = "编辑了 %lld 个文件";
+"Searched %lld times" = "搜索了 %lld 次";
+"Fetched %lld pages" = "获取了 %lld 个网页";
+"Used %lld tools" = "调用了 %lld 个工具";
+"%@, %@" = "%@，%@";
+"Show %lld more" = "显示其余 %lld 项";
+"Ran %lld command" = "运行了 %lld 个命令";
+"Read %lld file" = "读取了 %lld 个文件";
+"Edited %lld file" = "编辑了 %lld 个文件";
+"Searched %lld time" = "搜索了 %lld 次";
+"Fetched %lld page" = "获取了 %lld 个网页";
+"Used %lld tool" = "调用了 %lld 个工具";
+"Subscription sign-in sends requests directly to the provider, so Lithe cannot see the system prompt, tool definitions and messages. Use API key mode to see the breakdown." = "订阅登录的请求直接发往服务商，不经过 Lithe 本地代理，因此无法统计系统提示词、工具定义和对话消息的占比。改用 API Key 模式即可查看明细。";
+"Subscription sign-in sends requests directly to the provider, so model calls, time to first token and output speed are not observed." = "订阅登录的请求直接发往服务商，不经过 Lithe 本地代理，因此无法统计模型调用次数、首 token 延迟和输出速度。";
+"Command" = "命令";
+"Errors" = "错误输出";
+"Exit code %lld" = "退出码 %lld";
+"Show less" = "收起";
+"Show all %lld lines" = "显示全部 %lld 行";
+/* Explicit update channel selection. */
+"Update channel" = "更新渠道";
+"Stable (Recommended)" = "正式版（推荐）";
+"AutoBuild Rolling" = "AutoBuild 滚动版";
+"Use AutoBuild Rolling?" = "使用 AutoBuild 滚动版？";
+"Use AutoBuild" = "使用 AutoBuild";
+"AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild 每晚滚动构建，可能包含未完成的功能、严重缺陷或其他异常，普通用户建议使用正式版。";
+"Changing channels requires a full installation and may install an older version. Your projects and settings are kept, but settings from newer builds may not work in older releases." = "切换渠道需要全量安装，可能安装较旧的版本。项目和设置会保留，但较新构建中的设置可能无法在旧版本中使用。";
+"Open AutoBuild Downloads" = "打开 AutoBuild 下载页";
+"Open Stable Downloads" = "打开正式版下载页";
+"Install the selected channel" = "安装所选渠道版本";
+"Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates." = "切换渠道需要全量安装，可能安装较旧的版本。请打开所选渠道的发布页下载安装包。渠道选择已保存，用于后续更新。";
+"Install AutoBuild" = "安装 AutoBuild";
+"AutoBuild Update" = "AutoBuild 更新";
+"AutoBuild — Built at %@" = "AutoBuild — 构建自 %@";
+"The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "将全量下载最新正式版，在你确认安装后替换当前 AutoBuild。项目和设置会保留，但 AutoBuild 专有的设置可能无法在正式版中使用。";
+
+"No updates found in the local Homebrew index." = "当前 Homebrew 索引未发现更新。";
+"Run `brew update` manually, then check again for updates." = "请手动运行 `brew update`，然后重新检查更新。";

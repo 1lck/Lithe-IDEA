@@ -2,6 +2,7 @@ import { javaEntryChinese, javaEntryEnglish } from "./java-entry-creation";
 import { changelistsChinese, changelistsEnglish } from "./git-changelists";
 import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-commit";
 import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
+import { updateChannelEnglish, updateChannelChinese } from "./update-channel";
 export const DISPLAY_LANGUAGES = ["en-US", "zh-CN"] as const;
 
 export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
@@ -15,6 +16,7 @@ const catalogs = {
     ...aiCommitEnglish,
     ...workspaceCommitEnglish,
     ...changelistsEnglish,
+    ...updateChannelEnglish,
     "git.console.details": "Command details",
     "git.console.historyTruncated": "Earlier Git commands were truncated to limit memory use.",
   "git.console.options": "Git command options",
@@ -235,6 +237,7 @@ const catalogs = {
     "layout.showInActivitySidebar": "Show in Activity Sidebar",
     "layout.projectDots": "Project Dots",
     "fileSystem.openFolderFailed": "Failed to open folder: {path}",
+    "fileSystem.openFileFailed": "Failed to open file {file}: {error}",
     "fileSystem.workspaceSessionRestoreFailed":
       "Workspace opened, but saved tabs could not be restored.",
     "fileSystem.remoteSessionRestoreFailed":
@@ -1823,6 +1826,7 @@ const catalogs = {
     "settings.groups.build": "Build, Execution, Deployment",
     "settings.groups.languages": "Languages & Frameworks",
     "settings.groups.tools": "Tools",
+    "settings.groups.ai": "AI",
     "settings.tabs.plugins": "Plugins",
     "settings.noResults": "No settings found",
     "settings.resizeCategories": "Resize settings categories",
@@ -2985,6 +2989,7 @@ const catalogs = {
       "Checkout '{branch}', then rebase it onto '{current}'? Rebase rewrites the checked-out branch history.",
     "git.log.checkoutAndUpdate": "Checkout and Update",
     "git.log.checkoutFailed": "Failed to checkout '{branch}'.",
+    "git.log.couldNotCheckout": "Could not checkout {reference}",
     "git.log.compareWithCurrent": "Compare with '{branch}'",
     "git.log.showDiffWithWorkingTree": "Show Diff with Working Tree",
     "git.log.rebaseCurrentOnto": "Rebase '{current}' onto '{branch}'",
@@ -4614,6 +4619,7 @@ const catalogs = {
     ...aiCommitChinese,
     ...workspaceCommitChinese,
     ...changelistsChinese,
+    ...updateChannelChinese,
     "git.console.details": "命令详情",
     "git.console.historyTruncated": "为限制内存占用，较早的 Git 执行记录已截断，无法展开。",
   "git.console.options": "Git 命令选项",
@@ -4834,6 +4840,7 @@ const catalogs = {
     "layout.showInActivitySidebar": "在活动侧栏中显示",
     "layout.projectDots": "项目圆点",
     "fileSystem.openFolderFailed": "打开文件夹失败：{path}",
+    "fileSystem.openFileFailed": "打开文件 {file} 失败：{error}",
     "fileSystem.workspaceSessionRestoreFailed": "工作区已打开，但无法恢复保存的标签页。",
     "fileSystem.remoteSessionRestoreFailed": "远程工作区已打开，但无法恢复保存的标签页。",
     "fileSystem.wslSessionRestoreFailed": "WSL 工作区已打开，但无法恢复保存的标签页。",
@@ -6373,6 +6380,7 @@ const catalogs = {
     "settings.groups.build": "构建、执行、部署",
     "settings.groups.languages": "语言与框架",
     "settings.groups.tools": "工具",
+    "settings.groups.ai": "AI",
     "settings.tabs.plugins": "插件",
     "settings.noResults": "未找到设置",
     "settings.resizeCategories": "调整设置分类栏宽度",
@@ -7451,6 +7459,7 @@ const catalogs = {
       "签出“{branch}”，然后将其变基到“{current}”吗？变基会重写签出分支的历史。",
     "git.log.checkoutAndUpdate": "签出并更新",
     "git.log.checkoutFailed": "签出“{branch}”失败。",
+    "git.log.couldNotCheckout": "无法签出 {reference}",
     "git.log.compareWithCurrent": "与“{branch}”比较",
     "git.log.showDiffWithWorkingTree": "显示与工作树的差异",
     "git.log.rebaseCurrentOnto": "将“{current}”变基到“{branch}”",

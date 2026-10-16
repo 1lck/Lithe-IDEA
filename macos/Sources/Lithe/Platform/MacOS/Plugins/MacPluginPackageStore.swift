@@ -107,6 +107,9 @@ final class MacPluginPackageStore {
     ]
     private let rootURL: URL
     private let bundledRootURL: URL?
+    /// Writable language-server state owned by installed plugins; removed
+    /// together with the plugin so an uninstall leaves nothing behind.
+    private let stateDirectories: MacPluginStateDirectories?
     private let hostVersion: PluginVersion
     private let validator: any DeclarativePluginManifestValidating
     private let verifier: any PluginPackageSignatureVerifying
@@ -117,6 +120,7 @@ final class MacPluginPackageStore {
     init(
         rootURL: URL,
         bundledRootURL: URL? = nil,
+        stateDirectories: MacPluginStateDirectories? = nil,
         hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
         validator: any DeclarativePluginManifestValidating,
         verifier: any PluginPackageSignatureVerifying = MacOfficialPluginSignatureVerifier(),
@@ -124,6 +128,7 @@ final class MacPluginPackageStore {
     ) {
         self.rootURL = rootURL.standardizedFileURL
         self.bundledRootURL = bundledRootURL?.standardizedFileURL
+        self.stateDirectories = stateDirectories
         self.hostVersion = hostVersion
         self.validator = validator
         self.verifier = verifier
@@ -138,6 +143,7 @@ final class MacPluginPackageStore {
                 .appendingPathComponent("Lithe/Plugins", isDirectory: true),
             bundledRootURL: Bundle.main.resourceURL?
                 .appendingPathComponent("OfficialPlugins", isDirectory: true),
+            stateDirectories: MacPluginStateDirectories(fileStorage: fileStorage),
             validator: validator
         )
     }
@@ -155,7 +161,7 @@ final class MacPluginPackageStore {
         for pluginDirectory in pluginDirectories.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             guard let record = try? installationRecord(at: pluginDirectory) else { continue }
             switch record.status {
-            case .installed:
+            case .installed, .removed:
                 continue
             case .updateStaged:
                 try write(
@@ -164,7 +170,13 @@ final class MacPluginPackageStore {
                 )
             case .uninstallPending:
                 try fileManager.removeItem(at: pluginDirectory)
+                removeState(of: record.pluginID)
             }
+        }
+        // The server of a bundled plugin removed last session has stopped by
+        // now, so its state can go without pulling files from under it.
+        for pluginID in removedBundledPluginIDs() {
+            removeState(of: pluginID)
         }
     }
 
@@ -264,7 +276,12 @@ final class MacPluginPackageStore {
         for packageURL in directories.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             var issuePluginID: PluginID?
             do {
-                let descriptor = try loadPackage(at: packageURL)
+                // A package inside the application stands in for a built-in
+                // feature, so its modules are on unless the user turns them off.
+                let descriptor = try DeclarativePluginDescriptor(
+                    normalizedManifest: try loadPackage(at: packageURL).normalizedManifest,
+                    enabledByDefault: true
+                )
                 issuePluginID = descriptor.id
                 guard !Self.retiredPluginIDs.contains(descriptor.id) else {
                     throw PluginPackageStoreError.retiredPlugin(descriptor.id)
@@ -284,7 +301,7 @@ final class MacPluginPackageStore {
                         pluginID: descriptor.id,
                         activeVersion: descriptor.pluginManifest.version,
                         origin: .bundled
-                    ),
+                    ).with(status: removedBundledPluginIDs().contains(descriptor.id) ? .removed : .installed),
                     packageURL: packageURL
                 ))
             } catch {
@@ -493,6 +510,67 @@ final class MacPluginPackageStore {
             throw PluginPackageStoreError.requiredPluginCannotBeUninstalled(pluginID)
         }
         try fileManager.removeItem(at: pluginDirectory)
+        removeState(of: pluginID)
+    }
+
+    /// Removes or restores a plugin that ships inside the application. The
+    /// app bundle is read-only at runtime, so removal is recorded in the
+    /// user's plugin directory instead of deleting the package: the host
+    /// stops registering the plugin at the next launch. Its language-server
+    /// state is deleted then too (`prepareForLaunch`), because the server
+    /// keeps running, and writing there, until the application restarts. A
+    /// removal restored before that loses nothing.
+    func setBundledPluginRemoved(_ pluginID: PluginID, removed: Bool) throws {
+        try validatePathComponent(pluginID.rawValue)
+        var removedIDs = removedBundledPluginIDs()
+        if removed {
+            removedIDs.insert(pluginID)
+        } else {
+            removedIDs.remove(pluginID)
+        }
+        try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try setAsideUnreadableRemovalRecord()
+        try encoder.encode(removedIDs.map(\.rawValue).sorted())
+            .write(to: removedBundledPluginsURL, options: .atomic)
+    }
+
+    /// Hidden so the scan of installed plugin directories never sees it.
+    private var removedBundledPluginsURL: URL {
+        rootURL.appendingPathComponent(".removed-bundled-plugins.json")
+    }
+
+    /// Where an unreadable removal record is kept for inspection.
+    private var unreadableRemovalRecordURL: URL {
+        rootURL.appendingPathComponent(".removed-bundled-plugins.json.unreadable")
+    }
+
+    /// An unreadable record cannot be trusted, so the plugins read as not
+    /// removed and the application stays usable; the user's next removal then
+    /// writes a fresh record (`setAsideUnreadableRemovalRecord`).
+    private func removedBundledPluginIDs() -> Set<PluginID> {
+        guard let data = try? Data(contentsOf: removedBundledPluginsURL),
+              let ids = try? decoder.decode([String].self, from: data) else { return [] }
+        return Set(ids.map { PluginID($0) })
+    }
+
+    /// Keeps a record that exists but cannot be decoded instead of silently
+    /// overwriting it, so what the user removed before the damage can still be
+    /// read from the `.unreadable` copy.
+    private func setAsideUnreadableRemovalRecord() throws {
+        guard fileManager.fileExists(atPath: removedBundledPluginsURL.path),
+              (try? decoder.decode([String].self, from: Data(contentsOf: removedBundledPluginsURL))) == nil
+        else { return }
+        if fileManager.fileExists(atPath: unreadableRemovalRecordURL.path) {
+            try fileManager.removeItem(at: unreadableRemovalRecordURL)
+        }
+        try fileManager.moveItem(at: removedBundledPluginsURL, to: unreadableRemovalRecordURL)
+    }
+
+    /// Best effort: the package is already gone, and leftover state of an
+    /// uninstalled plugin is never read again.
+    private func removeState(of pluginID: PluginID) {
+        guard let stateDirectories, (try? validatePathComponent(pluginID.rawValue)) != nil else { return }
+        try? fileManager.removeItem(at: stateDirectories.pluginDirectory(pluginID: pluginID.rawValue))
     }
 
     func stageUninstall(_ pluginID: PluginID) throws {
@@ -538,6 +616,7 @@ final class MacPluginPackageStore {
             try validateCommunityContent(descriptor.id, at: packageURL, marketplace: marketplace)
         }
         try validateLaunchResources(descriptor, at: packageURL)
+        _ = try MacPluginUIIconLoader.load(descriptor, at: packageURL)
     }
 
     /// A community package has no publisher signature, so its integrity is

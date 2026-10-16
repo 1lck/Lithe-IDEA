@@ -104,6 +104,36 @@ test("external navigation cancels pending frames and owns the next wheel origin"
   expect(state.position).toBe(450);
 });
 
+test("a fractional starting offset is not mistaken for external scrolling", () => {
+  const { state, frames, animation } = viewport(0.5);
+  expect(animation.scroll(120)).toBe(true);
+  frames.advance(100);
+  expect(state.position).toBeGreaterThan(0.5);
+  frames.advance(200);
+  expect(state.position).toBe(121);
+  expect(frames.callbacks.size).toBe(0);
+});
+
+test("browser quantization of written offsets keeps the animation running", () => {
+  const frames = new ManualFrames();
+  const state = { position: 0, writes: 0 };
+  // Simulates a scaled display that snaps each write to a device-pixel step.
+  const animation = createWheelScrollAnimation({
+    read: () => state.position,
+    write: (next) => { state.writes += 1; state.position = Math.floor(next * 1.25) / 1.25; },
+    maximum: () => 600,
+    scheduler: frames,
+  });
+  cleanups.push(animation.stop);
+  animation.scroll(120);
+  frames.advance(50);
+  frames.advance(100);
+  frames.advance(200);
+  expect(state.writes).toBe(3);
+  expect(state.position).toBe(120);
+  expect(frames.callbacks.size).toBe(0);
+});
+
 test("content shrink clamps an in-flight animation and releases its frame", () => {
   const { state, frames, animation } = viewport();
   animation.scroll(500);

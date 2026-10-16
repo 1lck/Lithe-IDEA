@@ -230,7 +230,8 @@ struct ExecutionModuleTests {
             languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback)
         )
-        let loading = Task { await service.loadProject(at: root, files: [], mavenProject: nil) }
+        let snapshotID = UUID()
+        let loading = Task { await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID) }
         defer {
             loading.cancel()
             entered.continuation.finish()
@@ -248,6 +249,7 @@ struct ExecutionModuleTests {
         // This actor continues to run while the real load path awaits its port.
         #expect(runtime.synchronousToolchainCalls == 0)
         #expect(service.isLoadingProject)
+        #expect(!service.isProjectReady(for: root, snapshotID: snapshotID))
         switch outcome {
         case "reset": service.reset()
         case "switch": await service.loadProject(at: other, files: [], mavenProject: nil)
@@ -260,9 +262,67 @@ struct ExecutionModuleTests {
         case "reset": #expect(service.projectLoadState == .idle && service.configurations == [.currentFile])
         case "switch": #expect(service.projectLoadState == .bound(workspace: other) && !service.isLoadingProject)
         case "cancel": #expect(service.defaultConfigurationID == nil)
-        default: #expect(service.defaultConfigurationID == RunConfiguration.currentFileID)
+        default:
+            #expect(service.defaultConfigurationID == RunConfiguration.currentFileID)
+            #expect(service.isProjectReady(for: root, snapshotID: snapshotID))
         }
         #expect(runtime.synchronousToolchainCalls == 0)
+    }
+
+    @Test
+    func overlappingProjectLoadsDoNotPersistTheProvisionalCurrentFileSelection() async throws {
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let runtime = TestRuntime()
+        var probes = 0
+        runtime.loadCandidates = { _ in
+            probes += 1
+            if probes == 1 {
+                entered.continuation.yield(())
+                try await awaitSignal(release.stream)
+            }
+            return []
+        }
+        let configuration = RunConfiguration(
+            id: "main", name: "Main", kind: .javaMain, modulePath: nil, mainClass: "demo.App")
+        let service = RunService(
+            runtime: runtime, process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: SelectionRunConfigurationOperations(configurations: [configuration]),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let root = URL(fileURLWithPath: "/workspace")
+        let snapshot = UUID()
+        let loading = Task { await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshot) }
+        defer {
+            loading.cancel()
+            entered.continuation.finish()
+            release.continuation.finish()
+            service.reset()
+        }
+        do {
+            try await awaitSignal(entered.stream)
+        } catch {
+            release.continuation.finish()
+            await loading.value
+            throw error
+        }
+        // An entry point must not consume the inventory before its configuration
+        // resolves. A concurrent snapshot load must not save the initial placeholder.
+        #expect(!service.isProjectReady(for: root, snapshotID: snapshot))
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshot)
+        #expect(service.selectedConfigurationID == configuration.id)
+        #expect(service.isProjectReady(for: root, snapshotID: snapshot))
+        release.continuation.yield(())
+        await loading.value
+        #expect(service.selectedConfigurationID == configuration.id)
+        // A completed user's explicit Current File choice still survives reload.
+        service.selectedConfigurationID = RunConfiguration.currentFileID
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshot)
+        #expect(service.selectedConfigurationID == RunConfiguration.currentFileID)
     }
 
     @Test
@@ -1413,6 +1473,79 @@ struct ExecutionModuleTests {
             "-cp", "/workspace/app/target/classes", "example.Main",
         ])
         #expect(service.moduleSessions.first?.isRunning == true)
+    }
+
+    @Test
+    func stoppingTheGraphStopsServiceSessions() async throws {
+        let moduleProcess = TestStreamingProcess()
+        let configuration = RunConfiguration(
+            id: "java-main:example.Main", name: "Main", kind: .javaMain,
+            execution: .application, modulePath: "app", mainClass: "example.Main",
+            mavenReactorPath: "."
+        )
+        let runtime = TestRuntime(javaHome: URL(fileURLWithPath: "/valid/project-jdk"))
+        let resolver = TestExecutableResolver()
+        let service = RunService(
+            runtime: runtime,
+            process: TestStreamingProcess(),
+            processFactory: { moduleProcess },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration,
+                plan: SharedLaunchPlan(
+                    executable: .toolchain("project-jdk"),
+                    arguments: ["example.Main"],
+                    workingDirectory: ".",
+                    classpath: ["/workspace/app/target/classes"]
+                ),
+                options: RunOptions(javaHomePath: "/valid/project-jdk")
+            ),
+            executableResolver: resolver,
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let graph = ExecutionFeatureGraph(
+            maven: MavenService(
+                runtimeService: runtime,
+                process: TestStreamingProcess(),
+                dependencyProcess: TestStreamingProcess(),
+                mavenOperations: TestMavenOperations()
+            ),
+            run: service,
+            tests: LanguageTestService(
+                catalog: .compatibilityFallback,
+                registry: LanguageTestProviderRegistry(providers: []),
+                executableResolver: resolver,
+                processFactory: { TestStreamingProcess() }
+            )
+        )
+        defer { service.reset() }
+
+        await service.loadProject(
+            at: URL(fileURLWithPath: "/workspace", isDirectory: true),
+            files: [],
+            mavenProject: nil
+        )
+        service.startConfiguration(configuration, javaLaunch: JavaDebugLaunchTarget(
+            mainClass: "example.Main",
+            projectName: "app",
+            classPaths: ["/workspace/app/target/classes"]
+        ))
+
+        // A service session is not the "current run", yet it owns a process
+        // that must keep the module awake and must end with the session.
+        #expect(moduleProcess.isRunning)
+        #expect(!service.isRunning)
+        #expect(service.hasRunningServices)
+        #expect(graph.hasActiveExecutionWork)
+
+        graph.stop()
+
+        #expect(!moduleProcess.isRunning)
+        #expect(!service.hasRunningServices)
+        #expect(!graph.hasActiveExecutionWork)
     }
 
     @Test

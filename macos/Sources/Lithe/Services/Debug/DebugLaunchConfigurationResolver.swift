@@ -6,6 +6,7 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
     case javaLaunchTargetUnavailable
     case invalidJavaAttachHost
     case invalidJavaAttachPort
+    case javaRuntimeUnavailable
     case noRustBinaryConfiguration
     case rustExecutableNotBuilt(URL, binary: String)
 
@@ -19,11 +20,34 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
             return "Enter the host name of the running JVM."
         case .invalidJavaAttachPort:
             return "Enter a JVM debug port between 1 and 65535."
+        case .javaRuntimeUnavailable:
+            return String(localized: "No Java runtime was found. Set JAVA_HOME or install a JDK.")
         case .noRustBinaryConfiguration:
             return "No Cargo binary run configuration matches this Rust file."
         case .rustExecutableNotBuilt(let url, let binary):
             return "Build the Rust binary first with `cargo build --bin \(binary)`. Expected executable: \(url.path)"
         }
+    }
+}
+
+/// The JDK a debugged JVM runs on. Debug stores no JDK of its own: it names
+/// the runtime Run uses for the same target, so changing one changes both.
+enum DebugJavaRuntime: Equatable {
+    /// A Java configuration's JDK; no override means the project JDK chain.
+    case java(homeOverride: String?)
+    /// The JDK Maven launches with, for Maven-backed configurations and tests.
+    case maven(homeOverride: String?)
+
+    /// The runtime Run would use for `configuration`; `nil` means a file
+    /// debugged without a Run configuration.
+    init(configuration: RunConfiguration?, options: RunOptions?) {
+        let javaHome = options?.javaHomePath
+        guard let configuration, configuration.kind.isMavenBacked else {
+            self = .java(homeOverride: javaHome)
+            return
+        }
+        let mavenHome = options?.mavenJavaHomePath ?? ""
+        self = .maven(homeOverride: mavenHome.isEmpty ? javaHome : mavenHome)
     }
 }
 
@@ -34,25 +58,45 @@ struct DebugLaunchConfigurationResolver {
     private let fileExists: (URL) -> Bool
     private let executableSuffix: String
     private let javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)?
+    /// Path of the `java` executable Run uses for a runtime. Without it the
+    /// Java Debug Server picks the JVM, which is the one JDT LS runs on.
+    private let javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)?
 
     init(
         fileStorage: any FileStorage,
         executableSuffix: String = "",
-        javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil
+        javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil,
+        javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)? = nil
     ) {
         self.fileExists = { fileStorage.fileExists(at: $0) }
         self.executableSuffix = executableSuffix
         self.javaTestLaunchResolver = javaTestLaunchResolver
+        self.javaExecutablePath = javaExecutablePath
     }
 
     init(
         executableSuffix: String = "",
         fileExists: @escaping (URL) -> Bool,
-        javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil
+        javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil,
+        javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)? = nil
     ) {
         self.fileExists = fileExists
         self.executableSuffix = executableSuffix
         self.javaTestLaunchResolver = javaTestLaunchResolver
+        self.javaExecutablePath = javaExecutablePath
+    }
+
+    /// `javaExec` for a launch, so the debugged JVM is the one Run starts.
+    /// An unusable JDK fails the launch exactly as it fails Run.
+    @MainActor
+    private func javaExecutableArgument(
+        for runtime: DebugJavaRuntime
+    ) throws -> ToolingJSONValue? {
+        guard let javaExecutablePath else { return nil }
+        guard let path = javaExecutablePath(runtime) else {
+            throw DebugLaunchConfigurationResolutionError.javaRuntimeUnavailable
+        }
+        return .string(path)
     }
 
     @MainActor
@@ -63,12 +107,25 @@ struct DebugLaunchConfigurationResolver {
         guard let javaTestLaunchResolver else {
             throw DebugLaunchConfigurationResolutionError.javaLaunchTargetUnavailable
         }
-        return try javaTestLaunchResolver.resolveJavaTestDebugLaunch(
+        let configuration = try javaTestLaunchResolver.resolveJavaTestDebugLaunch(
             target: target,
             resultPort: resultPort
         )
+        // Tests run through Maven, so a debugged test uses Maven's JDK.
+        guard let javaExecutable = try javaExecutableArgument(for: .maven(homeOverride: nil)) else {
+            return configuration
+        }
+        var arguments = configuration.arguments
+        arguments["javaExec"] = javaExecutable
+        return DebugLaunchConfiguration(
+            name: configuration.name,
+            request: configuration.request,
+            arguments: arguments,
+            steppingFilters: configuration.steppingFilters
+        )
     }
 
+    @MainActor
     func resolve(
         provider: LanguageProviderDescriptor,
         documentURL: URL,
@@ -83,7 +140,7 @@ struct DebugLaunchConfigurationResolver {
             guard let javaTarget else {
                 throw DebugLaunchConfigurationResolutionError.javaLaunchTargetUnavailable
             }
-            return javaConfiguration(
+            return try javaConfiguration(
                 documentURL: documentURL,
                 workspaceURL: workspaceURL,
                 configurations: configurations,
@@ -147,6 +204,7 @@ struct DebugLaunchConfigurationResolver {
         )
     }
 
+    @MainActor
     private func javaConfiguration(
         documentURL: URL,
         workspaceURL: URL,
@@ -154,7 +212,7 @@ struct DebugLaunchConfigurationResolver {
         selectedConfiguration: RunConfiguration?,
         target: JavaDebugLaunchTarget,
         options: (RunConfiguration) -> RunOptions
-    ) -> DebugLaunchConfiguration {
+    ) throws -> DebugLaunchConfiguration {
         // Debug is a second execution mode for the selected Run configuration.
         // Keep every Java configuration eligible here so its JDK, Maven,
         // working-directory, VM/program arguments, profiles, and environment
@@ -180,6 +238,11 @@ struct DebugLaunchConfigurationResolver {
             "cwd": .string(workingDirectory),
             "console": .string("integratedTerminal")
         ]
+        if let javaExecutable = try javaExecutableArgument(
+            for: DebugJavaRuntime(configuration: configuration, options: runOptions)
+        ) {
+            arguments["javaExec"] = javaExecutable
+        }
         if let projectName = target.projectName {
             arguments["projectName"] = .string(projectName)
         }

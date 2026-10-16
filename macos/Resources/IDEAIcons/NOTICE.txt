@@ -182,3 +182,117 @@ platform/icons/src/expui/toolwindows/services@20x20{,_dark}.svg,
 platform/icons/src/expui/general/greenCheckmark{,_dark}.svg and
 platform/icons/src/expui/status/error{,_dark}.svg.
 Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Git Log empty-state context help uses the unmodified general/contextHelp.svg
+from Community revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade,
+platform/icons/src/general/contextHelp.svg (one shared light/dark asset).
+Layout follows VcsToolWindowEmptyState.kt and StatusText.java at the same revision.
+Copyright JetBrains s.r.o.; Apache License 2.0.
+
+Debug toolbar actions use the New UI mappings from platform/icons/src/PlatformIconMappings.json
+at c7f91397daa3a961b4e78bc634fe467a0a7d9ade: expui/run/{debug,restartDebug,
+resume,pause,stepOver,stepInto,stepOut,viewBreakpoints,muteBreakpoints}.svg and _dark.svg.
+Console folding rules in macos/Sources/Lithe/Views/Workbench/LitheConsoleStyle.swift
+are adapted from the same revision's StackTraceFolding.kt, StackTraceFoldingSettings.kt,
+ConsoleFoldingSettings.java, SubstringConsoleFolding.java and JavaPlugin.xml, licensed
+under Apache-2.0, Copyright 2000-2024 JetBrains s.r.o. and contributors.
+
+Main-toolbar stop uses expui/run/stop_stroke.svg (shared light/dark white stroke)
+from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src.
+RunWidget surfaces follow RedesignedRunWidget.kt and Islands RunWidget theme tokens.
+Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Console folding gutter uses unmodified expui/gutter/{fold,unfold}{,_dark}.svg,
+9x9, from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade,
+platform/icons/src. Placement follows EditorGutterComponentImpl.drawDirectedBox.
+Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Debug Console actions use unmodified expui/general/{up,down,softWrap,scrollDown,print,delete}
+light/dark SVGs from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade.
+ConsoleViewImpl.createConsoleActions supplies their order and PlatformIconMappings their assets.
+
+Threads & Variables New UI assets from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade:
+expui/debugger/{addToWatch,frame,threadCurrent,threadRunning,threads,watch},
+expui/nodes/{field,variable} and their _dark variants.
+PlatformIconMappings maps these from the legacy Debugger/Nodes IDs;
+XWatchesViewImpl uses Debugger.AddToWatch for the inline expression action.
+
+Agent sendOutline{,_dark}.svg derives from the 16x16 path in Community
+915c3c26029bd2f8d35907d6faf43c4a3264c5f7,
+platform/collaboration-tools/shared/resources/icons/send.svg (Apache License 2.0).
+Modification: replace the original filled silhouette with a 1px toolbar outline;
+use the existing IDEA toolbar icon light/dark stroke colors. This is a Lithe
+adaptation, not an unmodified AI Assistant plugin asset.
+
+Inline banners use expui/status/success.svg and success_dark.svg from Community
+915c3c26029bd2f8d35907d6faf43c4a3264c5f7. PlatformIconMappings maps Status.Success
+to these unmodified 16pt SVG assets. Warning, error and information follow the
+same mapping to existing expui/status assets. InlineBanner/InlineBannerBase and
+EditorNotificationPanel plus the Islands themes supply shared banner styling.
+
+Agent activity menu uses expui/build/taskGroup, expui/general/refresh and
+expui/general/edit light/dark SVGs from Community revision 915c3c26029bd2f8d35907d6faf43c4a3264c5f7.
+These are Lithe semantic mappings for tasks, running tools and file edits,
+not source assignments in the proprietary AI plugin.
+
+Problems File and Project Errors use unmodified Community revision
+373dcfbaea24c627febb7e4916125fed3e5b4bc3 assets:
+platform/icons/src/expui/codeInsight/intentionBulbGrey{,_dark}.svg and
+platform/icons/src/expui/general/questionMark{,_dark}.svg.
+The grey intention bulb presents Lithe's hint severity; the question mark presents
+its unknown severity. These mappings preserve Lithe's existing diagnostic semantics.
+Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Problems diagnostic rows use unmodified Community revision
+373dcfbaea24c627febb7e4916125fed3e5b4bc3 assets:
+platform/icons/src/expui/general/inspections/inspectionsError.svg and
+platform/icons/src/expui/general/inspections/inspectionsWarning.svg.
+Their monochrome masks are tinted with Lithe's shared diagnostic colors, matching
+HighlightDisplayLevel's colorized-icon presentation. The original 16x16 canvas
+and internal padding are preserved. File rows reuse JavaFileIconResolver.
+Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+The Problems Java runnable overlay and class/YAML theme pairs use unmodified
+Community revision 373dcfbaea24c627febb7e4916125fed3e5b4bc3 assets:
+platform/icons/src/expui/nodes/runnableMark{,_dark}.svg,
+platform/icons/src/expui/nodes/class{,_dark}.svg and
+platform/icons/src/expui/fileTypes/yaml{,_dark}.svg.
+The runnable overlay retains its original 16x16 canvas and top-right geometry.
+Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+Run scope-strip and configuration-row additions are unmodified light/dark SVGs
+from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade:
+platform/icons/src/expui/general/{pin,pinSelected,groups}.svg,
+expui/webReferences/server.svg.
+PlatformIconMappings maps General.Pin_tab/Actions.PinTab to pin and
+RunConfigurations.Application to application. RunDashboard's actions XML maps
+EditConfiguration to Actions.EditSource (expui/general/edit.svg), Run to
+Actions.Execute, and Stop to Actions.Suspend. Copyright JetBrains s.r.o.
+and contributors; Apache License 2.0.
+
+Run scope filters map All configurations to groups and Services to server;
+these are Lithe semantic mappings, not upstream ServiceView action assignments.
+All scope icons retain original 16px light/dark SVG rendering.
+
+Run configuration icon mapping checked against Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade:
+java/execution/impl/src/com/intellij/execution/application/ApplicationConfigurationType.java
+uses AllIcons.RunConfigurations.Application (expui/runConfigurations/application.svg).
+plugins/maven/src/main/java/org/jetbrains/idea/maven/execution/MavenRunConfigurationType.java
+uses OpenapiIcons.RepositoryLibraryLogo, mapped by java/openapi/src/icons/OpenapiIcons.java
+to java/openapi/resources/icons/expui/maven.svg (imported as java/expui/maven.svg).
+plugins/sh/core/src/com/intellij/sh/run/ShConfigurationType.java uses AllIcons.Nodes.Console,
+mapped to expui/fileTypes/shell.svg. Java ecosystem groups use expui/fileTypes/java.svg;
+Lithe external-task groups use expui/build/taskGroup.svg (Nodes.ConfigFolder mapping).
+The ecosystem grouping is Lithe-owned; Community has no equivalent Make run configuration
+or Spring Boot configuration type here. Maven-launched framework services use their
+Maven provider icon, without copying proprietary Spring plugin resources.
+The new Java/Maven SVGs retain upstream light/dark variants and copyright notices.
+
+Run scope navigation uses neutral expui/toolwindows/run.svg, with its original
+light/dark pair, rather than the green execution action icon. Java main instances
+use the requested class + RunnableMark presentation: unmodified
+expui/nodes/{class,runnableMark}.svg light/dark pairs, layered on their original
+16x16 canvas. Source: platform/icons/src at Community
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade; PlatformIconMappings.json maps
+Nodes.Class and Nodes.RunnableMark to these assets. This instance presentation
+replaces the configuration-type Application icon documented above.

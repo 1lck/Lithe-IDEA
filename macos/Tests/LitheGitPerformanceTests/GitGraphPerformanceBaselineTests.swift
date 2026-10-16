@@ -277,7 +277,7 @@ struct GitGraphPerformanceBaselineTests {
         print(
             "Worktree native rows: total=\(rows.count), visible=\(visibleRange.count), samples=\(samples.count), median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms"
         )
-        #expect(visibleRange.count <= 14)
+        #expect(visibleRange.count <= Int(ceil(viewport.height / GitWorktreeRowsView.rowHeight)) + 2)
         #expect(median < 30)
         #expect(p95 < 100)
     }
@@ -422,7 +422,7 @@ struct GitGraphPerformanceBaselineTests {
         print(
             "Worktree list native rows: total=\(items.count), visible=\(visibleRange.count), samples=\(samples.count), median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms"
         )
-        #expect(visibleRange.count <= 7)
+        #expect(visibleRange.count <= Int(ceil(viewport.height / (GitWorktreeListScrollView.rowHeight + GitWorktreeListScrollView.rowSpacing))) + 2)
         #expect(median < 30)
         #expect(p95 < 100)
     }

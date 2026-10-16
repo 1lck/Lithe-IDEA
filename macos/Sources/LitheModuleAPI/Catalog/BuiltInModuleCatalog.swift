@@ -129,23 +129,28 @@ public enum BuiltInModuleCatalog {
             ModuleContribution(id: "execution.tests", kind: .toolWindow, title: "Tests", icon: "checkmark.seal", order: 600, actionID: "execution.tests.toggle", rendererID: "execution.tests")
         ],
         .git: [
-            ModuleContribution(id: "git.changes", kind: .toolWindow, title: "Changes", icon: "arrow.triangle.branch"),
+            ModuleContribution(id: "git.changes", kind: .toolWindow, title: "Changes", icon: "arrow.triangle.branch", placement: .leftSidebar, order: 200, actionID: "git.changes.show", rendererID: "git.changes"),
             ModuleContribution(id: "git.log", kind: .toolWindow, title: "Git Log", icon: "point.3.connected.trianglepath.dotted", order: 200, actionID: "git.log.toggle", rendererID: "git.log")
         ],
         .languageIntelligence: [
             ModuleContribution(id: "language.problems", kind: .toolWindow, title: "Problems", icon: "exclamationmark.triangle", order: 300, actionID: "language.problems.toggle", rendererID: "language.problems"),
+            ModuleContribution(id: "language.references", kind: .toolWindow, title: "Usages", order: 310, actionID: "language.references.toggle", rendererID: "language.references"),
+            ModuleContribution(id: "language.spring", kind: .toolWindow, title: "Spring Endpoints", order: 320, actionID: "language.spring.toggle", rendererID: "language.spring"),
             ModuleContribution(id: "language.settings", kind: .settings, title: "Language Servers", icon: "server.rack")
         ],
         .localHistory: [
             ModuleContribution(id: "history.local", kind: .toolWindow, title: "Local History", icon: "clock.arrow.circlepath")
         ],
         .search: [
-            ModuleContribution(id: "search.workspace", kind: .toolWindow, title: "Search", icon: "magnifyingglass")
+            ModuleContribution(id: "search.workspace", kind: .toolWindow, title: "Search", icon: "magnifyingglass", placement: .leftSidebar, order: 400, actionID: "search.workspace.show", rendererID: "search.workspace")
         ],
         .terminal: [
             ModuleContribution(id: "terminal.sessions", kind: .toolWindow, title: "Terminal", icon: "terminal", order: 100, actionID: "terminal.toggle", rendererID: "terminal.sessions")
         ],
-        .workspace: []
+        .workspace: [
+            ModuleContribution(id: "workspace.project", kind: .toolWindow, title: "Project", placement: .leftSidebar, order: 100, actionID: "workspace.project.show", rendererID: "workspace.project"),
+            ModuleContribution(id: "github.pull-requests", kind: .toolWindow, title: "Pull Requests", placement: .leftSidebar, order: 300, actionID: "github.pull-requests.show", rendererID: "github.pull-requests")
+        ]
     ]
 
     public static func manifest(for id: ModuleID) -> ModuleManifest? {
@@ -232,8 +237,19 @@ public enum OfficialPluginCatalog {
 
     public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
     public static let goPluginID = PluginID("dev.lithe.plugin.go-support")
+    public static let javaPluginID = PluginID("dev.lithe.plugin.java-support")
 
     public static let entries: [Entry] = [
+        Entry(
+            id: javaPluginID,
+            displayName: "Java Support",
+            signatureRequirement: .sameTeamAsHost,
+            distribution: .bundled,
+            languageID: "java",
+            languageDisplayName: "Java",
+            fileExtensions: ["java"],
+            projectFileNames: ["pom.xml", "build.gradle", "build.gradle.kts"]
+        ),
         Entry(
             id: goPluginID,
             displayName: "Go Support",
@@ -265,12 +281,16 @@ public enum OfficialPluginCatalog {
 /// bundled language specifications and declarative plugins so both run under
 /// the same lifecycle policy.
 public enum LanguageExtensionModuleManifests {
-    public static func languageServer(languageID: String, displayName: String) -> ModuleManifest {
+    public static func languageServer(
+        languageID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
         ModuleManifest(
             id: .languageServerExtension(languageID),
             displayName: "\(displayName) Language Server",
             scope: .workspace,
-            defaultState: .disabled,
+            defaultState: enabledByDefault ? .enabled : .disabled,
             activationPolicy: .onDemand,
             sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
             dependencies: [.module(.workspace)],

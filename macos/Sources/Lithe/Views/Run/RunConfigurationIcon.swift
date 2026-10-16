@@ -7,10 +7,19 @@ import SwiftUI
 struct RunConfigurationIcon: View {
     let kind: RunConfigurationKind
     var size: CGFloat = 16
+    var isGroup = false
 
     var body: some View {
         Group {
-            if let iconKind = Self.iconKind(for: kind) {
+            if case .javaMain = kind, !isGroup {
+                ZStack {
+                    LitheIDEAIcon(resourcePath: "expui/nodes/class.svg", size: size, preservesOriginalColors: true)
+                    LitheIDEAIcon(resourcePath: "expui/nodes/runnableMark.svg", size: size, preservesOriginalColors: true)
+                }
+            } else if let resourcePath {
+                LitheIDEAIcon(resourcePath: resourcePath, size: size,
+                              preservesOriginalColors: true)
+            } else if let iconKind = Self.iconKind(for: kind) {
                 LitheIcon(kind: iconKind, size: size)
             } else {
                 Image(systemName: kind.systemImage)
@@ -20,6 +29,19 @@ struct RunConfigurationIcon: View {
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+
+    private var resourcePath: String? {
+        switch kind {
+        case .javaMain:
+            return "expui/fileTypes/java.svg"
+        case .mavenFramework, .mavenModule:
+            return "java/expui/maven.svg"
+        case .process(let provider) where ["make", "just", "procfile"].contains(provider.split(separator: ".").first.map(String.init) ?? ""):
+            return isGroup ? "expui/build/taskGroup.svg" : "expui/fileTypes/shell.svg"
+        default:
+            return nil
+        }
     }
 
     static func iconKind(for kind: RunConfigurationKind) -> LitheIconKind? {

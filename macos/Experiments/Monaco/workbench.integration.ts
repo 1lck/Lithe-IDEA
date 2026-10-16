@@ -529,6 +529,14 @@ async function verify() {
     assert(editor.getOption(monacoEditor.EditorOption.minimap).enabled &&
       secondary.getOption(monacoEditor.EditorOption.minimap).enabled, "minimap setting did not update every editor");
     assert(secondary.getModel()?.getValue() === "right", "split lost its independent document");
+    const previewFocus = document.createElement("input");
+    document.body.appendChild(previewFocus);
+    try {
+      previewFocus.focus();
+      await window.lithe.navigate({ id: "right-layout", line: 0, column: 1, focus: false });
+      assert(document.activeElement === previewFocus, "background preview navigation stole native/list focus");
+      assert(secondary.getPosition()?.column === 2, "background preview did not reveal the diagnostic column");
+    } finally { previewFocus.remove(); }
     await window.lithe.navigate({ id: "right-layout", line: 0, column: 2 });
     assert(secondary.getPosition()?.column === 3, "navigation did not reach the secondary view");
     assert(editor.getModel()?.getValue() === "left", "secondary navigation replaced primary document");
@@ -905,6 +913,26 @@ async function verify() {
       }
     });
   }
+  await check("read-only previews hide Run markers and reject retained Run and Debug actions", async () => {
+    const id = "readonly-run-test";
+    await window.lithe.activate({ id, text: "class Main {}", revision: 0, language: "java", readonly: false });
+    try {
+      editor.setPosition({ lineNumber: 1, column: 1 });
+      await window.lithe.refreshJavaRunMarkers();
+      const run = editor.getAction("lithe.javaRun.run"), debug = editor.getAction("lithe.javaRun.debug");
+      assert(run && debug, "editable Java editor lost Run and Debug actions");
+      const before = (await send({ type: "javaRunActionCount" })).count;
+      await run!.run();
+      assert((await send({ type: "javaRunActionCount" })).count === before + 1, "editable Run action stopped working");
+      await window.lithe.updateDocument({ id, filename: "Main.java", locationRevision: 0, readonly: true });
+      assert(!editor.getAction("lithe.javaRun.run") && !editor.getAction("lithe.javaRun.debug"), "read-only actions remain registered");
+      assert(!editor.getModel()!.getAllDecorations().some(value => value.options.glyphMarginClassName?.includes("lithe-java-run")),
+        "read-only preview retained a Run gutter marker");
+      await run!.run();
+      await debug!.run();
+      assert((await send({ type: "javaRunActionCount" })).count === before + 1, "retained action launched from a read-only preview");
+    } finally { await window.lithe.retain([]); }
+  });
   await check("macOS product shortcuts edit through Monaco and preserve undo and CRLF", async () => {
     const source = "one\r\ntwo\r\nthree";
     await send({ type: "open", text: source });

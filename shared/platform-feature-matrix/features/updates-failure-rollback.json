@@ -19,6 +19,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Release",
-  "verification": "模拟清单错误、下载失败和安装失败，确认重试、回滚和用户提示。",
-  "notes": "macOS 回退更新方案仍在 #734 跟进。"
+  "verification": "macOS StableRollbackTests、UpdateCheckerTests 与 AppUpdateChannelTests 覆盖下载/校验失败、取消与恢复、忙碌期间禁止换渠道、旧提示失效及全量回退。Windows store 与 selector 测试覆盖保存失败、未确认拒绝 AutoBuild、手动下载浏览器失败、原生 handle 释放及未保存文件预检查互斥。真实安装器回退仍待验证。",
+  "notes": "macOS AutoBuild 提供独立的签名全量返回正式版入口，允许版本降低并保留项目与设置，但新设置可能无法被旧版识别。Windows AutoBuild 与跨渠道通过明确提示的发布页全量安装，不宣称支持原生自动回滚或签名滚动更新。"
 }

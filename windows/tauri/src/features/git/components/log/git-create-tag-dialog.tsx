@@ -24,6 +24,7 @@ export function GitCreateTagDialog({
   const [error, setError] = useState<string | null>(null);
   const activeRef = useRef(true);
   const pendingRef = useRef(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const isValidName = name.length > 0 && !/\s/.test(name);
 
   useEffect(() => {
@@ -62,6 +63,7 @@ export function GitCreateTagDialog({
       title={t("git.log.createTagOnCommit", { commit: commit.hash })}
       icon={QuestionIcon}
       size="sm"
+      initialFocus={nameInputRef}
       onClose={() => {
         if (!pendingRef.current) onClose();
       }}
@@ -90,7 +92,7 @@ export function GitCreateTagDialog({
         <label className="flex flex-col gap-2 font-sans ui-text-sm text-foreground">
           {t("git.log.tagNamePrompt")}
           <Input
-            autoFocus
+            ref={nameInputRef}
             value={name}
             disabled={isCreating}
             onChange={(event) => setName(event.target.value)}

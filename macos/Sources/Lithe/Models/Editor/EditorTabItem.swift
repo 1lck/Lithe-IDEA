@@ -9,6 +9,7 @@ enum EditorTabItem: Hashable, Identifiable {
     case databaseQuery(profileID: UUID, queryID: UUID)
     case databaseOverview
     case repositoryDiff
+    case agentConversation
 
     var id: Self { self }
 

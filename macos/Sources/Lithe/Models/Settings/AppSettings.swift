@@ -10,6 +10,12 @@ enum JavaBuildFailurePolicy: String, Codable {
 
 @MainActor
 final class AppSettings: ObservableObject {
+    nonisolated static let agentSelectionPreferenceKey = "lithe.agent.welcomeAgentChosen"
+    var preferredConversationAgentID: String? {
+        get { defaults.object(forKey: Self.agentSelectionPreferenceKey) as? String }
+        set { defaults.set(newValue, forKey: Self.agentSelectionPreferenceKey) }
+    }
+
     private enum Key {
         static let colorTheme = "settings.colorTheme"
         static let themePreference = "settings.themePreference"
@@ -902,6 +908,11 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         case .english: "English"
         case .simplifiedChinese: "简体中文"
         }
+    }
+
+    func localizedString(_ key: String, bundle: Bundle = .main) -> String {
+        (bundle.url(forResource: rawValue, withExtension: "lproj").flatMap(Bundle.init(url:)) ?? bundle)
+            .localizedString(forKey: key, value: key, table: nil)
     }
 
     var locale: Locale {

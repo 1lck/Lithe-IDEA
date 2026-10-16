@@ -74,6 +74,11 @@
       "note": "no confident IntelliJ platform asset; lucide fallback"
     },
     {
+      "icon": "BalloonErrorIcon",
+      "source": "expui/status/error.svg",
+      "note": "AllIcons.General.BalloonError (New UI) used by ERROR notification balloons"
+    },
+    {
       "icon": "BellIcon",
       "source": "expui/toolwindows/notifications.svg",
       "source20": "expui/toolwindows/notifications@20x20.svg"
