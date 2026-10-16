@@ -80,13 +80,22 @@ final class AgentTranscriptNavigationState: ObservableObject {
     func refreshVisibleTurns() {
         guard let scrollView else { return }
         let clip = scrollView.contentView
+        // safeAreaInset reserves space inside the clip bounds. Covered rows
+        // must not appear visible merely because they intersect that space.
+        let insets = scrollView.contentInsets
+        var viewport = clip.bounds
+        viewport.origin.x += insets.left
+        viewport.origin.y += clip.isFlipped ? insets.top : insets.bottom
+        viewport.size.width = max(0, viewport.width - insets.left - insets.right)
+        viewport.size.height = max(0, viewport.height - insets.top - insets.bottom)
+        let visibleRect = viewport.height > 2 ? viewport.insetBy(dx: 0, dy: 1) : .zero
         var visible: Set<String> = []
         rows = rows.filter { $0.value.view != nil }
         for row in rows.values {
             guard let view = row.view, view.window != nil, view.enclosingScrollView === scrollView,
                   let turnID = view.turnID else { continue }
             let rect = view.convert(view.bounds, to: clip)
-            if rect.height > 0 && rect.intersects(clip.bounds.insetBy(dx: 0, dy: 1)) { visible.insert(turnID) }
+            if rect.height > 0 && !visibleRect.isEmpty && rect.intersects(visibleRect) { visible.insert(turnID) }
         }
         if visible != visibleTurnIDs { visibleTurnIDs = visible }
     }
@@ -137,6 +146,7 @@ struct AgentTranscriptNavigationViewport: NSViewRepresentable {
         private let state: AgentTranscriptNavigationState
         private weak var scrollView: NSScrollView?
         private var observers: [NSObjectProtocol] = []
+        private var insetObservation: NSKeyValueObservation?
         init(state: AgentTranscriptNavigationState) { self.state = state; super.init(frame: .zero) }
         required init?(coder: NSCoder) { nil }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -150,6 +160,9 @@ struct AgentTranscriptNavigationViewport: NSViewRepresentable {
             detach()
             scrollView = enclosing
             state.attach(to: enclosing)
+            insetObservation = enclosing.observe(\.contentInsets, options: [.new]) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.state.requestRefresh() }
+            }
             enclosing.contentView.postsBoundsChangedNotifications = true
             enclosing.contentView.postsFrameChangedNotifications = true
             for name in [NSView.boundsDidChangeNotification, NSView.frameDidChangeNotification] {
@@ -163,6 +176,8 @@ struct AgentTranscriptNavigationViewport: NSViewRepresentable {
             state.detach(from: scrollView)
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
+            insetObservation?.invalidate()
+            insetObservation = nil
             scrollView = nil
         }
         deinit { observers.forEach(NotificationCenter.default.removeObserver) }
