@@ -17,6 +17,7 @@ enum TestProcess {
         executableURL: URL,
         arguments: [String],
         currentDirectoryURL: URL,
+        environment: [String: String]? = nil,
         timeout: Duration = .seconds(5)
     ) async throws -> TestProcessResult {
         try Task.checkCancellation()
@@ -24,6 +25,7 @@ enum TestProcess {
             executableURL: executableURL,
             arguments: arguments,
             currentDirectoryURL: currentDirectoryURL,
+            environment: environment,
             timeout: timeout
         )
         return try await withTaskCancellationHandler {
@@ -53,6 +55,7 @@ private final class TestProcessController: @unchecked Sendable {
         executableURL: URL,
         arguments: [String],
         currentDirectoryURL: URL,
+        environment: [String: String]?,
         timeout: Duration
     ) {
         self.executableURL = executableURL
@@ -62,6 +65,7 @@ private final class TestProcessController: @unchecked Sendable {
             executableURL: executableURL,
             arguments: arguments,
             currentDirectoryURL: currentDirectoryURL,
+            environment: environment,
             standardInput: FileHandle.nullDevice,
             standardOutput: output.fileHandleForWriting,
             standardError: output.fileHandleForWriting

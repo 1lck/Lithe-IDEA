@@ -26,6 +26,13 @@ enum LitheScrollWheelRouting {
         deltaX: CGFloat,
         deltaY: CGFloat
     ) -> LitheScrollWheelDestination {
+        // Overlays can occupy the same window coordinates without belonging to
+        // this scroll view. Leave their events to their own responder chain,
+        // including when an independent list reaches its scrolling boundary.
+        guard let hitView,
+              hitView === outerScrollView || hitView.isDescendant(of: outerScrollView) else {
+            return .unchanged
+        }
         let nearestScrollView = nearestScrollView(from: hitView, within: outerScrollView)
         let hitsNestedScrollView = nearestScrollView != nil && nearestScrollView !== outerScrollView
         return destination(
