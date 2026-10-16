@@ -3,7 +3,8 @@ import LitheCoreContracts
 
 /// Session statistics that outlive a connection, for one workspace and Agent.
 /// Loading a session from history starts from its record, and every finished
-/// turn writes the new totals back. Statistics are optional: without a
+/// turn writes the new totals back. Actual context reports share the same bounded
+/// store, and are restored only after matching the confirmed model. Without a
 /// persistence port, scope or a readable document they start from zero as before.
 @MainActor
 final class AgentSessionStatisticsStore {
@@ -33,8 +34,23 @@ final class AgentSessionStatisticsStore {
     func save(_ conversation: AgentConversation, sessionID: String) {
         guard let workspaceURL = workspaceURL(), var records = records() else { return }
         let record = conversation.statisticsRecord(at: currentDate())
-        guard !record.isEmpty, records[sessionID].map({ !$0.hasSameTotals(as: record) }) ?? true else { return }
-        records[sessionID] = record
+        guard records[sessionID].map({ !$0.hasSameTotals(as: record) }) ?? !record.isEmpty else { return }
+        records[sessionID] = record.isEmpty ? nil : record
+        persist(records, workspaceURL: workspaceURL)
+    }
+
+    /// A model change invalidates occupancy without saving partial turn counters.
+    func invalidateContextUsage(for sessionID: String) {
+        guard let workspaceURL = workspaceURL(), var records = records(),
+              var record = records[sessionID], record.contextUsage != nil else { return }
+        record.contextUsage = nil
+        record.contextModels = nil
+        records[sessionID] = record.isEmpty ? nil : record
+        persist(records, workspaceURL: workspaceURL)
+    }
+
+    private func persist(_ values: [String: AgentSessionStatisticsRecord], workspaceURL: URL) {
+        var records = values
         if records.count > Self.maximumSessions {
             let oldest = records.sorted { ($0.value.updatedAt, $0.key) < ($1.value.updatedAt, $1.key) }
                 .prefix(records.count - Self.maximumSessions).map(\.key)
