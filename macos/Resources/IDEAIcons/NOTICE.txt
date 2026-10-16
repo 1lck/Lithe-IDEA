@@ -314,3 +314,7 @@ expui/run/testNotRunYet{,_dark}.svg copied unmodified from IntelliJ Community
 revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src.
 PoolOfTestIcons/TestIconMapper assign these statuses; PlatformIconMappings maps
 RunConfigurations.TestNotRan to expui/run/testNotRunYet.svg.
+
+Tests summary passed-with-ignored state: expui/run/testPassedIgnored{,_dark}.svg
+from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src.
+Copied unmodified; TestIconMapper/PlatformIconMappings assign ToolbarPassedIgnored.

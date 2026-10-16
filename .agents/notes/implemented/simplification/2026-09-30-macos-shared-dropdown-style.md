@@ -1260,3 +1260,16 @@ Test 左侧结果树对照同 revision 的 TestTreeRenderer → TestsPresentatio
 执行错误用 testError，断言失败用 testFailed，保留 passed/ignored 原始图标，不用SF图标
 替代测试状态或通过调色修改源SVG。列表左右留白复用 Tree.horizontalInset（12pt），
 行高24pt、层级19pt、文字间距2pt，选中/失焦/hover仍由共享树行负责。
+
+Test 结果摘要对照 TestStatusLine、TestRunnerBundle 与 SimpleColoredComponent：
+使用连续的“2 tests failed, 3 passed, 1 ignored”形式及13pt Regular，中文单独翻译，
+单复数按数量选择。失败文字取 Label.errorForeground（深#F57E84/浅#C54E58），
+忽略文字取 Label.warningForeground（深#D59637/浅#A56906），总数取
+GRAYED_ATTRIBUTES → Component.infoForeground（#73767C）；不能用通用日志等级色替代。
+状态图标保留16pt，额外区分全部忽略、通过但含忽略、错误和未运行；总数与结果分段显示，
+没有真实耗时数据时不伪造时间。共享 TestResult 持有字体、颜色与间距：左4pt来自wrapper2
+加icon inset2；图文3pt来自iconTextGap2加文字border1；描述12pt来自前项尾3、容器gap6
+及后项首3。3pt结果状态条的范围保持不变。
+
+结果树有子项的名称区域支持双击切换折叠；单击继续选择，箭头点击继续只切换折叠。
+复用 Maven 树的 simultaneous double-tap 方式，叶子双击不改折叠集合、不触发运行。

@@ -3134,3 +3134,15 @@
 "No profiling events were recorded." = "没有录制到性能事件。";
 
 "Process Terminated" = "进程已终止";
+
+"%lld test failed" = "%lld 个测试失败";
+"%lld tests failed" = "%lld 个测试失败";
+"%lld test passed" = "%lld 个测试通过";
+"%lld tests passed" = "%lld 个测试通过";
+"%lld test ignored" = "%lld 个测试已忽略";
+"%lld tests ignored" = "%lld 个测试已忽略";
+"%lld passed" = "%lld 个通过";
+"%lld ignored" = "%lld 个已忽略";
+"%lld test total" = "共 %lld 个测试";
+"%lld tests total" = "共 %lld 个测试";
+", " = "，";

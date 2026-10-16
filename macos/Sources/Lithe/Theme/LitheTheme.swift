@@ -730,6 +730,14 @@ enum LitheTheme {
 
     /// Shared by Git Log branch actions and Console actions.
     enum TestResult {
+        static var summaryFont: Font { LitheTheme.uiFont(size: 13, weight: .regular) }
+        // TestStatusLine's 2pt wrapper + SimpleColoredComponent's 2pt icon inset.
+        static let summaryLeadingInset: CGFloat = 4
+        static let summaryIconTextGap: CGFloat = 3 // 2pt icon gap + 1pt text border.
+        static let summaryDescriptionGap: CGFloat = 12 // 3pt trailing + 6pt gap + 3pt leading.
+        static var failedText: Color { controlColor(light: 0xC54E58, dark: 0xF57E84) }
+        static var ignoredText: Color { controlColor(light: 0xA56906, dark: 0xD59637) }
+        static var descriptionText: Color { controlColor(light: 0x73767C, dark: 0x73767C) }
         // Community TestStatusLine stripeWidth + DarculaProgressBarUI determinate capsule.
         static let stripeHeight: CGFloat = 3
         // Exact ProgressBar.passedColor/failedColor: Islands Light; ExperimentalDark parent.

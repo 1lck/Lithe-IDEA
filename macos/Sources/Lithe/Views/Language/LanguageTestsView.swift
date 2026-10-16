@@ -303,6 +303,11 @@ struct LanguageTestsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                guard hasChildren else { return }
+                if isCollapsed { collapsedTestIDs.remove(item.id) }
+                else { collapsedTestIDs.insert(item.id) }
+            })
             .accessibilityValue(Text(status == "Ignored" ? localization.text("Skipped") : status.map(localization.text) ?? ""))
         }
         .padding(.leading, CGFloat(max(0, item.depth - (usesResultTree ? 1 : 0))) * LitheTheme.Tree.indent)
@@ -455,22 +460,26 @@ struct LanguageTestsView: View {
     }
 
     private var testSummary: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.TestResult.summaryDescriptionGap) {
             if let results = service.results {
-                LitheIDEAIcon(resourcePath: "expui/run/test\(results.success ? "Passed" : "Failed").svg", size: 16,
-                              preservesOriginalColors: true)
-                if results.failures + results.errors > 0 { resultCount("Failed", results.failures + results.errors, color: LitheTheme.error) }
-                if results.passed > 0 { resultCount("Passed", results.passed, color: LitheTheme.primaryText) }
-                if results.skipped > 0 { resultCount("Skipped", results.skipped, color: LitheTheme.warning) }
-                Text(localization.count("Tests", results.testsRun)).foregroundStyle(LitheTheme.secondaryText)
+                HStack(spacing: LitheTheme.TestResult.summaryIconTextGap) {
+                    LitheIDEAIcon(resourcePath: Self.summaryIcon(for: results), size: 16,
+                                  preservesOriginalColors: true)
+                    summaryCounts(results)
+                }
+                Text(localization.number(results.testsRun == 1 ? "%lld test total" : "%lld tests total", results.testsRun))
+                    .foregroundStyle(LitheTheme.TestResult.descriptionText)
             } else {
                 Text(LocalizedStringKey(Self.summaryText(for: service.state)))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer(minLength: 0)
         }
-        .font(LitheTheme.uiFont(size: 13))
-        .padding(.horizontal, 8)
+        .font(LitheTheme.TestResult.summaryFont)
+        .lineLimit(1)
+        .foregroundStyle(LitheTheme.searchFieldText)
+        .padding(.leading, LitheTheme.TestResult.summaryLeadingInset)
+        .padding(.trailing, 8)
         .frame(height: LitheTheme.Metrics.toolbarIconButtonSize + 2 * LitheTheme.ActionStripe.topInset)
         .litheWorkbenchSurface(LitheTheme.editor)
         .overlay(alignment: .bottom) {
@@ -546,9 +555,36 @@ struct LanguageTestsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func resultCount(_ label: String, _ count: Int, color: Color) -> some View {
-        Text(localization.count(label, count))
-            .foregroundStyle(color)
+    private func summaryCounts(_ results: MavenTestResults) -> Text {
+        let failed = results.failures + results.errors
+        let separator = localization.text(", ")
+        var fragments: [Text] = []
+        if failed > 0 {
+            let format = failed == 1 ? "%lld test failed" : "%lld tests failed"
+            fragments.append(Text(localization.number(format, failed) + (results.passed + results.skipped > 0 ? separator : ""))
+                .foregroundColor(LitheTheme.TestResult.failedText))
+        }
+        if results.passed > 0 {
+            let format = failed + results.skipped == 0
+                ? (results.passed == 1 ? "%lld test passed" : "%lld tests passed") : "%lld passed"
+            fragments.append(Text(localization.number(format, results.passed) + (results.skipped > 0 ? separator : "")))
+        }
+        if results.skipped > 0 {
+            let format = failed + results.passed == 0
+                ? (results.skipped == 1 ? "%lld test ignored" : "%lld tests ignored") : "%lld ignored"
+            fragments.append(Text(localization.number(format, results.skipped))
+                .foregroundColor(LitheTheme.TestResult.ignoredText))
+        }
+        return fragments.reduce(Text(""), +).font(LitheTheme.TestResult.summaryFont)
+    }
+
+    static func summaryIcon(for results: MavenTestResults) -> String {
+        let status: String
+        if results.failures > 0 { status = "Failed" }
+        else if results.errors > 0 { status = "Error" }
+        else if results.passed > 0 { status = results.skipped > 0 ? "PassedIgnored" : "Passed" }
+        else { status = results.skipped > 0 ? "Ignored" : "NotRunYet" }
+        return "expui/run/test\(status).svg"
     }
 
     private func testFailureList(_ failures: [LanguageTestFailureDetail]) -> some View {

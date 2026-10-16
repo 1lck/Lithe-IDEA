@@ -55,7 +55,7 @@ struct LanguageTestPresentationTests {
     func resultIconsLoadOriginalSixteenPointLightAndDarkAssets(dark: Bool) throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/IDEAIcons")
-        for status in [nil, "Passed", "Failed", "Error", "Ignored"] as [String?] {
+        for status in [nil, "Passed", "Failed", "Error", "Ignored", "PassedIgnored"] as [String?] {
             let path = LanguageTestsView.testItemIcon(status: status)
             let asset = dark ? LitheIcons.darkIdeaAssetPath(for: path) : path
             let image = try #require(NSImage(contentsOf: root.appendingPathComponent(asset)))
@@ -63,6 +63,17 @@ struct LanguageTestPresentationTests {
         }
         #expect(LanguageTestsView.testItemIcon(status: nil) == "expui/run/testNotRunYet.svg")
         #expect(LanguageTestsView.testItemIcon(status: "Error") == "expui/run/testError.svg")
+    }
+
+    @Test func summaryIconDistinguishesMixedAndEmptyOutcomes() {
+        for (failures, errors, passed, skipped, icon) in [(1, 0, 2, 1, "Failed"), (0, 1, 0, 0, "Error"),
+            (0, 0, 2, 1, "PassedIgnored"), (0, 0, 1, 0, "Passed"),
+            (0, 0, 0, 2, "Ignored"), (0, 0, 0, 0, "NotRunYet")] {
+            let results = MavenTestResults(testsRun: failures + errors + passed + skipped,
+                failures: failures, errors: errors, skipped: skipped, passed: passed,
+                success: failures + errors == 0, failureDetails: [])
+            #expect(LanguageTestsView.summaryIcon(for: results) == "expui/run/test\(icon).svg")
+        }
     }
 
     private func testItem(_ id: String, selector: String? = nil, depth: Int) -> LanguageTestItem {
