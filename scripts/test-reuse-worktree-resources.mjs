@@ -64,6 +64,17 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("distribution runtime state cannot be listed or imported as a build cache", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const state = registry.excludedResources.find(item => item.id === "distribution-runtime-state");
+    assert.equal(state.reusable, false);
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(state.id));
+    const refused = reuse(["--resource", state.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /distribution-runtime-state is isolated/);
+  });
   await test("plugin UI icons remain owned by their verified installed package", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);

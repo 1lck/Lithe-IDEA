@@ -29,6 +29,20 @@
   ],
   "excludedResources": [
     {
+      "id": "distribution-runtime-state",
+      "reusable": false,
+      "locations": [
+        "<user-library>/Application Support/app.lithe.desktop.dev/",
+        "<user-library>/Caches/app.lithe.desktop.dev/",
+        "<user-library>/Logs/app.lithe.desktop.dev/",
+        "<system-temp>/app.lithe.desktop.dev/",
+        "<user-library>/Preferences/app.lithe.desktop.dev.plist",
+        "<windows-app-data>/app.lithe.windows.dev/"
+      ],
+      "identity": "Mutable per-user state owned by the installed app.lithe.desktop.dev or app.lithe.windows.dev identity, not by version, architecture, platform SDK or toolchain; no reusable identity stamp. Stable keeps its historical paths and credentials.",
+      "reason": "Preferences, Keychain/Credential Manager entries, caches, plugins, MCP connection locks, logs and recovery state must never be imported from Stable, copied between worktrees or packaged. No copy stage is allowed. Platform adapters resolve writable roots at runtime outside signed distribution resources; do not add a download-cache validator for user state. OS cleanup owns temporary/cache eviction; persistent state belongs to its distribution until the user removes it."
+    },
+    {
       "id": "autobuild-plugin-mirror-staging",
       "reusable": false,
       "locations": [

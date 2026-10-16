@@ -77,8 +77,9 @@ These presentation actions do not add Agent Host commands or persist chat histor
 
 ### Application update channels
 
-The saved channel defaults to `stable` independently of the installed build identity.
-Invalid or missing preferences select Stable. Choosing `autobuild` requires explicit
+A missing saved channel selects `stable` for Stable and legacy shared-identity builds;
+separately installed `Lithe-Dev` defaults to `autobuild`. Invalid preferences select
+Stable, and an explicit saved choice takes precedence. Choosing `autobuild` from Stable requires explicit
 acknowledgement that rolling builds may contain unfinished features and serious bugs;
 both settings UIs continuously recommend Stable for ordinary users. The AutoBuild
 release is `https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild` and is built
@@ -88,7 +89,23 @@ Installed identity and selected channel are separate. A cross-channel switch req
 an explicit full installation; stable semantic versions must never be compared to
 rolling workflow build numbers. Channel changes cannot race active checks, downloads,
 installation, or an outstanding switch. Existing offers must be dismissed before the
-new preference takes effect. macOS keeps its signed full Stable rollback path.
+new preference takes effect. Legacy macOS builds with the Stable bundle ID keep their
+signed full Stable rollback path. Dedicated development builds open Stable downloads
+for a separate installation; the installer must not accept another bundle identity.
+
+AutoBuild installs as `Lithe-Dev`, with macOS bundle ID `app.lithe.desktop.dev` and
+Windows Tauri identifier `app.lithe.windows.dev`. Stable retains its existing names,
+identifiers, preferences domains, Keychain services and historical storage paths.
+Preferences, credentials, default logs and app-owned runtime data/cache/temp roots
+are isolated by installed identity, never by a mutable channel preference. The
+macOS adapter inserts the development bundle ID below system writable roots;
+Windows uses Tauri's identifier-scoped app directories and credential service.
+Explicit user-selected project/tool/log paths can still be shared. No automatic
+migration imports Stable state into development. Signed bundles remain read-only.
+DMGs/ZIPs contain `Lithe-Dev.app` and Windows installers use the development product
+name, while public release asset filenames remain compatible. Pre-isolation
+AutoBuild needs a separate full installation; only matching bundle identities and
+app names can be Sparkle differential baselines.
 
 Within AutoBuild, one whole-second UTC build time is captured per build and encoded
 as `YYYYMMDD.HHMMSS` for Sparkle's numeric version comparison. Its corresponding

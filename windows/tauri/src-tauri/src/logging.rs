@@ -481,14 +481,19 @@ impl LogManager {
     }
 
     pub fn degraded(app: &AppHandle, reason: String) -> Arc<Self> {
+        let fallback_root = if app.config().identifier == "app.lithe.windows.dev" {
+            std::env::temp_dir().join(app.config().identifier.as_str())
+        } else {
+            std::env::temp_dir().join("Lithe")
+        };
         let default_path = app
             .path()
             .app_log_dir()
-            .unwrap_or_else(|_| std::env::temp_dir().join("Lithe").join("logs"));
+            .unwrap_or_else(|_| fallback_root.join("logs"));
         let config_path = app
             .path()
             .app_config_dir()
-            .unwrap_or_else(|_| std::env::temp_dir().join("Lithe"))
+            .unwrap_or(fallback_root)
             .join(LOG_CONFIG_FILE);
         Self::degraded_with_paths(default_path, config_path, reason)
     }

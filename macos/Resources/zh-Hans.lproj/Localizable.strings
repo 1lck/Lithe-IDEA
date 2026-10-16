@@ -3096,7 +3096,7 @@
 "Use AutoBuild Rolling?" = "使用 AutoBuild 滚动版？";
 "Use AutoBuild" = "使用 AutoBuild";
 "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild 每晚滚动构建，可能包含未完成的功能、严重缺陷或其他异常，普通用户建议使用正式版。";
-"Changing channels requires a full installation and may install an older version. Your projects and settings are kept, but settings from newer builds may not work in older releases." = "切换渠道需要全量安装，可能安装较旧的版本。项目和设置会保留，但较新构建中的设置可能无法在旧版本中使用。";
+"Changing channels requires a full installation and may install an older version. Lithe and Lithe-Dev use separate settings and caches. Your project files stay in their current locations." = "切换渠道需要全量安装，可能安装较旧的版本。Lithe 与 Lithe-Dev 使用独立设置和缓存，项目文件仍保留在原位置。";
 "Open AutoBuild Downloads" = "打开 AutoBuild 下载页";
 "Open Stable Downloads" = "打开正式版下载页";
 "Install the selected channel" = "安装所选渠道版本";

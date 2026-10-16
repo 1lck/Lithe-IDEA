@@ -97,12 +97,13 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
   pinned_timestamp = "2026-01-02T03:04:05Z"
   [1, 2].each do |version|
     build = preview ? (version == 1 ? "58.1" : "20260102.030405") : version.to_s
-    app = File.join(root, "v#{version}", "Lithe.app")
+    app_name = preview ? "Lithe-Dev" : "Lithe"
+    app = File.join(root, "v#{version}", "#{app_name}.app")
     originals << app
     FileUtils.mkdir_p(File.join(app, "Contents", "MacOS"))
     FileUtils.mkdir_p(File.join(app, "Contents", "Resources"))
     FileUtils.cp("/usr/bin/true", File.join(app, "Contents", "MacOS", "Lithe"))
-    plist = {"CFBundleIdentifier" => "example.lithe.sparkle-fixture", "CFBundleName" => "Lithe",
+    plist = {"CFBundleIdentifier" => (preview ? "app.lithe.desktop.dev" : "app.lithe.desktop"), "CFBundleName" => app_name,
       "CFBundleExecutable" => "Lithe", "CFBundlePackageType" => "APPL",
       "CFBundleVersion" => build, "CFBundleShortVersionString" => preview ? "0.3.0" : "1.0.#{version}",
       "LSMinimumSystemVersion" => "13.0", "SUPublicEDKey" => public_key,
@@ -117,7 +118,13 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
     File.binwrite(File.join(app, "Contents", "Resources", "unchanged"), Random.new(529).bytes(512 * 1024))
     File.write(File.join(app, "Contents", "Resources", "changed"), version.to_s)
     run("codesign", "--force", "--deep", "--sign", "-", app)
-    run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, File.join(archives, "Lithe-#{version}.zip"))
+    archive = File.join(archives, "Lithe-#{version}.zip")
+    run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, archive)
+    verifier = File.join(__dir__, "verify-sparkle-baseline.sh")
+    run("zsh", verifier, archive, app_name, plist.fetch("CFBundleIdentifier"))
+    run("zsh", verifier, archive, app_name, "example.wrong-identity", succeeds: false)
+    run("zsh", verifier, archive, preview ? "Lithe" : "Lithe-Dev",
+      preview ? "app.lithe.desktop" : "app.lithe.desktop.dev", succeeds: false)
     if version == 1
       run(File.join(tools, "generate_appcast"), "--ed-key-file", "-", "--versions", build, "--download-url-prefix", "https://example.com/", archives, input: key + "\n")
       verify_sparkle_appcast(File.join(archives, "appcast.xml"), build)
@@ -179,12 +186,17 @@ Dir.mktmpdir("lithe-sparkle-channels-") do |root|
   key = Base64.strict_encode64("\x01" * 32)
   %w[stable autobuild preview].product(%w[arm64 x86_64]).each do |channel, architecture|
     path = File.join(root, "#{channel}-#{architecture}.plist")
-    File.write(path, '<plist version="1.0"><dict/></plist>')
+    FileUtils.cp(File.join(__dir__, "../macos/Resources/Info.plist"), path)
     run("env", "LITHE_UPDATE_CHANNEL=#{channel}", "LITHE_PREVIEW_TAG=ignored-legacy-tag",
       "LITHE_SPARKLE_PUBLIC_KEY=#{key}", "GITHUB_REPOSITORY=example/lithe",
       "zsh", File.join(__dir__, "configure-sparkle-app.sh"), path, architecture)
     info = JSON.parse(run("plutil", "-convert", "json", "-o", "-", path))
     normalized = channel == "preview" ? "autobuild" : channel
+    app_name = normalized == "autobuild" ? "Lithe-Dev" : "Lithe"
+    bundle_id = normalized == "autobuild" ? "app.lithe.desktop.dev" : "app.lithe.desktop"
+    expect(info["CFBundleName"] == app_name && info["CFBundleDisplayName"] == app_name, "Installed names must distinguish development and stable")
+    expect(info["CFBundleIdentifier"] == bundle_id, "Application preferences and OS storage must use distinct bundle identities")
+    expect(info["CFBundleExecutable"] == "Lithe", "Renaming the product must not break its executable")
     stable_feed = "https://github.com/example/lithe/releases/latest/download/appcast-#{architecture}.xml"
     autobuild_feed = "https://github.com/example/lithe/releases/download/AutoBuild/appcast-preview-#{architecture}.xml"
     expected = normalized == "autobuild" ? autobuild_feed : stable_feed

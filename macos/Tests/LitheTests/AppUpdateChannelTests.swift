@@ -20,6 +20,17 @@ struct AppUpdateChannelTests {
     }
 
     @Test
+    func isolatedDevelopmentDefaultNeverOverridesAnExplicitChoice() {
+        withPreferences { preferences in
+            #expect(AppUpdateChannel.saved(in: preferences, defaultChannel: .autobuild) == .autobuild)
+            preferences.set("stable", forKey: AppUpdateChannel.preferenceKey)
+            #expect(AppUpdateChannel.saved(in: preferences, defaultChannel: .autobuild) == .stable)
+            preferences.set("invalid", forKey: AppUpdateChannel.preferenceKey)
+            #expect(AppUpdateChannel.saved(in: preferences, defaultChannel: .autobuild) == .stable)
+        }
+    }
+
+    @Test
     func rollingRequiresConsentAndPersistsAcrossCheckerReplacement() {
         withPreferences { preferences in
             let checker = UpdateChecker(preferences: preferences)
@@ -96,6 +107,7 @@ struct AppUpdateChannelTests {
         struct Fixture: Decodable {
             struct Route: Decodable { let installed: AppUpdateChannel; let selected: AppUpdateChannel; let fullInstallation: Bool }
             let defaultChannel: AppUpdateChannel
+            let developmentDefaultChannel: AppUpdateChannel
             let rollingReleaseURL: URL
             let cases: [Route]
             let invalidPreferences: [String?]
@@ -105,6 +117,7 @@ struct AppUpdateChannelTests {
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
             root.appendingPathComponent("shared/fixtures/updates/channel-selection-v1.json")))
         #expect(fixture.defaultChannel == .stable)
+        #expect(fixture.developmentDefaultChannel == .autobuild)
         #expect(fixture.rollingReleaseURL == AppUpdateChannel.autoBuildReleaseURL)
         for route in fixture.cases {
             #expect(route.selected.requiresFullInstallation(from: route.installed) == route.fullInstallation)

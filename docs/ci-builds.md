@@ -256,6 +256,16 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先
 
 ### 独立工作树的本地编译
 
+`Lithe-Dev` 的运行时用户状态不属于可复用构建缓存。macOS 用
+`app.lithe.desktop.dev` 隔离偏好和钥匙串，并在系统 Application Support、Caches、
+Logs 及临时目录下使用同名子目录；Windows 用 `app.lithe.windows.dev` 隔离
+应用数据、WebView 存储及凭据。正式版保留历史路径。资源注册表将这些位置登记为
+`distribution-runtime-state`，复用脚本的 exclusion 路由在任何复制阶段都拒绝它；
+不根据版本、架构或工具链注册 validator，也不从正式版导入状态。
+偏好、插件状态、恢复文件和日志由所属发行身份持有，临时文件与缓存可由系统清理；
+这些目录没有可靠 identity stamp，不进入工作树缓存或安装包，不改变代码签名及增量更新基线。
+同一发行身份的多个源码工作树仍会使用同一用户域；本地测试应注入临时目录与独立偏好域。
+
 功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
 `<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。
 它依赖当前 checkout 的能力记录、证据路径及提交信息，没有可靠的版本、平台、
