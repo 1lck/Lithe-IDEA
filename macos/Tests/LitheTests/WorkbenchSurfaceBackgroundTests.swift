@@ -59,10 +59,10 @@ struct WorkbenchSurfaceBackgroundTests {
         window.isReleasedWhenClosed = false
         defer { window.close() }
         var samples: [NSColor] = []
-        for consoleStyle in [false, true] {
+        for fontSize in [11.5, 17.0] {
             let host = NSHostingView(rootView:
                 OutputTextView(output: "", searchRoots: [], fileExists: { _ in false },
-                    emptyMessage: "No output", usesIDEAConsoleStyle: consoleStyle,
+                    emptyMessage: "No output", fontSize: fontSize,
                     onOpenLocation: { _, _, _ in })
                     .environment(\.colorScheme, scheme))
             window.contentView = host

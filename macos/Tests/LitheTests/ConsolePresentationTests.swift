@@ -6,6 +6,57 @@ import Testing
 @MainActor
 @Suite("IDEA console presentation", .serialized)
 struct ConsolePresentationTests {
+    @Test(arguments: [false, true])
+    func timestampedLevelsShareColorsWithoutRepaintingMessages(dark: Bool) throws {
+        let source = "00:20:11.123 2026-10-16T00:20:11.000-07:00 \u{1b}[34mINFO\u{1b}[0m 42 --- [main] demo.App : body ERROR.java\n"
+            + "2026-10-16 00:20:11 [main] WARN warning body\n[ERROR] error body\nordinary INFO message\n"
+        let rendered = OutputTextView.renderOutput(source, searchRoots: [], fileExists: { _ in false },
+            isDark: dark, theme: .lithe, usesIDEAConsoleStyle: true)
+        let text = rendered.string as NSString
+        for (token, index) in [("INFO", 2), ("WARN", 3), ("[ERROR]", 1)] {
+            let range = text.range(of: token)
+            let offset = range.location + (token.hasPrefix("[") ? 1 : 0)
+            #expect(rendered.attribute(.foregroundColor, at: offset, effectiveRange: nil) as? NSColor
+                == LitheConsoleStyle.palette(dark: dark)[index])
+        }
+        for token in ["body ERROR.java", "warning body", "error body", "ordinary INFO message"] {
+            #expect(rendered.attribute(.foregroundColor, at: text.range(of: token).location,
+                effectiveRange: nil) as? NSColor == LitheConsoleStyle.foreground(dark: dark))
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func mavenProducerStylesOnlyItsOwnSegments(dark: Bool) throws {
+        let source = "[\u{1b}[1;34mINFO\u{1b}[m] Nothing to compile\n[\u{1b}[1;34mINFO\u{1b}[m] \u{1b}[1m--- \u{1b}[0;32mcompiler:3.13.0:compile\u{1b}[m ---\n"
+        let rendered = OutputTextView.renderOutput(source, searchRoots: [], fileExists: { _ in false },
+            isDark: dark, theme: .lithe, fontSize: 13, usesIDEAConsoleStyle: true)
+        let text = rendered.string as NSString
+        for (token, expected) in [("INFO", LitheConsoleStyle.palette(dark: dark)[2]),
+            ("Nothing to compile", LitheConsoleStyle.foreground(dark: dark)),
+            ("compiler:", LitheConsoleStyle.palette(dark: dark)[2])] {
+            let color = try #require(rendered.attribute(.foregroundColor, at: text.range(of: token).location,
+                effectiveRange: nil) as? NSColor)
+            #expect(color == expected)
+        }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func plainMavenInfoKeepsDefaultConsoleForeground(dark: Bool, consoleStyle: Bool) throws {
+        let source = "[INFO] Compiling 1 source file\n[INFO] --- compiler:3.13.0:compile ---\n"
+        let rendered = OutputTextView.renderOutput(source, searchRoots: [], fileExists: { _ in false },
+            isDark: dark, theme: .lithe, fontSize: 13, usesIDEAConsoleStyle: consoleStyle)
+        let expected = consoleStyle ? LitheConsoleStyle.foreground(dark: dark)
+            : LitheTheme.nsColor(.primaryText, theme: .lithe, isDark: dark)
+        let text = rendered.string as NSString
+        for token in ["Compiling", "compiler:"] {
+            #expect(rendered.attribute(.foregroundColor, at: text.range(of: token).location,
+                effectiveRange: nil) as? NSColor == expected)
+        }
+        #expect(rendered.attribute(.foregroundColor, at: text.range(of: "INFO").location,
+            effectiveRange: nil) as? NSColor == (consoleStyle ? LitheConsoleStyle.palette(dark: dark)[2] : expected))
+        #expect(rendered.string == source)
+    }
+
     @Test func longStacksKeepEightFramesAndCopyTheOriginalUnicodeText() throws {
         let text = "异常 🐞\n" + (1...12).map { "\tat demo.Main.frame\($0)(Main.java:\($0))\n" }.joined()
         let presentation = ConsoleFoldPresentation()

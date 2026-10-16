@@ -165,7 +165,8 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             operationID: request.operationID,
             state: .running,
             exitCode: nil,
-            message: nil
+            message: nil,
+            processID: process.processIdentifier
         ))
     }
 

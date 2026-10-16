@@ -24,6 +24,8 @@ package final class LanguageTestService: ObservableObject {
     @Published package private(set) var testOutcomes: [MavenTestCaseOutcome] = []
     @Published package private(set) var output = ""
     @Published package private(set) var errorMessage: String?
+    @Published package private(set) var runID: UUID?
+    @Published package private(set) var processID: Int32?
 
     private let catalog: LanguageProviderCatalog
     private let registry: LanguageTestProviderRegistry
@@ -64,6 +66,10 @@ package final class LanguageTestService: ObservableObject {
 
     package var isRunning: Bool { state == .running }
     package var canRerun: Bool { lastRun != nil && !isRunning }
+
+    package func hasRun(providerID: String, scope: LanguageTestScope) -> Bool {
+        lastRun?.providerID == providerID && lastRun?.scope == scope
+    }
 
     @discardableResult
     package func registerLanguageTestExtension(
@@ -140,6 +146,7 @@ package final class LanguageTestService: ObservableObject {
         options: RunOptions = RunOptions()
     ) -> Bool {
         stop(markCancelled: false)
+        runID = nil
         output = ""
         results = nil
         errorMessage = nil
@@ -185,7 +192,9 @@ package final class LanguageTestService: ObservableObject {
                 plan.launchPlan.workingDirectory,
                 workspaceURL: root
             )
-            let operationID = UUID().uuidString
+            let id = UUID()
+            runID = id
+            let operationID = id.uuidString
             activeOperationID = operationID
             activeWorkspaceURL = root
             let outputCapture = LanguageTestOutputCapture(maximumCharacters: maximumOutputCharacters)
@@ -248,6 +257,7 @@ package final class LanguageTestService: ObservableObject {
             extensionSession?.stop()
             extensionSession = nil
             activeOperationID = nil
+            processID = nil
             timedOutOperationID = nil
             outputCapture = nil
             activePlan = nil
@@ -261,13 +271,19 @@ package final class LanguageTestService: ObservableObject {
     package func stop() { stop(markCancelled: true) }
 
     package func reset() {
-        stop(markCancelled: false)
+        closeRun()
         itemsByProviderID = [:]
+        testOutcomes = []
+    }
+
+    /// Dispose the retained run without discarding discovery or editor test markers.
+    package func closeRun() {
+        stop(markCancelled: false)
         activePlan = nil
         activeWorkspaceURL = nil
         lastRun = nil
+        runID = nil
         results = nil
-        testOutcomes = []
         activeReportRequest = nil
         output = ""
         errorMessage = nil
@@ -294,6 +310,7 @@ package final class LanguageTestService: ObservableObject {
     private func stop(markCancelled: Bool) {
         let wasRunning = state == .running
         activeOperationID = nil
+        processID = nil
         timedOutOperationID = nil
         activeWorkspaceURL = nil
         outputCapture = nil
@@ -356,12 +373,13 @@ package final class LanguageTestService: ObservableObject {
             }
         }
         process.onStateChange = { [weak self] event in
-            guard event.operationID == operationID,
-                  event.state == .stopping,
-                  event.message == "Process timed out" else { return }
-            timeoutMarker.mark()
+            guard event.operationID == operationID else { return }
+            let timedOut = event.state == .stopping && event.message == "Process timed out"
+            if timedOut { timeoutMarker.mark() }
             Task { @MainActor [weak self] in
-                self?.markTimedOut(operationID: operationID)
+                guard let self, self.activeOperationID == operationID else { return }
+                if event.state == .running { self.processID = event.processID }
+                if timedOut { self.markTimedOut(operationID: operationID) }
             }
         }
     }
@@ -395,6 +413,7 @@ package final class LanguageTestService: ObservableObject {
             if timedOut { timeoutMarker.mark() }
             Task { @MainActor [weak self] in
                 guard let self, self.activeOperationID == operationID else { return }
+                if event.state == .running { self.processID = event.processID }
                 if timedOut {
                     self.markTimedOut(operationID: operationID)
                     return
@@ -459,6 +478,7 @@ package final class LanguageTestService: ObservableObject {
         activeReportRequest = nil
         state = timedOut ? .timedOut : (exitCode == 0 ? .passed : .failed(exitCode: exitCode))
         activeOperationID = nil
+        processID = nil
         timedOutOperationID = nil
         activeWorkspaceURL = nil
         outputCapture = nil

@@ -6,8 +6,8 @@ import LitheGitModule
 enum AgentEditorConversationMetrics {
     static let detailsWidth: CGFloat = 264
     static let detailsPopupHeight: CGFloat = 440
-    /// The details column is shown only when the centered column keeps its full width.
-    static let detailsMinimumTotalWidth = AgentPanelStyle.editorContentMaximumWidth + detailsWidth + 48
+    /// Product breakpoint reserving usable conversation space beside the details column.
+    static let detailsMinimumTotalWidth: CGFloat = 716 + detailsWidth + 48
 }
 
 /// Trailing details column of the editor conversation. It only rearranges
