@@ -181,7 +181,7 @@ struct ProcessExitCoordinatorTests {
             plan: plan
         )
 
-        #expect(presenter.asked == ["agentTask:agent-1", "resources:service:20:2"])
+        #expect(presenter.asked == ["agentTask:30:2", "resources:service:20:2"])
         #expect(terminate == ["service:20:2"])
     }
 

@@ -13,13 +13,16 @@ final class MacProcessInstance: @unchecked Sendable {
 
     let scope: MacProcessScope
     let store: MacProcessInstanceRecordStore
+    let applicationSessionID: pid_t?
     private let lock = NSLock()
     private var record: MacProcessInstanceRecord
     private var retentionTracker: MacRetainedProcessTracker?
+    private var approvedTermination: Set<MacProcessIdentity> = []
 
     init(scope: MacProcessScope, store: MacProcessInstanceRecordStore, record: MacProcessInstanceRecord) {
         self.scope = scope
         self.store = store
+        self.applicationSessionID = record.applicationSessionID
         self.record = record
         retentionTracker = MacRetainedProcessTracker { [weak self] identities in
             self?.persistRetained(identities)
@@ -37,7 +40,9 @@ final class MacProcessInstance: @unchecked Sendable {
         let instance = MacProcessInstance(
             scope: scope,
             store: store,
-            record: MacProcessInstanceRecord(scope: scope.id, application: application)
+            record: MacProcessInstanceRecord(
+                scope: scope.id, application: application, applicationSessionID: getsid(0)
+            )
         )
         current = instance
         instance.persist()
@@ -77,20 +82,37 @@ final class MacProcessInstance: @unchecked Sendable {
         }
     }
 
-    /// Ends every process of this instance except the retained ones, then tells
-    /// the supervisor that nothing is left to recover.
-    ///
-    /// Called last on quit, after the modules stopped what they know about.
+    /// Records the exact identities the user or a connection close authorized
+    /// ending. A later process with a reused PID is never covered by that choice.
+    func approveTermination(_ identities: [MacProcessIdentity]) {
+        lock.withLock { approvedTermination.formUnion(identities) }
+    }
+
+    /// Applies the final Core plan after modules stop. Agent processes first
+    /// observed after confirmation are deferred for the next startup, where they
+    /// can be confirmed individually; they are not silently treated as retained.
     func finalSweep(gracePeriod: TimeInterval) {
+        mutate { $0.awaitingStartupConfirmation = true }
         let seeds = retained
         let snapshot = MacProcessTable.snapshot()
         let kept = MacProcessScopeScanner.retainedIdentities(seeds, snapshot: snapshot)
         persistRetained(Array(kept))
-        let leftovers = MacProcessScopeScanner.processes(in: scope.id, excluding: excludedProcessIDs, snapshot: snapshot)
-            .map(\.info.identity)
-            .filter { !kept.contains($0) }
-        MacProcessScopeScanner.terminate(leftovers, gracePeriod: gracePeriod)
-        mutate { $0.completedShutdown = true }
+        let approved = lock.withLock { Array(approvedTermination) }
+        guard let inventory = try? MacProcessInventoryReader().inventory(
+            scope: scope.id, mode: .leftover, applicationSessionID: applicationSessionID,
+            excluded: excludedProcessIDs, retained: Array(kept),
+            approvedTermination: approved, context: .finalSweep, snapshot: snapshot
+        ), let plan = inventory.plan else { return }
+        let ended = inventory.items.filter { plan.action(for: $0.id) == .terminate }
+            .flatMap { $0.processes.map(MacProcessIdentity.init) }
+        let survivors = MacProcessScopeScanner.terminate(ended, gracePeriod: gracePeriod)
+        let hasUnconfirmed = plan.decisions.contains { $0.action == .defer }
+        // Keep the record recoverable when a fast-fork descendant lost its
+        // ancestry before either watcher or snapshot could observe it.
+        mutate {
+            $0.completedShutdown = !hasUnconfirmed && survivors.isEmpty
+            $0.awaitingStartupConfirmation = !$0.completedShutdown
+        }
     }
 
     private func mutate(_ change: (inout MacProcessInstanceRecord) -> Void) {
@@ -184,6 +206,11 @@ enum MacProcessSupervisor {
             store.remove(scope: scope)
             return
         }
+        if record.awaitingStartupConfirmation == true {
+            record.supervisor = nil
+            try? store.save(record)
+            return
+        }
         let snapshot = MacProcessTable.snapshot()
         record.retained = Array(MacProcessScopeScanner.retainedIdentities(record.retained, snapshot: snapshot))
             .sorted { ($0.processID, $0.startTime) < ($1.processID, $1.startTime) }
@@ -191,6 +218,7 @@ enum MacProcessSupervisor {
         guard let inventory = try? reader.inventory(
             scope: scope,
             mode: .leftover,
+            applicationSessionID: record.applicationSessionID,
             excluded: [getpid()],
             retained: record.retained,
             context: .crashRecovery,
@@ -206,7 +234,10 @@ enum MacProcessSupervisor {
         var leftForStartup = false
         for item in inventory.items {
             if plan.action(for: item.id) == .terminate {
-                MacProcessScopeScanner.terminate(item.processes.map(MacProcessIdentity.init), gracePeriod: gracePeriod)
+                let survivors = MacProcessScopeScanner.terminate(
+                    item.processes.map(MacProcessIdentity.init), gracePeriod: gracePeriod
+                )
+                leftForStartup = leftForStartup || !survivors.isEmpty
             } else {
                 leftForStartup = true
             }
@@ -263,6 +294,7 @@ struct MacStartupProcessSweep: Sendable {
             guard let inventory = try? reader.inventory(
                 scope: record.scope,
                 mode: .leftover,
+                applicationSessionID: record.applicationSessionID,
                 excluded: excluded,
                 retained: record.retained,
                 context: .startupSweep,

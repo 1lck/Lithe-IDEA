@@ -50,6 +50,23 @@ struct AgentProcessRetentionTests {
         #expect(Set(ended.map(\.processID)) == [10, 11, 12, 200, 201])
     }
 
+    @Test func quitCleanupSkipsDeferredTasksButEndsApprovedSiblingAndInfrastructure() {
+        let inventory = ProcessInventory(items: [
+            item(id: "late-task", category: .agentTask, pids: [100]),
+            item(id: "approved", category: .agentTask, pids: [200]),
+            item(id: "infrastructure", category: .agentInfrastructure, pids: [10]),
+        ], plan: ProcessLifecyclePlan(gracefulStopMilliseconds: 0, decisions: [
+            ProcessLifecycleDecision(id: "late-task", kind: .agentTask, policy: .confirmEach,
+                action: .defer, reason: "agentTaskRequiresStartupConfirmation"),
+            ProcessLifecycleDecision(id: "approved", kind: .agentTask, policy: .confirmEach,
+                action: .terminate, reason: "finalSweepApproved"),
+            ProcessLifecycleDecision(id: "infrastructure", kind: .sidecar, policy: .terminate,
+                action: .terminate, reason: "finalSweepApproved"),
+        ]))
+        let ended = MacAgentProcessRegistry.processesToEnd(in: inventory, keeping: [])
+        #expect(Set(ended.map(\.processID)) == [10, 200])
+    }
+
     @Test func terminalTerminationUsesConfiguredGracePeriod() {
         var settings = ProcessTerminationSettings()
         settings.gracefulStopSeconds = 1

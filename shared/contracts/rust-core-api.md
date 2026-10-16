@@ -2813,15 +2813,22 @@ bridge exposes the same lifetime and result contract. Fixtures live in
 `processLifecycle.resolve` accepts `{ context, settings, records }` and returns
 `{ gracefulStopMilliseconds, decisions }` with exactly one decision per record,
 in request order. `context` is `quit`, `closeTerminalTab`, `agentDisconnect`,
-`crashRecovery`, or `startupSweep`. Each record carries a host-chosen `id`, a
+`crashRecovery`, `startupSweep`, or `finalSweep`. Each record carries a host-chosen `id`, a
 `kind` (`run`, `terminal`, `agentTask`, `languageServer`, `debugAdapter`,
 `pluginTool`, `sidecar`, `daemon`, `container`, `oneShot`), the `ownership` proof
 (`launched`, `scopeToken`, `instanceLabel`, `unproven`), and optionally
 `declaredPolicy`, `recognizerId`, `recognizedPolicy`, `detached`, `idle`, and
-`retained`. Omitted settings take the documented defaults: busy terminals and
+`retained`, and `terminationApproved` (default `false`). Omitted settings take the documented defaults: busy terminals and
 Agent tasks are confirmed one by one, closing a busy terminal tab asks,
 daemons and containers are asked about, startup leftovers are asked about, and
 ordinary processes get five seconds to stop (clamped to 1–60).
+
+`finalSweep` runs after confirmation and without dialogs. Owned Agent tasks need
+`terminationApproved: true` to terminate; otherwise their action is `defer` and
+the host must preserve a recoverable record for individual startup confirmation.
+Other owned records terminate. Unproven ownership and explicit retention still
+win. Approval applies to exact PID/start-time identities; hosts may expand it
+only through ancestry proved in the same snapshot.
 
 A decision reports the pre-setting `policy` (`terminate`, `confirmEach`,
 `askOnExit`, `external`), the `action` the host performs (`terminate`,
@@ -2833,7 +2840,16 @@ signalling, and dialogs. Fixtures live in
 `shared/fixtures/process-lifecycle/exit-plan-v1.json`.
 
 `processLifecycle.inventory` accepts `{ scope, mode, applicationSessionId,
-excludedProcessIds, retained, agentConnections, processes, context?, settings }`.
+excludedProcessIds, retained, agentScopes?, approvedTermination, agentConnections,
+processes, context?, settings }`. `agentScopes` restricts rows to named Agent
+connections: omitted means unrestricted and an empty list means no rows. Hosts
+must specify it when closing one connection. `approvedTermination` defaults to
+an empty identity list; an item is approved only when every member matches.
+`applicationSessionId` is the original application's session, persisted before
+supervisor detachment and reused during recovery. Zero means unknown: Core does
+not infer detached background services and asks about ordinary owned leftovers
+at startup by default. Hosts must omit an unattended recovery plan for legacy
+records with no original session.
 `processes` is the host's snapshot of processes that inherited
 `LITHE_PROCESS_SCOPE=<scope>`: `processId`, `startTime` (microseconds since the
 epoch), `parentProcessId`, `sessionId`, `hasControllingTerminal`, `name`,
@@ -2849,8 +2865,12 @@ infrastructure, background services, terminals, then everything else as
 connection's `taskBaseline` is a task. Tasks are grouped into trees by parent
 chain (`agentTask:{pid}:{startTime}`). Earlier processes are
 `agentInfrastructure:{scope}` (kind `sidecar`). An unknown connection, and every
-Agent scope in leftover mode, becomes one `agentTask:{agentScope}` item. A
-background service is a positive session outside the application's session
+Agent scope in leftover mode, normally becomes one `agentTask:{agentScope}`
+item. During `startupSweep` these scopes instead split into independently
+confirmed task trees with `agentTask:{pid}:{startTime}` IDs. During `finalSweep`
+they split by exact identity so an unapproved late orphan cannot block approved
+siblings. Known live connections keep their infrastructure and task grouping.
+A background service is a positive session outside the application's session
 whose members have no controlling terminal, even after its session leader exits.
 Its representative is the live session leader, or the lowest-PID live root
 whose parent is outside the session (falling back to its lowest-PID member).

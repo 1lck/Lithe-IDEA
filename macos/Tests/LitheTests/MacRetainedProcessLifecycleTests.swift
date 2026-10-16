@@ -28,13 +28,16 @@ struct MacRetainedProcessLifecycleTests {
         let application = try #require(MacProcessTable.info(processID: getpid())?.identity)
         let instance = MacProcessInstance(
             scope: MacProcessScope(id: fixture.scope), store: store,
-            record: MacProcessInstanceRecord(scope: fixture.scope, application: application)
+            record: MacProcessInstanceRecord(
+                scope: fixture.scope, application: application, applicationSessionID: getsid(0)
+            )
         )
         // This is the disconnect boundary: the task is kept, then its former
         // Agent infrastructure and an unretained sibling stay in the same scope.
         instance.retain([fixture.root])
         let sibling = try await fixture.launchUnretained()
         let infrastructure = try await fixture.launchUnretained()
+        instance.approveTermination([sibling, infrastructure])
         try fixture.fork()
         #expect(await fixture.output.ready.waitUntilOpen())
         let child = try fixture.childIdentity()
@@ -48,6 +51,47 @@ struct MacRetainedProcessLifecycleTests {
         #expect(!MacProcessTable.isAlive(sibling))
         #expect(!MacProcessTable.isAlive(infrastructure))
         #expect(store.load(scope: fixture.scope)?.retained.contains(child) == true)
+    }
+
+    @Test func unobservedOrphanDefersUntilStartupButApprovedSiblingEnds() async throws {
+        let fixture = try await RetainedForkFixture()
+        defer { fixture.cleanup() }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-unobserved-\(UUID())")
+        let store = MacProcessInstanceRecordStore(directory: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let application = try #require(MacProcessTable.info(processID: getpid())?.identity)
+        var record = MacProcessInstanceRecord(
+            scope: fixture.scope, application: application, applicationSessionID: getsid(0)
+        )
+        // The keep decision reached disk, but no tracker has observed a child.
+        record.retained = [fixture.root]
+        try store.save(record)
+        let sibling = try await fixture.launchUnretained()
+        try fixture.fork()
+        #expect(await fixture.output.ready.waitUntilOpen())
+        let child = try fixture.childIdentity()
+        try fixture.exitRoot()
+        #expect(await fixture.exited.waitUntilOpen())
+        #expect(MacProcessTable.info(processID: child.processID)?.parentProcessID != fixture.root.processID)
+        let instance = MacProcessInstance(scope: MacProcessScope(id: fixture.scope), store: store, record: record)
+        instance.approveTermination([sibling])
+        instance.finalSweep(gracePeriod: 0)
+        #expect(MacProcessTable.isAlive(child))
+        #expect(!MacProcessTable.isAlive(sibling))
+        // The application's final sweep hands off to its supervisor on exit.
+        // Deferred work must not be reinterpreted as an unattended crash kill.
+        MacProcessSupervisor.recover(scope: fixture.scope, store: store, settings: ProcessTerminationSettings())
+        #expect(MacProcessTable.isAlive(child))
+        let saved = try #require(store.load(scope: fixture.scope))
+        #expect(saved.awaitingStartupConfirmation == true)
+        #expect(!saved.completedShutdown)
+        #expect(!saved.retained.contains(child))
+        let inventory = try MacProcessInventoryReader().inventory(
+            scope: fixture.scope, mode: .leftover, applicationSessionID: saved.applicationSessionID,
+            excluded: [getpid()], retained: saved.retained, context: .startupSweep
+        )
+        let item = try #require(inventory.items.first { $0.processes.contains(child.inventoryIdentity) })
+        #expect(inventory.plan?.action(for: item.id) == .confirm)
     }
 
     @Test func crashAndStartupInventoriesExpandOnlyRetainedTaskAncestry() async throws {

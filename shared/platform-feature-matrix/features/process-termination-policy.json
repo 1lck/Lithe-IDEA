@@ -16,6 +16,8 @@
       "macos/Tests/LitheTests/ProcessLifecycleFixtureTests.swift",
       "macos/Tests/LitheTests/AgentProcessRetentionTests.swift",
       "macos/Tests/LitheTests/MacRetainedProcessLifecycleTests.swift",
+      "macos/Tests/LitheTests/MacRecoveredSessionTests.swift",
+      "macos/Tests/LitheTests/MacTerminalBusyProcessTests.swift",
       "shared/fixtures/process-lifecycle/inventory-v1.json"
     ],
     "implementationStatus": "partial",
@@ -31,5 +33,5 @@
   },
   "owner": "Run",
   "verification": "macOS：在两个终端分别运行 Spring Boot 和空闲 shell，让 Agent 启动一个长时间命令，再在终端里 setsid 启动一个后台服务；退出时应只对忙碌终端逐个确认（可跳到终端或取消），再逐个确认 Agent 任务，最后在列表中勾选后台服务；选择保留的进程退出后仍存活，取消退出时不结束任何进程。在 Lithe 外启动的进程不出现。修改设置页各选项后流程相应跳过确认；悬停 ⓘ 约 0.3 秒出现说明，点击可固定，读屏可读出；中英文文案齐全；设置搜索能找到该页。",
-  "notes": "识别规则（如 Gradle Daemon）和 Docker 容器的资源提供者尚未接入，后台服务目前靠脱离会话识别；Agent 任务弹窗暂无“打开所属会话”按钮。确认规则与结算在 Rust Core，两端共用 fixture。Review 回归覆盖所有项目先提交保留、未保留基础设施清理、终端设置等待预算、已观测后代持续持久化，以及首进程已退出的后台 session；瞬时 double-fork 或崩溃前尚未记录后代仍需独立任务启动标记，不视为完整验收。"
+  "notes": "识别规则（如 Gradle Daemon）和 Docker 容器的资源提供者尚未接入，后台服务目前靠脱离会话识别；Agent 任务弹窗暂无“打开所属会话”按钮。确认规则与结算在 Rust Core，两端共用 fixture。Review 回归覆盖所有项目先提交保留、未保留基础设施清理、终端设置等待预算、已观测后代持续持久化，以及首进程已退出的后台 session；瞬时 double-fork 的准确血缘仍需独立任务启动标记；退出确认后新发现且未批准的 Agent 身份会延期，并保持实例记录供下次启动逐树确认，已批准的兄弟任务和基础设施仍清理。第二轮回归还覆盖关闭单连接隔离、PID 复用、原始应用 session 恢复、旧记录无会话时不自动清理，以及终端 exec 替换和同组子程序。真实 GUI 退出、更新和崩溃、Windows 与锁定 CI 工具链仍待验收，不视为完整验收。"
 }

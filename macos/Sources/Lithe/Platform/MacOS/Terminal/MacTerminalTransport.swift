@@ -491,21 +491,42 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
 
     func runningPrograms() -> [TerminalRunningProgram] {
         guard let leader = sessionLeader else { return [] }
-        let members = MacProcessSessionTerminator.members(ofSessionLedBy: leader)
-        let leaderGroup = members.first { $0.identity == leader }?.processGroupID ?? leader.processID
-        // An interactive shell is not a program the user started, and helpers
-        // it runs without job control stay in its own process group.
-        let programs = launchedInteractiveShell
-            ? members.filter { $0.processGroupID != leaderGroup }
-            : members
+        return Self.runningPrograms(
+            in: MacProcessSessionTerminator.members(ofSessionLedBy: leader),
+            sessionLeader: leader,
+            interactiveShellPath: launchedInteractiveShell ? selectedShellPath : nil,
+            arguments: MacProcessTable.arguments,
+            listeningTCPPorts: MacProcessTable.listeningTCPPorts
+        )
+    }
+
+    static func runningPrograms(
+        in members: [MacProcessInfo],
+        sessionLeader: MacProcessIdentity,
+        interactiveShellPath: String?,
+        arguments: (Int32) -> MacProcessArguments?,
+        listeningTCPPorts: (Int32) -> [Int]
+    ) -> [TerminalRunningProgram] {
+        let programs = members.filter { member in
+            guard member.identity == sessionLeader,
+                  let interactiveShellPath,
+                  let executablePath = arguments(member.processID)?.executablePath,
+                  !executablePath.isEmpty else { return true }
+            // exec keeps the PID and start time. Only omit the original shell
+            // while the live executable still matches; unreadable evidence is
+            // conservatively busy. Children without job control share its group
+            // and must remain visible in the close/quit confirmation.
+            return URL(fileURLWithPath: executablePath).resolvingSymlinksInPath().standardizedFileURL
+                != URL(fileURLWithPath: interactiveShellPath).resolvingSymlinksInPath().standardizedFileURL
+        }
         return Dictionary(grouping: programs, by: \.processGroupID)
             .values
             .compactMap { group -> TerminalRunningProgram? in
                 guard let representative = group.first(where: { $0.processID == $0.processGroupID })
                     ?? group.min(by: { $0.processID < $1.processID }) else { return nil }
-                let commandLine = MacProcessTable.arguments(processID: representative.processID)?.commandLine
+                let commandLine = arguments(representative.processID)?.commandLine
                     ?? representative.name
-                let ports = Set(group.flatMap { MacProcessTable.listeningTCPPorts(processID: $0.processID) })
+                let ports = Set(group.flatMap { listeningTCPPorts($0.processID) })
                 return TerminalRunningProgram(
                     processID: representative.processID,
                     commandLine: commandLine,

@@ -30,11 +30,14 @@ final class MacAgentProcessRegistry {
     /// Task IDs the quit confirmation kept; set only while quitting.
     private var quitKeptTaskIDs: Set<String>?
     private var quitKeptTasks: [MacAgentTask] = []
+    private var quitTerminatedTasks: [MacAgentTask] = []
+    private let approveTermination: ([MacProcessIdentity]) -> Void
     private let retainProcesses: ([MacProcessIdentity]) -> Void
     private let agentScope: (MacProcessIdentity) -> String?
 
     init(
         retainProcesses: @escaping ([MacProcessIdentity]) -> Void = { MacProcessInstance.current?.retain($0) },
+        approveTermination: @escaping ([MacProcessIdentity]) -> Void = { MacProcessInstance.current?.approveTermination($0) },
         agentScope: @escaping (MacProcessIdentity) -> String? = { identity in
             guard MacProcessTable.isAlive(identity) else { return nil }
             return MacProcessTable.arguments(processID: identity.processID)?
@@ -42,6 +45,7 @@ final class MacAgentProcessRegistry {
         }
     ) {
         self.retainProcesses = retainProcesses
+        self.approveTermination = approveTermination
         self.agentScope = agentScope
     }
     /// Asks whether to keep the tasks of a connection closed while Lithe keeps
@@ -73,7 +77,9 @@ final class MacAgentProcessRegistry {
     /// application shutdown is about to close.
     func prepareForQuit(keeping taskIDs: Set<String>, tasks: [MacAgentTask]? = nil) {
         quitKeptTaskIDs = taskIDs
-        quitKeptTasks = (tasks ?? self.tasks()).filter { taskIDs.contains($0.candidate.id) }
+        let candidates = tasks ?? self.tasks()
+        quitKeptTasks = candidates.filter { taskIDs.contains($0.candidate.id) }
+        quitTerminatedTasks = candidates.filter { !taskIDs.contains($0.candidate.id) }
     }
 
     /// Commits all projects' keep decisions before any module can block shutdown
@@ -81,6 +87,12 @@ final class MacAgentProcessRegistry {
     /// no longer be cancelled.
     func commitQuitRetention() {
         retainProcesses(quitKeptTasks.flatMap(\.identities))
+        approveTermination(quitTerminatedTasks.flatMap(\.identities))
+        if let instance = MacProcessInstance.current {
+            let inventory = inventory(instance: instance, connections: connections, snapshot: MacProcessTable.snapshot())
+            approveTermination(inventory.items.filter { $0.category == .agentInfrastructure }
+                .flatMap { $0.processes.map(MacProcessIdentity.init) })
+        }
         for (scope, connection) in connections {
             let identities = quitKeptTasks.flatMap(\.identities).filter { agentScope($0) == scope }
             if !identities.isEmpty { connection.preserve(identities.map(\.processID)) }
@@ -90,6 +102,7 @@ final class MacAgentProcessRegistry {
     func cancelQuit() {
         quitKeptTaskIDs = nil
         quitKeptTasks = []
+        quitTerminatedTasks = []
     }
 
     /// Ends the tasks the user did not keep and tells the host which processes
@@ -112,8 +125,11 @@ final class MacAgentProcessRegistry {
         // unretained connection inventory here, including pre-prompt MCP and
         // adapter processes, rather than leaving infrastructure orphaned.
         let ended = Self.processesToEnd(in: inventory, keeping: keptIDs)
-        if !kept.isEmpty {
-            connection.preserve(kept.map(\.processID))
+        approveTermination(ended)
+        let deferred = inventory.items.filter { inventory.plan?.action(for: $0.id) == .defer }
+            .flatMap { $0.processes.map(MacProcessIdentity.init) }
+        if !kept.isEmpty || !deferred.isEmpty {
+            connection.preserve((kept + deferred).map(\.processID))
             retainProcesses(kept)
         }
         let gracePeriod = TimeInterval(MacProcessSupervisor.storedSettings().gracefulStopSeconds)
@@ -145,7 +161,15 @@ final class MacAgentProcessRegistry {
             )
         }
         do {
-            return try MacProcessInventoryReader().live(instance: instance, agentConnections: snapshots, snapshot: snapshot)
+            return try MacProcessInventoryReader().inventory(
+                scope: instance.scope.id, mode: .live,
+                applicationSessionID: instance.applicationSessionID,
+                excluded: instance.excludedProcessIDs, retained: instance.retained,
+                agentConnections: snapshots, agentScopes: snapshots.map(\.scope),
+                approvedTermination: quitTerminatedTasks.flatMap(\.identities),
+                context: quitKeptTaskIDs == nil ? nil : .finalSweep,
+                snapshot: snapshot
+            )
         } catch {
             return ProcessInventory(items: [], plan: nil)
         }
@@ -154,6 +178,7 @@ final class MacAgentProcessRegistry {
     static func processesToEnd(in inventory: ProcessInventory, keeping taskIDs: Set<String>) -> [MacProcessIdentity] {
         inventory.items
             .filter { $0.category == .agentInfrastructure || ($0.category == .agentTask && !taskIDs.contains($0.id)) }
+            .filter { inventory.plan == nil || inventory.plan?.action(for: $0.id) == .terminate }
             .flatMap { $0.processes.map(MacProcessIdentity.init) }
     }
 

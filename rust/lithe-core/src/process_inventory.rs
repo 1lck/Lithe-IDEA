@@ -173,6 +173,13 @@ pub struct InventoryRequest {
     /// Processes the user chose to keep; never listed again.
     #[serde(default)]
     pub retained: Vec<ProcessIdentity>,
+    /// Restricts an Agent operation to these scopes; omitted means all scopes.
+    /// A single connection close must never include another connection's rows.
+    #[serde(default)]
+    pub agent_scopes: Option<Vec<String>>,
+    /// Exact process identities approved for the final unattended sweep.
+    #[serde(default)]
+    pub approved_termination: Vec<ProcessIdentity>,
     /// Open Agent connections; only used in live mode.
     #[serde(default)]
     pub agent_connections: Vec<AgentConnection>,
@@ -237,6 +244,14 @@ pub fn classify(request: &InventoryRequest) -> Inventory {
         .filter(|process| process.process_scope.as_deref() == Some(request.scope.as_str()))
         .filter(|process| !excluded.contains(&process.process_id))
         .filter(|process| !retained.contains(&process.identity()))
+        .filter(|process| {
+            request.agent_scopes.as_ref().is_none_or(|scopes| {
+                process
+                    .agent_scope
+                    .as_ref()
+                    .is_some_and(|scope| scopes.contains(scope))
+            })
+        })
         .collect();
     remaining.sort_by_key(|process| process.process_id);
 
@@ -251,17 +266,31 @@ pub fn classify(request: &InventoryRequest) -> Inventory {
     }
 
     let plan = request.context.map(|context| {
+        let approved: BTreeSet<ProcessIdentity> =
+            request.approved_termination.iter().copied().collect();
         resolve(&LifecycleRequest {
             context,
             settings: request.settings.clone(),
-            records: items.iter().map(record).collect(),
+            records: items
+                .iter()
+                .map(|item| {
+                    let mut record = record(item, &approved);
+                    if request.application_session_id <= 0 && item.category == ItemCategory::Other {
+                        // The scope proves ownership, but the missing original SID
+                        // cannot distinguish an ordinary tool from a kept daemon.
+                        record.declared_policy =
+                            Some(crate::process_lifecycle::ExitPolicy::AskOnExit);
+                    }
+                    record
+                })
+                .collect(),
         })
     });
     Inventory { items, plan }
 }
 
 /// The lifecycle record of an item.
-fn record(item: &InventoryItem) -> LifecycleRecord {
+fn record(item: &InventoryItem, approved: &BTreeSet<ProcessIdentity>) -> LifecycleRecord {
     LifecycleRecord {
         id: item.id.clone(),
         kind: item.kind,
@@ -272,6 +301,10 @@ fn record(item: &InventoryItem) -> LifecycleRecord {
         detached: item.detached,
         idle: false,
         retained: false,
+        termination_approved: item
+            .processes
+            .iter()
+            .all(|identity| approved.contains(identity)),
     }
 }
 
@@ -301,13 +334,36 @@ fn agent_items(
         let Some(connection) = connections.get(scope) else {
             // A gone instance, or a connection that closed while something it
             // started kept running: nobody can tell infrastructure from tasks.
-            items.push(group_item(
-                format!("agentTask:{scope}"),
-                ItemCategory::AgentTask,
-                RecordKind::AgentTask,
-                &processes,
-                None,
-            ));
+            // During final sweep, approval belongs to individual identities.
+            // At startup, independent orphan trees need independent questions.
+            if matches!(
+                request.context,
+                Some(LifecycleContext::FinalSweep | LifecycleContext::StartupSweep)
+            ) {
+                let trees = if request.context == Some(LifecycleContext::FinalSweep) {
+                    processes.iter().map(|process| vec![*process]).collect()
+                } else {
+                    task_trees(&processes)
+                };
+                for tree in trees {
+                    let root = tree[0];
+                    items.push(group_item(
+                        format!("agentTask:{}:{}", root.process_id, root.start_time),
+                        ItemCategory::AgentTask,
+                        RecordKind::AgentTask,
+                        &tree,
+                        None,
+                    ));
+                }
+            } else {
+                items.push(group_item(
+                    format!("agentTask:{scope}"),
+                    ItemCategory::AgentTask,
+                    RecordKind::AgentTask,
+                    &processes,
+                    None,
+                ));
+            }
             continue;
         };
         let (infrastructure, tasks): (Vec<&ProcessEntry>, Vec<&ProcessEntry>) =
@@ -379,6 +435,11 @@ fn background_items(
     // A double-fork daemon keeps the detached session's ID after its leader
     // exits. Classify the surviving session, not just a live session leader.
     // Missing session IDs and application-session orphans do not prove detachment.
+    // An old record may not have persisted its original application session.
+    // The recovery executor's SID is not a substitute for that missing fact.
+    if application_session_id <= 0 {
+        return Vec::new();
+    }
     let mut sessions: BTreeMap<i64, Vec<&ProcessEntry>> = BTreeMap::new();
     for process in remaining.iter().copied() {
         if process.session_id > 0 && process.session_id != application_session_id {

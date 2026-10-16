@@ -31,6 +31,9 @@ pub enum LifecycleContext {
     CrashRecovery,
     /// Lithe starts and finds processes of an earlier instance.
     StartupSweep,
+    /// The UI has finished shutdown. Newly observed Agent processes must wait
+    /// for startup confirmation unless their exact identities were approved.
+    FinalSweep,
 }
 
 /// Category of a ledger record; it selects the default policy.
@@ -225,6 +228,10 @@ pub struct LifecycleRecord {
     /// The user already chose to keep it.
     #[serde(default)]
     pub retained: bool,
+    /// Every process identity was approved for termination before UI shutdown.
+    /// Used only by the final unattended sweep; never overrides retention.
+    #[serde(default)]
+    pub termination_approved: bool,
 }
 
 /// Request of `processLifecycle.resolve`.
@@ -294,6 +301,15 @@ fn decide(
         (LifecycleAction::Ignore, source)
     } else if record.retained {
         (LifecycleAction::Retain, "retainedByUser")
+    } else if context == LifecycleContext::FinalSweep {
+        if record.kind == RecordKind::AgentTask && !record.termination_approved {
+            (
+                LifecycleAction::Defer,
+                "agentTaskRequiresStartupConfirmation",
+            )
+        } else {
+            (LifecycleAction::Terminate, "finalSweepApproved")
+        }
     } else {
         apply_settings(context, settings, record, policy, source)
     };
@@ -369,9 +385,9 @@ fn apply_settings(
             }
             LifecycleContext::CloseTerminalTab => (Terminate, "terminalTabCloseSetting"),
             // A terminal cannot outlive its PTY, so there is nothing to keep.
-            LifecycleContext::CrashRecovery | LifecycleContext::AgentDisconnect => {
-                (Terminate, source)
-            }
+            LifecycleContext::CrashRecovery
+            | LifecycleContext::AgentDisconnect
+            | LifecycleContext::FinalSweep => (Terminate, source),
             LifecycleContext::StartupSweep => startup_sweep(settings),
         },
         ExitPolicy::AskOnExit => {
@@ -388,7 +404,12 @@ fn apply_settings(
                 (_, Some(RememberedChoice::Keep)) => (Retain, "rememberedChoice"),
                 (_, Some(RememberedChoice::Terminate)) => (Terminate, "rememberedChoice"),
                 (LifecycleContext::StartupSweep, None) => startup_sweep(settings),
-                (LifecycleContext::Quit | LifecycleContext::CrashRecovery, None) => {
+                (
+                    LifecycleContext::Quit
+                    | LifecycleContext::CrashRecovery
+                    | LifecycleContext::FinalSweep,
+                    None,
+                ) => {
                     match (context, settings.background_resources) {
                         (_, BackgroundResourcePolicy::Keep) => (Retain, "backgroundSetting"),
                         (_, BackgroundResourcePolicy::Terminate) => {

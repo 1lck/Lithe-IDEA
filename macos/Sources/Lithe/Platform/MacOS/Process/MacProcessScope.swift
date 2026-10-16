@@ -173,11 +173,17 @@ struct MacProcessInstanceRecord: Codable, Equatable, Sendable {
     var schemaVersion = Self.schemaVersion
     let scope: String
     let application: MacProcessIdentity
+    /// Original application session, captured before the supervisor detaches.
+    /// Older v1 records omit it; the recovery executor's session is not evidence.
+    var applicationSessionID: pid_t? = nil
     var supervisor: MacProcessIdentity?
     /// Processes the user chose to keep; no sweep ever ends them.
     var retained: [MacProcessIdentity] = []
     /// Set once Lithe ran its normal shutdown.
     var completedShutdown = false
+    /// Final cleanup deferred work to startup; the supervisor must not apply
+    /// crash defaults to processes the user has not approved ending.
+    var awaitingStartupConfirmation: Bool? = nil
     /// Set when the supervisor had to clean up after an abnormal exit.
     var recoveredAfterCrash = false
 }

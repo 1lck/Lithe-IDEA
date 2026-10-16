@@ -10,6 +10,7 @@ enum ProcessLifecycleContext: String, Codable, Sendable {
     case agentDisconnect
     case crashRecovery
     case startupSweep
+    case finalSweep
 }
 
 enum ProcessRecordKind: String, Codable, Sendable {
@@ -120,6 +121,7 @@ struct ProcessLifecycleRecord: Codable, Equatable, Sendable {
     var detached = false
     var idle = false
     var retained = false
+    var terminationApproved: Bool?
 
     init(
         id: String,
@@ -130,7 +132,8 @@ struct ProcessLifecycleRecord: Codable, Equatable, Sendable {
         recognizedPolicy: ProcessExitPolicy? = nil,
         detached: Bool = false,
         idle: Bool = false,
-        retained: Bool = false
+        retained: Bool = false,
+        terminationApproved: Bool? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -141,6 +144,7 @@ struct ProcessLifecycleRecord: Codable, Equatable, Sendable {
         self.detached = detached
         self.idle = idle
         self.retained = retained
+        self.terminationApproved = terminationApproved
     }
 }
 
@@ -222,6 +226,8 @@ struct ProcessInventoryRequest: Encodable, Sendable {
     let applicationSessionId: Int64
     var excludedProcessIds: [Int64] = []
     var retained: [ProcessInventoryIdentity] = []
+    var agentScopes: [String]?
+    var approvedTermination: [ProcessInventoryIdentity] = []
     var agentConnections: [AgentConnectionSnapshot] = []
     let processes: [ProcessSnapshotEntry]
     /// When set, the response carries the plan for the items.
