@@ -10,6 +10,9 @@ struct AgentActivitySummaryBar: View {
         var title: String {
             switch self { case .tasks: "Tasks"; case .running: "Running"; case .edits: "Edits" }
         }
+        var fallbackIcon: String {
+            switch self { case .tasks: "checklist"; case .running: "arrow.triangle.2.circlepath"; case .edits: "pencil" }
+        }
         var icon: String {
             switch self { case .tasks: "expui/build/taskGroup.svg"; case .running: "expui/general/refresh.svg"; case .edits: "expui/general/edit.svg" }
         }
@@ -25,7 +28,6 @@ struct AgentActivitySummaryBar: View {
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     var onKeep: ([AgentFileChange]) -> Void = { _ in }
     var onRestore: ([AgentFileChange]) async -> Void = { _ in }
-    @State private var showsActivity = false
     @State private var panel: Panel?
     @State private var selectedDiff: AgentFileChange?
     @State private var confirmation: [AgentFileChange]?
@@ -39,31 +41,37 @@ struct AgentActivitySummaryBar: View {
     private var activity: AgentActivity { AgentActivity(messages: messages, reviewed: reviewed) }
 
     var body: some View {
-        Group {
-            if !activity.tools.isEmpty || !activity.files.isEmpty || plan?.entries.isEmpty == false {
-                Button { panel = nil; showsActivity.toggle() } label: {
-                    HStack(spacing: LitheTheme.MainToolbar.comboIconTextGap) {
-                        Text(summary).lineLimit(1)
-                        LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16, preservesOriginalColors: true)
+        HStack(spacing: 0) {
+            ForEach(Panel.allCases, id: \.self) { item in
+                if item != .tasks { Divider().frame(height: 14).overlay(AgentPanelStyle.border) }
+                Button { panel = panel == item ? nil : item } label: {
+                    HStack(spacing: 5) {
+                        LitheIDEAIcon(resourcePath: item.icon, size: LitheTheme.Metrics.toolbarIconSize,
+                                      fallbackSystemImage: item.fallbackIcon, preservesOriginalColors: true)
+                        Text(AgentLocalization.string(String.LocalizationValue(item.title), locale: locale)).lineLimit(1)
+                        if count(item) != "0" { Text(count(item)).monospacedDigit() }
                     }
+                    .font(LitheTheme.uiFont(size: 11))
+                    .foregroundStyle(AgentPanelStyle.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .contentShape(Rectangle())
                 }
-                .litheToolbarIconButton(isIconOnly: false)
-                .accessibilityIdentifier("agent-activity-menu")
-                .overlay {
-                    LitheDropdownPopover(isPresented: $showsActivity, items: panel == nil ? menuItems : nil) {
-                        Group {
-                            if let panel {
-                                AgentActivityDetailsView(panel: panel, activity: activity, plan: plan,
-                                    width: LitheDropdownMetrics.maximumWidth,
-                                    isResponding: isResponding, isReviewing: isReviewing, reviewError: reviewError,
-                                    onOpenFile: onOpenFile, onDiff: { change in showsActivity = false; selectedDiff = change },
-                                    onKeep: onKeep, onRequestRestore: { changes in
-                                        showsActivity = false; confirmation = changes
-                                    })
-                            }
-                        }
-                    }
-                }
+                .buttonStyle(.litheNoPress)
+                .litheRowHover()
+                .accessibilityIdentifier("agent-activity-\(item.rawValue)")
+                .accessibilityValue(count(item))
+            }
+        }
+        .frame(height: AgentComposerMetrics.activityHeight)
+        .background(AgentPanelStyle.header, in: RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(AgentPanelStyle.border, lineWidth: 1))
+        .litheDropdown(isPresented: Binding(get: { panel != nil }, set: { if !$0 { panel = nil } }), opensUpward: true) {
+            if let panel {
+                AgentActivityDetailsView(panel: panel, activity: activity, plan: plan,
+                    width: LitheDropdownMetrics.maximumWidth,
+                    isResponding: isResponding, isReviewing: isReviewing, reviewError: reviewError,
+                    onOpenFile: onOpenFile, onDiff: { change in self.panel = nil; selectedDiff = change },
+                    onKeep: onKeep, onRequestRestore: { changes in self.panel = nil; confirmation = changes })
             }
         }
         .sheet(item: $selectedDiff) { change in
@@ -83,24 +91,8 @@ struct AgentActivitySummaryBar: View {
             await onRestore(restoration.changes)
             self.restoration = nil
             panel = .edits
-            showsActivity = true
         }
 
-    }
-
-    private var summary: String {
-        let title = AgentLocalization.string("Activity", locale: locale)
-        return activity.running.isEmpty ? title : title + " · " + AgentLocalization.string("Running", locale: locale) + " " + count(.running)
-    }
-
-    private var menuItems: [LitheContextMenuItem] {
-        Panel.allCases.map { item in
-            .action(AgentLocalization.string(String.LocalizationValue(item.title), locale: locale) + " " + count(item),
-                localizesTitle: false,
-                icon: AnyView(LitheIDEAIcon(resourcePath: item.icon, size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true))) {
-                    panel = item; showsActivity = true
-                }
-        }
     }
 
     private func count(_ panel: Panel) -> String {

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Agent-reported context occupancy, distinct from cumulative billing tokens.
-public struct AgentContextUsage: Equatable, Sendable {
+public struct AgentContextUsage: Codable, Equatable, Sendable {
     public let usedTokens: UInt64
     public let capacityTokens: UInt64
 
@@ -9,6 +9,17 @@ public struct AgentContextUsage: Equatable, Sendable {
         guard capacityTokens > 0 else { return nil }
         self.usedTokens = usedTokens
         self.capacityTokens = capacityTokens
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let used = try values.decode(UInt64.self, forKey: .usedTokens)
+        let capacity = try values.decode(UInt64.self, forKey: .capacityTokens)
+        guard let usage = Self(usedTokens: used, capacityTokens: capacity) else {
+            throw DecodingError.dataCorruptedError(forKey: .capacityTokens, in: values,
+                                                  debugDescription: "Context capacity must be positive.")
+        }
+        self = usage
     }
 
     /// Preserve the reported values even if occupancy exceeds the window size.

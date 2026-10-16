@@ -378,6 +378,8 @@ async function main() {
       // Identical bytes do not establish transferable execution ownership.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
+      // Per-launch Codex helpers also own memory-only context replay tickets and
+      // loopback capabilities; they stay on this exclusion route, never a copy stage.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.identity}; ${excluded.reason}; it cannot be reused across worktrees`);

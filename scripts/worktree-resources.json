@@ -236,8 +236,8 @@
       "locations": [
         "<system-temp>/lithe-codex-retry-<UUID>/"
       ],
-      "identity": "First-party embedded source from the current host revision and one Agent launch's native executable/retry budget. Platform chooses the system temporary directory; no reusable version, architecture, toolchain or publication identity stamp.",
-      "reason": "The Agent process owner creates the helper before spawn and removes it on preparation failure, cancellation, launch failure or after stopping the process tree. It contains no credentials. Never copy or share it at any worktree stage; installed adapters, user CLI/configuration and signed bundles stay read-only."
+      "identity": "First-party embedded source from the current host revision and one Agent launch's native executable/retry budget. Platform chooses the system temporary directory; no reusable version, architecture, toolchain or publication identity stamp. The same first-party launcher restores native context reports through a per-launch loopback capability and per-load tickets; those are memory-only process ownership, not reusable resources.",
+      "reason": "The Agent process owner creates the helper before spawn and removes it on preparation failure, cancellation, launch failure or after stopping the process tree. It contains no credentials. Never copy or share it at any worktree stage; installed adapters, user CLI/configuration and signed bundles stay read-only. Subscription connections use the same temporary launcher for history context while retaining native retry settings. The loopback listener, capability and captured reports expire with the owning process and must never be copied."
     },
     {
       "id": "plugin-ui-icons",

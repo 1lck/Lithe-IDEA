@@ -255,6 +255,29 @@ struct AgentConversationFeatureModelTests {
     }
 
     @Test
+    func historyCompletionKeepsReplayedUsageWhileReconcilingModeNotice() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            feature.selectSession("history-session")
+            let token = try #require(connection.commands.last?["token"])
+            // Replay precedes the final catalog: the confirmed Plan mode must
+            // clear the obsolete advisory without dropping actual context usage.
+            try feature.receive(event("claudeAutoModeNotice", ["sessionId": "history-session"]))
+            #expect(feature.selectedConversation?.notice != nil)
+            try feature.receive(event("usageUpdate", ["sessionId": "history-session", "update": [
+                "sessionUpdate": "usage_update", "used": 125300, "size": 300000,
+                "_meta": ["lithe": ["contextUsageSource": "history"]]]]))
+            var plan = options
+            plan[1]["currentValue"] = "plan"
+            try feature.receive(event("sessionLoaded", ["token": token, "sessionId": "history-session", "configOptions": plan]))
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 125300)
+            #expect(feature.selectedConversation?.contextUsageIsHistorical == true)
+            #expect(feature.selectedConversation?.isAttached == true)
+            #expect(feature.selectedConversation?.configOptions[1].currentValue == "plan")
+        }
+    }
+
+    @Test
     func noticesAreSessionLocalDismissibleAndClearedByNextPromptAndDisconnect() async throws {
         try await withNoticeFeature { feature, connection, options in
             try feature.send("First task")
@@ -1122,6 +1145,102 @@ struct AgentConversationFeatureModelTests {
         do { try operation(feature, connection) }
         catch { await feature.stop(); throw error }
         await feature.stop()
+    }
+
+    @Test(arguments: ["matching", "different-model", "unknown-model", "live-zero", "invalid-report", "native-history"])
+    func historyContextRestoresOnlyMatchingReportsAndPrefersReplay(scenario: String) async throws {
+        let persistence = InMemoryStatisticsPersistence()
+        func store() -> AgentSessionStatisticsStore {
+            AgentSessionStatisticsStore(persistence: persistence, agentID: "codex",
+                workspaceURL: { URL(fileURLWithPath: "/tmp/lithe-context-workspace") })
+        }
+        func options(_ model: String) -> [[String: Any]] {
+            [["id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": model,
+              "options": [["value": "a", "name": "A"], ["value": "b", "name": "B"]]]]
+        }
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.statisticsStore = store()
+            try feature.send("Keep this report")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                "configOptions": options("a")]))
+            try feature.receive(event("usageUpdate"))
+            #expect(persistence.saves == 0, "Streaming usage does not write on every notification")
+            try feature.receive(event("turnFinished"))
+            await feature.stop()
+            await feature.stop()
+        }
+        #expect(store().record(for: "session-1")?.contextUsage?.usedTokens == 18700)
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.statisticsStore = store()
+            feature.selectSession("session-1")
+            let token = try #require(connection.commands.last?["token"])
+            #expect(feature.selectedConversation?.contextUsage == nil, "Unconfirmed history has no live capacity")
+            if scenario == "live-zero" || scenario == "invalid-report" {
+                try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 0,
+                    "size": scenario == "live-zero" ? 100000 : 0]]))
+            }
+            if scenario == "native-history" {
+                try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 125300,
+                    "size": 300000, "_meta": ["lithe": ["contextUsageSource": "history"]]]]))
+            }
+            let loadedOptions = scenario == "unknown-model" ? [] : options(scenario == "different-model" ? "b" : "a")
+            try feature.receive(event("sessionLoaded", ["token": token, "configOptions": loadedOptions]))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens ==
+                (scenario == "matching" ? 18700 : scenario == "live-zero" ? 0 : scenario == "native-history" ? 125300 : nil))
+            #expect(feature.selectedConversation?.contextUsageIsHistorical == (scenario == "matching" || scenario == "native-history"))
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 1000, "size": 100000]]))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 1000, "Compaction replaces the snapshot")
+            #expect(feature.selectedConversation?.contextUsageIsHistorical == false)
+            #expect(store().record(for: "session-1")?.contextUsage?.usedTokens == 1000, "Idle reports after turn completion are saved")
+            feature.selectSession("session-2")
+            try feature.receive(event("sessionLoaded", ["sessionId": "session-2", "token": connection.commands.last?["token"] as Any,
+                "configOptions": options("a")]))
+            #expect(feature.selectedConversation?.contextUsage == nil, "Snapshots are scoped to the session")
+        }
+    }
+
+    @Test
+    func modelChangesInvalidatePersistedContextWithoutSavingPartialCalls() async throws {
+        let persistence = InMemoryStatisticsPersistence()
+        let store = AgentSessionStatisticsStore(persistence: persistence, agentID: "codex",
+            workspaceURL: { URL(fileURLWithPath: "/tmp/lithe-context-workspace") })
+        func options(_ model: String) -> [[String: Any]] {
+            [["id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": model,
+              "options": [["value": "a", "name": "A"], ["value": "b", "name": "B"]]]]
+        }
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.statisticsStore = store
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                "configOptions": options("a")]))
+            try feature.receive(event("usageUpdate"))
+            #expect(store.record(for: "session-1")?.contextUsage != nil, "A usage-only record is retained")
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "config_option_update", "configOptions": options("b")]]))
+            #expect(store.record(for: "session-1") == nil, "An invalidated usage-only record is removed")
+            try feature.send("First")
+            try feature.receive(event("usageUpdate"))
+            try feature.receive(event("turnFinished"))
+            try feature.send("Second")
+            try feature.receive(event("modelCall"))
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "config_option_update", "configOptions": options("a")]]))
+            #expect(store.record(for: "session-1")?.contextUsage == nil)
+            #expect(store.record(for: "session-1")?.turnCount == 1)
+            #expect(store.record(for: "session-1")?.modelCalls.callCount == 0)
+        }
+    }
+
+    @Test
+    func storedContextValidatesCapacityAndOldStatisticsRemainReadable() throws {
+        let encoder = JSONEncoder()
+        let old = AgentSessionStatisticsRecord(turnCount: 2)
+        let data = try encoder.encode(old)
+        let decoded = try JSONDecoder().decode(AgentSessionStatisticsRecord.self, from: data)
+        #expect(decoded.turnCount == 2 && decoded.contextUsage == nil)
+        let zero = try #require(AgentContextUsage(usedTokens: 0, capacityTokens: 100))
+        #expect(try JSONDecoder().decode(AgentContextUsage.self, from: encoder.encode(zero)) == zero)
+        for payload in ["{\"usedTokens\":0,\"capacityTokens\":0}", "{\"usedTokens\":-1,\"capacityTokens\":100}"] {
+            #expect(throws: (any Error).self) { try JSONDecoder().decode(AgentContextUsage.self, from: Data(payload.utf8)) }
+        }
     }
 
     @Test

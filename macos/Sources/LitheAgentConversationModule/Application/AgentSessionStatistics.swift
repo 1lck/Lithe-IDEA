@@ -88,22 +88,29 @@ public struct AgentSessionStatisticsRecord: Codable, Equatable, Sendable {
     public var modelCalls: AgentModelCallTotals
     /// Agent-reported counters of the latest turn that carried them.
     public var latestUsage: AgentTurnUsage?
+    /// Last Agent-reported occupancy, not accumulated request/billing tokens.
+    public var contextUsage: AgentContextUsage?
+    /// Confirmed model option IDs and values; a different selection invalidates the snapshot.
+    public var contextModels: [String: String]?
     /// Orders records for the bounded store; not part of the statistics.
     public var updatedAt: Date
 
     public init(turnCount: Int = 0, toolCallCount: Int = 0, toolDuration: TimeInterval = 0,
                 modelCalls: AgentModelCallTotals = AgentModelCallTotals(), latestUsage: AgentTurnUsage? = nil,
+                contextUsage: AgentContextUsage? = nil, contextModels: [String: String]? = nil,
                 updatedAt: Date = Date(timeIntervalSince1970: 0)) {
         self.turnCount = turnCount
         self.toolCallCount = toolCallCount
         self.toolDuration = toolDuration
         self.modelCalls = modelCalls
         self.latestUsage = latestUsage
+        self.contextUsage = contextUsage
+        self.contextModels = contextModels
         self.updatedAt = updatedAt
     }
 
-    /// Nothing to keep: no finished turn and no observed call.
-    var isEmpty: Bool { turnCount == 0 && modelCalls.callCount == 0 }
+    /// Nothing to keep: no finished turn, observed call, or reported occupancy.
+    var isEmpty: Bool { turnCount == 0 && modelCalls.callCount == 0 && contextUsage == nil }
 
     func hasSameTotals(as other: Self) -> Bool {
         var other = other
@@ -126,7 +133,14 @@ public extension AgentConversation {
             toolDuration: baseline.toolDuration + completedTurns.reduce(0) { $0 + $1.toolDuration },
             modelCalls: calls,
             latestUsage: completedTurns.last(where: { $0.usage != nil })?.usage ?? baseline.latestUsage,
+            contextUsage: contextUsage,
+            contextModels: contextUsage == nil ? nil : contextModelValues,
             updatedAt: date)
+    }
+
+    /// Only confirmed upstream identifiers can bind a saved occupancy report to a model.
+    var contextModelValues: [String: String] {
+        configOptions.filter { $0.category == "model" }.reduce(into: [:]) { $0[$1.id] = $1.currentValue }
     }
 }
 

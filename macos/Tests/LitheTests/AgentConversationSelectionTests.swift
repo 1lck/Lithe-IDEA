@@ -126,9 +126,10 @@ struct AgentConversationSelectionTests {
                     .appendingPathComponent("steering-\(scheme == .dark ? "dark" : "light")-\(Int(width))-\(stage).png"))
             }
             try capture("before")
-            let toolbarCenter = AgentComposerMetrics.bottomInset + AgentComposerMetrics.contextHeight - 1
-                + (AgentComposerMetrics.toolbarHeight - 2) / 2
-            let sendX = width - AgentComposerMetrics.horizontalInset - 5 - 11
+            // The context strip now sits above the editor; Send and Stop stay
+            // in the bottom toolbar, independent of the strip's height.
+            let toolbarCenter = AgentComposerMetrics.bottomInset + (AgentComposerMetrics.toolbarHeight - 2) / 2
+            let sendX = width - AgentComposerMetrics.horizontalInset - AgentComposerMetrics.toolbarHorizontalInset - 11
             try clickNativeView(host, at: NSPoint(x: sendX, y: 640 - toolbarCenter))
             try #require(await awaitChange(on: feature) { native.commands.last?["kind"] as? String == "steer" })
             let token = try #require(native.commands.last?["token"] as? String)
@@ -169,8 +170,8 @@ struct AgentConversationSelectionTests {
             let window = hiddenWindow(host)
             defer { window.contentView = nil; window.close() }
             host.layoutSubtreeIfNeeded()
-            // The location control sits immediately before More and Hide, all shared 22pt slots.
-            try clickNativeView(host, at: NSPoint(x: host.bounds.width - 7 - 22 * 2 - 4 * 2 - 11,
+            // From the trailing edge: Hide, Options, History, Search, Location.
+            try clickNativeView(host, at: NSPoint(x: host.bounds.width - 7 - 22 * 4 - 4 * 4 - 11,
                                                 y: LitheTheme.Metrics.toolWindowHeaderHeight / 2))
             #expect(await awaitChange(on: connection) { toggles == 1 })
             host.rootView = AgentConfiguredConversationView(feature: panel, setupError: nil,
@@ -229,6 +230,86 @@ struct AgentConversationSelectionTests {
         }
         await panel.stop()
         #expect(transport.connections.allSatisfy { $0.closeCount == 1 })
+    }
+
+    @Test
+    func classicHistoryRoundTripPreservesDraftAndConnection() async throws {
+        let transport = SelectionTransport()
+        let panel = AgentConversationFeatureModel(transport: transport)
+        panel.setAgents([.init(id: "codex-acp", name: "Codex")])
+        do {
+            let feature = try prepare(panel, transport: transport, agentID: "codex-acp", model: "Example model")
+            try feature.send("Review the project configuration")
+            feature.receive(try json(["kind": "update", "sessionId": "codex-acp", "update": [
+                "sessionUpdate": "agent_thought_chunk", "content": ["type": "text", "text": "Inspect the configuration before summarizing the result."]]]))
+            feature.receive(try json(["kind": "update", "sessionId": "codex-acp", "update": [
+                "sessionUpdate": "tool_call", "toolCallId": "read", "kind": "read", "title": "Read project configuration", "status": "completed"]]))
+            feature.receive(try json(["kind": "update", "sessionId": "codex-acp", "update": [
+                "sessionUpdate": "agent_message_chunk", "content": ["type": "text", "text": "The project configuration is consistent.\n\n- Run settings match the project entry point.\n- Session details contain the full statistics.\n\n**Next step:** choose the settings to update."]]]))
+            feature.receive(try json(["kind": "turnFinished", "sessionId": "codex-acp"]))
+            feature.draftText = "Check the dependencies next"
+            let native = try #require(transport.connections.last)
+            let originalCommands = native.commands.count
+            for scheme in [ColorScheme.dark, .light] {
+                for editor in [false, true] {
+                    let width: CGFloat = editor ? 900 : 417
+                    let host = NSHostingView(rootView: AgentConfiguredConversationView(feature: panel, setupError: nil,
+                        onSelectAgent: panel.selectAgent, onConnect: {}, onOpenSettings: {}, onHide: {},
+                        onCopySessionID: { _ in }, onOpenFile: { _ in }, onToggleLocation: {}, isEditorLayout: editor)
+                        .background(AgentPanelStyle.canvas)
+                        .environment(\.colorScheme, scheme).environment(\.locale, Locale(identifier: "en_US")))
+                    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 720),
+                        styleMask: [.borderless], backing: .buffered, defer: false)
+                    window.isReleasedWhenClosed = false
+                    window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+                    window.contentView = host
+                    window.makeKeyAndOrderFront(nil)
+                    defer { window.contentView = nil; window.close() }
+                    host.layoutSubtreeIfNeeded()
+                    func capture(_ suffix: String) throws {
+                        guard let directory = ProcessInfo.processInfo.environment["LITHE_AGENT_CLASSIC_SCREENSHOTS"] else { return }
+                        let bitmap = try nativeSRGBCapture(host)
+                        try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                            URL(fileURLWithPath: directory).appendingPathComponent("\(editor ? "editor" : "panel")-\(scheme)-\(suffix).png"))
+                    }
+                    func historySearch(in view: NSView) -> NSTextField? {
+                        if let field = view as? NSTextField, field.isEditable,
+                           field.placeholderString?.contains("ID") == true { return field }
+                        return view.subviews.lazy.compactMap { historySearch(in: $0) }.first
+                    }
+                    try capture("chat")
+                    // Editor omits Hide; History is just before Options in that host.
+                    let slots: CGFloat = editor ? 1 : 2
+                    try clickNativeView(host, at: NSPoint(x: width - 7 - slots * 26 - 11, y: 17))
+                    try #require(await waitForLayout(host) { historySearch(in: host) != nil }, "History must open the original management page")
+                    try capture("history")
+                    try clickNativeView(host, at: NSPoint(x: width - 35, y: 17))
+                    #expect(await waitForLayout(host) { historySearch(in: host) == nil }, "Back must restore the same chat")
+                    #expect(feature.draftText == "Check the dependencies next")
+                    #expect(feature.selectedSessionID == "codex-acp")
+                    #expect(native.commands.count == originalCommands, "Opening history cannot create or reconnect the session")
+                }
+            }
+        } catch { await panel.stop(); throw error }
+        await panel.stop()
+        #expect(transport.connections.allSatisfy { $0.closeCount == 1 })
+    }
+
+    private func renderLayout(_ host: NSView) {
+        // Pump at most one ready native event with zero waiting, as in the activity tests.
+        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
+        host.layoutSubtreeIfNeeded()
+    }
+
+    private func waitForLayout(_ host: NSView, until condition: () -> Bool) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            renderLayout(host)
+            if condition() { return true }
+            await Task.yield()
+        }
+        return condition()
     }
 
     @Test
@@ -572,10 +653,8 @@ struct AgentConversationSelectionTests {
             defer { window.close() }
             host.layoutSubtreeIfNeeded()
             let count = native.commands.count
-            let textWidth = ("New Chat" as NSString).size(withAttributes: [.font: LitheTheme.uiNSFont(size: 13)]).width
-            let buttonWidth = 16 + 2 + textWidth + 8
-            // Header trailing inset, two shared icon buttons and two four-point gaps.
-            let point = NSPoint(x: host.bounds.width - 7 - 22 * 2 - 4 * 2 - buttonWidth / 2,
+            // New Chat is an icon before Search, History, Options and Hide.
+            let point = NSPoint(x: host.bounds.width - 7 - 22 * 4 - 4 * 4 - 11,
                                 y: LitheTheme.Metrics.toolWindowHeaderHeight / 2)
             try clickNativeView(host, at: point)
             #expect(await awaitChange(on: feature) { feature.isCreatingSession })

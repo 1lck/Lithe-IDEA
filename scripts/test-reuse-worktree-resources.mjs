@@ -169,10 +169,13 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /agent-cli-runtime.*cannot be reused/);
   });
-  await test("per-launch Codex retry relays cannot be listed or copied", { timeout: 15000 }, () => {
+  await test("per-launch Codex retry/context relays cannot be listed or copied", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes("codex-retry-relay"));
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "codex-retry-relay");
+    assert.match(resource.identity, /context reports.*per-load tickets/);
     const refused = reuse(["--resource", "codex-retry-relay"]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /codex-retry-relay.*lithe-codex-retry.*cannot be reused/);
