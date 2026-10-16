@@ -173,10 +173,13 @@ final class WorkbenchToolContentStore: ObservableObject {
         let host: NSHostingView<AnyView>
         var identity: AnyHashable
         weak var slot: Slot?
+        var onActivate: (() -> Void)?
+        var activationRequestID: UUID?
         init(identity: AnyHashable, content: AnyView) {
             self.identity = identity
             host = NSHostingView(rootView: content)
             host.sizingOptions = []
+            host.isHidden = true
         }
     }
 
@@ -208,7 +211,7 @@ final class WorkbenchToolContentStore: ObservableObject {
     init() { surface.store = self }
 
     func show(_ tool: WorkbenchFeatureModel.ToolWindow, in slot: Slot,
-              identity: AnyHashable, content: () -> AnyView) {
+              identity: AnyHashable, onActivate: (() -> Void)? = nil, content: () -> AnyView) {
         // SwiftUI reuses a slot when two tools have the same renderer type.
         // Transfer ownership before showing the new tool in that slot.
         for (otherTool, other) in entries where otherTool != tool && other.slot === slot {
@@ -228,6 +231,7 @@ final class WorkbenchToolContentStore: ObservableObject {
             surface.addSubview(entry.host)
         }
         slot.store = self
+        entry.onActivate = onActivate
         entry.slot = slot
         refresh()
     }
@@ -241,6 +245,7 @@ final class WorkbenchToolContentStore: ObservableObject {
     }
 
     private func hide(_ entry: Entry) {
+        entry.activationRequestID = nil
         if let window = entry.host.window, let responder = window.firstResponder as? NSView,
            responder.isDescendant(of: entry.host) {
             window.makeFirstResponder(nil)
@@ -257,7 +262,19 @@ final class WorkbenchToolContentStore: ObservableObject {
             }
             let frame = slot.convert(slot.bounds, to: surface)
             if entry.host.frame != frame { entry.host.frame = frame }
+            let becomesVisible = entry.host.isHidden && !frame.isEmpty
             entry.host.isHidden = frame.isEmpty
+            if becomesVisible {
+                let requestID = UUID()
+                entry.activationRequestID = requestID
+                // Focus after SwiftUI/native layout finishes. Hiding cancels stale requests.
+                DispatchQueue.main.async { [weak entry] in
+                    guard let entry, entry.activationRequestID == requestID,
+                          !entry.host.isHiddenOrHasHiddenAncestor, entry.host.window != nil else { return }
+                    entry.activationRequestID = nil
+                    entry.onActivate?()
+                }
+            }
         }
     }
 }
@@ -273,24 +290,27 @@ struct RetainedWorkbenchToolContent<Content: View>: NSViewRepresentable {
     let tool: WorkbenchFeatureModel.ToolWindow
     let content: Content
     var contentIdentity: AnyHashable = 0
+    var onActivate: (() -> Void)? = nil
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.locale) private var locale
     @Environment(\.controlActiveState) private var controlActiveState
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.workbenchHasBackgroundImage) private var hasBackgroundImage
     @Environment(\.isLithePaneResizing) private var isResizing
 
     func makeNSView(context: Context) -> WorkbenchToolContentStore.Slot { .init() }
 
     func updateNSView(_ view: WorkbenchToolContentStore.Slot, context: Context) {
         let identity: [AnyHashable] = [contentIdentity, locale.identifier, colorScheme == .dark,
-            controlActiveState == .key, controlActiveState == .active, isEnabled, isResizing]
-        store.show(tool, in: view, identity: AnyHashable(identity)) {
+            controlActiveState == .key, controlActiveState == .active, isEnabled, isResizing, hasBackgroundImage]
+        store.show(tool, in: view, identity: AnyHashable(identity), onActivate: onActivate) {
             AnyView(content
                 .environment(\.colorScheme, colorScheme)
                 .environment(\.locale, locale)
                 .environment(\.controlActiveState, controlActiveState)
                 .environment(\.isEnabled, isEnabled)
                 .environment(\.isLithePaneResizing, isResizing)
+                .environment(\.workbenchHasBackgroundImage, hasBackgroundImage)
                 .workbenchHoverTooltipScope())
         }
     }

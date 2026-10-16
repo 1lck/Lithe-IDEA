@@ -1451,7 +1451,8 @@ struct WorkbenchView: View {
                     .environmentObject(model).environmentObject(settings).environmentObject(projectSessions)
                     .environment(\.projectWindowScope, projectWindowScope),
                     contentIdentity: AnyHashable([renderer.contentIdentity(model),
-                        AnyHashable(model.workbenchBackgroundFeature.hasImage), AnyHashable(usesIDEAFrameExperiment)]))
+                        AnyHashable(model.workbenchBackgroundFeature.hasImage), AnyHashable(usesIDEAFrameExperiment)]),
+                    onActivate: tool == .terminal ? { model.activeToolTerminalSession?.focus() } : nil)
             } else {
                 content
             }

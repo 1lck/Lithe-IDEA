@@ -306,6 +306,15 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 继续拥有数据刷新和终端会话。尚未打开的工具窗口不提前创建。隐藏时清除面板内的原生键盘焦点，固定表面的
 无障碍子项只包含可见面板，避免不可见按钮继续被读取或操作。
 
+独立宿主显式传入 `workbenchHasBackgroundImage`，该值也进入内容身份，背景从无图切换到有图再移除时，
+终端标题栏和正文必须跟随恢复，不能仅将外层面板设透明。宿主从隐藏变为可见时通过 `onActivate`
+在本轮布局结束后请求一次当前工具终端会话的输入焦点；连续 frame/环境更新不触发激活。
+隐藏或解绑会取消尚未交付的激活请求，避免迟到回调抢回编辑器焦点。Git Log 不安装焦点回调。
+`TerminalPlacementFeatureModelTests.retainedTerminalRestoresFocusAndWallpaperWithoutRecreatingItsSurface`
+使用真实 `TerminalView`/`TerminalSurfaceView` 和无进程测试 transport，在明暗主题检查标题栏/正文像素、
+相同原生输入控件的 first responder、隐藏/重开、连续尺寸更新及隐藏后的取消；不以空白占位内容替代终端界面。
+
+
 正确做法是“隐藏槽 → 固定表面中的宿主不可见 → 重开时恢复边界和可见性”；不要把构造一个新的 SwiftUI
 值或恢复图数组描述成复用原生控件。代价是打开过的两个面板会占用内存直到
 工作台关闭。本次没有把其他工具窗口迁入此生命周期，也没有移植 Swing 组件；

@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import WebKit
 import Foundation
 import LitheModuleAPI
@@ -249,6 +250,84 @@ struct TerminalPlacementFeatureModelTests {
         #expect(!toolSession.isRunning)
     }
 
+    @Test(arguments: [ColorScheme.dark, .light])
+    func retainedTerminalRestoresFocusAndWallpaperWithoutRecreatingItsSurface(scheme: ColorScheme) async throws {
+        let context = makeTerminalCloseContext(), state = RetainedTerminalReviewState()
+        let model = context.model
+        model.terminalPlacementFeature.moveToTool(context.session.id)
+        do {
+            let feature = try #require(model.terminalFeature)
+            let store = WorkbenchToolContentStore()
+            let host = NSHostingView(rootView: RetainedTerminalReviewHost(state: state, store: store,
+                model: model, feature: feature).environment(\.colorScheme, scheme))
+            host.sizingOptions = []
+            host.frame = NSRect(x: 0, y: 0, width: 480, height: 400)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 440),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.contentView = nil; window.close() }
+            let root = try #require(window.contentView)
+            root.addSubview(host)
+            let editor = NSTextView(frame: NSRect(x: 0, y: 400, width: 480, height: 40))
+            root.addSubview(editor)
+            let terminal = try #require(context.session.nativeView as? NSView)
+            let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(3))
+            while (terminal.window !== window || window.firstResponder !== terminal) && clock.now < deadline {
+                host.layoutSubtreeIfNeeded()
+                await Task.yield()
+            }
+            try #require(window.firstResponder === terminal)
+            let retainedHost = try #require(store.entries[.terminal]?.host)
+            func sample(_ y: CGFloat) throws -> NSColor {
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+                return try #require(bitmap.colorAt(x: Int(2 * scale), y: Int(y * scale))?.usingColorSpace(.sRGB))
+            }
+            let solid = try [sample(16), sample(200)]
+            state.hasImage = true
+            host.layoutSubtreeIfNeeded()
+            let image = try [sample(16), sample(200)]
+            #expect(image[0] == image[1], "Real terminal header and body must expose the same backing image")
+            #expect(image[0] != solid[0] && image[1] != solid[1])
+            state.hasImage = false
+            host.layoutSubtreeIfNeeded()
+            #expect(try [sample(16), sample(200)] == solid)
+            state.visible = false
+            host.layoutSubtreeIfNeeded()
+            #expect(terminal.isHiddenOrHasHiddenAncestor)
+            #expect(window.makeFirstResponder(editor))
+            state.visible = true
+            host.layoutSubtreeIfNeeded()
+            // FIFO observes the single production activation scheduled after layout.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+            #expect(window.firstResponder === terminal)
+            #expect(store.entries[.terminal]?.host === retainedHost)
+            #expect(ObjectIdentifier(context.session.nativeView) == ObjectIdentifier(terminal))
+            #expect(window.makeFirstResponder(editor))
+            for width: CGFloat in [460, 440, 480] {
+                host.frame.size.width = width
+                host.layoutSubtreeIfNeeded()
+                store.refresh()
+            }
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+            #expect(window.firstResponder === editor, "Resizing a visible terminal must not steal focus")
+            // Hide before queued activation is delivered: the editor keeps focus.
+            state.visible = false; host.layoutSubtreeIfNeeded()
+            state.visible = true; host.layoutSubtreeIfNeeded()
+            state.visible = false; host.layoutSubtreeIfNeeded()
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+            #expect(window.firstResponder === editor)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
     private func makeTerminalCloseContext() -> (
         model: AppModel,
         session: TerminalSession,
@@ -345,7 +424,7 @@ private final class PlacementTestTerminalTransport: TerminalTransport {
     var sentInputs: [String] = []
     func send(_ input: Data) throws { sentInputs.append(String(decoding: input, as: UTF8.self)) }
     func interrupt() throws {}
-    func focus() {}
+    func focus() { (nativeView as? NSView)?.window?.makeFirstResponder(nativeView as? NSView) }
     func clear() {}
 
     func stop() {
@@ -393,4 +472,29 @@ private final class InputTestDependency: LitheModule {
     func sleep() async {}
     func shutdown() async {}
     func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
+}
+
+@MainActor
+private final class RetainedTerminalReviewState: ObservableObject {
+    @Published var visible = true
+    @Published var hasImage = false
+}
+
+private struct RetainedTerminalReviewHost: View {
+    @ObservedObject var state: RetainedTerminalReviewState
+    let store: WorkbenchToolContentStore
+    let model: AppModel
+    let feature: TerminalFeatureModel
+    var body: some View {
+        ZStack {
+            Color(nsColor: NSColor(srgbRed: 0.8, green: 0.1, blue: 0.6, alpha: 1))
+            if state.visible {
+                RetainedWorkbenchToolContent(store: store, tool: .terminal,
+                    content: TerminalView(feature: feature).environmentObject(model),
+                    onActivate: { model.activeToolTerminalSession?.focus() })
+                    .environment(\.workbenchHasBackgroundImage, state.hasImage)
+            }
+        }
+        .overlay { WorkbenchToolContentSurface(store: store) }
+    }
 }
