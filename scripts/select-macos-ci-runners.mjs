@@ -22,6 +22,12 @@ export const STATIC_POOLS = Object.freeze({
   plugins: 'hosted',
 });
 
+// Lanes that stay on hosted runners until the Mac minis can run them. Swift
+// tests need a WindowServer session that publishes native windows
+// (DesktopIsolationTests); a Mac mini without an active display does not.
+// Remove the lane here once the runner host keeps a display session awake.
+export const HOSTED_ONLY_LANES = new Set(['swift']);
+
 // Lanes claim free runners in this order. Swift tests own the longest critical
 // path once they also verify the Rust bridge, so they get the faster pool first.
 const LANE_PRIORITY = ['swift', 'release', 'plugins', 'rust'];
@@ -56,7 +62,9 @@ export function assignPools({ lanes, busy, capacity, macMiniOnly }) {
   const ordered = LANE_PRIORITY.filter((lane) => lanes.includes(lane));
   for (const lane of ordered) {
     let pool;
-    if (macMiniOnly) {
+    if (HOSTED_ONLY_LANES.has(lane)) {
+      pool = 'hosted';
+    } else if (macMiniOnly) {
       pool = 'mac-mini';
     } else if (used['mac-mini'] < capacity['mac-mini']) {
       pool = 'mac-mini';
