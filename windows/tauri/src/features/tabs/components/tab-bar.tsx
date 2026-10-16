@@ -254,7 +254,9 @@ const TabBar = ({
 
   useEffect(() => {
     if (maxOpenTabs > 0 && buffers.length > maxOpenTabs && handleTabClose) {
-      const closableBuffers = buffers.filter((b) => !b.isPinned && b.id !== activeBufferId);
+      const closableBuffers = buffers.filter(
+        (b) => !b.isPinned && b.id !== activeBufferId && !(b.type === "editor" && b.isDirty),
+      );
 
       let tabsToClose = buffers.length - maxOpenTabs;
       for (let i = 0; i < closableBuffers.length && tabsToClose > 0; i++) {

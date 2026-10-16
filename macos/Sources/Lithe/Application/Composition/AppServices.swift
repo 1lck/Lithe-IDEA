@@ -31,6 +31,7 @@ final class AppServices {
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     let javaTestDebugLaunchService: JavaTestDebugLaunchService
     let debugPerformanceSampler: (any DebugPerformanceSampling)?
+    let testJVMPerformance: (any TestJVMPerformanceProviding)?
     let debugBreakpointPersistence: (any DebugBreakpointPersisting)?
     let workspaceOperations: any WorkspaceOperations
     let documentLifecycleDecider: any DocumentLifecycleDeciding
@@ -108,9 +109,11 @@ final class AppServices {
         directoryWatcherFactory: any DirectoryWatcherFactory,
         platformUI: any PlatformUI,
         shortcutDetectorFactory: any ShortcutDetectorFactory,
-        debugPerformanceSampler: (any DebugPerformanceSampling)? = nil
+        debugPerformanceSampler: (any DebugPerformanceSampling)? = nil,
+        testJVMPerformance: (any TestJVMPerformanceProviding)? = nil
     ) {
         self.debugPerformanceSampler = debugPerformanceSampler
+        self.testJVMPerformance = testJVMPerformance
         self.moduleRuntime = moduleRuntime
         self.pluginManager = pluginManager
         self.pluginMarketplace = pluginMarketplace

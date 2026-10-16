@@ -395,7 +395,7 @@ struct AgentConversationPresentationTests {
                                 TextField("Message the Agent", text: .constant("/"), axis: .vertical)
                                     .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(1...)
                                     .background(AgentDraftFrameProbe { editor = $0 })
-                                    .padding(.horizontal, 8).padding(.vertical, 10)
+                                    .padding(.horizontal, 8).padding(.vertical, 7)
                                     .frame(maxWidth: .infinity, alignment: .topLeading)
                             } toolbar: {
                                 Color.clear.frame(height: AgentComposerMetrics.toolbarHeight - 2)
@@ -419,7 +419,7 @@ struct AgentConversationPresentationTests {
                         #expect(pane.insetBy(dx: -0.5, dy: -0.5).contains(frame), "The writing line must stay inside the sized pane")
                         if files.isEmpty, count == 0 {
                             let inputHeight = pane.height - AgentComposerMetrics.bottomInset - (AgentComposerMetrics.contextHeight - 2)
-                            #expect(abs(inputHeight - 108) < 0.5, "Default input border height stays constant across panel sizes")
+                            #expect(abs(inputHeight - 60) < 0.5, "A single writing line and toolbar stay compact across panel sizes")
                         }
                         let writingScroll = try #require(enclosingScroll(of: input))
                         #expect(writingScroll.bounds.height >= AgentComposerMetrics.writingLineHeight - 0.5)
@@ -842,35 +842,74 @@ struct AgentConversationPresentationTests {
         }
     }
 
-    @Test
-    func inputSplitStaysWithinNarrowAndWidePanels() throws {
-        let host = NSHostingView(rootView: AgentConversationLayout {
-            AgentHeroView(agentName: "Codex", agentVersion: "1.13.1", onTap: {})
-        } composer: {
-            Color.clear
-        })
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 500),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+    @Test(arguments: [false, true])
+    func composerGrowsWithDraftAndShrinksAfterClearing(editorLayout: Bool) async throws {
+        let draft = AgentGrowingComposerDraft()
+        var composer: NSView?
+        let host = NSHostingView(rootView: AgentGrowingComposerFixture(draft: draft, editorLayout: editorLayout,
+            onComposer: { composer = $0 }))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.close() }
         window.contentView = host
-        for size in [NSSize(width: 320, height: 500), NSSize(width: 760, height: 1000),
-                     NSSize(width: 320, height: 300)] {
-            host.frame.size = size
-            host.layoutSubtreeIfNeeded()
-            let handle = try #require(splitHandle(in: host))
-            let rect = handle.convert(handle.bounds, to: host)
-            #expect(rect.minY >= 0 && rect.maxY <= size.height)
-            #expect(rect.width == size.width)
-            #expect(rect.height == SplitHandleView.hitThickness)
-        }
-    }
+        defer { window.contentView = nil; window.close() }
 
-    private func splitHandle(in view: NSView) -> SplitHandleInteractionView? {
-        if let handle = view as? SplitHandleInteractionView { return handle }
-        return view.subviews.lazy.compactMap { splitHandle(in: $0) }.first
+        func verticalScroll(in view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView, scroll.hasVerticalScroller { return scroll }
+            return view.subviews.lazy.compactMap { verticalScroll(in: $0) }.first
+        }
+        func layout(until condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            repeat {
+                await withCheckedContinuation { gate in
+                    DispatchQueue.main.async {
+                        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
+                        host.needsLayout = true
+                        host.layoutSubtreeIfNeeded()
+                        gate.resume()
+                    }
+                }
+                if condition() { return }
+            } while ContinuousClock.now < deadline
+            try #require(condition(), "Native composer failed to reach its expected content size")
+        }
+        try await layout { composer != nil && verticalScroll(in: host)?.bounds.height == 32 }
+        let pane = try #require(composer)
+        let scroll = try #require(verticalScroll(in: host))
+        let emptyHeight = pane.bounds.height
+        #expect(emptyHeight < 140, "Empty production composer must start with one writing line")
+        #expect(abs(pane.bounds.width - (editorLayout ? 880 : 1100)) < 1)
+
+        draft.text = "First line\nSecond line\nThird line\nFourth line"
+        try await layout { scroll.bounds.height > 60 && pane.bounds.height > emptyHeight + 25 }
+        let fourLineHeight = scroll.bounds.height
+        #expect(fourLineHeight < 120, "Four lines should use their natural height")
+
+        draft.text = (0..<80).map { "Line \($0): 输入越多，书写区会增高。" }.joined(separator: "\n")
+        try await layout { scroll.bounds.height > fourLineHeight && (scroll.documentView?.bounds.height ?? 0) > 700 }
+        #expect(scroll.bounds.height <= 240.5)
+        #expect(pane.bounds.height + AgentComposerMetrics.splitTopInset <= 700 * 0.6 + 1)
+        let document = try #require(scroll.documentView)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(scroll.contentView.bounds.maxY >= document.bounds.maxY - 1, "The end of a capped draft stays reachable")
+
+        draft.files = [try AgentFileReference(url: URL(fileURLWithPath: "/example/project/README.md"))]
+        draft.text = ""
+        try await layout { abs(scroll.bounds.height - 32) < 0.5 && pane.bounds.height > emptyHeight + 25 }
+        #expect(abs(pane.bounds.height - emptyHeight - 34) < 1)
+        draft.files = []
+        try await layout { abs(pane.bounds.height - emptyHeight) < 0.5 }
+
+        draft.text = String(repeating: "输入内容应按当前窗口宽度换行。 Draft grows with its content. ", count: 4)
+        try await layout { scroll.bounds.height > 32 }
+        let wideHeight = scroll.bounds.height
+        window.setContentSize(NSSize(width: 320, height: 400))
+        try await layout { scroll.bounds.height > wideHeight + 15 && pane.bounds.width < 321 }
+        #expect(abs(pane.bounds.width - (editorLayout ? 256 : 320)) < 1)
+        #expect(pane.bounds.height + AgentComposerMetrics.splitTopInset <= 400 * 0.6 + 1)
+        draft.text = ""
+        try await layout { abs(scroll.bounds.height - 32) < 0.5 && abs(pane.bounds.height - emptyHeight) < 1 }
     }
 
     private func enclosingScroll(of view: NSView) -> NSScrollView? {
@@ -881,6 +920,30 @@ struct AgentConversationPresentationTests {
     private func commandScroll(in view: NSView, excluding editor: NSView) -> NSScrollView? {
         if let scroll = view as? NSScrollView, scroll.hasVerticalScroller, !editor.isDescendant(of: scroll) { return scroll }
         return view.subviews.lazy.compactMap { commandScroll(in: $0, excluding: editor) }.first
+    }
+}
+
+@MainActor
+private final class AgentGrowingComposerDraft: ObservableObject {
+    @Published var text = ""
+    @Published var files: [AgentFileReference] = []
+}
+
+private struct AgentGrowingComposerFixture: View {
+    @ObservedObject var draft: AgentGrowingComposerDraft
+    let editorLayout: Bool
+    let onComposer: (NSView) -> Void
+
+    var body: some View {
+        AgentConversationLayout {
+            Color.clear
+        } composer: {
+            AgentComposerView(agents: [], selectedAgent: nil, isResponding: false, isBlocked: false,
+                onSend: { _, _ in }, onCancel: {}, onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                draftText: $draft.text, draftFiles: $draft.files)
+                .background(AgentDraftFrameProbe(onCreate: onComposer))
+                .modifier(AgentEditorColumn(isEditor: editorLayout))
+        }
     }
 }
 

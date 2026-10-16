@@ -102,13 +102,13 @@ struct CommitAreaView: View {
                         Text("Commit")
                     }
                 }
-                .buttonStyle(CommitActionButtonStyle(isPrimary: true))
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(!canCommit)
 
                 Button("Commit and Push…") {
                     Task { await commitWorkflow.commit(push: true) }
                 }
-                .buttonStyle(CommitActionButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(!canCommit)
 
                 Spacer(minLength: 0)
@@ -167,29 +167,6 @@ struct CommitAreaView: View {
             !feature.isCommitting && !feature.isStagingChanges && feature.pendingSubmoduleCommitPlan == nil && !feature.canRetryWorkspaceCommit
     }
 
-}
-
-/// IDEA DarculaButtonUI/Painter: 28pt visible control, 3pt border insets,
-/// 14pt label padding, 72pt minimum width, and regular UI font on macOS.
-struct CommitActionButtonStyle: ButtonStyle {
-    var isPrimary = false
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.colorScheme) private var colorScheme
-
-    func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: LitheTheme.Commit.controlCornerRadius)
-        configuration.label
-            .font(LitheTheme.uiFont(size: 13, weight: .regular))
-            .foregroundStyle(isEnabled ? (isPrimary ? Color.white : LitheTheme.searchFieldText) : LitheTheme.Commit.disabledText)
-            .padding(.horizontal, LitheTheme.Commit.buttonHorizontalPadding)
-            .frame(minWidth: LitheTheme.Commit.buttonMinimumWidth, minHeight: LitheTheme.Commit.buttonHeight)
-            .background(shape.fill(isPrimary && isEnabled ? LitheTheme.searchFieldFocusBorder
-                                                          : isEnabled ? LitheTheme.Commit.buttonBackground(for: colorScheme) : .clear))
-            .overlay(shape.strokeBorder(isEnabled ? (isPrimary ? LitheTheme.searchFieldFocusBorder : LitheTheme.searchFieldBorder)
-                                                  : LitheTheme.Commit.disabledBorder, lineWidth: 1))
-            .padding(LitheTheme.Commit.buttonBorderInset)
-            .contentShape(Rectangle())
-    }
 }
 
 /// Observe the plan directly so a changed selection updates the open sheet.

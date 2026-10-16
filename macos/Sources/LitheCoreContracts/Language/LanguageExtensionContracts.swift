@@ -14,17 +14,21 @@ public struct LanguageExecutionLifecycleEvent: Sendable {
     public let state: LanguageExecutionLifecycleState
     public let exitCode: Int32?
     public let message: String?
+    /// Exact launched root PID; absent when the host cannot provide it.
+    public let processID: Int32?
 
     public init(
         operationID: String?,
         state: LanguageExecutionLifecycleState,
         exitCode: Int32? = nil,
-        message: String? = nil
+        message: String? = nil,
+        processID: Int32? = nil
     ) {
         self.operationID = operationID
         self.state = state
         self.exitCode = exitCode
         self.message = message
+        self.processID = processID
     }
 }
 

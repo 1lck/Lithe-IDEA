@@ -18,6 +18,12 @@ struct AgentTranscriptScrollTests {
     }
 
     @MainActor @Test
+    func wideEditorKeepsScrollbarAtEdgeAndNavigationPreservesHistory() async throws {
+        try await verifyReplay(browsingHistory: true, navigating: true,
+            testName: "wideEditorKeepsScrollbarAtEdgeAndNavigationPreservesHistory")
+    }
+
+    @MainActor @Test
     func aViewportFrameChangeKeepsFollowingWithoutABoundsNotification() async throws {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
         let document = TranscriptTestDocument(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
@@ -51,9 +57,17 @@ struct AgentTranscriptScrollTests {
         try await waitForBottom()
     }
 
-    @MainActor private func verifyReplay(browsingHistory: Bool, testName: String) async throws {
+    @MainActor private func verifyReplay(browsingHistory: Bool, navigating: Bool = false, testName: String) async throws {
         if let path = ProcessInfo.processInfo.environment["LITHE_TRANSCRIPT_REPLAY_PHASE"] {
-            try await TranscriptReplay(phaseURL: URL(fileURLWithPath: path)).perform(browsingHistory: browsingHistory)
+            let application = NSApplication.shared
+            let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+            let previousAccessibility = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
+            if navigating { application.accessibilitySetValue(true, forAttribute: attribute) }
+            defer {
+                if navigating { application.accessibilitySetValue(previousAccessibility, forAttribute: attribute) }
+            }
+            try await TranscriptReplay(phaseURL: URL(fileURLWithPath: path), editorLayout: navigating)
+                .perform(browsingHistory: browsingHistory, navigating: navigating)
             return
         }
         // A hung SwiftUI transaction cannot observe an in-process async timeout.
@@ -66,13 +80,14 @@ struct AgentTranscriptScrollTests {
         let phase = directory.appendingPathComponent("phase.txt")
         let bundle = Bundle(for: TranscriptReplayBundleMarker.self)
         let testImage = try #require(bundle.executableURL)
-        let arguments = ["LITHE_TRANSCRIPT_REPLAY_PHASE=\(phase.path)", CommandLine.arguments[0],
-            "--test-bundle-path", testImage.path, "--testing-library", "swift-testing", "--filter",
+        var environment = ProcessInfo.processInfo.environment
+        environment["LITHE_TRANSCRIPT_REPLAY_PHASE"] = phase.path
+        let arguments = ["--test-bundle-path", testImage.path, "--testing-library", "swift-testing", "--filter",
             "AgentTranscriptScrollTests.*\(testName)"]
         do {
-            let result = try await TestProcess.run(executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-                arguments: arguments, currentDirectoryURL: directory, timeout: .seconds(8))
-            #expect(result.terminationStatus == 0,
+            let result = try await TestProcess.run(executableURL: URL(fileURLWithPath: CommandLine.arguments[0]),
+                arguments: arguments, currentDirectoryURL: directory, environment: environment, timeout: .seconds(8))
+            try #require(result.terminationStatus == 0,
                 "Native transcript replay failed: \(String(decoding: result.output, as: UTF8.self))")
             #expect(try String(contentsOf: phase, encoding: .utf8) == "finished")
         } catch let error as TestProcessError {

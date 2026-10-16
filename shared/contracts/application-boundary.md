@@ -330,7 +330,14 @@ optional `timeoutMilliseconds`. Adapters emit lifecycle states `starting`,
 `running`, `stopping`, `finished`, and `failed`; `operationID` lets the UI
 ignore stale termination events after a restart. `stop()` is the cancellation
 operation and must terminate the platform process without changing feature
-state owned by another operation.
+state owned by another operation. The macOS native and language-extension lifecycle
+adapters may additionally report an optional `processID` on `running`: this is the
+exact launched root, never a process selected by name. Consumers must validate
+`operationID` before retaining it and invalidate it on stop, completion, reset, or
+replacement. Hosts without a local PID leave it absent. Test performance uses
+native CPU/RSS of that root and its descendants (including forked workers), with
+RSS explicitly labeled as resident memory rather than JVM heap. Debug keeps its
+existing exact-JVM JDK heap sampling; these are separate metric sources.
 
 Java workspace activation is a shared Core decision over visible relative
 paths. Any workspace containing a non-ignored `.java` source starts one JDT LS

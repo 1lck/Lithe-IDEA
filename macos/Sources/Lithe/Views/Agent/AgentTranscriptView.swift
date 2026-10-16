@@ -17,6 +17,14 @@ enum AgentTranscriptItem: Identifiable {
         }
     }
 
+    var navigationMessageID: String? {
+        switch self {
+        case .message(let message): message.id
+        case .toolGroup(let tools): tools.first?.id
+        case .turnSummary(let turn): turn.endingMessageID
+        }
+    }
+
     func matches(_ searchText: String) -> Bool {
         guard !searchText.isEmpty else { return true }
         switch self {
@@ -100,6 +108,8 @@ struct AgentTranscriptView: View {
     var searchText = ""
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     var onRestoreFile: (AgentFileChange) async throws -> Void = { _ in throw AgentEditRestoreError.unavailable }
+    var isEditorLayout = false
+    @State private var navigation = AgentTranscriptNavigationState()
     @State private var showsAgentPicker = false
     // A filtered-out row can be destroyed. Keep its preference in the owning
     // transcript view, isolated by session and message, until the actual data goes away.
@@ -112,6 +122,7 @@ struct AgentTranscriptView: View {
         // A load replays the whole history one event at a time. Building rows
         // for every intermediate state is quadratic, so rows wait for the replay to end.
         let isReplaying = conversation?.isLoading == true
+        let navigationContent = AgentTranscriptNavigationContent(messages: isReplaying ? [] : messages)
         // Only reasoning that is still streaming opens by default.
         let liveThoughtID = conversation?.responseStatus == .thinking && messages.last?.role == .thought
             ? messages.last?.id : nil
@@ -141,64 +152,86 @@ struct AgentTranscriptView: View {
                     .padding(LitheDropdownMetrics.popupPadding)
                     .frame(width: 180)
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) { advisories }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    advisories.modifier(AgentEditorColumn(isEditor: isEditorLayout))
+                }
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        if conversation?.isLoading == true {
-                            HStack(spacing: 8) {
-                                ProgressView().controlSize(.small)
-                                Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
+                ScrollViewReader { reader in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 14) {
+                            if conversation?.isLoading == true {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
+                                }
+                            }
+                            // A load replays the whole history one event at a time. Building rows
+                            // for every intermediate state is quadratic, so rows wait for the replay to end.
+                            if !isReplaying {
+                                AgentTranscriptRows(
+                                    messages: messages,
+                                    completedTurns: conversation?.completedTurns ?? [],
+                                    navigation: navigation,
+                                    turnByMessageID: navigationContent.turnByMessageID,
+                                    searchText: searchText,
+                                    liveThoughtID: liveThoughtID,
+                                    thoughtExpansions: sessionID.flatMap { thoughtExpansions[$0] } ?? [:],
+                                    setThoughtExpansion: { id, value in
+                                        guard let sessionID else { return }
+                                        thoughtExpansions[sessionID, default: [:]][id] = value
+                                    },
+                                    onOpenFile: onOpenFile
+                                )
+                                .equatable()
+                            }
+                            if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
+                                AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
+                                    .id("pending")
+                            }
+                            if conversation?.isResponding == true || feature.isCreatingSession {
+                                AgentResponseStatusRow(
+                                    responseStatus: conversation?.responseStatus ?? .preparing,
+                                    startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
+                                    hasStreamingThought: liveThoughtID != nil,
+                                    retryAttempt: conversation?.retryAttempt,
+                                    retryMaxAttempts: conversation?.retryMaxAttempts,
+                                    isQuiet: conversation?.isQuiet == true,
+                                    onContinueWaiting: { feature.continueWaiting() },
+                                    onStop: { feature.cancel() }
+                                ).id("responding")
                             }
                         }
-                        // A load replays the whole history one event at a time. Building rows
-                        // for every intermediate state is quadratic, so rows wait for the replay to end.
-                        if !isReplaying {
-                            AgentTranscriptRows(
-                                messages: messages,
-                                completedTurns: conversation?.completedTurns ?? [],
-                                searchText: searchText,
-                                liveThoughtID: liveThoughtID,
-                                thoughtExpansions: sessionID.flatMap { thoughtExpansions[$0] } ?? [:],
-                                setThoughtExpansion: { id, value in
-                                    guard let sessionID else { return }
-                                    thoughtExpansions[sessionID, default: [:]][id] = value
-                                },
-                                onOpenFile: onOpenFile
-                            )
-                            .equatable()
-                        }
-                        if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
-                            AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
-                                .id("pending")
-                        }
-                        if conversation?.isResponding == true || feature.isCreatingSession {
-                            AgentResponseStatusRow(
-                                responseStatus: conversation?.responseStatus ?? .preparing,
-                                startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
-                                hasStreamingThought: liveThoughtID != nil,
-                                retryAttempt: conversation?.retryAttempt,
-                                retryMaxAttempts: conversation?.retryMaxAttempts,
-                                isQuiet: conversation?.isQuiet == true,
-                                onContinueWaiting: { feature.continueWaiting() },
-                                onStop: { feature.cancel() }
-                            ).id("responding")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .modifier(AgentEditorColumn(isEditor: isEditorLayout))
+                        .padding(.horizontal, isEditorLayout ? 0 : 28)
+                        .background(AgentTranscriptNavigationViewport(state: navigation))
+                        .litheScrollViewChrome(alwaysShowVertical: true)
+                        .background(AgentTranscriptScrollAnchor(
+                            sessionID: sessionID,
+                            enabled: searchText.isEmpty,
+                            revision: .init(lastMessageID: messages.last?.id, lastText: messages.last?.text,
+                                lastUserMessageID: messages.last(where: { $0.role == .user })?.id,
+                                messageCount: messages.count, completedTurns: conversation?.completedTurns.count ?? 0,
+                                permissionID: conversation?.permission?.id, isResponding: conversation?.isResponding == true)
+                        ))
+                    }
+                    // Keep both cards owned by the scroll container so its native
+                    // bottom-following probe sees the complete reserved inset.
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        advisories.modifier(AgentEditorColumn(isEditor: isEditorLayout))
+                    }
+                    .overlay(alignment: .trailing) {
+                        if searchText.isEmpty && !navigationContent.entries.isEmpty {
+                            AgentTranscriptNavigationRail(state: navigation, entries: navigationContent.entries) { id in
+                                navigation.beginNavigation()
+                                reader.scrollTo(id, anchor: .top)
+                            }
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-                    .background(AgentTranscriptScrollAnchor(
-                        sessionID: sessionID,
-                        enabled: searchText.isEmpty,
-                        revision: .init(lastMessageID: messages.last?.id, lastText: messages.last?.text,
-                            lastUserMessageID: messages.last(where: { $0.role == .user })?.id,
-                            messageCount: messages.count, completedTurns: conversation?.completedTurns.count ?? 0,
-                            permissionID: conversation?.permission?.id, isResponding: conversation?.isResponding == true)
-                    ))
+                    .workbenchHoverTooltipScope()
                 }
-                // Keep both cards owned by the scroll container so its native
-                // bottom-following probe sees the complete reserved inset.
-                .safeAreaInset(edge: .bottom, spacing: 0) { advisories }
+                .id(sessionID)
             }
         }
         .onChange(of: feature.openSessionIDs) { sessionIDs in
@@ -229,6 +262,8 @@ struct AgentTranscriptView: View {
 private struct AgentTranscriptRows: View, Equatable {
     let messages: [AgentConversationMessage]
     let completedTurns: [AgentTurnStatistics]
+    let navigation: AgentTranscriptNavigationState
+    let turnByMessageID: [String: String]
     let searchText: String
     let liveThoughtID: String?
     let thoughtExpansions: [String: AgentThoughtExpansion]
@@ -267,6 +302,7 @@ private struct AgentTranscriptRows: View, Equatable {
                     AgentTurnStatisticsView(statistics: turn)
                 }
             }
+            .background(AgentTranscriptNavigationAnchor(state: navigation, turnID: turnByMessageID[item.navigationMessageID ?? ""]))
             .id(item.id)
         }
     }

@@ -12,10 +12,12 @@ struct RunConsolePresentationTests {
         let result = OutputTextView.renderOutput(source, searchRoots: [], fileExists: { _ in false },
             isDark: dark, theme: .lithe, fontSize: 13, usesIDEAConsoleStyle: true)
         let text = result.string as NSString
-        for token in ["2026", "INFO"] {
+        for token in ["2026", "ready"] {
             let color = try #require(result.attribute(.foregroundColor, at: text.range(of: token).location, effectiveRange: nil) as? NSColor)
             #expect(color == LitheConsoleStyle.foreground(dark: dark))
         }
+        #expect(result.attribute(.foregroundColor, at: text.range(of: "INFO").location,
+            effectiveRange: nil) as? NSColor == LitheConsoleStyle.palette(dark: dark)[2])
         for (token, index) in [("error", 1), ("bright", 9)] {
             let color = try #require(result.attribute(.foregroundColor, at: text.range(of: token).location, effectiveRange: nil) as? NSColor)
             #expect(color == LitheConsoleStyle.palette(dark: dark)[index])

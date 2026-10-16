@@ -314,7 +314,7 @@ jobs:
 
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tabs.json -- src/features/tabs
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tabs.json -- src/features/tabs src/features/editor/stores/buffer-new-tab.test.ts
 
       - name: Test SVG editor preview modes and live updates
         shell: pwsh

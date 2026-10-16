@@ -87,6 +87,15 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /plugin-ui-icons.*cannot be reused/);
   });
+  await test("test JFR recordings remain isolated to their worker and run", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "test-jfr-recordings");
+    assert.equal(resource.reusable, false);
+    assert.match(resource.identity, /PID.*process start identity.*JDK/);
+    const rejected = reuse(["--resource", "test-jfr-recordings"]);
+    assert.notEqual(rejected.status, 0);
+    assert.match(diagnostics(rejected), /test-jfr-recordings.*cannot be reused/);
+  });
   await test("bundled UI fonts come from Git and cannot be copied from worktree artifacts", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);

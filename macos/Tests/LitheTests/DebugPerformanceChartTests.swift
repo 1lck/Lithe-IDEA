@@ -7,9 +7,9 @@ import Testing
 @Suite("Performance chart presentation", .serialized)
 struct DebugPerformanceChartTests {
     private let samples = [
-        DebugPerformanceSample(timestamp: 10, cpuPercent: 40, heapUsedBytes: 400, heapCommittedBytes: 1_000),
-        DebugPerformanceSample(timestamp: 40, cpuPercent: 60, heapUsedBytes: 600, heapCommittedBytes: 1_000),
-        DebugPerformanceSample(timestamp: 70, cpuPercent: nil, heapUsedBytes: 500, heapCommittedBytes: 1_000)
+        DebugPerformanceSample(timestamp: 10, cpuPercent: 40, memoryUsedBytes: 400, memoryCapacityBytes: 1_000),
+        DebugPerformanceSample(timestamp: 40, cpuPercent: 60, memoryUsedBytes: 600, memoryCapacityBytes: 1_000),
+        DebugPerformanceSample(timestamp: 70, cpuPercent: nil, memoryUsedBytes: 500, memoryCapacityBytes: 1_000)
     ]
 
     @Test func hoverSnapsToRealSamplesAndKeepsMissingCPU() throws {
@@ -21,7 +21,7 @@ struct DebugPerformanceChartTests {
         #expect(DebugPerformanceChart.nearestSample(in: samples, to: 100)?.timestamp == 70)
         let missing = try #require(DebugPerformanceChart.nearestSample(in: samples, to: 69))
         #expect(missing.cpuPercent == nil)
-        #expect(missing.heapUsedBytes == 500)
+        #expect(missing.memoryUsedBytes == 500)
     }
 
     @Test func timeAdvancesLeftAndKeepsTheLatestSampleAtTheRightEdge() {
@@ -42,7 +42,7 @@ struct DebugPerformanceChartTests {
     func plotsHaveFilledAreaInBothThemes(dark: Bool, shortHistory: Bool) throws {
         let points = shortHistory ? samples.enumerated().map { offset, sample in
             DebugPerformanceSample(timestamp: 10 + Double(offset), cpuPercent: sample.cpuPercent,
-                heapUsedBytes: sample.heapUsedBytes, heapCommittedBytes: sample.heapCommittedBytes)
+                memoryUsedBytes: sample.memoryUsedBytes, memoryCapacityBytes: sample.memoryCapacityBytes)
         } : samples
         let appearance = try #require(NSAppearance(named: dark ? .darkAqua : .aqua))
         let host = NSHostingView(rootView: VStack(spacing: 0) {
