@@ -63,7 +63,8 @@ private final class MacLanguageExecutionSession: LanguageExecutionSession {
                 operationID: event.operationID,
                 state: Self.state(event.state),
                 exitCode: event.exitCode,
-                message: event.message
+                message: event.message,
+                processID: event.processID
             ))
         }
     }

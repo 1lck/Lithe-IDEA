@@ -58,8 +58,6 @@ struct RunView: View {
                     fileExists: { model.fileExists(at: $0) },
                     emptyMessage: runText("Run a configuration to see process output."),
                     wrapsLines: wrapsOutputLines,
-                fontSize: LitheConsoleStyle.defaultFontSize,
-                usesIDEAConsoleStyle: true,
                     onToggleWrapsLines: toggleOutputWrapping
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
@@ -562,8 +560,6 @@ struct RunView: View {
                 fileExists: { model.fileExists(at: $0) },
                 emptyMessage: runText("Select a run configuration to see its output."),
                 wrapsLines: wrapsOutputLines,
-                fontSize: LitheConsoleStyle.defaultFontSize,
-                usesIDEAConsoleStyle: true,
                 onToggleWrapsLines: toggleOutputWrapping
             ) { url, line, column in
                 model.openSourceLocation(url: url, line: line, column: column)
@@ -854,8 +850,6 @@ struct RunView: View {
                     fileExists: { model.fileExists(at: $0) },
                     emptyMessage: runText("Start this configuration to see its output here."),
                     wrapsLines: wrapsOutputLines,
-                fontSize: LitheConsoleStyle.defaultFontSize,
-                usesIDEAConsoleStyle: true,
                     onToggleWrapsLines: toggleOutputWrapping
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)

@@ -20,7 +20,7 @@ final class DebugPerformanceFeatureModel: ObservableObject {
     init(sampler: (any DebugPerformanceSampling)?) { self.sampler = sampler }
 
     func register(_ target: DebugPerformanceTarget, sessionID: UUID) {
-        guard target.processID > 0, target.javaExecutable.lastPathComponent == "java" else { return }
+        guard target.processID > 0, (target.javaExecutable == nil || target.javaExecutable?.lastPathComponent == "java") else { return }
         guard targets[sessionID] != target else { return }
         // DAP restart can retain the session ID while launching a different JVM.
         if targets[sessionID] != nil {

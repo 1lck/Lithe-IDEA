@@ -179,36 +179,6 @@ struct OutputTimestamperTests {
     }
 }
 
-@Suite("Output severity coloring")
-@MainActor
-struct OutputSeverityTests {
-    @Test
-    func recognizesBracketedMavenLevels() {
-        #expect(OutputTextView.severity(ofLine: "[ERROR] Failed to execute goal") == .error)
-        #expect(OutputTextView.severity(ofLine: "[WARNING] deprecated API") == .warning)
-        #expect(OutputTextView.severity(ofLine: "[INFO] Building") == .info)
-    }
-
-    @Test
-    func recognizesSpringBootSpacedLevels() {
-        let line = "2026-08-08T10:12:33.123  WARN 1 --- [main] Port 8081 was already in use"
-        #expect(OutputTextView.severity(ofLine: line) == .warning)
-    }
-
-    /// A path segment that merely contains the word must not paint the line red,
-    /// or every stack trace through an `Error.java` reads as a failure.
-    @Test
-    func ignoresLevelWordsEmbeddedInPaths() {
-        #expect(OutputTextView.severity(ofLine: "  at src/main/java/ErrorHandler.java:42") == nil)
-        #expect(OutputTextView.severity(ofLine: "Compiling Information.kt") == nil)
-    }
-
-    @Test
-    func reportsNoSeverityForOrdinaryOutput() {
-        #expect(OutputTextView.severity(ofLine: "Tomcat started on port 8081") == nil)
-    }
-}
-
 @Suite("ANSI output colors")
 @MainActor
 struct ANSIOutputColorTests {

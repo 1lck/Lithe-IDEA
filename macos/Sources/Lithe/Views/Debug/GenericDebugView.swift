@@ -2427,8 +2427,6 @@ private struct DebugConsoleOutputView: View {
             wrapsLines: wrapsLines,
             showsConsoleToolbar: true,
             onClearOutput: onClearOutput,
-            fontSize: LitheConsoleStyle.defaultFontSize,
-            usesIDEAConsoleStyle: true,
             consolePresentation: consolePresentation,
             standardInputSessionID: standardInputSessionID,
             onSubmitStandardInput: onSubmitStandardInput,

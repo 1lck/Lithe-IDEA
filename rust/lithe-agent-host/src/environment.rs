@@ -93,8 +93,13 @@ pub fn search_path_with_cancel(cancel: &dyn Fn() -> bool) -> Option<OsString> {
     if let Some(path) = SEARCH_PATH.lock().ok().and_then(|cached| cached.clone()) {
         return Some(path);
     }
-    detect(cancel);
-    SEARCH_PATH.lock().ok().and_then(|cached| cached.clone())
+    // Launches only need PATH. Probing node/npm versions here can delay even a
+    // missing custom executable by VERSION_TIMEOUT for each installed tool.
+    let path = merge_paths(login_shell_path(cancel), std::env::var_os("PATH"));
+    if let Ok(mut cached) = SEARCH_PATH.lock() {
+        *cached = path.clone();
+    }
+    path
 }
 
 /// `PATH` reported by the user's interactive login shell (Unix only).

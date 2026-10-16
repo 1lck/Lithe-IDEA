@@ -91,7 +91,7 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         case .maven:
             plan = SharedLaunchPlan(
                 executable: .toolchain("project-maven"),
-                arguments: javaArguments(scope: scope, root: root),
+                arguments: ["-Dstyle.color=always"] + javaArguments(scope: scope, root: root),
                 workingDirectory: "."
             )
         case .gradle:
@@ -208,7 +208,9 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
     }
 
     private func gradleArguments(scope: LanguageTestScope, root: URL) throws -> [String] {
-        var arguments = ["test"]
+        // Keep test workers in this invocation's owned process tree, including
+        // when an unrelated reusable Gradle daemon is already running.
+        var arguments = ["test", "--no-daemon"]
         switch scope {
         case .workspace:
             break

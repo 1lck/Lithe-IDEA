@@ -431,3 +431,12 @@ Windows 已可用。本功能不新增下载、缓存或运行时资源路径，
 - 紧凑标题验证：`AgentConversationPresentationTests.conversationHeaderKeepsOneCompactRow` 覆盖深浅主题和窄宽度的单行高度；`AgentActivityPresentationTests.compactHeaderKeepsHistoryAndSearchIndependent` 使用真实窗口点击验证历史、搜索和新建互不串用。
 
 - 视口通知回归：翻转坐标夹具先完成首次定位、禁用bounds通知再重排文档及视口frame；旧实现失败，补齐frame观察后通过。43项相关测试、5组套件通过（17.175秒），报告`/tmp/lithe-pr1212-ci-repaired.json`；保留用户浏览位置、权限空间与有界原生回放，不以测试睡眠或放宽2pt断言绕过缺失通知。
+
+### 启动路径只取得PATH
+
+Agent启动的environment.search_path_with_cancel只发现并缓存PATH，
+不再调用完整detect执行Node/npm版本探测。原流程会让不存在的自定义命令
+也先等待每个工具的版本命令，Windows冷启动用例因此在Stopped事件之前超时。
+环境设置页和显式运行时检测仍使用detect，保留Node/npm版本与可用性报告；
+启动复用原缓存、Unix登录shell发现及取消边界，不引入另一套运行时解析器。
+沿用冷进程spawn_failure_reports_stopped_with_a_message回归，不延长5秒上限。
