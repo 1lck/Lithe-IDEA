@@ -2,6 +2,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 import LitheAgentConversationModule
 
+/// Where the composer is hosted. The editor page has room for every session
+/// selector below the input and shows session statistics above it instead.
+enum AgentComposerLayout {
+    case toolWindow, editor
+}
+
 /// Context strip, flexible writing area, and a compact bottom command bar.
 struct AgentComposerView: View {
     @Environment(\.locale) private var locale
@@ -20,6 +26,9 @@ struct AgentComposerView: View {
     var isPreparingSession = false
     var isConfiguring = false
     var isCancelling = false
+    var canSteer = false
+    var isSendingSupplement = false
+    var hasPendingContinuation = false
     var contextUsage: AgentContextUsage?
     var sessionStatistics: AgentSessionStatistics?
     var showsSubscriptionQuota = false
@@ -31,6 +40,7 @@ struct AgentComposerView: View {
     var showsToolbar = true
     var draftText: Binding<String>? = nil
     var draftFiles: Binding<[AgentFileReference]>? = nil
+    var layout: AgentComposerLayout = .toolWindow
     @State private var completion = AgentCommandCompletion()
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
@@ -58,23 +68,19 @@ struct AgentComposerView: View {
     }
 
     var body: some View {
-        AgentComposerContent(files: attachments, commands: commandSuggestions,
-                             highlightedIndex: completion.highlightedIndex,
-                             onSelect: complete, onRemoveFile: { id in attachments.removeAll { $0.id == id } },
-                             onFocus: { isFocused = true }, isFocused: isFocused || isDropTargeted) {
-            if showsToolbar { contextBar }
-            else { Color.clear.frame(height: AgentComposerMetrics.contextHeight - 1).accessibilityHidden(true) }
-        } editor: {
-            LitheSearchTextField("Type your task or / for commands", text: textBinding, axis: .vertical)
-                .lineLimit(1...)
-                .focused($isFocused)
-                .onSubmit { _ = handleCommandKey(.submit) }
-                .modifier(AgentCommandKeyNavigation(onKey: handleCommandKey))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 7)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-        } toolbar: {
-            if showsToolbar { toolbar }
+        VStack(spacing: 0) {
+            if layout == .editor {
+                // Session figures sit on the composer's top edge as an attached
+                // tab, so they read as part of the input rather than the transcript.
+                AgentEditorStatusStrip(statistics: sessionStatistics, contextUsage: contextUsage)
+                    .padding(.horizontal, AgentComposerMetrics.statusTabInset)
+                    .padding(.bottom, -1)
+                    .zIndex(-1)
+            }
+            composerContent
+        }
+        .transformPreference(AgentComposerMinimumHeightKey.self) { height in
+            if layout == .editor { height += AgentComposerMetrics.contextHeight - 1 }
         }
         .dropDestination(for: URL.self) { urls, _ in
             addFiles(urls)
@@ -97,10 +103,32 @@ struct AgentComposerView: View {
         .onExitCommand { _ = handleCommandKey(.escape) }
     }
 
+    private var composerContent: some View {
+        AgentComposerContent(files: attachments, commands: commandSuggestions,
+                             highlightedIndex: completion.highlightedIndex,
+                             onSelect: complete, onRemoveFile: { id in attachments.removeAll { $0.id == id } },
+                             onFocus: { isFocused = true }, isFocused: isFocused || isDropTargeted) {
+            if showsToolbar { contextBar }
+            else { Color.clear.frame(height: AgentComposerMetrics.contextHeight - 1).accessibilityHidden(true) }
+        } editor: {
+            LitheSearchTextField("Type your task or / for commands", text: textBinding, axis: .vertical)
+                .lineLimit(1...)
+                .focused($isFocused)
+                .onSubmit { _ = handleCommandKey(.submit) }
+                .modifier(AgentCommandKeyNavigation(onKey: handleCommandKey))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        } toolbar: {
+            if showsToolbar { toolbar }
+        }
+    }
+
     private var contextBar: some View {
         HStack(spacing: 8) {
             agentMenu
             if !isPreparingSession {
+                if layout == .editor { modeSelectors }
                 if !configOptions.isEmpty {
                     AgentSessionSelectors(
                         options: configOptions.filter { $0.category != "mode" },
@@ -121,7 +149,7 @@ struct AgentComposerView: View {
                     .help(model)
                 }
             }
-            if let sessionStatistics {
+            if layout == .toolWindow, let sessionStatistics {
                 AgentSessionStatusView(statistics: sessionStatistics, contextUsage: contextUsage, showsContext: false)
                     .layoutPriority(1)
             }
@@ -152,35 +180,53 @@ struct AgentComposerView: View {
                     .lineLimit(1)
                     .padding(.horizontal, 4)
                     .accessibilityIdentifier("agent-session-settings-loading")
-            } else if !configOptions.isEmpty {
-                AgentSessionSelectors(
-                    options: configOptions.filter { $0.category == "mode" },
-                    agentName: selectedAgent?.name,
-                    isDisabled: isBlocked || isConfiguring,
-                    appliesToNextTurn: isResponding,
-                    onSelect: onSetConfig
-                )
-                .id(sessionID ?? selectedAgent?.id)
-                if isConfiguring { ProgressView().controlSize(.mini) }
+            } else if layout == .toolWindow {
+                modeSelectors
+            } else if isConfiguring {
+                ProgressView().controlSize(.mini)
             }
             Spacer(minLength: 0)
-            AgentContextUsageView(usage: contextUsage, composition: sessionStatistics?.modelCalls?.latestContext,
-                                  showsPercentage: false)
-            Button(action: isResponding ? onCancel : send) {
-                if isResponding {
+            if layout == .toolWindow {
+                AgentContextUsageView(usage: contextUsage, composition: sessionStatistics?.modelCalls?.latestContext,
+                                      showsPercentage: false)
+            }
+            if isResponding || hasPendingContinuation {
+                Button(action: onCancel) {
                     LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: LitheTheme.Metrics.toolbarIconSize,
                                   fallbackSystemImage: "stop.fill", preservesOriginalColors: true)
-                } else {
-                    LitheIDEAIcon(resourcePath: "collaboration/sendOutline.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                  fallbackSystemImage: "paperplane", preservesOriginalColors: true)
                 }
+                .litheToolbarIconButton()
+                .disabled(isCancelling)
+                .help(isCancelling ? "Stopping…" : "Stop")
+                .accessibilityLabel("Stop")
+            }
+            Button(action: send) {
+                LitheIDEAIcon(resourcePath: "collaboration/sendOutline.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                              fallbackSystemImage: "paperplane", preservesOriginalColors: true)
             }
             .litheToolbarIconButton()
-            .disabled(isCancelling || (!isResponding && (!hasContent || isBlocked || isPreparingSession || isConfiguring)))
-            .help(isCancelling ? "Stopping…" : (isResponding ? "Stop" : "Send"))
+            .disabled(isCancelling || isSendingSupplement || hasPendingContinuation || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer))
+            .help(isSendingSupplement ? "Sending…" : "Send")
+            .accessibilityLabel("Send")
         }
         .padding(.horizontal, 5)
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)
+    }
+
+    /// Permission and approval modes, such as Ask or Auto-approve edits.
+    @ViewBuilder
+    private var modeSelectors: some View {
+        if !configOptions.isEmpty {
+            AgentSessionSelectors(
+                options: configOptions.filter { $0.category == "mode" },
+                agentName: selectedAgent?.name,
+                isDisabled: isBlocked || isConfiguring,
+                appliesToNextTurn: isResponding,
+                onSelect: onSetConfig
+            )
+            .id(sessionID ?? selectedAgent?.id)
+            if layout == .toolWindow && isConfiguring { ProgressView().controlSize(.mini) }
+        }
     }
 
     private var agentMenu: some View {
@@ -239,7 +285,7 @@ struct AgentComposerView: View {
     private func handleCommandKey(_ key: AgentCommandCompletion.Key) -> AgentCommandCompletion.Result {
         if let draftText { completion.draft = draftText.wrappedValue }
         defer { draftText?.wrappedValue = completion.draft }
-        let result = completion.handle(key, commands: commands, isResponding: isResponding)
+        let result = completion.handle(key, commands: commands, isResponding: isResponding || hasPendingContinuation)
         switch result {
         case .send: send()
         case .cancel: onCancel()
@@ -250,7 +296,7 @@ struct AgentComposerView: View {
     }
 
     private func send() {
-        guard hasContent, !isResponding else { return }
+        guard hasContent, !isCancelling, !isSendingSupplement, !hasPendingContinuation, !isResponding || canSteer else { return }
         if isBlocked || isPreparingSession {
             onError("The conversation is still being prepared. Try again in a moment.")
             return

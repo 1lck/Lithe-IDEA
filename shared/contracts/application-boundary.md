@@ -35,6 +35,29 @@ with bounded process cleanup. Missing usage and unmeasured replayed history rema
 unknown. See the
 [Agent host contract](rust-core-api.md) and `fixtures/agent/acp-events-v1.json`.
 
+An Agent that advertises steering can accept supplementary user input while its
+logical turn is active. Input delivery has a separate pending/received/failed
+outcome and does not replace turn ownership, permissions, timing, or Stop.
+Only an explicit unconsumed-input acknowledgement permits a normal continuation
+prompt; slash commands are explicitly left unconsumed and deferred to this owned
+prompt path, whose response also completes command-only input. Pending
+continuations remain cancellable while staged configuration is awaiting its
+acknowledgement, without cancelling the configuration itself. Unknown delivery
+is never retried automatically. Platform UI enables
+this behavior from the negotiated capability, not the Agent's display name.
+
+The opened workspace, supplied by the product, defines the default meaning of
+"current project". A containing Git repository and inherited development rules
+do not replace that scope. The shared Host adds the same explicit workspace
+context to ordinary prompts and supplementary messages, including prompts after
+history restoration. File contents and applicable rules remain Agent-owned;
+explicit user requests can select a different scope. Native slash commands retain
+their original text and ordered attachments, including deferred supplementary
+commands; attachments do not cause workspace context to be appended. Host-added context is omitted from user-message replay
+presented by Lithe and from generated live/history-list titles, without rewriting
+upstream history or filtering model replies. Titles left empty by this filtering
+are missing values, so presentation retains its existing title fallbacks.
+
 Agent activity presentation uses the selected session's reported plan, pending
 tools and file diffs. Review acknowledgements are local to the exact reported
 version; later edits remain reviewable and start after the acknowledged prefix.
@@ -77,8 +100,9 @@ These presentation actions do not add Agent Host commands or persist chat histor
 
 ### Application update channels
 
-The saved channel defaults to `stable` independently of the installed build identity.
-Invalid or missing preferences select Stable. Choosing `autobuild` requires explicit
+A missing saved channel selects `stable` for Stable and legacy shared-identity builds;
+separately installed `Lithe-Dev` defaults to `autobuild`. Invalid preferences select
+Stable, and an explicit saved choice takes precedence. Choosing `autobuild` from Stable requires explicit
 acknowledgement that rolling builds may contain unfinished features and serious bugs;
 both settings UIs continuously recommend Stable for ordinary users. The AutoBuild
 release is `https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild` and is built
@@ -88,7 +112,39 @@ Installed identity and selected channel are separate. A cross-channel switch req
 an explicit full installation; stable semantic versions must never be compared to
 rolling workflow build numbers. Channel changes cannot race active checks, downloads,
 installation, or an outstanding switch. Existing offers must be dismissed before the
-new preference takes effect. macOS keeps its signed full Stable rollback path.
+new preference takes effect. Legacy macOS builds with the Stable bundle ID keep their
+signed full Stable rollback path. Dedicated development builds open Stable downloads
+for a separate installation; the installer must not accept another bundle identity.
+
+AutoBuild installs as `Lithe-Dev`, with macOS bundle ID `app.lithe.desktop.dev` and
+Windows Tauri identifier `app.lithe.windows.dev`. Stable retains its existing names,
+identifiers, preferences domains, Keychain services and historical storage paths.
+Preferences, credentials, default logs and app-owned runtime data/cache/temp roots
+are isolated by installed identity, never by a mutable channel preference. The
+macOS adapter inserts the development bundle ID below system writable roots;
+Windows uses Tauri's identifier-scoped app directories and credential service.
+Explicit user-selected project/tool/log paths can still be shared. On the first
+Dev launch, if no Dev preferences or durable state exist, copy Stable settings and
+workspace records into independent Dev storage and persist a versioned completion
+marker. Existing Dev data is never merged or overwritten; subsequent launches do
+not fall back to Stable. Changing the channel alone does not switch profiles.
+Updater/channel suppression state, custom log destinations, browser caches,
+indexes, locks and runtime connections are excluded. macOS also copies its local
+AI secret file, Maven preferences and marketplace source configuration, along with
+persisted database configuration/history/schedules and custom background image access
+records. These preference keys also count as existing Dev data. OS-vault
+credentials remain separate and may require signing in again. Windows snapshots
+only native settings/Maven JSON and closed WebView localStorage, before creating
+any WebView; it never copies a live browser profile. A busy source or failed copy
+stops initialization with a retry message and no success marker. Published files
+and preferences resume from a staged snapshot after an interrupted commit. Stable
+source roots are checked only when creating a new snapshot; existing Dev data,
+completed markers and frozen snapshot recovery must work without access to Stable.
+Signed bundles remain read-only.
+DMGs/ZIPs contain `Lithe-Dev.app` and Windows installers use the development product
+name, while public release asset filenames remain compatible. Pre-isolation
+AutoBuild needs a separate full installation; only matching bundle identities and
+app names can be Sparkle differential baselines.
 
 Within AutoBuild, one whole-second UTC build time is captured per build and encoded
 as `YYYYMMDD.HHMMSS` for Sparkle's numeric version comparison. Its corresponding

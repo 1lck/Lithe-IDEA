@@ -1,7 +1,9 @@
 import SwiftUI
 import LitheAgentConversationModule
 
-/// The agent's reasoning, separate from its reply. Open while it streams and
+/// The agent's reasoning, separate from its reply, styled like a tool group:
+/// a quiet summary line over a rounded Markdown card. Long reasoning scrolls
+/// inside the card and follows the stream. Open while it streams and
 /// collapsed once the reply or a tool call follows; a search keeps it open.
 struct AgentThoughtRow: View {
     @Environment(\.locale) private var locale
@@ -10,45 +12,77 @@ struct AgentThoughtRow: View {
     var isSearching = false
     @Binding var expansion: AgentThoughtExpansion
 
+    /// The card grows with short reasoning and scrolls past this height.
+    static let maxCardHeight: CGFloat = 240
+
+    @State private var contentHeight: CGFloat = 0
+
     private var isExpanded: Bool { expansion.isExpanded(isStreaming: isStreaming, isSearching: isSearching) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button { expansion.toggle(isStreaming: isStreaming, isSearching: isSearching) } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "brain")
-                        .font(LitheTheme.uiFont(size: 10.5))
-                    Text(isStreaming ? "Thinking…" : "Thinking process")
-                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                    LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
-                                  size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
-                    Spacer(minLength: 0)
+                HStack(spacing: 5) {
+                    if isStreaming { ProgressView().controlSize(.mini) }
+                    Text(isStreaming ? "Thinking…" : "Thinking process").lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
                 }
-                .foregroundStyle(LitheTheme.tertiaryText)
+                .font(LitheTheme.uiFont(size: 12.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .padding(.vertical, 2)
                 .contentShape(Rectangle())
             }
-            .litheToolbarIconButton(isIconOnly: false)
+            .buttonStyle(.litheNoPress)
+            .lithePointer()
             .help(isExpanded ? "Hide thinking" : "Show thinking")
             .accessibilityValue(isExpanded ? AgentLocalization.string("Expanded", locale: locale) : AgentLocalization.string("Collapsed", locale: locale))
 
-            if isExpanded {
-                Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                    .font(LitheTheme.uiFont(size: 12))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 10)
-                    .overlay(alignment: .leading) {
-                        Rectangle().fill(LitheTheme.panelBorder).frame(width: 2)
-                    }
-            }
+            if isExpanded { card }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private var card: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
+                    AgentMarkdownMessage(text: text.trimmingCharacters(in: .whitespacesAndNewlines), size: 12)
+                        .equatable()
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Color.clear.frame(height: 0).id(Self.bottomID)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: AgentThoughtContentHeightKey.self, value: geometry.size.height)
+                })
+            }
+            .litheScrollViewChrome()
+            .frame(height: min(max(contentHeight, 1), Self.maxCardHeight))
+            .onPreferenceChange(AgentThoughtContentHeightKey.self) { contentHeight = $0 }
+            .onChange(of: text) { _ in
+                if isStreaming { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+            }
+            .onAppear { if isStreaming { proxy.scrollTo(Self.bottomID, anchor: .bottom) } }
+        }
+        .background(LitheTheme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(LitheTheme.panelBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private static let bottomID = "agent-thought-bottom"
+}
+
+private struct AgentThoughtContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Search temporarily reveals a match without replacing the user's disclosure preference.
-struct AgentThoughtExpansion {
+struct AgentThoughtExpansion: Equatable {
     private var userExpanded: Bool?
 
     func isExpanded(isStreaming: Bool, isSearching: Bool) -> Bool {

@@ -230,7 +230,8 @@ struct ExecutionModuleTests {
             languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback)
         )
-        let loading = Task { await service.loadProject(at: root, files: [], mavenProject: nil) }
+        let snapshotID = UUID()
+        let loading = Task { await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID) }
         defer {
             loading.cancel()
             entered.continuation.finish()
@@ -248,6 +249,7 @@ struct ExecutionModuleTests {
         // This actor continues to run while the real load path awaits its port.
         #expect(runtime.synchronousToolchainCalls == 0)
         #expect(service.isLoadingProject)
+        #expect(!service.isProjectReady(for: root, snapshotID: snapshotID))
         switch outcome {
         case "reset": service.reset()
         case "switch": await service.loadProject(at: other, files: [], mavenProject: nil)
@@ -260,9 +262,67 @@ struct ExecutionModuleTests {
         case "reset": #expect(service.projectLoadState == .idle && service.configurations == [.currentFile])
         case "switch": #expect(service.projectLoadState == .bound(workspace: other) && !service.isLoadingProject)
         case "cancel": #expect(service.defaultConfigurationID == nil)
-        default: #expect(service.defaultConfigurationID == RunConfiguration.currentFileID)
+        default:
+            #expect(service.defaultConfigurationID == RunConfiguration.currentFileID)
+            #expect(service.isProjectReady(for: root, snapshotID: snapshotID))
         }
         #expect(runtime.synchronousToolchainCalls == 0)
+    }
+
+    @Test
+    func overlappingProjectLoadsDoNotPersistTheProvisionalCurrentFileSelection() async throws {
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let runtime = TestRuntime()
+        var probes = 0
+        runtime.loadCandidates = { _ in
+            probes += 1
+            if probes == 1 {
+                entered.continuation.yield(())
+                try await awaitSignal(release.stream)
+            }
+            return []
+        }
+        let configuration = RunConfiguration(
+            id: "main", name: "Main", kind: .javaMain, modulePath: nil, mainClass: "demo.App")
+        let service = RunService(
+            runtime: runtime, process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: SelectionRunConfigurationOperations(configurations: [configuration]),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let root = URL(fileURLWithPath: "/workspace")
+        let snapshot = UUID()
+        let loading = Task { await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshot) }
+        defer {
+            loading.cancel()
+            entered.continuation.finish()
+            release.continuation.finish()
+            service.reset()
+        }
+        do {
+            try await awaitSignal(entered.stream)
+        } catch {
+            release.continuation.finish()
+            await loading.value
+            throw error
+        }
+        // An entry point must not consume the inventory before its configuration
+        // resolves. A concurrent snapshot load must not save the initial placeholder.
+        #expect(!service.isProjectReady(for: root, snapshotID: snapshot))
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshot)
+        #expect(service.selectedConfigurationID == configuration.id)
+        #expect(service.isProjectReady(for: root, snapshotID: snapshot))
+        release.continuation.yield(())
+        await loading.value
+        #expect(service.selectedConfigurationID == configuration.id)
+        // A completed user's explicit Current File choice still survives reload.
+        service.selectedConfigurationID = RunConfiguration.currentFileID
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshot)
+        #expect(service.selectedConfigurationID == RunConfiguration.currentFileID)
     }
 
     @Test

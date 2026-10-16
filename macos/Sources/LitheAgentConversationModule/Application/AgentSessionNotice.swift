@@ -12,6 +12,7 @@ public struct AgentSessionNotice: Identifiable, Equatable, Sendable {
     // Claude ACP 0.81.2 has no machine-readable notice code. Match its structured
     // title only on the Claude connection; never classify assistant prose.
     var isClaudeAutoModeFallback: Bool { severity == .warning && title == "Auto mode unavailable" }
+    static let claudeAutoMode = "auto"
     static let claudeAutoFallbackMode = "acceptEdits"
 
     static func parse(_ update: [String: Any]) -> Self? {
@@ -22,4 +23,10 @@ public struct AgentSessionNotice: Identifiable, Equatable, Sendable {
         return Self(id: UUID().uuidString, severity: severity, title: String(title.prefix(256)),
                     detail: (update["description"] as? String).map { String($0.prefix(4096)) })
     }
+}
+
+/// Identifies the old advisory before an upstream Auto downgrade. Only a new
+/// notice from this transition survives the next complete configuration snapshot.
+struct AgentAutoFallbackTransition: Equatable, Sendable {
+    let precedingNoticeID: String?
 }

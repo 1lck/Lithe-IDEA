@@ -62,6 +62,14 @@ struct MacProcessMemorySampler: ManagedProcessMemorySampling {
         return total
     }
 
+    func cpuSnapshot(for processID: Int32) -> (nanoseconds: UInt64, startedSeconds: UInt64, startedMicroseconds: UInt64)? {
+        var task = proc_taskinfo()
+        var bsd = proc_bsdinfo()
+        guard litheProcPIDInfo(processID, PROC_PIDTASKINFO, 0, &task, Int32(MemoryLayout.size(ofValue: task))) == MemoryLayout.size(ofValue: task),
+              litheProcPIDInfo(processID, PROC_PIDTBSDINFO, 0, &bsd, Int32(MemoryLayout.size(ofValue: bsd))) == MemoryLayout.size(ofValue: bsd) else { return nil }
+        return (task.pti_total_user &+ task.pti_total_system, bsd.pbi_start_tvsec, bsd.pbi_start_tvusec)
+    }
+
     private func direct(_ processIDs: Set<Int32>) -> UInt64 {
         processIDs.reduce(0) { total, id in
             var task = proc_taskinfo()

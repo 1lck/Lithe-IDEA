@@ -6,7 +6,11 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Application/Features/DiagnosticsFeatureModel.swift",
-      "macos/Sources/Lithe/Views/Language/JavaProblemsView.swift"
+      "macos/Sources/Lithe/Views/Language/JavaProblemsView.swift",
+      "macos/Tests/LitheTests/ProblemsPanelPresentationTests.swift",
+      "macos/Tests/LitheTests/MonacoWorkbenchSessionLifetimeTests.swift",
+      "macos/Experiments/Monaco/workbench.integration.ts",
+      "macos/Sources/Lithe/Platform/MacOS/ProblemsDemo.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -21,5 +25,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Diagnostics",
-  "verification": "制造多个来源的错误和警告，验证筛选、排序、定位和清除。"
+  "verification": "制造多个来源、多个文件的错误和警告，验证 Problems 的 File 随编辑器切换、关闭而更新，非文本编辑器显示打开文件提示，Project Errors 保留全部文件问题；检查无问题与严重程度过滤空状态，并按文件显示名称、路径和数量，紧凑问题行保留描述、行列和完整提示；在深浅主题及窄面板中检查标题、图标和悬停，并验证筛选、排序、定位和清除。检查左侧 View Options 与 Show Editor Preview；开启后单击及方向键更新右侧只读源码，双击和 Enter 定位主编辑器；拖动分栏、关闭再打开、切换文件和清空诊断，确认不抢焦点、不移动主编辑器 WebView、不接管保存屏障且会话随预览关闭释放。 在系统语言与应用语言不同时切换 English / 简体中文，检查 File、Project Errors、带文件名的空状态、过滤提示和预览失败文案跟随应用语言。 使用 Debug 的 --problems-demo，确认默认 File 显示 Main.java 的 8 条问题，切换 Project Errors 显示两个文件共 10 条问题；检查全部五种诊断级别、废弃与未使用标签、关联信息、长多行文案及 Unicode；点击后用上下键切换，确认只有行选择样式且没有列表外围蓝色焦点框，右侧不出现空查找浮层。退出后检查演示临时目录、进程清理，并比较 bundle 文件哈希不变。 检查 File 与 Project Errors 的全部级别图标使用 IDEA Community SVG，提示使用 intentionBulbGrey，未知级别使用 questionMark；在明暗主题核对对应变体。 文件分组复用 JavaFileIconResolver 显示类或接口图标；问题行的错误和警告使用 inspections 16×16 原始画布与内部留白，右上角统计继续使用 status 图标。 检查已有 Java 启动配置 sourcePath/mainClass 对应的文件显示原始 runnableMark 角标，普通类不显示；演示 Main.java 显示该角标。YAML 与 Java 类图标按主题加载上游明暗变体，application.yml 使用 YAMLFileType 的通用图标。 关闭源码预览后行选择背景仍保留，方向键选择离屏问题时列表自动滚动。 在文本文件、Agent Conversation 编辑器标签与原文本文件之间切换，确认 File 问题先清空再恢复；预览中不出现 Run/Debug 角标和动作，旧动作引用及原生 javaRunMarkerAction 不能启动进程。"
 }

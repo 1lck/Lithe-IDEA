@@ -68,7 +68,7 @@ runs:
 
     - name: Restore SwiftPM repositories
       id: swiftpm_cache
-      if: inputs.swiftpm == 'true' && inputs.restore-only != 'true'
+      if: inputs.swiftpm == 'true' && inputs.restore-only != 'true' && runner.environment != 'self-hosted'
       continue-on-error: true
       uses: actions/cache@v6
       with:
@@ -81,7 +81,7 @@ runs:
 
     - name: Restore SwiftPM repositories without saving
       id: swiftpm_restore
-      if: inputs.swiftpm == 'true' && inputs.restore-only == 'true'
+      if: inputs.swiftpm == 'true' && inputs.restore-only == 'true' && runner.environment != 'self-hosted'
       continue-on-error: true
       uses: actions/cache/restore@v6
       with:
@@ -94,7 +94,7 @@ runs:
 
     - name: Restore Cargo crate archives
       id: cargo_cache
-      if: inputs.cargo == 'true' && inputs.restore-only != 'true'
+      if: inputs.cargo == 'true' && inputs.restore-only != 'true' && runner.environment != 'self-hosted'
       continue-on-error: true
       uses: actions/cache@v6
       with:
@@ -105,7 +105,7 @@ runs:
 
     - name: Restore Cargo crate archives without saving
       id: cargo_restore
-      if: inputs.cargo == 'true' && inputs.restore-only == 'true'
+      if: inputs.cargo == 'true' && inputs.restore-only == 'true' && runner.environment != 'self-hosted'
       continue-on-error: true
       uses: actions/cache/restore@v6
       with:
@@ -116,7 +116,7 @@ runs:
 
     - name: Restore JDTLS downloads
       id: jdtls_cache
-      if: inputs.jdtls == 'true' && inputs.restore-only != 'true'
+      if: inputs.jdtls == 'true' && inputs.restore-only != 'true' && runner.environment != 'self-hosted'
       continue-on-error: true
       uses: actions/cache@v6
       with:
@@ -127,7 +127,7 @@ runs:
 
     - name: Restore JDTLS downloads without saving
       id: jdtls_restore
-      if: inputs.jdtls == 'true' && inputs.restore-only == 'true'
+      if: inputs.jdtls == 'true' && inputs.restore-only == 'true' && runner.environment != 'self-hosted'
       continue-on-error: true
       uses: actions/cache/restore@v6
       with:
@@ -138,7 +138,7 @@ runs:
 
     - name: Restore JDK downloads
       id: jdk_cache
-      if: inputs.jdk == 'true' && inputs.restore-only != 'true'
+      if: inputs.jdk == 'true' && inputs.restore-only != 'true' && runner.environment != 'self-hosted'
       continue-on-error: true
       uses: actions/cache@v6
       with:
@@ -149,7 +149,7 @@ runs:
 
     - name: Restore JDK downloads without saving
       id: jdk_restore
-      if: inputs.jdk == 'true' && inputs.restore-only == 'true'
+      if: inputs.jdk == 'true' && inputs.restore-only == 'true' && runner.environment != 'self-hosted'
       continue-on-error: true
       uses: actions/cache/restore@v6
       with:
@@ -158,9 +158,13 @@ runs:
         restore-keys: |
           macos-jdk-downloads-${{ runner.os }}-${{ inputs.jdk-architecture }}-
 
+    # Self-hosted runners keep these stores in their own work directory instead
+    # of restoring GitHub cache entries. The same validator still checks them,
+    # and an invalid store is cleared exactly like a failed restore.
     - name: Validate restored caches or fall back
       shell: zsh {0}
       env:
+        SELF_HOSTED: ${{ runner.environment == 'self-hosted' }}
         RESTORE_ONLY: ${{ inputs.restore-only }}
         SWIFTPM_CACHE_OUTCOME: ${{ steps.swiftpm_cache.outcome }}
         SWIFTPM_CACHE_HIT: ${{ steps.swiftpm_cache.outputs.cache-hit }}
@@ -184,6 +188,16 @@ runs:
           cargo_outcome="$CARGO_RESTORE_OUTCOME"
           jdtls_outcome="$JDTLS_RESTORE_OUTCOME"
           jdk_outcome="$JDK_RESTORE_OUTCOME"
+        fi
+        if [[ "$SELF_HOSTED" == "true" ]]; then
+          swiftpm_outcome=success
+          cargo_outcome=success
+          jdtls_outcome=success
+          jdk_outcome=success
+          swiftpm_hit=""
+          # A kept store enables prepare-macos-dependencies.sh's one-time retry
+          # with an empty store if resolution fails.
+          [[ -d "$GITHUB_WORKSPACE/.artifacts/swiftpm-cache/repositories" ]] && swiftpm_hit=true
         fi
         "$GITHUB_WORKSPACE/scripts/validate-macos-dependency-caches.sh" \
           --swiftpm-enabled "${{ inputs.swiftpm }}" \
@@ -239,7 +253,8 @@ runs:
     # time out, save nothing, and leave every following build cold as well.
     - name: Restore Cargo compilation outputs
       id: cargo_build
-      if: inputs.cargo-build == 'true'
+      # Self-hosted runners keep rust/target between jobs; see prepare-macos-ci-runner.
+      if: inputs.cargo-build == 'true' && runner.environment != 'self-hosted'
       continue-on-error: true
       uses: actions/cache/restore@v6
       with:

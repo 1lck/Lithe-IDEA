@@ -5,9 +5,6 @@ on:
   pull_request:
     # ready_for_review reruns the deferred runner lanes after a draft is ready.
     types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches:
-      - preview
   workflow_dispatch:
 
 permissions:
@@ -68,6 +65,9 @@ jobs:
           MANUAL: ${{ steps.base.outputs.manual }}
           BASE_SHA: ${{ steps.base.outputs.base_sha }}
           LITHE_CI_DRAFT_PULL_REQUEST: ${{ github.event.pull_request.draft == true }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         shell: bash
         run: |
           if [[ "$MANUAL" == "true" ]]; then
@@ -80,6 +80,11 @@ jobs:
             exit 0
           fi
 
+          # Promoting preview to main reruns no lane; macOS CI requires the
+          # preview verification of the same commit instead.
+          if [[ "$BASE_REF" == "main" && "$HEAD_REF" == "preview" && "$HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" ]]; then
+            export LITHE_CI_SCOPE=release_promotion
+          fi
           ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Reject newly added Windows blocking test patterns
@@ -660,6 +665,7 @@ jobs:
             --max-ms 15000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
+            --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `
             --test-budget tests::git_remote_checkout::=30000 `
             --test-budget tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote=30000 `
             --test-budget tests::git::git_write_squashes_=30000 `

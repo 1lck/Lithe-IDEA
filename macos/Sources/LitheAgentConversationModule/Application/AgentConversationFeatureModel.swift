@@ -33,14 +33,17 @@ public final class AgentConversationFeatureModel: ObservableObject {
     private var workspaceURL: URL?
     private let historyPersistence: (any AgentHistoryPersisting)?
     private let historyExporter: (any AgentHistoryExporting)?
+    private let statisticsPersistence: (any AgentSessionStatisticsPersisting)?
 
     public init(transport: any AgentConversationTransport, workspaceURL: URL? = nil,
                 historyPersistence: (any AgentHistoryPersisting)? = nil,
-                historyExporter: (any AgentHistoryExporting)? = nil) {
+                historyExporter: (any AgentHistoryExporting)? = nil,
+                statisticsPersistence: (any AgentSessionStatisticsPersisting)? = nil) {
         self.transport = transport
         self.workspaceURL = workspaceURL
         self.historyPersistence = historyPersistence
         self.historyExporter = historyExporter
+        self.statisticsPersistence = statisticsPersistence
     }
 
     public var hasActiveConnection: Bool { connections.values.contains { $0.hasActiveConnection } }
@@ -77,6 +80,10 @@ public final class AgentConversationFeatureModel: ObservableObject {
     public func connection(for agentID: String) -> AgentConnectionModel {
         if let existing = connections[agentID] { return existing }
         let model = AgentConnectionModel(transport: transport)
+        model.statisticsStore = statisticsPersistence.map { persistence in
+            AgentSessionStatisticsStore(persistence: persistence, agentID: agentID,
+                                        workspaceURL: { [weak self] in self?.workspaceURL })
+        }
         model.onAttentionChanged = { [weak self] needsAttention in
             self?.updateAttention(agentID, needsAttention)
         }

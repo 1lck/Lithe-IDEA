@@ -151,6 +151,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
       onClose={onClose}
       title={t("workbench.settings")}
       icon={GearIcon}
+      clearEntranceFilter
       footer={
         <div className="flex w-full items-center justify-between">
           <Button

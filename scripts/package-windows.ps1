@@ -150,6 +150,15 @@ $tauriArgs = @(
     "--target", $RustTarget,
     "--bundles", "nsis"
 )
+$productName = "Lithe"
+$channel = $env:VITE_UPDATE_CHANNEL
+if ($channel -in @("autobuild", "preview")) {
+    $env:VITE_UPDATE_CHANNEL = "autobuild"
+    $productName = "Lithe-Dev"
+    $tauriArgs += @("--config", "src-tauri/tauri.autobuild.conf.json")
+} elseif (-not [string]::IsNullOrWhiteSpace($channel) -and $channel -ne "stable") {
+    throw "Invalid update channel: $channel"
+}
 if ($Configuration -eq "Debug") { $tauriArgs += "--debug" }
 & (Join-Path $root "scripts/invoke-windows-tauri-build.ps1") `
     -TauriArguments $tauriArgs `
@@ -166,7 +175,7 @@ if (-not $profileRoot.StartsWith($targetPrefix, [System.StringComparison]::Ordin
     throw "Windows Cargo target profile must stay inside $cargoTargetRoot"
 }
 $bundleDirectory = Join-Path $profileRoot "bundle/nsis"
-$bundleName = "Lithe_${Version}_x64-setup.exe"
+$bundleName = "${productName}_${Version}_x64-setup.exe"
 $bundle = Get-Item -LiteralPath (Join-Path $bundleDirectory $bundleName) -ErrorAction SilentlyContinue
 if ($null -eq $bundle) { throw "Tauri NSIS installer was not found in $bundleDirectory" }
 

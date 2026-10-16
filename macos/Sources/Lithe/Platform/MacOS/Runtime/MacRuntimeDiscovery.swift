@@ -26,18 +26,16 @@ enum MacRuntimeDiscovery {
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
             return nil
         }
-        let executable = isDirectory.boolValue
-            ? url.appendingPathComponent("bin/mvn")
-            : url
-        var executableIsDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(
-            atPath: executable.path,
-            isDirectory: &executableIsDirectory
-        ), !executableIsDirectory.boolValue,
-        FileManager.default.isExecutableFile(atPath: executable.path) else {
-            return nil
+        let candidates: [URL]
+        if isDirectory.boolValue {
+            // A daemon distribution must launch its client, not its embedded Maven.
+            candidates = [url.appendingPathComponent("bin"), url].flatMap { bin in
+                ["mvnd", "mvn"].map { bin.appendingPathComponent($0) }
+            }
+        } else {
+            candidates = [url]
         }
-        return executable.standardizedFileURL
+        return candidates.first { MacRuntimeLocator().isExecutable(at: $0) }
     }
 
     static func validJavaHome(_ path: String) -> URL? {
@@ -133,21 +131,27 @@ enum MacRuntimeDiscovery {
         return paths.values.sorted { $0.path < $1.path }
     }
 
-    private static func discoverMavenExecutables(environment: [String: String]) -> [URL] {
-        var paths = Set<String>()
-        func add(_ path: String?) {
-            guard let path else { return }
+    static func discoverMavenExecutables(
+        environment: [String: String],
+        isExecutable: (URL) -> Bool = { MacRuntimeLocator().isExecutable(at: $0) }
+    ) -> [URL] {
+        var paths: [URL] = []
+        var seen = Set<String>()
+        func add(_ path: String) {
             let expanded = (path as NSString).expandingTildeInPath
             let url = URL(fileURLWithPath: expanded).standardizedFileURL
-            guard FileManager.default.isExecutableFile(atPath: url.path) else { return }
-            paths.insert(url.path)
+            guard isExecutable(url), seen.insert(url.path).inserted else { return }
+            paths.append(url)
         }
 
-        if let mavenHome = environment["MAVEN_HOME"] {
-            add(URL(fileURLWithPath: mavenHome).appendingPathComponent("bin/mvn").path)
+        for key in ["MAVEN_HOME", "M2_HOME"] {
+            if let home = environment[key], !home.isEmpty {
+                add(URL(fileURLWithPath: home).appendingPathComponent("bin/mvn").path)
+            }
         }
-        for component in (environment["PATH"] ?? "").split(separator: ":").map(String.init) {
-            add(URL(fileURLWithPath: component).appendingPathComponent("mvn").path)
+        let pathDirectories = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        for directory in pathDirectories {
+            add(URL(fileURLWithPath: directory).appendingPathComponent("mvn").path)
         }
         for path in [
             "/opt/homebrew/opt/maven/bin/mvn",
@@ -158,7 +162,23 @@ enum MacRuntimeDiscovery {
         ] {
             add(path)
         }
-        return paths.sorted().map(URL.init(fileURLWithPath:))
+        // Preserve ordinary Maven preference even when mvnd appears earlier on PATH.
+        // Discovery only inspects files; importing Java must not start a daemon.
+        if let home = environment["MVND_HOME"], !home.isEmpty {
+            add(URL(fileURLWithPath: home).appendingPathComponent("bin/mvnd").path)
+        }
+        for directory in pathDirectories {
+            add(URL(fileURLWithPath: directory).appendingPathComponent("mvnd").path)
+        }
+        for path in [
+            "/opt/homebrew/opt/mvnd/bin/mvnd",
+            "/opt/homebrew/bin/mvnd",
+            "/usr/local/opt/mvnd/bin/mvnd",
+            "/usr/local/bin/mvnd"
+        ] {
+            add(path)
+        }
+        return paths
     }
 
     static func probeJavaHome(_ home: URL) -> JavaRuntimeCandidate? {
@@ -180,7 +200,9 @@ enum MacRuntimeDiscovery {
 
     static func probeMaven(_ executable: URL) -> MavenRuntimeCandidate? {
         let resolvedExecutable = executable.resolvingSymlinksInPath()
-        let homeURL = resolvedExecutable.deletingLastPathComponent().deletingLastPathComponent()
+        let distribution = resolvedExecutable.deletingLastPathComponent().deletingLastPathComponent()
+        let homeURL = resolvedExecutable.lastPathComponent == "mvnd"
+            ? distribution.appendingPathComponent("mvn") : distribution
         let library = homeURL.appendingPathComponent("lib")
         let libraries = directoryNames(at: library.path).filter { $0.hasPrefix("maven-core-") }.sorted()
         let wrapper = resolvedExecutable.deletingLastPathComponent().appendingPathComponent(".mvn/wrapper")
@@ -188,11 +210,15 @@ enum MacRuntimeDiscovery {
             executable: executable, arguments: ["-version"],
             dependencies: [library] + libraries.map { library.appendingPathComponent($0) }
                 + [wrapper.appendingPathComponent("maven-wrapper.properties"), wrapper.appendingPathComponent("maven-wrapper.jar")],
-            accepts: { firstCapture(pattern: #"Apache Maven\s+([^\s]+)"#, in: $0) != nil }
+            accepts: { mavenVersion(in: $0) != nil }
         )
-        let version = firstCapture(pattern: #"Apache Maven\s+([^\s]+)"#, in: output) ?? ""
-        let home = executable.deletingLastPathComponent().deletingLastPathComponent().path
-        return MavenRuntimeCandidate(homePath: home, executablePath: executable.path, version: version)
+        guard let version = mavenVersion(in: output) else { return nil }
+        return MavenRuntimeCandidate(homePath: distribution.path, executablePath: executable.path, version: version)
+    }
+
+    static func mavenVersion(in output: String) -> String? {
+        // mvnd prints its own banner before the embedded Apache Maven version.
+        firstCapture(pattern: #"Apache Maven\s+([0-9][^\s\x1B]*)"#, in: output)
     }
 
     private static func javaHomeOutput() -> [String] {

@@ -9,6 +9,41 @@ import LitheCoreContracts
 @MainActor
 struct AgentHistoryTests {
     @Test
+    func missingGeneratedTitlesKeepHistoryPromptAndExportFallbacks() async throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/acp-events-v1.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let events = try #require(fixture["events"] as? [String: Any])
+        var event = try #require(events["sessionsWithoutGeneratedTitles"] as? [String: Any])
+        try await HistoryFixture().run { fixture in
+            fixture.feature.refreshSessions()
+            event["token"] = fixture.transport.connection.commands.last?["token"]
+            try fixture.emit(event)
+            #expect(fixture.feature.sessions.count == 4)
+            let locale = Locale(identifier: "en_US")
+            for session in fixture.feature.sessions {
+                #expect(session.title == nil, "Host null titles must stay absent through history merging")
+                #expect(AgentHistoryPresentation.popupTitle(session, metadata: nil, conversation: nil, locale: locale)
+                        == "Untitled conversation")
+                var conversation = AgentConversation()
+                conversation.isAttached = true
+                #expect(AgentHistoryPresentation.popupTitle(session, metadata: nil, conversation: conversation, locale: locale)
+                        == "New Chat")
+                // A file-only first prompt still has a user-visible attachment label.
+                conversation.messages = [.init(role: .user, text: "📎 /example/project/README.md")]
+                #expect(AgentHistoryPresentation.popupTitle(session, metadata: nil, conversation: conversation, locale: locale)
+                        == "📎 /example/project/README.md")
+                #expect(AgentHistoryPresentation.popupTitle(session, metadata: .init(title: "My title"),
+                                                           conversation: conversation, locale: locale) == "My title")
+                let markdown = AgentHistoryDocument.markdown([.init(id: session.id, title: session.title, messages: [])])
+                #expect(markdown.hasPrefix("# \(String(localized: "Untitled conversation"))\n"))
+            }
+        }
+    }
+
+    @Test
     func popupIncludesUnsubmittedOpenChatsAndHidesRemovedHistoryWithoutDuplicates() {
         let sessions = [AgentSessionSummary(id: "saved", title: "Saved", updatedAt: "2026-09-26T10:00:00Z"),
                         AgentSessionSummary(id: "removed", title: "Removed")]
@@ -73,6 +108,9 @@ struct AgentHistoryTests {
         #expect(ids("Hidden", .removed) == ["removed"])
         #expect(AgentHistoryPresentation.date("invalid") == nil)
         #expect(AgentHistoryPresentation.date(nil) == nil)
+        #expect(AgentHistoryPresentation.date("2026-10-15T08:30:00Z") == Date(timeIntervalSince1970: 1_792_053_000))
+        #expect(AgentHistoryPresentation.date("2026-10-15T08:30:00.500Z") == Date(timeIntervalSince1970: 1_792_053_000.5))
+        #expect(AgentHistoryPresentation.date("2026-10-15T16:30:00+08:00") == Date(timeIntervalSince1970: 1_792_053_000))
         #expect(AgentHistoryPresentation.messageCount(nil) == nil)
         var conversation = AgentConversation()
         #expect(AgentHistoryPresentation.messageCount(conversation) == nil)
