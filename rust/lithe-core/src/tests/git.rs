@@ -5420,17 +5420,23 @@ fn git_line_history_rejects_snapshots_beyond_the_size_budget() {
 #[test]
 fn git_line_history_normalizes_crlf_snapshots() {
     let root = line_history_repository("line-history-crlf");
-    fs::write(root.join("doc.txt"), "alpha
+    fs::write(
+        root.join("doc.txt"),
+        "alpha
 bravo
 charlie
-")
-        .expect("line-history file should be writable");
+",
+    )
+    .expect("line-history file should be writable");
     line_history_commit(&root, "initial");
-    fs::write(root.join("doc.txt"), "alpha
+    fs::write(
+        root.join("doc.txt"),
+        "alpha
 bravo-two
 charlie
-")
-        .expect("line-history file should be writable");
+",
+    )
+    .expect("line-history file should be writable");
     line_history_commit(&root, "reword bravo");
 
     // The editor snapshot arrives with CRLF newlines while the repository
@@ -5458,19 +5464,24 @@ charlie
 #[test]
 fn git_line_history_accepts_trailing_empty_line_queries() {
     let root = line_history_repository("line-history-trailing");
-    fs::write(root.join("doc.txt"), "a
+    fs::write(
+        root.join("doc.txt"),
+        "a
 b
 c
-")
-        .expect("line-history file should be writable");
+",
+    )
+    .expect("line-history file should be writable");
     line_history_commit(&root, "initial");
 
     // Editors count the final newline as a fourth, empty line; querying it
     // must answer "new" instead of rejecting the range.
-    let response = line_history_query(&root, "doc.txt", "a
+    let response = line_history_query(
+        &root, "doc.txt", "a
 b
 c
-", 4, 4);
+", 4, 4,
+    );
     assert_eq!(response["ok"], true, "{response:?}");
     assert_eq!(
         response["data"]["unmappedLines"],
@@ -5488,7 +5499,93 @@ c
 #[test]
 fn git_line_history_propagates_repository_failures() {
     let missing = std::env::temp_dir().join("lithe-line-history-missing-root");
-    let response = line_history_query(&missing, "doc.txt", "one
-", 1, 1);
+    let response = line_history_query(
+        &missing, "doc.txt", "one
+", 1, 1,
+    );
     assert_eq!(response["ok"], false, "{response:?}");
+}
+
+#[test]
+fn git_line_history_merge_ranges_survive_later_insertions_and_renames() {
+    let root = line_history_repository("line-history-merge-anchor");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    write_numbered_lines(&root.join("doc.txt"), 1, 8);
+    line_history_commit(&root, "initial");
+    replace_whole_line(&root, "doc.txt", 8, "line 08 v2");
+    line_history_commit(&root, "reword line8");
+    assert!(run(&["checkout", "-qb", "side", "HEAD~1"]).status.success());
+    replace_whole_line(&root, "doc.txt", 3, "line 03 side");
+    line_history_commit(&root, "side reword3");
+    assert!(run(&["checkout", "-q", "master"]).status.success());
+    assert!(run(&["merge", "-q", "--no-ff", "side", "-m", "merge side"])
+        .status
+        .success());
+
+    // A: an unsaved top insertion after the merge must not lose the merge
+    // entry's positioning metadata for the shifted line.
+    let committed = fs::read_to_string(root.join("doc.txt")).expect("doc should be readable");
+    let shifted = format!("top\n{committed}");
+    let query_a = line_history_query(&root, "doc.txt", &shifted, 4, 4);
+    assert_eq!(query_a["ok"], true, "{query_a:?}");
+    let merge_a = query_a["data"]["commits"]
+        .as_array()
+        .expect("commits should list")
+        .iter()
+        .find(|entry| entry["kind"] == "merge-first-parent")
+        .unwrap_or_else(|| panic!("merge entry missing: {query_a:?}"));
+    let ranges_a = merge_a["relevantRanges"].as_array().expect("ranges");
+    assert!(!ranges_a.is_empty(), "{query_a:?}");
+    assert_eq!(ranges_a[0]["newStart"], 3);
+
+    // B: a committed rename after the merge must keep both the metadata and
+    // the merge-time path on the entry. The snapshot is the renamed file's
+    // real content; line 3 still holds the merged line.
+    assert!(run(&["mv", "doc.txt", "renamed.txt"]).status.success());
+    line_history_commit(&root, "rename doc");
+    let renamed = fs::read_to_string(root.join("renamed.txt")).expect("renamed should be readable");
+    let query_b = line_history_query(&root, "renamed.txt", &renamed, 3, 3);
+    assert_eq!(query_b["ok"], true, "{query_b:?}");
+    let merge_b = query_b["data"]["commits"]
+        .as_array()
+        .expect("commits should list")
+        .iter()
+        .find(|entry| entry["kind"] == "merge-first-parent")
+        .unwrap_or_else(|| panic!("merge entry missing: {query_b:?}"));
+    assert_eq!(merge_b["pathAtCommit"], "doc.txt");
+    assert!(
+        !merge_b["relevantRanges"]
+            .as_array()
+            .expect("ranges")
+            .is_empty(),
+        "{query_b:?}"
+    );
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+/// Writes numbered fixture lines in the seq-style `line %02g` format.
+fn write_numbered_lines(path: &Path, start: usize, end: usize) {
+    let mut text = String::new();
+    for number in start..=end {
+        text.push_str(&format!("line {number:02}\n"));
+    }
+    fs::write(path, text).expect("fixture file should be writable");
+}
+
+/// Replaces one one-based line in place, preserving the trailing newline.
+fn replace_whole_line(root: &Path, file: &str, line_number: usize, replacement: &str) {
+    let path = root.join(file);
+    let content = fs::read_to_string(&path).expect("file should be readable");
+    let mut lines: Vec<String> = content.lines().map(str::to_string).collect();
+    if let Some(slot) = lines.get_mut(line_number - 1) {
+        *slot = replacement.to_string();
+    }
+    fs::write(path, format!("{}\n", lines.join("\n"))).expect("file should be writable");
 }
