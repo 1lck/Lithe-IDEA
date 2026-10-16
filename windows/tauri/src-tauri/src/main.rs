@@ -78,7 +78,7 @@ fn main() {
             match profile_migration::prepare(app.handle()) {
                 Ok(true) => {
                     app.handle().plugin(
-                        tauri::plugin::Builder::new("profile-import-bootstrap")
+                        tauri::plugin::Builder::<_, ()>::new("profile-import-bootstrap")
                             .js_init_script(profile_migration::IMPORT_BOOTSTRAP)
                             .build(),
                     )?;
@@ -87,7 +87,11 @@ fn main() {
                 Err(error) => {
                     use tauri_plugin_dialog::DialogExt;
                     let handle = app.handle().clone();
-                    handle.clone().dialog().message(error).title("Lithe-Dev")
+                    handle
+                        .clone()
+                        .dialog()
+                        .message(error)
+                        .title("Lithe-Dev")
                         .show(move |_| handle.exit(1));
                     return Ok(());
                 }

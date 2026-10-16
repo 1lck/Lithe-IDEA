@@ -26,6 +26,9 @@ struct AgentComposerView: View {
     var isPreparingSession = false
     var isConfiguring = false
     var isCancelling = false
+    var canSteer = false
+    var isSendingSupplement = false
+    var hasPendingContinuation = false
     var contextUsage: AgentContextUsage?
     var sessionStatistics: AgentSessionStatistics?
     var showsSubscriptionQuota = false
@@ -187,18 +190,24 @@ struct AgentComposerView: View {
                 AgentContextUsageView(usage: contextUsage, composition: sessionStatistics?.modelCalls?.latestContext,
                                       showsPercentage: false)
             }
-            Button(action: isResponding ? onCancel : send) {
-                if isResponding {
+            if isResponding || hasPendingContinuation {
+                Button(action: onCancel) {
                     LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: LitheTheme.Metrics.toolbarIconSize,
                                   fallbackSystemImage: "stop.fill", preservesOriginalColors: true)
-                } else {
-                    LitheIDEAIcon(resourcePath: "collaboration/sendOutline.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                  fallbackSystemImage: "paperplane", preservesOriginalColors: true)
                 }
+                .litheToolbarIconButton()
+                .disabled(isCancelling)
+                .help(isCancelling ? "Stopping…" : "Stop")
+                .accessibilityLabel("Stop")
+            }
+            Button(action: send) {
+                LitheIDEAIcon(resourcePath: "collaboration/sendOutline.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                              fallbackSystemImage: "paperplane", preservesOriginalColors: true)
             }
             .litheToolbarIconButton()
-            .disabled(isCancelling || (!isResponding && (!hasContent || isBlocked || isPreparingSession || isConfiguring)))
-            .help(isCancelling ? "Stopping…" : (isResponding ? "Stop" : "Send"))
+            .disabled(isCancelling || isSendingSupplement || hasPendingContinuation || !hasContent || isBlocked || isPreparingSession || isConfiguring || (isResponding && !canSteer))
+            .help(isSendingSupplement ? "Sending…" : "Send")
+            .accessibilityLabel("Send")
         }
         .padding(.horizontal, 5)
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)
@@ -276,7 +285,7 @@ struct AgentComposerView: View {
     private func handleCommandKey(_ key: AgentCommandCompletion.Key) -> AgentCommandCompletion.Result {
         if let draftText { completion.draft = draftText.wrappedValue }
         defer { draftText?.wrappedValue = completion.draft }
-        let result = completion.handle(key, commands: commands, isResponding: isResponding)
+        let result = completion.handle(key, commands: commands, isResponding: isResponding || hasPendingContinuation)
         switch result {
         case .send: send()
         case .cancel: onCancel()
@@ -287,7 +296,7 @@ struct AgentComposerView: View {
     }
 
     private func send() {
-        guard hasContent, !isResponding else { return }
+        guard hasContent, !isCancelling, !isSendingSupplement, !hasPendingContinuation, !isResponding || canSteer else { return }
         if isBlocked || isPreparingSession {
             onError("The conversation is still being prepared. Try again in a moment.")
             return

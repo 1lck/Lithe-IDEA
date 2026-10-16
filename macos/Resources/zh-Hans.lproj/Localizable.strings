@@ -2917,6 +2917,10 @@
 "%lld non-streaming" = "%lld 次非流式";
 "Model calls observed by the local proxy during this turn. TTFT is the average time to the first generated token." = "本轮由本机代理观测到的模型调用；首字为首个生成 token 的平均等待时间。";
 "%lld requests returned no usage, so these totals are a lower bound." = "有 %lld 次请求未返回用量，以上为最低值。";
+"Sending…" = "发送中…";
+"Agent received" = "Agent 已接收";
+"Supplementary message cancelled." = "补充消息已取消。";
+"The Agent did not accept the supplementary message." = "Agent 未接受补充消息。";
 
 "Start the session by sending a message" = "发送消息以开始会话";
 "Use an Agent in your project" = "在项目中使用 Agent";

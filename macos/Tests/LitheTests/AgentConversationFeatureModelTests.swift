@@ -9,6 +9,114 @@ import Testing
 @MainActor
 struct AgentConversationFeatureModelTests {
     @Test
+    func steeringSendsDuringResponseAndAcknowledgesWithoutStartingAnotherTurn() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.receive(event("ready", ["canSteer": true]))
+            try feature.send("Inspect everything")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            let turn = feature.selectedConversation?.activeTurn
+            try feature.receive(event("agentMessageChunk"))
+            try feature.send("Focus on login")
+            #expect(connection.commands.last?["kind"] as? String == "steer")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            #expect(feature.selectedConversation?.messages.last?.delivery == .sending)
+            #expect(feature.selectedConversation?.activeTurn == turn)
+            #expect(throws: AgentConversationError.sessionBusy) { try feature.send("Duplicate") }
+            // An upstream live echo must not append the already visible input.
+            let count = feature.selectedConversation?.messages.count
+            try feature.receive(event("userMessageChunk"))
+            #expect(feature.selectedConversation?.messages.count == count)
+            try feature.receive(event("steeringResult", ["token": token]))
+            #expect(feature.selectedConversation?.messages.last?.delivery == .received)
+            #expect(feature.selectedConversation?.isResponding == true)
+            #expect(feature.selectedConversation?.pendingSteeringToken == nil)
+            #expect(feature.selectedConversation?.activeTurn == turn)
+            feature.cancel()
+            #expect(connection.commands.last?["kind"] as? String == "cancel")
+        }
+    }
+
+    @Test
+    func steeringFailureAndDisconnectPreserveInputAndTheOriginalTurn() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.receive(event("ready", ["canSteer": true]))
+            try feature.send("Inspect")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Supplement")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            try feature.receive(event("steeringResult", ["token": token, "outcome": "failed", "message": "Rejected"]))
+            #expect(feature.selectedConversation?.messages.last?.delivery == .failed("Rejected"))
+            #expect(feature.selectedConversation?.isResponding == true)
+            try feature.send("Another supplement")
+            let lateToken = try #require(connection.commands.last?["token"] as? String)
+            await feature.stop()
+            #expect(feature.canSteer == false)
+            #expect(feature.selectedConversation?.pendingSteeringToken == nil)
+            #expect(feature.selectedConversation?.messages.last?.text == "Another supplement")
+            try feature.receive(event("steeringResult", ["token": lateToken]))
+            #expect(feature.selectedConversation?.messages.last?.delivery != .received)
+        }
+    }
+
+    @Test
+    func steeringCompletionRaceResendsOnlyAnExplicitlyUnconsumedMessageOnce() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.receive(event("ready", ["canSteer": true]))
+            try feature.send("Inspect")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Supplement")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            let messageID = feature.selectedConversation?.messages.last?.id
+            let count = connection.commands.count
+            try feature.receive(event("steeringResult", ["token": token, "outcome": "promptRequired"]))
+            #expect(connection.commands.count == count)
+            try feature.receive(event("turnFinished"))
+            #expect(connection.commands.last?["kind"] as? String == "prompt")
+            #expect(connection.commands.last?["text"] as? String == "Supplement")
+            #expect(feature.selectedConversation?.activeTurn?.id == messageID)
+            #expect(feature.selectedConversation?.messages.filter { $0.text == "Supplement" }.count == 1)
+            try feature.receive(event("steeringResult", ["token": token, "outcome": "promptRequired"]))
+            #expect(connection.commands.count == count + 1)
+        }
+    }
+
+    @Test
+    func steeringStopPreventsAnUnconsumedSupplementFromStartingANewTurn() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.receive(event("ready", ["canSteer": true]))
+            try feature.send("Inspect")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Supplement")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            feature.cancel()
+            let count = connection.commands.count
+            try feature.receive(event("turnFinished", ["stopReason": "cancelled"]))
+            try feature.receive(event("steeringResult", ["token": token, "outcome": "promptRequired"]))
+            #expect(connection.commands.count == count)
+            #expect(feature.selectedConversation?.isResponding == false)
+            #expect(feature.selectedConversation?.messages.last?.delivery != .received)
+        }
+    }
+
+    @Test
+    func steeringStopAlsoRevokesAnAlreadyAcknowledgedFallback() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.receive(event("ready", ["canSteer": true]))
+            try feature.send("Inspect")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Supplement")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            try feature.receive(event("steeringResult", ["token": token, "outcome": "promptRequired"]))
+            feature.cancel()
+            let count = connection.commands.count
+            try feature.receive(event("turnFinished", ["stopReason": "cancelled"]))
+            #expect(connection.commands.count == count)
+            #expect(feature.selectedConversation?.isResponding == false)
+            #expect(feature.selectedConversation?.messages.last?.delivery != .received)
+        }
+    }
+
+    @Test
     func quietNoticeKeepsTheTurnBusyAndContinueWaitingDoesNotReplayIt() async throws {
         try await withStatisticsFeature { feature, connection, clock in
             try feature.send("Build the project")

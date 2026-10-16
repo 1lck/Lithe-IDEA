@@ -5,13 +5,12 @@ on:
   pull_request:
     # ready_for_review reruns the deferred runner lane after a draft is ready.
     types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
   contents: read
+  # The classify job reads active jobs to choose a macOS runner pool.
+  actions: read
 
 concurrency:
   group: macos-plugin-ci-${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       plugins: ${{ steps.classify.outputs.plugins }}
+      macos_runners: ${{ steps.runners.outputs.runners }}
 
     steps:
       - name: Check out source
@@ -58,6 +58,9 @@ jobs:
           MANUAL: ${{ steps.base.outputs.manual }}
           BASE_SHA: ${{ steps.base.outputs.base_sha }}
           LITHE_CI_DRAFT_PULL_REQUEST: ${{ github.event.pull_request.draft == true }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         shell: bash
         run: |
           if [[ "$MANUAL" == "true" ]]; then
@@ -65,7 +68,20 @@ jobs:
             exit 0
           fi
 
+          # Promoting preview to main reruns no lane; macOS CI requires the
+          # preview verification of the same commit instead.
+          if [[ "$BASE_REF" == "main" && "$HEAD_REF" == "preview" && "$HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" ]]; then
+            export LITHE_CI_SCOPE=release_promotion
+          fi
           ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Choose macOS runner
+        id: runners
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LITHE_MACOS_LANES: ${{ steps.classify.outputs.plugins == 'true' && 'plugins' || '' }}
+        shell: bash
+        run: node scripts/select-macos-ci-runners.mjs
 
       - name: Summarize selected lanes
         shell: bash
@@ -88,15 +104,27 @@ jobs:
     name: Plugin tests and package verification
     needs: changes
     if: needs.changes.outputs.plugins == 'true'
-    runs-on: macos-26
+    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).plugins }}
     timeout-minutes: 55
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          # Self-hosted runners keep their build outputs between jobs; the
+          # runner preparation step removes every other untracked file.
+          clean: ${{ runner.environment != 'self-hosted' }}
+
+      - name: Prepare shared Mac mini runner
+        if: runner.environment == 'self-hosted'
+        uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
+
+      # test-macos.sh links Rust Core; install it explicitly on every runner pool.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Prepare verified SwiftPM cache
         uses: ./.github/actions/prepare-macos-dependency-cache

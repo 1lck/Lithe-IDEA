@@ -42,10 +42,119 @@ for a branch, manually run **Release AutoBuild** and provide that branch as
 `source_branch`; the Windows workflow is reusable and only builds an artifact
 for that caller.
 
+### What runs after a pull request merges
+
+A pull request into `preview` carries the full verification, and merging it
+requires that verification. Later events run only what the pull request could
+not observe:
+
+| Event | What runs |
+| --- | --- |
+| Pull request into `preview` | Every lane the classifier selects |
+| Push to `preview` (the merge) | **macOS CI** builds the universal package when the merge touched anything packaged; nothing else. The universal build is the only Intel (`x86_64`) compile and link, and it also compiles the merged combination of pull requests that each passed on their own. Light Linux checks (platform feature matrix, Agent Notes board deployment) still run. |
+| Pull request from `preview` into `main` | No lane. **macOS CI** checks that the same commit already passed **macOS CI** as a `preview` push; re-run the job once that push run has succeeded. |
+| Push to `main` | Nothing. |
+
+The classifier implements this through `LITHE_CI_SCOPE` (`pull_request`,
+`post_merge`, or `release_promotion`). Windows CI no longer runs on `preview`
+pushes, so its GitHub cache entries are refreshed only by pull requests; a
+`Cargo.lock` change makes the next pull requests restore an older prefix match.
+
+### Shared Mac mini runners
+
+**Swift tests**, **Rust Core tests**, **Release package verification**, and
+**Plugin tests and package verification** run on either
+`[self-hosted, macOS, ARM64, lithe-mac-mini]` or the GitHub-hosted `macos-26`
+pool, including pull requests from forks. Release workflows (stable, AutoBuild,
+and official plugin releases) always use GitHub-hosted runners because they hold
+signing material. The three Mac mini runner services share one M4 with 16 GB of
+memory; they provide three job slots, not three machines.
+
+GitHub fixes `runs-on` when a job is created, so the Linux **Classify changes**
+job picks the pool for each selected lane with
+`scripts/select-macos-ci-runners.mjs`. It counts this repository's running and
+queued macOS jobs through the read-only `actions: read` token permission:
+
+- Pull requests take a free Mac mini slot first, then a free hosted slot. When
+  both pools are full, a lane joins the queue that is shorter relative to its
+  size.
+- Mac mini runners are grouped by the build outputs they keep:
+  `lithe-mac-mini-debug` (two runners: Swift, plugin, and Rust Core tests share
+  the debug SwiftPM test build and debug Rust Core) and `lithe-mac-mini-release`
+  (one runner: release packaging). A lane prefers its own group so the next job
+  on that runner builds incrementally, and borrows the other group's free runner
+  before falling back to hosted runners. Group labels and their runner counts
+  are set in `MAC_MINI_GROUPS`; a runner added later needs one of the labels.
+- Pushes to `preview` and manual runs always use the Mac minis, so post-merge
+  verification never takes a hosted slot that a pull request is waiting for.
+- If the API cannot be read, routing falls back to the fixed assignment: Rust
+  Core and packaging on the Mac minis, Swift and plugin tests on hosted runners.
+
+**Swift tests** stay on hosted runners for now (`HOSTED_ONLY_LANES` in the
+selector): `DesktopIsolationTests` needs a WindowServer session that publishes
+native windows, which a Mac mini without an active, awake display does not
+provide. Remove the lane from that set once the runner host keeps a display
+session (for example with a display emulator plug and display sleep disabled).
+
+The job summary of **Classify changes** shows the counts and the chosen pool. The
+choice is made once: it does not see other repositories' use of the hosted pool,
+and two runs classified at the same moment can pick the same free slot.
+
+Each runner needs its own installation and work directory and the
+`lithe-mac-mini` label. Keep the service user logged in and the machine awake.
+Install and select Xcode 26.6 before starting the services. CI checks both Xcode
+and Swift 6.3.3 without changing the machine-wide Xcode selection, and sets
+`SDKROOT` to that Xcode's macOS SDK: the Mac minis also carry Command Line Tools
+with a newer macOS SDK, whose `libSystem` stubs the Xcode 26.6 linker cannot
+read when it links the `x86_64` slice. The runner
+also needs Git, Python 3, Ruby, and outbound access to dependency hosts. CI sets
+up Node 24, Rust, and (for packaging) Bun itself.
+
+The shared-runner setup limits Cargo and SwiftPM compilation to two jobs each.
+`LITHE_SWIFT_BUILD_JOBS` controls SwiftPM build/test entry points;
+`CARGO_BUILD_JOBS` controls Cargo compilation. Neither setting limits all child
+processes or changes existing test deadlines. Hosted and local builds keep their
+default compilation parallelism. Resource snapshots in the setup log show
+whole-machine memory, swap, CPU count, and available disk.
+
+#### Incremental builds on the Mac minis
+
+Self-hosted jobs check out with `clean: false`, then
+`scripts/reuse-macos-runner-build-state.sh` removes every untracked file except
+`.build`, `rust/target`, `.artifacts/cargo-home`, `.artifacts/swiftpm-cache`,
+`.artifacts/jdtls-downloads`, and `.artifacts/jdk-downloads`. The next job on
+the same runner compiles incrementally from those outputs. Compilation outputs
+are discarded when Xcode, Swift, or the CPU architecture changes, when they
+exceed 40 GB, or when less than 25 GB of disk is free. Kept download stores
+still pass the same validation as restored GitHub cache entries.
+
+Self-hosted jobs skip GitHub cache restore and save. Hosted runners keep using
+the GitHub cache exactly as before.
+
+Build state belongs to one runner's work directory. Do not symlink `.build`,
+`rust/target`, or the complete `.artifacts` directory between runners or
+worktrees. To reset a runner, stop its service and delete those directories from
+its work directory. Fork PR jobs retain the existing `pull_request` event and
+read-only repository permissions; this does not use `pull_request_target` or
+release secrets. Kept build outputs are not an isolation boundary against
+malicious fork code, which can already affect a persistent self-hosted runner.
+
+#### Rust Core bridge checks reuse the Swift build
+
+**Rust Core tests** run only the Rust checks in
+`scripts/verify-rust-core-crates.sh`. The Swift-linked checks (C ABI probe, Core
+symbols in the linked app, Git execution integration, and the Git console and
+Maven bridge tests) run in **Swift tests** through
+`scripts/verify-rust-core-swift-bridge.sh --skip-build`, reusing that job's test
+build. A Rust-only change therefore starts **Swift tests** to build and run the
+bridge checks, without the full Swift unit suites. Locally,
+`scripts/verify-rust-core.sh` still runs both halves.
+
 ### macOS runner budget
 
 The `Lithe-IDEA` organization uses the GitHub Free plan, which runs at most
-five macOS jobs at a time across every workflow and pull request. Queued macOS
+five GitHub-hosted macOS jobs at a time across every workflow and pull request;
+the three self-hosted Mac mini slots are separate. Queued macOS
 jobs mean this pool is full; it is a concurrency limit, not a quota or abuse
 signal. Keep macOS jobs per push low:
 

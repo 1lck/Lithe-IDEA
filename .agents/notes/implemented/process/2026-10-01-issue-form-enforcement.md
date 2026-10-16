@@ -46,7 +46,7 @@ Issue 表单（Issue Form，`.github/ISSUE_TEMPLATE/*.yml` 定义的结构化模
 ### 和现有 Issue 自动化的关系
 
 - `lithe-issue-priority.yml` 在 `opened` 和 `edited` 时只增删自己管理的 `bug`、`enhancement`、`P*`、`platform:*`、`area:*`，`issue-form:*` 会被保留。它和本工作流并行运行；禁止用旧快照执行 `setLabels` 整体替换，否则会抹掉读取后 GitHub 才补上的来源标签。使用 `addLabels` 和 `removeLabel`，让非托管标签始终保留。
-- `lithe-issue-claim.yml` 只处理评论事件，被关闭的 Issue 仍可由维护者重新打开后认领。
+- Issue 认领（`/assign`、`/unassign` 和每日过期检查）已从 `lithe-issue-claim.yml` 迁到自托管的 `lithe-bot-console`（`lithe-code-review` App），规则和评论标记都没变。它只响应评论事件，被关闭的 Issue 仍可由维护者重新打开后认领。迁移原因：Actions 无法在触发阶段区分 Issue 评论和 PR 评论，每条 PR 评论都会产生一次空跑。
 - 维护者手动创建的 Issue 不需要 `issue-form:*` 标签。
 
 ### 正确做法

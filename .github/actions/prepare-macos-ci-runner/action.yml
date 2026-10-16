@@ -1,0 +1,50 @@
+name: Prepare shared macOS CI runner
+description: Supply Node, bound compilation, and reuse this runner's build state on the three runners sharing one Mac mini.
+runs:
+  using: composite
+  steps:
+    # Checkout keeps untracked files on these runners (clean: false); this step
+    # removes everything except this runner's own build outputs and dependency
+    # stores, so the next build compiles incrementally instead of from scratch.
+    - name: Reuse this runner's build state
+      shell: bash
+      run: |
+        identity=$({
+          xcodebuild -version
+          swift --version 2>&1
+          cat .swift-version
+          uname -m
+        })
+        ./scripts/reuse-macos-runner-build-state.sh --identity "$identity"
+    - name: Set up Node for CI tooling
+      uses: actions/setup-node@v4
+      with:
+        node-version: "24"
+    - name: Verify runner preparation scripts
+      shell: bash
+      run: |
+        mkdir -p .artifacts/test-stability
+        node --test --test-reporter=spec --test-reporter-destination=stdout \
+          --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/macos-runner-preparation.xml \
+          scripts/macos-swift-build-options.test.mjs scripts/reuse-macos-runner-build-state.test.mjs
+    - name: Configure per-job resource budget
+      shell: bash
+      run: |
+        {
+          echo 'LITHE_SWIFT_BUILD_JOBS=2'
+          echo 'CARGO_BUILD_JOBS=2'
+        } >> "$GITHUB_ENV"
+        for tool in git python3 ruby; do
+          command -v "$tool" > /dev/null || {
+            echo "::error::Required CI tool is missing: $tool"
+            exit 1
+          }
+        done
+        node --version
+        python3 --version
+        ruby --version
+        # Whole-host snapshots help assess three-job contention. They are not
+        # per-job memory measurements because all runners share the same host.
+        sysctl hw.memsize hw.logicalcpu
+        sysctl vm.swapusage
+        df -h "$GITHUB_WORKSPACE"

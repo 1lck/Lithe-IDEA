@@ -19,7 +19,11 @@ struct AgentLocalizationTests {
         for (key, chinese) in [
             ("The Agent process starts when this panel opens.", "打开此面板时才会启动 Agent 进程。"),
             ("Starting the Agent…", "正在启动 Agent…"),
-            ("Preparing conversation…", "正在准备对话…")
+            ("Preparing conversation…", "正在准备对话…"),
+            ("Sending…", "发送中…"),
+            ("Agent received", "Agent 已接收"),
+            ("Supplementary message cancelled.", "补充消息已取消。"),
+            ("The Agent did not accept the supplementary message.", "Agent 未接受补充消息。")
         ] {
             #expect(AgentLocalization.string(String.LocalizationValue(key), locale: Locale(identifier: "en"), bundle: bundle) == key)
             #expect(AgentLocalization.string(String.LocalizationValue(key), locale: Locale(identifier: "en-US"), bundle: bundle) == key)

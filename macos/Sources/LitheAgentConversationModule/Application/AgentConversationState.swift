@@ -14,6 +14,7 @@ public struct AgentSessionSummary: Identifiable, Equatable, Sendable {
 }
 
 public struct AgentConversationMessage: Identifiable, Equatable, Sendable {
+    public enum Delivery: Equatable, Sendable { case sending, received, failed(String) }
     /// `thought` holds the agent's streamed reasoning, kept apart from its reply.
     public enum Role: Equatable, Sendable { case user, agent, thought, tool }
     public enum ToolStatus: String, Equatable, Sendable {
@@ -28,6 +29,8 @@ public struct AgentConversationMessage: Identifiable, Equatable, Sendable {
     public let id: String
     public let role: Role
     public var text: String
+    /// Only supplementary input has a request-scoped delivery acknowledgement.
+    public var delivery: Delivery?
     public var toolStatus: ToolStatus?
     public var toolDetails = AgentToolDetails()
 
@@ -96,6 +99,7 @@ public struct AgentConversation: Equatable, Sendable {
     public var isResponding = false
     public var isLoading = false
     public var isCancelling = false
+    public var pendingSteeringToken: String?
     /// A Host advisory, never a failure or permission to send another prompt.
     public var isQuiet = false
     public var configOptions: [AgentSessionConfigOption] = []
@@ -132,7 +136,8 @@ public struct AgentConversation: Equatable, Sendable {
         retryMaxAttempts = nil
         responsePhase = .waiting
         guard var turn = activeTurn else { return }
-        turn.finish(at: instant, endingMessageID: messages.last?.id ?? turn.id, usage: usage,
+        let endingMessage = messages.last { $0.delivery == nil || $0.delivery == .received }
+        turn.finish(at: instant, endingMessageID: endingMessage?.id ?? turn.id, usage: usage,
                     toolCallCount: activeTurnToolCallCount)
         completedTurns.append(turn)
         activeTurn = nil
