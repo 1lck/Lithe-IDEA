@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 Agent。每个项目的每种 Agent 只有一个对话连接，一个连接里可以有多个会话；会话历史由 Agent 自己保存；Lithe 负责显示，并单独保存收藏、自定义标题和可恢复的隐藏状态。供应商管理允许 Codex 在自定义 API Key 和本机 ChatGPT 订阅间切换；Claude 仍只支持 API Key。订阅额度放在输入框上下文的右侧，不新增页面。Agent 需要的 Node.js 由用户自己安装，Lithe 只负责检测；ACP 适配器由 Lithe 提供一键安装，安装时用的是用户本机的 npm。ACP（Agent Client Protocol，编辑器与 Agent 之间的对话协议）连接和进程管理写在同一个 Rust crate 里，Mac 与未来的 Windows 只各自实现界面。
+Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 Agent。每个项目的每种 Agent 只有一个对话连接，一个连接里可以有多个会话；会话历史由 Agent 自己保存；Lithe 负责显示，并单独保存收藏、自定义标题和可恢复的隐藏状态。供应商管理允许 Codex 在自定义 API Key 和本机 ChatGPT 订阅间切换；Claude 仍只支持 API Key。订阅额度放在输入框上下文的右侧，不新增页面。Agent 需要的 Node.js 由用户自己安装，Lithe 只负责检测；ACP 适配器由 Lithe 提供一键安装，安装时用的是用户本机的 npm。ACP（Agent Client Protocol，编辑器与 Agent 之间的对话协议）连接和进程管理写在同一个 Rust crate 里：Mac 通过 C ABI 调用，Windows 通过 `windows/tauri/src-tauri/src/agent.rs` 的连接桥调用，两端只各自实现界面。
 
 ## 问题
 
@@ -35,7 +35,7 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
 - **侧栏入口图标**：Agent 使用 Lithe 原创的“对话气泡 + 星光”线性 SVG，由工作台 renderer 显式绑定，避免落入通用模块图标而让用户误认成插件管理。图标作为固定源资源随应用打包，复用现有模板着色与选中态；不下载、不生成运行时文件，不影响安装包的只读边界。面板内 Codex/Claude 标志仍表示具体供应商。
 - **安装包图标解析**：Agent 品牌图标从应用的 `Contents/Resources/Lithe_Lithe.bundle` 只读加载；资源包或图标缺失时使用默认标志。不要在已安装的 `.app` 中直接调用 SwiftPM（Swift 包管理器）生成的 `Bundle.module`：它只查应用旁的资源包和编译目录，找不到会直接终止进程，开发机器残留的构建资源还会掩盖问题。开发和测试入口保留 SwiftPM 回退；安装版不使用编译目录，也不通过启动时复制资源来修补发行包，避免改变代码签名和 Sparkle 增量更新基线。
 - **底栏品牌标志**：参考 [CC GUI 的紧凑入口](https://github.com/zhukunpenglinyutong/jetbrains-cc-gui/blob/7bcd6c3803ec44944cef90f5bff0aa666cab99a2/webview/src/components/ChatInputBox/selectors/ProviderSelect.tsx) 与[品牌组件](https://github.com/zhukunpenglinyutong/jetbrains-cc-gui/blob/7bcd6c3803ec44944cef90f5bff0aa666cab99a2/webview/src/components/shared/ProviderModelIcon.tsx)，Claude 使用彩色星芒，Codex 使用主题单色结形标志。上游 Web 入口为 16 像素；Lithe 原生工具栏使用 18 点视觉尺寸、28 点点击区域，模型入口保留较小的同品牌标志。Claude 的 `#D97757` 与既有 `@lobehub/icons 5.8.0` 彩色组件一致。轮廓复用既有 SVG，欢迎区和历史页继续使用模板着色。SwiftUI 的前景色在原生 Menu 转换图像时可能丢失，因此底栏通过只读 SVG 的透明度蒙版在内存中生成带颜色的原始图像，不依赖原生控件替模板补色。图像缓存身份包含资源包、尺寸和颜色，深浅主题切换不会拿到旧色，也不修改其他视图共用的模板。正确做法是按品牌和主题选择颜色；不要复制 SVG 路径、改写源图或把染色图写进 bundle。该派生图像只在应用内存中存活，不新增磁盘缓存、下载或跨工作树复用资源，不影响代码签名和 Sparkle delta。
-- **共享实现**：`rust/lithe-agent-host` 使用官方 `agent-client-protocol` SDK。一个 `AgentHandle` 对应一个项目的 Agent 进程和 ACP 连接，负责初始化、网关登录、会话新建/列出/加载、消息、权限、取消和进程树清理。Mac 通过 Rust Core C ABI（`lithe_agent_open_json`、`lithe_agent_send_json`、`lithe_agent_close`）调用；Windows 以后直接依赖同一个 crate。命令和事件的 JSON 形状由 `shared/fixtures/agent/acp-events-v1.json` 固定。
+- **共享实现**：`rust/lithe-agent-host` 使用官方 `agent-client-protocol` SDK。一个 `AgentHandle` 对应一个项目的 Agent 进程和 ACP 连接，负责初始化、网关登录、会话新建/列出/加载、消息、权限、取消和进程树清理。Mac 通过 Rust Core C ABI（`lithe_agent_open_json`、`lithe_agent_send_json`、`lithe_agent_close`）调用；Windows 通过 `windows/tauri/src-tauri/src/agent.rs` 直接依赖同一个 crate。命令和事件的 JSON 形状由 `shared/fixtures/agent/acp-events-v1.json` 固定。
 - **按需启动，跟着项目走**：`LitheAgentConversationModule` 是内置可选模块，默认禁用。每个项目有自己的模块运行时，所以会话天然属于项目。切换标签或窗口不会结束任何会话，后台项目的这一轮会继续跑完；只有关闭项目、关闭功能或退出应用时才停止 Agent。后台项目的会话在等待权限时，项目标签上会显示提醒点。
 - **API Key 按上游公开接口传递**：Lithe 通过 ACP 的标准输入输出（stdio）通道把凭据传给适配器，不进入 Lithe 启动适配器的命令行参数、环境变量或文件，也不设置 `APP_SERVER_LOGS`。Codex 使用 Responses，在初始化时声明 `auth._meta.gateway = true`，通过 `gateway` 登录传服务商地址和 `Authorization: Bearer <key>`；没有该登录能力就报错。Claude 使用 Anthropic Messages，通过上游公开的 `_meta.claudeCode.options` 在 `session/new` 与 `session/load` 传入地址和 API Key，仅新会话传入供应商默认模型；由上游适配器与 Claude SDK 管理其内部原生凭据转换。SDK 的环境配置和程序化 settings 两层都显式指定同一路由，并清除旧 Bearer、OAuth、自定义请求头、云平台路由与 `apiKeyHelper`，防止用户或项目设置覆盖所选服务商。缺少凭据时直接报错，二者都不静默回退到账户订阅。
 - **Claude SDK 子进程的凭据边界**：上面的保证只覆盖 Lithe 启动 ACP 适配器这一层，不覆盖整个子进程树。当前固定版本的 Claude SDK 会把对象形式的 `options.settings` 序列化为 Claude Code CLI 的 `--settings` 命令行参数，因此 `settings.env.ANTHROPIC_API_KEY` 会出现在该 CLI 子进程的参数里；开启 SDK debug 还可能把完整参数写进调试文件。同用户进程和诊断工具可以读取这些参数，不能把这一实现描述为全进程树都不暴露 Key。原 gateway 路径也把带 Key 的自定义请求头放进程序化 settings，本次路由修复没有消除这项上游暴露。后续独立评估把 Key 仅放在 `options.env`、settings 仅保留非敏感路由；采用前必须验证用户和项目 settings 中旧 Key 的覆盖优先级，以及新建、历史恢复和切换服务商都使用所选凭据，不在当前修复中直接删去凭据覆盖层。
@@ -72,6 +72,7 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
   - **Codex 更新入口取决于实际可用版本**：最低版本只证明适配器能够运行，不能证明有更新。Codex 的 npm 安装显式读取 `@openai/codex@latest` 发布版本，与实际更新目标一致，不能让用户 npm 的默认 `tag` 配置把检查改为 beta 等其他渠道；Homebrew cask 安装读取所属 cask 的过期状态；查询有界，Homebrew 不自动刷新索引。npm 发布版本接受 JSON 字符串或单元素字符串数组，拒绝空数组、多项和非法版本。结构化查询只解析 stdout，stderr 单独有界收集，非致命 warning 不影响有效结果；共用原有超时、取消和进程清理路径。只有安装来源可安全更新且确认有新版本时，兼容的 Codex CLI 才显示 Update；npm 确认当前版本时显示“已是最新版本”；Homebrew 只显示“当前 Homebrew 索引未发现更新”，并提示可手动运行 `brew update` 后重查，不自动刷新索引。预检文案使用设置页选中的界面语言，查询失败时明确说无法确认，不显示 Update。低于适配器最低版本仍可按已知最低版本提示升级，即使包管理器报告无更新，也保留原安装器的升级指引。未知来源或 npm 环境不匹配继续只给手动指引。其他 Agent CLI 保留原有手动更新入口。完成后刷新检测版本，并提示用户重连以获取上游模型目录，不自动中断现有会话，也不在 Lithe 中补写新模型名称。查询可能受网络或本地 Homebrew 索引新鲜度影响，因此未知结果不宣称“已是最新版本”；不新增缓存或发行包写入。
   - **下载进度以 npm 的真实传输为准**：安装与 CLI 升级通过现有 Core 事件回调报告已接收软件包字节数、最近采样速度、耗时和等待时间。npm 没有提供整次安装的总量，且会继续发现依赖，所以不显示总体百分比。内嵌的 Node 观察模块只统计 HTTP 响应进入流缓冲区的字节，不添加消费数据的监听器，也不重写下载、代理、重试、校验或缓存行为。模块通过内存中的 data URL 加载，启动后先恢复用户原有 `NODE_OPTIONS`，防止 npm 子脚本继承观察器；不生成辅助文件或新的可复用缓存。正确做法是显示“已下载 25 MB、75 KB/秒、已用时 300 秒”；不要把 npm 静默时的日志时间或整个共享缓存大小当成下载进度。Core 事件只携带数字和阶段，界面按操作标识丢弃迟到事件，完成、失败或取消后清除进度。
   - **Rust Core 命令**：`agent.status`、`agent.install`、`agent.uninstall`、`agent.installCli`，复用现有信封的取消和超时。
+  - **Windows 连接桥**：`windows/tauri/src-tauri/src/agent.rs` 直接依赖 `lithe-agent-host`，用 `agent_open`、`agent_send`、`agent_close` 三个 Tauri 命令转发 fixture 里的同一套 JSON，协议、会话和取消语义仍只有共享 crate 一份。连接 ID 由界面自己生成：界面先订阅 `agent_event` 再开连接，因此不存在“事件先于连接标识到达”的竞态；重复或为空的 ID 直接拒绝，不会顶掉在用的连接。事件只发给打开它的那个窗口，不广播给其他项目；`agent_send` 和 `agent_close` 同样注入 Webview，并在同一个注册表临界区内比对连接归属窗口，所以其他窗口即使拿到 ID 也不能驱动或关闭别人的连接。连接按窗口标签登记：项目窗口销毁时把连接移出注册表并交给阻塞池关闭，移出与“正在关闭”计数在同一个临界区完成，因此随后的应用退出既看不到这条连接、也不会漏等它；退出先在同一次加锁里停止接受新连接并取走剩余连接，同步关闭它们，再以 15 秒上限等待仍在阻塞池里的关闭，而 `AgentHandle::close` 自带停止窗口并强杀进程树，这个上限只兜底“任务还没被调度”的情况。Windows 桌面外壳是 GUI 进程、没有控制台，所以共享 host 在 Windows 上以 `CREATE_NO_WINDOW` 启动适配器，避免每开一次 Agent 都弹出一个控制台窗口。
   - **Key 和模型的传法**：API Key 经 ACP stdio 传给适配器。Responses 使用 `gateway` 的 `Authorization: Bearer`；Claude 使用公开会话参数中的原生 API Key 配置，由 SDK 发出 `x-api-key`。Codex 的模型用 `CODEX_CONFIG`，Claude 的模型用 `ANTHROPIC_MODEL` 并在会话 options 中显式提供。服务商配置里的"模型"必须传给 Agent：实测某个网关禁用了 Codex 的默认模型，不传模型时 Agent 只会回复一条网关报错。
   - **设置归属**：Agent 开关、预检、适配器与 CLI 安装及供应商配置集中在主设置窗口的 AI > Agents（2026-10 起从 Tools 移入 AI 分组，见 2026-10-15-macos-settings-hierarchy），复用设置侧栏、搜索、面包屑和共享表单控件；对话面板的设置按钮打开此分类。Agent 面板保留首次欢迎引导、会话、历史、输入和必要的配置提示，不再嵌入另一套设置导航。
   - **设置与面板的选择同步**：设置页删除独立 `@State selectedID`，使用共享 `AppModel.selectedAgentConversationID` 与面板现有选择动作；设置采用 `LitheSettingsSelect`，功能开关采用共享带标题复选框及缩进说明，聊天底栏保持菜单，任意一处选择都更新同一 ID；本机配置、自定义供应商和订阅启用后的既有选择动作也走这个入口，避免后续连接再次覆盖 UI 选择。未配置 Agent 也能切换面板标题和底栏，显示配置提示但不自动打开设置、不启动另一个已配置 Agent；已有配置通过原会话选择/连接接口处理，保留后台轮次。预检、供应商行和 ACP adapter 文本取消背景卡片，使用共享设置分组和普通表单文字；真实输入框和下拉控件保留其共享外框；共享控件边框采用 `DarculaNewUIUtil.paintRectangleImpl` 的内外圆角路径奇偶填充，普通 1pt，焦点 2pt 向外扩展 1pt，不在 Agent 页另画描边。提示条使用共享 Islands Banner 警告色和圆角，不再用 warning 透明度近似，提示条只保留文字和警告图标，设置动作集中在对话标题栏，避免在提示条重复入口。
@@ -90,7 +91,7 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
 
 正确做法：新平台的界面通过平台适配器把 fixture 里的命令交给 `lithe-agent-host`，并把工具权限选择交给用户。
 
-不要这样做：在 Windows React 层重新实现 JSON-RPC 协议；在打开 IDE 时就启动 Agent；取消尚未确认就解锁发送；把取消超时伪装成成功而不提示用户重连；把 API Key 通过环境变量或命令行传给 Agent；替用户下载一份他本机已有的 Agent CLI。
+不要这样做：在 Windows React 层重新实现 JSON-RPC 协议；在打开 IDE 时就启动 Agent；取消尚未确认就解锁发送；把取消超时伪装成成功而不提示用户重连；把 API Key 通过环境变量或命令行传给 Agent；替用户下载一份他本机已有的 Agent CLI；只按连接 ID 授权 send/close 而不校验调用窗口；退出时只清空注册表，把已经交给后台线程的关闭留在未登记状态。
 
 对话可以移入共享编辑区标签页。位置由 EditorTabOrderFeatureModel 是否包含 agentConversation 页决定，工具窗口改用同一历史列表的伸展布局；点击历史后选择同一 AgentConnectionModel 中的会话并聚焦编辑页。重复打开只聚焦已有页，不再创建标签或连接；关闭编辑页将对话移回工具窗口，保留其他文件及未保存内容。共享标签负责关闭、排序、拖动分组和活动/非活动选中样式，不另写页面标签系统。此页呈现当前会话，历史切换更新同一页的标题与消息，不为每条历史再创建独立连接。草稿文字与附件由连接模型保留，编辑器的命令补全/焦点仍属视图；位置切换和标签换焦点不清空草稿，New Chat 明确清空。输入写入绑定和补全/发送同步更新草稿，避免等待视图销毁后的 onChange。
 拖动入口：工具窗口渲染器通过 WorkbenchModuleUIRegistry.Renderer.openInEditor 声明“内容可作为编辑页”，宿主拖放与右键菜单只读取该声明，不按工具名特判。ToolWindowDragState 仅对声明了 openInEditor 的工具，在指针落在工作台内且不属于左右三分之一或底部三分之一停靠带时判为编辑区落点；松开即调用 showAgentChatsInEditor，不改变工具窗口停靠位置，未拖动的点击仍是切换显示。返回侧栏沿用编辑页关闭和标题栏位置按钮，侧栏布局保持原样。
@@ -328,7 +329,7 @@ Host 必须继续等待其公开 threadStatus 中的新轮空闲事件，不能�
 
 代价是 Codex 这条兼容路径依赖固定上游的状态元数据，需要在适配器升级时
 重复验证；静默不能替代结束确认，明确停止仍由现有十秒看门狗限制。
-Windows 原生 Agent 后端尚未接入，共享协议可复用，不能把前端代码当作
+Windows 连接桥已接入共享 Host，但面板 UI 与真机验收尚未完成，不能把前端代码当作
 Windows 已可用。本功能不新增下载、缓存或运行时资源路径，不写安装目录，
 不改变代码签名和 Sparkle 增量更新基线。
 
@@ -338,9 +339,10 @@ Windows 已可用。本功能不新增下载、缓存或运行时资源路径，
 代理控制发送与完成次序，验证补充交付先于结束事件以及 Codex 续轮的停止和收尾。
 这些检查不能替代真实供应商的运行验收，矩阵保持 pending。
 
-两端共享同一套协议和清理逻辑。功能关闭或没打开面板时，不会有 Agent 进程。一个项目的每种 Agent 只建立一个对话连接，会话再多也一样。订阅额度额外使用有界的短时官方查询进程，不新增常驻服务。
+两端共享同一套协议和清理逻辑。功能关闭或没打开面板时，不会有 Agent 进程。一个项目的每种 Agent 只建立一个对话连接，会话再多也一样。订阅额度额外使用有界的短时官方查询进程，不新增常驻服务。Windows 的连接桥只多一层连接登记、事件转发和进程回收，不会成为第二份协议实现。
 
 代价：
+- Windows 面板 UI、供应商切换和额度展示仍需另做；共享 host 在 Windows 上的适配器启动和进程树回收还没有真机端到端验收。进程树回收本身已用受控假适配器（`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`）验证：它会派生一个继承 stdout 的孙进程，模拟 codex-acp 的 app-server，只杀外层进程会留下它并占住输出管道；普通 Rust 测试由此确认“关闭连接”和“销毁窗口”两条路径都回收了整棵树。退出与窗口销毁并发的时序仍由注册表计数和可控 gate 测试覆盖，不用真实 Agent 复现。
 
 - Rust C ABI 和 fixture 成为兼容面，两端界面仍要分别维护。
 - 用户需要自行安装 Node.js，适配器可以在主设置窗口中安装。
@@ -378,9 +380,10 @@ Windows 已可用。本功能不新增下载、缓存或运行时资源路径，
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentBrandIconResourceTests`：临时安装包布局覆盖 Codex/Claude 图标加载、资源包和图标缺失时安全回退、缓存隔离，比较读取前后的文件清单与内容，确认不改写发行资源；原生输入框 Menu 的像素验证同时覆盖 Claude/Codex 和深浅主题，确保橙色/灰色标志实际可见，染色不改变共用模板。
 - 订阅新增测试覆盖旧配置兼容、显式登录、已有账号、认证通知顺序、登录取消和超时、账号变更、额度真实窗口/缺失值/多 bucket、仅查询不发送 prompt，以及临时失败保留旧值。Linux 已运行 Agent Host 的逐测试计时套件；macOS Swift 编译、真实账号登录及深浅主题/窄宽布局仍须在目标环境验证，不将代码存在等同于运行验证。
-- 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 已有共享协议和 host，但订阅选择和额度 UI 待接入。
+- 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 已有共享协议和连接桥，但面板 UI、供应商切换和额度展示待接入，连接桥还需要在 Windows 上做一次真实适配器的端到端验收。
 
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml`
+- `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml agent::`（Windows 连接桥：非法启动配置、空或重复连接 ID、启动失败上报、未知连接与非法命令、按窗口释放连接、跨窗口 send/close 被拒且连接仍在、关闭计数在移出连接时即生效、出口等待在有关闭时挂起并在最后一个关闭结束时返回、超时后放弃等待、退出 drain 后拒绝新连接；不需要真实 Agent 或网络。进程树回收用 `fake_acp_adapter` 假适配器覆盖两条路径——关闭连接、销毁窗口——断言外层进程和继承 stdout 的孙进程都已退出）
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml --test claude_api_failure -- --ignored`：需提供已安装适配器的 `LITHE_ACP_E2E_DATA_DIR` 与独立临时 `CLAUDE_CONFIG_DIR`，不安装或下载 CLI；用本地 HTTP 服务和假密钥验证 400/401/402/403 直接终止、404 仅原生模型探测，408/429/500/502/503/504/529 及响应前断连总共五次短尝试。服务显式带 `Retry-After: 180` 和 `x-should-retry: true`，仍在三十秒测试边界内结束，并上报 2/5 至 5/5；另验证流式部分输出后报错不重发、正常流式完成和暂时故障后恢复成功。项目设置试图启用十次重试、watchdog 及非流式回退时也不能覆盖策略。默认跳过不能记为通过；执行者清理独立 CLI 配置，测试拥有并关闭临时工作区、监听 socket 与 Agent 进程树。确定性 Host 测试使用虚拟时钟验证二十秒重连取消、十秒未确认停止、用户在退避时停止、已有进度禁止重放和会话隔离；Swift 测试验证次数、状态、耗时和流式发布合并。
 - `cargo test -p lithe-core agent`（`agent.*` 命令与 `shared/fixtures/agent/agent-management-v1.json`）
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml --test claude_api_failure claude_restore_uses_the_last_selected_model_in_the_actual_request -- --ignored`：在独立 `CLAUDE_CONFIG_DIR` 和已安装适配器目录下，用本地 Messages 服务与假密钥先选择另一个模型完成回复，关闭整个连接，再以不同启动默认模型恢复会话；直接比较两次 HTTP 请求体的模型，不能用选择器或合成错误文本代替。测试每阶段最多三十秒，AgentHandle 负责成功和失败路径的子进程清理，执行者清理独立 CLI 配置。确定性 Host 测试覆盖新建/恢复路由分离、相同默认值也必须确认、分组和目录外当前值、上游拒绝与错误确认、完整配置响应以及六十秒共享加载期限。
@@ -402,7 +405,7 @@ Windows 已可用。本功能不新增下载、缓存或运行时资源路径，
 
 ## 适用范围
 
-`rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
+`rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`windows/tauri/src-tauri/src/agent.rs`、`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
 
 - 编辑区限宽验证：72项测试、4组套件通过（5.751秒），实际AgentConversationView原生宿主覆盖320/900/1400pt与工具窗口；检查底栏锚点位置并查看窄宽截图，900pt宿主输入框700pt、左右各100pt。未启动完整产品或真实Agent会话，完整窗口验收仍待执行。
 
