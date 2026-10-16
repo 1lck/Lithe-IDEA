@@ -167,6 +167,10 @@ signal. Keep macOS jobs per push low:
   classifier and the selected macOS and Windows lanes.
 - Each new push cancels the previous run for the same branch, so batch review
   fixes into fewer pushes when possible.
+- Merging or closing a pull request cancels its pull request runs that are
+  still queued or running (**Cancel CI of closed pull requests**), including
+  admin merges that skip the checks. The post-merge `preview` push run is not
+  cancelled.
 
 The GitHub CLI can also download a particular run's packages:
 
