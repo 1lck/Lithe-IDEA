@@ -69,4 +69,17 @@ describe("showNewTabView", () => {
     expect(untitled).toHaveLength(2);
     expect(new Set(untitled.map((buffer) => buffer.path)).size).toBe(2);
   });
+
+  test("marks edits on the new tab dirty so closing asks before discarding them", () => {
+    const store = useBufferStore.getStore(WORKSPACE);
+    store.getState().actions.showNewTabView();
+
+    const active = getActiveEditor();
+    store.getState().actions.updateBufferContent(active.id, "unsaved draft");
+
+    expect(getActiveEditor().isDirty).toBe(true);
+
+    store.getState().actions.closeBuffer(active.id);
+    expect(store.getState().pendingClose?.bufferId).toBe(active.id);
+  });
 });

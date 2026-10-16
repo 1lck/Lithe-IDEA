@@ -359,6 +359,9 @@ function makeDocumentBufferOwner(
   };
 }
 
+const tracksUnsavedEdits = (buffer: EditorContent): boolean =>
+  !buffer.readOnly && (!buffer.isVirtual || buffer.path.startsWith("untitled:"));
+
 const applyWorkspaceAutoEviction = (
   buffers: PaneContent[],
   maxOpenTabs: number,
@@ -1596,7 +1599,7 @@ const createBufferStore = (workspaceId: string) => {
             if (diffData && buf.type === "diff") {
               buf.diffData = diffData;
             }
-            if (buf.type === "editor" && !buf.isVirtual) {
+            if (buf.type === "editor" && tracksUnsavedEdits(buf)) {
               if (!markDirty) {
                 buf.savedContent = content;
                 buf.isDirty = false;
