@@ -49,6 +49,9 @@ final class BranchPopupRowControl: NSControl {
 
     init() {
         super.init(frame: .zero)
+        // The outer row supplies fixed bounds. Content updates must not feed
+        // automatic min/intrinsic/max size constraints back into window layout.
+        hosting.sizingOptions = []
         hosting.autoresizingMask = [.width, .height]
         addSubview(hosting)
         setAccessibilityElement(true)

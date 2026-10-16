@@ -140,6 +140,44 @@ struct BranchSwitcherPopoverBehaviorTests {
 
     @Test
     @MainActor
+    func fixedRowRefreshDoesNotInvalidateIntrinsicSizingDuringFocusLayout() throws {
+        let row = BranchPopupRowControl()
+        let size = NSSize(width: LitheDropdownMetrics.branchMinimumWidth,
+                          height: LitheDropdownMetrics.rowHeight)
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        row.frame = container.bounds
+        container.addSubview(row)
+        let window = NSWindow(contentRect: container.bounds, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        defer { window.contentView = nil; window.close() }
+        let hosting = try #require(row.subviews.compactMap { $0 as? NSHostingView<AnyView> }.first)
+        // Exercise row content updates together with focus navigation and layout.
+        // Content width changes must not contribute another set of row constraints.
+        for index in 0..<64 {
+            let name = "feature/" + String(repeating: "long-name-", count: index % 8 + 1)
+            row.render = { _, _ in
+                AnyView(Text(verbatim: name).lineLimit(1)
+                    .font(LitheTheme.uiFont(size: 13))
+                    .frame(height: LitheDropdownMetrics.rowHeight))
+            }
+            row.isPresented = index.isMultiple(of: 2)
+            row.refresh()
+            window.recalculateKeyViewLoop()
+            window.layoutIfNeeded()
+            row.layoutSubtreeIfNeeded()
+            #expect(row.frame.size == size)
+            #expect(hosting.frame == row.bounds)
+        }
+        #expect(hosting.intrinsicContentSize.width == NSView.noIntrinsicMetric,
+                "The outer row owns width; its hosted label must not invalidate window size constraints")
+        #expect(hosting.intrinsicContentSize.height == NSView.noIntrinsicMetric,
+                "The outer row owns the fixed row height")
+    }
+
+    @Test
+    @MainActor
     func scrollingTransfersHoverToTheRowUnderTheStationaryPointer() throws {
         let window = BranchHoverTestWindow(contentRect: NSRect(x: 100, y: 100, width: 375, height: 48),
                                            styleMask: [.borderless], backing: .buffered, defer: false)
