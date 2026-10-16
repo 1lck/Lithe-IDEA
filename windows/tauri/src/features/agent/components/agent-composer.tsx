@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import {
   AGENT_FILE_DROP_EVENT,
+  AGENT_FILE_DROP_HOVER_EVENT,
   type AgentFileDropDetail,
+  type AgentFileDropHoverDetail,
 } from "@/features/file-system/utils/file-system-drop-controller";
 import { extractDroppedFilePaths } from "@/features/file-system/utils/file-system-dropped-paths";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -25,6 +27,7 @@ import { agentFileUri } from "../types/agent-file-uri";
 import {
   addFileReferences,
   AgentFileReferenceError,
+  AgentFileReferenceLimitError,
   configOptionLabel,
   type AgentConversation,
   type AgentFileReference,
@@ -77,20 +80,30 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
   const [fileQuery, setFileQuery] = useState("");
   const [isDropTargeted, setIsDropTargeted] = useState(false);
   const [mention, setMention] = useState<AgentMentionQuery | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isResponding = conversation?.isResponding === true;
   const isCancelling = conversation?.isCancelling === true;
   const isCreatingSession = snapshot.isCreatingSession;
 
-  const attach = useCallback((paths: string[]) => {
-    if (paths.length === 0) return;
-    try {
-      setFiles((current) => addFileReferences(current, paths.map(agentFileUri)));
-      setComposerError(null);
-    } catch (error) {
-      setComposerError(error instanceof AgentFileReferenceError ? error.message : String(error));
-    }
-  }, []);
+  const attach = useCallback(
+    (paths: string[]) => {
+      if (paths.length === 0) return;
+      try {
+        setFiles((current) => addFileReferences(current, paths.map(agentFileUri)));
+        setComposerError(null);
+      } catch (error) {
+        // The batch size is the one reference error the user can act on, and the
+        // message the shared helper builds is Core-facing English.
+        if (error instanceof AgentFileReferenceLimitError) {
+          setComposerError(t("agent.composer.fileLimit", { count: error.limit }));
+          return;
+        }
+        setComposerError(error instanceof AgentFileReferenceError ? error.message : String(error));
+      }
+    },
+    [t],
+  );
 
   const closePicker = useCallback(() => {
     setIsPickingFile(false);
@@ -104,11 +117,18 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
       // The `@query` text that opened the picker is replaced by the reference.
       if (mention !== null) setDraft((current) => removeAgentMention(current, mention));
       closePicker();
+      // The picker owned the focus while it was open; keep typing where the user
+      // left off instead of dropping focus back to the document body.
+      textareaRef.current?.focus();
     },
     [attach, closePicker, mention],
   );
 
-  /** A dropped file is referenced by absolute path, exactly like a picked one. */
+  /**
+   * A dropped file is referenced by absolute path, exactly like a picked one.
+   * Kept for drag sources that still deliver an HTML5 drop; the OS and the
+   * project tree arrive through the routed events below.
+   */
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
       event.preventDefault();
@@ -126,8 +146,15 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
     const handleRoutedDrop = (event: Event) => {
       attach((event as CustomEvent<AgentFileDropDetail>).detail?.paths ?? []);
     };
+    const handleRoutedHover = (event: Event) => {
+      setIsDropTargeted((event as CustomEvent<AgentFileDropHoverDetail>).detail?.active === true);
+    };
     root.addEventListener(AGENT_FILE_DROP_EVENT, handleRoutedDrop);
-    return () => root.removeEventListener(AGENT_FILE_DROP_EVENT, handleRoutedDrop);
+    root.addEventListener(AGENT_FILE_DROP_HOVER_EVENT, handleRoutedHover);
+    return () => {
+      root.removeEventListener(AGENT_FILE_DROP_EVENT, handleRoutedDrop);
+      root.removeEventListener(AGENT_FILE_DROP_HOVER_EVENT, handleRoutedHover);
+    };
   }, [attach]);
 
   const handleDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
@@ -265,6 +292,7 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
       ) : null}
 
       <Textarea
+        ref={textareaRef}
         size="sm"
         rows={3}
         value={draft}
@@ -275,7 +303,12 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
           // Typing `@` opens the picker on the unfinished reference at the caret.
           const caret = event.target.selectionStart ?? value.length;
           const opened = agentMentionQuery(value.slice(0, caret));
-          if (opened === null) return;
+          if (opened === null) {
+            // The draft no longer ends in an unfinished reference, so the stored
+            // mention is stale: a later pick must not cut text typed after it.
+            if (mention !== null) closePicker();
+            return;
+          }
           setMention(opened);
           setFileQuery(opened.query);
           setIsPickingFile(true);

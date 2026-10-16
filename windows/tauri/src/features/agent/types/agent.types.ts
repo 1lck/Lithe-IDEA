@@ -510,6 +510,13 @@ export function promptDisplayText(prompt: AgentPrompt): string {
 
 export class AgentFileReferenceError extends Error {}
 
+/** The batch would push the prompt past the per-message file limit. */
+export class AgentFileReferenceLimitError extends AgentFileReferenceError {
+  constructor(readonly limit: number) {
+    super(`Attach up to ${limit} files per message.`);
+  }
+}
+
 function parseFileReference(uri: string): AgentFileReference {
   let url: URL;
   try {
@@ -542,7 +549,7 @@ export function addFileReferences(existing: AgentFileReference[], uris: string[]
       result.push(file);
     }
     if (result.length > AGENT_FILE_LIMIT) {
-      throw new AgentFileReferenceError("Attach up to 32 files per message.");
+      throw new AgentFileReferenceLimitError(AGENT_FILE_LIMIT);
     }
   }
   return result;
