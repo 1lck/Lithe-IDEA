@@ -100,7 +100,7 @@ public final class AgentConnectionModel: ObservableObject {
     private var historyContinuations: [String: CheckedContinuation<[AgentConversationMessage], Error>] = [:]
     private var historyRefreshToken: String?
     private var archivedRefreshToken: String?
-    private var unarchiveRequest: (token: String, continuation: CheckedContinuation<Void, Error>)?
+    private var unarchiveRequest: (token: String, summary: AgentSessionSummary, continuation: CheckedContinuation<Void, Error>)?
     private var isClaudeConnection = false
 
     public init(transport: any AgentConversationTransport, now: @escaping () -> ContinuousClock.Instant = { .now }) {
@@ -234,22 +234,34 @@ public final class AgentConnectionModel: ObservableObject {
         let token = makeToken()
         archivedHistoryError = nil
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            unarchiveRequest = (token, continuation)
+            unarchiveRequest = (token, summary, continuation)
             unarchivingSessionID = sessionID
             if !sendCommand(["kind": "unarchiveSession", "token": token, "sessionId": sessionID]) {
                 finishUnarchive(token: token, result: .failure(AgentConversationError.sendFailed(errorMessage ?? "The Agent request failed.")))
             }
         }
-        listedArchivedSessions.removeAll { $0.id == sessionID }
-        upstreamActiveSessionIDs.insert(sessionID)
-        if !sessions.contains(where: { $0.id == sessionID }) { sessions.insert(summary, at: 0) }
     }
 
     private func finishUnarchive(token: String, result: Result<Void, Error>) {
         guard let request = unarchiveRequest, request.token == token else { return }
         unarchiveRequest = nil
         unarchivingSessionID = nil
-        if case .failure(let error) = result { archivedHistoryError = error.localizedDescription }
+        switch result {
+        case .success:
+            // The mutation supersedes both list snapshots, including events already
+            // buffered before this continuation resumes. Refresh from the new state.
+            historyRefreshToken = nil
+            archivedRefreshToken = nil
+            isRefreshingSessions = false
+            isRefreshingArchivedSessions = false
+            let summary = request.summary
+            listedArchivedSessions.removeAll { $0.id == summary.id }
+            upstreamActiveSessionIDs.insert(summary.id)
+            if !sessions.contains(where: { $0.id == summary.id }) { sessions.insert(summary, at: 0) }
+            refreshSessions()
+        case .failure(let error):
+            archivedHistoryError = error.localizedDescription
+        }
         request.continuation.resume(with: result)
     }
 
