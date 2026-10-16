@@ -320,6 +320,10 @@ jobs:
         shell: pwsh
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/editor/components/svg-editor.test.tsx
 
+      - name: Test platform command routing and host errors
+        shell: pwsh
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/platform/tauri-core.test.ts,src/platform/tauri-core.routing.test.ts
+
       - name: Test welcome clone and modal isolation
         shell: pwsh
         run: |
