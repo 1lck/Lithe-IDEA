@@ -118,7 +118,7 @@ enum AgentWelcomeVisit {
 }
 
 
-/// Chat-specific content header using the workbench's shared toolbar controls.
+/// One title row; history and search retain their original independent actions.
 struct AgentChatHeader: View {
     @Environment(\.locale) private var locale
     let agentName: String?
@@ -127,130 +127,85 @@ struct AgentChatHeader: View {
     let onOpenSettings: () -> Void
     let onHide: () -> Void
     var conversationTitle: String? = nil
-    var historyPopup: ((@escaping () -> Void) -> AnyView)? = nil
+    var onSearch: (() -> Void)? = nil
     var onToggleLocation: (() -> Void)? = nil
     var chatsInEditor = false
-    var showsAgentHeading = true
     var showsActions = true
+    var showsHideButton = true
     var onRename: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     var onCopyConversation: (() -> Void)? = nil
     var showsToolbar = true
     var onToggleToolbar: (() -> Void)? = nil
-    var activity: AgentActivitySummaryBar? = nil
-    @State private var showsHistoryPopup = false
+    var showsDetails = false
+    var onToggleDetails: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if showsActions {
-                HStack(spacing: 4) {
-                    Button {
-                        showsHistoryPopup.toggle()
-                    } label: {
-                        HStack(spacing: LitheTheme.MainToolbar.comboIconTextGap) {
-                            AgentBrandIcon(name: agentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
-                            HStack(spacing: LitheTheme.MainToolbar.comboExpandGap) {
-                                Text(conversationTitle ?? AgentLocalization.string("Chat History", locale: locale))
-                                    .lineLimit(1).truncationMode(.tail)
-                                LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                              fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
-                            }
-                        }
-                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
-                        .padding(.leading, LitheTheme.MainToolbar.comboInsets.leading)
-                        .padding(.trailing, LitheTheme.MainToolbar.comboInsets.trailing)
-                    }
-                    .buttonStyle(LitheIconButtonStyle(size: LitheTheme.MainToolbar.comboHeight, isIconOnly: false))
-                    .litheDropdown(isPresented: $showsHistoryPopup) {
-                        if let historyPopup {
-                            historyPopup { showsHistoryPopup = false }
-                        } else {
-                            VStack(alignment: .leading, spacing: LitheDropdownMetrics.popupPadding) {
-                                Text("Conversation history is unavailable")
-                                    .font(LitheTheme.settingsFont)
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.historyViewportHeight,
-                                           alignment: .topLeading)
-                                if let onHistory {
-                                    Button("Conversation history") {
-                                        showsHistoryPopup = false
-                                        onHistory()
-                                    }.buttonStyle(LitheDropdownRowStyle())
-                                }
-                            }
-                            .padding(LitheDropdownMetrics.popupPadding)
-                            .frame(width: LitheDropdownMetrics.maximumWidth)
-                        }
-                    }
-                    .disabled(onHistory == nil)
-                    .help("Conversation history")
-                    .accessibilityIdentifier("agent-history-open")
-                    Spacer(minLength: 4)
-                    Button { onNew?() } label: {
-                        HStack(spacing: 2) {
-                            LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                          fallbackSystemImage: "plus", preservesOriginalColors: true)
-                            Text("New Chat").lineLimit(1)
-                        }
-                        .font(LitheTheme.uiFont(size: 13))
-                        .padding(.horizontal, 4)
-                    }
-                    .litheToolbarIconButton(isIconOnly: false)
-                    .disabled(onNew == nil)
-                    .help("New conversation")
-                    .accessibilityIdentifier("agent-new-chat")
-                    if let onToggleLocation {
-                        Button(action: onToggleLocation) {
-                            LitheIDEAIcon(resourcePath: "expui/general/previewVertically.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                          fallbackSystemImage: "rectangle.rightthird.inset.filled", preservesOriginalColors: true)
-                        }
-                        .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, isSelected: chatsInEditor))
-                        .help(chatsInEditor ? "Show Chats in the AI Tool Window" : "Show Chats in the Editor")
-                        .accessibilityIdentifier("agent-chat-location")
-                    }
-                    LitheMenu {
-                        LitheContextMenuItem.action("Rename Chat", isEnabled: onRename != nil) { onRename?() }
-                        LitheContextMenuItem.action("Copy Conversation", isEnabled: onCopyConversation != nil) { onCopyConversation?() }
-                        LitheContextMenuItem.action("Delete Chat",
-                            icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/delete.svg", size: LitheDropdownMetrics.iconSize,
-                                                       fallbackSystemImage: "trash", preservesOriginalColors: true)),
-                            role: .destructive, isEnabled: onDelete != nil) { onDelete?() }
-                        LitheContextMenuItem.separator
-                        LitheContextMenuItem.action("Settings…", action: onOpenSettings)
-                        LitheContextMenuItem.separator
-                        LitheContextMenuItem.action("Show Toolbar", checked: showsToolbar, leadingCheckmark: true,
-                                                    isEnabled: onToggleToolbar != nil) { onToggleToolbar?() }
-                    } label: {
-                        LitheIDEAIcon(resourcePath: "expui/general/moreVertical.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                                      fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
-                    }
-                    .litheToolbarIconButton()
-                    .help("Chat options")
-                    .accessibilityIdentifier("agent-header-options")
-                    LitheSidebarHideButton(title: "Agent", action: onHide)
-                }
-                .padding(.leading, AgentPanelStyle.headerLeadingInset)
-                .padding(.trailing, 7)
-                .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
-            }
-            if showsAgentHeading {
-                HStack(spacing: 8) {
-                    AgentBrandIcon(name: agentName, size: 16, style: .brand)
-                    Text(agentName ?? AgentLocalization.string("Agent", locale: locale))
-                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    if let activity { activity.id(activity.sessionID) }
-                }
-                .foregroundStyle(AgentPanelStyle.text)
-                .padding(.leading, AgentPanelStyle.iconLeadingInset)
-                .padding(.trailing, 20)
-                .frame(height: 34)
+        HStack(spacing: 4) {
+            Text(conversationTitle ?? AgentLocalization.string("New Chat", locale: locale))
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold))
+                .lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("agent-selected-name")
+                .accessibilityIdentifier("agent-conversation-title")
+            if showsActions {
+                iconButton("expui/general/add.svg", fallback: "plus", help: "New conversation", identifier: "agent-new-chat") { onNew?() }
+                    .disabled(onNew == nil)
+                if let onToggleLocation {
+                    Button(action: onToggleLocation) {
+                        LitheIDEAIcon(resourcePath: "expui/general/previewVertically.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                      fallbackSystemImage: "rectangle.rightthird.inset.filled", preservesOriginalColors: true)
+                    }
+                    .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, isSelected: chatsInEditor))
+                    .help(chatsInEditor ? "Show Chats in the AI Tool Window" : "Show Chats in the Editor")
+                    .accessibilityIdentifier("agent-chat-location")
+                }
+                iconButton("expui/general/search.svg", fallback: "magnifyingglass", help: "Search conversation", identifier: "agent-chat-search") { onSearch?() }
+                    .disabled(onSearch == nil)
+                iconButton("expui/general/history.svg", fallback: "clock.arrow.circlepath", help: "Conversation history", identifier: "agent-history-open") { onHistory?() }
+                    .disabled(onHistory == nil)
+                LitheMenu {
+                    LitheContextMenuItem.action("Rename Chat", isEnabled: onRename != nil) { onRename?() }
+                    LitheContextMenuItem.action("Copy Conversation", isEnabled: onCopyConversation != nil) { onCopyConversation?() }
+                    LitheContextMenuItem.action("Delete Chat",
+                        icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/delete.svg", size: LitheDropdownMetrics.iconSize,
+                                                   fallbackSystemImage: "trash", preservesOriginalColors: true)),
+                        role: .destructive, isEnabled: onDelete != nil) { onDelete?() }
+                    LitheContextMenuItem.separator
+                    LitheContextMenuItem.action("Settings…", action: onOpenSettings)
+                    LitheContextMenuItem.separator
+                    LitheContextMenuItem.action("Show Toolbar", checked: showsToolbar, leadingCheckmark: true,
+                                                isEnabled: onToggleToolbar != nil) { onToggleToolbar?() }
+                    if let onToggleDetails {
+                        LitheContextMenuItem.action("Show Session Details", checked: showsDetails, leadingCheckmark: true,
+                                                    action: onToggleDetails)
+                    }
+                } label: {
+                    LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                  fallbackSystemImage: "gearshape", preservesOriginalColors: true)
+                }
+                .litheToolbarIconButton()
+                .help("Chat options")
+                .accessibilityIdentifier("agent-header-options")
+                if showsHideButton { LitheSidebarHideButton(title: "Agent", action: onHide) }
             }
         }
-        .litheWorkbenchSurface(AgentPanelStyle.canvas)
+        .foregroundStyle(AgentPanelStyle.text)
+        .padding(.leading, AgentPanelStyle.iconLeadingInset)
+        .padding(.trailing, 7)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
+        .litheWorkbenchSurface(AgentPanelStyle.header)
+        .overlay(alignment: .bottom) { Divider().overlay(LitheTheme.divider) }
+    }
+
+    private func iconButton(_ resource: String, fallback: String, help: LocalizedStringKey, identifier: String,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            LitheIDEAIcon(resourcePath: resource, size: LitheTheme.Metrics.toolbarIconSize,
+                          fallbackSystemImage: fallback, preservesOriginalColors: true)
+        }
+        .litheToolbarIconButton()
+        .help(help)
+        .accessibilityIdentifier(identifier)
     }
 }
 
@@ -403,7 +358,7 @@ private struct AgentConnectionView: View {
     @State private var renameTitle = ""
     @State private var deleteSessionID: String?
     @AppStorage("lithe.agent.showToolbar") private var showsToolbar = true
-    @AppStorage("lithe.agent.editor.showsDetails") private var showsEditorDetails = true
+    @AppStorage("lithe.agent.editor.showsDetails") private var showsEditorDetails = false
     @State private var draftReset = 0
     @Environment(\.scenePhase) private var scenePhase
 
@@ -487,28 +442,29 @@ private struct AgentConnectionView: View {
         Group {
             if isEditorLayout { editorConversation } else { toolWindowConversation }
         }
-        .environment(\.agentUsesSubscription, feature.usesSubscription)
     }
 
     /// Editor tab: full-width header, centered reading column and an optional details column.
     private var editorConversation: some View {
         VStack(spacing: 0) {
-            AgentEditorChatHeader(
+            AgentChatHeader(
                 agentName: selectedAgent?.name ?? feature.agentName,
-                conversationTitle: conversationTitle,
-                historyPopup: historyPopup,
+                onHistory: { showsHistory = true },
                 onNew: feature.isCreatingSession ? nil : startNewConversation,
-                onSearch: { showsSearch.toggle(); if !showsSearch { searchText = "" } },
-                showsDetails: showsEditorDetails,
-                onToggleDetails: { showsEditorDetails.toggle() },
-                onMoveToToolWindow: { onToggleLocation?() },
                 onOpenSettings: onOpenSettings,
+                onHide: onHide,
+                conversationTitle: conversationTitle,
+                onSearch: toggleSearch,
+                onToggleLocation: onToggleLocation,
+                chatsInEditor: true,
+                showsHideButton: false,
                 onRename: renameAction,
                 onDelete: deleteAction,
                 onCopyConversation: copyConversationAction,
                 showsToolbar: showsToolbar,
                 onToggleToolbar: { showsToolbar.toggle() },
-                activity: activity
+                showsDetails: showsEditorDetails,
+                onToggleDetails: { showsEditorDetails.toggle() }
             )
             GeometryReader { geometry in
                 HStack(spacing: 0) {
@@ -520,48 +476,52 @@ private struct AgentConnectionView: View {
                                 errorNotice
                             }
                         } composer: {
-                            composer(layout: .editor)
+                            conversationComposer
                         }
                     }
                     .modifier(AgentEditorColumn(isEditor: true))
                     if showsEditorDetails && geometry.size.width >= AgentEditorConversationMetrics.detailsMinimumTotalWidth {
-                        AgentEditorDetailsPanel(
-                            statistics: feature.selectedConversation?.sessionStatistics,
-                            contextUsage: feature.selectedConversation?.contextUsage,
-                            fileChanges: AgentActivity(messages: feature.selectedConversation?.messages ?? [],
-                                                       reviewed: feature.selectedConversation?.reviewedFileChanges ?? [:]).files,
-                            workspace: workspaceSummary
-                        )
+                        detailsPanel
                     }
                 }
             }
         }
     }
 
+    private var detailsPanel: some View {
+        AgentEditorDetailsPanel(
+            statistics: feature.selectedConversation?.sessionStatistics,
+            contextUsage: feature.selectedConversation?.contextUsage,
+            fileChanges: AgentActivity(messages: feature.selectedConversation?.messages ?? [],
+                                       reviewed: feature.selectedConversation?.reviewedFileChanges ?? [:]).files,
+            workspace: workspaceSummary
+        )
+    }
+
     private var toolWindowConversation: some View {
         VStack(spacing: 0) {
-            AgentChatHeader(
-                agentName: selectedAgent?.name ?? feature.agentName,
-                onHistory: { showsHistory = true },
-                onNew: feature.isCreatingSession ? nil : startNewConversation,
-                onOpenSettings: onOpenSettings,
-                onHide: onHide,
-                conversationTitle: historyOnly ? AgentLocalization.string("AI Chat", locale: locale) : conversationTitle,
-                historyPopup: historyPopup,
-                onToggleLocation: onToggleLocation, chatsInEditor: chatsInEditor,
-                showsAgentHeading: !historyOnly, showsActions: showsChatActions,
-                onRename: renameAction,
-                onDelete: deleteAction,
-                onCopyConversation: copyConversationAction,
-                showsToolbar: showsToolbar,
-                onToggleToolbar: { showsToolbar.toggle() },
-                activity: activity
-            )
+            if !historyOnly {
+                AgentChatHeader(
+                    agentName: selectedAgent?.name ?? feature.agentName,
+                    onHistory: { showsHistory = true },
+                    onNew: feature.isCreatingSession ? nil : startNewConversation,
+                    onOpenSettings: onOpenSettings,
+                    onHide: onHide,
+                    conversationTitle: conversationTitle,
+                    onSearch: toggleSearch,
+                    onToggleLocation: onToggleLocation, chatsInEditor: chatsInEditor,
+                    showsActions: showsChatActions,
+                    onRename: renameAction,
+                    onDelete: deleteAction,
+                    onCopyConversation: copyConversationAction,
+                    showsToolbar: showsToolbar,
+                    onToggleToolbar: { showsToolbar.toggle() }
+                )
+            }
             if historyOnly {
-                AgentHistoryPopover(feature: feature, history: history, agentName: selectedAgent?.name ?? feature.agentName,
-                    onSelect: { id in feature.selectSession(id); onFocusEditor?() },
-                    onManage: { showsHistory = true }, onSearch: { showsSearch = true }, onDismiss: {},
-                    isToolWindow: true)
+                AgentHistoryView(feature: feature, history: history, agentName: selectedAgent?.name ?? feature.agentName,
+                    onBack: { onToggleLocation?() }, onCopySessionID: onCopySessionID,
+                    onSelect: { id in feature.selectSession(id); onFocusEditor?() }, onReconnect: onConnect)
             } else {
                 if showsSearch { searchBar }
                 AgentConversationLayout {
@@ -570,18 +530,15 @@ private struct AgentConnectionView: View {
                         errorNotice
                     }
                 } composer: {
-                    composer(layout: .toolWindow)
+                    conversationComposer
                 }
             }
         }
     }
 
-    private func historyPopup(_ dismiss: @escaping () -> Void) -> AnyView {
-        AnyView(AgentHistoryPopover(feature: feature, history: history,
-            agentName: selectedAgent?.name ?? feature.agentName,
-            onSelect: { id in dismiss(); feature.selectSession(id) },
-            onManage: { dismiss(); showsHistory = true },
-            onSearch: { dismiss(); showsSearch = true }, onDismiss: dismiss))
+    private func toggleSearch() {
+        showsSearch.toggle()
+        if !showsSearch { searchText = "" }
     }
 
     private var renameAction: (() -> Void)? {
@@ -626,7 +583,18 @@ private struct AgentConnectionView: View {
         }
     }
 
-    private func composer(layout: AgentComposerLayout) -> some View {
+    private var conversationComposer: some View {
+        VStack(spacing: AgentComposerMetrics.activitySpacing) {
+            activity.id(feature.selectedSessionID)
+                .padding(.horizontal, AgentComposerMetrics.horizontalInset)
+            composer
+        }
+        .transformPreference(AgentComposerMinimumHeightKey.self) {
+            $0 += AgentComposerMetrics.activityHeight + AgentComposerMetrics.activitySpacing
+        }
+    }
+
+    private var composer: some View {
         AgentComposerView(
             agents: agents,
             selectedAgent: selectedAgent,
@@ -656,7 +624,7 @@ private struct AgentConnectionView: View {
             onSetConfig: { feature.setConfigOption($0, value: $1) },
             commands: feature.selectedConversation?.availableCommands ?? [],
             showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles,
-            layout: layout
+            detailsContent: { AnyView(detailsPanel.frame(height: AgentEditorConversationMetrics.detailsPopupHeight)) }
         )
         .id(draftReset)
     }
