@@ -90,12 +90,16 @@ queued macOS jobs through the read-only `actions: read` token permission:
 - If the API cannot be read, routing falls back to the fixed assignment: Rust
   Core and packaging on the Mac minis, Swift and plugin tests on hosted runners.
 
-**Swift tests** stay on hosted runners for now (`HOSTED_ONLY_LANES` in the
-selector). The Mac minis run macOS 27, where `CGWindowListCopyWindowInfo`
-returns NULL, so `DesktopIsolationTests` cannot read its window from
-WindowServer (#1278). Screen Recording permission for the runners' node and an
-unlocked console are both in place and do not change this; macOS 26 hosted
-runners pass. Remove the lane from that set once the test works on macOS 27.
+**Swift tests** run on the Mac minis like the other lanes, with one exception.
+The Mac minis run macOS 27, where `CGWindowListCopyWindowInfo` returns NULL, so
+`DesktopIsolationTests.windowServerPublishesTheIsolatedAlpha` cannot read its
+window's alpha from WindowServer and is reported as skipped there (#1278); the
+ordering and drawing checks of the test isolation still run. When a pull
+request changes `macos/Tests/LitheTestDesktopIsolation*`, the classifier sets
+`swift_hosted` and the Swift lane stays on hosted macOS 26 runners, where the
+alpha check runs. The runners' node binaries hold Screen Recording and the
+console stays unlocked; neither changes the macOS 27 result, but keep both for
+when the check can run there again.
 
 The job summary of **Classify changes** shows the counts and the chosen pool. The
 choice is made once: it does not see other repositories' use of the hosted pool,
