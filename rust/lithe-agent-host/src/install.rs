@@ -122,16 +122,13 @@ pub fn status(data_directory: &Path, cancel: &dyn Fn() -> bool) -> ManagementSta
             Some(
                 cli_update::detect(cli, &environment, cancel)
                     .map(|mut plan| {
-                        if cli.command == "codex" {
-                            if let Some(installed) = environment::detect_tool(cli.command, cancel) {
-                                plan.installation.update_available =
-                                    cli_update::codex_update_available(
-                                        &plan,
-                                        &installed.version,
-                                        environment::search_path().as_deref(),
-                                        cancel,
-                                    );
-                            }
+                        if let Some(installed) = environment::detect_tool(cli.command, cancel) {
+                            plan.installation.update_available = cli_update::update_available(
+                                &plan,
+                                &installed.version,
+                                environment::search_path().as_deref(),
+                                cancel,
+                            );
                         }
                         plan.installation
                     })

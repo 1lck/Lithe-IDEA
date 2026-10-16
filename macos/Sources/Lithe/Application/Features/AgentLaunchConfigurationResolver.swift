@@ -15,7 +15,8 @@ struct AgentLaunchConfigurationResolver {
             return AgentLaunchConfiguration(agentID: agentID, command: "", arguments: [],
                 workspaceURL: workspaceURL, dataDirectory: dataDirectory,
                 providerProtocol: "", providerEndpoint: "", apiKey: "", providerName: "", model: "",
-                allowsInsecureHTTP: false, authentication: .codexSubscription)
+                allowsInsecureHTTP: false, authentication: .codexSubscription,
+                observesModelCalls: settings.agentModelCallStatistics)
         }
         guard var provider = settings.agentProvider(for: agentID) else {
             throw AgentConversationError.missingProvider

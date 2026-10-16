@@ -61,6 +61,25 @@ enum AgentHistoryPresentation {
         return rows.filter { $0.id == selectedSessionID } + rows.filter { $0.id != selectedSessionID }
     }
 
+    /// The original management page also includes open chats that the Agent has
+    /// not listed yet. Titles are derived for display without changing its history.
+    static func managementSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
+                                   conversations: [String: AgentConversation], metadata: [String: AgentHistoryMetadata],
+                                   query: String, filter: AgentHistoryFilter, locale: Locale = .current) -> [AgentSessionSummary] {
+        let listedIDs = Set(sessions.map(\.id))
+        let rows = popupSessions(sessions, openSessionIDs: openSessionIDs, metadata: [:], locale: locale).map { session in
+            var row = session
+            if !listedIDs.contains(session.id), let prompt = conversations[session.id]?.messages.first(where: {
+                $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) {
+                row.title = AgentSessionTitle.provisional(prompt.text)
+            }
+            row.title = popupTitle(row, metadata: metadata[session.id], conversation: conversations[session.id], locale: locale)
+            return row
+        }
+        return Self.sessions(rows, metadata: metadata, query: query, filter: filter)
+    }
+
     /// Value-type styles: creating an `ISO8601DateFormatter` per call made
     /// sorting and every history row render measurably slow.
     private static let fractionalDateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
@@ -102,7 +121,8 @@ struct AgentHistoryView: View {
     @State private var pendingUnarchiveID: String?
 
     private var sessions: [AgentSessionSummary] {
-        AgentHistoryPresentation.sessions(feature.sessions, metadata: history.metadata, query: query, filter: filter)
+        AgentHistoryPresentation.managementSessions(feature.sessions, openSessionIDs: feature.openSessionIDs,
+            conversations: feature.conversations, metadata: history.metadata, query: query, filter: filter, locale: locale)
     }
     /// Searched and filtered like active rows; local restoration never loads a transcript.
     private var archived: [AgentSessionSummary] {
@@ -165,6 +185,7 @@ struct AgentHistoryView: View {
             }
         }
         .litheWorkbenchSurface(AgentPanelStyle.canvas)
+        .onAppear { feature.refreshSessions() }
         .onChange(of: visibleIDs) { selectedIDs.formIntersection($0) }
         .onChange(of: query) { _ in archivedExpansion = nil }
         .alert("Confirm deletion", isPresented: Binding(

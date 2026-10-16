@@ -541,8 +541,12 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID, default: AgentConversation()].isLoading = false
             conversations[sessionID]?.isAttached = true
             conversations[sessionID]?.hasCompleteHistory = true
+            // The final catalog describes any usage just replayed during this
+            // load. Reconcile notices without discarding that native report.
+            applyConfiguration(event["configOptions"], to: sessionID, invalidatesContextUsage: false)
+            restoreContextUsage(in: sessionID)
             loadBackups[sessionID] = nil
-            applyConfiguration(event["configOptions"], to: sessionID)
+            persistStatistics(sessionID)
             historyContinuations.removeValue(forKey: sessionID)?.resume(returning: conversations[sessionID]?.messages ?? [])
             if let prompt = queuedPrompts.removeValue(forKey: sessionID) {
                 startPrompt(prompt, in: sessionID)
@@ -743,6 +747,11 @@ public final class AgentConnectionModel: ObservableObject {
         case "usage_update":
             guard connectionState == .ready else { return }
             conversations[sessionID, default: AgentConversation()].contextUsage = AgentContextUsage.parse(update)
+            let meta = update["_meta"] as? [String: Any]
+            let source = (meta?["lithe"] as? [String: Any])?["contextUsageSource"] as? String
+            conversations[sessionID]?.contextUsageIsHistorical = source == "history" && conversations[sessionID]?.contextUsage != nil
+            conversations[sessionID]?.hasReportedContextUsage = true
+            if conversations[sessionID]?.isResponding == false { persistStatistics(sessionID) }
         case "config_option_update":
             applyConfiguration(update["configOptions"], to: sessionID)
         case "agent_message_chunk":
@@ -830,14 +839,19 @@ public final class AgentConnectionModel: ObservableObject {
         conversations[sessionID] = conversation
     }
 
-    private func applyConfiguration(_ value: Any?, to sessionID: String) {
+    private func applyConfiguration(_ value: Any?, to sessionID: String, invalidatesContextUsage: Bool = true) {
         let options = AgentSessionConfigOption.parse(value)
-        let oldModels = conversations[sessionID]?.configOptions.filter { $0.category == "model" } ?? []
-        let newModels = options.filter { $0.category == "model" }
+        let oldModels = conversations[sessionID]?.contextModelValues ?? [:]
+        let newModels = options.filter { $0.category == "model" }.reduce(into: [String: String]()) { $0[$1.id] = $1.currentValue }
         let transition = conversations[sessionID]?.autoFallbackTransition
         conversations[sessionID]?.autoFallbackTransition = nil
-        if oldModels.map(\.currentValue) != newModels.map(\.currentValue) {
-            conversations[sessionID]?.contextUsage = nil
+        if oldModels != newModels {
+            if invalidatesContextUsage {
+                conversations[sessionID]?.contextUsage = nil
+                conversations[sessionID]?.contextUsageIsHistorical = false
+                // Invalidating a report must not prematurely persist an unfinished turn.
+                if conversations[sessionID]?.isLoading == false { statisticsStore?.invalidateContextUsage(for: sessionID) }
+            }
             if !oldModels.isEmpty, isClaudeConnection, let notice = conversations[sessionID]?.notice,
                notice.isClaudeAutoModeFallback {
                 // Claude's native model switch emits mode -> notice -> catalog.
@@ -1024,8 +1038,18 @@ public final class AgentConnectionModel: ObservableObject {
     }
 
     private func persistStatistics(_ sessionID: String) {
-        guard let statisticsStore, let conversation = conversations[sessionID], !conversation.isLoading else { return }
+        guard let statisticsStore, let conversation = conversations[sessionID],
+              conversation.isAttached, !conversation.isLoading else { return }
         statisticsStore.save(conversation, sessionID: sessionID)
+    }
+
+    private func restoreContextUsage(in sessionID: String) {
+        guard let conversation = conversations[sessionID], !conversation.hasReportedContextUsage else { return }
+        let snapshot = conversation.statisticsBaseline ?? loadBackups[sessionID]?.statisticsRecord(at: .distantPast)
+        guard let usage = snapshot?.contextUsage, let models = snapshot?.contextModels,
+              !models.isEmpty, models == conversation.contextModelValues else { return }
+        conversations[sessionID]?.contextUsage = usage
+        conversations[sessionID]?.contextUsageIsHistorical = true
     }
 
     private func beginLoad(_ sessionID: String) {
@@ -1116,6 +1140,8 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[id]?.finishTurn(at: now())
             persistStatistics(id)
             conversations[id]?.contextUsage = nil
+            conversations[id]?.contextUsageIsHistorical = false
+            conversations[id]?.hasReportedContextUsage = false
             conversations[id]?.notice = nil
             conversations[id]?.pendingModeNotice = nil
             conversations[id]?.autoFallbackTransition = nil

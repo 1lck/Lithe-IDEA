@@ -4,6 +4,8 @@ import LitheAgentConversationModule
 /// Fixed strips and the flexible editor use the same sizes when computing the
 /// split minimum. Commands never increase that minimum; attachments do.
 enum AgentComposerMetrics {
+    static let activityHeight: CGFloat = 34
+    static let activitySpacing: CGFloat = 4
     static let contextHeight: CGFloat = 26
     static let toolbarHeight: CGFloat = 30
     static let fileHeight: CGFloat = 34
@@ -12,9 +14,8 @@ enum AgentComposerMetrics {
     static let writingLineHeight: CGFloat = inputMinimumHeight - (toolbarHeight - 2)
     static let bottomInset: CGFloat = 8
     static let horizontalInset: CGFloat = 8
+    static let toolbarHorizontalInset: CGFloat = 5
     static let splitTopInset: CGFloat = 10
-    /// Horizontal inset of the editor status tab, clear of the composer's rounded corners.
-    static let statusTabInset: CGFloat = 12
 
     static func minimumHeight(hasFiles: Bool) -> CGFloat {
         contextHeight - 2 + inputMinimumHeight + bottomInset + splitTopInset + (hasFiles ? fileHeight : 0)
@@ -42,6 +43,7 @@ struct AgentComposerContent<Context: View, Editor: View, Toolbar: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
+                context()
                 if !files.isEmpty { AgentFileReferenceList(files: files, onRemove: onRemoveFile) }
                 AgentComposerDraftArea(commands: commands, highlightedIndex: highlightedIndex, onSelect: onSelect) {
                     ScrollView { editor() }
@@ -58,7 +60,6 @@ struct AgentComposerContent<Context: View, Editor: View, Toolbar: View>: View {
                 lineWidth: isFocused ? 2 : 1,
                 borderOutset: isFocused ? 1 : 0
             )
-            context()
         }
         .preference(key: AgentComposerMinimumHeightKey.self, value: AgentComposerMetrics.minimumHeight(hasFiles: !files.isEmpty))
     }

@@ -95,7 +95,6 @@ struct AgentSessionSummaryView: View {
     let statistics: AgentSessionStatistics
     var showsRate = true
     @Environment(\.locale) private var locale
-    @Environment(\.agentUsesSubscription) private var usesSubscription
 
     var body: some View {
         HStack(spacing: 4) {
@@ -108,7 +107,6 @@ struct AgentSessionSummaryView: View {
             .fixedSize()
             .workbenchHoverCard(placement: .above, maximumWidth: AgentStatusCardMetrics.width) {
                 AgentSessionSummaryCard(statistics: statistics)
-                    .environment(\.agentUsesSubscription, usesSubscription)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Session statistics")
@@ -120,7 +118,6 @@ struct AgentSessionSummaryView: View {
 struct AgentSessionSummaryCard: View {
     let statistics: AgentSessionStatistics
     @Environment(\.locale) private var locale
-    @Environment(\.agentUsesSubscription) private var usesSubscription
 
     var body: some View {
         AgentStatusCard(title: "Session statistics", systemImage: "gauge.with.dots.needle.33percent") {
@@ -145,8 +142,6 @@ struct AgentSessionSummaryCard: View {
         } footnote: {
             if statistics.modelCalls != nil {
                 Text("Model calls are observed by the local proxy. Tool time is measured by Lithe and includes permission waits.")
-            } else if usesSubscription {
-                Text("Subscription sign-in sends requests directly to the provider, so model calls, time to first token and output speed are not observed.")
             } else {
                 Text("Turn on Model call statistics in Agent settings and reconnect to see model calls, time to first token and output speed.")
             }
@@ -221,7 +216,7 @@ struct AgentContextBreakdown {
     let composition: AgentModelCall.Context?
 
     enum Segment: CaseIterable {
-        case messages, mcpTools, systemPrompt, tools
+        case systemPrompt, tools, messages, mcpTools
 
         var title: LocalizedStringKey {
             switch self {
@@ -234,10 +229,10 @@ struct AgentContextBreakdown {
 
         var color: Color {
             switch self {
-            case .systemPrompt: LitheTheme.success
-            case .tools: AgentPanelStyle.versionAccent
-            case .mcpTools: LitheTheme.warning
-            case .messages: AgentPanelStyle.focus
+            case .systemPrompt: AgentPanelStyle.focus
+            case .tools: LitheTheme.success
+            case .messages: LitheTheme.warning
+            case .mcpTools: AgentPanelStyle.versionAccent
             }
         }
 
@@ -249,10 +244,19 @@ struct AgentContextBreakdown {
             case .messages: context.messageTokens
             }
         }
+
+        func toolCount(_ context: AgentModelCall.Context) -> Int? {
+            switch self {
+            case .tools: context.toolCount
+            case .mcpTools: context.mcpToolCount
+            default: nil
+            }
+        }
     }
 
     var hasFigures: Bool { usage != nil || composition != nil }
-    var total: UInt64 { usage?.capacityTokens ?? composition?.totalTokens ?? 0 }
+    // Request size alone cannot establish the model's context window.
+    var total: UInt64 { usage?.capacityTokens ?? 0 }
     var freeTokens: UInt64? {
         usage.map { $0.capacityTokens > $0.usedTokens ? $0.capacityTokens - $0.usedTokens : 0 }
     }
@@ -275,21 +279,24 @@ struct AgentContextBreakdown {
         guard let usage else {
             return composition.map { "~" + AgentSessionStatusPresentation.compactTokens($0.totalTokens, locale: locale) }
         }
-        return "~" + AgentSessionStatusPresentation.compactTokens(usage.usedTokens, locale: locale) + " / "
-            + AgentSessionStatusPresentation.compactTokens(usage.capacityTokens, locale: locale)
+        return AgentContextUsagePresentation.tokens(usage.usedTokens, locale: locale) + " / "
+            + AgentContextUsagePresentation.tokens(usage.capacityTokens, locale: locale)
     }
 
     /// Segments are drawn against the window size so free space stays visible.
     var bar: some View {
         GeometryReader { geometry in
-            let total = Double(max(self.total, 1))
-            HStack(spacing: 1) {
-                if let composition {
+            HStack(spacing: 0) {
+                if let composition, total > 0 {
                     ForEach(Segment.allCases, id: \.self) { segment in
-                        let tokens = Double(segment.tokens(composition))
-                        if tokens > 0 {
+                        let fraction = Double(segment.tokens(composition)) / Double(total)
+                        if fraction > 0 {
+                            let width = geometry.size.width * min(fraction, 1)
                             Rectangle().fill(segment.color)
-                                .frame(width: max(2, geometry.size.width * min(tokens / total, 1)))
+                                .overlay(alignment: .trailing) {
+                                    if width >= 2 { AgentPanelStyle.canvas.frame(width: 1) }
+                                }
+                                .frame(width: width)
                         }
                     }
                 } else if let usage {
@@ -302,8 +309,8 @@ struct AgentContextBreakdown {
             .background(AgentPanelStyle.border)
             .clipShape(Capsule())
         }
-        .frame(height: 6)
-        .padding(.vertical, 2)
+        .frame(height: 8)
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -323,18 +330,20 @@ struct AgentContextBreakdown {
     }
 
     @ViewBuilder
-    func footnote(usesSubscription: Bool) -> some View {
-        if let composition {
-            composition.scaledToUsage
-                ? Text("Estimated from the size of the latest request and scaled to the provider's input tokens.")
-                : Text("Estimated from the size of the latest request.")
+    func footnote(bundle: Bundle = .main) -> some View {
+        if composition != nil {
+            estimationNote(bundle: bundle)
         } else if usage == nil {
-            Text("The Agent has not reported context usage yet.")
-        } else if usesSubscription {
-            Text("Subscription sign-in sends requests directly to the provider, so Lithe cannot see the system prompt, tool definitions and messages. Use API key mode to see the breakdown.")
+            Text("The Agent has not reported context usage yet.", bundle: bundle)
         } else {
-            Text("Turn on Model call statistics in Agent settings and reconnect to see the system prompt, tool definitions and messages.")
+            Text("Turn on Model call statistics in Agent settings and reconnect to see the system prompt, tool definitions and messages.", bundle: bundle)
         }
+    }
+
+    func estimationNote(bundle: Bundle = .main) -> Text {
+        composition?.scaledToUsage == true
+            ? Text("Estimated from the size of the latest request and scaled to the provider's input tokens.", bundle: bundle)
+            : Text("Estimated from the size of the latest request.", bundle: bundle)
     }
 }
 
@@ -343,7 +352,6 @@ struct AgentContextUsageCard: View {
     let usage: AgentContextUsage?
     let composition: AgentModelCall.Context?
     @Environment(\.locale) private var locale
-    @Environment(\.agentUsesSubscription) private var usesSubscription
 
     private var breakdown: AgentContextBreakdown { AgentContextBreakdown(usage: usage, composition: composition) }
 
@@ -357,73 +365,110 @@ struct AgentContextUsageCard: View {
             if breakdown.hasFigures { breakdown.bar }
             breakdown.rows(locale: locale)
         } footnote: {
-            breakdown.footnote(usesSubscription: usesSubscription)
+            breakdown.footnote()
         }
     }
 }
 
-/// Interactive context breakdown: a collapsible title over the occupancy bar,
-/// one row per request part, and the number of tools sent with the request.
+/// Shared context summary for the send-button popup and session details.
+/// Only the four observed request categories are shown; absent figures stay unknown.
 struct AgentContextPanel: View {
     static let popoverWidth: CGFloat = 300
 
     let usage: AgentContextUsage?
     let composition: AgentModelCall.Context?
+    var onClose: (() -> Void)?
+    var bundle: Bundle = .main
     @Environment(\.locale) private var locale
-    @Environment(\.agentUsesSubscription) private var usesSubscription
-    @AppStorage("lithe.agent.context.expanded") private var isExpanded = true
 
     private var breakdown: AgentContextBreakdown { AgentContextBreakdown(usage: usage, composition: composition) }
 
-    private var usedTitle: String {
-        String(format: AgentLocalization.string("Used %@", locale: locale),
-               usage.map { AgentContextUsagePresentation.percentage($0, locale: locale) } ?? "—")
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button { isExpanded.toggle() } label: {
-                HStack(spacing: 4) {
-                    Text("Context").font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                    Image(systemName: "chevron.down")
-                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
-                        .foregroundStyle(AgentPanelStyle.secondary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
-            .foregroundStyle(LitheTheme.primaryText)
-            .accessibilityValue(isExpanded ? Text("Expanded") : Text("Collapsed"))
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(verbatim: usedTitle).font(LitheTheme.uiFont(size: 12, weight: .medium))
-                Spacer(minLength: 12)
-                if let capacity = breakdown.capacity(locale: locale) {
-                    Text(verbatim: capacity).foregroundStyle(AgentPanelStyle.secondary).monospacedDigit()
+                Text("Context usage", bundle: bundle).font(LitheTheme.uiFont(size: 12, weight: .medium))
+                Spacer(minLength: 8)
+                if let onClose {
+                    Button(action: onClose) {
+                        LitheIDEAIcon(resourcePath: "expui/general/close.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                                      fallbackSystemImage: "xmark", preservesOriginalColors: true)
+                    }
+                    .litheToolbarIconButton()
+                    .accessibilityLabel(Text("Close", bundle: bundle))
+                    .accessibilityIdentifier("agent-context-close")
                 }
             }
-            if breakdown.hasFigures { breakdown.bar }
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 6) {
-                    breakdown.rows(locale: locale)
-                    if let composition {
-                        Divider().overlay(LitheTheme.divider).padding(.vertical, 2)
-                        AgentStatusRow("Tools sent", value: composition.toolCount.formatted(.number.locale(locale)))
-                        if composition.mcpToolCount > 0 {
-                            AgentStatusRow("MCP tools sent", value: composition.mcpToolCount.formatted(.number.locale(locale)))
-                        }
+            .foregroundStyle(LitheTheme.primaryText)
+            VStack(alignment: .leading, spacing: 8) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) { percentage; capacity }
+                    VStack(alignment: .leading, spacing: 4) { percentage; capacity }
+                }
+                breakdown.bar
+            }
+            VStack(spacing: 12) {
+                ForEach(AgentContextBreakdown.Segment.allCases, id: \.self) { segment in
+                    legendRow(segment)
+                }
+            }
+            if composition == nil {
+                Divider().overlay(LitheTheme.divider)
+                Group {
+                    if usage == nil {
+                        breakdown.footnote(bundle: bundle)
+
+                    } else {
+                        Text("Turn on Model call statistics, reconnect and send a message to see the breakdown.", bundle: bundle)
                     }
                 }
-                breakdown.footnote(usesSubscription: usesSubscription)
-                    .font(LitheTheme.uiFont(size: 10.5))
-                    .foregroundStyle(AgentPanelStyle.muted)
-                    .fixedSize(horizontal: false, vertical: true)
+                .font(LitheTheme.uiFont(size: 10.5))
+                .foregroundStyle(AgentPanelStyle.muted)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(LitheTheme.uiFont(size: 12))
+        .foregroundStyle(LitheTheme.primaryText)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("agent-context-panel")
+    }
+
+    private var percentage: some View {
+        Text(verbatim: AgentContextUsagePresentation.percentage(usage, locale: locale, precise: true))
+            .font(LitheTheme.uiFont(size: 24, weight: .semibold)).monospacedDigit().fixedSize()
+    }
+
+    @ViewBuilder
+    private var capacity: some View {
+        if let usage {
+            let counts = AgentContextUsagePresentation.tokens(usage.usedTokens, locale: locale) + " / "
+                + AgentContextUsagePresentation.tokens(usage.capacityTokens, locale: locale)
+            Text(verbatim: String(format: AgentLocalization.string("Used %@", locale: locale, bundle: bundle), counts))
+                .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+                .monospacedDigit().fixedSize()
+        }
+    }
+
+    private func legendRow(_ segment: AgentContextBreakdown.Segment) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(segment.color).frame(width: 8, height: 8).accessibilityHidden(true)
+            Text(segment.title, bundle: bundle).lineLimit(1)
+            if let composition, let count = segment.toolCount(composition) {
+                Text(verbatim: "(\(count.formatted(.number.locale(locale))))")
+                    .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(AgentPanelStyle.muted)
+            }
+            Spacer(minLength: 8)
+            Text(verbatim: usage == nil ? "—" : composition.map { "~" + breakdown.share(segment.tokens($0), locale: locale) } ?? "—")
+                .foregroundStyle(AgentPanelStyle.secondary).monospacedDigit().fixedSize()
+        }
+        .workbenchHoverCard(placement: .above, maximumWidth: LitheDropdownMetrics.maximumWidth) {
+            if let composition {
+                WorkbenchHoverTooltipLabel(title: Text(verbatim: "~"
+                    + AgentSessionStatusPresentation.tokens(segment.tokens(composition), locale: locale) + "\n")
+                    + breakdown.estimationNote(bundle: bundle))
+            } else {
+                WorkbenchHoverTooltipLabel(title: Text("Breakdown unavailable", bundle: bundle))
+            }
+        }
     }
 }
 
@@ -431,22 +476,11 @@ enum AgentStatusCardMetrics {
     static let width: CGFloat = 300
 }
 
-private struct AgentUsesSubscriptionKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
 private struct AgentStatusCardInlineKey: EnvironmentKey {
     static let defaultValue = false
 }
 
 extension EnvironmentValues {
-    /// Subscription sign-in bypasses the local model call proxy, so the
-    /// request composition can never be observed for that connection.
-    var agentUsesSubscription: Bool {
-        get { self[AgentUsesSubscriptionKey.self] }
-        set { self[AgentUsesSubscriptionKey.self] = newValue }
-    }
-
     /// Status cards normally render as hover cards. The editor conversation's
     /// details column embeds the same cards inline at its own width.
     var agentStatusCardIsInline: Bool {
