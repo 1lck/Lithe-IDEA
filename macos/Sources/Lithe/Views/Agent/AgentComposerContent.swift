@@ -14,6 +14,7 @@ enum AgentComposerMetrics {
     static let writingLineHeight: CGFloat = inputMinimumHeight - (toolbarHeight - 2)
     static let bottomInset: CGFloat = 8
     static let horizontalInset: CGFloat = 8
+    static let toolbarHorizontalInset: CGFloat = 5
     static let splitTopInset: CGFloat = 10
 
     static func minimumHeight(hasFiles: Bool) -> CGFloat {

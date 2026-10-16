@@ -59,7 +59,7 @@ struct AgentConversationPresentationTests {
                 #expect(anchor.convert(anchor.bounds, to: nil).midY < 75, "Context stays in the bottom command bar")
                 let rect = anchor.convert(anchor.bounds, to: host)
                 #expect(abs(rect.width - LitheTheme.Metrics.toolbarIconButtonSize) < 1)
-                #expect(abs(rect.maxX - (width - AgentComposerMetrics.horizontalInset - 5
+                #expect(abs(rect.maxX - (width - AgentComposerMetrics.horizontalInset - AgentComposerMetrics.toolbarHorizontalInset
                     - LitheTheme.Metrics.toolbarIconButtonSize - 4)) < 1, "Only Send follows the context ring")
                 let region = NSRect(x: rect.minX + 3, y: rect.minY, width: 16, height: rect.height)
                 let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: region))

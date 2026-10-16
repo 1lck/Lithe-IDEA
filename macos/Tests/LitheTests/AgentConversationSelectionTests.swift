@@ -129,7 +129,7 @@ struct AgentConversationSelectionTests {
             // The context strip now sits above the editor; Send and Stop stay
             // in the bottom toolbar, independent of the strip's height.
             let toolbarCenter = AgentComposerMetrics.bottomInset + (AgentComposerMetrics.toolbarHeight - 2) / 2
-            let sendX = width - AgentComposerMetrics.horizontalInset - 5 - 11
+            let sendX = width - AgentComposerMetrics.horizontalInset - AgentComposerMetrics.toolbarHorizontalInset - 11
             try clickNativeView(host, at: NSPoint(x: sendX, y: 640 - toolbarCenter))
             try #require(await awaitChange(on: feature) { native.commands.last?["kind"] as? String == "steer" })
             let token = try #require(native.commands.last?["token"] as? String)

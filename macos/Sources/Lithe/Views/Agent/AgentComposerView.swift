@@ -144,7 +144,7 @@ struct AgentComposerView: View {
         }
         .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(AgentPanelStyle.secondary)
-        .padding(.horizontal, 5)
+        .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset)
         .frame(height: AgentComposerMetrics.contextHeight - 2)
         .background(AgentPanelStyle.context)
     }
@@ -189,7 +189,7 @@ struct AgentComposerView: View {
             .help(isSendingSupplement ? "Sending…" : "Send")
             .accessibilityLabel("Send")
         }
-        .padding(.horizontal, 5)
+        .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset)
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)
     }
 
