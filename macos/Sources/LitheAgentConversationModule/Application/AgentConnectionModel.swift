@@ -39,7 +39,13 @@ public final class AgentConnectionModel: ObservableObject {
     @Published public private(set) var historyError: String?
     /// The Agent's own archived conversations for this workspace, kept apart from
     /// `sessions`: listing them is read-only and opening one needs consent.
-    @Published public private(set) var archivedSessions: [AgentSessionSummary] = []
+    @Published private var listedArchivedSessions: [AgentSessionSummary] = []
+    /// Only upstream listing evidence wins over an archive result. Locally loaded
+    /// conversations are retained for their tabs, not evidence of active history.
+    private var upstreamActiveSessionIDs: Set<String> = []
+    public var archivedSessions: [AgentSessionSummary] {
+        listedArchivedSessions.filter { !upstreamActiveSessionIDs.contains($0.id) }
+    }
     /// False when the Host stopped at its page bound, so the list is partial.
     @Published public private(set) var isArchivedHistoryComplete = true
     @Published public private(set) var canListArchivedSessions = false
@@ -234,7 +240,8 @@ public final class AgentConnectionModel: ObservableObject {
                 finishUnarchive(token: token, result: .failure(AgentConversationError.sendFailed(errorMessage ?? "The Agent request failed.")))
             }
         }
-        archivedSessions.removeAll { $0.id == sessionID }
+        listedArchivedSessions.removeAll { $0.id == sessionID }
+        upstreamActiveSessionIDs.insert(sessionID)
         if !sessions.contains(where: { $0.id == sessionID }) { sessions.insert(summary, at: 0) }
     }
 
@@ -509,17 +516,17 @@ public final class AgentConnectionModel: ObservableObject {
             mergeSessions(event["sessions"] as? [[String: Any]] ?? [])
             historyRefreshToken = nil
             isRefreshingSessions = false
-            pruneArchivedSessions()
+            reconcileArchivedSessions()
         case "archivedSessions":
             guard isRefreshingArchivedSessions, token == archivedRefreshToken else { return }
-            archivedSessions = (event["sessions"] as? [[String: Any]] ?? []).compactMap { entry in
+            listedArchivedSessions = (event["sessions"] as? [[String: Any]] ?? []).compactMap { entry in
                 guard let id = entry["sessionId"] as? String else { return nil }
                 return AgentSessionSummary(id: id, title: entry["title"] as? String, updatedAt: entry["updatedAt"] as? String)
             }
             isArchivedHistoryComplete = event["complete"] as? Bool ?? false
             archivedRefreshToken = nil
             isRefreshingArchivedSessions = false
-            pruneArchivedSessions()
+            reconcileArchivedSessions()
         case "sessionUnarchived":
             guard let token else { return }
             finishUnarchive(token: token, result: .success(()))
@@ -701,10 +708,10 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
 
-    /// Archiving races with listing: a conversation active upstream is shown once, as active.
-    private func pruneArchivedSessions() {
-        let active = Set(sessions.map(\.id))
-        archivedSessions.removeAll { active.contains($0.id) }
+    /// Keep the raw archive response so an older active listing cannot discard it.
+    private func reconcileArchivedSessions() {
+        let archived = Set(archivedSessions.map(\.id))
+        sessions.removeAll { archived.contains($0.id) }
     }
 
     private func mergeSessions(_ entries: [[String: Any]]) {
@@ -718,6 +725,7 @@ public final class AgentConnectionModel: ObservableObject {
             )
         }
         let listedIDs = Set(listed.map(\.id))
+        upstreamActiveSessionIDs = listedIDs
         // A listed session is owned by upstream history even if the local transcript is empty.
         unpromptedSessionIDs.subtract(listedIDs)
         // Sessions created in this run may not be persisted by the agent yet.
@@ -1086,7 +1094,8 @@ public final class AgentConnectionModel: ObservableObject {
         // Archived rows belong to this connection's Agent and workspace; never
         // let them outlive it into another Agent's history.
         canListArchivedSessions = false
-        archivedSessions = []
+        listedArchivedSessions = []
+        upstreamActiveSessionIDs = []
         isArchivedHistoryComplete = true
         isRefreshingArchivedSessions = false
         archivedRefreshToken = nil

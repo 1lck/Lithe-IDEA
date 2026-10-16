@@ -179,6 +179,85 @@ struct AgentHistoryTests {
         }
     }
 
+    @Test(arguments: [false, true], [false, true])
+    func archivingCoordinatesBothResponseOrdersAndLoadedConversations(archiveFirst: Bool, loaded: Bool) async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            // Complete the initial archive request, then archive a previously active row.
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [], "complete": true])
+            if loaded {
+                fixture.transport.connection.onCommand = { [weak feature = fixture.feature] command in
+                    guard command["kind"] as? String == "loadSession" else { return }
+                    feature?.receive(HistoryFixture.json(["kind": "sessionLoaded", "sessionId": "session-a",
+                                                         "token": command["token"] as Any]))
+                }
+                fixture.feature.selectSession("session-a")
+                #expect(fixture.feature.conversations["session-a"]?.isAttached == true)
+            }
+            fixture.feature.refreshSessions()
+            let requests = fixture.transport.connection.commands.suffix(2)
+            let archiveToken = try #require(requests.first?["token"] as? String)
+            let activeToken = try #require(requests.last?["token"] as? String)
+            let archive: [String: Any] = ["kind": "archivedSessions", "token": archiveToken, "complete": true,
+                                         "sessions": [["sessionId": "session-a", "title": "Archived upstream"]]]
+            let active: [String: Any] = ["kind": "sessions", "token": activeToken,
+                                        "sessions": [["sessionId": "session-b", "title": "Still active"]]]
+            try fixture.emit(archiveFirst ? archive : active)
+            try fixture.emit(archiveFirst ? active : archive)
+            #expect(fixture.feature.sessions.map(\.id) == ["session-b"])
+            #expect(fixture.feature.archivedSessions.map(\.id) == ["session-a"])
+            #expect(fixture.feature.archivedSessions.first?.title == "Archived upstream")
+            if loaded {
+                #expect(fixture.feature.conversations["session-a"]?.isAttached == true,
+                        "History reconciliation preserves the locally opened transcript")
+                #expect(fixture.feature.openSessionIDs.contains("session-a"))
+            }
+        }
+    }
+
+    @Test
+    func removedArchivedConversationRestoresLocalVisibilityWithoutUnarchiving() async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            #expect(fixture.history.rename("session-a", title: "Local title"))
+            #expect(fixture.history.setFavorite(["session-a"], true))
+            #expect(fixture.history.setHidden(["session-a"], true))
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [["sessionId": "session-a"]], "complete": true])
+            fixture.feature.refreshSessions()
+            try fixture.emit(["kind": "sessions", "token": fixture.transport.connection.commands.last?["token"] as Any,
+                              "sessions": []])
+            let restored = fixture.makeHistory()
+            #expect(AgentHistoryPresentation.sessions(fixture.feature.archivedSessions, metadata: restored.metadata,
+                                                     query: "", filter: .removed).map(\.id) == ["session-a"])
+            let commandCount = fixture.transport.connection.commands.count
+            #expect(restored.setHidden(["session-a"], false))
+            #expect(fixture.makeHistory().metadata["session-a"]?.isHidden == false)
+            #expect(restored.metadata["session-a"]?.title == "Local title")
+            #expect(restored.metadata["session-a"]?.isFavorite == true)
+            #expect(!restored.canExport(["session-a"]))
+            #expect(fixture.transport.connection.commands.count == commandCount,
+                    "Local restoration must not load or unarchive the Agent's conversation")
+            #expect(fixture.feature.archivedSessions.map(\.id) == ["session-a"])
+            #expect(AgentHistoryPresentation.sessions(fixture.feature.archivedSessions, metadata: restored.metadata,
+                                                     query: "", filter: .removed).isEmpty)
+            #expect(AgentHistoryPresentation.sessions(fixture.feature.archivedSessions, metadata: restored.metadata,
+                                                     query: "", filter: .all).map(\.id) == ["session-a"])
+        }
+    }
+
+    @Test(arguments: ["", "no matching title"])
+    func emptyTruncatedArchiveNeverClaimsHistoryIsAbsent(query: String) async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [], "complete": false])
+            #expect(fixture.feature.archivedSessions.isEmpty)
+            #expect(AgentHistoryPresentation.emptyState(isRefreshing: false, query: query,
+                                                       isArchivedHistoryComplete: fixture.feature.isArchivedHistoryComplete) == .incomplete)
+            #expect(AgentHistoryPresentation.emptyState(isRefreshing: false, query: query,
+                                                       isArchivedHistoryComplete: true) == (query.isEmpty ? .noHistory : .noMatches))
+        }
+    }
+
     @Test
     func unarchivingMovesOnlyTheConfirmedConversationIntoActiveHistory() async throws {
         let event = try Self.fixtureEvent("archivedSessions")
@@ -446,12 +525,24 @@ struct AgentHistoryTests {
         #expect(feature.history(for: "claude").metadata.isEmpty)
     }
 
-    @Test
-    func historyLayoutFitsNarrowAndWidePanelsInBothAppearances() async throws {
-        try await HistoryFixture().run { fixture in
+    @Test(arguments: [false, true])
+    func historyLayoutFitsNarrowAndWidePanelsInBothAppearances(truncated: Bool) async throws {
+        try await HistoryFixture().run(archived: truncated) { fixture in
             let history = fixture.history
             #expect(history.setFavorite(["session-a"], true))
-            for (name, scheme, width) in [("dark-narrow", ColorScheme.dark, 320.0), ("light-wide", .light, 620.0)] {
+            if truncated {
+                try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                                  "sessions": [], "complete": false])
+                fixture.feature.refreshSessions()
+                let requests = fixture.transport.connection.commands.suffix(2)
+                try fixture.emit(["kind": "archivedSessions", "token": requests.first?["token"] as Any,
+                                  "sessions": [], "complete": false])
+                try fixture.emit(["kind": "sessions", "token": requests.last?["token"] as Any, "sessions": []])
+                #expect(fixture.feature.sessions.isEmpty && fixture.feature.archivedSessions.isEmpty)
+                #expect(!fixture.feature.isRefreshingSessions && !fixture.feature.isRefreshingArchivedSessions)
+            }
+            for (name, scheme, width) in [("dark-narrow", ColorScheme.dark, 320.0), ("light-narrow", .light, 320.0),
+                                          ("dark-wide", .dark, 620.0), ("light-wide", .light, 620.0)] {
                 let host = NSHostingView(rootView: AgentHistoryView(
                     feature: fixture.feature, history: history, agentName: "Codex", onBack: {},
                     onCopySessionID: { _ in }, onSelect: { _ in }, onReconnect: {}
@@ -474,7 +565,7 @@ struct AgentHistoryTests {
                    let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
                     host.cacheDisplay(in: host.bounds, to: bitmap)
                     let data = try #require(bitmap.representation(using: .png, properties: [:]))
-                    try data.write(to: URL(fileURLWithPath: folder).appendingPathComponent("history-\(name).png"))
+                    try data.write(to: URL(fileURLWithPath: folder).appendingPathComponent("history-\(truncated ? "truncated-" : "")\(name).png"))
                 }
             }
         }

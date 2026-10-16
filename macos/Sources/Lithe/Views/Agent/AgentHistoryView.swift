@@ -15,6 +15,15 @@ enum AgentHistoryFilter: String, CaseIterable {
 }
 
 enum AgentHistoryPresentation {
+    enum EmptyState { case loading, incomplete, noMatches, noHistory }
+
+    /// A partial upstream scan cannot establish that history or a search is empty.
+    static func emptyState(isRefreshing: Bool, query: String, isArchivedHistoryComplete: Bool) -> EmptyState {
+        if isRefreshing { return .loading }
+        if !isArchivedHistoryComplete { return .incomplete }
+        return query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .noHistory : .noMatches
+    }
+
     static func popupTitle(_ session: AgentSessionSummary, metadata: AgentHistoryMetadata?,
                            conversation: AgentConversation?, locale: Locale = .current) -> String {
         if let title = metadata?.title ?? session.title { return title }
@@ -95,7 +104,7 @@ struct AgentHistoryView: View {
     private var sessions: [AgentSessionSummary] {
         AgentHistoryPresentation.sessions(feature.sessions, metadata: history.metadata, query: query, filter: filter)
     }
-    /// Searched and filtered like active rows, but never selectable or editable.
+    /// Searched and filtered like active rows; local restoration never loads a transcript.
     private var archived: [AgentSessionSummary] {
         AgentHistoryPresentation.sessions(feature.archivedSessions, metadata: history.metadata, query: query, filter: filter)
     }
@@ -135,6 +144,13 @@ struct AgentHistoryView: View {
                     Spacer()
                     Button("Cancel") { history.cancelExport() }.buttonStyle(.litheNoPress)
                 }.font(LitheTheme.uiFont(size: 12)).padding(12)
+            }
+            if !feature.isArchivedHistoryComplete {
+                Text("Only the most recent archived conversations are shown.")
+                    .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20).padding(.vertical, 8)
+                    .accessibilityIdentifier("agent-history-archive-incomplete")
             }
             if sessions.isEmpty && archived.isEmpty {
                 emptyState
@@ -277,12 +293,18 @@ struct AgentHistoryView: View {
     }
 
     @ViewBuilder private var emptyState: some View {
-        if feature.isRefreshingSessions {
+        switch AgentHistoryPresentation.emptyState(
+            isRefreshing: feature.isRefreshingSessions || feature.isRefreshingArchivedSessions,
+            query: query, isArchivedHistoryComplete: feature.isArchivedHistoryComplete
+        ) {
+        case .incomplete:
+            Spacer(minLength: 0)
+        case .loading:
             AgentEmptyStateView(systemImage: "clock", title: "Loading history…", message: "", isBusy: true)
-        } else if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        case .noMatches:
             AgentEmptyStateView(systemImage: "magnifyingglass", title: "No matching conversations",
                                message: AgentLocalization.string("Try another title or session ID.", locale: locale))
-        } else {
+        case .noHistory:
             AgentEmptyStateView(systemImage: "clock.arrow.circlepath", title: "No earlier conversations",
                                message: AgentLocalization.string("Conversations for this project and Agent appear here.", locale: locale))
         }
@@ -310,29 +332,24 @@ struct AgentHistoryView: View {
             .overlay(alignment: .bottom) { divider }
             .accessibilityIdentifier("agent-history-archived")
             if isArchivedExpanded {
-                if !feature.isArchivedHistoryComplete {
-                    Text("Only the most recent archived conversations are shown.")
-                        .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20).padding(.vertical, 8)
-                }
                 ForEach(archived) { session in archivedRow(session) }
             }
         }
     }
 
-    /// Archived rows only open, after consent, or copy their ID: other actions
-    /// would need the Agent to load a conversation it keeps archived.
+    /// Upstream unarchive requires consent. Restoring Lithe visibility only clears
+    /// local metadata, so it is available independently in Removed conversations.
     private func archivedRow(_ session: AgentSessionSummary) -> some View {
         AgentHistoryRow(
             session: session, title: displayTitle(session), agentName: agentName, messageCount: nil,
-            isCurrent: false, isFavorite: false, isRemoved: false, isArchived: true, isSelecting: false,
+            isCurrent: false, isFavorite: false, isRemoved: filter == .removed, isArchived: true, isSelecting: false,
             isSelected: false, isFocused: historyListActive, isEditing: false,
             editingTitle: $editingTitle, isCopied: copiedID == session.id, canExport: false,
             canOpen: feature.connectionState == .ready && feature.unarchivingSessionID == nil,
             onOpen: { pendingUnarchiveID = session.id }, onToggleSelection: {},
             onCopy: { onCopySessionID(session.id); copiedID = session.id },
-            onRename: {}, onSave: {}, onCancel: {}, onExport: {}, onFavorite: {}, onRemove: {}
+            onRename: {}, onSave: {}, onCancel: {}, onExport: {}, onFavorite: {},
+            onRemove: { history.setHidden([session.id], false) }
         )
     }
 
@@ -451,6 +468,10 @@ private struct AgentHistoryRow: View {
                 icon(isCopied ? "checkmark" : "doc.on.doc", "Copy session ID", onCopy)
                     .accessibilityIdentifier("agent-history-copy-\(session.id)")
                 Spacer(minLength: 0)
+                if !isSelecting && !isEditing && isArchived && isRemoved {
+                    icon("arrow.uturn.backward", "Restore conversations", onRemove)
+                        .accessibilityIdentifier("agent-history-restore-\(session.id)")
+                }
                 if !isSelecting && !isEditing && !isArchived {
                     HStack(spacing: 2) {
                         if !isRemoved {
