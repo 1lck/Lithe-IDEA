@@ -13,6 +13,10 @@ cd "$TEST_ROOT"
 git init -q
 git config user.email "ci@example.invalid"
 git config user.name "CI Test"
+# Each case commits; a detached automatic gc would still be writing to .git
+# when the EXIT trap removes the repository.
+git config gc.auto 0
+git config maintenance.auto false
 mkdir -p \
     Casks \
     Plugins/mac/Official/GoSupport \
@@ -192,6 +196,15 @@ rename_rust_to_markdown() {
     mkdir -p docs
     git mv rust/lithe-core/src/lib.rs docs/lib.md
 }
+rename_swift_source() {
+    git mv macos/Sources/Lithe/App.swift macos/Sources/Lithe/RenamedApp.swift
+}
+rename_swift_into_database_module() {
+    git mv macos/Sources/Lithe/App.swift macos/Sources/LitheDatabaseModule/App.swift
+}
+modify_runner_selection() { printf '%s\n' 'export {};' > scripts/select-macos-ci-runners.mjs; }
+modify_runner_build_state() { printf '%s\n' '#!/bin/zsh' > scripts/reuse-macos-runner-build-state.sh; }
+modify_rust_bridge_verifier() { printf '%s\n' '#!/bin/zsh' > scripts/verify-rust-core-swift-bridge.sh; }
 
 assert_classification readme \
     "$(classification false false false false false false false false false false)" \
@@ -355,8 +368,25 @@ LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-keeps-linux-lanes \
     "$(classification false false false false false false false false true false)" \
     modify_rust_comment
+# A rename classifies both endpoints instead of selecting every lane: the old
+# Rust source still selects Rust Core, packaging, and Windows Rust.
 assert_classification rename-rust-to-markdown \
-    "$(classification true true true true true true true true false false true true)" \
+    "$(classification false false false true false true true true false false)" \
     rename_rust_to_markdown
+assert_classification rename-swift-source \
+    "$(classification true false false false false false false false false false)" \
+    rename_swift_source
+assert_classification rename-swift-across-modules \
+    "$(classification true false true false false true false false false false)" \
+    rename_swift_into_database_module
+assert_classification runner-selection \
+    "$(classification true true true true false true false false false false true)" \
+    modify_runner_selection
+assert_classification runner-build-state \
+    "$(classification true true true true false true false false false false true)" \
+    modify_runner_build_state
+assert_classification rust-bridge-verifier \
+    "$(classification false false false true false true false false false false)" \
+    modify_rust_bridge_verifier
 
 printf '%s\n' 'CI change classifier tests passed'
