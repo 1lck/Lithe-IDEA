@@ -75,6 +75,63 @@ struct AgentConversationFeatureModelTests {
         }
     }
 
+    @Test(arguments: [true, false])
+    func newerErrorSupersedesPendingFallbackAcrossConfigurationResult(configurationSucceeds: Bool) async throws {
+        try await withNoticeFeature { feature, connection, options in
+            feature.setConfigOption("mode", value: "auto")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "notice", "severity": "error", "title": "Tool connection failed"]]))
+            let error = try #require(feature.selectedConversation?.notice)
+            #expect(error.severity == .error)
+            if configurationSucceeds {
+                try feature.receive(event("sessionConfigured", ["token": token, "configOptions": options]))
+            } else {
+                try feature.receive(event("requestFailed", ["token": token, "message": "Mode rejected"]))
+            }
+            #expect(feature.selectedConversation?.notice == error, "Replaying an older fallback must not overwrite the newer error")
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            #expect(feature.selectedConversation?.pendingConfigToken == nil)
+        }
+    }
+
+    @Test(arguments: [true, false])
+    func newerPendingFallbackSupersedesErrorAfterConfigurationResult(configurationSucceeds: Bool) async throws {
+        try await withNoticeFeature { feature, connection, options in
+            feature.setConfigOption("mode", value: "auto")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "notice", "severity": "error", "title": "Tool connection failed"]]))
+            let error = try #require(feature.selectedConversation?.notice)
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == error, "The fallback still waits for the confirmed mode")
+            if configurationSucceeds {
+                try feature.receive(event("sessionConfigured", ["token": token, "configOptions": options]))
+            } else {
+                try feature.receive(event("requestFailed", ["token": token, "message": "Mode rejected"]))
+            }
+            #expect(feature.selectedConversation?.notice?.isClaudeAutoModeFallback == true)
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            #expect(feature.selectedConversation?.pendingConfigToken == nil)
+        }
+    }
+
+    @Test
+    func invalidAndOtherSessionNoticesDoNotSupersedePendingFallback() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            feature.setConfigOption("mode", value: "auto")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("claudeAutoModeNotice"))
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "notice", "severity": "unknown", "title": "Invalid notice"]]))
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "notice", "severity": "error", "title": " \n"]]))
+            try feature.receive(event("claudeAutoModeNotice", ["sessionId": "session-2", "update": ["sessionUpdate": "notice", "severity": "error", "title": "Other session error"]]))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("sessionConfigured", ["token": token, "configOptions": options]))
+            #expect(feature.selectedConversation?.notice?.isClaudeAutoModeFallback == true)
+            #expect(feature.conversations["session-2"]?.notice?.title == "Other session error")
+        }
+    }
+
     @Test
     func modelSwitchFallbackSurvivesItsFollowingConfigUpdateAndRejectedModeDoesNotShowIt() async throws {
         try await withNoticeFeature { feature, connection, options in

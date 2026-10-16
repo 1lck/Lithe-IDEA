@@ -448,7 +448,12 @@ warning. Plain assistant text is never classified or removed by this rule.
 When a configuration request is pending, the matching fallback notice waits for
 that request's result before checking the confirmed mode. This preserves a new
 fallback sent before its `config_option_update` or response, while still dropping
-an obsolete startup notice after a confirmed switch to Plan.
+an obsolete startup notice after a confirmed switch to Plan. A newer applicable
+notice in the same session invalidates the older pending fallback, so a later
+configuration success or failure cannot replay it over the newer notice. In the
+reverse order, the newest fallback still waits for confirmation before replacing
+the earlier notice. Invalid notices and notices for other sessions do not change
+that ordering.
 Windows has no consumer for this shared Host conversation API yet.
 
 The caller must close each handle

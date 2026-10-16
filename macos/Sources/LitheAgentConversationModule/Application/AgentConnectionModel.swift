@@ -776,6 +776,8 @@ public final class AgentConnectionModel: ObservableObject {
         if isClaudeConnection, notice.isClaudeAutoModeFallback,
            let mode = conversations[sessionID]?.configOptions.first(where: { $0.category == "mode" }),
            mode.currentValue != AgentSessionNotice.claudeAutoFallbackMode { return }
+        // A newer applicable notice supersedes a fallback waiting on configuration.
+        conversations[sessionID]?.pendingModeNotice = nil
         conversations[sessionID, default: AgentConversation()].notice = notice
     }
 

@@ -163,7 +163,9 @@ Claude ACP 0.81.2 会在默认 Auto 不可用时回退到 `acceptEdits`，但把
 
 正确示例：用户在首次发消息前切到 Plan，迟到的 Auto 启动警告不会成为聊天回复，也不会声称当前仍在 Accept edits。不要这样做：每次点击选择器立即删掉警告，或按英文字符串清理所有回复；前者会掩盖配置失败，后者可能删除模型真正回答的内容。代价是这个兼容识别依赖固定适配器的结构化标题，升级时必须复验；Windows 尚未接入共享 Host 对话 UI，不因此标为已实现或已验证。
 
-配置请求处理中收到的新降级通知先保留，等同一 token（请求标识）的配置结果或失败确认后再核对实际模式。上游选择 Auto 或换模型时可能先通知降级、随后发布配置；不能用旧的 Plan 值提前丢掉这条新警告，也不能因随后确认新模型就清掉它。旧通知仍由已确认的配置变化清理。通知和权限卡片共用直接挂在 `ScrollView` 上的 `safeAreaInset`（为底部卡片预留原生滚动空间），优先显示需要用户操作的权限卡，答复后再显示仍有效的通知。两张卡叠加时，窄面板中可能占满消息视口，所以不能直接堆叠；通知标题最多两行、详情最多三行，悬停可读完整原文。原生回放等待可观察的底部跟随结果再断言，不用一次布局回调代替完成信号。
+配置请求处理中收到的新降级通知先保留，等同一 token（请求标识）的配置结果或失败确认后再核对实际模式。上游选择 Auto 或换模型时可能先通知降级、随后发布配置；不能用旧的 Plan 值提前丢掉这条新警告，也不能因随后确认新模型就清掉它。等待期间如果同一会话收到更新的有效通知，旧的暂存警告立即失效；例如先降级警告、后工具错误，配置成功或失败都必须保留工具错误。反过来先工具错误、后降级警告时，新警告仍等待配置结果，再按实际模式显示。格式无效或其他会话的通知不改变这一顺序，避免配置重放把旧警告变成“最新通知”。旧通知仍由已确认的配置变化清理。
+
+通知和权限卡片共用直接挂在 `ScrollView` 上的 `safeAreaInset`（为底部卡片预留原生滚动空间），优先显示需要用户操作的权限卡，答复后再显示仍有效的通知。两张卡叠加时，窄面板中可能占满消息视口，所以不能直接堆叠；通知标题最多两行、详情最多三行，悬停可读完整原文。原生回放等待可观察的底部跟随结果再断言，不用一次布局回调代替完成信号。
 
 原生 `/model` 或模型拒绝后的上游切换没有本地请求 token，仍会依次发出模式降级、新通知和完整模型配置。连接模型因此在观察到 Auto→Accept edits 时记录转换前的通知身份；紧接着的第一份完整配置只清理转换前的旧通知，保留转换中新产生的通知，然后释放转换记录。记录按会话隔离，新消息提交和断连也清理，不新增计时器或持久化数据。正确做法是把本次降级原因保留到用户能看到，同时让后续再次换模型清掉它；不要把“发生模型变化”直接等同于“屏幕上的所有通知都已过期”，也不要永久豁免这条警告。
 
@@ -347,7 +349,7 @@ Windows 已可用。本功能不新增下载、缓存或运行时资源路径，
 
 ## 验证
 
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentConversationSelectionTests|AgentNextTurnConfigurationTests|AgentTranscriptScrollTests|AgentThoughtTranscriptTests|LitheBannerAppearanceTests'`：控制 Plan 配置确认→首轮消息→迟到通知顺序，验证有效降级通知、通知早于配置结果、配置失败/过期确认、Agent 自行切模式、模型切换、通知早于创建确认、会话隔离、关闭/下一轮/断连清理，且不删除同文模型回复；原生 `/model` 无 token 路径按模式→通知→完整配置验证新通知保留、下一次模型变化清理、后台会话隔离和轮次边界。原生共享 Banner 在深浅主题、窄宽面板中验证换行和关闭，长历史回放确认通知与权限同时出现及关闭后仍保留浏览位置或跟随最新回复。`LITHE_AGENT_NOTICE_REVIEW_SCREENSHOTS` 可导出选择回放中模型切换、权限优先、答复后通知恢复及 Plan 清理的原生快照；输出只写调用方指定的验证目录，不属于运行时产品资源。
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentConversationSelectionTests|AgentNextTurnConfigurationTests|AgentTranscriptScrollTests|AgentThoughtTranscriptTests|LitheBannerAppearanceTests'`：控制 Plan 配置确认→首轮消息→迟到通知顺序，验证有效降级通知、通知早于配置结果、配置失败/过期确认、Agent 自行切模式、模型切换、通知早于创建确认、会话隔离、关闭/下一轮/断连清理，且不删除同文模型回复；控制暂存降级警告→新错误→配置成功/失败，确保保留新错误，相反顺序显示最新有效降级警告，格式无效和其他会话通知不能使暂存警告失效。原生 `/model` 无 token 路径按模式→通知→完整配置验证新通知保留、下一次模型变化清理、后台会话隔离和轮次边界。原生共享 Banner 在深浅主题、窄宽面板中验证换行和关闭，长历史回放确认通知与权限同时出现及关闭后仍保留浏览位置或跟随最新回复。`LITHE_AGENT_NOTICE_REVIEW_SCREENSHOTS` 可导出选择回放中模型切换、权限优先、答复后通知恢复及 Plan 清理的原生快照；输出只写调用方指定的验证目录，不属于运行时产品资源。
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host`：通过内存 ACP 连接确认通知能力协商与原样转发，fixture 使用 SDK 官方 notice 类型往返；不连接真实供应商。
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml --test real_agent real_agent_keeps_nested_project_scope_through_steering_and_history_restore -- --ignored --nocapture`：通过既有 `LITHE_ACP_E2E_*` 显式配置真实供应商，使用独立 CLI 临时目录。外层 IDE 与内层 Spring Boot 的 README 内容不同，核对工具实际返回的内层文档、回复中补充、重连恢复后的项目用途，以及用户消息、实时标题和历史列表不出现 Host 上下文。真实 Claude 与 Codex 均需执行；受控 ACP 回归另覆盖两个不同工作区、文本能力、附件、原生命令与完整/截断标题，默认跳过网络测试不算真实通过。
 
