@@ -516,6 +516,16 @@ credentials or credential-presence flags. Configuration text is limited to
 API keys, validate Agent protocol compatibility, and persist credentials in their
 native vault. This operation does not discover or write local CLI files.
 
+The optional `allowIncomplete: true` is for switching an editor draft back to
+form fields. It accepts syntactically valid incomplete or blank input, preserves
+missing endpoint/model fields as empty strings, and does not inject CLI defaults.
+Claude metadata uses `apiKey` authentication when no credential is present;
+an explicit auth token still uses `bearer`. Credential extraction remains
+host-owned and may return an empty key only in this draft mode. Malformed text
+and the 64 KiB limit still fail with redacted errors. Omitting this flag keeps
+the existing parser behavior; saving still requires all fields, a compatible
+protocol and explicit consent for HTTP.
+
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`

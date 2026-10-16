@@ -1,6 +1,6 @@
 {
   "schemaVersion": 4,
-  "lastReviewed": "2026-09-29",
+  "lastReviewed": "2026-10-16",
   "review": {
     "status": "initial-static-inventory",
     "method": "根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。",
