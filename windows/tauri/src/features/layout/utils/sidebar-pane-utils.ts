@@ -7,6 +7,7 @@ export type SidebarView =
   | "outline"
   | "databases"
   | "notifications"
+  | "agent"
   | (string & {});
 
 interface SidebarPaneState {
