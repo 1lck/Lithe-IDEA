@@ -10,6 +10,8 @@ import LitheDebugModule
 final class AppServices {
     var ideCapabilityRegistry: IdeCapabilityRegistry?
     var ideHostTransport: (any IdeHostTransport)?
+    /// Confirms closing terminals with running programs; `nil` closes directly.
+    var processExitCoordinator: ProcessExitCoordinator?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing

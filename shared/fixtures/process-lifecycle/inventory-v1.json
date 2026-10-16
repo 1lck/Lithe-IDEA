@@ -1,0 +1,563 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "live instance with terminals, a daemon, an Agent and outside processes",
+      "request": {
+        "scope": "S",
+        "mode": "live",
+        "applicationSessionId": 100,
+        "excludedProcessIds": [
+          100,
+          110
+        ],
+        "retained": [
+          {
+            "processId": 600,
+            "startTime": 600
+          }
+        ],
+        "agentConnections": [
+          {
+            "scope": "A",
+            "agentName": "codex-acp",
+            "workspace": "/work/shop",
+            "taskBaseline": 2000
+          }
+        ],
+        "context": "quit",
+        "processes": [
+          {
+            "processId": 100,
+            "startTime": 100,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "Lithe",
+            "processScope": "S"
+          },
+          {
+            "processId": 101,
+            "startTime": 101,
+            "parentProcessId": 100,
+            "sessionId": 100,
+            "name": "java",
+            "executablePath": "/jdk/bin/java",
+            "arguments": [
+              "java",
+              "-jar",
+              "jdtls.jar"
+            ],
+            "processScope": "S"
+          },
+          {
+            "processId": 110,
+            "startTime": 110,
+            "parentProcessId": 1,
+            "sessionId": 110,
+            "name": "Lithe",
+            "arguments": [
+              "Lithe",
+              "--lithe-process-supervisor"
+            ],
+            "processScope": "S"
+          },
+          {
+            "processId": 200,
+            "startTime": 200,
+            "parentProcessId": 100,
+            "sessionId": 200,
+            "hasControllingTerminal": true,
+            "name": "zsh",
+            "executablePath": "/bin/zsh",
+            "arguments": [
+              "-zsh"
+            ],
+            "processScope": "S"
+          },
+          {
+            "processId": 201,
+            "startTime": 201,
+            "parentProcessId": 200,
+            "sessionId": 200,
+            "hasControllingTerminal": true,
+            "name": "java",
+            "executablePath": "/jdk/bin/java",
+            "arguments": [
+              "java",
+              "-jar",
+              "app.jar"
+            ],
+            "processScope": "S",
+            "workingDirectory": "/work/shop"
+          },
+          {
+            "processId": 300,
+            "startTime": 300,
+            "parentProcessId": 1,
+            "sessionId": 300,
+            "name": "redis-server",
+            "executablePath": "/opt/bin/redis-server",
+            "arguments": [
+              "redis-server",
+              "--port",
+              "6380"
+            ],
+            "processScope": "S"
+          },
+          {
+            "processId": 301,
+            "startTime": 301,
+            "parentProcessId": 300,
+            "sessionId": 300,
+            "name": "redis-bg",
+            "processScope": "S"
+          },
+          {
+            "processId": 400,
+            "startTime": 1000,
+            "parentProcessId": 100,
+            "sessionId": 100,
+            "name": "codex-acp",
+            "executablePath": "/data/codex-acp",
+            "arguments": [
+              "codex-acp"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 401,
+            "startTime": 1500,
+            "parentProcessId": 400,
+            "sessionId": 100,
+            "name": "node",
+            "arguments": [
+              "node",
+              "mcp-server.js"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 402,
+            "startTime": 2500,
+            "parentProcessId": 400,
+            "sessionId": 100,
+            "name": "bash",
+            "executablePath": "/bin/bash",
+            "arguments": [
+              "bash",
+              "-c",
+              "npm run migrate"
+            ],
+            "processScope": "S",
+            "agentScope": "A",
+            "workingDirectory": "/work/shop"
+          },
+          {
+            "processId": 403,
+            "startTime": 2600,
+            "parentProcessId": 402,
+            "sessionId": 100,
+            "name": "node",
+            "arguments": [
+              "node",
+              "migrate.js"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 404,
+            "startTime": 3000,
+            "parentProcessId": 1,
+            "sessionId": 404,
+            "name": "vite",
+            "arguments": [
+              "vite",
+              "--port",
+              "5173"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 500,
+            "startTime": 500,
+            "parentProcessId": 1,
+            "sessionId": 500,
+            "name": "docker",
+            "processScope": "OTHER"
+          },
+          {
+            "processId": 501,
+            "startTime": 501,
+            "parentProcessId": 1,
+            "sessionId": 501,
+            "name": "postgres"
+          },
+          {
+            "processId": 600,
+            "startTime": 600,
+            "parentProcessId": 1,
+            "sessionId": 600,
+            "name": "kept",
+            "processScope": "S"
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "agentTask:402:2500",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "bash -c npm run migrate",
+            "detail": "bash -c npm run migrate",
+            "rootProcessId": 402,
+            "startedAt": 2500,
+            "agentName": "codex-acp",
+            "workspace": "/work/shop",
+            "workingDirectory": "/work/shop",
+            "processes": [
+              {
+                "processId": 402,
+                "startTime": 2500
+              },
+              {
+                "processId": 403,
+                "startTime": 2600
+              }
+            ]
+          },
+          {
+            "id": "agentTask:404:3000",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "vite --port 5173",
+            "detail": "vite --port 5173",
+            "rootProcessId": 404,
+            "startedAt": 3000,
+            "agentName": "codex-acp",
+            "workspace": "/work/shop",
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 404,
+                "startTime": 3000
+              }
+            ]
+          },
+          {
+            "id": "agentInfrastructure:A",
+            "category": "agentInfrastructure",
+            "kind": "sidecar",
+            "detached": false,
+            "name": "codex-acp",
+            "detail": "codex-acp",
+            "rootProcessId": 400,
+            "startedAt": 1000,
+            "agentName": "codex-acp",
+            "workspace": "/work/shop",
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 400,
+                "startTime": 1000
+              },
+              {
+                "processId": 401,
+                "startTime": 1500
+              }
+            ]
+          },
+          {
+            "id": "service:300:300",
+            "category": "backgroundService",
+            "kind": "daemon",
+            "detached": true,
+            "name": "redis-server --port 6380",
+            "detail": "redis-server --port 6380",
+            "rootProcessId": 300,
+            "startedAt": 300,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 300,
+                "startTime": 300
+              },
+              {
+                "processId": 301,
+                "startTime": 301
+              }
+            ]
+          },
+          {
+            "id": "terminal:200",
+            "category": "terminal",
+            "kind": "terminal",
+            "detached": false,
+            "name": "zsh",
+            "detail": "-zsh",
+            "rootProcessId": 200,
+            "startedAt": 200,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 200,
+                "startTime": 200
+              },
+              {
+                "processId": 201,
+                "startTime": 201
+              }
+            ]
+          },
+          {
+            "id": "run:other",
+            "category": "other",
+            "kind": "run",
+            "detached": false,
+            "name": "java -jar jdtls.jar",
+            "detail": "java -jar jdtls.jar",
+            "rootProcessId": 101,
+            "startedAt": 101,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 101,
+                "startTime": 101
+              }
+            ]
+          }
+        ],
+        "plan": {
+          "gracefulStopMilliseconds": 5000,
+          "decisions": [
+            {
+              "id": "agentTask:402:2500",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "agentTask"
+            },
+            {
+              "id": "agentTask:404:3000",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "agentTask"
+            },
+            {
+              "id": "agentInfrastructure:A",
+              "kind": "sidecar",
+              "policy": "terminate",
+              "action": "terminate",
+              "reason": "defaultTerminate"
+            },
+            {
+              "id": "service:300:300",
+              "kind": "daemon",
+              "policy": "askOnExit",
+              "action": "ask",
+              "reason": "detachedProcess"
+            },
+            {
+              "id": "terminal:200",
+              "kind": "terminal",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "busyTerminal"
+            },
+            {
+              "id": "run:other",
+              "kind": "run",
+              "policy": "terminate",
+              "action": "terminate",
+              "reason": "defaultTerminate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Agent without a prompt has no tasks",
+      "request": {
+        "scope": "S",
+        "applicationSessionId": 100,
+        "agentConnections": [
+          {
+            "scope": "A",
+            "agentName": "claude",
+            "workspace": "/work"
+          }
+        ],
+        "processes": [
+          {
+            "processId": 400,
+            "startTime": 1000,
+            "parentProcessId": 100,
+            "sessionId": 100,
+            "name": "claude",
+            "processScope": "S",
+            "agentScope": "A"
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "agentInfrastructure:A",
+            "category": "agentInfrastructure",
+            "kind": "sidecar",
+            "detached": false,
+            "name": "claude",
+            "detail": "claude",
+            "rootProcessId": 400,
+            "startedAt": 1000,
+            "agentName": "claude",
+            "workspace": "/work",
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 400,
+                "startTime": 1000
+              }
+            ]
+          }
+        ],
+        "plan": null
+      }
+    },
+    {
+      "name": "leftovers of a crashed instance group every Agent process as one task",
+      "request": {
+        "scope": "S",
+        "mode": "leftover",
+        "applicationSessionId": 999,
+        "agentConnections": [
+          {
+            "scope": "A",
+            "agentName": "ignored",
+            "workspace": "/ignored",
+            "taskBaseline": 1
+          }
+        ],
+        "context": "startupSweep",
+        "processes": [
+          {
+            "processId": 400,
+            "startTime": 1000,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "codex-acp",
+            "arguments": [
+              "codex-acp"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 402,
+            "startTime": 2500,
+            "parentProcessId": 400,
+            "sessionId": 100,
+            "name": "bash",
+            "arguments": [
+              "bash",
+              "-c",
+              "deploy.sh"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 300,
+            "startTime": 300,
+            "parentProcessId": 1,
+            "sessionId": 300,
+            "name": "gradle",
+            "arguments": [
+              "java",
+              "GradleDaemon"
+            ],
+            "processScope": "S"
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "agentTask:A",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "codex-acp",
+            "detail": "codex-acp",
+            "rootProcessId": 400,
+            "startedAt": 1000,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 400,
+                "startTime": 1000
+              },
+              {
+                "processId": 402,
+                "startTime": 2500
+              }
+            ]
+          },
+          {
+            "id": "service:300:300",
+            "category": "backgroundService",
+            "kind": "daemon",
+            "detached": true,
+            "name": "gradle GradleDaemon",
+            "detail": "java GradleDaemon",
+            "rootProcessId": 300,
+            "startedAt": 300,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 300,
+                "startTime": 300
+              }
+            ]
+          }
+        ],
+        "plan": {
+          "gracefulStopMilliseconds": 5000,
+          "decisions": [
+            {
+              "id": "agentTask:A",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "agentTaskAlwaysConfirmedAtStartup"
+            },
+            {
+              "id": "service:300:300",
+              "kind": "daemon",
+              "policy": "askOnExit",
+              "action": "ask",
+              "reason": "startupSweepSetting"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

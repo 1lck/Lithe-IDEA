@@ -643,6 +643,62 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::ProcessLifecycleResolve => {
+            match serde_json::from_value::<crate::process_lifecycle::LifecycleRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::process_lifecycle::resolve(&request))
+                        .expect("process lifecycle plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid process lifecycle request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::ProcessLifecycleInventory => {
+            match serde_json::from_value::<crate::process_inventory::InventoryRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::process_inventory::classify(&request))
+                        .expect("process inventory should encode"),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid process inventory request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::ProcessLifecycleSettle => {
+            match serde_json::from_value::<crate::process_lifecycle::SettleRequest>(parsed.payload)
+            {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::process_lifecycle::settle(&request))
+                        .expect("process lifecycle settlement should encode"),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid process lifecycle settlement request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::MavenDependencyPlan => {
             match serde_json::from_value::<MavenDependencyPlanRequest>(parsed.payload)
                 .map_err(|error| {

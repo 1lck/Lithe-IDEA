@@ -672,6 +672,10 @@ final class MacServiceContainer {
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
+        services.processExitCoordinator = ProcessExitCoordinator(
+            core: RustProcessLifecycleDecider(core: rustCore),
+            presenter: MacProcessExitConfirmationPresenter.shared
+        )
         moduleLifecycleCoordinator.start()
         Task { try? await moduleRegistry.startEagerModules() }
     }

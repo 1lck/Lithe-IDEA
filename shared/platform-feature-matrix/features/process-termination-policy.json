@@ -1,0 +1,32 @@
+{
+  "id": "process-termination-policy",
+  "area": "运行与调试",
+  "group": "运行",
+  "capability": "退出前逐个确认仍在运行程序的终端和 Agent 后台任务，后台服务在一个列表中逐项选择结束或保留；只列出本实例启动的进程；设置页“进程终止策略”可调整每类确认，每个选项有 ⓘ 悬停说明",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/ProcessExitCoordinator.swift",
+      "macos/Sources/Lithe/Platform/MacOS/UI/MacProcessExitConfirmationPresenter.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Agent/MacAgentProcessRegistry.swift",
+      "macos/Sources/Lithe/Views/App/ProcessTerminationSettingsView.swift",
+      "macos/Sources/Lithe/Views/Components/LitheInfoTip.swift",
+      "rust/lithe-core/src/process_lifecycle.rs",
+      "shared/fixtures/process-lifecycle/exit-plan-v1.json",
+      "shared/fixtures/process-lifecycle/settle-v1.json",
+      "macos/Tests/LitheTests/ProcessLifecycleFixtureTests.swift"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-core/src/process_lifecycle.rs",
+      "rust/lithe-core/src/process_inventory.rs"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Run",
+  "verification": "macOS：在两个终端分别运行 Spring Boot 和空闲 shell，让 Agent 启动一个长时间命令，再在终端里 setsid 启动一个后台服务；退出时应只对忙碌终端逐个确认（可跳到终端或取消），再逐个确认 Agent 任务，最后在列表中勾选后台服务；选择保留的进程退出后仍存活，取消退出时不结束任何进程。在 Lithe 外启动的进程不出现。修改设置页各选项后流程相应跳过确认；悬停 ⓘ 约 0.3 秒出现说明，点击可固定，读屏可读出；中英文文案齐全；设置搜索能找到该页。",
+  "notes": "识别规则（如 Gradle Daemon）和 Docker 容器的资源提供者尚未接入，后台服务目前靠脱离会话识别；Agent 任务弹窗暂无“打开所属会话”按钮。确认规则与结算在 Rust Core，两端共用 fixture。"
+}

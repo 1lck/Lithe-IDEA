@@ -621,6 +621,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
+| `processLifecycle.resolve` | Decide how each process or resource of one Lithe instance ends |
+| `processLifecycle.inventory` | Group a process snapshot of one Lithe instance into terminals, Agent tasks and background services |
+| `processLifecycle.settle` | Turn confirmation answers into what ends, what is kept and the updated settings |
 | `maven.dependencyPlan` | Produce a bounded dependency-tree invocation for one Maven module |
 | `maven.dependencies` | Normalize the bounded dependency-tree file one plan wrote into a deterministic tree |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
@@ -2742,6 +2745,69 @@ is plain text and may use a null pointer. Nonzero input must point to at least
 `length` readable bytes and `length` must not exceed `isize::MAX`. The Swift
 bridge exposes the same lifetime and result contract. Fixtures live in
 `shared/fixtures/editor/text-content-v1.json` and exercise both entry points.
+
+### Process lifecycle decisions
+
+`processLifecycle.resolve` accepts `{ context, settings, records }` and returns
+`{ gracefulStopMilliseconds, decisions }` with exactly one decision per record,
+in request order. `context` is `quit`, `closeTerminalTab`, `agentDisconnect`,
+`crashRecovery`, or `startupSweep`. Each record carries a host-chosen `id`, a
+`kind` (`run`, `terminal`, `agentTask`, `languageServer`, `debugAdapter`,
+`pluginTool`, `sidecar`, `daemon`, `container`, `oneShot`), the `ownership` proof
+(`launched`, `scopeToken`, `instanceLabel`, `unproven`), and optionally
+`declaredPolicy`, `recognizerId`, `recognizedPolicy`, `detached`, `idle`, and
+`retained`. Omitted settings take the documented defaults: busy terminals and
+Agent tasks are confirmed one by one, closing a busy terminal tab asks,
+daemons and containers are asked about, startup leftovers are asked about, and
+ordinary processes get five seconds to stop (clamped to 1–60).
+
+A decision reports the pre-setting `policy` (`terminate`, `confirmEach`,
+`askOnExit`, `external`), the `action` the host performs (`terminate`,
+`confirm`, `ask`, `retain`, `defer`, `ignore`), and a stable `reason` for logs.
+Unproven ownership is always `ignore`; a record the user kept is `retain`.
+Agent tasks are never ended during `crashRecovery` and are always confirmed
+during `startupSweep`, whatever the settings say. Hosts own discovery,
+signalling, and dialogs. Fixtures live in
+`shared/fixtures/process-lifecycle/exit-plan-v1.json`.
+
+`processLifecycle.inventory` accepts `{ scope, mode, applicationSessionId,
+excludedProcessIds, retained, agentConnections, processes, context?, settings }`.
+`processes` is the host's snapshot of processes that inherited
+`LITHE_PROCESS_SCOPE=<scope>`: `processId`, `startTime` (microseconds since the
+epoch), `parentProcessId`, `sessionId`, `hasControllingTerminal`, `name`,
+`executablePath`, `arguments`, `processScope`, `agentScope` and
+`workingDirectory`. Processes of another scope, excluded IDs and retained
+identities (`{ processId, startTime }`) are dropped. `mode` is `live` (the
+running instance, which reports each Agent connection's `scope`, `agentName`,
+`workspace` and `taskBaseline`) or `leftover` (an instance that is gone).
+
+It returns `{ items, plan? }`. Items come in this order: Agent tasks and Agent
+infrastructure, background services, terminals, then everything else as
+`run:other`. In live mode, an Agent process that started after its
+connection's `taskBaseline` is a task. Tasks are grouped into trees by parent
+chain (`agentTask:{pid}:{startTime}`). Earlier processes are
+`agentInfrastructure:{scope}` (kind `sidecar`). An unknown connection, and every
+Agent scope in leftover mode, becomes one `agentTask:{agentScope}` item. A
+background service is a session leader outside the application's session
+with no controlling terminal (`service:{pid}:{startTime}`, `detached: true`).
+Remaining processes are grouped by session as `terminal:{sessionId}`. With a
+`context`, `plan` is the `processLifecycle.resolve` result for the items, using
+scope-token ownership. Fixtures live in
+`shared/fixtures/process-lifecycle/inventory-v1.json`.
+
+`processLifecycle.settle` accepts `{ settings, decisions, answers, remember }`.
+`decisions` repeat each plan decision's `id` and `action`, plus an optional
+`recognizerId`. `answers` maps IDs to `terminate` or `keep`. It returns
+`{ terminate, keep, settings }`:
+
+- `terminate` records end and `retain` records are kept.
+- `confirm` and `ask` records follow their answer, and an unanswered one is
+  kept.
+- `defer` and `ignore` appear in neither list.
+- With `remember`, answers to `ask` records that have a recognizer are written
+  to `settings.rememberedChoices`.
+
+Fixtures live in `shared/fixtures/process-lifecycle/settle-v1.json`.
 
 ## Local IDE capability broker
 

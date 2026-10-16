@@ -15,6 +15,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case providers = "AI Providers"
     case git = "Git"
     case updates = "Updates"
+    case processTermination = "Process Termination Policy"
     case diagnostics = "Diagnostics"
     case plugins = "Plugins"
     case mcp = "MCP Configuration"
@@ -41,6 +42,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .providers: "key"
         case .git: "arrow.triangle.branch"
         case .updates: "arrow.down.circle"
+        case .processTermination: "power"
         case .diagnostics: "stethoscope"
         case .plugins: "puzzlepiece.extension"
         case .mcp: "network"
@@ -65,7 +67,7 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
     /// Pages in display order.
     var categories: [SettingsCategory] {
         switch self {
-        case .appearance: [.general, .updates, .editor, .keymap]
+        case .appearance: [.general, .updates, .editor, .keymap, .processTermination]
         case .versionControl: [.git]
         case .build: [.project, .run]
         case .languages: [.lsp]

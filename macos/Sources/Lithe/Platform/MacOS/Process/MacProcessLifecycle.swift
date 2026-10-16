@@ -1,0 +1,243 @@
+import Darwin
+import Foundation
+
+// Note: 统一子进程生命周期见 .agents/notes/proposed/architecture/2026-10-16-unified-child-process-lifecycle.md
+
+/// The lifecycle state of the running Lithe instance: its scope token, its
+/// instance record and its supervisor.
+///
+/// Lifetime: created by `MacApplicationEntryPoint` before any UI or subprocess
+/// exists; the record file lives in Application Support, never in the bundle.
+final class MacProcessInstance: @unchecked Sendable {
+    nonisolated(unsafe) private(set) static var current: MacProcessInstance?
+
+    let scope: MacProcessScope
+    let store: MacProcessInstanceRecordStore
+    private let lock = NSLock()
+    private var record: MacProcessInstanceRecord
+
+    private init(scope: MacProcessScope, store: MacProcessInstanceRecordStore, record: MacProcessInstanceRecord) {
+        self.scope = scope
+        self.store = store
+        self.record = record
+    }
+
+    /// Exports the scope token, writes the instance record and starts the
+    /// supervisor that cleans up if this process dies without quitting.
+    @discardableResult
+    static func activate(store: MacProcessInstanceRecordStore = MacProcessInstanceRecordStore()) -> MacProcessInstance? {
+        if let current { return current }
+        let scope = MacProcessScope.activate()
+        guard let application = MacProcessTable.info(processID: getpid())?.identity else { return nil }
+        let instance = MacProcessInstance(
+            scope: scope,
+            store: store,
+            record: MacProcessInstanceRecord(scope: scope.id, application: application)
+        )
+        current = instance
+        instance.persist()
+        if let supervisor = MacProcessSupervisor.launch(scope: scope.id, applicationProcessID: getpid()) {
+            instance.mutate { $0.supervisor = supervisor }
+        }
+        return instance
+    }
+
+    var supervisor: MacProcessIdentity? { lock.withLock { record.supervisor } }
+    var retained: [MacProcessIdentity] { lock.withLock { record.retained } }
+
+    /// Processes that are never signalled by this instance's sweeps.
+    var excludedProcessIDs: Set<pid_t> {
+        var excluded: Set<pid_t> = [getpid()]
+        if let supervisor { excluded.insert(supervisor.processID) }
+        return excluded
+    }
+
+    /// Keeps `identities` running past quit and crash recovery.
+    func retain(_ identities: [MacProcessIdentity]) {
+        guard !identities.isEmpty else { return }
+        mutate { record in
+            record.retained = Array(Set(record.retained).union(identities))
+                .sorted { $0.processID < $1.processID }
+        }
+    }
+
+    /// Ends every process of this instance except the retained ones, then tells
+    /// the supervisor that nothing is left to recover.
+    ///
+    /// Called last on quit, after the modules stopped what they know about.
+    func finalSweep(gracePeriod: TimeInterval) {
+        let kept = Set(retained)
+        let leftovers = MacProcessScopeScanner.processes(in: scope.id, excluding: excludedProcessIDs)
+            .map(\.info.identity)
+            .filter { !kept.contains($0) }
+        MacProcessScopeScanner.terminate(leftovers, gracePeriod: gracePeriod)
+        mutate { $0.completedShutdown = true }
+    }
+
+    private func mutate(_ change: (inout MacProcessInstanceRecord) -> Void) {
+        lock.withLock { change(&record) }
+        persist()
+    }
+
+    private func persist() {
+        let snapshot = lock.withLock { record }
+        do {
+            try store.save(snapshot)
+        } catch {
+            FileHandle.standardError.write(Data("Could not save the process lifecycle record: \(error)\n".utf8))
+        }
+    }
+}
+
+/// The helper process that outlives a crashed Lithe and ends what it left.
+///
+/// It is the application binary started with `--lithe-process-supervisor`,
+/// so it needs no extra bundle content and is signed with the app. It writes
+/// nothing except the instance record in Application Support.
+enum MacProcessSupervisor {
+    static let argument = "--lithe-process-supervisor"
+
+    static func launch(scope: String, applicationProcessID: pid_t) -> MacProcessIdentity? {
+        guard let executable = Bundle.main.executablePath else { return nil }
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        // Its own session: closing a terminal or Lithe's process group must not take it along.
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        var fileActions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&fileActions)
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+        for descriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
+            posix_spawn_file_actions_addopen(&fileActions, descriptor, "/dev/null", descriptor == STDIN_FILENO ? O_RDONLY : O_WRONLY, 0)
+        }
+        let arguments = [executable, argument, scope, String(applicationProcessID)]
+        var argv = arguments.map { strdup($0) } + [nil]
+        defer { argv.forEach { free($0) } }
+        var processID: pid_t = 0
+        guard posix_spawn(&processID, executable, &fileActions, &attributes, &argv, environ) == 0 else { return nil }
+        return MacProcessTable.info(processID: processID)?.identity
+    }
+
+    /// Supervisor entry point; never returns.
+    static func run(arguments: [String]) -> Never {
+        guard arguments.count >= 2, let applicationProcessID = pid_t(arguments[1]) else { exit(EX_USAGE) }
+        let scope = arguments[0]
+        signal(SIGHUP, SIG_IGN)
+        waitForExit(of: applicationProcessID)
+        recover(scope: scope, store: MacProcessInstanceRecordStore(), settings: storedSettings())
+        exit(EXIT_SUCCESS)
+    }
+
+    private static func waitForExit(of processID: pid_t) {
+        let queue = kqueue()
+        guard queue >= 0 else { return }
+        defer { close(queue) }
+        var change = kevent(
+            ident: UInt(processID),
+            filter: Int16(EVFILT_PROC),
+            flags: UInt16(EV_ADD | EV_ONESHOT),
+            fflags: NOTE_EXIT,
+            data: 0,
+            udata: nil
+        )
+        var event = kevent()
+        // Registering fails with ESRCH when the application is already gone.
+        while kevent(queue, &change, 1, &event, 1, nil) < 0 {
+            guard errno == EINTR else { return }
+        }
+    }
+
+    /// Applies the crash-recovery policy to an instance whose application has
+    /// exited. A normal quit already swept, so only its record is removed.
+    static func recover(
+        scope: String,
+        store: MacProcessInstanceRecordStore,
+        settings: ProcessTerminationSettings,
+        reader: MacProcessInventoryReader = MacProcessInventoryReader()
+    ) {
+        guard var record = store.load(scope: scope) else { return }
+        guard !record.completedShutdown else {
+            store.remove(scope: scope)
+            return
+        }
+        // Without a plan nothing is ended: the next launch asks instead.
+        guard let inventory = try? reader.inventory(
+            scope: scope,
+            mode: .leftover,
+            excluded: [getpid()],
+            retained: record.retained,
+            context: .crashRecovery,
+            settings: settings
+        ), let plan = inventory.plan else {
+            record.supervisor = nil
+            record.recoveredAfterCrash = true
+            try? store.save(record)
+            return
+        }
+        let gracePeriod = TimeInterval(plan.gracefulStopMilliseconds) / 1_000
+        var leftForStartup = false
+        for item in inventory.items {
+            if plan.action(for: item.id) == .terminate {
+                MacProcessScopeScanner.terminate(item.processes.map(MacProcessIdentity.init), gracePeriod: gracePeriod)
+            } else {
+                leftForStartup = true
+            }
+        }
+        guard leftForStartup else {
+            store.remove(scope: scope)
+            return
+        }
+        record.supervisor = nil
+        record.recoveredAfterCrash = true
+        try? store.save(record)
+    }
+
+    static func storedSettings(defaults: UserDefaults = .standard) -> ProcessTerminationSettings {
+        guard let data = defaults.data(forKey: AppSettings.processTerminationKey),
+              let settings = try? JSONDecoder().decode(ProcessTerminationSettings.self, from: data) else {
+            return ProcessTerminationSettings()
+        }
+        return settings
+    }
+}
+
+/// What earlier instances that did not quit normally left behind.
+struct MacStartupProcessSweep: Sendable {
+    struct Leftovers: Sendable {
+        let scope: String
+        let inventory: ProcessInventory
+    }
+
+    /// Leftovers of instances whose application and supervisor are both gone,
+    /// classified and decided for `startupSweep`. Records with nothing left
+    /// are removed.
+    static func leftovers(
+        store: MacProcessInstanceRecordStore,
+        currentScope: String,
+        excluding excluded: Set<pid_t>,
+        settings: ProcessTerminationSettings,
+        reader: MacProcessInventoryReader = MacProcessInventoryReader()
+    ) -> [Leftovers] {
+        var leftovers: [Leftovers] = []
+        let snapshot = MacProcessTable.snapshot()
+        for record in store.all() where record.scope != currentScope {
+            if MacProcessTable.isAlive(record.application) { continue }
+            if let supervisor = record.supervisor, MacProcessTable.isAlive(supervisor) { continue }
+            guard let inventory = try? reader.inventory(
+                scope: record.scope,
+                mode: .leftover,
+                excluded: excluded,
+                retained: record.retained,
+                context: .startupSweep,
+                settings: settings,
+                snapshot: snapshot
+            ) else { continue }
+            if inventory.items.isEmpty {
+                store.remove(scope: record.scope)
+            } else {
+                leftovers.append(Leftovers(scope: record.scope, inventory: inventory))
+            }
+        }
+        return leftovers
+    }
+}

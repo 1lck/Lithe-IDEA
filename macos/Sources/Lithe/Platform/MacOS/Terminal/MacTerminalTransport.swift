@@ -306,6 +306,11 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     private var selectedShellPath: String?
     private var suppressNextTermination = false
     private let stoppedChildProcessReaper = MacStoppedChildProcessReaper()
+    /// The PTY child is a session leader (`forkpty` calls `setsid`), so every
+    /// job started in this terminal keeps its PID as session ID.
+    private var sessionLeader: MacProcessIdentity?
+    private var launchedInteractiveShell = false
+    private var pendingSessionTermination: Task<Void, Never>?
 
     var isRunning: Bool {
         view.process.running
@@ -388,6 +393,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             ),
             environment: environment
         )
+        launchedInteractiveShell = true
     }
 
     func startProcess(
@@ -396,6 +402,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     ) throws -> Int32 {
         stop()
         suppressNextTermination = false
+        launchedInteractiveShell = false
         let executablePath = try resolveExecutablePath(
             launch.executablePath,
             workingDirectory: launch.workingDirectory,
@@ -430,6 +437,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         guard view.process.running, let processID else {
             throw terminalError("Unable to start \(executablePath)")
         }
+        sessionLeader = MacProcessTable.info(processID: processID)?.identity
         return processID
     }
 
@@ -453,12 +461,54 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     func stop() {
+        if let leader = sessionLeader {
+            sessionLeader = nil
+            let previous = pendingSessionTermination
+            // Closing the PTY only hangs up the foreground job; background and
+            // disowned jobs live in other process groups of the same session.
+            pendingSessionTermination = Task {
+                await previous?.value
+                await MacProcessSessionTerminator.terminate(sessionLedBy: leader)
+            }
+        }
         guard let processID else { return }
         suppressNextTermination = true
         if view.process.running {
             view.terminate()
         }
         stoppedChildProcessReaper.reapWhenExited(processID)
+    }
+
+    func stopAndWait() async {
+        stop()
+        await pendingSessionTermination?.value
+    }
+
+    func runningPrograms() -> [TerminalRunningProgram] {
+        guard let leader = sessionLeader else { return [] }
+        let members = MacProcessSessionTerminator.members(ofSessionLedBy: leader)
+        let leaderGroup = members.first { $0.identity == leader }?.processGroupID ?? leader.processID
+        // An interactive shell is not a program the user started, and helpers
+        // it runs without job control stay in its own process group.
+        let programs = launchedInteractiveShell
+            ? members.filter { $0.processGroupID != leaderGroup }
+            : members
+        return Dictionary(grouping: programs, by: \.processGroupID)
+            .values
+            .compactMap { group -> TerminalRunningProgram? in
+                guard let representative = group.first(where: { $0.processID == $0.processGroupID })
+                    ?? group.min(by: { $0.processID < $1.processID }) else { return nil }
+                let commandLine = MacProcessTable.arguments(processID: representative.processID)?.commandLine
+                    ?? representative.name
+                let ports = Set(group.flatMap { MacProcessTable.listeningTCPPorts(processID: $0.processID) })
+                return TerminalRunningProgram(
+                    processID: representative.processID,
+                    commandLine: commandLine,
+                    listeningPorts: ports.sorted(),
+                    startedAt: Date(timeIntervalSince1970: Double(representative.identity.startTime) / 1_000_000)
+                )
+            }
+            .sorted { $0.processID < $1.processID }
     }
 
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}

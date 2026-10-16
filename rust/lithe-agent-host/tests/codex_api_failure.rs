@@ -158,6 +158,7 @@ fn run_with(
             )),
             authentication: AgentAuthentication::ApiKey,
             observe_model_calls,
+            process_scope: None,
             provider: Some(ProviderCredentials {
                 protocol: ProviderProtocol::Responses,
                 base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
