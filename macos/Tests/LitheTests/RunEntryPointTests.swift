@@ -155,8 +155,8 @@ struct RunEntryPointTests {
     /// == .ready` as soon as it is bound, which used to be enough to launch. With
     /// a provisional inventory the Maven project is absent, so toolchains resolve
     /// without it. Readiness has to be checked before the configuration status.
-    @Test
-    func runWithExistingConfigurationLaunchesOnlyAfterTheSnapshotArrives() async throws {
+    @Test(arguments: [0, 4])
+    func runWithExistingConfigurationLaunchesOnlyAfterTheSnapshotArrives(earlyRefreshes: Int) async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
         let workspaceOperations = SequencedWorkspaceOperations.neverScans()
@@ -168,6 +168,9 @@ struct RunEntryPointTests {
         defer { model.closeProject() }
 
         model.openProjectDirectly(workspace.root)
+        for _ in 0..<earlyRefreshes { await model.workspaceFeature.refreshCurrent() }
+        try #require(model.workspaceFeature.appliedSnapshot == nil,
+                     "Background refreshes must not publish the snapshot before the test releases it")
         model.runSelectedConfiguration()
 
         let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
@@ -195,7 +198,7 @@ struct RunEntryPointTests {
         // waiting for the action to clear would pass even if the relaunch were
         // dropped. The launch plan request is what proves Run actually ran.
         let relaunched = await runConfigurations.launchPlanRequested(1)
-        #expect(relaunched, "the deferred Run was never actually re-issued")
+        try #require(relaunched, "the deferred Run was never actually re-issued")
         #expect(model.pendingRunAction == nil)
         // Toolbar Run must publish the application's output to the same session
         // selected by the sidebar, without starting a separate primary process.
@@ -755,11 +758,14 @@ struct RunEntryPointTests {
         )
         model.settings.autoSave = false
         model.openProjectDirectly(workspace.root)
-        model.toggleRun()
-        #expect(await awaitLoadDrivenChange(on: model) {
+        // Snapshot readiness precedes toolchain resolution. Wait for the full
+        // load before selecting Current File, or apply() can replace it with
+        // the default configuration. Opening the workspace owns this load;
+        // toggling Run would start another unawaited load of the same project.
+        try #require(await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
                 for: workspace.root, snapshotID: model.workspaceSnapshotID
-            ) == true
+            ) == true && model.runFeatureIfActive?.isLoadingProject == false
         })
         await model.documentFeature.openFileAsync(
             workspace.sourceURL, isReadOnly: false, displayPath: nil, activateWhenReady: true
@@ -768,9 +774,11 @@ struct RunEntryPointTests {
         let original = document.text
         let feature = try #require(model.runFeatureIfActive)
         feature.select(.currentFile)
+        try #require(feature.selectedConfiguration?.kind == .currentFile)
         model.runSelectedConfiguration()
-        #expect(await runs.launchPlanRequested(1))
-        #expect(runs.launchedCurrentFileTexts == [original])
+        try #require(await runs.launchPlanRequested(1))
+        try #require(runs.launchedCurrentFileTexts == [original],
+                     "The initial launch must capture the original Current File target before testing restart")
 
         document.text = original + "\n// v2"
         let otherURL = workspace.root.appendingPathComponent("Other.java")

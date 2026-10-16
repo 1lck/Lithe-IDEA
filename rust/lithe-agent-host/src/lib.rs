@@ -18,7 +18,9 @@ mod prompt_retry;
 mod session_defaults;
 mod session_restore;
 mod session_routing;
+mod steering;
 mod subscription;
+mod workspace_context;
 
 pub use catalog::{ModelDelivery, ProviderProtocol};
 pub use model_calls::{ContextComposition, ModelApi, ModelCall, ModelCallUsage};
@@ -34,10 +36,10 @@ use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
     AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities,
-    InitializeRequest, ListSessionsRequest, LoadSessionRequest, PromptRequest,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionConfigOption, SessionNotification,
-    SetSessionConfigOptionRequest,
+    ClientSessionCapabilities, ContentBlock, InitializeRequest, ListSessionsRequest,
+    LoadSessionRequest, NoticeCapabilities, PromptRequest, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
+    SessionConfigOption, SessionNotification, SetSessionConfigOptionRequest,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
@@ -359,6 +361,14 @@ pub enum AgentCommand {
         #[serde(default)]
         files: Vec<PromptFile>,
     },
+    /// Supplement the current logical turn. Results never end that turn.
+    Steer {
+        token: String,
+        session_id: String,
+        text: String,
+        #[serde(default)]
+        files: Vec<PromptFile>,
+    },
     Cancel {
         session_id: String,
     },
@@ -413,6 +423,15 @@ pub enum AgentEvent {
         agent_version: Option<String>,
         can_load_sessions: bool,
         can_list_sessions: bool,
+        can_steer: bool,
+    },
+    /// Request-scoped delivery result, separate from prompt completion.
+    SteeringResult {
+        token: String,
+        session_id: String,
+        outcome: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
     },
     SessionCreated {
         token: String,
@@ -523,6 +542,7 @@ struct RunningTurn {
     generation: u64,
     cancelling: bool,
     retry: tokio::sync::watch::Sender<prompt_retry::State>,
+    steering: Arc<steering::Turn>,
 }
 
 enum Control {
@@ -969,6 +989,8 @@ where
         calls_in_flight,
     } = activity;
     let session_meta = session_routing::metadata(gateway.as_ref())?;
+    let workspace = Arc::new(workspace_context::WorkspaceContext::new(&cwd)?);
+    let update_workspace = workspace.clone();
     let restored_meta = session_routing::restored_metadata(gateway.as_ref())?;
     let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     let updates = emit.clone();
@@ -991,10 +1013,14 @@ where
         .on_receive_notification(
             async move |notification: SessionNotification, _| {
                 if let Ok(update) = serde_json::to_value(notification.update) {
+                    let Some(update) = update_workspace.present_update(update) else {
+                        return Ok(());
+                    };
                     let session_id = notification.session_id.0.to_string();
                     let mut reconnect = None;
                     if let Ok(turns) = update_turns.lock() {
                         if let Some(turn) = turns.get(&session_id) {
+                            turn.steering.observe(&update);
                             turn.retry.send_modify(|state| {
                                 if prompt_retry::is_progress(&update) { state.progress(); }
                                 state.observe_failure(&update);
@@ -1095,6 +1121,8 @@ where
             let typed_failures = claude_api_key || gateway.as_ref().is_some_and(|route| route.native_recovery);
             let air_capabilities = if typed_failures { vec!["recommendedValue", "sessionFailure"] } else { vec!["recommendedValue"] };
             let capabilities = ClientCapabilities::new()
+                // Keep upstream advisories out of assistant transcript chunks.
+                .session(ClientSessionCapabilities::new().notices(NoticeCapabilities::new()))
                 .auth(AuthCapabilities::new().meta(serde_json::Map::from_iter([(
                     GATEWAY_AUTH_METHOD.to_owned(),
                     serde_json::Value::Bool(true),
@@ -1145,6 +1173,10 @@ where
                 emit(AgentEvent::Account { account: account.clone() });
                 Some(account)
             } else { None };
+            let can_steer = steering::supported(initialized.meta.as_ref());
+            let tracks_detached_steering = initialized.agent_info.as_ref().is_some_and(
+                |info| info.name == "@agentclientprotocol/codex-acp"
+            );
             let agent = initialized.agent_info.as_ref();
             emit(AgentEvent::Ready {
                 agent_name: agent.map(|info| info.name.clone()),
@@ -1155,6 +1187,7 @@ where
                     .session_capabilities
                     .list
                     .is_some(),
+                can_steer,
             });
 
             let quota_running = Arc::new(AtomicBool::new(false));
@@ -1163,8 +1196,10 @@ where
             let mut native_sequences = HashMap::<String, Arc<AtomicU64>>::new();
             let mut tasks = JoinSet::new();
             let (cancel_deadline_tx, mut cancel_deadlines) = async_mpsc::unbounded_channel();
+            let (steering_failure_tx, mut steering_failures) = async_mpsc::unbounded_channel::<String>();
             loop {
                 let control = tokio::select! {
+                    Some(message) = steering_failures.recv() => return Err(internal(&message)),
                     control = controls.recv() => match control {
                         Some(control) => control,
                         None => break,
@@ -1260,8 +1295,9 @@ where
                         let connection = connection.clone();
                         let emit = emit.clone();
                         let cwd = cwd.clone();
+                        let workspace = workspace.clone();
                         tasks.spawn(async move {
-                            emit(match list_sessions(&connection, cwd).await {
+                            emit(match list_sessions(&connection, cwd, &workspace).await {
                                 Ok(sessions) => AgentEvent::Sessions { token, sessions },
                                 Err(message) => failed(Some(token), None, message),
                             });
@@ -1285,8 +1321,74 @@ where
                             });
                         });
                     }
+                    AgentCommand::Steer { token, session_id, text, files } => {
+                        let reject = |message: &str| emit(AgentEvent::SteeringResult {
+                            token: token.clone(), session_id: session_id.clone(),
+                            outcome: "failed".into(), message: Some(message.into()),
+                        });
+                        if !can_steer { reject("This Agent does not support messages while responding"); continue; }
+                        let content = match workspace.content(text, files) {
+                            Ok(content) => content,
+                            Err(message) => { reject(&message); continue; }
+                        };
+                        let reservation = turns.lock().ok().and_then(|turns| {
+                            turns.get(&session_id).map(|turn| {
+                                if turn.cancelling { return None; }
+                                turn.steering.begin().map(|idle| (turn.steering.clone(), idle, turn.retry.clone()))
+                            })
+                        });
+                        let Some(reservation) = reservation else {
+                            emit(AgentEvent::SteeringResult { token, session_id, outcome: "promptRequired".into(), message: None });
+                            continue;
+                        };
+                        let Some((progress, continuation_idle, retry)) = reservation else {
+                            reject("Wait for the pending message or Stop acknowledgement"); continue;
+                        };
+                        if matches!(content.first(), Some(ContentBlock::Text(text)) if text.text.trim_start().starts_with('/')) {
+                            // Codex ACP 1.13.1 also reports startedNewTurn for a
+                            // completed command that never starts a model turn.
+                            // Leave commands unconsumed so the client submits
+                            // them after this turn, with an owned prompt response.
+                            emit(AgentEvent::SteeringResult { token, session_id, outcome: "promptRequired".into(), message: None });
+                            progress.finish(None);
+                            continue;
+                        }
+                        let (connection, emit, fatal) = (connection.clone(), emit.clone(), steering_failure_tx.clone());
+                        tasks.spawn(async move {
+                            let result = tokio::time::timeout(SESSION_REQUEST_TIMEOUT,
+                                connection.send_request(steering::request(&session_id, content)).block_task()).await;
+                            let mut detached = false;
+                            let (outcome, message) = match result {
+                                Ok(Ok(response)) => {
+                                    match response.outcome.as_str() {
+                                        "injected" => ("injected", None),
+                                        "startedNewTurn" if tracks_detached_steering => { detached = true; ("injected", None) },
+                                        "startedNewTurn" => {
+                                            let _ = fatal.send("This Agent started an untracked continuation. Reconnect and check the conversation before retrying.".into());
+                                            return;
+                                        },
+                                        "promptRequired" => ("promptRequired", None),
+                                        _ => ("failed", Some("The Agent did not accept the supplementary message".into())),
+                                    }
+                                },
+                                Ok(Err(error)) => ("failed", Some(prompt_retry::error_message(&error))),
+                                Err(_) => {
+                                    // A timed-out extension might still consume the input.
+                                    // Stop the connection rather than retrying it blindly.
+                                    let _ = fatal.send("The Agent did not confirm the supplementary message. Reconnect and check the conversation before retrying.".into());
+                                    return;
+                                }
+                            };
+                            if detached && retry.borrow().cancelling {
+                                let _ = connection.send_notification(CancelNotification::new(session_id.clone()));
+                            }
+                            emit(AgentEvent::SteeringResult { token, session_id, outcome: outcome.into(), message });
+                            // Publish delivery before releasing the terminal-event barrier.
+                            progress.finish(detached.then_some(continuation_idle));
+                        });
+                    }
                     AgentCommand::Prompt { session_id, text, files } => {
-                        let content = match prompt::content(text, files) {
+                        let content = match workspace.content(text, files) {
                             Ok(content) => content,
                             Err(message) => {
                                 emit(failed(None, Some(session_id), message));
@@ -1301,9 +1403,10 @@ where
                             prompt_retry::State::native(sequence)
                         } else { prompt_retry::State::new(retry_enabled) };
                         let (retry, retry_changes) = tokio::sync::watch::channel(retry_state);
+                        let steering = Arc::new(steering::Turn::default());
                         let busy = match turns.lock() {
                             Ok(mut turns) if !turns.contains_key(&session_id) => {
-                                turns.insert(session_id.clone(), RunningTurn { generation, cancelling: false, retry: retry.clone() });
+                                turns.insert(session_id.clone(), RunningTurn { generation, cancelling: false, retry: retry.clone(), steering: steering.clone() });
                                 false
                             }
                             _ => true,
@@ -1318,7 +1421,21 @@ where
                         }
                         let request = PromptRequest::new(session_id.clone(), content);
                         let connection = connection.clone();
-                        let mut response = Box::pin(prompt_retry::run(connection.clone(), request, retry.clone(), retry_changes.clone(), uuid::Uuid::new_v4().to_string(), emit.clone()));
+                        let prompt_response = prompt_retry::run(connection.clone(), request, retry.clone(), retry_changes.clone(), uuid::Uuid::new_v4().to_string(), emit.clone());
+                        let mut response = Box::pin(async move {
+                            let response = prompt_response.await;
+                            let continued = steering.settled().await.map_err(|message| internal(&message))?;
+                            if continued {
+                                // A detached continuation has no ACP usage response;
+                                // its native terminal state supersedes the original
+                                // response (which may have failed before steering).
+                                Ok(agent_client_protocol::schema::v1::PromptResponse::new(
+                                    agent_client_protocol::schema::v1::StopReason::EndTurn,
+                                ))
+                            } else {
+                                response
+                            }
+                        });
                         let emit = emit.clone();
                         let turns = turns.clone();
                         let prompt_permissions = cancel_permissions.clone();
@@ -1415,7 +1532,12 @@ where
                             calls_in_flight.settle(&session_id, MODEL_CALL_SETTLE_TIMEOUT).await;
                             calls_in_flight.finish_turn(&session_id, generation);
                             emit(match result {
-                                Ok(Ok(response)) => prompt::finished(session_id, response),
+                                Ok(Ok(mut response)) => {
+                                    if retry.borrow().cancelling {
+                                        response.stop_reason = agent_client_protocol::schema::v1::StopReason::Cancelled;
+                                    }
+                                    prompt::finished(session_id, response)
+                                },
                                 Ok(Err(error)) => failed(None, Some(session_id), prompt_retry::error_message(&error)),
                                 Err(_) => unreachable!("recovery deadline handled above"),
                             });
@@ -1527,6 +1649,7 @@ fn stop_reason_name(reason: &agent_client_protocol::schema::v1::StopReason) -> S
 async fn list_sessions(
     connection: &ConnectionTo<Agent>,
     cwd: PathBuf,
+    workspace: &workspace_context::WorkspaceContext,
 ) -> Result<Vec<AgentSessionSummary>, String> {
     let mut sessions = Vec::new();
     let mut cursor: Option<String> = None;
@@ -1542,15 +1665,15 @@ async fn list_sessions(
                 .block_task(),
         )
         .await?;
-        sessions.extend(
-            page.sessions
-                .into_iter()
-                .map(|session| AgentSessionSummary {
-                    session_id: session.session_id.0.to_string(),
-                    title: session.title,
-                    updated_at: session.updated_at,
-                }),
-        );
+        sessions.extend(page.sessions.into_iter().map(|session| {
+            AgentSessionSummary {
+                session_id: session.session_id.0.to_string(),
+                title: session
+                    .title
+                    .and_then(|title| workspace.present_title(&title)),
+                updated_at: session.updated_at,
+            }
+        }));
         match page.next_cursor {
             Some(next) if !next.is_empty() => cursor = Some(next),
             _ => return Ok(sessions),

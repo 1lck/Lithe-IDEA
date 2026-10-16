@@ -286,6 +286,200 @@ impl Drop for TemporaryProject {
     }
 }
 
+/// A containing repository deliberately describes a different product. Neither
+/// the user's initial prompt nor steering names the nested application's purpose.
+#[test]
+#[ignore = "requires a real catalog ACP agent, network access, and an API key"]
+fn real_agent_keeps_nested_project_scope_through_steering_and_history_restore() {
+    let repository = TemporaryProject::new();
+    for directory in [
+        ".git/objects",
+        ".git/refs/heads",
+        "services/orchard-users/src/main/java",
+    ] {
+        std::fs::create_dir_all(repository.0.join(directory)).unwrap();
+    }
+    std::fs::write(repository.0.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(
+        repository.0.join("README.md"),
+        "# Atlas IDE\nAtlas IDE is a desktop code editor and Git visualizer.\n",
+    )
+    .unwrap();
+    std::fs::write(repository.0.join("AGENTS.md"),
+        "# Atlas IDE repository\nRead the applicable project documentation before explaining code. Do not modify files for explanation tasks.\n").unwrap();
+    let workspace = repository.0.join("services/orchard-users");
+    std::fs::write(workspace.join("README.md"),
+        "# Orchard Users\nOrchard Users is a Spring Boot REST service for managing user accounts. It exposes GET /api/users.\n").unwrap();
+    std::fs::write(workspace.join("pom.xml"),
+        "<project><modelVersion>4.0.0</modelVersion><groupId>example</groupId><artifactId>orchard-users</artifactId><version>1.0</version></project>\n").unwrap();
+    std::fs::write(workspace.join("src/main/java/UserController.java"),
+        "@RestController class UserController { @GetMapping(\"/api/users\") List<String> users() { return List.of(); } }\n").unwrap();
+    let session = open(&workspace);
+    let id = session.new_session("nested-project");
+    session.send(AgentCommand::Prompt {
+        session_id: id.clone(),
+        text: "讲解一下当前项目结构。请先查看项目文件，简短回答，不修改文件。".into(),
+        files: vec![],
+    });
+    let mut reply = String::new();
+    let mut sent_supplement = false;
+    let mut steering_outcome = None;
+    let mut read_project_readme = false;
+    let reason = session.wait(
+        "nested project and steering",
+        Some(&id),
+        &mut reply,
+        |event| {
+            match event {
+                AgentEvent::Permission {
+                    request_id,
+                    request,
+                    ..
+                } => {
+                    let option_id = request["options"]
+                        .as_array()
+                        .and_then(|options| {
+                            options.iter().find(|option| option["kind"] == "allow_once")
+                        })
+                        .and_then(|option| option["optionId"].as_str())
+                        .map(String::from);
+                    session.send(AgentCommand::Permission {
+                        request_id: request_id.clone(),
+                        option_id,
+                    });
+                }
+                AgentEvent::Update { update, .. }
+                    if update["sessionUpdate"] == "tool_call"
+                        || update["sessionUpdate"] == "tool_call_update" =>
+                {
+                    // Agents can report relative Read paths or shell commands.
+                    // The unique README content in actual tool output proves
+                    // which project was read without guessing a tool's syntax.
+                    read_project_readme |= update
+                        .to_string()
+                        .contains("Orchard Users is a Spring Boot REST service");
+                    if !sent_supplement {
+                        sent_supplement = true;
+                        session.send(AgentCommand::Steer {
+                            token: "purpose".into(),
+                            session_id: id.clone(),
+                            text: "同时说明这个项目是用来做什么的，回答简洁。".into(),
+                            files: vec![],
+                        });
+                    }
+                }
+                AgentEvent::SteeringResult { outcome, .. } => {
+                    steering_outcome = Some(outcome.clone())
+                }
+                AgentEvent::TurnFinished { stop_reason, .. } => return Some(stop_reason.clone()),
+                _ => {}
+            }
+            None
+        },
+    );
+    assert_eq!(reason, "end_turn");
+    assert!(sent_supplement, "the Agent must inspect project files");
+    match steering_outcome.as_deref() {
+        Some("injected") => {}
+        Some("promptRequired") => {
+            let (reason, continuation) =
+                session.prompt(&id, "同时说明这个项目是用来做什么的，回答简洁。");
+            assert_eq!(reason, "end_turn");
+            reply.push_str(&continuation);
+        }
+        other => panic!("supplement was not accepted: {other:?}"),
+    }
+    assert!(
+        read_project_readme,
+        "expected evidence of reading the nested README"
+    );
+    assert!(
+        reply.contains("Orchard") && reply.contains("Spring Boot"),
+        "wrong project reply: {reply}"
+    );
+    session.handle.close();
+
+    let resumed = open(&workspace);
+    resumed.send(AgentCommand::ListSessions {
+        token: "titles".into(),
+    });
+    resumed.wait(
+        "clean project history titles",
+        None,
+        &mut String::new(),
+        |event| {
+            if let AgentEvent::Sessions { sessions, .. } = event {
+                let saved = sessions
+                    .iter()
+                    .find(|session| session.session_id == id)
+                    .expect("the finished project conversation must be listed");
+                assert!(
+                    !saved
+                        .title
+                        .as_deref()
+                        .unwrap_or_default()
+                        .contains("<lithe_workspace_context>"),
+                    "host metadata leaked into history title"
+                );
+                return Some(());
+            }
+            None
+        },
+    );
+    resumed.send(AgentCommand::LoadSession {
+        token: "restore".into(),
+        session_id: id.clone(),
+    });
+    let mut history = String::new();
+    resumed.wait(
+        "nested project history",
+        None,
+        &mut String::new(),
+        |event| {
+            match event {
+                AgentEvent::Update { update, .. }
+                    if update["sessionUpdate"] == "session_info_update" =>
+                {
+                    assert!(
+                        !update["title"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .contains("<lithe_workspace_context>"),
+                        "host metadata leaked into restored title"
+                    );
+                }
+                AgentEvent::Update { update, .. }
+                    if update["sessionUpdate"] == "user_message_chunk" =>
+                {
+                    history.push_str(update["content"]["text"].as_str().unwrap_or_default());
+                }
+                AgentEvent::SessionLoaded { .. } => return Some(()),
+                _ => {}
+            }
+            None
+        },
+    );
+    assert!(
+        !history.contains("<lithe_workspace_context>"),
+        "host metadata leaked into user history"
+    );
+    assert!(
+        history.contains("讲解一下当前项目结构"),
+        "original user message must survive replay"
+    );
+    let (reason, reply) = resumed.prompt(
+        &id,
+        "根据刚才读取的文件，用一句话说明当前项目的名称和用途，不再调用工具。",
+    );
+    assert_eq!(reason, "end_turn");
+    assert!(
+        reply.contains("Orchard") && reply.contains("Spring Boot"),
+        "wrong restored project: {reply}"
+    );
+    resumed.handle.close();
+    println!("Nested project README, supplementary input, restored scope and clean user history verified.");
+}
+
 #[test]
 #[ignore = "requires a real ACP agent, network access, Node.js, and an API key"]
 fn real_agent_reads_edits_tests_and_continues_in_temporary_project() {

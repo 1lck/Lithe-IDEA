@@ -99,11 +99,21 @@ test('pushes and manual runs never take a hosted runner for Mac mini lanes', () 
 
 test('hosted-only lanes stay hosted and do not consume a Mac mini slot', () => {
   assert.deepEqual(
-    assignPools({ lanes: ['swift', 'release', 'plugins', 'rust'], busy: busyOf(1, 0, 0), capacity, macMiniOnly: false }),
+    assignPools({ lanes: ['swift', 'release', 'plugins', 'rust'], busy: busyOf(1, 0, 0), capacity, macMiniOnly: false, hostedOnly: new Set(['swift']) }),
     { swift: 'hosted', release: 'mac-mini-release', plugins: 'mac-mini-debug', rust: 'hosted' });
   assert.deepEqual(
-    assignPools({ lanes: ['swift'], busy: busyOf(0, 0, 9), capacity, macMiniOnly: true }),
+    assignPools({ lanes: ['swift'], busy: busyOf(0, 0, 9), capacity, macMiniOnly: true, hostedOnly: new Set(['swift']) }),
     { swift: 'hosted' });
+});
+
+test('Swift tests take a free debug-group Mac mini unless the run keeps them hosted', async () => {
+  assert.deepEqual(
+    assignPools({ lanes: ['swift', 'release', 'rust'], busy: busyOf(0, 0, 0), capacity, macMiniOnly: false }),
+    { swift: 'mac-mini-debug', release: 'mac-mini-release', rust: 'mac-mini-debug' });
+  const { fetchImpl } = fakeGitHub({}, {});
+  const kept = await selectRunners({ ...pullRequestEnv, LITHE_MACOS_LANES: 'swift,rust', LITHE_HOSTED_ONLY_LANES: 'swift' }, fetchImpl);
+  assert.deepEqual(kept.pools, { swift: 'hosted', rust: 'mac-mini-debug' });
+  await assert.rejects(selectRunners({ ...pullRequestEnv, LITHE_MACOS_LANES: 'swift', LITHE_HOSTED_ONLY_LANES: 'windows' }, fetchImpl), /Unknown macOS lane/);
 });
 
 test('every lane receives a valid runs-on value', () => {
@@ -147,7 +157,7 @@ test('a missing token falls back without contacting GitHub', async () => {
 test('pushes choose the Mac minis without reading the API', async () => {
   const { fetchImpl, requested } = fakeGitHub({}, {});
   const result = await selectRunners({ ...pullRequestEnv, GITHUB_EVENT_NAME: 'push', LITHE_MACOS_LANES: 'swift,rust' }, fetchImpl);
-  assert.deepEqual(result.pools, { swift: 'hosted', rust: 'mac-mini-debug' });
+  assert.deepEqual(result.pools, { swift: 'mac-mini-debug', rust: 'mac-mini-debug' });
   assert.deepEqual(requested, []);
 });
 

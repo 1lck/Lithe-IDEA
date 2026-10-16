@@ -1,0 +1,30 @@
+{
+  "id": "agent-opened-workspace-context",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "当前打开项目的明确上下文：嵌套子项目范围、普通和补充消息一致、恢复会话后保持范围、保留上层开发规则与原生命令、用户历史与实时及历史列表标题移除 Host 附加上下文",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "verified",
+    "evidence": [
+      "rust/lithe-agent-host/src/workspace_context.rs",
+      "rust/lithe-agent-host/src/lib.rs",
+      "rust/lithe-agent-host/src/tests.rs",
+      "rust/lithe-agent-host/tests/real_agent.rs",
+      "macos/Sources/Lithe/Platform/MacOS/Agent/MacACPAgentTransport.swift",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "macos/Tests/LitheTests/AgentHistoryTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/workspace_context.rs",
+      "shared/contracts/rust-core-api.md",
+      "windows/tauri/src/config/backend-capabilities.ts"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "打开外层有独立 IDE README 和开发规则、内层有 Spring Boot README 的子项目，普通提问和回复中补充均应读取内层资料并介绍内层服务；停止重连并恢复同一会话后再次询问，范围与用户历史保持。跨会话及不同工作区不能混用范围。检查文件附件顺序、仅附件消息、空输入和非法 URI；/usage、/compact 与 /model 的 ACP 原始参数保持。真实 Claude/Codex 供应商验证读文件证据与回答；历史只呈现原用户文字，模型回复和工具证据不被过滤。该上下文不宣称文件系统沙箱。Windows 原生 Agent 后端尚未启用，仅共享 Host 已实现，Windows 真实运行验收待完成。 macOS 已通过共享 ACP 确定性回归、真实 Claude Opus 与 Codex 的嵌套项目/补充/重连恢复/消息和标题验收，以及实际 Spring Boot 示例窗口中的原始问题、补充提问和历史恢复验证。 受控 ACP 回归必须比较带附件斜杠命令的完整普通 prompt 和 steering 延后续发数组（含前导空白与多附件顺序），确认没有附加上下文块；仅附件首条消息产生的完整、截断、空白归一化上下文标题在实时更新与列表中均为 null，macOS 保留首条用户消息、新对话、无标题和导出回退。上述边界通过受控协议与呈现验证，真实供应商带附件命令未据此视为验收完成。"
+}

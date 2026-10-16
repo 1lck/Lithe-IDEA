@@ -34,6 +34,7 @@ public final class AgentConnectionModel: ObservableObject {
     /// Prompt of a new conversation while its session is being created.
     @Published public private(set) var pendingNewConversationPrompt: String?
     @Published public private(set) var canLoadSessions = false
+    @Published public private(set) var canSteer = false
     @Published public private(set) var isRefreshingSessions = false
     @Published public private(set) var historyError: String?
     @Published public private(set) var errorMessage: String?
@@ -62,6 +63,14 @@ public final class AgentConnectionModel: ObservableObject {
     /// Prompts waiting for a session: keyed by new-session token or by the
     /// session ID being loaded.
     private var queuedPrompts: [String: AgentPrompt] = [:]
+    private struct Supplement {
+        let token: String
+        let prompt: AgentPrompt
+        let messageID: String
+        var isCancelled = false
+    }
+    private var supplements: [String: Supplement] = [:]
+    private var continuations: [String: Supplement] = [:]
     private var loadTokens: [String: String] = [:]
     /// Streamed text not yet shown, per session. One buffer holds one role so
     /// interleaved reasoning and reply chunks become separate messages.
@@ -75,6 +84,7 @@ public final class AgentConnectionModel: ObservableObject {
     private var unpromptedSessionIDs: Set<String> = []
     private var historyContinuations: [String: CheckedContinuation<[AgentConversationMessage], Error>] = [:]
     private var historyRefreshToken: String?
+    private var isClaudeConnection = false
 
     public init(transport: any AgentConversationTransport, now: @escaping () -> ContinuousClock.Instant = { .now }) {
         self.transport = transport
@@ -87,6 +97,10 @@ public final class AgentConnectionModel: ObservableObject {
         createToken.flatMap { queuedPrompts[$0]?.submittedAt }
     }
     public var hasPendingPermission: Bool { conversations.values.contains { $0.permission != nil } }
+    /// Unconsumed input can still be revoked while the next-turn configuration is pending.
+    public var hasPendingContinuation: Bool {
+        selectedSessionID.map { continuations[$0] != nil } ?? false
+    }
     public var selectedConversation: AgentConversation? {
         selectedSessionID.flatMap { conversations[$0] }
     }
@@ -99,6 +113,7 @@ public final class AgentConnectionModel: ObservableObject {
         guard closeTask == nil else { throw AgentConversationError.sessionStopping }
         let (events, continuation) = AsyncStream<String>.makeStream()
         errorMessage = nil
+        isClaudeConnection = configuration.agentID == "claude-acp"
         usesSubscription = configuration.authentication == .codexSubscription
         subscriptionEmail = nil
         subscriptionPlan = nil
@@ -299,7 +314,27 @@ public final class AgentConnectionModel: ObservableObject {
             return
         }
         let conversation = conversations[sessionID] ?? AgentConversation()
-        guard !conversation.isResponding else { throw AgentConversationError.sessionBusy }
+        guard conversation.pendingSteeringToken == nil, continuations[sessionID] == nil else {
+            throw AgentConversationError.sessionBusy
+        }
+        if conversation.isResponding {
+            guard canSteer, !conversation.isCancelling, conversation.pendingSteeringToken == nil else {
+                throw AgentConversationError.sessionBusy
+            }
+            let token = makeToken()
+            var command: [String: Any] = ["kind": "steer", "token": token, "sessionId": sessionID, "text": prompt.text]
+            if !prompt.files.isEmpty { command["files"] = prompt.files.map(\.commandValue) }
+            guard sendCommand(command) else {
+                throw AgentConversationError.sendFailed(errorMessage ?? AgentConversationError.notConnected.localizedDescription)
+            }
+            flushPendingText()
+            var message = AgentConversationMessage(role: .user, text: prompt.displayText)
+            message.delivery = .sending
+            conversations[sessionID]?.messages.append(message)
+            conversations[sessionID]?.pendingSteeringToken = token
+            supplements[sessionID] = Supplement(token: token, prompt: prompt, messageID: message.id)
+            return
+        }
         guard conversation.pendingConfigToken == nil, conversation.queuedConfigValues.isEmpty else {
             throw AgentConversationError.configurationPending
         }
@@ -319,9 +354,14 @@ public final class AgentConnectionModel: ObservableObject {
 
     public func cancel() {
         guard let sessionID = selectedSessionID,
-              conversations[sessionID]?.isResponding == true,
+              conversations[sessionID]?.isResponding == true || hasPendingContinuation,
               conversations[sessionID]?.isCancelling != true else { return }
-        conversations[sessionID]?.isCancelling = true
+        let isResponding = conversations[sessionID]?.isResponding == true
+        if isResponding { conversations[sessionID]?.isCancelling = true }
+        cancelContinuation(in: sessionID)
+        // A queued continuation has no native turn to cancel. Configuration
+        // acknowledgements can continue, but must not send the revoked input.
+        guard isResponding else { return }
         conversations[sessionID]?.pendingPermissions.removeAll()
         conversations[sessionID]?.refreshTurnClock(at: now())
         updateAttention()
@@ -334,6 +374,11 @@ public final class AgentConnectionModel: ObservableObject {
     public func continueWaiting() {
         guard let sessionID = selectedSessionID else { return }
         conversations[sessionID]?.isQuiet = false
+    }
+
+    public func dismissNotice(_ id: String, in sessionID: String) {
+        guard conversations[sessionID]?.notice?.id == id else { return }
+        conversations[sessionID]?.notice = nil
     }
 
     public func answerPermission(optionID: String?) {
@@ -384,7 +429,26 @@ public final class AgentConnectionModel: ObservableObject {
             agentVersion = event["agentVersion"] as? String
             canLoadSessions = event["canLoadSessions"] as? Bool ?? false
             canListSessions = event["canListSessions"] as? Bool ?? false
+            canSteer = event["canSteer"] as? Bool ?? false
             refreshSessions()
+        case "steeringResult":
+            guard let sessionID, let token, let supplement = supplements[sessionID], supplement.token == token else { return }
+            supplements[sessionID] = nil
+            conversations[sessionID]?.pendingSteeringToken = nil
+            switch event["outcome"] as? String {
+            case "injected":
+                setDelivery(.received, messageID: supplement.messageID, in: sessionID)
+            case "promptRequired":
+                if supplement.isCancelled {
+                    setDelivery(.failed("Supplementary message cancelled."), messageID: supplement.messageID, in: sessionID)
+                } else {
+                    continuations[sessionID] = supplement
+                    resumeContinuation(in: sessionID)
+                }
+            default:
+                setDelivery(.failed(event["message"] as? String ?? "The Agent did not accept the supplementary message."),
+                            messageID: supplement.messageID, in: sessionID)
+            }
         case "sessions":
             guard isRefreshingSessions, token == historyRefreshToken else { return }
             mergeSessions(event["sessions"] as? [[String: Any]] ?? [])
@@ -392,7 +456,7 @@ public final class AgentConnectionModel: ObservableObject {
             isRefreshingSessions = false
         case "sessionCreated":
             guard let sessionID, let token, token == createToken else { return }
-            conversations[sessionID, default: AgentConversation()].configOptions = AgentSessionConfigOption.parse(event["configOptions"])
+            applyConfiguration(event["configOptions"], to: sessionID)
             sessionCreated(sessionID, token: token)
         case "sessionLoaded":
             guard let sessionID, let token, loadTokens.removeValue(forKey: token) != nil else { return }
@@ -402,7 +466,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID]?.isAttached = true
             conversations[sessionID]?.hasCompleteHistory = true
             loadBackups[sessionID] = nil
-            conversations[sessionID]?.configOptions = AgentSessionConfigOption.parse(event["configOptions"])
+            applyConfiguration(event["configOptions"], to: sessionID)
             historyContinuations.removeValue(forKey: sessionID)?.resume(returning: conversations[sessionID]?.messages ?? [])
             if let prompt = queuedPrompts.removeValue(forKey: sessionID) {
                 startPrompt(prompt, in: sessionID)
@@ -411,6 +475,7 @@ public final class AgentConnectionModel: ObservableObject {
             guard let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token else { return }
             applyConfiguration(event["configOptions"], to: sessionID)
             conversations[sessionID]?.pendingConfigToken = nil
+            applyPendingModeNotice(in: sessionID)
             if let id = conversations[sessionID]?.pendingQueuedConfigID {
                 let requested = conversations[sessionID]?.queuedConfigValues[id]
                 let confirmed = conversations[sessionID]?.configOptions.first { $0.id == id }?.currentValue
@@ -447,6 +512,7 @@ public final class AgentConnectionModel: ObservableObject {
         case "turnCancelling":
             guard let sessionID else { return }
             conversations[sessionID]?.isCancelling = true
+            cancelContinuation(in: sessionID)
             // Host-initiated cancellation has already rejected these requests.
             conversations[sessionID]?.pendingPermissions.removeAll()
             conversations[sessionID]?.refreshTurnClock(at: now())
@@ -476,6 +542,7 @@ public final class AgentConnectionModel: ObservableObject {
         case "turnFinished":
             refreshQuota()
             guard let sessionID else { return }
+            if event["stopReason"] as? String == "cancelled" { cancelContinuation(in: sessionID) }
             flushPendingText()
             conversations[sessionID]?.finishTurn(at: now(), usage: AgentTurnUsage.parse(event["usage"]))
             persistStatistics(sessionID)
@@ -486,6 +553,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID]?.errorMessage = stopReasonMessage(event["stopReason"] as? String)
             updateAttention()
             applyQueuedConfiguration(in: sessionID)
+            resumeContinuation(in: sessionID)
         case "requestFailed":
             requestFailed(token: token, sessionID: sessionID, message: event["message"] as? String ?? "The Agent request failed.")
         case "stopped":
@@ -526,6 +594,7 @@ public final class AgentConnectionModel: ObservableObject {
             historyError = message
         } else if let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token {
             conversations[sessionID]?.pendingConfigToken = nil
+            applyPendingModeNotice(in: sessionID)
             failQueuedConfiguration(in: sessionID, message: message)
         } else if let token, token == createToken {
             queuedPrompts.removeValue(forKey: token)
@@ -576,6 +645,12 @@ public final class AgentConnectionModel: ObservableObject {
 
     private func apply(_ update: [String: Any], to sessionID: String) {
         switch update["sessionUpdate"] as? String {
+        case "notice":
+            guard connectionState == .ready, let notice = AgentSessionNotice.parse(update) else { return }
+            if isClaudeConnection, notice.isClaudeAutoModeFallback,
+               conversations[sessionID]?.pendingConfigToken != nil {
+                conversations[sessionID]?.pendingModeNotice = notice
+            } else { applyNotice(notice, to: sessionID) }
         case "usage_update":
             guard connectionState == .ready else { return }
             conversations[sessionID, default: AgentConversation()].contextUsage = AgentContextUsage.parse(update)
@@ -606,8 +681,18 @@ public final class AgentConnectionModel: ObservableObject {
                   let index = conversations[sessionID]?.configOptions.firstIndex(where: {
                       $0.category == "mode" && $0.choices.contains { $0.id == modeID }
                   }) else { return }
+            let previousMode = conversations[sessionID]?.configOptions[index].currentValue
+            if isClaudeConnection, previousMode != modeID {
+                conversations[sessionID]?.autoFallbackTransition = previousMode == AgentSessionNotice.claudeAutoMode
+                    && modeID == AgentSessionNotice.claudeAutoFallbackMode
+                    ? AgentAutoFallbackTransition(precedingNoticeID: conversations[sessionID]?.notice?.id) : nil
+            }
             conversations[sessionID]?.configOptions[index].currentValue = modeID
+            reconcileModeNotice(in: sessionID)
         case "user_message_chunk":
+            // Live input is already shown locally, including pending steering.
+            // Replay still rebuilds the upstream-owned transcript while loading.
+            guard conversations[sessionID]?.isResponding != true else { return }
             guard let text = Self.text(of: update) else { return }
             flushPendingText()
             append(text, role: .user, to: sessionID)
@@ -660,17 +745,53 @@ public final class AgentConnectionModel: ObservableObject {
         let options = AgentSessionConfigOption.parse(value)
         let oldModels = conversations[sessionID]?.configOptions.filter { $0.category == "model" } ?? []
         let newModels = options.filter { $0.category == "model" }
+        let transition = conversations[sessionID]?.autoFallbackTransition
+        conversations[sessionID]?.autoFallbackTransition = nil
         if oldModels.map(\.currentValue) != newModels.map(\.currentValue) {
             conversations[sessionID]?.contextUsage = nil
+            if !oldModels.isEmpty, isClaudeConnection, let notice = conversations[sessionID]?.notice,
+               notice.isClaudeAutoModeFallback {
+                // Claude's native model switch emits mode -> notice -> catalog.
+                // Preserve only the warning produced during that transition;
+                // a later model switch must still invalidate this same notice.
+                let isNewFallback = transition.map { $0.precedingNoticeID != notice.id } ?? false
+                if !isNewFallback { conversations[sessionID]?.notice = nil }
+            }
         }
         conversations[sessionID, default: AgentConversation()].configOptions = options
+        reconcileModeNotice(in: sessionID)
+    }
+
+    private func reconcileModeNotice(in sessionID: String) {
+        guard isClaudeConnection, conversations[sessionID]?.notice?.isClaudeAutoModeFallback == true,
+              let mode = conversations[sessionID]?.configOptions.first(where: { $0.category == "mode" }) else { return }
+        // The adapter defers its initial fallback advisory until the first prompt,
+        // even if the user has already switched to Plan in the meantime.
+        if mode.currentValue != AgentSessionNotice.claudeAutoFallbackMode {
+            conversations[sessionID]?.notice = nil
+        }
+    }
+
+    private func applyNotice(_ notice: AgentSessionNotice, to sessionID: String) {
+        if isClaudeConnection, notice.isClaudeAutoModeFallback,
+           let mode = conversations[sessionID]?.configOptions.first(where: { $0.category == "mode" }),
+           mode.currentValue != AgentSessionNotice.claudeAutoFallbackMode { return }
+        // A newer applicable notice supersedes a fallback waiting on configuration.
+        conversations[sessionID]?.pendingModeNotice = nil
+        conversations[sessionID, default: AgentConversation()].notice = notice
+    }
+
+    private func applyPendingModeNotice(in sessionID: String) {
+        guard let notice = conversations[sessionID]?.pendingModeNotice else { return }
+        conversations[sessionID]?.pendingModeNotice = nil
+        applyNotice(notice, to: sessionID)
     }
 
     /// Submit next-turn choices only after the Host has released this session's prompt.
     private func applyQueuedConfiguration(in sessionID: String) {
         guard let conversation = conversations[sessionID], conversation.isAttached,
               !conversation.isResponding, !conversation.isLoading,
-              conversation.pendingConfigToken == nil, !conversation.queuedConfigValues.isEmpty else { return }
+              conversation.pendingConfigToken == nil else { return }
         // A model acknowledgement can replace the available reasoning/speed choices.
         // Revalidate each remaining choice against that latest complete option list.
         let ordered = conversation.configOptions.filter { $0.category == "model" }
@@ -698,12 +819,14 @@ public final class AgentConnectionModel: ObservableObject {
         if conversations[sessionID]?.queuedConfigValues.isEmpty == false {
             failQueuedConfiguration(in: sessionID, message: "The Agent no longer supports the selected session setting.")
         }
+        resumeContinuation(in: sessionID)
     }
 
     private func failQueuedConfiguration(in sessionID: String, message: String) {
         conversations[sessionID]?.queuedConfigValues.removeAll()
         conversations[sessionID]?.pendingQueuedConfigID = nil
         conversations[sessionID]?.configurationError = message
+        resumeContinuation(in: sessionID)
     }
 
     private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String) {
@@ -761,14 +884,17 @@ public final class AgentConnectionModel: ObservableObject {
     // MARK: Helpers
 
     @discardableResult
-    private func startPrompt(_ prompt: AgentPrompt, in sessionID: String) -> Bool {
+    private func startPrompt(_ prompt: AgentPrompt, in sessionID: String, messageID: String? = nil) -> Bool {
         var command: [String: Any] = ["kind": "prompt", "sessionId": sessionID, "text": prompt.text]
         if !prompt.files.isEmpty { command["files"] = prompt.files.map(\.commandValue) }
         guard sendCommand(command) else { return false }
         unpromptedSessionIDs.remove(sessionID)
         var conversation = conversations[sessionID] ?? AgentConversation()
-        let message = AgentConversationMessage(role: .user, text: prompt.displayText)
-        conversation.messages.append(message)
+        let message = AgentConversationMessage(id: messageID ?? UUID().uuidString, role: .user, text: prompt.displayText)
+        if messageID == nil { conversation.messages.append(message) }
+        else if let index = conversation.messages.firstIndex(where: { $0.id == messageID }) {
+            conversation.messages[index].delivery = .received
+        }
         conversation.activeTurn = AgentTurnStatistics(id: message.id, startedAt: prompt.submittedAt)
         conversation.isResponding = true
         conversation.isQuiet = false
@@ -777,8 +903,35 @@ public final class AgentConnectionModel: ObservableObject {
         conversation.retryAttempt = nil
         conversation.retryMaxAttempts = nil
         conversation.errorMessage = nil
+        conversation.notice = nil
+        conversation.autoFallbackTransition = nil
         conversations[sessionID] = conversation
         return true
+    }
+
+    private func setDelivery(_ delivery: AgentConversationMessage.Delivery, messageID: String, in sessionID: String) {
+        guard let index = conversations[sessionID]?.messages.firstIndex(where: { $0.id == messageID }) else { return }
+        conversations[sessionID]?.messages[index].delivery = delivery
+    }
+
+    private func cancelContinuation(in sessionID: String) {
+        supplements[sessionID]?.isCancelled = true
+        if let supplement = continuations.removeValue(forKey: sessionID) {
+            setDelivery(.failed("Supplementary message cancelled."), messageID: supplement.messageID, in: sessionID)
+        }
+    }
+
+    /// Explicitly unconsumed input (including deferred commands) can become a
+    /// normal prompt after this turn; ambiguous delivery failures never replay.
+    private func resumeContinuation(in sessionID: String) {
+        guard let supplement = continuations[sessionID], let conversation = conversations[sessionID],
+              !conversation.isResponding, !conversation.isCancelling, conversation.pendingConfigToken == nil,
+              conversation.queuedConfigValues.isEmpty else { return }
+        continuations[sessionID] = nil
+        if conversation.configurationError != nil || !startPrompt(supplement.prompt, in: sessionID, messageID: supplement.messageID) {
+            setDelivery(.failed(conversation.configurationError ?? errorMessage ?? AgentConversationError.notConnected.localizedDescription),
+                        messageID: supplement.messageID, in: sessionID)
+        }
     }
 
     private func persistStatistics(_ sessionID: String) {
@@ -841,6 +994,12 @@ public final class AgentConnectionModel: ObservableObject {
         connectionState = failure.map(ConnectionState.failed) ?? .idle
         canListSessions = false
         canLoadSessions = false
+        canSteer = false
+        for (sessionID, supplement) in supplements.merging(continuations, uniquingKeysWith: { first, _ in first }) {
+            setDelivery(.failed(failure ?? AgentConversationError.notConnected.localizedDescription), messageID: supplement.messageID, in: sessionID)
+        }
+        supplements.removeAll()
+        continuations.removeAll()
         isRefreshingSessions = false
         historyRefreshToken = nil
         for continuation in historyContinuations.values {
@@ -858,10 +1017,14 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[id]?.finishTurn(at: now())
             persistStatistics(id)
             conversations[id]?.contextUsage = nil
+            conversations[id]?.notice = nil
+            conversations[id]?.pendingModeNotice = nil
+            conversations[id]?.autoFallbackTransition = nil
             conversations[id]?.availableCommands = []
             conversations[id]?.isResponding = false
             conversations[id]?.interruptPendingTools()
             conversations[id]?.isCancelling = false
+            conversations[id]?.pendingSteeringToken = nil
             conversations[id]?.pendingConfigToken = nil
             conversations[id]?.queuedConfigValues.removeAll()
             conversations[id]?.pendingQueuedConfigID = nil

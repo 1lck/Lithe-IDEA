@@ -185,10 +185,10 @@ visible and active, and requests a throttled refresh after turns. Hover details
 include all windows and reset times; API-key connections show no quota chip.
 
 `lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
-`listSessions`, `setConfigOption`, `prompt`, `cancel`, `permission`, `authenticate`,
+`listSessions`, `setConfigOption`, `prompt`, `steer`, `cancel`, `permission`, `authenticate`,
 or `refreshQuota`. Results arrive as events:
 `ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
-`sessionConfigured`, `turnRetrying`, `turnActivity`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
+`sessionConfigured`, `steeringResult`, `turnRetrying`, `turnActivity`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
 `authenticationRequired`, `authenticating`, `account`, `quota`, and `quotaFailed`. Commands and events, including
 their camel-case field names, are fixed by
 `shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
@@ -203,6 +203,72 @@ file bytes. These native resource URLs identify user-selected context, not porta
 workspace records; the agent owns reading, permissions, and history. Invalid
 references produce `requestFailed` before reserving a turn. Older text-only callers
 remain compatible by omitting `files`.
+
+The Host appends one standard ACP text block containing the immutable connection
+`cwd` as JSON `openedWorkspaceRoot`, with guidance that "current project" means
+the editor's opened workspace unless the user specifies otherwise. A containing
+repository and inherited `AGENTS.md`/`CLAUDE.md` retain their development-rule
+role, without replacing the subject of project-purpose/structure questions.
+The same builder handles `prompt` and `steer`, retry payloads, and prompts after
+`session/load`; it never reads a README or guesses a Git root. User text stays
+first and file links retain their order. Native slash commands retain their original text and ordered attachment links,
+including leading whitespace and deferred steering commands; no workspace block
+is appended, so adapter command parsing and `/usage` detection keep working.
+No optional prompt capability, private system prompt, new command field, or
+provider-specific path override is required.
+
+Only the exact Host-added workspace text suffix is omitted from
+`user_message_chunk` presentation, including adapters that join adjacent text
+blocks in history. Generated `session_info_update.title` and session-list titles
+also omit a recognized full or truncated, whitespace-normalized Host suffix.
+If the remaining title is empty or whitespace-only, it is represented as `null`
+in the Host event rather than an empty string, preserving downstream provisional
+message, New Chat, untitled-history and export fallbacks.
+Other user content, model output, tools and metadata pass through unchanged.
+Upstream history remains untouched and may retain this
+context as part of its original prompt; it contributes to upstream token usage.
+Workspace selection remains platform-owned, and this context is guidance rather
+than a filesystem sandbox. The `workspaceContext` fixture covers nested roots,
+normal prompts, steering, restored prompts and clean user-message replay.
+
+`ready.canSteer` is true only when the ACP initialize response's top-level
+`_meta.steering.supported` is exactly true; absent capabilities remain false.
+`steer` carries `token`, `sessionId`, `text` and optional `files`, with the same
+validation as `prompt`. The Host uses the existing `_session/steering` extension,
+not a concurrent `session/prompt`. One outstanding supplementary request per
+session preserves ordering. Its `steeringResult` echoes the token and session;
+`outcome` is `injected`, `promptRequired`, or `failed` (with `message`). These
+delivery results never finish or reset the original logical turn. `injected`
+means upstream accepted the input, not proof that a model has already consumed it.
+Only `promptRequired` explicitly leaves the input unconsumed and permits the
+client to submit it once through normal `prompt`, after completion and staged
+configuration. Stop revokes this fallback even while configuration is pending
+and no native turn is active; it leaves the configuration request intact and
+does not send a native cancel for an unstarted continuation.
+Unknown delivery after a thirty-second
+request timeout closes the connection; it never blindly replays the message.
+
+Supplementary input whose first text block starts with `/` (ignoring leading
+whitespace) is left unconsumed by the Host, with `promptRequired`, instead of
+being passed to the steering extension. This also applies when files accompany
+the command. The client waits for the original turn and staged configuration,
+then submits it once via normal `prompt`; the owned ACP response confirms
+completion even when the command never starts a model turn. Command parsing
+remains upstream-owned. Codex ACP 1.13.1 reports `startedNewTurn` for both real
+continuations and completed command-only input, so that outcome alone cannot
+establish a native lifecycle for a command.
+
+The pinned Codex ACP may instead return `startedNewTurn` at the completion
+boundary for ordinary supplementary messages. The Host reports it as accepted
+and retains the same logical turn until Codex's explicit
+`_meta.codex.threadStatus` transitions end the continuation.
+The original idle and the continuation's idle are distinct; duplicate idle
+updates do not complete another turn. Stop and its existing watchdog still apply.
+Original-response usage is omitted for this detached continuation because no
+complete ACP usage response is available. An unknown adapter returning a detached
+continuation closes the connection rather than manufacturing completion. macOS
+displays supplementary input with pending/received/failed delivery; live user
+echoes do not duplicate local input, while history loading still replays messages.
 
 `sessionCreated` and `sessionLoaded` optionally carry the agent's `configOptions`.
 `setConfigOption` carries `token`, `sessionId`, `configId`, and a select-option
@@ -360,6 +426,35 @@ Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
 `content` (including diffs). Partial updates replace only fields supplied by
 the agent. Permission displays combine already received tool details with the
 permission request, and distinguish allow/reject option kinds.
+
+The Host advertises `clientCapabilities.session.notices: {}` using the pinned
+SDK's `unstable_session_notices` feature. ACP `notice` updates retain their
+`severity`, plain-text `title`, and optional `description` in the existing
+`update` envelope. They are live advisories, not assistant replies or persisted
+history. macOS displays the latest notice per session through its shared Banner,
+allows dismissal, and clears it on the next submitted prompt or disconnect.
+An outstanding permission request takes presentation priority without discarding
+the notice; the notice is displayed after the user answers. Visible text is
+bounded to two title lines and three detail lines, with full text on hover.
+Claude ACP 0.81.2 may defer its initial Auto fallback warning until the first
+prompt: its structured warning title `Auto mode unavailable` is shown only
+while the confirmed mode is `acceptEdits`. A confirmed model change clears a
+warning from before that change, while preserving a new warning emitted between
+an upstream Auto-to-Accept-edits mode transition and its next complete config
+snapshot. This transition is session-local and consumed by one config snapshot;
+it also covers native `/model` changes without a local request token. A later
+model change clears the warning normally. A pending or failed local setting must not clear a still-applicable
+warning. Plain assistant text is never classified or removed by this rule.
+When a configuration request is pending, the matching fallback notice waits for
+that request's result before checking the confirmed mode. This preserves a new
+fallback sent before its `config_option_update` or response, while still dropping
+an obsolete startup notice after a confirmed switch to Plan. A newer applicable
+notice in the same session invalidates the older pending fallback, so a later
+configuration success or failure cannot replay it over the newer notice. In the
+reverse order, the newest fallback still waits for confirmation before replacing
+the earlier notice. Invalid notices and notices for other sessions do not change
+that ordering.
+Windows has no consumer for this shared Host conversation API yet.
 
 The caller must close each handle
 exactly once; closing revokes callbacks and stops the process tree, force

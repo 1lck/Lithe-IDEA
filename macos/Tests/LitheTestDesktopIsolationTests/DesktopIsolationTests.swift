@@ -14,28 +14,12 @@ struct DesktopIsolationTests {
         #expect(LitheTestDesktopIsolationEnabled() == !visible)
     }
 
-    @Test func nativeWindowRemainsOrderedAndDrawsWithoutDesktopPixels() async throws {
-        // Unbundled Swift Testing hosts can prohibit native WindowServer presentation.
-        // Allow a real desktop window for this integration boundary without a Dock icon.
-        let application = NSApplication.shared
-        let policy = application.activationPolicy()
-        application.setActivationPolicy(.accessory)
-        defer { application.setActivationPolicy(policy) }
-        let window = makeWindow()
-        defer { window.contentView = nil; window.close() }
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 140))
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.red.cgColor
-        window.contentView = view
-        window.makeKeyAndOrderFront(nil)
-        view.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
+    @Test func nativeWindowRemainsOrderedAndDrawsWithoutDesktopPixels() throws {
+        let fixture = presentRedWindow()
+        defer { fixture.close() }
 
-        #expect(window.isVisible, "Isolation must retain real window ordering")
-        let info = try #require(await publishedWindowInfo(window),
-            "WindowServer did not publish native window \(window.windowNumber) within 2 seconds")
-        let alpha = try #require(info[kCGWindowAlpha as String] as? Double)
-        #expect(alpha == (LitheTestDesktopIsolationEnabled() ? 0 : 1))
+        #expect(fixture.window.isVisible, "Isolation must retain real window ordering")
+        let view = fixture.view
         let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: bitmap)
         let pixel = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))
@@ -44,6 +28,22 @@ struct DesktopIsolationTests {
             && abs(pixel.greenComponent - red.greenComponent) < 0.02
             && abs(pixel.blueComponent - red.blueComponent) < 0.02,
                 "WindowServer transparency must not erase the native view snapshot")
+    }
+
+    // The published alpha is only readable through CGWindowListCopyWindowInfo.
+    // macOS 27 returns NULL from it even for .optionAll and with Screen Recording
+    // granted, so there this one check is skipped and reported, while ordering
+    // and drawing above still run. CI runs it on macOS 26 whenever the isolation
+    // code changes (scripts/classify-ci-changes.sh). Issue #1278.
+    @Test(.enabled(if: windowServerListsWindows(), "WindowServer provides no window list on this macOS version (#1278)"))
+    func windowServerPublishesTheIsolatedAlpha() async throws {
+        let fixture = presentRedWindow()
+        defer { fixture.close() }
+
+        let info = try #require(await publishedWindowInfo(fixture.window),
+            "WindowServer did not publish native window \(fixture.window.windowNumber) within 2 seconds")
+        let alpha = try #require(info[kCGWindowAlpha as String] as? Double)
+        #expect(alpha == (LitheTestDesktopIsolationEnabled() ? 0 : 1))
     }
 
     @Test func nativeMouseEventsStillReachTheResponder() throws {
@@ -84,6 +84,23 @@ struct DesktopIsolationTests {
         #expect(NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground)
     }
 
+    // Unbundled Swift Testing hosts can prohibit native WindowServer presentation.
+    // Allow a real desktop window for this integration boundary without a Dock icon.
+    private func presentRedWindow() -> PresentedWindow {
+        let application = NSApplication.shared
+        let policy = application.activationPolicy()
+        application.setActivationPolicy(.accessory)
+        let window = makeWindow()
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 140))
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.red.cgColor
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        return PresentedWindow(window: window, view: view, previousPolicy: policy)
+    }
+
     private func makeWindow() -> NSWindow {
         // Swift Testing does not create an AppKit application before the first native fixture.
         _ = NSApplication.shared
@@ -122,4 +139,23 @@ private final class IsolationMouseView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) { downs += 1 }
     override func mouseUp(with event: NSEvent) { ups += 1 }
+}
+
+@MainActor
+private struct PresentedWindow {
+    let window: NSWindow
+    let view: NSView
+    let previousPolicy: NSApplication.ActivationPolicy
+
+    func close() {
+        window.contentView = nil
+        window.close()
+        NSApplication.shared.setActivationPolicy(previousPolicy)
+    }
+}
+
+// Evaluated before the test starts; a NULL list means the WindowServer window
+// list is unavailable to this process, not that a window is missing.
+private func windowServerListsWindows() -> Bool {
+    CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) != nil
 }

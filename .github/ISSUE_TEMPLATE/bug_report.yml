@@ -3,8 +3,9 @@ description: Report a reproducible problem in Lithe / 报告可复现的问题
 title: "[Bug] "
 labels:
   - bug
-  # Marks issues created from this form; .github/workflows/lithe-issue-form-gate.yml
-  # closes non-maintainer issues without an issue-form:* label.
+  # Marks issues created from this form; the lithe-bot-console issue form gate
+  # closes issues from anyone but the owner and collaborators that carry
+  # neither an issue-form:* label nor every required field of a form.
   - issue-form:bug
 body:
   - type: markdown
