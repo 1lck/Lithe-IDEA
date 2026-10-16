@@ -359,6 +359,9 @@ function makeDocumentBufferOwner(
   };
 }
 
+const tracksUnsavedEdits = (buffer: EditorContent): boolean =>
+  !buffer.readOnly && (!buffer.isVirtual || buffer.path.startsWith("untitled:"));
+
 const applyWorkspaceAutoEviction = (
   buffers: PaneContent[],
   maxOpenTabs: number,
@@ -1560,7 +1563,16 @@ const createBufferStore = (workspaceId: string) => {
         },
 
         showNewTabView: () => {
-          get().actions.openContent({ type: "newTab" });
+          const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+          const usedPaths = new Set(get().buffers.map((buffer) => buffer.path));
+          let number = 1;
+          let name = t("files.untitled");
+          while (usedPaths.has(`untitled:${name}`)) {
+            number += 1;
+            name = t("files.untitledNumber", { number });
+          }
+          const path = `untitled:${name}`;
+          get().actions.openBuffer(path, name, "", false, undefined, false, true);
         },
 
         updateBufferContent: (
@@ -1587,7 +1599,7 @@ const createBufferStore = (workspaceId: string) => {
             if (diffData && buf.type === "diff") {
               buf.diffData = diffData;
             }
-            if (buf.type === "editor" && !buf.isVirtual) {
+            if (buf.type === "editor" && tracksUnsavedEdits(buf)) {
               if (!markDirty) {
                 buf.savedContent = content;
                 buf.isDirty = false;
