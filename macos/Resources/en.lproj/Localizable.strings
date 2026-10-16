@@ -1247,6 +1247,16 @@
 "Remove from history" = "Remove from history";
 "Toggle favorite" = "Toggle favorite";
 "Removed conversations are hidden only in Lithe. The Agent's original records are kept." = "Removed conversations are hidden only in Lithe. The Agent's original records are kept.";
+"Archived (%d)" = "Archived (%d)";
+"Archived" = "Archived";
+"Only the most recent archived conversations are shown." = "Only the most recent archived conversations are shown.";
+"Unarchive this conversation?" = "Unarchive this conversation?";
+"Unarchive and open" = "Unarchive and open";
+"Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them." = "Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them.";
+"%@ does not provide archived conversations." = "%@ does not provide archived conversations.";
+"This Agent" = "This Agent";
+"Codex archived history could not be read." = "Codex archived history could not be read.";
+"Codex could not restore this archived conversation." = "Codex could not restore this archived conversation.";
 "Exporting conversations…" = "Exporting conversations…";
 "Loading history…" = "Loading history…";
 "No matching conversations" = "No matching conversations";

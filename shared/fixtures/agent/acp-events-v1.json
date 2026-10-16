@@ -16,6 +16,8 @@
     "newSession": { "kind": "newSession", "token": "token-1" },
     "loadSession": { "kind": "loadSession", "token": "token-2", "sessionId": "session-1" },
     "listSessions": { "kind": "listSessions", "token": "token-3" },
+    "listArchivedSessions": { "kind": "listArchivedSessions", "token": "archived-1" },
+    "unarchiveSession": { "kind": "unarchiveSession", "token": "unarchive-1", "sessionId": "archived-session-1" },
     "prompt": { "kind": "prompt", "sessionId": "session-1", "text": "Explain this project" },
     "steer": { "kind": "steer", "token": "steer-1", "sessionId": "session-1", "text": "Focus on login" },
     "promptWithFiles": { "kind": "prompt", "sessionId": "session-1", "text": "Explain these files", "files": [{ "uri": "file:///example/project/Hello%20World.swift", "name": "Hello World.swift" }, { "uri": "file:///example/project/README.md", "name": "README.md" }] },
@@ -38,6 +40,7 @@
       "agentVersion": "1.0.0",
       "canLoadSessions": true,
       "canListSessions": true,
+      "canListArchivedSessions": false,
       "canSteer": false
     },
     "sessionCreated": { "kind": "sessionCreated", "token": "token-1", "sessionId": "session-1" },
@@ -68,6 +71,15 @@
         { "sessionId": "session-2", "title": null, "updatedAt": null }
       ]
     },
+    "archivedSessions": {
+      "kind": "archivedSessions",
+      "token": "archived-1",
+      "sessions": [
+        { "sessionId": "archived-session-1", "title": "Earlier refactor", "updatedAt": "2026-09-20T08:30:00Z" }
+      ],
+      "complete": true
+    },
+    "sessionUnarchived": { "kind": "sessionUnarchived", "token": "unarchive-1", "sessionId": "archived-session-1" },
     "sessionsWithoutGeneratedTitles": {
       "kind": "sessions", "token": "untitled-history",
       "sessions": [

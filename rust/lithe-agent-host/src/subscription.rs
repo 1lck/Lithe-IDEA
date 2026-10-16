@@ -201,7 +201,7 @@ pub(super) fn isolate_environment(command: &mut std::process::Command) {
 }
 
 /// Own the probe tree even if its future is cancelled during a read or cleanup.
-struct ProbeProcess(tokio::process::Child);
+pub(super) struct ProbeProcess(pub(super) tokio::process::Child);
 
 impl Drop for ProbeProcess {
     fn drop(&mut self) {
@@ -313,7 +313,7 @@ fn check_account(value: &Value, expected: &Account) -> Result<(), &'static str> 
     Ok(())
 }
 
-async fn request(
+pub(super) async fn request(
     input: &mut (impl AsyncWrite + Unpin),
     output: &mut (impl AsyncBufRead + Unpin),
     id: u64,

@@ -454,6 +454,7 @@ impl Harness {
             cwd,
             route,
             subscription.then(|| PathBuf::from("/fixture/codex")),
+            None,
             receiver,
             TurnActivity {
                 permissions: permissions.clone(),
@@ -556,6 +557,7 @@ fn serialized_events_match_the_shared_fixture() {
                 agent_version: Some("1.0.0".into()),
                 can_load_sessions: true,
                 can_list_sessions: true,
+                can_list_archived_sessions: false,
                 can_steer: false,
             },
         ),
@@ -600,6 +602,25 @@ fn serialized_events_match_the_shared_fixture() {
                         updated_at: None,
                     },
                 ],
+            },
+        ),
+        (
+            "archivedSessions",
+            AgentEvent::ArchivedSessions {
+                token: "archived-1".into(),
+                sessions: vec![AgentSessionSummary {
+                    session_id: "archived-session-1".into(),
+                    title: Some("Earlier refactor".into()),
+                    updated_at: Some("2026-09-20T08:30:00Z".into()),
+                }],
+                complete: true,
+            },
+        ),
+        (
+            "sessionUnarchived",
+            AgentEvent::SessionUnarchived {
+                token: "unarchive-1".into(),
+                session_id: "archived-session-1".into(),
             },
         ),
         (

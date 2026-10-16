@@ -8,6 +8,7 @@
 
 pub mod catalog;
 pub mod cli_update;
+mod codex_history;
 mod codex_retry;
 pub mod environment;
 pub mod install;
@@ -360,6 +361,16 @@ pub enum AgentCommand {
     ListSessions {
         token: String,
     },
+    /// Read-only listing of the workspace's archived Codex conversations.
+    ListArchivedSessions {
+        token: String,
+    },
+    /// Move an archived Codex conversation back into its active history. Sent
+    /// only after the user confirmed; listing never changes upstream state.
+    UnarchiveSession {
+        token: String,
+        session_id: String,
+    },
     Prompt {
         session_id: String,
         text: String,
@@ -428,6 +439,8 @@ pub enum AgentEvent {
         agent_version: Option<String>,
         can_load_sessions: bool,
         can_list_sessions: bool,
+        /// Archived history is listed through the Agent's own CLI, not ACP.
+        can_list_archived_sessions: bool,
         can_steer: bool,
     },
     /// Request-scoped delivery result, separate from prompt completion.
@@ -468,6 +481,16 @@ pub enum AgentEvent {
     Sessions {
         token: String,
         sessions: Vec<AgentSessionSummary>,
+    },
+    /// `complete` is false when the page bound stopped the listing.
+    ArchivedSessions {
+        token: String,
+        sessions: Vec<AgentSessionSummary>,
+        complete: bool,
+    },
+    SessionUnarchived {
+        token: String,
+        session_id: String,
     },
     /// A raw ACP `SessionUpdate`, including replayed history.
     Update {
@@ -795,6 +818,8 @@ async fn run_agent(
         }
         None => None,
     };
+    // Before the relay replaces CODEX_PATH: history uses the user's CLI directly.
+    let history = codex_history::CodexHistory::for_launch(&launch);
     let _relay = if launch
         .gateway
         .as_ref()
@@ -886,6 +911,7 @@ async fn run_agent(
         launch.cwd,
         launch.gateway,
         launch.subscription_cli,
+        history,
         controls,
         TurnActivity {
             permissions,
@@ -984,6 +1010,7 @@ async fn run_connection<OB, IB>(
     cwd: PathBuf,
     gateway: Option<GatewaySignIn>,
     subscription_cli: Option<PathBuf>,
+    history: Option<codex_history::CodexHistory>,
     mut controls: async_mpsc::UnboundedReceiver<Control>,
     activity: TurnActivity,
     emit: Emit,
@@ -1196,6 +1223,7 @@ where
                     .session_capabilities
                     .list
                     .is_some(),
+                can_list_archived_sessions: history.is_some(),
                 can_steer,
             });
 
@@ -1309,6 +1337,33 @@ where
                             emit(match list_sessions(&connection, cwd, &workspace).await {
                                 Ok(sessions) => AgentEvent::Sessions { token, sessions },
                                 Err(message) => failed(Some(token), None, message),
+                            });
+                        });
+                    }
+                    AgentCommand::ListArchivedSessions { token } => {
+                        let Some(history) = history.clone() else {
+                            emit(failed(Some(token), None, "This Agent has no archived history".into()));
+                            continue;
+                        };
+                        let emit = emit.clone();
+                        let workspace = workspace.clone();
+                        tasks.spawn(async move {
+                            emit(match history.list_archived(&workspace).await {
+                                Ok(archived) => AgentEvent::ArchivedSessions { token, sessions: archived.sessions, complete: archived.complete },
+                                Err(message) => failed(Some(token), None, message),
+                            });
+                        });
+                    }
+                    AgentCommand::UnarchiveSession { token, session_id } => {
+                        let Some(history) = history.clone() else {
+                            emit(failed(Some(token), Some(session_id), "This Agent has no archived history".into()));
+                            continue;
+                        };
+                        let emit = emit.clone();
+                        tasks.spawn(async move {
+                            emit(match history.unarchive(session_id.clone()).await {
+                                Ok(()) => AgentEvent::SessionUnarchived { token, session_id },
+                                Err(message) => failed(Some(token), Some(session_id), message),
                             });
                         });
                     }
