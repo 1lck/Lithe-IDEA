@@ -76,6 +76,36 @@ async function ownedPids(root: string) {
 const fixtureInstallTimeoutSeconds = 5;
 const fixtureProcessTimeoutMs = 45000;
 
+// Closing the worker's Job Object requests descendant termination; worker exit
+// does not signal that every descendant has finished exiting. Wait on native
+// process handles in a separate PowerShell process, with one shared deadline.
+async function waitForOwnedProcesses(root: string) {
+  const pids = await ownedPids(root);
+  if (pids.length === 0) return;
+  const result = await runProcess({
+    command: "pwsh",
+    args: ["-NoProfile", "-Command", String.raw`
+      $ErrorActionPreference = "Stop"
+      $deadline = [Diagnostics.Stopwatch]::StartNew()
+      foreach ($ownedPid in ($env:LITHE_INSTALL_OWNED_PIDS -split ',')) {
+        try { $ownedProcess = [Diagnostics.Process]::GetProcessById([int]$ownedPid) }
+        catch [ArgumentException] { continue }
+        try {
+          $remaining = [Math]::Max(0, 5000 - [int]$deadline.ElapsedMilliseconds)
+          if (-not $ownedProcess.WaitForExit($remaining)) {
+            throw "Installer descendant $ownedPid did not exit within the shared 5 second cleanup deadline."
+          }
+        } finally { $ownedProcess.Dispose() }
+      }
+    `],
+    env: { ...process.env, LITHE_INSTALL_OWNED_PIDS: pids.join(",") },
+    timeoutMs: 10000,
+  });
+  if (result.code !== 0 || result.timedOut || !result.terminationConfirmed) {
+    throw new Error(`Installer descendant termination was not confirmed: ${result.stdout}\n${result.stderr}\n${await installerDiagnostics(root)}`);
+  }
+}
+
 async function installerDiagnostics(root: string) {
   const files = ["events.jsonl", "attempts.jsonl", "owned-pids", "retry-succeeded", "sealed-state"];
   return (await Promise.all(files.map(async name => {
@@ -132,6 +162,7 @@ async function withInstaller(mode: string, check: (root: string, result: Awaited
       throw new Error(`Windows install fixture (${mode}): duration=${Math.round(result.durationMs)}ms, outerDeadline=${fixtureProcessTimeoutMs}ms, installDeadline=${timeoutSeconds}s, timedOut=${result.timedOut}, terminationConfirmed=${result.terminationConfirmed}\n${await installerDiagnostics(root)}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
     }
     await check(root, result);
+    await waitForOwnedProcesses(root);
     expect((await ownedPids(root)).filter(isRunning)).toEqual([]);
   } finally {
     // Cleanup remains owned even if a worker or assertion fails.
@@ -140,6 +171,7 @@ async function withInstaller(mode: string, check: (root: string, result: Awaited
         await runProcess({ command: "taskkill.exe", args: ["/PID", String(pid), "/T", "/F"], timeoutMs: 5000 });
       }
     }
+    await waitForOwnedProcesses(root);
     await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
