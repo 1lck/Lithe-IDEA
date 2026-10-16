@@ -18,15 +18,10 @@ struct AgentActivityPresentationTests {
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
-        // Retain the snapshot: a released window's address can be reused by the
-        // next popup, which would then be mistaken for a pre-existing window.
-        let snapshot = NSApp.windows
-        let initialWindows = Set(snapshot.map(ObjectIdentifier.init))
         defer {
             window.contentView = nil
-            for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
+            for popup in window.childWindows ?? [] { popup.close() }
             window.close()
-            withExtendedLifetime(snapshot) {}
         }
         host.layoutSubtreeIfNeeded()
         try await openPanel(.edits, in: host, window: window)
@@ -74,15 +69,10 @@ struct AgentActivityPresentationTests {
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderFront(nil)
-            // Retain the snapshot: a released window's address can be reused by the
-            // next popup, which would then be mistaken for a pre-existing window.
-            let snapshot = NSApp.windows
-            let initialWindows = Set(snapshot.map(ObjectIdentifier.init))
             defer {
                 window.contentView = nil
-                for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
+                for popup in window.childWindows ?? [] { popup.close() }
                 window.close()
-                withExtendedLifetime(snapshot) {}
             }
             for panel in AgentActivitySummaryBar.Panel.allCases {
                 host.layoutSubtreeIfNeeded()
@@ -134,15 +124,10 @@ struct AgentActivityPresentationTests {
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderFront(nil)
-            // Retain the snapshot: a released window's address can be reused by the
-            // next popup, which would then be mistaken for a pre-existing window.
-            let snapshot = NSApp.windows
-            let initialWindows = Set(snapshot.map(ObjectIdentifier.init))
             defer {
                 window.contentView = nil
-                for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
+                for popup in window.childWindows ?? [] { popup.close() }
                 window.close()
-                withExtendedLifetime(snapshot) {}
             }
             for panel in AgentActivitySummaryBar.Panel.allCases {
                 host.layoutSubtreeIfNeeded()
@@ -301,10 +286,10 @@ struct AgentActivityPresentationTests {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
         while clock.now < deadline {
+            await Task.yield()
             renderFrame()
             host?.layoutSubtreeIfNeeded()
             if condition() { return true }
-            await Task.yield()
         }
         return condition()
     }

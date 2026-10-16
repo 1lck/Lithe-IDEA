@@ -27,7 +27,12 @@ import { ScrollArea } from "@/ui/scroll-area";
 import { useTranslation } from "@/i18n/locale-provider";
 import { createTranslator } from "@/i18n/locale";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { instantTransition, overlayEntrance, quickTransition } from "@/utils/motion";
+import {
+  instantTransition,
+  overlayEntrance,
+  overlayEntranceSelfClearing,
+  quickTransition,
+} from "@/utils/motion";
 import { resolveEscapeGuard } from "@/utils/keyboard/escape-guard";
 import { cn } from "@/utils/cn";
 
@@ -48,6 +53,7 @@ interface DialogProps {
   initialFocus?: React.RefObject<HTMLElement | null>;
   headerBorder?: boolean;
   footerBorder?: boolean;
+  clearEntranceFilter?: boolean;
   classNames?: Partial<{
     backdrop: string;
     modal: string;
@@ -199,18 +205,23 @@ const AppDialog = ({
   footer,
   size = "md",
   initialFocus,
+  clearEntranceFilter = false,
   classNames,
 }: DialogProps) => {
   const { t } = useTranslation();
   const prefersReducedMotion = useReducedMotionConfig();
+  const entrance = clearEntranceFilter ? overlayEntranceSelfClearing : overlayEntrance;
+  const settledEntrance = clearEntranceFilter
+    ? { ...entrance.animate, opacity: 1, filter: "none" }
+    : { ...entrance.animate, opacity: 1 };
   const popupMotion = prefersReducedMotion
     ? {
         initial: false as const,
-        animate: { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" },
-        exit: { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" },
+        animate: settledEntrance,
+        exit: settledEntrance,
         transition: instantTransition,
       }
-    : overlayEntrance;
+    : entrance;
 
   return (
     <DialogPrimitive.Root

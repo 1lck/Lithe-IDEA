@@ -15,12 +15,13 @@ enum GitWorktreeListAction: String {
 /// Native worktree list surface. A single document view lets AppKit move the
 /// clip bounds without rebuilding one SwiftUI hierarchy per worktree row.
 struct GitWorktreeListScrollView: NSViewRepresentable {
-    static let rowHeight: CGFloat = 84
-    static let rowSpacing: CGFloat = 7
-    static let verticalInset: CGFloat = 10
+    static let rowHeight = LitheTheme.Tree.rowHeight * 3
+    static let rowSpacing: CGFloat = 0
+    static let verticalInset = LitheTheme.Tree.verticalInset
 
     let items: [GitWorktreeListItem]
     let selectedWorktreeID: String?
+    var isFocused = false
     let isPerformingWorktreeOperation: Bool
     let onSelect: (String) -> Void
     let onContextMenuAction: (GitWorktreeListAction, GitWorktreeListItem) -> Void
@@ -29,6 +30,7 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
         Self.makeScrollView(
             items: items,
             selectedWorktreeID: selectedWorktreeID,
+            isFocused: isFocused,
             isPerformingWorktreeOperation: isPerformingWorktreeOperation,
             onSelect: onSelect,
             onContextMenuAction: onContextMenuAction
@@ -38,6 +40,7 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
     static func makeScrollView(
         items: [GitWorktreeListItem],
         selectedWorktreeID: String?,
+        isFocused: Bool = false,
         isPerformingWorktreeOperation: Bool = false,
         onSelect: @escaping (String) -> Void,
         onContextMenuAction: @escaping (GitWorktreeListAction, GitWorktreeListItem) -> Void = { _, _ in }
@@ -47,6 +50,7 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.hasHorizontalScroller = false
         scrollView.hasVerticalScroller = true
+        scrollView.verticalScroller = LitheScrollViewChrome.CompactScroller()
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
         scrollView.horizontalScrollElasticity = .none
@@ -59,6 +63,7 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
         documentView.update(
             items: items,
             selectedWorktreeID: selectedWorktreeID,
+            isFocused: isFocused,
             isPerformingWorktreeOperation: isPerformingWorktreeOperation,
             onSelect: onSelect,
             onContextMenuAction: onContextMenuAction
@@ -74,6 +79,7 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
             locale: context.environment.locale,
             items: items,
             selectedWorktreeID: selectedWorktreeID,
+            isFocused: isFocused,
             isPerformingWorktreeOperation: isPerformingWorktreeOperation,
             onSelect: onSelect,
             onContextMenuAction: onContextMenuAction
@@ -107,14 +113,15 @@ final class GitWorktreeListNSView: NSView {
     private var locale = Locale.current
     private var items: [GitWorktreeListItem] = []
     private var selectedWorktreeID: String?
+    private var isFocused = false
     private var isPerformingWorktreeOperation = false
     private var onSelect: ((String) -> Void)?
     private var onContextMenuAction: ((GitWorktreeListAction, GitWorktreeListItem) -> Void)?
     private var drawingStyle: DrawingStyle?
     private var hoveredIndex: Int?
-    private var lastLayoutWidth: CGFloat = -.greatestFiniteMagnitude
 
     override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -130,13 +137,15 @@ final class GitWorktreeListNSView: NSView {
         locale: Locale = .current,
         items: [GitWorktreeListItem],
         selectedWorktreeID: String?,
+        isFocused: Bool = false,
         isPerformingWorktreeOperation: Bool = false,
         onSelect: @escaping (String) -> Void,
         onContextMenuAction: @escaping (GitWorktreeListAction, GitWorktreeListItem) -> Void = { _, _ in }
     ) -> Bool {
         let dataChanged = self.items != items || self.locale != locale
         self.locale = locale
-        let selectionChanged = self.selectedWorktreeID != selectedWorktreeID
+        let selectionChanged = self.selectedWorktreeID != selectedWorktreeID || self.isFocused != isFocused
+        self.isFocused = isFocused
         let operationStateChanged = self.isPerformingWorktreeOperation != isPerformingWorktreeOperation
         self.items = items
         self.selectedWorktreeID = selectedWorktreeID
@@ -151,8 +160,7 @@ final class GitWorktreeListNSView: NSView {
 
     @discardableResult
     func updateLayout(width: CGFloat) -> Bool {
-        guard width.isFinite, width > 0, width != lastLayoutWidth else { return false }
-        lastLayoutWidth = width
+        guard width.isFinite, width > 0 else { return false }
         let rowStride = GitWorktreeListScrollView.rowHeight + GitWorktreeListScrollView.rowSpacing
         let rowsHeight = max(0, CGFloat(items.count) * rowStride - GitWorktreeListScrollView.rowSpacing)
         let size = CGSize(width: width, height: rowsHeight + GitWorktreeListScrollView.verticalInset * 2)
@@ -207,7 +215,26 @@ final class GitWorktreeListNSView: NSView {
             super.mouseDown(with: event)
             return
         }
+        window?.makeFirstResponder(self)
         onSelect?(items[index].id)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        interpretKeyEvents([event])
+    }
+
+    override func moveUp(_ sender: Any?) { moveSelection(by: -1) }
+    override func moveDown(_ sender: Any?) { moveSelection(by: 1) }
+
+    private func moveSelection(by offset: Int) {
+        guard !items.isEmpty else { return }
+        let current = items.firstIndex { $0.id == selectedWorktreeID }
+        let index = min(max((current ?? (offset > 0 ? -1 : items.count)) + offset, 0), items.count - 1)
+        guard items[index].id != selectedWorktreeID else { return }
+        selectedWorktreeID = items[index].id
+        onSelect?(items[index].id)
+        scrollToVisible(rowRect(for: index))
+        needsDisplay = true
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -216,6 +243,7 @@ final class GitWorktreeListNSView: NSView {
         guard let index = rowIndex(at: point), items.indices.contains(index) else { return nil }
         let item = items[index]
         let menuItems = contextMenuItems(for: item)
+        window.makeFirstResponder(self)
         onSelect?(item.id)
         LitheContextMenuPresenter.shared.show(
             items: menuItems,
@@ -269,15 +297,13 @@ final class GitWorktreeListNSView: NSView {
             let rect = rowRect(for: index)
             let isSelected = item.id == selectedWorktreeID
             let isHovered = index == hoveredIndex
-            let background = isSelected ? style.selection : (isHovered ? style.hover : style.raised)
-            background.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
-            (isSelected ? style.focusBorder : style.panelBorder).setStroke()
-            let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
-            border.lineWidth = 1
-            border.stroke()
-
-            drawRow(item, in: rect.insetBy(dx: 12, dy: 9), style: style, context: context)
+            if isSelected || isHovered {
+                let background = isSelected
+                    ? (isFocused ? style.selection : style.inactiveSelection) : style.hover
+                background.setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
+            }
+            drawRow(item, in: rect.insetBy(dx: 8, dy: 6), style: style, context: context)
         }
     }
 
@@ -308,9 +334,9 @@ final class GitWorktreeListNSView: NSView {
     private func rowRect(for index: Int) -> CGRect {
         let stride = GitWorktreeListScrollView.rowHeight + GitWorktreeListScrollView.rowSpacing
         return CGRect(
-            x: 0,
+            x: 4,
             y: GitWorktreeListScrollView.verticalInset + CGFloat(index) * stride,
-            width: bounds.width,
+            width: max(0, bounds.width - 8),
             height: GitWorktreeListScrollView.rowHeight
         )
     }
@@ -323,23 +349,22 @@ final class GitWorktreeListNSView: NSView {
     ) {
         let worktree = item.worktree
         let title = worktree.isPrimary ? gitLocalizedFormat("Main Worktree", locale: locale) : worktree.displayName
-        drawText(title, in: CGRect(x: rect.minX, y: rect.minY, width: max(0, rect.width - 175), height: 18), style: style.title)
-        if worktree.isPrimary {
-            drawText("♛", in: CGRect(x: rect.minX + 128, y: rect.minY, width: 16, height: 18), style: style.warning)
+        let current = worktree.isCurrent && item.status != .current ? gitLocalizedFormat("Current", locale: locale) : ""
+        let currentWidth = current.isEmpty ? 0 : ceil((current as NSString).size(withAttributes: [.font: style.accent.font]).width) + 12
+        drawText(title, in: CGRect(x: rect.minX, y: rect.minY, width: max(0, rect.width - currentWidth), height: 18), style: style.title)
+        if !current.isEmpty {
+            drawText(current, in: CGRect(x: rect.maxX - currentWidth, y: rect.minY, width: currentWidth, height: 18), style: style.accent, alignment: .right)
         }
-        if worktree.isCurrent {
-            drawText(gitLocalizedFormat("Current", locale: locale), in: CGRect(x: max(rect.minX + 145, rect.maxX - 145), y: rect.minY, width: 64, height: 18), style: style.accent)
-        }
-        let statusTitle = statusTitle(for: item.status)
-        let statusRect = CGRect(x: max(rect.minX + 150, rect.maxX - 92), y: rect.minY, width: 78, height: 18)
-        context.setFillColor(statusColor(for: item.status, style: style).cgColor)
-        context.fillEllipse(in: CGRect(x: statusRect.minX, y: statusRect.midY - 4, width: 8, height: 8))
-        drawText(statusTitle, in: CGRect(x: statusRect.minX + 12, y: statusRect.minY, width: 66, height: statusRect.height), style: style.metadata)
-        drawText("⋯", in: CGRect(x: rect.maxX - 17, y: rect.minY - 1, width: 17, height: 18), style: style.tertiary, alignment: .right)
+        drawText(worktree.path, in: CGRect(x: rect.minX, y: rect.minY + 20, width: rect.width, height: 18), style: style.path, lineBreakMode: .byTruncatingMiddle)
 
-        drawText(worktree.path, in: CGRect(x: rect.minX, y: rect.minY + 23, width: rect.width, height: 17), style: style.path, lineBreakMode: .byTruncatingMiddle)
+        let statusTitle = statusTitle(for: item.status)
+        let statusWidth = ceil((statusTitle as NSString).size(withAttributes: [.font: style.metadata.font]).width) + 12
+        let statusX = rect.maxX - statusWidth
+        context.setFillColor(statusColor(for: item.status, style: style).cgColor)
+        context.fillEllipse(in: CGRect(x: statusX, y: rect.minY + 46, width: 6, height: 6))
+        drawText(statusTitle, in: CGRect(x: statusX + 12, y: rect.minY + 40, width: statusWidth - 12, height: 18), style: style.metadata)
         let branch = worktree.branchName ?? gitLocalizedFormat("Detached HEAD", locale: locale)
-        drawText(gitLocalizedFormat("Branch: %@", branch, locale: locale), in: CGRect(x: rect.minX, y: rect.minY + 45, width: rect.width, height: 17), style: style.path)
+        drawText(gitLocalizedFormat("Branch: %@", branch, locale: locale), in: CGRect(x: rect.minX, y: rect.minY + 40, width: max(0, rect.width - statusWidth - 12), height: 18), style: style.path)
     }
 
     private func drawText(_ text: String, in rect: CGRect, style: TextStyle, lineBreakMode: NSLineBreakMode? = nil, alignment: NSTextAlignment? = nil) {
@@ -386,15 +411,11 @@ final class GitWorktreeListNSView: NSView {
         let metadata: TextStyle
         let path: TextStyle
         let accent: TextStyle
-        let warning: TextStyle
-        let tertiary: TextStyle
         let primary: NSColor
         let secondary: NSColor
-        let raised: NSColor
+        let inactiveSelection: NSColor
         let selection: NSColor
         let hover: NSColor
-        let panelBorder: NSColor
-        let focusBorder: NSColor
         let success: NSColor
         let warningColor: NSColor
         let error: NSColor
@@ -402,20 +423,16 @@ final class GitWorktreeListNSView: NSView {
         init(isDark: Bool) {
             primary = LitheTheme.nsColor(.primaryText, isDark: isDark)
             secondary = LitheTheme.nsColor(.secondaryText, isDark: isDark)
-            raised = LitheTheme.nsColor(.sidebar, isDark: isDark)
-            selection = LitheTheme.nsColor(.accent, isDark: isDark).withAlphaComponent(0.16)
-            hover = LitheTheme.nsColor(.toolHeader, isDark: isDark).withAlphaComponent(0.55)
-            panelBorder = LitheTheme.nsColor(.divider, isDark: isDark)
-            focusBorder = LitheTheme.nsColor(.accent, isDark: isDark)
+            selection = NSColor(LitheTheme.Tree.focusedSelection)
+            inactiveSelection = NSColor(LitheTheme.Tree.inactiveSelection)
+            hover = NSColor(LitheTheme.Tree.hover)
             success = LitheTheme.nsColor(.success, isDark: isDark)
             warningColor = LitheTheme.nsColor(.warning, isDark: isDark)
             error = LitheTheme.nsColor(.error, isDark: isDark)
-            title = TextStyle(font: LitheTheme.uiNSFont(size: 13, weight: .medium), color: primary)
+            title = TextStyle(font: LitheTheme.uiNSFont(size: 13), color: primary)
             metadata = TextStyle(font: LitheTheme.uiNSFont(size: 12.5), color: primary)
             path = TextStyle(font: LitheTheme.uiNSFont(size: 12.5), color: secondary)
             accent = TextStyle(font: LitheTheme.uiNSFont(size: 12.5), color: LitheTheme.nsColor(.accent, isDark: isDark))
-            warning = TextStyle(font: LitheTheme.uiNSFont(size: 11), color: warningColor)
-            tertiary = TextStyle(font: LitheTheme.uiNSFont(size: 17), color: secondary.withAlphaComponent(0.8))
         }
     }
 
