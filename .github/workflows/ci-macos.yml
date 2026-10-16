@@ -158,6 +158,9 @@ jobs:
           SWIFT: ${{ steps.classify.outputs.swift == 'true' || steps.classify.outputs.swift_database == 'true' || steps.classify.outputs.rust_core == 'true' }}
           RUST_CORE: ${{ steps.classify.outputs.rust_core }}
           MACOS_RELEASE: ${{ steps.classify.outputs.macos_release }}
+          # Test isolation changes need the WindowServer alpha check, which
+          # the Mac minis' macOS 27 skips (#1278).
+          LITHE_HOSTED_ONLY_LANES: ${{ steps.classify.outputs.swift_hosted == 'true' && 'swift' || '' }}
         shell: bash
         run: |
           lanes=()
