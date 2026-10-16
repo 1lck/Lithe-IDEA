@@ -64,16 +64,10 @@ enable_all_validation() {
     git_validation=true
 }
 
-while IFS=$'\t' read -r status first_path _; do
-    if [[ "$status" == R* || "$status" == C* ]]; then
-        # Renames and copies can cross ownership boundaries, so classify them
-        # conservatively instead of trusting only the destination extension.
-        enable_all_validation
-        break
-    fi
-
-    path="$first_path"
-    lowercase_path="${path,,}"
+classify_path() {
+    local status="$1"
+    local path="$2"
+    local lowercase_path="${path,,}"
 
     case "$lowercase_path" in
         .github/workflows/ci-windows.yml|third_party/jdtls/*|third_party/jdk/*|scripts/prepare-jdtls.*|scripts/prepare-jdk.*|rust/lithe-core/src/lsp/interface/engine.rs|rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs|rust/lithe-core/src/lsp/languages/java*|rust/lithe-core/src/lsp/languages/jdt*|macos/*java*|windows/*java*)
@@ -121,7 +115,7 @@ while IFS=$'\t' read -r status first_path _; do
         .github/workflows/release-windows.yml|.github/workflows/release-preview-windows.yml)
             windows=true
             ;;
-        .github/actions/prepare-macos-dependency-cache/*|.github/actions/save-macos-cargo-build-cache/*|.github/actions/setup-macos-toolchain/*|.github/actions/prepare-macos-ci-runner/*|scripts/macos-swift-build-options.sh|scripts/macos-swift-build-options.test.mjs|.swift-version)
+        .github/actions/prepare-macos-dependency-cache/*|.github/actions/save-macos-cargo-build-cache/*|.github/actions/setup-macos-toolchain/*|.github/actions/prepare-macos-ci-runner/*|scripts/macos-swift-build-options.sh|scripts/macos-swift-build-options.test.mjs|scripts/reuse-macos-runner-build-state.sh|scripts/reuse-macos-runner-build-state.test.mjs|scripts/select-macos-ci-runners.mjs|scripts/select-macos-ci-runners.test.mjs|.swift-version)
             swift=true
             plugins=true
             swift_database=true
@@ -372,7 +366,7 @@ while IFS=$'\t' read -r status first_path _; do
         scripts/verify-official-plugins.sh|scripts/build-official-plugins.sh)
             plugins=true
             ;;
-        scripts/verify-rust-core.sh|scripts/verify-rust-core-comments.sh|scripts/verify-rust-core-layout.sh|scripts/build-rust-core.sh|scripts/rustcorebridgeverification.swift)
+        scripts/verify-rust-core.sh|scripts/verify-rust-core-crates.sh|scripts/verify-rust-core-swift-bridge.sh|scripts/verify-rust-core-comments.sh|scripts/verify-rust-core-layout.sh|scripts/build-rust-core.sh|scripts/rustcorebridgeverification.swift)
             rust_core=true
             macos_release=true
             ;;
@@ -426,6 +420,17 @@ while IFS=$'\t' read -r status first_path _; do
             enable_all_validation
             ;;
     esac
+}
+
+while IFS=$'\t' read -r status first_path second_path; do
+    if [[ "$status" == R* || "$status" == C* ]]; then
+        # Renames and copies can cross ownership boundaries, so both endpoints
+        # select their own lanes. Neither side is a comment-only modification.
+        classify_path "$status" "$first_path"
+        classify_path "$status" "$second_path"
+    else
+        classify_path "$status" "$first_path"
+    fi
 done < <(git diff --name-status --find-renames "$BASE_REVISION" "$HEAD_REVISION")
 
 if [[ "${LITHE_CI_DRAFT_PULL_REQUEST:-false}" == "true" ]]; then

@@ -44,12 +44,30 @@ for that caller.
 
 ### Shared Mac mini runners
 
-**Rust Core and Swift bridge tests** and **Release package verification** use
-`[self-hosted, macOS, ARM64, lithe-mac-mini]`, including pull requests from forks.
-**Swift tests**, **Plugin tests and package verification**, and release workflows
-continue to use GitHub-hosted runners. The three Mac mini runner services share
-one M4 with 16 GB of memory; they provide three job slots, not three machines.
-There is no automatic overflow between the self-hosted and hosted pools.
+**Swift tests**, **Rust Core tests**, **Release package verification**, and
+**Plugin tests and package verification** run on either
+`[self-hosted, macOS, ARM64, lithe-mac-mini]` or the GitHub-hosted `macos-26`
+pool, including pull requests from forks. Release workflows (stable, AutoBuild,
+and official plugin releases) always use GitHub-hosted runners because they hold
+signing material. The three Mac mini runner services share one M4 with 16 GB of
+memory; they provide three job slots, not three machines.
+
+GitHub fixes `runs-on` when a job is created, so the Linux **Classify changes**
+job picks the pool for each selected lane with
+`scripts/select-macos-ci-runners.mjs`. It counts this repository's running and
+queued macOS jobs through the read-only `actions: read` token permission:
+
+- Pull requests take a free Mac mini slot first, then a free hosted slot. When
+  both pools are full, a lane joins the queue that is shorter relative to its
+  size.
+- Pushes to `preview` and manual runs always use the Mac minis, so post-merge
+  verification never takes a hosted slot that a pull request is waiting for.
+- If the API cannot be read, routing falls back to the fixed assignment: Rust
+  Core and packaging on the Mac minis, Swift and plugin tests on hosted runners.
+
+The job summary of **Classify changes** shows the counts and the chosen pool. The
+choice is made once: it does not see other repositories' use of the hosted pool,
+and two runs classified at the same moment can pick the same free slot.
 
 Each runner needs its own installation and work directory and the
 `lithe-mac-mini` label. Keep the service user logged in and the machine awake.
@@ -63,16 +81,40 @@ The shared-runner setup limits Cargo and SwiftPM compilation to two jobs each.
 `CARGO_BUILD_JOBS` controls Cargo compilation. Neither setting limits all child
 processes or changes existing test deadlines. Hosted and local builds keep their
 default compilation parallelism. Resource snapshots in the setup log show
-whole-machine memory, swap, CPU count, and available disk; assess throughput and
-memory pressure during an actual three-job run before increasing the budgets.
+whole-machine memory, swap, CPU count, and available disk.
 
-Workspaces and mutable build outputs stay separate. Do not symlink `.build`,
-`rust/target`, or the complete `.artifacts` directory between runners. Checkout
-still uses its default cleanup, so persistent Swift incremental builds are not
-guaranteed. Existing verified dependency caches retain their identity checks.
-The temporary resource snapshots introduce no background monitoring process.
-Fork PR jobs retain the existing `pull_request` event and read-only repository
-permissions; this change does not use `pull_request_target` or release secrets.
+#### Incremental builds on the Mac minis
+
+Self-hosted jobs check out with `clean: false`, then
+`scripts/reuse-macos-runner-build-state.sh` removes every untracked file except
+`.build`, `rust/target`, `.artifacts/cargo-home`, `.artifacts/swiftpm-cache`,
+`.artifacts/jdtls-downloads`, and `.artifacts/jdk-downloads`. The next job on
+the same runner compiles incrementally from those outputs. Compilation outputs
+are discarded when Xcode, Swift, or the CPU architecture changes, when they
+exceed 40 GB, or when less than 25 GB of disk is free. Kept download stores
+still pass the same validation as restored GitHub cache entries.
+
+Self-hosted jobs skip GitHub cache restore and save. Hosted runners keep using
+the GitHub cache exactly as before.
+
+Build state belongs to one runner's work directory. Do not symlink `.build`,
+`rust/target`, or the complete `.artifacts` directory between runners or
+worktrees. To reset a runner, stop its service and delete those directories from
+its work directory. Fork PR jobs retain the existing `pull_request` event and
+read-only repository permissions; this does not use `pull_request_target` or
+release secrets. Kept build outputs are not an isolation boundary against
+malicious fork code, which can already affect a persistent self-hosted runner.
+
+#### Rust Core bridge checks reuse the Swift build
+
+**Rust Core tests** run only the Rust checks in
+`scripts/verify-rust-core-crates.sh`. The Swift-linked checks (C ABI probe, Core
+symbols in the linked app, Git execution integration, and the Git console and
+Maven bridge tests) run in **Swift tests** through
+`scripts/verify-rust-core-swift-bridge.sh --skip-build`, reusing that job's test
+build. A Rust-only change therefore starts **Swift tests** to build and run the
+bridge checks, without the full Swift unit suites. Locally,
+`scripts/verify-rust-core.sh` still runs both halves.
 
 ### macOS runner budget
 

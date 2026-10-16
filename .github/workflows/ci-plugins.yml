@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: read
+  # The classify job reads active jobs to choose a macOS runner pool.
+  actions: read
 
 concurrency:
   group: macos-plugin-ci-${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       plugins: ${{ steps.classify.outputs.plugins }}
+      macos_runners: ${{ steps.runners.outputs.runners }}
 
     steps:
       - name: Check out source
@@ -67,6 +70,14 @@ jobs:
 
           ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Choose macOS runner
+        id: runners
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LITHE_MACOS_LANES: ${{ steps.classify.outputs.plugins == 'true' && 'plugins' || '' }}
+        shell: bash
+        run: node scripts/select-macos-ci-runners.mjs
+
       - name: Summarize selected lanes
         shell: bash
         env:
@@ -88,15 +99,27 @@ jobs:
     name: Plugin tests and package verification
     needs: changes
     if: needs.changes.outputs.plugins == 'true'
-    runs-on: macos-26
+    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).plugins }}
     timeout-minutes: 55
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          # Self-hosted runners keep their build outputs between jobs; the
+          # runner preparation step removes every other untracked file.
+          clean: ${{ runner.environment != 'self-hosted' }}
+
+      - name: Prepare shared Mac mini runner
+        if: runner.environment == 'self-hosted'
+        uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
+
+      # test-macos.sh links Rust Core; install it explicitly on every runner pool.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Prepare verified SwiftPM cache
         uses: ./.github/actions/prepare-macos-dependency-cache

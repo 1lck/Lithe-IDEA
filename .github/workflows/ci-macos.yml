@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: read
+  # The classify job reads active jobs to choose a macOS runner pool.
+  actions: read
 
 concurrency:
   group: macos-ci-${{ github.workflow }}-${{ github.ref }}
@@ -29,6 +31,7 @@ jobs:
       rust_comments: ${{ steps.classify.outputs.rust_comments }}
       metadata: ${{ steps.classify.outputs.metadata }}
       git_validation: ${{ steps.classify.outputs.git_validation }}
+      macos_runners: ${{ steps.runners.outputs.runners }}
 
     steps:
       - name: Check out source
@@ -47,7 +50,8 @@ jobs:
           node --test --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
             scripts/test-download-sparkle-baseline.mjs scripts/test-publish-autobuild.mjs scripts/test-reuse-worktree-resources.mjs scripts/test-markdown-preview.mjs \
-            scripts/test-codex-config-relay.mjs scripts/verify-release-signature.test.mjs
+            scripts/test-codex-config-relay.mjs scripts/verify-release-signature.test.mjs \
+            scripts/select-macos-ci-runners.test.mjs
 
       - name: Generate Sparkle download timing report
         if: always()
@@ -116,6 +120,24 @@ jobs:
 
           ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
+      # runs-on is fixed when a job is created, so each selected lane picks the
+      # Mac mini or hosted pool here from the jobs already running or queued.
+      - name: Choose macOS runners
+        id: runners
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Swift tests also host the Rust Core bridge checks; see swift-tests.
+          SWIFT: ${{ steps.classify.outputs.swift == 'true' || steps.classify.outputs.swift_database == 'true' || steps.classify.outputs.rust_core == 'true' }}
+          RUST_CORE: ${{ steps.classify.outputs.rust_core }}
+          MACOS_RELEASE: ${{ steps.classify.outputs.macos_release }}
+        shell: bash
+        run: |
+          lanes=()
+          if [[ "$SWIFT" == "true" ]]; then lanes+=(swift); fi
+          if [[ "$RUST_CORE" == "true" ]]; then lanes+=(rust); fi
+          if [[ "$MACOS_RELEASE" == "true" ]]; then lanes+=(release); fi
+          LITHE_MACOS_LANES="$(IFS=,; echo "${lanes[*]}")" node scripts/select-macos-ci-runners.mjs
+
       - name: Validate changed text
         if: steps.base.outputs.manual == 'false'
         env:
@@ -178,20 +200,33 @@ jobs:
   # The main and database Swift suites share one test build. A separate database
   # job spent about ten minutes compiling the same products for seconds of
   # filtered tests and held another of the five organization macOS runners.
+  # The Rust Core bridge checks reuse the same build for the same reason.
   # Plugin tests stay in macOS Plugin CI so that unrelated changes skip them.
   swift-tests:
     name: Swift tests
     needs: changes
-    if: needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true'
-    runs-on: macos-26
+    if: needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_core == 'true'
+    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).swift }}
     timeout-minutes: 80
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          # Self-hosted runners keep their build outputs between jobs; the
+          # runner preparation step removes every other untracked file.
+          clean: ${{ runner.environment != 'self-hosted' }}
+
+      - name: Prepare shared Mac mini runner
+        if: runner.environment == 'self-hosted'
+        uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
+
+      # test-macos.sh links Rust Core; install it explicitly on every runner pool.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Prepare verified SwiftPM cache
         uses: ./.github/actions/prepare-macos-dependency-cache
@@ -203,6 +238,11 @@ jobs:
       - name: Build Swift tests
         timeout-minutes: 20
         run: ./scripts/test-macos.sh list > /dev/null
+
+      - name: Verify the Rust Core Swift bridge
+        if: needs.changes.outputs.rust_core == 'true'
+        timeout-minutes: 20
+        run: ./scripts/verify-rust-core-swift-bridge.sh --skip-build
 
       - name: Run Swift unit tests
         if: needs.changes.outputs.swift == 'true'
@@ -276,20 +316,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Rust-only checks. The Swift-linked bridge checks run in swift-tests, which
+  # already builds the app with the same Core archive.
   rust-core-tests:
-    name: Rust Core and Swift bridge tests
+    name: Rust Core tests
     needs: changes
     if: needs.changes.outputs.rust_core == 'true'
-    runs-on: [self-hosted, macOS, ARM64, lithe-mac-mini]
-    # Cold Rust and Swift builds can consume 30 minutes before report upload.
+    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).rust }}
+    # A cold Rust build without a compilation cache can take 20 minutes.
     # Individual test harness deadlines still bound the integration suites.
-    timeout-minutes: 40
+    timeout-minutes: 30
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          clean: ${{ runner.environment != 'self-hosted' }}
 
       - name: Prepare shared Mac mini runner
+        if: runner.environment == 'self-hosted'
         uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Swift 6.3.3 and Xcode
@@ -303,21 +348,20 @@ jobs:
       - name: Prepare verified dependency caches
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
-          swiftpm: "true"
           cargo: "true"
 
-      - name: Run Rust Core tests and verify the Swift bridge
-        run: ./scripts/verify-rust-core.sh
+      - name: Run Rust Core tests
+        run: ./scripts/verify-rust-core-crates.sh
 
-      - name: Upload Git execution test reports
+      - name: Upload Rust test reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: git-execution-integration-macos
+          name: rust-core-tests-macos
           path: |
-            .artifacts/test-stability/git-execution-integration.*
             .artifacts/test-stability/git-host-rust.*
-            .artifacts/test-stability/git-console-bridge.*
+            .artifacts/test-stability/agent-host-rust.*
+            .artifacts/test-stability/ide-host-rust.*
             .artifacts/test-stability/rust-comment-checker.xml
           if-no-files-found: ignore
           retention-days: 14
@@ -326,7 +370,7 @@ jobs:
     name: Release package verification (${{ matrix.architecture }})
     needs: changes
     if: needs.changes.outputs.macos_release == 'true'
-    runs-on: [self-hosted, macOS, ARM64, lithe-mac-mini]
+    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).release }}
     # A universal build without a Cargo compilation cache takes about 45
     # minutes: Rust and Swift compile once per slice before packaging twice.
     timeout-minutes: 60
@@ -341,8 +385,11 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          clean: ${{ runner.environment != 'self-hosted' }}
 
       - name: Prepare shared Mac mini runner
+        if: runner.environment == 'self-hosted'
         uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Bun for shared editor assets
@@ -480,8 +527,10 @@ jobs:
       # it, so the next build resumes instead of starting cold again. Pull
       # requests restore preview's entries without saving: PR-scoped copies are
       # unreadable by preview and pushed its own entries past the cache quota.
+      # Self-hosted runners keep rust/target locally, and their macOS version
+      # makes a key that hosted runners would never restore.
       - name: Save Cargo compilation cache
-        if: always() && github.event_name != 'pull_request'
+        if: always() && github.event_name != 'pull_request' && runner.environment != 'self-hosted'
         uses: ./.github/actions/save-macos-cargo-build-cache
         with:
           key: ${{ steps.dependency_cache.outputs.cargo-build-key }}
@@ -504,7 +553,7 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           SWIFT_RESULT: ${{ needs.swift-tests.result }}
           RUST_CORE_RESULT: ${{ needs.rust-core-tests.result }}
-          SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true' }}
+          SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_core == 'true' }}
           RUST_CORE_SELECTED: ${{ needs.changes.outputs.rust_core }}
           RELEASE_SELECTED: ${{ needs.changes.outputs.macos_release }}
           RELEASE_RESULT: ${{ needs.release-build.result }}
