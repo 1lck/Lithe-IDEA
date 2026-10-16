@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "defaultChannel": "stable",
+  "developmentDefaultChannel": "autobuild",
   "rollingTag": "AutoBuild",
   "rollingRequiresAcknowledgement": true,
   "rollingReleaseURL": "https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild",

@@ -1580,13 +1580,16 @@ impl MavenSettingsFixture {
         }
     }
 
-    fn settings_for(&self, configured: &Path) -> Option<String> {
+    // Windows accepts both separator spellings; assert the resolved path rather
+    // than its string representation, without hiding incorrect alias resolution.
+    fn settings_for(&self, configured: &Path) -> Option<PathBuf> {
         jdt_configuration(
             self.root.to_str().expect("fixture path should be UTF-8"),
             maven_jdt_context(Some(configured.to_string_lossy().into_owned())),
         )
         .expect("Maven configuration should parse")
         .global_settings_path
+        .map(PathBuf::from)
     }
 }
 
@@ -1620,18 +1623,14 @@ fn mvnd_installation_settings_reach_jdt_for_every_client_home_and_bin() {
         for configured in [&home, &bin, &launcher] {
             assert_eq!(
                 fixture.settings_for(configured),
-                Some(settings.to_string_lossy().into_owned()),
+                Some(settings.clone()),
                 "embedded settings for {}",
                 configured.display()
             );
         }
         assert_eq!(
             fixture.settings_for(&ordinary_launcher),
-            Some(
-                home.join("conf/settings.xml")
-                    .to_string_lossy()
-                    .into_owned()
-            ),
+            Some(home.join("conf/settings.xml")),
             "an explicit ordinary Maven client retains its own settings"
         );
     }
@@ -1709,11 +1708,7 @@ fn mvnd_installation_settings_follow_client_and_directory_aliases() {
     symlink(&home, &home_alias).unwrap();
     let bin_alias = fixture.root.join("current-launchers");
     symlink(home.join("bin"), &bin_alias).unwrap();
-    let expected = settings
-        .canonicalize()
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
+    let expected = settings.canonicalize().unwrap();
     for configured in [
         &client_alias,
         &home_alias,

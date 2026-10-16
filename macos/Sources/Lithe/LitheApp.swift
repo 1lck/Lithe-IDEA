@@ -317,6 +317,16 @@ struct LitheApp: App {
     private let applicationLogWriter: MacApplicationLogWriter
 
     init() {
+        do {
+            _ = try MacDevelopmentProfileMigration.prepare()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Could not copy your Stable settings")
+            alert.informativeText = String(localized: "Your original settings and workspace data have been preserved. Restart Lithe-Dev to try again.") + "\n\n" + error.localizedDescription
+            alert.addButton(withTitle: String(localized: "Quit"))
+            alert.runModal()
+            exit(1)
+        }
         let store = MacUserDefaultsStore()
         if LithePerformanceBaseline.isEnabled {
             LitheSignpost.configureBaselineOutput { line in

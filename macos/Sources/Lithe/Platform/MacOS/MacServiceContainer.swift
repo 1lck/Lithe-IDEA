@@ -104,14 +104,14 @@ final class MacServiceContainer {
         let processRunner = MacProcessRunner()
         let secureStore = MacLocalSecretStore()
         let databaseSecureStore = MacKeychainSecureStore(
-            service: "app.lithe.desktop.database",
+            service: fileStorage.identity.keychainService("database"),
             legacyStore: secureStore
         )
         let githubService = GitHubService(
             core: RustGitHubCore(bridge: rustCore),
             transport: MacGitHubHTTPTransport(),
             configuration: MacGitHubConfiguration(),
-            secureStore: MacKeychainSecureStore(service: "app.lithe.desktop.github"),
+            secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("github")),
             git: MacGitHubGitOperations(core: rustCore)
         )
         let platformUI = providedPlatformUI ?? MacPlatformUI()
@@ -200,7 +200,7 @@ final class MacServiceContainer {
                     executableURL: databaseSidecarURL,
                     preferenceStore: MacDatabasePreferenceStore(store: store),
                     secureStore: MacKeychainSecureStore(
-                        service: "app.lithe.desktop.database",
+                        service: fileStorage.identity.keychainService("database"),
                         legacyStore: MacLocalSecretStore()
                     ),
                     recoveryStore: MacDatabaseRecoveryStore(fileStorage: fileStorage),
