@@ -1683,6 +1683,13 @@
 
 "No updates found in the local Homebrew index." = "No updates found in the local Homebrew index.";
 "Run `brew update` manually, then check again for updates." = "Run `brew update` manually, then check again for updates.";
+"%@ · %@ / %@ context used" = "%@ · %@ / %@ context used";
+"Breakdown unavailable" = "Breakdown unavailable";
+"Turn on Model call statistics, reconnect and send a message to see the breakdown." = "Turn on Model call statistics, reconnect and send a message to see the breakdown.";
+"Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting." = "Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting.";
+"Used %@" = "Used %@";
+"5 hours" = "5 hours";
+"7 days" = "7 days";
 
 /* Process Termination Policy */
 "Terminal “%@” is still running" = "Terminal “%@” is still running";

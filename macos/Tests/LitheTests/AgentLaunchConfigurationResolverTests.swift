@@ -122,6 +122,7 @@ struct AgentLaunchConfigurationResolverTests {
     @Test
     func subscriptionSkipsAPIConfigurationAndRejectsOtherAgents() throws {
         let settings = AppSettings(store: LaunchSettingsStore())
+        settings.agentModelCallStatistics = false
         settings.agentConfigurations["codex-acp"] = AgentConfiguration(name: "Codex", providerID: nil,
             authentication: .codexSubscription)
         let cli = LaunchConfigurationSource(snapshots: [snapshot(.codex, revision: "other")])
@@ -130,6 +131,9 @@ struct AgentLaunchConfigurationResolverTests {
             configurationSources: [cli], credentialResolver: keys)
         let launch = try resolve(resolver, agentID: "codex-acp")
         #expect(launch.authentication == .codexSubscription)
+        #expect(!launch.observesModelCalls)
+        settings.agentModelCallStatistics = true
+        #expect(try resolve(resolver, agentID: "codex-acp").observesModelCalls)
         #expect(launch.providerEndpoint.isEmpty && launch.apiKey.isEmpty && launch.model.isEmpty)
         settings.agentConfigurations["claude-acp"] = AgentConfiguration(name: "Claude", providerID: nil,
             authentication: .codexSubscription)

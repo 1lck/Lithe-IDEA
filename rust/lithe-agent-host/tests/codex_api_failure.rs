@@ -125,7 +125,7 @@ fn respond(stream: &mut TcpStream, status: u16, long: bool, partial: bool) -> bo
 }
 
 fn run(status: u16, long: bool, recover: bool, partial: bool, cancel: bool, mixed: bool) {
-    run_with(status, long, recover, partial, cancel, mixed, false);
+    run_with(status, long, recover, partial, cancel, mixed, false, false);
 }
 
 fn run_with(
@@ -136,6 +136,7 @@ fn run_with(
     cancel: bool,
     mixed: bool,
     observe_model_calls: bool,
+    restore_history: bool,
 ) {
     assert!(
         std::env::var_os("CODEX_HOME").is_some(),
@@ -147,27 +148,28 @@ fn run_with(
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let (sender, events) = mpsc::channel();
+    let launch = AgentLaunch {
+        agent_id: Some("codex-acp".into()),
+        command: None,
+        args: vec![],
+        cwd: project.0.clone(),
+        data_directory: Some(PathBuf::from(
+            std::env::var_os("LITHE_ACP_E2E_DATA_DIR").expect("existing adapter installation"),
+        )),
+        authentication: AgentAuthentication::ApiKey,
+        observe_model_calls,
+        process_scope: None,
+        provider: Some(ProviderCredentials {
+            protocol: ProviderProtocol::Responses,
+            base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
+            api_key: "invalid-test-key".into(),
+            name: Some("Local fixture".into()),
+            model: Some("gpt-5.5".into()),
+            allow_insecure_http: true,
+        }),
+    };
     let handle = AgentHandle::open(
-        AgentLaunch {
-            agent_id: Some("codex-acp".into()),
-            command: None,
-            args: vec![],
-            cwd: project.0.clone(),
-            data_directory: Some(PathBuf::from(
-                std::env::var_os("LITHE_ACP_E2E_DATA_DIR").expect("existing adapter installation"),
-            )),
-            authentication: AgentAuthentication::ApiKey,
-            observe_model_calls,
-            process_scope: None,
-            provider: Some(ProviderCredentials {
-                protocol: ProviderProtocol::Responses,
-                base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
-                api_key: "invalid-test-key".into(),
-                name: Some("Local fixture".into()),
-                model: Some("gpt-5.5".into()),
-                allow_insecure_http: true,
-            }),
-        },
+        launch.clone(),
         Arc::new(move |event| {
             let _ = sender.send(event);
         }),
@@ -319,12 +321,82 @@ fn run_with(
         assert!(model_calls.is_empty(), "no observation without the opt-in");
     }
     drop(handle);
+    if restore_history {
+        // A fresh Host has no local statistics/cache. Only native persisted
+        // counters can restore occupancy; another model request is forbidden.
+        let (sender, events) = mpsc::channel();
+        let handle = AgentHandle::open(
+            launch,
+            Arc::new(move |event| {
+                let _ = sender.send(event);
+            }),
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut usage = None;
+        loop {
+            while let Ok((mut stream, _)) = listener.accept() {
+                assert!(
+                    !respond(&mut stream, 200, false, false),
+                    "history recovery cannot call the model"
+                );
+            }
+            assert!(
+                Instant::now() < deadline,
+                "history recovers within its local deadline"
+            );
+            let event = match events.recv_timeout(Duration::from_millis(10)) {
+                Ok(event) => event,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(error) => panic!("history connection closed: {error}"),
+            };
+            match event {
+                AgentEvent::Ready { .. } => handle
+                    .send(AgentCommand::LoadSession {
+                        token: "restore".into(),
+                        session_id: session.clone().unwrap(),
+                    })
+                    .unwrap(),
+                AgentEvent::Update { update, .. } if update["sessionUpdate"] == "usage_update" => {
+                    usage = Some(update)
+                }
+                AgentEvent::SessionLoaded { .. } => {
+                    let usage = usage.expect("real usage arrives before history load completion");
+                    assert_eq!(
+                        usage["used"], 2,
+                        "controlled provider's last request, not accumulated billing"
+                    );
+                    assert!(usage["size"].as_u64().is_some_and(|size| size > 0));
+                    assert_eq!(usage["_meta"]["lithe"]["contextUsageSource"], "history");
+                    eprintln!(
+                        "Native history restored: {} / {} context tokens",
+                        usage["used"], usage["size"]
+                    );
+                    break;
+                }
+                AgentEvent::RequestFailed { message, .. } => {
+                    panic!("history restore failed: {message}")
+                }
+                AgentEvent::Stopped { message } => {
+                    panic!("history connection stopped: {message:?}")
+                }
+                _ => {}
+            }
+        }
+        drop(handle);
+    }
 }
 
 #[test]
 #[ignore = "requires installed Codex ACP/CLI and isolated CODEX_HOME; local HTTP only"]
 fn codex_turn_through_the_model_call_proxy_is_observed() {
-    run_with(200, false, false, false, false, false, true);
+    run_with(200, false, false, false, false, false, true, false);
+}
+
+#[test]
+#[ignore = "requires installed Codex ACP/CLI and isolated CODEX_HOME; local HTTP only"]
+fn codex_history_restores_real_context_without_a_model_request() {
+    run_with(200, false, false, false, false, false, false, true);
 }
 
 macro_rules! local_case {

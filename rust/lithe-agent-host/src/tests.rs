@@ -455,6 +455,7 @@ impl Harness {
             cwd,
             route,
             subscription.then(|| PathBuf::from("/fixture/codex")),
+            None,
             receiver,
             TurnActivity {
                 permissions: permissions.clone(),
@@ -704,6 +705,7 @@ fn serialized_events_match_the_shared_fixture() {
         "sessionInfo",
         "codexRetry",
         "usageUpdate",
+        "historicalUsageUpdate",
         "agentThoughtChunk",
         "plan",
         "availableCommands",
@@ -1559,7 +1561,7 @@ async fn codex_post_work_permanent_failure_still_cancels_and_cleans_unacknowledg
 
 #[test]
 fn codex_retry_helper_is_owned_by_one_launch_and_removed_on_drop() {
-    let (relay, env) = codex_retry::Relay::create(Path::new("/fixture/codex")).unwrap();
+    let (relay, env) = codex_retry::Relay::create(Path::new("/fixture/codex"), true).unwrap();
     let script = PathBuf::from(&env.iter().find(|(name, _)| name == "CODEX_PATH").unwrap().1);
     let directory = script.parent().unwrap().to_owned();
     assert!(script.is_file());
@@ -2910,7 +2912,7 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     let mut subscription = launch("codex-acp", provider());
     subscription.authentication = AgentAuthentication::CodexSubscription;
     subscription.provider = None;
-    let subscription = resolve(subscription).unwrap();
+    let mut subscription = resolve(subscription).unwrap();
     assert!(subscription.gateway.is_none());
     assert!(subscription.secret.is_empty());
     assert_eq!(
@@ -2933,6 +2935,26 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         "https://chatgpt.com/backend-api/"
     );
     assert!(config.get("model").is_none());
+
+    // Statistics changes only this process's inference route; native account,
+    // quota and model ownership survive without installing a second provider.
+    let environment = subscription.env.clone();
+    subscription::observe_model_calls(&mut subscription, "http://127.0.0.1:1234/lithe-fixture")
+        .unwrap();
+    for ((name, before), (_, after)) in environment.iter().zip(&subscription.env) {
+        if name == "CODEX_CONFIG" {
+            let mut after: Value = serde_json::from_str(after).unwrap();
+            assert_eq!(
+                after["openai_base_url"],
+                "http://127.0.0.1:1234/lithe-fixture/backend-api/codex"
+            );
+            after["openai_base_url"] = json!("");
+            assert_eq!(after, serde_json::from_str::<Value>(before).unwrap());
+        } else {
+            assert_eq!(before, after);
+        }
+    }
+    assert!(subscription.gateway.is_none() && subscription.secret.is_empty());
 
     let codex = resolve(launch("codex-acp", provider())).unwrap();
     assert!(codex.command.ends_with("node_modules/.bin/codex-acp") || cfg!(windows));

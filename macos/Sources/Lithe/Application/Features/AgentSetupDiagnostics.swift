@@ -146,22 +146,19 @@ extension AgentSetupDiagnostics {
             if let detected = cli.detected {
                 if isVersion(detected.version, atLeast: cli.minimumVersion) {
                     // Compatibility does not mean the CLI has the latest model catalog.
-                    let updateAvailable = cli.command == "codex"
-                        ? cli.installation?.updateAvailable == true : true
+                    let updateAvailable = cli.installation?.updateAvailable == true
                     var statusTitle = title
                     var message = "\(detected.version) · \(detected.path)"
-                    if cli.command == "codex" {
-                        switch cli.installation?.updateAvailable {
-                        case false?:
-                            if cli.installation?.source == .homebrew {
-                                statusTitle += " · " + String(localized: "No updates found in the local Homebrew index.", bundle: bundle)
-                                message += "\n" + String(localized: "Run `brew update` manually, then check again for updates.", bundle: bundle)
-                            } else {
-                                statusTitle += " · " + String(localized: "Up to date.", bundle: bundle)
-                            }
-                        case nil: message += "\n" + String(localized: "Could not check for updates.", bundle: bundle)
-                        case true?: break
+                    switch cli.installation?.updateAvailable {
+                    case false?:
+                        if cli.installation?.source == .homebrew {
+                            statusTitle += " · " + String(localized: "No updates found in the local Homebrew index.", bundle: bundle)
+                            message += "\n" + String(localized: "Run `brew update` manually, then check again for updates.", bundle: bundle)
+                        } else {
+                            statusTitle += " · " + String(localized: "Up to date.", bundle: bundle)
                         }
+                    case nil: message += "\n" + String(localized: "Could not check for updates.", bundle: bundle)
+                    case true?: break
                     }
                     checks.append(.init(id: "cli", title: statusTitle, status: .pass,
                                         message: message,
@@ -187,7 +184,7 @@ extension AgentSetupDiagnostics {
                 }
                 let provenance = String(format: String(localized: "Installation: %@", bundle: bundle), source)
                 let hint = NSLocalizedString(installation.updateHint, bundle: bundle, comment: "CLI update guidance")
-                let showHint = cli.command != "codex" || installation.updateAvailable != false || check.status != .pass
+                let showHint = installation.updateAvailable != false || check.status != .pass
                 checks[index] = .init(id: check.id, title: check.title, status: check.status,
                                      message: "\(check.message)\n\(provenance)" + (showHint ? "\n\(hint)" : ""),
                                      fix: check.fix)
