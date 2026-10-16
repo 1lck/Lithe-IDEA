@@ -193,22 +193,42 @@ private struct AgentProviderEditorView: View {
     @State var draft: AgentProviderDraft
     @State private var errorMessage: String?
     @State private var saveTask: Task<Void, Never>?
+    @State private var showsAPIKey = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(draft.providerID == nil ? "Add provider" : "Edit provider")
                 .font(LitheTheme.uiFont(size: 17, weight: .semibold))
-            TextField("Provider name", text: $draft.name).litheSettingsTextField()
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    configurationEditor(draft.source == .codex ? "config.toml" : "settings.json", text: $draft.configuration,
-                        canFormat: draft.source == .claude)
-                    if draft.source == .codex {
-                        configurationEditor("auth.json", text: $draft.authentication, canFormat: true)
+                VStack(alignment: .leading, spacing: 16) {
+                    requiredField("Provider name") {
+                        TextField("Provider name", text: $draft.name).litheSettingsTextField()
+                            .accessibilityLabel("Provider name")
+                    }
+                    if draft.isEditingConfigurationText {
+                        configurationEditor(draft.source == .codex ? "config.toml" : "settings.json", text: $draft.configuration,
+                            canFormat: draft.source == .claude)
+                        if draft.source == .codex {
+                            configurationEditor("auth.json", text: $draft.authentication, canFormat: true)
+                        }
+                    } else {
+                        providerFields
                     }
                     LitheSettingsCheckbox(isOn: $draft.allowsInsecureHTTP, title: "Allow insecure HTTP")
-                    AgentSettingsHint("Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.")
+                    Button(draft.isEditingConfigurationText ? "Use form" : "Edit configuration text") {
+                        do {
+                            try model.setAgentProviderConfigurationTextEditing(!draft.isEditingConfigurationText, draft: &draft)
+                            showsAPIKey = false
+                            errorMessage = nil
+                        } catch { errorMessage = error.localizedDescription }
+                    }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                    if draft.isEditingConfigurationText {
+                        AgentSettingsHint("Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.")
+                    } else {
+                        AgentSettingsHint("The API key is stored separately from settings. Your local CLI configuration is not changed.")
+                    }
                 }
             }
             // Errors stay visible even when the configuration editors fill the scroll viewport.
@@ -222,6 +242,10 @@ private struct AgentProviderEditorView: View {
                     .buttonStyle(LitheSecondaryButtonStyle())
                 Button("Save") { save() }.keyboardShortcut(.defaultAction)
                     .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+                    .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        (!draft.isEditingConfigurationText && [draft.endpoint, draft.model, draft.apiKey].contains {
+                            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        }))
             }
         }
         .padding(20).frame(width: 540, height: 620)
@@ -229,6 +253,49 @@ private struct AgentProviderEditorView: View {
         .disabled(model.isChangingAgentProvider || saveTask != nil)
         .interactiveDismissDisabled(saveTask != nil)
         .onDisappear { saveTask?.cancel() }
+    }
+
+    private var providerFields: some View {
+        Group {
+            requiredField("API Key") {
+                HStack(spacing: 8) {
+                    Group {
+                        if showsAPIKey {
+                            TextField("Enter API key", text: $draft.apiKey)
+                        } else {
+                            SecureField("Enter API key", text: $draft.apiKey)
+                        }
+                    }
+                    .litheSettingsTextField()
+                    .accessibilityLabel("API Key")
+                    Button(showsAPIKey ? "Hide API key" : "Show API key") { showsAPIKey.toggle() }
+                        .buttonStyle(LitheSecondaryButtonStyle())
+                }
+            }
+            requiredField("API request URL") {
+                TextField(draft.source == .codex ? "https://api.example.com/v1" : "https://api.example.com", text: $draft.endpoint)
+                    .litheSettingsTextField()
+                    .accessibilityLabel("API request URL")
+                AgentSettingsHint(draft.source == .codex
+                    ? "Base URL for a service compatible with the OpenAI Responses API."
+                    : "Base URL for an Anthropic Messages API service.")
+            }
+            requiredField("Model") {
+                TextField("Enter model ID", text: $draft.model).litheSettingsTextField()
+                    .accessibilityLabel("Model")
+                AgentSettingsHint("Use a model ID supported by your provider.")
+            }
+        }
+    }
+
+    private func requiredField<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text(title).font(LitheTheme.uiFont(size: 12, weight: .medium))
+                Text("*").foregroundStyle(LitheTheme.error).accessibilityHidden(true)
+            }
+            content()
+        }
     }
 
     private func configurationEditor(_ title: String, text: Binding<String>, canFormat: Bool) -> some View {

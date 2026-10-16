@@ -46,13 +46,39 @@ struct AgentProviderConfigurationTests {
         let feature = AgentProviderConfiguration(settings: settings, secureStore: keys, parser: ProviderParser())
 
         let newDraft = try feature.draft(source: .codex)
+        #expect(!newDraft.isEditingConfigurationText)
+        #expect(newDraft.endpoint.isEmpty && newDraft.apiKey.isEmpty)
+        #expect(newDraft.model == "gpt-6.1-sol")
         #expect(newDraft.configuration.contains("model = \"gpt-6.1-sol\""))
 
         let saved = AIProviderProfile(name: "Saved", endpoint: "https://example.test/v1", model: "saved-model",
             apiProtocol: .responses, apiKeyIdentifier: "saved-key")
         let edit = try feature.draft(source: .codex, provider: saved)
+        #expect(edit.endpoint == saved.endpoint)
+        #expect(edit.model == saved.model)
         #expect(edit.configuration.contains("model = \"saved-model\""))
         #expect(!edit.configuration.contains("gpt-6.1-sol"))
+    }
+
+    @Test(arguments: ["saved-claude-model", ""])
+    func newClaudeDraftUsesFable51AndEditingKeepsSavedModel(savedModel: String) throws {
+        let settings = AppSettings(store: ProviderSettingsStore())
+        let feature = AgentProviderConfiguration(settings: settings, secureStore: ProviderSecureStore(),
+            parser: ProviderParser())
+        let newDraft = try feature.draft(source: .claude)
+        #expect(newDraft.model == "claude-fable-5-1")
+        #expect(!newDraft.isEditingConfigurationText)
+        #expect(newDraft.endpoint.isEmpty && newDraft.apiKey.isEmpty)
+        let object = try #require(JSONSerialization.jsonObject(with: Data(newDraft.configuration.utf8)) as? [String: Any])
+        let environment = try #require(object["env"] as? [String: String])
+        #expect(environment["ANTHROPIC_MODEL"] == "claude-fable-5-1")
+
+        // A saved empty model is still user-owned; editing must not apply the new-provider default.
+        let saved = AIProviderProfile(name: "Saved", endpoint: "https://example.test/v1", model: savedModel,
+            apiProtocol: .anthropicMessages)
+        let edit = try feature.draft(source: .claude, provider: saved)
+        #expect(edit.model == savedModel && edit.providerID == saved.id)
+        #expect(!edit.configuration.contains("claude-fable-5-1"))
     }
 
     @Test
@@ -115,7 +141,7 @@ struct AgentProviderConfigurationTests {
             let configuration = try #require(value["configuration"] as? String)
             let expected = try #require(value["expected"] as? [String: String])
             var draft = AgentProviderDraft(source: source, name: "Fixture", configuration: configuration,
-                authentication: #"{"OPENAI_API_KEY":"fixture-secret"}"#)
+                authentication: #"{"OPENAI_API_KEY":"fixture-secret"}"#, isEditingConfigurationText: true)
             let (provider, key) = try feature.validate(draft)
             #expect(provider.endpoint == expected["endpoint"])
             #expect(provider.model == expected["model"])
@@ -127,12 +153,154 @@ struct AgentProviderConfigurationTests {
             let (roundTrip, _) = try feature.validate(draft)
             #expect(roundTrip == provider)
             if source == .codex {
+                try feature.setConfigurationTextEditing(true, draft: &draft)
                 draft.authentication = #"{"OPENAI_API_KEY":123}"#
                 #expect(throws: AgentProviderConfigurationError.self) { try feature.validate(draft) }
             }
         }
         #expect(throws: AgentProviderConfigurationError.self) {
             try parser.parse(source: .claude, configuration: #"{"env":{"ANTHROPIC_AUTH_TOKEN":"fixture-token"}}"#, authentication: "")
+        }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_AGENT_PROVIDER_INTEGRATION"] == "1"),
+        arguments: AIConfigurationSourceKind.allCases)
+    func formAndConfigurationTextUseTheActiveInputAndRoundTrip(source: AIConfigurationSourceKind) throws {
+        let settings = AppSettings(store: ProviderSettingsStore())
+        let keys = ProviderSecureStore()
+        let feature = AgentProviderConfiguration(settings: settings, secureStore: keys,
+            parser: MacAgentProviderConfigurationParser(core: RustCoreBridge()))
+        var draft = try feature.draft(source: source)
+        draft.name = " Form provider "
+        draft.endpoint = " https://example.test/v1 "
+        draft.model = " fixture-模型-\"quoted\"\\path "
+        draft.apiKey = "fixture-\"secret\"\\key"
+        let (provider, key) = try feature.validate(draft)
+        #expect(provider.name == "Form provider")
+        #expect(provider.endpoint == "https://example.test/v1")
+        #expect(provider.model == "fixture-模型-\"quoted\"\\path")
+        #expect(provider.apiProtocol == (source == .codex ? .responses : .anthropicMessages))
+        #expect(key == draft.apiKey)
+
+        try feature.setConfigurationTextEditing(true, draft: &draft)
+        let (fromText, textKey) = try feature.validate(draft)
+        #expect(fromText.endpoint == provider.endpoint && fromText.model == provider.model)
+        #expect(textKey == key)
+        // Hidden form values must not override pasted configuration on save or mode switch.
+        draft.endpoint = "https://stale.example.test"
+        draft.model = "stale-model"
+        draft.apiKey = "stale-secret"
+        let (activeText, activeTextKey) = try feature.validate(draft)
+        #expect(activeText.endpoint == provider.endpoint && activeText.model == provider.model)
+        #expect(activeTextKey == key)
+        try feature.setConfigurationTextEditing(false, draft: &draft)
+        #expect(!draft.isEditingConfigurationText)
+        #expect(draft.endpoint == provider.endpoint && draft.model == provider.model && draft.apiKey == key)
+
+        draft.endpoint = "http://local.example.test/v1"
+        #expect(throws: AgentProviderConfigurationError.insecureHTTP) { try feature.validate(draft) }
+        draft.allowsInsecureHTTP = true
+        let (updated, updatedKey) = try feature.validate(draft)
+        try feature.save(updated, key: updatedKey, replacing: nil)
+        let restored = try feature.draft(source: source, provider: updated)
+        #expect(!restored.isEditingConfigurationText)
+        #expect(restored.providerID == updated.id)
+        #expect(restored.endpoint == updated.endpoint && restored.model == updated.model)
+        #expect(restored.apiKey == key && restored.allowsInsecureHTTP)
+        let persisted = String(decoding: try JSONEncoder().encode(settings.commitMessageAI), as: UTF8.self)
+        #expect(!persisted.contains("secret"))
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_AGENT_PROVIDER_INTEGRATION"] == "1"),
+        arguments: AIConfigurationSourceKind.allCases)
+    func invalidFormAndTextCannotSaveOrDiscardTheDraft(source: AIConfigurationSourceKind) throws {
+        let settings = AppSettings(store: ProviderSettingsStore())
+        let keys = ProviderSecureStore()
+        let feature = AgentProviderConfiguration(settings: settings, secureStore: keys,
+            parser: MacAgentProviderConfigurationParser(core: RustCoreBridge()))
+        let before = settings.commitMessageAI
+        var draft = try feature.draft(source: source)
+        draft.name = "Fixture"
+        draft.endpoint = "https://example.test/v1"
+        draft.model = "fixture-model"
+        draft.apiKey = "fixture-secret"
+        for field in [\AgentProviderDraft.name, \.endpoint, \.model, \.apiKey] {
+            var incomplete = draft
+            incomplete[keyPath: field] = "  "
+            #expect(throws: AgentProviderConfigurationError.self) { try feature.validate(incomplete) }
+        }
+        for endpoint in ["https://user:password@example.test/v1", "https://example.test/v1?key=secret", "https://example.test/v1#secret"] {
+            var invalid = draft
+            invalid.endpoint = endpoint
+            #expect(throws: AgentProviderConfigurationError.self) { try feature.validate(invalid) }
+        }
+        try feature.setConfigurationTextEditing(true, draft: &draft)
+        draft.configuration = "invalid pasted configuration"
+        #expect(throws: AgentProviderConfigurationError.self) {
+            try feature.setConfigurationTextEditing(false, draft: &draft)
+        }
+        #expect(draft.isEditingConfigurationText)
+        #expect(draft.configuration == "invalid pasted configuration")
+        #expect(draft.endpoint == "https://example.test/v1" && draft.model == "fixture-model")
+        #expect(draft.apiKey == "fixture-secret")
+        #expect(throws: AgentProviderConfigurationError.self) { try feature.validate(draft) }
+        #expect(settings.commitMessageAI == before && keys.values.isEmpty)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_AGENT_PROVIDER_INTEGRATION"] == "1"),
+        arguments: AIConfigurationSourceKind.allCases)
+    func emptyAndIncompleteDraftsCanReturnToFormWithoutSaving(source: AIConfigurationSourceKind) throws {
+        let settings = AppSettings(store: ProviderSettingsStore())
+        let keys = ProviderSecureStore()
+        let parser = MacAgentProviderConfigurationParser(core: RustCoreBridge())
+        let feature = AgentProviderConfiguration(settings: settings, secureStore: keys, parser: parser)
+        let before = settings.commitMessageAI
+        // Cover the untouched new-provider template and each independently missing field.
+        var empty = try feature.draft(source: source)
+        try feature.setConfigurationTextEditing(true, draft: &empty)
+        try feature.setConfigurationTextEditing(false, draft: &empty)
+        #expect(!empty.isEditingConfigurationText && empty.apiKey.isEmpty && empty.endpoint.isEmpty)
+        #expect(empty.model == source.newProviderModel)
+        for missing in [\AgentProviderDraft.endpoint, \.model, \.apiKey] {
+            var draft = try feature.draft(source: source)
+            draft.name = "Fixture"
+            draft.endpoint = "https://example.test/v1"
+            draft.model = "fixture-model"
+            draft.apiKey = "fixture-secret"
+            draft[keyPath: missing] = ""
+            let expected = draft
+            try feature.setConfigurationTextEditing(true, draft: &draft)
+            try feature.setConfigurationTextEditing(false, draft: &draft)
+            #expect(!draft.isEditingConfigurationText)
+            #expect(draft.endpoint == expected.endpoint && draft.model == expected.model && draft.apiKey == expected.apiKey)
+            #expect(throws: AgentProviderConfigurationError.self) { try feature.validate(draft) }
+        }
+        #expect(settings.commitMessageAI == before && keys.values.isEmpty)
+
+        let fixtureURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("shared/fixtures/agent/provider-configuration-v1.json")
+        let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any])
+        let cases = try #require(fixture["draftCases"] as? [[String: Any]])
+        for value in cases where value["source"] as? String == source.rawValue {
+            let text = try #require(value["configuration"] as? String)
+            let expected = try #require(value["expected"] as? [String: String])
+            let snapshot = try parser.parse(source: source, configuration: text, authentication: "{}", allowIncomplete: true)
+            #expect(snapshot.endpoint == expected["endpoint"] && snapshot.model == expected["model"])
+            #expect(snapshot.apiKey == (value["expectedAPIKey"] as? String ?? ""))
+        }
+        if source == .codex {
+            #expect(throws: AgentProviderConfigurationError.invalidAuthentication) {
+                try parser.parse(source: source, configuration: "", authentication: #"{"OPENAI_API_KEY":123}"#, allowIncomplete: true)
+            }
+        } else {
+            #expect(throws: AgentProviderConfigurationError.missingAPIKey) {
+                try parser.parse(source: source, configuration: "{}", authentication: "")
+            }
+            #expect(throws: AgentProviderConfigurationError.unsupportedProtocol) {
+                try parser.parse(source: source, configuration: #"{"env":{"ANTHROPIC_AUTH_TOKEN":"fixture-token"}}"#,
+                    authentication: "", allowIncomplete: true)
+            }
         }
     }
     @Test func unreadableCredentialStorePreservesItsContents() throws {
@@ -147,13 +315,21 @@ struct AgentProviderConfigurationTests {
             #expect(try Data(contentsOf: url) == original)
         }
     }
+    private func configuredDraft(_ feature: AgentProviderConfiguration) throws -> AgentProviderDraft {
+        var draft = try feature.draft(source: .codex)
+        draft.endpoint = "https://example.test/v1"
+        draft.model = "fixture-model"
+        draft.apiKey = "fixture-secret"
+        return draft
+    }
+
     @Test func savesKeySeparatelyAndPreservesCommitProvider() throws {
         let store = ProviderSettingsStore()
         let settings = AppSettings(store: store)
         let keys = ProviderSecureStore()
         let feature = AgentProviderConfiguration(settings: settings, secureStore: keys, parser: ProviderParser())
         settings.commitMessageAI.activeProviderID = nil
-        var draft = try feature.draft(source: .codex)
+        var draft = try configuredDraft(feature)
         draft.name = " My provider "
         let (provider, key) = try feature.validate(draft)
         try feature.save(provider, key: key, replacing: nil)
@@ -182,7 +358,7 @@ struct AgentProviderConfigurationTests {
         let settings = AppSettings(store: ProviderSettingsStore())
         let keys = ProviderSecureStore()
         let feature = AgentProviderConfiguration(settings: settings, secureStore: keys, parser: ProviderParser())
-        var draft = try feature.draft(source: .codex)
+        var draft = try configuredDraft(feature)
         draft.name = "Fixture"
         let (provider, key) = try feature.validate(draft)
         let before = settings.commitMessageAI
@@ -205,7 +381,7 @@ struct AgentProviderConfigurationTests {
         let settings = AppSettings(store: ProviderSettingsStore())
         let keys = ProviderSecureStore()
         let feature = AgentProviderConfiguration(settings: settings, secureStore: keys, parser: ProviderParser())
-        var draft = try feature.draft(source: .codex)
+        var draft = try configuredDraft(feature)
         draft.name = "First"
         let (first, key) = try feature.validate(draft)
         try feature.save(first, key: key, replacing: nil)
@@ -227,7 +403,7 @@ struct AgentProviderConfigurationTests {
         let settings = AppSettings(store: ProviderSettingsStore())
         let keys = ProviderSecureStore()
         let feature = AgentProviderConfiguration(settings: settings, secureStore: keys, parser: ProviderParser())
-        var draft = try feature.draft(source: .codex)
+        var draft = try configuredDraft(feature)
         draft.name = "Original"
         let (original, key) = try feature.validate(draft)
         try feature.save(original, key: key, replacing: nil)
@@ -266,13 +442,13 @@ struct AgentProviderConfigurationTests {
         let protocols: [CommitMessageAPIProtocol] = [.chatCompletions, .anthropicMessages]
         for apiProtocol in protocols {
             let feature = AgentProviderConfiguration(settings: settings, secureStore: keys, parser: ProviderParser(apiProtocol: apiProtocol))
-            var draft = try feature.draft(source: .codex)
+            var draft = try configuredDraft(feature)
             draft.name = "Fixture"
             #expect(throws: AgentProviderConfigurationError.self) { try feature.validate(draft) }
         }
         for endpoint in ["https://user:password@example.test", "https://example.test?key=secret", "file:///example", "https://example.test#fragment"] {
             let feature = AgentProviderConfiguration(settings: settings, secureStore: keys, parser: ProviderParser(endpoint: endpoint))
-            var draft = try feature.draft(source: .codex)
+            var draft = try configuredDraft(feature)
             draft.name = "Fixture"
             #expect(throws: AgentProviderConfigurationError.self) { try feature.validate(draft) }
         }
@@ -284,7 +460,7 @@ struct AgentProviderConfigurationTests {
         let keys = ProviderSecureStore()
         let http = AgentProviderConfiguration(settings: settings, secureStore: keys,
             parser: ProviderParser(endpoint: "http://example.test/v1"))
-        var draft = try http.draft(source: .codex)
+        var draft = try configuredDraft(http)
         draft.name = "Fixture"
         #expect(throws: AgentProviderConfigurationError.self) { try http.validate(draft) }
         draft.allowsInsecureHTTP = true
@@ -300,7 +476,7 @@ private struct ProviderParser: AgentProviderConfigurationParsing {
     var endpoint = "https://example.test/v1"
     var apiProtocol: CommitMessageAPIProtocol = .responses
     var key: String? = "fixture-secret"
-    func parse(source: AIConfigurationSourceKind, configuration: String, authentication: String) throws -> AIConfigurationSnapshot {
+    func parse(source: AIConfigurationSourceKind, configuration: String, authentication: String, allowIncomplete: Bool) throws -> AIConfigurationSnapshot {
         AIConfigurationSnapshot(source: source, providerName: "fixture", endpoint: endpoint, model: "fixture-model",
             apiProtocol: apiProtocol, reasoningEffort: nil, requiresAPIKey: true, apiKey: key)
     }

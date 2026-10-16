@@ -12,6 +12,10 @@ extension AppModel {
         try agentProviderConfiguration.draft(source: source, provider: provider)
     }
 
+    func setAgentProviderConfigurationTextEditing(_ enabled: Bool, draft: inout AgentProviderDraft) throws {
+        try agentProviderConfiguration.setConfigurationTextEditing(enabled, draft: &draft)
+    }
+
     func saveAgentProvider(_ draft: AgentProviderDraft) async throws {
         try beginAgentProviderChange()
         defer { finishAgentProviderChange() }
