@@ -340,7 +340,20 @@ private struct AgentMessageRow: View {
                 AgentCopyButton(text: message.text, help: "Copy message")
                     .opacity(isHovered ? 1 : 0)
                     .allowsHitTesting(isHovered)
-                Text(message.text)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(message.text)
+                    if let delivery = message.delivery {
+                        Group {
+                            switch delivery {
+                            case .sending: Text("Sending…")
+                            case .received: Text("Agent received")
+                            case .failed(let reason): Text(AgentLocalization.message(reason, locale: locale)).foregroundStyle(LitheTheme.error)
+                            }
+                        }
+                        .font(LitheTheme.uiFont(size: 10))
+                        .foregroundStyle(AgentPanelStyle.secondary)
+                    }
+                }
                     .font(LitheTheme.uiFont(size: 13))
                     .textSelection(.enabled)
                     .padding(.horizontal, 12)

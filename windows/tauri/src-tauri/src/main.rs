@@ -87,7 +87,11 @@ fn main() {
                 Err(error) => {
                     use tauri_plugin_dialog::DialogExt;
                     let handle = app.handle().clone();
-                    handle.clone().dialog().message(error).title("Lithe-Dev")
+                    handle
+                        .clone()
+                        .dialog()
+                        .message(error)
+                        .title("Lithe-Dev")
                         .show(move |_| handle.exit(1));
                     return Ok(());
                 }

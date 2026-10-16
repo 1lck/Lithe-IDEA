@@ -185,10 +185,10 @@ visible and active, and requests a throttled refresh after turns. Hover details
 include all windows and reset times; API-key connections show no quota chip.
 
 `lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
-`listSessions`, `setConfigOption`, `prompt`, `cancel`, `permission`, `authenticate`,
+`listSessions`, `setConfigOption`, `prompt`, `steer`, `cancel`, `permission`, `authenticate`,
 or `refreshQuota`. Results arrive as events:
 `ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
-`sessionConfigured`, `turnRetrying`, `turnActivity`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
+`sessionConfigured`, `steeringResult`, `turnRetrying`, `turnActivity`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
 `authenticationRequired`, `authenticating`, `account`, `quota`, and `quotaFailed`. Commands and events, including
 their camel-case field names, are fixed by
 `shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
@@ -203,6 +203,72 @@ file bytes. These native resource URLs identify user-selected context, not porta
 workspace records; the agent owns reading, permissions, and history. Invalid
 references produce `requestFailed` before reserving a turn. Older text-only callers
 remain compatible by omitting `files`.
+
+The Host appends one standard ACP text block containing the immutable connection
+`cwd` as JSON `openedWorkspaceRoot`, with guidance that "current project" means
+the editor's opened workspace unless the user specifies otherwise. A containing
+repository and inherited `AGENTS.md`/`CLAUDE.md` retain their development-rule
+role, without replacing the subject of project-purpose/structure questions.
+The same builder handles `prompt` and `steer`, retry payloads, and prompts after
+`session/load`; it never reads a README or guesses a Git root. User text stays
+first and file links retain their order. Native slash commands retain their original text and ordered attachment links,
+including leading whitespace and deferred steering commands; no workspace block
+is appended, so adapter command parsing and `/usage` detection keep working.
+No optional prompt capability, private system prompt, new command field, or
+provider-specific path override is required.
+
+Only the exact Host-added workspace text suffix is omitted from
+`user_message_chunk` presentation, including adapters that join adjacent text
+blocks in history. Generated `session_info_update.title` and session-list titles
+also omit a recognized full or truncated, whitespace-normalized Host suffix.
+If the remaining title is empty or whitespace-only, it is represented as `null`
+in the Host event rather than an empty string, preserving downstream provisional
+message, New Chat, untitled-history and export fallbacks.
+Other user content, model output, tools and metadata pass through unchanged.
+Upstream history remains untouched and may retain this
+context as part of its original prompt; it contributes to upstream token usage.
+Workspace selection remains platform-owned, and this context is guidance rather
+than a filesystem sandbox. The `workspaceContext` fixture covers nested roots,
+normal prompts, steering, restored prompts and clean user-message replay.
+
+`ready.canSteer` is true only when the ACP initialize response's top-level
+`_meta.steering.supported` is exactly true; absent capabilities remain false.
+`steer` carries `token`, `sessionId`, `text` and optional `files`, with the same
+validation as `prompt`. The Host uses the existing `_session/steering` extension,
+not a concurrent `session/prompt`. One outstanding supplementary request per
+session preserves ordering. Its `steeringResult` echoes the token and session;
+`outcome` is `injected`, `promptRequired`, or `failed` (with `message`). These
+delivery results never finish or reset the original logical turn. `injected`
+means upstream accepted the input, not proof that a model has already consumed it.
+Only `promptRequired` explicitly leaves the input unconsumed and permits the
+client to submit it once through normal `prompt`, after completion and staged
+configuration. Stop revokes this fallback even while configuration is pending
+and no native turn is active; it leaves the configuration request intact and
+does not send a native cancel for an unstarted continuation.
+Unknown delivery after a thirty-second
+request timeout closes the connection; it never blindly replays the message.
+
+Supplementary input whose first text block starts with `/` (ignoring leading
+whitespace) is left unconsumed by the Host, with `promptRequired`, instead of
+being passed to the steering extension. This also applies when files accompany
+the command. The client waits for the original turn and staged configuration,
+then submits it once via normal `prompt`; the owned ACP response confirms
+completion even when the command never starts a model turn. Command parsing
+remains upstream-owned. Codex ACP 1.13.1 reports `startedNewTurn` for both real
+continuations and completed command-only input, so that outcome alone cannot
+establish a native lifecycle for a command.
+
+The pinned Codex ACP may instead return `startedNewTurn` at the completion
+boundary for ordinary supplementary messages. The Host reports it as accepted
+and retains the same logical turn until Codex's explicit
+`_meta.codex.threadStatus` transitions end the continuation.
+The original idle and the continuation's idle are distinct; duplicate idle
+updates do not complete another turn. Stop and its existing watchdog still apply.
+Original-response usage is omitted for this detached continuation because no
+complete ACP usage response is available. An unknown adapter returning a detached
+continuation closes the connection rather than manufacturing completion. macOS
+displays supplementary input with pending/received/failed delivery; live user
+echoes do not duplicate local input, while history loading still replays messages.
 
 `sessionCreated` and `sessionLoaded` optionally carry the agent's `configOptions`.
 `setConfigOption` carries `token`, `sessionId`, `configId`, and a select-option

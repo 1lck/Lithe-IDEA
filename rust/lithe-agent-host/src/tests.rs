@@ -98,12 +98,17 @@ impl MockAgent {
     }
 
     async fn handshake(&mut self) {
+        self.handshake_with_steering(false, "mock-agent").await;
+    }
+
+    async fn handshake_with_steering(&mut self, supported: bool, name: &str) {
         let initialize = self.expect("initialize").await;
         self.reply(
             &initialize,
             json!({
                 "protocolVersion": 1,
-                "agentInfo": { "name": "mock-agent", "version": "0.1.0" },
+                "agentInfo": { "name": name, "version": "0.1.0" },
+                "_meta": { "steering": { "supported": supported } },
                 "agentCapabilities": { "loadSession": true, "sessionCapabilities": { "list": {} } },
                 "authMethods": [{ "id": "gateway", "name": "Custom model gateway" }],
             }),
@@ -112,6 +117,302 @@ impl MockAgent {
         let authenticate = self.expect("authenticate").await;
         self.reply(&authenticate, json!({})).await;
     }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn steering_injects_into_the_running_prompt_and_keeps_its_completion() {
+    let mut harness = Harness::start();
+    harness
+        .agent
+        .handshake_with_steering(true, "mock-agent")
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::Ready {
+            can_steer: true,
+            ..
+        }
+    ));
+    harness.open_session("session-1").await;
+    harness.send(json!({"kind":"prompt", "sessionId":"session-1", "text":"Inspect everything"}));
+    let prompt = harness.agent.expect("session/prompt").await;
+    harness.send(json!({"kind":"steer", "token":"steer-1", "sessionId":"session-1", "text":"Only inspect login"}));
+    let steer = harness.agent.expect("_session/steering").await;
+    assert_eq!(steer["params"]["prompt"][0]["text"], "Only inspect login");
+    assert_eq!(
+        steer["params"]["_meta"]["steering"]["idleBehavior"],
+        "promptRequired"
+    );
+    harness
+        .agent
+        .reply(&steer, json!({"outcome":"injected"}))
+        .await;
+    assert!(
+        matches!(harness.event().await, AgentEvent::SteeringResult { outcome, .. } if outcome == "injected")
+    );
+    harness
+        .agent
+        .reply(&prompt, json!({"stopReason":"end_turn"}))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { .. }
+    ));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn steering_rejection_does_not_finish_or_replay_the_original_prompt() {
+    let mut harness = Harness::start();
+    harness
+        .agent
+        .handshake_with_steering(true, "mock-agent")
+        .await;
+    harness.event().await;
+    harness.open_session("session-1").await;
+    harness.send(json!({"kind":"prompt", "sessionId":"session-1", "text":"Inspect"}));
+    let prompt = harness.agent.expect("session/prompt").await;
+    harness.send(
+        json!({"kind":"steer", "token":"steer-1", "sessionId":"session-1", "text":"Supplement"}),
+    );
+    let steer = harness.agent.expect("_session/steering").await;
+    harness
+        .agent
+        .reply(&steer, json!({"outcome":"failed"}))
+        .await;
+    assert!(
+        matches!(harness.event().await, AgentEvent::SteeringResult { outcome, .. } if outcome == "failed")
+    );
+    harness.send(json!({"kind":"cancel", "sessionId":"session-1"}));
+    harness.agent.expect("session/cancel").await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnCancelling { .. }
+    ));
+    harness
+        .agent
+        .reply(&prompt, json!({"stopReason":"cancelled"}))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { .. }
+    ));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn steering_completion_race_publishes_delivery_before_terminal_event() {
+    let mut harness = Harness::start();
+    harness
+        .agent
+        .handshake_with_steering(true, "mock-agent")
+        .await;
+    harness.event().await;
+    harness.open_session("session-1").await;
+    harness.send(json!({"kind":"prompt", "sessionId":"session-1", "text":"Inspect"}));
+    let prompt = harness.agent.expect("session/prompt").await;
+    harness.send(
+        json!({"kind":"steer", "token":"steer-1", "sessionId":"session-1", "text":"Supplement"}),
+    );
+    let steer = harness.agent.expect("_session/steering").await;
+    harness
+        .agent
+        .reply(&prompt, json!({"stopReason":"end_turn"}))
+        .await;
+    harness
+        .agent
+        .reply(
+            &steer,
+            json!({"outcome":"promptRequired", "reason":"noRunningTurn"}),
+        )
+        .await;
+    assert!(
+        matches!(harness.event().await, AgentEvent::SteeringResult { outcome, .. } if outcome == "promptRequired")
+    );
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { .. }
+    ));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn steering_when_idle_or_unsupported_never_sends_an_extension() {
+    for supported in [false, true] {
+        let mut harness = Harness::start();
+        harness
+            .agent
+            .handshake_with_steering(supported, "mock-agent")
+            .await;
+        harness.event().await;
+        harness.send(json!({"kind":"steer", "token":"steer-1", "sessionId":"session-1", "text":"Supplement"}));
+        assert!(
+            matches!(harness.event().await, AgentEvent::SteeringResult { outcome, .. }
+            if outcome == if supported { "promptRequired" } else { "failed" })
+        );
+        // The next wire request is session creation, not an unowned prompt.
+        harness.open_session("session-2").await;
+        assert_eq!(harness.stop().await, Ok(()));
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn steering_codex_commands_use_owned_prompts_without_a_detached_turn() {
+    let fixture = fixture();
+    let attached_command = &fixture["commands"]["nativeCommandWithFiles"];
+    for (command, files) in [
+        ("/status", json!([])),
+        ("  \n/status", json!([])),
+        ("/compact keep API details", json!([])),
+        (
+            "/status",
+            json!([{"uri":"file:///fixture/README.md", "name":"README.md"}]),
+        ),
+        (
+            attached_command["text"].as_str().unwrap(),
+            attached_command["files"].clone(),
+        ),
+    ] {
+        let mut harness = Harness::start();
+        harness
+            .agent
+            .handshake_with_steering(true, "@agentclientprotocol/codex-acp")
+            .await;
+        harness.event().await;
+        harness.open_session("session-1").await;
+        harness.send(json!({"kind":"prompt", "sessionId":"session-1", "text":"Inspect"}));
+        let original = harness.agent.expect("session/prompt").await;
+
+        // Codex 1.13.1 can answer command-only steering with startedNewTurn
+        // without ever publishing active -> idle. Never send that extension:
+        // leave the command unconsumed until the original prompt completes.
+        harness.send(json!({"kind":"steer", "token":"command", "sessionId":"session-1", "text":command, "files":files}));
+        assert!(matches!(harness.event().await,
+            AgentEvent::SteeringResult { token, outcome, .. }
+                if token == "command" && outcome == "promptRequired"));
+        harness
+            .agent
+            .reply(&original, json!({"stopReason":"end_turn"}))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+
+        harness
+            .send(json!({"kind":"prompt", "sessionId":"session-1", "text":command, "files":files}));
+        // Any unexpected _session/steering would be the next wire message.
+        let prompt = harness.agent.expect("session/prompt").await;
+        let mut expected = vec![json!({"type":"text", "text":command})];
+        for file in files.as_array().unwrap() {
+            expected.push(json!({"type":"resource_link", "uri":file["uri"], "name":file["name"]}));
+        }
+        assert_eq!(prompt["params"]["prompt"], json!(expected));
+        harness
+            .agent
+            .reply(&prompt, json!({"stopReason":"end_turn"}))
+            .await;
+        // There are no native model-turn status events for the command. Its
+        // ACP response alone must unlock the session and keep it connected.
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+        harness
+            .send(json!({"kind":"prompt", "sessionId":"session-1", "text":"Continue inspecting"}));
+        let next = harness.agent.expect("session/prompt").await;
+        harness
+            .agent
+            .reply(&next, json!({"stopReason":"end_turn"}))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+        assert_eq!(harness.stop().await, Ok(()));
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn steering_codex_detached_continuation_waits_for_its_native_idle() {
+    let mut harness = Harness::start();
+    harness
+        .agent
+        .handshake_with_steering(true, "@agentclientprotocol/codex-acp")
+        .await;
+    harness.event().await;
+    harness.open_session("session-1").await;
+    harness.send(json!({"kind":"prompt", "sessionId":"session-1", "text":"Inspect"}));
+    let prompt = harness.agent.expect("session/prompt").await;
+    let status = |kind| {
+        json!({"jsonrpc":"2.0", "method":"session/update", "params":{
+            "sessionId":"session-1", "update":{"sessionUpdate":"session_info_update", "_meta":{"codex":{"threadStatus":{"type":kind}}}}
+        }})
+    };
+    harness.agent.write(status("active")).await;
+    assert!(matches!(harness.event().await, AgentEvent::Update { .. }));
+    harness.send(
+        json!({"kind":"steer", "token":"steer-1", "sessionId":"session-1", "text":"Supplement"}),
+    );
+    let steer = harness.agent.expect("_session/steering").await;
+    harness.agent.write(status("idle")).await;
+    harness.agent.write(status("idle")).await;
+    // A successful continuation must not inherit the original prompt's error.
+    harness
+        .agent
+        .write(json!({"jsonrpc":"2.0", "id":prompt["id"],
+        "error":{"code":-32603, "message":"Original turn failed"}}))
+        .await;
+    harness.agent.write(status("active")).await;
+    harness
+        .agent
+        .reply(&steer, json!({"outcome":"startedNewTurn"}))
+        .await;
+    for _ in 0..3 {
+        assert!(matches!(harness.event().await, AgentEvent::Update { .. }));
+    }
+    assert!(
+        matches!(harness.event().await, AgentEvent::SteeringResult { outcome, .. } if outcome == "injected")
+    );
+    // Stop must still reach the continuation after the original prompt returned.
+    harness.send(json!({"kind":"cancel", "sessionId":"session-1"}));
+    harness.agent.expect("session/cancel").await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnCancelling { .. }
+    ));
+    harness.agent.write(status("idle")).await;
+    assert!(matches!(harness.event().await, AgentEvent::Update { .. }));
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { usage: None, .. }
+    ));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn steering_unconfirmed_delivery_closes_the_connection_without_replay() {
+    let mut harness = Harness::start();
+    harness
+        .agent
+        .handshake_with_steering(true, "mock-agent")
+        .await;
+    harness.event().await;
+    harness.open_session("session-1").await;
+    harness.send(json!({"kind":"prompt", "sessionId":"session-1", "text":"Inspect"}));
+    harness.agent.expect("session/prompt").await;
+    harness.send(
+        json!({"kind":"steer", "token":"steer-1", "sessionId":"session-1", "text":"Supplement"}),
+    );
+    harness.agent.expect("_session/steering").await;
+    tokio::time::advance(SESSION_REQUEST_TIMEOUT + Duration::from_secs(1)).await;
+    let result = tokio::time::timeout(WAIT, &mut harness.connection)
+        .await
+        .expect("unknown delivery terminates within the local bound")
+        .expect("connection task joined");
+    assert!(result
+        .unwrap_err()
+        .contains("did not confirm the supplementary message"));
 }
 
 struct Harness {
@@ -138,6 +439,10 @@ impl Harness {
     }
 
     fn start_with_route(subscription: bool, route: Option<GatewaySignIn>) -> Self {
+        Self::start_in_workspace(subscription, route, std::env::temp_dir())
+    }
+
+    fn start_in_workspace(subscription: bool, route: Option<GatewaySignIn>, cwd: PathBuf) -> Self {
         let (client, peer) = tokio::io::duplex(64 * 1024);
         let (client_reader, client_writer) = tokio::io::split(client);
         let (peer_reader, peer_writer) = tokio::io::split(peer);
@@ -146,7 +451,7 @@ impl Harness {
         let permissions: PendingPermissions = Arc::new(Mutex::new(HashMap::new()));
         let connection = tokio::spawn(run_connection(
             ByteStreams::new(client_writer.compat_write(), client_reader.compat()),
-            std::env::temp_dir(),
+            cwd,
             route,
             subscription.then(|| PathBuf::from("/fixture/codex")),
             receiver,
@@ -251,6 +556,16 @@ fn serialized_events_match_the_shared_fixture() {
                 agent_version: Some("1.0.0".into()),
                 can_load_sessions: true,
                 can_list_sessions: true,
+                can_steer: false,
+            },
+        ),
+        (
+            "steeringResult",
+            AgentEvent::SteeringResult {
+                token: "steer-1".into(),
+                session_id: "session-1".into(),
+                outcome: "injected".into(),
+                message: None,
             },
         ),
         (
@@ -2772,19 +3087,23 @@ async fn selected_files_reach_the_agent_as_acp_resource_links() {
             .expect("prompt content");
         let files = fixture["commands"][name]["files"].as_array().unwrap();
         let offset = usize::from(name == "promptWithFiles");
-        assert_eq!(content.len(), files.len() + offset);
+        assert_eq!(content.len(), files.len() + offset + 1);
         if offset == 1 {
             assert_eq!(
                 content[0],
                 json!({ "type": "text", "text": "Explain these files" })
             );
         }
-        for (actual, file) in content[offset..].iter().zip(files) {
+        for (actual, file) in content[offset..offset + files.len()].iter().zip(files) {
             assert_eq!(
                 actual,
                 &json!({ "type": "resource_link", "uri": file["uri"], "name": file["name"] })
             );
         }
+        assert!(content.last().unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .contains("openedWorkspaceRoot"));
         harness
             .agent
             .reply(&request, json!({ "stopReason": "end_turn" }))
@@ -2824,8 +3143,8 @@ async fn invalid_file_reference_does_not_reserve_or_finish_a_turn() {
     harness.send(fixture()["commands"]["prompt"].clone());
     let request = harness.agent.expect("session/prompt").await;
     assert_eq!(
-        request["params"]["prompt"],
-        json!([{ "type": "text", "text": "Explain this project" }])
+        request["params"]["prompt"][0],
+        json!({ "type": "text", "text": "Explain this project" })
     );
     harness
         .agent
@@ -2836,6 +3155,239 @@ async fn invalid_file_reference_does_not_reserve_or_finish_a_turn() {
         AgentEvent::TurnFinished { .. }
     ));
     harness.stop().await.expect("owned connection stopped");
+}
+
+// The opened nested project remains the scope of new, steered and restored
+// turns. Test the actual ACP wire and replay, including text-only adapters.
+#[tokio::test(flavor = "current_thread")]
+async fn nested_workspace_scope_survives_new_restore_steering_and_replay() {
+    let fixture = fixture()["workspaceContext"].clone();
+    for relative_root in fixture["relativeRoots"].as_array().unwrap() {
+        let cwd = std::env::temp_dir().join(relative_root.as_str().unwrap());
+        let mut harness = Harness::start_in_workspace(false, gateway(), cwd.clone());
+        harness
+            .agent
+            .handshake_with_steering(true, "text-only-agent")
+            .await;
+        assert!(matches!(harness.event().await, AgentEvent::Ready { .. }));
+        harness.send(json!({ "kind": "newSession", "token": "new" }));
+        let new = harness.agent.expect("session/new").await;
+        assert_eq!(new["params"]["cwd"], cwd.to_str().unwrap());
+        harness
+            .agent
+            .reply(&new, json!({ "sessionId": "nested" }))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::SessionCreated { .. }
+        ));
+
+        let question = fixture["question"].as_str().unwrap();
+        harness.send(json!({ "kind": "prompt", "sessionId": "nested", "text": question }));
+        let prompt = harness.agent.expect("session/prompt").await;
+        let content = prompt["params"]["prompt"].as_array().unwrap();
+        assert_eq!(content[0], json!({ "type": "text", "text": question }));
+        let context = content.last().unwrap().clone();
+        let context_text = context["text"].as_str().unwrap();
+        let metadata: Value = serde_json::from_str(context_text.lines().nth(2).unwrap()).unwrap();
+        assert_eq!(metadata["openedWorkspaceRoot"], cwd.to_str().unwrap());
+
+        harness.send(json!({ "kind": "steer", "token": "supplement", "sessionId": "nested", "text": fixture["supplement"] }));
+        let steer = harness.agent.expect("_session/steering").await;
+        assert_eq!(
+            steer["params"]["prompt"].as_array().unwrap().last(),
+            Some(&context)
+        );
+        harness
+            .agent
+            .reply(&steer, json!({ "outcome": "injected" }))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::SteeringResult { .. }
+        ));
+        harness
+            .agent
+            .reply(&prompt, json!({ "stopReason": "end_turn" }))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+
+        harness.send(json!({ "kind": "loadSession", "token": "restore", "sessionId": "nested" }));
+        let load = harness.agent.expect("session/load").await;
+        assert_eq!(load["params"]["cwd"], new["params"]["cwd"]);
+        let echo = |text: &str| {
+            json!({ "jsonrpc": "2.0", "method": "session/update", "params": {
+                "sessionId": "nested", "update": { "sessionUpdate": "user_message_chunk",
+                    "content": { "type": "text", "text": text } }
+            }})
+        };
+        harness.agent.write(echo(context_text)).await;
+        harness
+            .agent
+            .write(echo(&format!("{question}\n\n{context_text}")))
+            .await;
+        match harness.event().await {
+            AgentEvent::Update { update, .. } => assert_eq!(update["content"]["text"], question),
+            other => panic!("expected original user message, got {other:?}"),
+        }
+        harness.agent.reply(&load, json!({})).await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::SessionLoaded { .. }
+        ));
+        harness.send(json!({ "kind": "prompt", "sessionId": "nested", "text": "Continue explaining this project" }));
+        let resumed = harness.agent.expect("session/prompt").await;
+        assert_eq!(
+            resumed["params"]["prompt"].as_array().unwrap().last(),
+            Some(&context)
+        );
+        harness
+            .agent
+            .reply(&resumed, json!({ "stopReason": "end_turn" }))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+        let title = format!(
+            "{question}\n\n{}",
+            context_text.chars().take(300).collect::<String>()
+        );
+        harness.agent.write(json!({ "jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": "nested", "update": { "sessionUpdate": "session_info_update", "title": title }
+        }})).await;
+        match harness.event().await {
+            AgentEvent::Update { update, .. } => assert_eq!(update["title"], question),
+            other => panic!("expected clean live title, got {other:?}"),
+        }
+        harness.send(json!({ "kind": "listSessions", "token": "history" }));
+        let list = harness.agent.expect("session/list").await;
+        harness
+            .agent
+            .reply(
+                &list,
+                json!({ "sessions": [{ "sessionId": "nested", "cwd": cwd, "title": title }] }),
+            )
+            .await;
+        match harness.event().await {
+            AgentEvent::Sessions { sessions, .. } => {
+                assert_eq!(sessions[0].title.as_deref(), Some(question))
+            }
+            other => panic!("expected clean history title, got {other:?}"),
+        }
+        assert_eq!(harness.stop().await, Ok(()));
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn native_slash_command_reaches_acp_without_extra_context_or_arguments() {
+    let mut harness = Harness::ready().await;
+    harness.open_session("commands").await;
+    for text in [
+        "/usage",
+        "/compact preserve project structure",
+        "/model example-model",
+    ] {
+        harness.send(json!({ "kind": "prompt", "sessionId": "commands", "text": text }));
+        let prompt = harness.agent.expect("session/prompt").await;
+        assert_eq!(
+            prompt["params"]["prompt"],
+            json!([{ "type": "text", "text": text }])
+        );
+        harness
+            .agent
+            .reply(&prompt, json!({ "stopReason": "end_turn" }))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+    }
+    let mut command = fixture()["commands"]["nativeCommandWithFiles"].clone();
+    command["sessionId"] = json!("commands");
+    harness.send(command);
+    let prompt = harness.agent.expect("session/prompt").await;
+    assert_eq!(
+        prompt["params"]["prompt"],
+        fixture()["workspaceContext"]["nativeCommandWithFilesContent"]
+    );
+    harness
+        .agent
+        .reply(&prompt, json!({"stopReason":"end_turn"}))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { .. }
+    ));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn context_only_titles_are_missing_in_live_updates_and_history() {
+    let mut harness = Harness::ready().await;
+    harness.open_session("file-only").await;
+    let mut command = fixture()["commands"]["fileOnlyPrompt"].clone();
+    command["sessionId"] = json!("file-only");
+    harness.send(command);
+    let prompt = harness.agent.expect("session/prompt").await;
+    let content = prompt["params"]["prompt"].as_array().unwrap();
+    assert_eq!(content[0]["type"], "resource_link");
+    let context = content.last().unwrap()["text"].as_str().unwrap();
+    let titles = [
+        context.to_owned(),
+        context.chars().take(300).collect(),
+        context
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(300)
+            .collect(),
+        " \n\t ".into(),
+    ];
+    harness
+        .agent
+        .reply(&prompt, json!({"stopReason":"end_turn"}))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { .. }
+    ));
+
+    let expected = fixture()["events"]["sessionsWithoutGeneratedTitles"].clone();
+    let sessions: Vec<_> = expected["sessions"].as_array().unwrap().iter().zip(&titles)
+        .map(|(session, title)| json!({"sessionId":session["sessionId"], "cwd":std::env::temp_dir(), "title":title}))
+        .collect();
+    harness.send(json!({"kind":"listSessions", "token":"untitled-history"}));
+    let list = harness.agent.expect("session/list").await;
+    harness
+        .agent
+        .reply(&list, json!({"sessions":sessions}))
+        .await;
+    assert_eq!(
+        serde_json::to_value(harness.event().await).unwrap(),
+        expected
+    );
+
+    for title in titles {
+        harness.agent.write(json!({"jsonrpc":"2.0", "method":"session/update", "params":{
+            "sessionId":"file-only", "update":{"sessionUpdate":"session_info_update", "title":title, "_meta":{"preserved":true}}
+        }})).await;
+        match harness.event().await {
+            AgentEvent::Update { update, .. } => {
+                assert!(
+                    update["title"].is_null(),
+                    "A removed title must not hide UI fallbacks"
+                );
+                assert_eq!(update["_meta"]["preserved"], true);
+            }
+            other => panic!("expected missing live title, got {other:?}"),
+        }
+    }
+    assert_eq!(harness.stop().await, Ok(()));
 }
 
 /// The adapter owns login and reports identity before any session can start.
@@ -2968,6 +3520,7 @@ fn model_calls_are_attributed_only_to_a_sole_running_prompt() {
         generation: 1,
         cancelling,
         retry: tokio::sync::watch::channel(prompt_retry::State::new(false)).0,
+        steering: Arc::new(steering::Turn::default()),
     };
     assert_eq!(sole_running_session(&turns), None);
     turns
