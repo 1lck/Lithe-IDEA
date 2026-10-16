@@ -214,10 +214,14 @@ struct AgentActivityPresentationTests {
     }
 
     private func openPanel(_ panel: AgentActivitySummaryBar.Panel, in host: NSView, window: NSWindow) async throws {
-        for popup in window.childWindows ?? [] where popup.isVisible {
+        for popup in window.childWindows ?? [] where popup is NSPanel && popup.isVisible {
             try closePopup(popup)
         }
-        host.layoutSubtreeIfNeeded()
+        try #require(await waitUntil(updating: host) {
+            guard let trigger = anchor(in: host) else { return false }
+            return window.childWindows?.contains { $0 is NSPanel && $0.isVisible } != true
+                && trigger.window === window && !trigger.bounds.isEmpty
+        }, "The previous panel must dismiss and the activity trigger must finish layout before clicking")
         let trigger = try #require(anchor(in: host))
         let rect = trigger.convert(trigger.bounds, to: host)
         let point = NSPoint(x: rect.midX, y: host.isFlipped ? rect.midY : host.bounds.height - rect.midY)
