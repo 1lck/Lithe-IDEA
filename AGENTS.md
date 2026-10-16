@@ -48,6 +48,7 @@
 2. 开发的时候如果涉及到 github 相关的操作麻烦使用 gh CLI 来进行操作而不是使用 Compute rUse 的 Skill。由于沙盒影响可能导致需要反复的 gh 授权，每次需要授权的时候麻烦先申请更高的权限去主环境中查看对应是否有 gh 的Token，如果有就直接复用，这个时候找不到才要求登录 gh
 3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么
 4. 如果让你修复有关 CI 的流程，记得使用 gh 或者 curl 之类的去查看(优先 gh)而不是使用 Computer Use
+5. 提交 PR 时默认创建 Draft PR（`gh pr create --draft`）。Draft PR 只运行 Linux 检查，不占用 macOS 和 Windows runner。开发完成、本地验证通过、可以评审时，再用 `gh pr ready` 标记为 ready，这时才会运行完整 CI。标记为 ready 之后，把修改攒在一起再 push：每次 push 都会重新运行完整 CI，并取消上一轮还没跑完的 CI。仓库曾因 Actions 用量过高被 GitHub 判定为滥用，所以不要为了看 CI 结果而反复 push；能在本地验证的先在本地验证。
 
 ## 工作树资源复用与文档维护
 
