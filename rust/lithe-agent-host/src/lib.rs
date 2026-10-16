@@ -36,11 +36,11 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock,
-    InitializeRequest, ListSessionsRequest, LoadSessionRequest, PromptRequest,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionConfigOption, SessionNotification,
-    SetSessionConfigOptionRequest,
+    AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities,
+    ClientSessionCapabilities, ContentBlock, InitializeRequest, ListSessionsRequest,
+    LoadSessionRequest, NoticeCapabilities, PromptRequest, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
+    SessionConfigOption, SessionNotification, SetSessionConfigOptionRequest,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
@@ -60,6 +60,11 @@ const CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_CALL_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 /// Upper bound on `session/list` pages so a misbehaving cursor cannot loop forever.
 const MAX_SESSION_LIST_PAGES: usize = 50;
+/// Windows flag that runs the adapter with a console it cannot display. The
+/// desktop shell is a GUI process without a console, so a console-subsystem
+/// adapter would otherwise open a visible console window on every launch.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Bytes of agent stderr kept for failure reports; older output is discarded.
 const STDERR_TAIL_BYTES: usize = 16 * 1024;
 const STDERR_TAIL_LINES: usize = 20;
@@ -919,6 +924,10 @@ async fn run_agent(
         command.process_group(0);
     }
     let mut command = tokio::process::Command::from(command);
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1207,6 +1216,8 @@ where
             let typed_failures = claude_api_key || gateway.as_ref().is_some_and(|route| route.native_recovery);
             let air_capabilities = if typed_failures { vec!["recommendedValue", "sessionFailure"] } else { vec!["recommendedValue"] };
             let capabilities = ClientCapabilities::new()
+                // Keep upstream advisories out of assistant transcript chunks.
+                .session(ClientSessionCapabilities::new().notices(NoticeCapabilities::new()))
                 .auth(AuthCapabilities::new().meta(serde_json::Map::from_iter([(
                     GATEWAY_AUTH_METHOD.to_owned(),
                     serde_json::Value::Bool(true),

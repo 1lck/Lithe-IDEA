@@ -532,7 +532,25 @@ async fn native_subscription_websocket_reports_two_turns_without_counting_prewar
         input.write_all(b"{\"method\":\"initialized\"}\n").await.unwrap();
         // Unsigned fake JWT with an example.test email; accepted only by this
         // isolated native external-token mode and our loopback fixture.
-        rpc(&mut input, &mut reader, 2, "account/login/start", json!({"type":"chatgptAuthTokens", "accessToken":FIXTURE_TOKEN, "chatgptAccountId":"fixture-account","chatgptPlanType":"plus"})).await;
+        input.write_all(format!("{}\n", json!({"id":2,"method":"account/login/start","params":{
+            "type":"chatgptAuthTokens", "accessToken":FIXTURE_TOKEN, "chatgptAccountId":"fixture-account","chatgptPlanType":"plus"
+        }})).as_bytes()).await.unwrap();
+        // Native login responds before its completion/account notifications.
+        // Query routing only after all three have arrived: discovery started
+        // before an account change must now be revoked by the relay.
+        let (mut replied, mut completed, mut updated) = (false, false, false);
+        while !(replied && completed && updated) {
+            let message = read(&mut input, &mut reader).await;
+            if message["id"] == 2 {
+                assert!(message.get("error").is_none(), "Native login: {message}");
+                replied = true;
+            }
+            if message["method"] == "account/login/completed" {
+                assert_eq!(message["params"]["success"], true);
+                completed = true;
+            }
+            if message["method"] == "account/updated" { updated = true; }
+        }
         let account = rpc(&mut input, &mut reader, 10, "account/read", json!({"refreshToken":false})).await;
         assert_eq!(account["workspaceRouting"]["accountRoutingOverride"], "NO_CONSTRAINT");
         let thread = rpc(&mut input, &mut reader, 3, "thread/start", json!({"model":"gpt-5.4","cwd":native.directory.join("workspace"),"approvalPolicy":"never","sandbox":"read-only","ephemeral":true,

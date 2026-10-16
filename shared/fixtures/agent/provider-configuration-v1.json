@@ -4,12 +4,144 @@
     {
       "source": "codex",
       "configuration": "model = 'unused'\nprofile = 'work'\n[profiles.work]\nmodel = 'fixture-model'\nmodel_provider = 'gateway'\n[model_providers.gateway]\nbase_url = 'https://example.test/v1'\nwire_api = 'responses'\nrequires_openai_auth = true\n",
-      "expected": {"endpoint": "https://example.test/v1", "model": "fixture-model", "apiProtocol": "responses"}
+      "expected": {
+        "endpoint": "https://example.test/v1",
+        "model": "fixture-model",
+        "apiProtocol": "responses"
+      }
     },
     {
       "source": "claude",
       "configuration": "{\"env\":{\"ANTHROPIC_BASE_URL\":\"https://example.test/v1\",\"ANTHROPIC_MODEL\":\"sonnet\",\"ANTHROPIC_DEFAULT_SONNET_MODEL\":\"fixture-model\",\"ANTHROPIC_API_KEY\":\"fixture-secret\"}}",
-      "expected": {"endpoint": "https://example.test/v1", "model": "fixture-model", "apiProtocol": "anthropicMessages"}
+      "expected": {
+        "endpoint": "https://example.test/v1",
+        "model": "fixture-model",
+        "apiProtocol": "anthropicMessages"
+      }
+    }
+  ],
+  "draftCases": [
+    {
+      "id": "codex-empty",
+      "source": "codex",
+      "configuration": "",
+      "expected": {
+        "endpoint": "",
+        "model": "",
+        "apiProtocol": "responses",
+        "authentication": "bearer"
+      }
+    },
+    {
+      "id": "codex-model-only",
+      "source": "codex",
+      "configuration": "model = 'draft-model'",
+      "expected": {
+        "endpoint": "",
+        "model": "draft-model",
+        "apiProtocol": "responses",
+        "authentication": "bearer"
+      }
+    },
+    {
+      "id": "codex-endpoint-only",
+      "source": "codex",
+      "configuration": "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://example.test/v1'",
+      "expected": {
+        "endpoint": "https://example.test/v1",
+        "model": "",
+        "apiProtocol": "responses",
+        "authentication": "bearer"
+      }
+    },
+    {
+      "id": "claude-blank",
+      "source": "claude",
+      "configuration": "",
+      "expected": {
+        "endpoint": "",
+        "model": "",
+        "apiProtocol": "anthropicMessages",
+        "authentication": "apiKey"
+      }
+    },
+    {
+      "id": "claude-empty",
+      "source": "claude",
+      "configuration": "{}",
+      "expected": {
+        "endpoint": "",
+        "model": "",
+        "apiProtocol": "anthropicMessages",
+        "authentication": "apiKey"
+      }
+    },
+    {
+      "id": "claude-empty-template",
+      "source": "claude",
+      "configuration": "{\"env\":{\"ANTHROPIC_BASE_URL\":\"\",\"ANTHROPIC_MODEL\":\"\",\"ANTHROPIC_API_KEY\":\"\"}}",
+      "expected": {
+        "endpoint": "",
+        "model": "",
+        "apiProtocol": "anthropicMessages",
+        "authentication": "apiKey"
+      }
+    },
+    {
+      "id": "claude-model-only",
+      "source": "claude",
+      "configuration": "{\"env\":{\"ANTHROPIC_MODEL\":\"draft-model\"}}",
+      "expected": {
+        "endpoint": "",
+        "model": "draft-model",
+        "apiProtocol": "anthropicMessages",
+        "authentication": "apiKey"
+      }
+    },
+    {
+      "id": "claude-key-only",
+      "source": "claude",
+      "configuration": "{\"env\":{\"ANTHROPIC_API_KEY\":\"fixture-secret\"}}",
+      "expected": {
+        "endpoint": "",
+        "model": "",
+        "apiProtocol": "anthropicMessages",
+        "authentication": "apiKey"
+      },
+      "expectedAPIKey": "fixture-secret"
+    },
+    {
+      "id": "claude-alias",
+      "source": "claude",
+      "configuration": "{\"env\":{\"ANTHROPIC_MODEL\":\"sonnet\",\"ANTHROPIC_DEFAULT_SONNET_MODEL\":\"alias-model\"}}",
+      "expected": {
+        "endpoint": "",
+        "model": "alias-model",
+        "apiProtocol": "anthropicMessages",
+        "authentication": "apiKey"
+      }
+    },
+    {
+      "id": "codex-whitespace",
+      "source": "codex",
+      "configuration": " \n\t ",
+      "expected": {
+        "endpoint": "",
+        "model": "",
+        "apiProtocol": "responses",
+        "authentication": "bearer"
+      }
+    },
+    {
+      "id": "claude-whitespace",
+      "source": "claude",
+      "configuration": " \n\t ",
+      "expected": {
+        "endpoint": "",
+        "model": "",
+        "apiProtocol": "anthropicMessages",
+        "authentication": "apiKey"
+      }
     }
   ]
 }

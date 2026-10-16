@@ -3,11 +3,18 @@ import LitheCoreContracts
 
 /// Parses an explicit editor draft. No filesystem discovery or environment fallback.
 protocol AgentProviderConfigurationParsing: Sendable {
-    func parse(source: AIConfigurationSourceKind, configuration: String, authentication: String) throws -> AIConfigurationSnapshot
+    func parse(source: AIConfigurationSourceKind, configuration: String, authentication: String, allowIncomplete: Bool) throws -> AIConfigurationSnapshot
+}
+
+extension AgentProviderConfigurationParsing {
+    /// Saving requires a complete provider; switching presentation can read incomplete input.
+    func parse(source: AIConfigurationSourceKind, configuration: String, authentication: String) throws -> AIConfigurationSnapshot {
+        try parse(source: source, configuration: configuration, authentication: authentication, allowIncomplete: false)
+    }
 }
 
 enum AgentProviderConfigurationError: LocalizedError, Equatable {
-    case invalidConfiguration, invalidConfigurationQuotes, invalidAuthentication, missingAPIKey, invalidName, invalidEndpoint, insecureHTTP, unsupportedProtocol, busy, unavailable
+    case invalidConfiguration, invalidConfigurationQuotes, invalidAuthentication, missingAPIKey, missingModel, invalidName, invalidEndpoint, insecureHTTP, unsupportedProtocol, busy, unavailable
 
     var errorDescription: String? {
         switch self {
@@ -15,6 +22,7 @@ enum AgentProviderConfigurationError: LocalizedError, Equatable {
         case .invalidConfigurationQuotes: String(localized: "Invalid TOML. Use straight quotes (\") instead of smart quotes (“ ”).")
         case .invalidAuthentication: String(localized: "Authentication must be a JSON object containing an OPENAI_API_KEY string.")
         case .missingAPIKey: String(localized: "Enter an API key. CLI login credentials cannot be used as an API key.")
+        case .missingModel: String(localized: "Enter a model ID supported by your provider.")
         case .invalidName: String(localized: "Enter a provider name.")
         case .invalidEndpoint: String(localized: "Enter an HTTP or HTTPS API URL without credentials, query parameters or fragments.")
         case .insecureHTTP: String(localized: "HTTP is blocked until you explicitly allow it for this provider.")
@@ -26,7 +34,7 @@ enum AgentProviderConfigurationError: LocalizedError, Equatable {
 }
 
 struct UnavailableAgentProviderConfigurationParser: AgentProviderConfigurationParsing {
-    func parse(source: AIConfigurationSourceKind, configuration: String, authentication: String) throws -> AIConfigurationSnapshot {
+    func parse(source: AIConfigurationSourceKind, configuration: String, authentication: String, allowIncomplete: Bool) throws -> AIConfigurationSnapshot {
         throw AgentProviderConfigurationError.unavailable
     }
 }

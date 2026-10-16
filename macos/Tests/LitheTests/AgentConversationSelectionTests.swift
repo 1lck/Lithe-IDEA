@@ -9,6 +9,93 @@ import LitheCoreContracts
 @Suite(.serialized)
 struct AgentConversationSelectionTests {
     @Test(arguments: [ColorScheme.dark, .light], [280.0, 480.0])
+    func nativeModelFallbackAndPermissionPriorityRemainVisible(scheme: ColorScheme, width: Double) async throws {
+        MacBundledFontRegistry.registerFonts()
+        let transport = SelectionTransport()
+        let panel = AgentConversationFeatureModel(transport: transport)
+        panel.setAgents([.init(id: "claude-acp", name: "Claude")])
+        do {
+            let feature = try prepare(panel, transport: transport, agentID: "claude-acp", model: "Model A")
+            let native = try #require(transport.connections.last)
+            var catalog: [[String: Any]] = [
+                ["id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "default",
+                 "options": [["value": "default", "name": "Model A"], ["value": "alternate", "name": "Model B"]]],
+                ["id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "auto",
+                 "options": [["value": "auto", "name": "Auto"], ["value": "acceptEdits", "name": "Accept edits"], ["value": "plan", "name": "Plan"]]]
+            ]
+            func update(_ value: [String: Any]) throws {
+                feature.receive(try json(["kind": "update", "sessionId": "claude-acp", "update": value]))
+            }
+            try update(["sessionUpdate": "config_option_update", "configOptions": catalog])
+            try feature.send("Switch to Model B and check the project.")
+            let host = NSHostingView(rootView: AgentConfiguredConversationView(
+                feature: panel, setupError: nil, onSelectAgent: panel.selectAgent,
+                onConnect: {}, onOpenSettings: {}, onHide: {}, onCopySessionID: { _ in }, onOpenFile: { _ in })
+                .frame(width: width, height: 640).background(AgentPanelStyle.canvas)
+                .environment(\.colorScheme, scheme).environment(\.locale, Locale(identifier: "en_US")))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 640),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            func capture(_ stage: String) async throws {
+                // Give the published model change its native render transaction.
+                await withCheckedContinuation { gate in
+                    DispatchQueue.main.async {
+                        host.needsLayout = true
+                        host.layoutSubtreeIfNeeded()
+                        host.displayIfNeeded()
+                        CATransaction.flush()
+                        gate.resume()
+                    }
+                }
+                #expect(host.fittingSize.width <= width)
+                guard let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_NOTICE_REVIEW_SCREENSHOTS"] else { return }
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                try #require(bitmap.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: folder)
+                        .appendingPathComponent("notice-\(scheme == .dark ? "dark" : "light")-\(Int(width))-\(stage).png"))
+            }
+            try await capture("model-a")
+            let commandCount = native.commands.count
+            #expect(feature.selectedConversation?.pendingConfigToken == nil)
+            try update(["sessionUpdate": "current_mode_update", "currentModeId": "acceptEdits"])
+            let warning: [String: Any] = ["sessionUpdate": "notice", "severity": "warning", "title": "Auto mode unavailable",
+                "description": "The selected model does not support Auto mode; using Accept edits instead."]
+            try update(warning)
+            let notice = try #require(feature.selectedConversation?.notice)
+            catalog[0]["currentValue"] = "alternate"
+            catalog[1]["currentValue"] = "acceptEdits"
+            try update(["sessionUpdate": "config_option_update", "configOptions": catalog])
+            try await capture("model-b")
+            #expect(feature.selectedConversation?.notice == notice)
+            #expect(native.commands.count == commandCount)
+            // A permission is presented ahead of the still-valid warning, then
+            // answering it reveals the warning again without changing the turn.
+            try update(warning)
+            feature.receive(try json(["kind": "permission", "sessionId": "claude-acp", "requestId": "notice-permission",
+                "request": ["toolCall": ["toolCallId": "edit", "title": "Edit example.swift", "kind": "edit"],
+                            "options": [["optionId": "allow_once", "name": "Allow once", "kind": "allow_once"],
+                                        ["optionId": "reject_once", "name": "Reject", "kind": "reject_once"]]]]))
+            try await capture("permission")
+            #expect(feature.selectedConversation?.permission?.id == "notice-permission")
+            #expect(feature.selectedConversation?.notice != nil)
+            feature.answerPermission(optionID: "allow_once")
+            try await capture("answered")
+            #expect(feature.selectedConversation?.permission == nil)
+            #expect(feature.selectedConversation?.notice != nil)
+            try update(["sessionUpdate": "current_mode_update", "currentModeId": "plan"])
+            feature.receive(try json(["kind": "turnFinished", "sessionId": "claude-acp", "stopReason": "end_turn"]))
+            try await capture("plan")
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.configOptions[1].currentValue == "plan")
+        } catch { await panel.stop(); throw error }
+        await panel.stop()
+        #expect(transport.connections.allSatisfy { $0.closeCount == 1 })
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light], [280.0, 480.0])
     func supplementarySendAndStopRemainIndependentInNarrowAndWidePanels(scheme: ColorScheme, width: Double) async throws {
         let transport = SelectionTransport()
         let panel = AgentConversationFeatureModel(transport: transport)

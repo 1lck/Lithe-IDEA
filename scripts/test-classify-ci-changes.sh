@@ -87,6 +87,7 @@ classification() {
     local git_validation="${11:-false}"
     local java_jdt="${12:-false}"
     local ci_scope="${13:-pull_request}"
+    local swift_hosted="${14:-false}"
 
     printf 'swift=%s\n' "$swift"
     printf 'plugins=%s\n' "$plugins"
@@ -100,6 +101,7 @@ classification() {
     printf 'rust_comments=%s\n' "$rust_comments"
     printf 'metadata=%s\n' "$metadata"
     printf 'git_validation=%s\n' "$git_validation"
+    printf 'swift_hosted=%s\n' "$swift_hosted"
     printf 'ci_scope=%s\n' "$ci_scope"
 }
 
@@ -193,6 +195,14 @@ modify_java_jdt() { printf '%s\n' 'pub fn normalize() { let _ = 1; }' > rust/lit
 modify_swift_and_database() {
     modify_swift_source
     modify_database_swift
+}
+modify_desktop_isolation_test() {
+    mkdir -p macos/Tests/LitheTestDesktopIsolationTests
+    printf '%s\n' 'struct DesktopIsolationTests {}' > macos/Tests/LitheTestDesktopIsolationTests/DesktopIsolationTests.swift
+}
+modify_desktop_isolation_runtime() {
+    mkdir -p macos/Tests/LitheTestDesktopIsolation
+    printf '%s\n' 'struct Isolation {}' > macos/Tests/LitheTestDesktopIsolation/Isolation.swift
 }
 rename_rust_to_markdown() {
     mkdir -p docs
@@ -372,6 +382,15 @@ LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-keeps-linux-lanes \
     modify_rust_comment
 # A rename classifies both endpoints instead of selecting every lane: the old
 # Rust source still selects Rust Core, packaging, and Windows Rust.
+assert_classification desktop-isolation-test-runs-on-hosted \
+    "$(classification true false false false false false false false false false false false pull_request true)" \
+    modify_desktop_isolation_test
+assert_classification desktop-isolation-runtime-runs-on-hosted \
+    "$(classification true false false false false false false false false false false false pull_request true)" \
+    modify_desktop_isolation_runtime
+assert_classification ordinary-swift-test-may-use-mac-mini \
+    "$(classification true false false false false false false false false false)" \
+    modify_swift_test
 LITHE_CI_SCOPE=post_merge assert_classification post-merge-builds-only-the-package \
     "$(classification false false false false false true false false false false false false post_merge)" \
     modify_swift_source

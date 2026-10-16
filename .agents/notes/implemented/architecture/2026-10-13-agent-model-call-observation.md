@@ -26,7 +26,7 @@ Issue #22 要求像 Claude 客户端那样展示上下文构成（系统提示�
 - `rust/lithe-agent-host/src/model_proxy.rs`：在 `run_agent` 里、启动 Agent 进程之前，只绑定 `127.0.0.1` 的随机端口；路径前缀带每次启动随机生成的令牌，不带令牌的请求返回 404，避免本机其他进程把它当成开放转发。
 - 只替换 `GatewaySignIn.base_url`，因此 Claude（会话选项里的 `ANTHROPIC_BASE_URL`）、Codex 网关登录和自定义 Agent 都走同一条路径；API Key 仍由 Agent 自己放在请求头里，代理只透传，不保存、不记录、不出现在事件里。
 - 代理启动失败时保持原地址，Agent 正常启动；统计是可选能力，不能成为连接失败的新原因。
-- Codex 订阅模式只在进程级 `CODEX_CONFIG.openai_base_url` 中配置代理推理地址，仍使用原生 OpenAI provider。路径保留 `/backend-api/codex` 后缀，避免破坏原生模型发现和后台能力判断；登录、续期、额度查询及用户的配置文件保持原路由。既有原生中继先检查 account/read 的官方工作区发现结果：只有 https://chatgpt.com 且 NO_CONSTRAINT 才允许观察；地区路由、其他后台、旧版不提供证明或读取失败都清空本机覆盖并保持原生直连。账户变更会关闭已观察的连接，避免旧会话绕过新路由约束。
+- Codex 订阅模式只在进程级 `CODEX_CONFIG.openai_base_url` 中配置代理推理地址，仍使用原生 OpenAI provider。路径保留 `/backend-api/codex` 后缀，避免破坏原生模型发现和后台能力判断；登录、续期、额度查询及用户的配置文件保持原路由。既有原生中继先检查 account/read 的官方工作区发现结果：只有 https://chatgpt.com 且 NO_CONSTRAINT 才允许观察；地区路由、其他后台、旧版不提供证明或读取失败都清空本机覆盖并保持原生直连。账户或登录状态变更通知立即清除已确认路由和未完成查询，旧响应即使邮箱相同也不能重新授权观察；只有通知后的新查询能确认新工作区。已有观察连接同时关闭，避免旧会话绕过新路由约束。
 - 不写任何文件，不碰安装目录，满足运行时只读边界。
 
 ### 2. 转发保持透明，观察是旁路

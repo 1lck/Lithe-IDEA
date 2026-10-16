@@ -58,6 +58,9 @@ function observeAccount(message) {
   if (!observationBase) return;
   if (message.method === 'account/updated' || message.method === 'account/login/completed') {
     unrestrictedAccount = false;
+    // Discovery begun before an identity/workspace change cannot authorize
+    // the new route, even when the native account keeps the same email.
+    pendingAccounts.clear();
     if (observedThread) native.kill();
   }
   if (!pendingAccounts.has(message.id)) return;

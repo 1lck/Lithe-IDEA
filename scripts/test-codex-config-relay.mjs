@@ -233,3 +233,36 @@ test('stale or failed account reads cannot enable subscription observation', { t
     assert.equal(r.input.at(-1).params.config.openai_base_url, '');
   }
 });
+
+for (const platform of ['darwin', 'win32']) {
+  for (const notification of ['account/updated', 'account/login/completed']) {
+    test(`account changes invalidate pending route discovery on ${platform}: ${notification}`, { timeout: 1000 }, t => {
+      const base = 'http://127.0.0.1:1234/lithe-fixture/backend-api/codex';
+      const r = relay(t, platform, null, false, base);
+      const account = id => ({ ...structuredClone(upstreamFixture.codexSubscriptionObservation.accountRead), id });
+      const thread = method => ({ id: method, method, params: { config: { openai_base_url: base } } });
+      r.write({ id: 1, method: 'account/read' });
+      const changed = { method: notification, params: { email: 'person@example.test' } };
+      r.notify(changed);
+      assert.deepEqual(r.output.at(-1), changed, 'Native account notifications remain unchanged');
+      // The email can stay the same when the workspace changes. Only a fresh
+      // routing query may authorize the new workspace, never this late reply.
+      r.notify(account(1));
+      assert.deepEqual(r.output.at(-1), account(1));
+      for (const method of ['thread/start', 'thread/resume', 'thread/fork']) {
+        r.write(thread(method));
+        assert.equal(r.input.at(-1).params.config.openai_base_url, '', 'The previous account cannot authorize observation');
+      }
+      assert.deepEqual(r.child.signals, [], 'Unobserved native sessions remain connected');
+      r.write({ id: 2, method: 'account/read' });
+      r.notify(account(2));
+      for (const method of ['thread/start', 'thread/resume', 'thread/fork']) {
+        const request = thread(method);
+        r.write(request);
+        assert.deepEqual(r.input.at(-1), request, 'Fresh native discovery can authorize observation');
+      }
+      r.notify(changed);
+      assert.equal(r.child.signals.length, 1, 'The existing observed connection still closes on an account change');
+    });
+  }
+}

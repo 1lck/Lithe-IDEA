@@ -1690,3 +1690,17 @@
 "Used %@" = "Used %@";
 "5 hours" = "5 hours";
 "7 days" = "7 days";
+
+// Agent provider form
+"Use form" = "Use form";
+"Edit configuration text" = "Edit configuration text";
+"API request URL" = "API request URL";
+"Enter API key" = "Enter API key";
+"Enter model ID" = "Enter model ID";
+"Show API key" = "Show API key";
+"Hide API key" = "Hide API key";
+"Base URL for a service compatible with the OpenAI Responses API." = "Base URL for a service compatible with the OpenAI Responses API.";
+"Base URL for an Anthropic Messages API service." = "Base URL for an Anthropic Messages API service.";
+"Use a model ID supported by your provider." = "Use a model ID supported by your provider.";
+"Enter a model ID supported by your provider." = "Enter a model ID supported by your provider.";
+"The API key is stored separately from settings. Your local CLI configuration is not changed." = "The API key is stored separately from settings. Your local CLI configuration is not changed.";
