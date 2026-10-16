@@ -318,6 +318,19 @@ modify_macos_toolchain_action() {
     mkdir -p .github/actions/setup-macos-toolchain
     printf '%s\n' 'name: Toolchain fixture' > .github/actions/setup-macos-toolchain/action.yml
 }
+modify_shared_macos_runner_action() {
+    mkdir -p .github/actions/prepare-macos-ci-runner
+    printf '%s\n' 'name: Runner fixture' > .github/actions/prepare-macos-ci-runner/action.yml
+}
+modify_swift_build_budget() {
+    printf '%s\n' '#!/bin/zsh' > scripts/macos-swift-build-options.sh
+}
+assert_classification shared-macos-runner-action \
+    "$(classification true true true true false true false false false false true)" \
+    modify_shared_macos_runner_action
+assert_classification swift-build-budget \
+    "$(classification true true true true false true false false false false true)" \
+    modify_swift_build_budget
 assert_classification swift-version \
     "$(classification true true true true false true false false false false true)" \
     modify_swift_version

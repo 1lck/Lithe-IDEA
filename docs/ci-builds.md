@@ -42,10 +42,43 @@ for a branch, manually run **Release AutoBuild** and provide that branch as
 `source_branch`; the Windows workflow is reusable and only builds an artifact
 for that caller.
 
+### Shared Mac mini runners
+
+**Rust Core and Swift bridge tests** and **Release package verification** use
+`[self-hosted, macOS, ARM64, lithe-mac-mini]`, including pull requests from forks.
+**Swift tests**, **Plugin tests and package verification**, and release workflows
+continue to use GitHub-hosted runners. The three Mac mini runner services share
+one M4 with 16 GB of memory; they provide three job slots, not three machines.
+There is no automatic overflow between the self-hosted and hosted pools.
+
+Each runner needs its own installation and work directory and the
+`lithe-mac-mini` label. Keep the service user logged in and the machine awake.
+Install and select Xcode 26.6 before starting the services. CI checks both Xcode
+and Swift 6.3.3 without changing the machine-wide Xcode selection. The runner
+also needs Git, Python 3, Ruby, and outbound access to dependency hosts. CI sets
+up Node 24, Rust, and (for packaging) Bun itself.
+
+The shared-runner setup limits Cargo and SwiftPM compilation to two jobs each.
+`LITHE_SWIFT_BUILD_JOBS` controls SwiftPM build/test entry points;
+`CARGO_BUILD_JOBS` controls Cargo compilation. Neither setting limits all child
+processes or changes existing test deadlines. Hosted and local builds keep their
+default compilation parallelism. Resource snapshots in the setup log show
+whole-machine memory, swap, CPU count, and available disk; assess throughput and
+memory pressure during an actual three-job run before increasing the budgets.
+
+Workspaces and mutable build outputs stay separate. Do not symlink `.build`,
+`rust/target`, or the complete `.artifacts` directory between runners. Checkout
+still uses its default cleanup, so persistent Swift incremental builds are not
+guaranteed. Existing verified dependency caches retain their identity checks.
+The temporary resource snapshots introduce no background monitoring process.
+Fork PR jobs retain the existing `pull_request` event and read-only repository
+permissions; this change does not use `pull_request_target` or release secrets.
+
 ### macOS runner budget
 
 The `Lithe-IDEA` organization uses the GitHub Free plan, which runs at most
-five macOS jobs at a time across every workflow and pull request. Queued macOS
+five GitHub-hosted macOS jobs at a time across every workflow and pull request;
+the three self-hosted Mac mini slots are separate. Queued macOS
 jobs mean this pool is full; it is a concurrency limit, not a quota or abuse
 signal. Keep macOS jobs per push low:
 
