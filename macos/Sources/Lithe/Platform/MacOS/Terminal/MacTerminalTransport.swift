@@ -466,9 +466,10 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             let previous = pendingSessionTermination
             // Closing the PTY only hangs up the foreground job; background and
             // disowned jobs live in other process groups of the same session.
+            let gracePeriod = Self.terminationGracePeriod(settings: MacProcessSupervisor.storedSettings())
             pendingSessionTermination = Task {
                 await previous?.value
-                await MacProcessSessionTerminator.terminate(sessionLedBy: leader)
+                await MacProcessSessionTerminator.terminate(sessionLedBy: leader, gracePeriod: gracePeriod)
             }
         }
         guard let processID else { return }
@@ -477,6 +478,10 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             view.terminate()
         }
         stoppedChildProcessReaper.reapWhenExited(processID)
+    }
+
+    static func terminationGracePeriod(settings: ProcessTerminationSettings) -> Duration {
+        .seconds(settings.gracefulStopSeconds)
     }
 
     func stopAndWait() async {

@@ -164,8 +164,8 @@ pub struct InventoryRequest {
     /// Whether the instance is still running.
     #[serde(default)]
     pub mode: InventoryMode,
-    /// Session of the application process; a process that leads another
-    /// session without a terminal has detached.
+    /// Session of the application process; another session without a terminal
+    /// has detached, even if its session leader has already exited.
     pub application_session_id: i64,
     /// Processes never listed, such as the application and its supervisor.
     #[serde(default)]
@@ -376,27 +376,34 @@ fn background_items(
     application_session_id: i64,
     remaining: &mut Vec<&ProcessEntry>,
 ) -> Vec<InventoryItem> {
-    // A detached process leads a session other than the application's and has
-    // no terminal: it called `setsid`, as daemons do, instead of merely losing
-    // its parent. Terminal sessions keep their terminal and never match.
-    let roots: Vec<i64> = remaining
-        .iter()
-        .filter(|process| {
-            process.session_id == process.process_id
-                && process.session_id != application_session_id
-                && !process.has_controlling_terminal
-        })
-        .map(|process| process.process_id)
-        .collect();
+    // A double-fork daemon keeps the detached session's ID after its leader
+    // exits. Classify the surviving session, not just a live session leader.
+    // Missing session IDs and application-session orphans do not prove detachment.
+    let mut sessions: BTreeMap<i64, Vec<&ProcessEntry>> = BTreeMap::new();
+    for process in remaining.iter().copied() {
+        if process.session_id > 0 && process.session_id != application_session_id {
+            sessions
+                .entry(process.session_id)
+                .or_default()
+                .push(process);
+        }
+    }
     let mut items = Vec::new();
-    for root_id in roots {
-        let (members, rest): (Vec<&ProcessEntry>, Vec<&ProcessEntry>) = remaining
-            .iter()
-            .copied()
-            .partition(|process| process.session_id == root_id);
-        *remaining = rest;
-        let mut members = members;
-        members.sort_by_key(|member| (member.process_id != root_id, member.process_id));
+    for (session_id, mut members) in sessions {
+        // A surviving terminal session must not become a daemon merely because
+        // one member has no controlling terminal in the snapshot.
+        if members.iter().any(|member| member.has_controlling_terminal) {
+            continue;
+        }
+        remaining.retain(|process| process.session_id != session_id);
+        let process_ids: BTreeSet<i64> = members.iter().map(|member| member.process_id).collect();
+        members.sort_by_key(|member| {
+            (
+                member.process_id != session_id,
+                process_ids.contains(&member.parent_process_id),
+                member.process_id,
+            )
+        });
         let root = members[0];
         items.push(group_item(
             format!("service:{}:{}", root.process_id, root.start_time),
@@ -519,11 +526,22 @@ mod tests {
         .expect("fixture should parse");
         assert_eq!(fixture.schema_version, 1);
         for case in fixture.cases {
-            let request: InventoryRequest =
+            let mut request: InventoryRequest =
                 serde_json::from_value(case.request).expect("fixture request should decode");
-            let inventory =
-                serde_json::to_value(classify(&request)).expect("inventory should encode");
-            assert_eq!(inventory, case.expected, "fixture case {}", case.name);
+            for ordering in ["original", "reversed", "rotated"] {
+                match ordering {
+                    "reversed" => request.processes.reverse(),
+                    "rotated" if !request.processes.is_empty() => request.processes.rotate_left(1),
+                    _ => {}
+                }
+                let inventory =
+                    serde_json::to_value(classify(&request)).expect("inventory should encode");
+                assert_eq!(
+                    inventory, case.expected,
+                    "fixture case {} ({ordering} snapshot)",
+                    case.name
+                );
+            }
         }
     }
 

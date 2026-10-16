@@ -2798,8 +2798,11 @@ connection's `taskBaseline` is a task. Tasks are grouped into trees by parent
 chain (`agentTask:{pid}:{startTime}`). Earlier processes are
 `agentInfrastructure:{scope}` (kind `sidecar`). An unknown connection, and every
 Agent scope in leftover mode, becomes one `agentTask:{agentScope}` item. A
-background service is a session leader outside the application's session
-with no controlling terminal (`service:{pid}:{startTime}`, `detached: true`).
+background service is a positive session outside the application's session
+whose members have no controlling terminal, even after its session leader exits.
+Its representative is the live session leader, or the lowest-PID live root
+whose parent is outside the session (falling back to its lowest-PID member).
+The representative determines `service:{pid}:{startTime}` (`detached: true`).
 Remaining processes are grouped by session as `terminal:{sessionId}`. With a
 `context`, `plan` is the `processLifecycle.resolve` result for the items, using
 scope-token ownership. Fixtures live in

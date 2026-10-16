@@ -204,8 +204,12 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                     sender.reply(toApplicationShouldTerminate: false)
                     return
                 }
-                self.boundUpdateTermination()
             }
+            // No cancellation remains: protect every project's kept tasks and
+            // resources before the first module stops or an update timer fires.
+            MacAgentProcessRegistry.application.commitQuitRetention()
+            MacProcessInstance.current?.retain(self.keptBackgroundProcesses)
+            if self.isUpdateInstallTermination { self.boundUpdateTermination() }
             transferred = true
             _ = self.beginTerminationCleanup(
                 for: projectSessions, sender: sender, preparation: preparation,
@@ -365,7 +369,9 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             if updatedSettings != settings.processTermination {
                 settings.processTermination = updatedSettings
             }
-            MacAgentProcessRegistry.application.prepareForQuit(keeping: Set(approval.keepAgentTasks))
+            MacAgentProcessRegistry.application.prepareForQuit(
+                keeping: Set(approval.keepAgentTasks), tasks: agentTasks
+            )
             let kept = Set(approval.keepResources)
             keptBackgroundProcesses = services.filter { kept.contains($0.candidate.id) }
                 .flatMap(\.item.processes)

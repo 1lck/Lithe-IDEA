@@ -15,11 +15,16 @@ final class MacProcessInstance: @unchecked Sendable {
     let store: MacProcessInstanceRecordStore
     private let lock = NSLock()
     private var record: MacProcessInstanceRecord
+    private var retentionTracker: MacRetainedProcessTracker?
 
-    private init(scope: MacProcessScope, store: MacProcessInstanceRecordStore, record: MacProcessInstanceRecord) {
+    init(scope: MacProcessScope, store: MacProcessInstanceRecordStore, record: MacProcessInstanceRecord) {
         self.scope = scope
         self.store = store
         self.record = record
+        retentionTracker = MacRetainedProcessTracker { [weak self] identities in
+            self?.persistRetained(identities)
+        }
+        retentionTracker?.refresh(adding: record.retained)
     }
 
     /// Exports the scope token, writes the instance record and starts the
@@ -43,7 +48,14 @@ final class MacProcessInstance: @unchecked Sendable {
     }
 
     var supervisor: MacProcessIdentity? { lock.withLock { record.supervisor } }
-    var retained: [MacProcessIdentity] { lock.withLock { record.retained } }
+    var retained: [MacProcessIdentity] {
+        if let identities = retentionTracker?.refresh() {
+            // Another event callback may still be waiting to persist its delta.
+            // The tracker is authoritative for all identities already observed.
+            persistRetained(Array(identities))
+        }
+        return lock.withLock { record.retained }
+    }
 
     /// Processes that are never signalled by this instance's sweeps.
     var excludedProcessIDs: Set<pid_t> {
@@ -55,9 +67,13 @@ final class MacProcessInstance: @unchecked Sendable {
     /// Keeps `identities` running past quit and crash recovery.
     func retain(_ identities: [MacProcessIdentity]) {
         guard !identities.isEmpty else { return }
+        retentionTracker?.refresh(adding: identities)
+    }
+
+    private func persistRetained(_ identities: [MacProcessIdentity]) {
         mutate { record in
             record.retained = Array(Set(record.retained).union(identities))
-                .sorted { $0.processID < $1.processID }
+                .sorted { ($0.processID, $0.startTime) < ($1.processID, $1.startTime) }
         }
     }
 
@@ -66,8 +82,11 @@ final class MacProcessInstance: @unchecked Sendable {
     ///
     /// Called last on quit, after the modules stopped what they know about.
     func finalSweep(gracePeriod: TimeInterval) {
-        let kept = Set(retained)
-        let leftovers = MacProcessScopeScanner.processes(in: scope.id, excluding: excludedProcessIDs)
+        let seeds = retained
+        let snapshot = MacProcessTable.snapshot()
+        let kept = MacProcessScopeScanner.retainedIdentities(seeds, snapshot: snapshot)
+        persistRetained(Array(kept))
+        let leftovers = MacProcessScopeScanner.processes(in: scope.id, excluding: excludedProcessIDs, snapshot: snapshot)
             .map(\.info.identity)
             .filter { !kept.contains($0) }
         MacProcessScopeScanner.terminate(leftovers, gracePeriod: gracePeriod)
@@ -75,14 +94,19 @@ final class MacProcessInstance: @unchecked Sendable {
     }
 
     private func mutate(_ change: (inout MacProcessInstanceRecord) -> Void) {
-        lock.withLock { change(&record) }
-        persist()
+        lock.withLock {
+            change(&record)
+            saveLocked()
+        }
     }
 
     private func persist() {
-        let snapshot = lock.withLock { record }
+        lock.withLock { saveLocked() }
+    }
+
+    private func saveLocked() {
         do {
-            try store.save(snapshot)
+            try store.save(record)
         } catch {
             FileHandle.standardError.write(Data("Could not save the process lifecycle record: \(error)\n".utf8))
         }
@@ -160,6 +184,9 @@ enum MacProcessSupervisor {
             store.remove(scope: scope)
             return
         }
+        let snapshot = MacProcessTable.snapshot()
+        record.retained = Array(MacProcessScopeScanner.retainedIdentities(record.retained, snapshot: snapshot))
+            .sorted { ($0.processID, $0.startTime) < ($1.processID, $1.startTime) }
         // Without a plan nothing is ended: the next launch asks instead.
         guard let inventory = try? reader.inventory(
             scope: scope,
@@ -167,7 +194,8 @@ enum MacProcessSupervisor {
             excluded: [getpid()],
             retained: record.retained,
             context: .crashRecovery,
-            settings: settings
+            settings: settings,
+            snapshot: snapshot
         ), let plan = inventory.plan else {
             record.supervisor = nil
             record.recoveredAfterCrash = true
@@ -220,9 +248,18 @@ struct MacStartupProcessSweep: Sendable {
     ) -> [Leftovers] {
         var leftovers: [Leftovers] = []
         let snapshot = MacProcessTable.snapshot()
-        for record in store.all() where record.scope != currentScope {
+        for var record in store.all() where record.scope != currentScope {
             if MacProcessTable.isAlive(record.application) { continue }
             if let supervisor = record.supervisor, MacProcessTable.isAlive(supervisor) { continue }
+            let expanded = MacProcessScopeScanner.retainedIdentities(record.retained, snapshot: snapshot)
+            if expanded != Set(record.retained) {
+                record.retained = expanded.sorted { ($0.processID, $0.startTime) < ($1.processID, $1.startTime) }
+                do {
+                    try store.save(record)
+                } catch {
+                    FileHandle.standardError.write(Data("Could not save retained startup descendants: \(error)\n".utf8))
+                }
+            }
             guard let inventory = try? reader.inventory(
                 scope: record.scope,
                 mode: .leftover,

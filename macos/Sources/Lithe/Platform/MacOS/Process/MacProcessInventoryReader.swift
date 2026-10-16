@@ -50,7 +50,9 @@ struct MacProcessInventoryReader: Sendable {
             processes: processes.map(\.snapshotEntry)
         )
         request.excludedProcessIds = excluded.map(Int64.init).sorted()
-        request.retained = retained.map(\.inventoryIdentity)
+        request.retained = MacProcessScopeScanner.retainedIdentities(retained, snapshot: snapshot)
+            .sorted { ($0.processID, $0.startTime) < ($1.processID, $1.startTime) }
+            .map(\.inventoryIdentity)
         request.agentConnections = agentConnections
         request.context = context
         request.settings = settings

@@ -100,6 +100,29 @@ enum MacProcessScopeScanner {
         processes(in: [scope], excluding: excluded, snapshot: snapshot)
     }
 
+    /// Expands only from an exact live identity. A shared Agent token, session,
+    /// or a reused PID is never evidence that a sibling belongs to a kept task.
+    /// Keep dead seeds too: a previously observed child may now be reparented.
+    static func retainedIdentities(
+        _ retained: [MacProcessIdentity],
+        snapshot: [MacProcessInfo]
+    ) -> Set<MacProcessIdentity> {
+        let byID = Dictionary(snapshot.map { ($0.processID, $0) }, uniquingKeysWith: { first, _ in first })
+        var result = Set(retained)
+        var changed = true
+        while changed {
+            changed = false
+            for child in snapshot where !result.contains(child.identity) {
+                guard let parent = byID[child.parentProcessID],
+                      result.contains(parent.identity),
+                      child.identity.startTime >= parent.identity.startTime else { continue }
+                result.insert(child.identity)
+                changed = true
+            }
+        }
+        return result
+    }
+
     /// Ends the given processes: `SIGTERM` (and `SIGCONT` for stopped ones),
     /// then `SIGKILL` for survivors after `gracePeriod`. Only the exact
     /// identities are signalled, so a recycled PID is never hit.

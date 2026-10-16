@@ -558,6 +558,198 @@
           ]
         }
       }
+    },
+    {
+      "name": "double-fork daemons survive exited session leaders without claiming application or terminal sessions",
+      "request": {
+        "scope": "S",
+        "applicationSessionId": 100,
+        "context": "quit",
+        "processes": [
+          {
+            "processId": 340,
+            "startTime": 310,
+            "parentProcessId": 350,
+            "sessionId": 300,
+            "name": "worker",
+            "processScope": "S"
+          },
+          {
+            "processId": 221,
+            "startTime": 210,
+            "parentProcessId": 220,
+            "sessionId": 200,
+            "name": "terminal-child",
+            "processScope": "S"
+          },
+          {
+            "processId": 450,
+            "startTime": 400,
+            "parentProcessId": 1,
+            "sessionId": 400,
+            "name": "second-daemon",
+            "processScope": "S"
+          },
+          {
+            "processId": 170,
+            "startTime": 170,
+            "parentProcessId": 1,
+            "sessionId": 0,
+            "name": "unknown-session",
+            "processScope": "S"
+          },
+          {
+            "processId": 350,
+            "startTime": 300,
+            "parentProcessId": 1,
+            "sessionId": 300,
+            "name": "daemon",
+            "processScope": "S"
+          },
+          {
+            "processId": 150,
+            "startTime": 150,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "app-orphan",
+            "processScope": "S"
+          },
+          {
+            "processId": 220,
+            "startTime": 200,
+            "parentProcessId": 1,
+            "sessionId": 200,
+            "name": "shell",
+            "processScope": "S",
+            "hasControllingTerminal": true
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "service:350:300",
+            "category": "backgroundService",
+            "kind": "daemon",
+            "detached": true,
+            "name": "daemon",
+            "detail": "daemon",
+            "rootProcessId": 350,
+            "startedAt": 300,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 350,
+                "startTime": 300
+              },
+              {
+                "processId": 340,
+                "startTime": 310
+              }
+            ]
+          },
+          {
+            "id": "service:450:400",
+            "category": "backgroundService",
+            "kind": "daemon",
+            "detached": true,
+            "name": "second-daemon",
+            "detail": "second-daemon",
+            "rootProcessId": 450,
+            "startedAt": 400,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 450,
+                "startTime": 400
+              }
+            ]
+          },
+          {
+            "id": "terminal:200",
+            "category": "terminal",
+            "kind": "terminal",
+            "detached": false,
+            "name": "shell",
+            "detail": "shell",
+            "rootProcessId": 220,
+            "startedAt": 200,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 220,
+                "startTime": 200
+              }
+            ]
+          },
+          {
+            "id": "run:other",
+            "category": "other",
+            "kind": "run",
+            "detached": false,
+            "name": "app-orphan",
+            "detail": "app-orphan",
+            "rootProcessId": 150,
+            "startedAt": 150,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 150,
+                "startTime": 150
+              },
+              {
+                "processId": 170,
+                "startTime": 170
+              },
+              {
+                "processId": 221,
+                "startTime": 210
+              }
+            ]
+          }
+        ],
+        "plan": {
+          "gracefulStopMilliseconds": 5000,
+          "decisions": [
+            {
+              "id": "service:350:300",
+              "kind": "daemon",
+              "policy": "askOnExit",
+              "action": "ask",
+              "reason": "detachedProcess"
+            },
+            {
+              "id": "service:450:400",
+              "kind": "daemon",
+              "policy": "askOnExit",
+              "action": "ask",
+              "reason": "detachedProcess"
+            },
+            {
+              "id": "terminal:200",
+              "kind": "terminal",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "busyTerminal"
+            },
+            {
+              "id": "run:other",
+              "kind": "run",
+              "policy": "terminate",
+              "action": "terminate",
+              "reason": "defaultTerminate"
+            }
+          ]
+        }
+      }
     }
   ]
 }
