@@ -287,7 +287,7 @@ private struct AgentMarkdownBlockView: View {
         case .code(let language, let code):
             AgentCodeBlock(language: language, code: code)
         case .table(let header, let rows):
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                     GridRow {
                         ForEach(Array(header.enumerated()), id: \.offset) { _, cell in
@@ -308,16 +308,37 @@ private struct AgentMarkdownBlockView: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
+            .litheScrollViewChrome()
         case .rule:
             Divider().overlay(LitheTheme.panelBorder).padding(.vertical, 4)
         }
     }
 
     private func tableCell(_ text: AttributedString) -> some View {
-        Text(text)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(maxWidth: 320, alignment: .leading)
+        AgentMarkdownTableCellLayout {
+            Text(text)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+        }
+    }
+}
+
+/// Horizontal scrolling proposes no width. Measure the text again at the cell's
+/// bounded width so Grid receives its wrapped height instead of a single line.
+private struct AgentMarkdownTableCellLayout: Layout {
+    private static let maximumWidth: CGFloat = 320
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let cell = subviews.first else { return .zero }
+        let width = min(Self.maximumWidth, proposal.width ?? cell.sizeThatFits(.unspecified).width)
+        return cell.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
+                              proposal: ProposedViewSize(width: bounds.width, height: nil))
     }
 }
 

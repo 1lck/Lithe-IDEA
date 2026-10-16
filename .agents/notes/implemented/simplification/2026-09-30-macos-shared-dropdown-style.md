@@ -824,10 +824,15 @@ Darcula `-70,-70,100` / IntelliJ `33,-35,100`；保留原 alpha，不再叠加�
 该行为通过图标和按钮的显式参数接入，不改变其他共享按钮消费者。
 
 Console 使用 `ConsoleViewUtil.updateConsoleColorScheme` 的独立控制台字体/配色语义，
-样式入口是 `LitheConsoleStyle`，通过现有 `OutputTextView` 显式启用，其他输出面板保持原样。
+样式入口是 `LitheConsoleStyle`，现有 `OutputTextView` 默认且统一应用；面板不能另选旧样式。
 `IslandSchemeDark.xml`、`Light.xml` 与 `DefaultColorSchemesManager.xml` 提供普通输出、链接、
 折叠占位和 16 色 ANSI 色板。移除调试 Console 自行淡化时间戳和按级别整行重涂的行为，
 保留生产者的 ANSI 真彩、常规/亮色和真实字重，不根据字符串猜测 stderr。
+旧 `Severity` / `applySeverityColors` 整行染色实现已删除，不再按 INFO 字符串将正文染蓝。
+Test、Debug、Run 共用 `LitheConsoleStyle` 的控制台字型和 ANSI 色板。
+默认字号、行高、底色、链接及日志级别颜色均由共享入口持有，调用面板不重复声明。
+带括号或时间戳前缀的级别标签统一为 INFO 绿色、WARN 黄色、ERROR/FATAL 红色，
+使用现有 ANSI 色板；只覆盖级别文字，保留正文、时间、类名的生产者样式与真实字重。
 当前纯文本快照没有完整保留 stdout/stderr 的通道信息，本次不能据此宣称完成通道语义对齐。
 
 字号操作按 `ChangeEditorFontSizeAction` 每次 1pt、8pt 下限与 `EditorFontsConstants` 的默认
@@ -1127,3 +1132,154 @@ Maven reloadError 直接展示异常描述，不经过通知展示层，所以�
 AppLanguage.localizedString 按应用语言解析。它不适用通知保存原始键的规则。
 WorkbenchNotificationTests 覆盖同一失败通知由中文切换英文、重复次数和详情隔离，
 并检查 Maven 异常在两种应用语言下的描述。
+
+
+### Tests 顶部与运行标签
+
+Tests 标题栏复用同一 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`
+的 `ToolWindowHeader.kt`、`JBUI.CurrentTheme.ToolWindow` 与 Islands 主题规则：
+41pt 高度、13pt Bold 标题、左 12pt / 右 8pt 留白，不显示标题图标或发现数量。
+底线直接使用 `LitheToolWindowHeaderDivider`，运行控制移到下一行，避免挤占标题栏。
+
+`TabContentLayout.java` 按选中内容与工具窗口活动状态绘制标签，
+`ContentTabLabel.java` 的关闭动作移除并释放内容。Lithe Tests 当前服务只拥有一次运行，
+因此仅在 `activePlan` 存在时显示真实运行名称，复用 `LitheToolWindowTabStyle`、
+`LitheToolWindowTabCloseButton` 和独立的工具窗口活动跟踪器，完成后仍保留关闭按钮。
+标签图标沿 `JUnitConfigurationType.getIcon` → `AllIcons.RunConfigurations.Junit` →
+`PlatformIconMappings.json` 使用原始 16pt `expui/runConfigurations/junit.svg` 及深色变体。
+关闭调用 `LanguageTestService.closeRun`，停止运行、失效旧回调并移除计划、输出、结果和重跑目标，
+保留发现列表及编辑器测试标记。最小化仍只隐藏窗口，不处置运行。
+
+不创建视图私有的历史标签或在点选发现条目时冒充新运行；多会话历史需要服务先拥有独立会话。
+标题继续使用现有 Tests 工具窗口名称，本次不改变 Run/Tests 的窗口归属。
+`ExecutionModuleTests.closingTestRunPreservesDiscoveryAndAllowsNewRun` 覆盖运行中与完成后关闭、
+保留发现以及随后再次启动。实际打包预览已运行 Maven 演示并观察到 2 通过、1 故意失败、1 跳过，
+核对了深色活动/非活动标签、完成后关闭标签与输出清理，以及深浅主题的标题栏和刷新/重跑/清空 SVG。
+运行中关闭由确定性服务测试覆盖；多会话历史不在本次验收范围。
+
+第二行刷新和清空分别沿 `AllIcons.Actions.Refresh` / `ClearConsoleAction` 的
+`AllIcons.Actions.GC` → `PlatformIconMappings.json` 使用现有
+`expui/general/refresh.svg` / `delete.svg`；重跑使用原始 `expui/run/rerun.svg`
+（仓库已以 `debugger/rerun.svg` 引入），停止使用 `expui/run/stop.svg`。
+四个按钮均使用其明暗 SVG、16pt 原始尺寸和 `litheToolbarIconButton` 的 22pt 命中范围，
+不再使用旧 12pt 测试 gutter 图标，也不使用 SF Symbol 垃圾桶作为实际资源。
+
+Tests 详情区去掉重复的图标、测试名、提供方和 Run/Debug 标题块，第二行右侧不再显示
+Running/Passed/Failed 状态标签；测试结果统计与错误内容仍由详情/输出区展示。
+运行入口统一放在第二行第一个图标按钮，初次选中作用域使用 Run；与服务最后一次运行的
+提供方和精确作用域相同时使用 Rerun，切换到其他作用域恢复 Run。比较使用 `lastRun.scope`，
+不能比较展示名称，否则同名测试或文件路径显示差异会误判。按钮始终通过现有
+`AppModel.runTest` 启动当前选择；运行中禁用，Stop 常驻并只在运行时启用。
+原有 Java 非工作区 Debug 入口移到同一行，继续使用原动作与 IDEA 明暗 SVG。
+
+本次实际预览验证了无标题块/右侧状态的空闲和运行中布局；通过第二行按钮运行工作区，
+再选择 `addsPositiveNumbers()`，按钮恢复 Run，点击后单测试通过且恢复 Rerun。
+确定性服务测试同时核对未运行、同作用域、不同提供方/作用域和关闭后匹配状态。
+
+
+### Tests 结果布局与右侧收缩条
+
+Community 同一版本的 `platform/testRunner/src/com/intellij/execution/testframework/ui/TestResultsPanel.java`
+将结果树放左侧，状态行放控制台上方，控制台动作放 `BorderLayout.EAST`（右侧）；
+`SMTestRunnerResultsForm` 根据结果更新摘要和树。Lithe 因此将详情表单移入右侧 Details，
+控制台顶部只保留单行真实结果摘要；报告尚未提供耗时字段，不推测或伪造每个测试的耗时。
+
+测试报告可与发现的精确选择器匹配时，左侧展示本次报告的类/方法，状态图标直接使用
+Community `expui/run/testPassed`、`testFailed`、`testIgnored` 明暗 SVG。
+状态分组在结果变化时计算一次，单行查字典；参数化方法共享状态，任一失败/错误优先，
+未知结果不冒充通过。没有精确报告或发现信息时保留原来的发现列表。
+树行使用 `litheTreeRow`，区域焦点继续独立跟踪；折叠按深度跳过后代，不能隐藏其他类。
+
+控制台直接使用 Debug 已有的 `OutputTextView`、`ConsoleFoldPresentation`、IDEA 字型/颜色，
+保留源码跳转、复制和折叠。共享输出控件新增工具栏左右位置参数，默认仍在左侧，
+Tests 选择右侧；不要复制一套按钮、导航定位或打印代码。清空动作在控制台工具栏保留；按用户指定，第二行也保留清空，刷新紧挨垃圾桶左侧。
+
+右侧 Details 复用 Git Log/Debug 的 `LitheCollapsedActionStripe`、`ActionStripe` 度量和
+`LitheSplitPaneView`，默认收起。展开后可调整宽度，拖动结束才持久化，隐藏不处置运行。
+其中显示已有 Scope、Command、失败详情和源码定位；Performance 已接入本次测试 worker 的
+独立 JVM 目标及 JFR，不能把 Debug 的活动会话或历史曲线借来当成测试性能数据。
+
+`LanguageTestPresentationTests` 验证结果分组、方法匹配和树折叠边界；
+`ConsoleInlineInputTests.wallpaperChangesUpdateEveryConsoleLayerWithoutReplacingInput`
+覆盖工具栏左右布局、深浅主题、背景切换和输入控件身份。
+
+实际打包预览已在深浅主题验证测试树/摘要和右侧控制台 SVG，测试类可收起/展开；
+Details 已验证展开、宽度拖动和收起，拖动后沿用共享容器保存宽度。
+摘要行使用第二行操作栏的同一 22pt 图标按钮与上下 5pt 留白形成 32pt 高度，
+对应上游 `SameHeightPanel` 将状态行与工具栏对齐的布局意图，不套用 40pt 主工具栏高度。
+运行示例和切换主题前后，整个预览包 1300 个文件的 SHA-256 均未变化。
+31 项相关检查通过，其中本次修改的控制台左右布局/主题检查为 57ms；
+其余结构/服务边界、资源不可变、笔记和功能矩阵检查通过。
+
+Test 的 Performance 复用 `DebugConsoleWithPerformance`、`DebugPerformanceChart`、共享
+分隔器和折叠条；CPU 和 Resident Memory 使用测试运行进程树的真实采样，显示口径
+与采集生命周期见本地 JVM 性能 Note。Details 继续保留作用域、命令与失败定位。
+
+Test 第二行 SVG 全部启用 `usesIDEADisabledAppearance`，复用 Community 灰度算法；
+Stop 禁用时为灰色，运行中才保留原始红色，不通过单纯降低红色透明度模拟禁用。
+
+Test 右侧由用户确认合并为一个可收缩区域，Performance/Details 顶部切换，保留作用域、
+命令和失败定位。原生 JVM 图表与 JFR 工具归属见性能 Note。Performance 标题使用
+Community `JBUI.Fonts.smallFont`→`UIUtil.FontSize.SMALL`（13pt默认下11pt常规），
+Islands `*.foreground`→`text-default`（dark #D1D3D9/light black）；共享 ActionStripe
+标题 token 同时用于折叠条、Debug Performance 及 Test 的两个标签，避免继承系统白色。
+录制图标原样使用 Community `expui/profiler/rec{,_dark}.svg`，不以Run图标代替。
+
+Test Performance 的 Show Results 改为复用 `LitheActionButtonStyle`：从 CommitAreaView
+移至共享组件，Commit 操作继续消费同一个实现。依据同 revision 的 DarculaButtonUI、
+DarculaButtonPainter、DarculaButtonBorder 与 ManyIslands 明暗主题：28pt 可见高度、
+72pt 最小宽度、14pt 文字内边距、3pt 外部边框留白、4pt 圆角和13pt常规字。普通按钮
+深色透明、浅色白底；禁用使用独立 text-disabled/control-border-disabled，不能整块降透明度。
+上游普通文字按钮不另外叠加 hover/pressed 底色，保留默认箭头。录制图标仍走共享工具栏
+按钮，原始 SVG 已应用 IDEA GrayFilter，禁用时不再叠加按钮透明度。
+
+Show Results 的结果窗口同时复用 Git Patch 等表单的 `LitheCenteredPopup(dialogTitle:)`，
+由共享 presenter 提供原生标题栏、父窗口居中、关闭和事件隔离；内容继续使用统一
+OutputTextView。关闭动作放在对话框底部，采用现有对话框按钮与 Esc，移除独立 sheet
+标题行和工作台表面，避免系统 sheet 圆角背景与产品对话框混用。
+
+Test 结果摘要下方不再画普通分隔线：有失败/错误时红色，否则有通过项时绿色；
+无结果、运行准备中或全部跳过不画。重跑沿用服务清空 results 的生命周期。
+依据同 revision 的 TestStatusLine `ProgressBar.stripeWidth=3` 与
+DarculaProgressBarUI 的确定进度绘制，状态条为3pt、两端半圆，颜色由共享
+`LitheTheme.TestResult` 持有。Light 的 ProgressBar.failedColor/passedColor 解析为
+#E4656E/#4E9D6C；Dark 主题中的 failedcolor/passedcolor 是小写键，UITheme
+按大小写精确写入 UIDefaults，因此实际取 ExperimentalDark 父主题 Red6/Green6，
+即 #BD5757/#57965C，不能直接用 Dark 的 accent-error-bg/accent-success-bg 替代。
+
+状态条右端与控制台文本区对齐：扣除 OutputTextView 尾侧共享 ActionStripe.width 及其1pt分隔线，不延伸到控制台工具栏或 Performance 折叠条。
+
+没有 Maven 结构化报告时，结果摘要按 LanguageTestService.state 保留通过、失败、取消及
+超时；仅 idle 使用未运行提示，不把 Go/Python/Node/Rust/Gradle 的结束状态丢掉。
+无报告的通过/失败仍使用同一状态条，取消不冒充成功。
+
+Test 左侧结果树对照同 revision 的 TestTreeRenderer → TestsPresentationUtil：根与叶的名称
+均使用 REGULAR_ATTRIBUTES，对应13pt常规字和共享 Tree.text；不因选中或失败加粗/着色
+名称。展开箭头改用 Tree 主题指定的 expui/general/chevronRight/Down 原始明暗16pt SVG。
+未运行项复用 PoolOfTestIcons.NOT_RAN → PlatformIconMappings 的 testNotRunYet，
+执行错误用 testError，断言失败用 testFailed，保留 passed/ignored 原始图标，不用SF图标
+替代测试状态或通过调色修改源SVG。列表左右留白复用 Tree.horizontalInset（12pt），
+行高24pt、层级19pt、文字间距2pt，选中/失焦/hover仍由共享树行负责。
+
+Test 结果摘要对照 TestStatusLine、TestRunnerBundle 与 SimpleColoredComponent：
+使用连续的“2 tests failed, 3 passed, 1 ignored”形式及13pt Regular，中文单独翻译，
+单复数按数量选择。失败文字取 Label.errorForeground（深#F57E84/浅#C54E58），
+忽略文字取 Label.warningForeground（深#D59637/浅#A56906），总数取
+GRAYED_ATTRIBUTES → Component.infoForeground（#73767C）；不能用通用日志等级色替代。
+状态图标保留16pt，额外区分全部忽略、通过但含忽略、错误和未运行；总数与结果分段显示，
+没有真实耗时数据时不伪造时间。共享 TestResult 持有字体、颜色与间距：左4pt来自wrapper2
+加icon inset2；图文3pt来自iconTextGap2加文字border1；描述12pt来自前项尾3、容器gap6
+及后项首3。3pt结果状态条的范围保持不变。
+
+结果树有子项的名称区域支持双击切换折叠；单击继续选择，箭头点击继续只切换折叠。
+复用 Maven 树的 simultaneous double-tap 方式，叶子双击不改折叠集合、不触发运行。
+
+Test 发现列表与运行结果分开处理图标语义：工作区入口使用原始 testGroup，文件复用
+LitheIcons.kind 文件分类与 LitheIcon；有子项的测试分组用 class，叶项用 method。
+它们均保留16pt原始明暗资源与共享树行；有报告状态时仍优先用运行结果图标，
+不把尚未运行的整个发现列表画成 testNotRunYet 灰点。原始资源只在构建时打包，
+运行时只读，不产生缓存或改变 bundle，既有 IDEAIcons 工作树资源归属不变。
+
+Test摘要把整体运行结论与报告计数分别保留：Maven解析器即使无报告也可返回零计数，
+因此.failed/.timedOut必须优先决定错误图标和红色状态条；报告没有失败计数时，
+额外保留Failed/Timed Out文字。部分测试通过不代表整体构建成功，取消不画绿色状态条。

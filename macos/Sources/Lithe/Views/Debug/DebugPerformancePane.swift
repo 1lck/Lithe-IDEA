@@ -5,6 +5,7 @@ struct DebugConsoleWithPerformance<Console: View>: View {
     @ObservedObject var feature: DebugPerformanceFeatureModel
     @Binding var isExpanded: Bool
     @Binding var width: CGFloat
+    var residentMemory = false
     @ViewBuilder let console: () -> Console
     @Environment(\.colorScheme) private var colorScheme
     @State private var hoveredTime: TimeInterval?
@@ -40,7 +41,7 @@ struct DebugConsoleWithPerformance<Console: View>: View {
     private var performance: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Performance").font(LitheTheme.uiFont(size: 13))
+                Text("Performance").font(LitheTheme.ActionStripe.titleFont).foregroundStyle(LitheTheme.ActionStripe.titleColor)
                 Spacer()
                 Button { isExpanded = false } label: {
                     LitheIDEAIcon(resourcePath: "expui/general/chevronRight.svg", size: 16, preservesOriginalColors: true)
@@ -55,12 +56,19 @@ struct DebugConsoleWithPerformance<Console: View>: View {
                 Text(LocalizedStringKey(message)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
             } else if feature.samples.isEmpty {
-                Text(feature.isSampling ? "Waiting for JVM performance data…" : "Start a local Java debug session to view performance.")
+                Text(LocalizedStringKey(feature.isSampling
+                    ? (residentMemory ? "Waiting for process performance data…" : "Waiting for JVM performance data…")
+                    : (residentMemory ? "Run tests to view process performance." : "Start a local Java debug session to view performance.")))
                     .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
             }
-            DebugPerformanceChart(samples: feature.samples, cpu: true, hoveredTime: $hoveredTime)
-            DebugPerformanceChart(samples: feature.samples, cpu: false, hoveredTime: $hoveredTime)
+            DebugPerformanceChart(samples: feature.samples, cpu: true, residentMemory: residentMemory, hoveredTime: $hoveredTime)
+            DebugPerformanceChart(samples: feature.samples, cpu: false, residentMemory: residentMemory, hoveredTime: $hoveredTime)
+            if residentMemory {
+                Text("Test process tree · Resident memory")
+                    .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+            }
             Spacer(minLength: 0)
         }
         .litheWorkbenchSurface(LitheTheme.editor)
@@ -73,10 +81,11 @@ struct DebugPerformanceChart: View {
     static let visibleDuration: TimeInterval = 60
     let samples: [DebugPerformanceSample]
     let cpu: Bool
+    var residentMemory = false
     @Binding var hoveredTime: TimeInterval?
     @Environment(\.colorScheme) private var colorScheme
 
-    private var title: String { cpu ? "CPU" : "Heap Memory" }
+    private var title: String { cpu ? "CPU" : (residentMemory ? "Resident Memory" : "Heap Memory") }
     private var color: Color { cpu ? LitheTheme.success : LitheTheme.accent }
     private var selected: DebugPerformanceSample? {
         hoveredTime.flatMap { Self.nearestSample(in: visibleSamples, to: $0) } ?? samples.last
@@ -99,13 +108,13 @@ struct DebugPerformanceChart: View {
     }
 
     private func number(_ sample: DebugPerformanceSample) -> Double? {
-        cpu ? sample.cpuPercent : Double(sample.heapUsedBytes)
+        cpu ? sample.cpuPercent : Double(sample.memoryUsedBytes)
     }
 
     private func formatted(_ sample: DebugPerformanceSample?) -> String {
         guard let sample else { return "—" }
         return cpu ? sample.cpuPercent.map { String(format: "%.1f%%", $0) } ?? "—"
-            : ByteCountFormatter.string(fromByteCount: Int64(clamping: sample.heapUsedBytes), countStyle: .memory)
+            : ByteCountFormatter.string(fromByteCount: Int64(clamping: sample.memoryUsedBytes), countStyle: .memory)
     }
 
     var body: some View {
@@ -148,7 +157,7 @@ struct DebugPerformanceChart: View {
             }
             .chartXAxis(.hidden).chartYAxis(.hidden)
             .chartXScale(domain: timeDomain, range: .plotDimension(padding: 0))
-            .chartYScale(domain: 0...(cpu ? 100 : max(1, Double(visibleSamples.map(\.heapCommittedBytes).max() ?? 1))))
+            .chartYScale(domain: 0...(cpu ? 100 : max(1, Double(visibleSamples.map(\.memoryCapacityBytes).max() ?? 1))))
             .chartPlotStyle { plot in
                 plot.background(alignment: .bottom) {
                     Rectangle().fill(LitheTheme.toolWindowBorder(for: colorScheme)).frame(height: 1)

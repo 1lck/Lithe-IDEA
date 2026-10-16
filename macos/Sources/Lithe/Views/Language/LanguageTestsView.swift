@@ -7,13 +7,20 @@ struct LanguageTestsView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var service: LanguageTestService
 
+    @State private var testToolActive = false
     @State private var itemListActive = false
     @State private var selectedItemID: String?
     @State private var collapsedProviderIDs: Set<String> = []
     @AppStorage("lithe.tests.itemListWidth") private var itemListWidth = 250.0
     @AppStorage("lithe.tests.itemListCollapsed") private var isItemListCollapsed = false
-    @State private var liveItemListWidth: CGFloat?
-    @State private var itemListDragStart: CGFloat = 250
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var inspectorTab = "Performance"
+    @State private var detailsExpanded = false
+    @AppStorage("lithe.tests.detailsWidth") private var detailsWidth = 300.0
+    @State private var wrapsLines = false
+    @State private var consolePresentation = ConsoleFoldPresentation()
+    @State private var resultStatuses: [String: String] = [:]
+    @State private var collapsedTestIDs: Set<String> = []
 
     private var localization: LanguageTestLocalization {
         LanguageTestLocalization(language: model.settings.language)
@@ -22,6 +29,7 @@ struct LanguageTestsView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
+            testToolbar
 
             if let message = service.errorMessage {
                 Text(localization.error(message))
@@ -69,89 +77,141 @@ struct LanguageTestsView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
-        .onAppear(perform: selectDefaultItemIfNeeded)
+        .background(LitheToolWindowActivityTracker(isActive: $testToolActive))
+        .onAppear {
+            selectDefaultItemIfNeeded()
+            syncPerformance()
+            resultStatuses = Self.resultStatuses(service.results?.testCases ?? [])
+        }
+        .onChange(of: service.results) { results in
+            resultStatuses = Self.resultStatuses(results?.testCases ?? [])
+        }
         .onChange(of: service.itemsByProviderID) { _ in selectDefaultItemIfNeeded() }
     }
 
     private var toolWindowHeader: some View {
-        LitheToolWindowHeader(
-            title: "Tests",
-            systemImage: "checkmark.seal",
-            subtitle: testCount > 0 ? String(testCount) : nil,
-            onMinimize: { model.workbenchFeature.setVisibility(.tests, isVisible: false) }
-        ) {
-            statusView
+        HStack(spacing: 0) {
+            Text("Tests")
+                .font(LitheTheme.uiFont(size: 13, weight: .bold))
+                .foregroundStyle(LitheTheme.primaryText)
+                .padding(.trailing, 16)
+            if let plan = service.activePlan {
+                testRunTab(plan.label)
+                    .padding(.horizontal, 4)
+            }
+            Spacer(minLength: 12)
+            LitheMenu {
+                LitheContextMenuItem.action("Show test list", checked: !isItemListCollapsed) {
+                    isItemListCollapsed.toggle()
+                }
+                LitheContextMenuItem.action("Refresh discovered tests", isEnabled: !service.isRunning) {
+                    model.refreshTests()
+                }
+                LitheContextMenuItem.action("Clear test output", action: service.clearOutput)
+            } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/moreVertical.svg", size: 16,
+                              fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
+            }
+            .litheToolbarIconButton()
+            .padding(.horizontal, 2)
+            .help("More Test actions")
+            LitheSidebarHideButton(title: "Tests") {
+                model.workbenchFeature.setVisibility(.tests, isVisible: false)
+            }
+            .padding(.horizontal, 2)
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .frame(height: 41)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
+    }
+
+    private func testRunTab(_ title: String) -> some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                LitheIDEAIcon(resourcePath: "expui/runConfigurations/junit.svg", size: 16,
+                              fallbackSystemImage: "play", preservesOriginalColors: true)
+                Text(title)
+                    .font(LitheTheme.uiFont(size: 13))
+                    .lineLimit(1)
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 3)
+            LitheToolWindowTabCloseButton(action: service.closeRun)
+                .help("Close test run")
+                .accessibilityLabel("Close test run")
+        }
+        .foregroundStyle(LitheTheme.primaryText)
+        .modifier(LitheToolWindowTabStyle(isSelected: true, isActive: testToolActive))
+    }
+
+    private var testToolbar: some View {
+        HStack(spacing: 4) {
+            Button {
+                guard let item = selectedItem else { return }
+                model.runTest(providerID: item.providerID, scope: scope(for: item))
+            } label: {
+                LitheIDEAIcon(resourcePath: selectedItemWasRun ? "debugger/rerun.svg" : "expui/run/run.svg", size: 16,
+                              fallbackSystemImage: "play", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
+            }
+            .litheToolbarIconButton()
+            .help(selectedItemWasRun ? localization.text("Rerun last test") : "Run selected test")
+            .accessibilityLabel(selectedItemWasRun ? "Rerun selected test" : "Run selected test")
+            .disabled(service.isRunning || selectedItem == nil || model.workspaceURL == nil)
+
+            Button(action: model.stopTests) {
+                LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: 16,
+                              fallbackSystemImage: "stop.fill", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
+            }
+            .litheToolbarIconButton()
+            .help("Stop test run")
+            .disabled(!service.isRunning)
+
+            if let item = selectedItem, item.providerID == "java", item.kind != .workspace {
+                Button {
+                    model.debugTest(providerID: item.providerID, scope: scope(for: item))
+                } label: {
+                    LitheIDEAIcon(resourcePath: "expui/run/debug.svg", size: 16,
+                                  fallbackSystemImage: "ladybug", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
+                }
+                .litheToolbarIconButton()
+                .help("Debug selected test")
+                .disabled(service.isRunning)
+            }
 
             Button(action: model.refreshTests) {
-                LitheSystemIcon(systemImage: "arrow.clockwise")
+                LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: 16,
+                              fallbackSystemImage: "arrow.clockwise", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
             }
-            .litheIconButton()
+            .litheToolbarIconButton()
             .help("Refresh discovered tests")
             .disabled(service.isRunning)
 
-            if service.canRerun {
-                Button(action: { _ = service.rerun() }) {
-                    LitheSystemIcon(systemImage: "arrow.counterclockwise")
-                }
-                .litheIconButton()
-                .help(localization.text("Rerun last test"))
-            }
-
-            if service.isRunning {
-                Button(action: model.stopTests) {
-                    Image(systemName: "stop.fill")
-                }
-                .litheIconButton()
-                .foregroundStyle(LitheTheme.warning)
-                .help("Stop test run")
-            }
-
             Button(action: service.clearOutput) {
-                Image(systemName: "trash")
+                LitheIDEAIcon(resourcePath: "expui/general/delete.svg", size: 16,
+                              fallbackSystemImage: "trash", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
             }
-            .litheIconButton()
+            .litheToolbarIconButton()
             .help("Clear test output")
+
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
     }
 
-    @ViewBuilder
-    private var statusView: some View {
-        switch service.state {
-        case .idle:
-            EmptyView()
-        case .running:
-            Label(localization.text("Running"), systemImage: "circle.fill")
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .foregroundStyle(LitheTheme.success)
-        case .passed:
-            Label(localization.text("Passed"), systemImage: "checkmark.circle.fill")
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .foregroundStyle(LitheTheme.success)
-        case .failed:
-            Label(localization.text("Failed"), systemImage: "xmark.circle.fill")
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .foregroundStyle(LitheTheme.error)
-        case .timedOut:
-            Label(localization.text("Timed Out"), systemImage: "clock.badge.exclamationmark")
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .foregroundStyle(LitheTheme.error)
-        case .cancelled:
-            Label(localization.text("Cancelled"), systemImage: "stop.circle.fill")
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .foregroundStyle(LitheTheme.warning)
-        }
+    private var selectedItemWasRun: Bool {
+        guard let item = selectedItem else { return false }
+        return service.hasRun(providerID: item.providerID, scope: scope(for: item))
     }
 
     private var testProviderDescriptors: [LanguageProviderDescriptor] {
         model.languageProviderCatalog.descriptors
             .filter { $0.capabilities.contains(.testing) }
             .filter { !(service.itemsByProviderID[$0.id] ?? []).isEmpty }
-    }
-
-    private var testCount: Int {
-        service.itemsByProviderID.values.reduce(0) { count, items in
-            count + itemCount(items)
-        }
     }
 
     private var selectedItem: LanguageTestItem? {
@@ -162,106 +222,131 @@ struct LanguageTestsView: View {
     }
 
     private var testItemList: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Text("Tests")
-                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Spacer(minLength: 0)
-                Button {
-                    isItemListCollapsed = true
-                } label: {
-                    Image(systemName: "chevron.left")
+        ScrollView(.vertical) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(testProviderDescriptors) { descriptor in
+                    providerSection(descriptor)
                 }
-                .litheIconButton()
-                .help("Hide test list")
-                .accessibilityLabel("Hide test list")
             }
-            .padding(.leading, 12)
-            .padding(.trailing, 5)
-            .frame(height: 30)
-
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(height: 1)
-
-            ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(testProviderDescriptors) { descriptor in
-                        providerSection(descriptor)
-                    }
-                }
-                .padding(7)
-            }
+            .padding(.horizontal, LitheTheme.Tree.horizontalInset)
+            .padding(.vertical, LitheTheme.Tree.verticalInset)
         }
-        .litheWorkbenchSurface(LitheTheme.sidebar)
+        .litheScrollViewChrome()
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private func providerSection(_ descriptor: LanguageProviderDescriptor) -> some View {
-        let items = service.itemsByProviderID[descriptor.id] ?? []
+        let discovered = service.itemsByProviderID[descriptor.id] ?? []
+        let reported = discovered.filter { $0.kind == .testCase && resultStatuses[Self.resultKey($0)] != nil }
+        let items = reported.isEmpty ? discovered : reported
         let isCollapsed = collapsedProviderIDs.contains(descriptor.id)
+        let parentIDs = Set(zip(items, items.dropFirst()).compactMap { current, next in
+            next.depth > current.depth ? current.id : nil
+        })
 
-        return VStack(alignment: .leading, spacing: 1) {
-            Button {
-                if isCollapsed {
-                    collapsedProviderIDs.remove(descriptor.id)
-                } else {
-                    collapsedProviderIDs.insert(descriptor.id)
+        return VStack(alignment: .leading, spacing: 0) {
+            if testProviderDescriptors.count > 1 {
+                Button {
+                    if isCollapsed { collapsedProviderIDs.remove(descriptor.id) }
+                    else { collapsedProviderIDs.insert(descriptor.id) }
+                } label: {
+                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                        LitheIDEAIcon(resourcePath: "expui/general/chevron\(isCollapsed ? "Right" : "Down").svg",
+                            size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                            .frame(width: LitheTheme.Tree.disclosureSlot)
+                        providerIcon(for: descriptor)
+                        Text(descriptor.displayName).lineLimit(1)
+                    }
+                    .litheTreeRow()
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(LitheTheme.uiFont(size: 9, weight: .bold))
-                        .frame(width: 10)
-                    providerIcon(for: descriptor)
-                        .frame(width: 14, height: 14)
-                    Text(descriptor.displayName)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text(String(itemCount(items)))
-                        .font(LitheTheme.uiFont(size: 10))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 6)
-                .frame(height: 25)
-                .contentShape(Rectangle())
+                .buttonStyle(.litheNoPress)
             }
-            .buttonStyle(.litheNoPress)
-            .litheRowHover(isActive: false, cornerRadius: 5, activeBackground: LitheTheme.subtleSelection)
-
-            if !isCollapsed {
-                ForEach(items) { item in
-                    testItemRow(item)
+            if !isCollapsed || testProviderDescriptors.count == 1 {
+                ForEach(Self.visibleItems(items, collapsed: collapsedTestIDs)) { item in
+                    testItemRow(item, hasChildren: parentIDs.contains(item.id), usesResultTree: !reported.isEmpty)
                 }
             }
         }
     }
 
-    private func testItemRow(_ item: LanguageTestItem) -> some View {
-        Button {
-            selectedItemID = item.id
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: testItemIcon(item))
-                    .font(LitheTheme.uiFont(size: 11))
-                    .foregroundStyle(item.depth > 0 ? LitheTheme.accent : LitheTheme.secondaryText)
-                    .frame(width: 16)
-                Text(item.label)
-                    .font(LitheTheme.uiFont(size: 11.5))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+    private func testItemRow(_ item: LanguageTestItem, hasChildren: Bool, usesResultTree: Bool) -> some View {
+        let isCollapsed = collapsedTestIDs.contains(item.id)
+        let selected = selectedItemID == item.id
+        let status = resultStatuses[Self.resultKey(item)]
+        return HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            if hasChildren {
+                Button {
+                    if isCollapsed { collapsedTestIDs.remove(item.id) }
+                    else { collapsedTestIDs.insert(item.id) }
+                } label: {
+                    LitheIDEAIcon(resourcePath: "expui/general/chevron\(isCollapsed ? "Right" : "Down").svg",
+                        size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                        .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
+                }
+                .buttonStyle(.litheNoPress)
+                .accessibilityLabel(isCollapsed ? "Expand test group" : "Collapse test group")
+            } else {
+                Color.clear.frame(width: LitheTheme.Tree.disclosureSlot)
             }
-            .padding(.leading, 25 + CGFloat(item.depth * 14))
-            .padding(.trailing, 6)
-            .frame(height: 26)
-            .contentShape(Rectangle())
-            .litheSelectionRow(isSelected: selectedItemID == item.id, isFocused: itemListActive, cornerRadius: 5)
+            Button {
+                selectedItemID = item.id
+            } label: {
+                HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                    if status == nil, item.kind == .file {
+                        LitheIcon(kind: item.fileURL.map { LitheIcons.kind(for: $0, isDirectory: false) } ?? .generic,
+                                  size: LitheTheme.Tree.iconSize)
+                    } else {
+                        LitheIDEAIcon(resourcePath: Self.testItemIcon(status: status, kind: item.kind, hasChildren: hasChildren),
+                                      size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                    }
+                    Text(item.label)
+                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                        .foregroundStyle(LitheTheme.Tree.text)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.litheNoPress)
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                guard hasChildren else { return }
+                if isCollapsed { collapsedTestIDs.remove(item.id) }
+                else { collapsedTestIDs.insert(item.id) }
+            })
+            .accessibilityValue(Text(status == "Ignored" ? localization.text("Skipped") : status.map(localization.text) ?? ""))
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .padding(.leading, CGFloat(max(0, item.depth - (usesResultTree ? 1 : 0))) * LitheTheme.Tree.indent)
+        .padding(.trailing, 4)
+        .litheTreeRow(isSelected: selected, isFocused: itemListActive)
+    }
+
+    static func resultKey(_ item: LanguageTestItem) -> String {
+        (item.testIdentifier ?? item.id).split(separator: "(", maxSplits: 1).first.map(String.init) ?? item.id
+    }
+
+    static func resultStatuses(_ outcomes: [MavenTestCaseOutcome]) -> [String: String] {
+        var grouped: [String: [String]] = [:]
+        for outcome in outcomes {
+            let method = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
+            grouped[outcome.className, default: []].append(outcome.status)
+            grouped[outcome.className + "#" + method, default: []].append(outcome.status)
+        }
+        return grouped.compactMapValues { statuses in
+            if statuses.contains("error") { return "Error" }
+            if statuses.contains("failed") { return "Failed" }
+            if statuses.allSatisfy({ $0 == "skipped" }) { return "Ignored" }
+            if statuses.allSatisfy({ $0 == "passed" || $0 == "skipped" }) { return "Passed" }
+            return nil
+        }
+    }
+
+    static func visibleItems(_ items: [LanguageTestItem], collapsed: Set<String>) -> [LanguageTestItem] {
+        var hiddenBelowDepth: Int?
+        return items.filter { item in
+            if let depth = hiddenBelowDepth, item.depth > depth { return false }
+            hiddenBelowDepth = collapsed.contains(item.id) ? item.depth : nil
+            return true
+        }
     }
 
     private var collapsedItemListBar: some View {
@@ -281,74 +366,169 @@ struct LanguageTestsView: View {
         .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
-    @ViewBuilder
     private var selectedTestContent: some View {
-        if let item = selectedItem,
-           let workspaceURL = model.workspaceURL {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                LitheSplitPaneView(axis: .horizontal, placement: .trailing,
+                    defaultSize: CGFloat(detailsWidth), minimum: 240,
+                    maximum: max(240, geometry.size.width - 300), flexibleMinimum: 300,
+                    clipsSizedPane: true, isSizedPaneCollapsed: !detailsExpanded,
+                    dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
+                    onCommit: { detailsWidth = Double($0) },
+                    sized: { testInspector }, flexible: { testConsole })
+                if !detailsExpanded {
+                    LitheCollapsedActionStripe(title: inspectorTab, expandsToward: .leading) { detailsExpanded = true }
+                        .litheWorkbenchSurface(LitheTheme.sidebar)
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(LitheTheme.toolWindowBorder(for: colorScheme)).frame(width: 1)
+                        }
+                }
+            }
+        }
+        .onAppear { updatePerformanceVisibility() }
+        .onChange(of: detailsExpanded) { _ in updatePerformanceVisibility() }
+        .onChange(of: inspectorTab) { _ in updatePerformanceVisibility() }
+        .onDisappear { model.testPerformanceFeature.setVisible(false) }
+    }
+
+    private func syncPerformance() {
+        model.testPerformanceFeature.bind(to: service)
+    }
+
+    private func updatePerformanceVisibility() {
+        model.testPerformanceFeature.setVisible(detailsExpanded && inspectorTab == "Performance")
+    }
+
+    private var testInspector: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(["Performance", "Details"], id: \.self) { tab in
+                    Button { inspectorTab = tab } label: {
+                        Text(LocalizedStringKey(tab))
+                            .font(LitheTheme.ActionStripe.titleFont)
+                            .foregroundStyle(LitheTheme.ActionStripe.titleColor)
+                            .padding(.horizontal, LitheTheme.ActionStripe.tabHorizontalInset)
+                            .frame(height: LitheTheme.Metrics.toolbarHeight)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.litheNoPress)
+                    .litheRowHover(cornerRadius: 0, hoverBackground: LitheTheme.ActionStripe.tabHover)
+                    .overlay(alignment: .bottom) {
+                        if inspectorTab == tab {
+                            RoundedRectangle(cornerRadius: LitheTheme.ActionStripe.tabUnderlineRadius)
+                                .fill(LitheTheme.ActionStripe.tabUnderline)
+                                .frame(height: LitheTheme.ActionStripe.tabUnderlineHeight)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .accessibilityAddTraits(inspectorTab == tab ? .isSelected : [])
+                }
+                Spacer(minLength: 0)
+                Button { detailsExpanded = false } label: {
+                    LitheIDEAIcon(resourcePath: "expui/general/chevronRight.svg", size: 16, preservesOriginalColors: true)
+                }
+                .litheToolbarIconButton().help("Hide Details")
+            }
+            .padding(.horizontal, 6)
+            .frame(height: LitheTheme.Metrics.toolbarHeight)
+            LitheToolWindowHeaderDivider()
+            if inspectorTab == "Performance" {
+                TestJVMPerformanceView(feature: model.testPerformanceFeature)
+            } else {
+                ScrollView { if let item = selectedItem { testDetail(item) } }.litheScrollViewChrome()
+            }
+        }
+        .litheWorkbenchSurface(LitheTheme.editor)
+    }
+
+    @ViewBuilder
+    private var testConsole: some View {
+        if let workspaceURL = model.workspaceURL {
             VStack(spacing: 0) {
-                testDetail(item)
-                    .frame(maxHeight: 220, alignment: .top)
-                Rectangle()
-                    .fill(LitheTheme.divider)
-                    .frame(height: 1)
+                if service.state != .idle || service.results != nil { testSummary }
                 OutputTextView(
                     output: service.output,
                     searchRoots: [workspaceURL],
                     fileExists: { model.fileExists(at: $0) },
-                    emptyMessage: "Run a test to see its output."
+                    emptyMessage: "Run a test to see its output.",
+                    wrapsLines: wrapsLines,
+                    showsConsoleToolbar: true,
+                    consoleToolbarPlacement: .trailing,
+                    onClearOutput: service.clearOutput,
+                    consolePresentation: consolePresentation,
+                    onToggleWrapsLines: { wrapsLines.toggle() }
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
             }
-            .litheWorkbenchSurface(LitheTheme.editor)
-        } else {
-            emptyState("Select a test scope to view its details.")
+        }
+    }
+
+    private var testSummary: some View {
+        HStack(spacing: LitheTheme.TestResult.summaryDescriptionGap) {
+            if let results = service.results {
+                HStack(spacing: LitheTheme.TestResult.summaryIconTextGap) {
+                    LitheIDEAIcon(resourcePath: Self.summaryIcon(for: results, state: service.state), size: 16,
+                                  preservesOriginalColors: true)
+                    if Self.runFailed(service.state), results.failures + results.errors == 0 {
+                        Text(LocalizedStringKey(Self.summaryText(for: service.state)))
+                            .foregroundStyle(LitheTheme.TestResult.failedText)
+                    }
+                    summaryCounts(results)
+                }
+                Text(localization.number(results.testsRun == 1 ? "%lld test total" : "%lld tests total", results.testsRun))
+                    .foregroundStyle(LitheTheme.TestResult.descriptionText)
+            } else {
+                Text(LocalizedStringKey(Self.summaryText(for: service.state)))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            Spacer(minLength: 0)
+        }
+        .font(LitheTheme.TestResult.summaryFont)
+        .lineLimit(1)
+        .foregroundStyle(LitheTheme.searchFieldText)
+        .padding(.leading, LitheTheme.TestResult.summaryLeadingInset)
+        .padding(.trailing, 8)
+        .frame(height: LitheTheme.Metrics.toolbarIconButtonSize + 2 * LitheTheme.ActionStripe.topInset)
+        .litheWorkbenchSurface(LitheTheme.editor)
+        .overlay(alignment: .bottom) {
+            if let color = resultStripeColor {
+                Capsule()
+                    .fill(color)
+                    .frame(height: LitheTheme.TestResult.stripeHeight)
+                    .padding(.trailing, LitheTheme.ActionStripe.width + 1)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    static func summaryText(for state: LanguageTestRunState) -> String {
+        switch state {
+        case .idle: "Run a test to see its results."
+        case .running: "Running"
+        case .passed: "Passed"
+        case .failed: "Failed"
+        case .timedOut: "Timed Out"
+        case .cancelled: "Cancelled"
+        }
+    }
+
+    private var resultStripeColor: Color? {
+        if Self.runFailed(service.state) { return LitheTheme.TestResult.failed }
+        if service.state == .cancelled { return nil }
+        if let results = service.results {
+            if results.failures + results.errors > 0 { return LitheTheme.TestResult.failed }
+            return results.passed > 0 ? LitheTheme.TestResult.passed : nil
+        }
+        switch service.state {
+        case .passed: return LitheTheme.TestResult.passed
+        case .failed, .timedOut: return LitheTheme.TestResult.failed
+        default: return nil
         }
     }
 
     private func testDetail(_ item: LanguageTestItem) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: testItemIcon(item))
-                    .font(LitheTheme.uiFont(size: 20))
-                    .foregroundStyle(LitheTheme.accent)
-                    .frame(width: 34, height: 34)
-                    .background(LitheTheme.accent.opacity(0.10))
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.label)
-                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-                        .textSelection(.enabled)
-                    Text(providerName(for: item.providerID))
-                        .font(LitheTheme.uiFont(size: 11))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-                Spacer(minLength: 8)
-                Button {
-                    model.runTest(providerID: item.providerID, scope: scope(for: item))
-                } label: {
-                    Label(service.isRunning ? "Running" : "Run", systemImage: service.isRunning ? "hourglass" : "play.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(service.isRunning)
-
-                if item.providerID == "java", item.kind != .workspace {
-                    Button {
-                        model.debugTest(providerID: item.providerID, scope: scope(for: item))
-                    } label: {
-                        Label("Debug", systemImage: "ladybug.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(service.isRunning)
-                }
-            }
-
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(height: 1)
-
             HStack(alignment: .firstTextBaseline, spacing: 14) {
                 Text("Scope")
                     .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
@@ -361,7 +541,6 @@ struct LanguageTestsView: View {
             }
 
             if let results = service.results {
-                testResultSummary(results)
                 if !results.failureDetails.isEmpty {
                     testFailureList(results.failureDetails)
                 }
@@ -387,24 +566,43 @@ struct LanguageTestsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func testResultSummary(_ results: LanguageTestResults) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(localization.text("Results"))
-                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 90, alignment: .trailing)
-            HStack(spacing: 8) {
-                resultCount("Passed", results.passed, color: LitheTheme.success)
-                resultCount("Failed", results.failures + results.errors, color: LitheTheme.error)
-                resultCount("Skipped", results.skipped, color: LitheTheme.warning)
-            }
-            .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
+    private func summaryCounts(_ results: MavenTestResults) -> Text {
+        let failed = results.failures + results.errors
+        let separator = localization.text(", ")
+        var fragments: [Text] = []
+        if failed > 0 {
+            let format = failed == 1 ? "%lld test failed" : "%lld tests failed"
+            fragments.append(Text(localization.number(format, failed) + (results.passed + results.skipped > 0 ? separator : ""))
+                .foregroundColor(LitheTheme.TestResult.failedText))
+        }
+        if results.passed > 0 {
+            let format = failed + results.skipped == 0
+                ? (results.passed == 1 ? "%lld test passed" : "%lld tests passed") : "%lld passed"
+            fragments.append(Text(localization.number(format, results.passed) + (results.skipped > 0 ? separator : "")))
+        }
+        if results.skipped > 0 {
+            let format = failed + results.passed == 0
+                ? (results.skipped == 1 ? "%lld test ignored" : "%lld tests ignored") : "%lld ignored"
+            fragments.append(Text(localization.number(format, results.skipped))
+                .foregroundColor(LitheTheme.TestResult.ignoredText))
+        }
+        return fragments.reduce(Text(""), +).font(LitheTheme.TestResult.summaryFont)
+    }
+
+    static func runFailed(_ state: LanguageTestRunState) -> Bool {
+        switch state {
+        case .failed, .timedOut: true
+        default: false
         }
     }
 
-    private func resultCount(_ label: String, _ count: Int, color: Color) -> some View {
-        Label(localization.count(label, count), systemImage: "circle.fill")
-            .foregroundStyle(color)
+    static func summaryIcon(for results: MavenTestResults, state: LanguageTestRunState = .idle) -> String {
+        let status: String
+        if results.failures > 0 { status = "Failed" }
+        else if results.errors > 0 || runFailed(state) { status = "Error" }
+        else if results.passed > 0 { status = results.skipped > 0 ? "PassedIgnored" : "Passed" }
+        else { status = results.skipped > 0 ? "Ignored" : "NotRunYet" }
+        return "expui/run/test\(status).svg"
     }
 
     private func testFailureList(_ failures: [LanguageTestFailureDetail]) -> some View {
@@ -466,16 +664,13 @@ struct LanguageTestsView: View {
         }
     }
 
-    private func itemCount(_ items: [LanguageTestItem]) -> Int {
-        let exactTests = items.filter { $0.kind == .testCase }.count
-        return exactTests > 0 ? exactTests : items.filter { $0.kind != .workspace }.count
-    }
-
-    private func testItemIcon(_ item: LanguageTestItem) -> String {
-        switch item.kind {
-        case .workspace: "square.stack.3d.up"
-        case .file: "doc.text.magnifyingglass"
-        case .testCase: item.depth > 1 ? "function" : "cube"
+    static func testItemIcon(status: String?, kind: LanguageTestItemKind? = nil, hasChildren: Bool = false) -> String {
+        if let status { return "expui/run/test\(status).svg" }
+        switch kind {
+        case .workspace: return "expui/nodes/testGroup.svg"
+        case .testCase: return "expui/nodes/\(hasChildren ? "class" : "method").svg"
+        case .file: return "fileTypes/unknown.svg"
+        case nil: return "expui/run/testNotRunYet.svg"
         }
     }
 
@@ -490,18 +685,12 @@ struct LanguageTestsView: View {
         }
     }
 
-    private func providerName(for providerID: String) -> String {
-        model.languageProviderCatalog.descriptors.first { $0.id == providerID }?.displayName ?? providerID
-    }
-
     @ViewBuilder
     private func providerIcon(for descriptor: LanguageProviderDescriptor) -> some View {
         if let kind = Self.iconKind(for: descriptor.id) {
-            LitheIcon(kind: kind, size: 14)
+            LitheIcon(kind: kind, size: LitheTheme.Tree.iconSize)
         } else {
-            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                .font(LitheTheme.uiFont(size: 10, weight: .medium))
-                .foregroundStyle(LitheTheme.accent)
+            Color.clear.frame(width: LitheTheme.Tree.iconSize, height: LitheTheme.Tree.iconSize)
         }
     }
 

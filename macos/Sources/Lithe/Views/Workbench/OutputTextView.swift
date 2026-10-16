@@ -50,9 +50,10 @@ struct OutputTextView: View {
     /// horizontal scrolling, the historical behavior of every output pane.
     var wrapsLines = false
     var showsConsoleToolbar = false
+    var consoleToolbarPlacement: HorizontalEdge = .leading
     var onClearOutput: (() -> Void)? = nil
-    var fontSize: CGFloat = 11.5
-    var usesIDEAConsoleStyle = false
+    var fontSize: CGFloat = LitheConsoleStyle.defaultFontSize
+    private let usesIDEAConsoleStyle = true
     var consolePresentation: ConsoleFoldPresentation? = nil
     var standardInputSessionID: UUID? = nil
     var onSubmitStandardInput: ((String) -> Bool)? = nil
@@ -71,7 +72,7 @@ struct OutputTextView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if showsConsoleToolbar {
+            if showsConsoleToolbar && consoleToolbarPlacement == .leading {
                 consoleToolbar
                 Rectangle().fill(LitheTheme.toolWindowBorder(for: colorScheme)).frame(width: 1)
             }
@@ -108,6 +109,10 @@ struct OutputTextView: View {
                         .padding(10)
                 }
             }
+            if showsConsoleToolbar && consoleToolbarPlacement == .trailing {
+                Rectangle().fill(LitheTheme.toolWindowBorder(for: colorScheme)).frame(width: 1)
+                consoleToolbar
+            }
         }
     }
 
@@ -130,7 +135,7 @@ struct OutputTextView: View {
                 .disabled(action == .previous || action == .next ? !hasConsoleOccurrences
                     : action == .softWraps ? onToggleWrapsLines == nil
                     : action == .clear ? onClearOutput == nil || output.isEmpty : output.isEmpty)
-                .workbenchHoverHelp(Text(LocalizedStringKey(action.title)), placement: .trailing)
+                .workbenchHoverHelp(Text(LocalizedStringKey(action.title)), placement: consoleToolbarPlacement == .leading ? .trailing : .leading)
                 .accessibilityLabel(LocalizedStringKey(action.title))
             }
             Spacer(minLength: 0)
@@ -149,7 +154,7 @@ struct OutputTextView: View {
         fileExists: @escaping (URL) -> Bool,
         isDark: Bool,
         theme: AppColorTheme,
-        fontSize: CGFloat = 11.5,
+        fontSize: CGFloat = LitheConsoleStyle.defaultFontSize,
         usesIDEAConsoleStyle: Bool = false
     ) -> NSAttributedString {
         let defaultForeground = usesIDEAConsoleStyle ? LitheConsoleStyle.foreground(dark: isDark)
@@ -159,17 +164,11 @@ struct OutputTextView: View {
         guard !parsed.cleanText.isEmpty else { return NSAttributedString() }
         var result = ANSIOutputRenderer.render(parsed, fontSize: fontSize)
         if usesIDEAConsoleStyle {
+            LitheConsoleStyle.normalizeLogLevels(in: result, dark: isDark)
             result.addAttribute(.paragraphStyle, value: LitheConsoleStyle.paragraphStyle(fontSize: fontSize),
                 range: NSRange(location: 0, length: result.length))
         }
         if !usesIDEAConsoleStyle {
-            applySeverityColors(
-                to: &result,
-                text: parsed.cleanText,
-                ansiStyled: parsed.hasStyling,
-                theme: theme,
-                isDark: isDark
-            )
             dimTimestamps(in: &result, text: parsed.cleanText, theme: theme, isDark: isDark)
         }
         for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots, fileExists: fileExists) {
@@ -197,68 +196,7 @@ struct OutputTextView: View {
         LitheTheme.nsColor(token, theme: theme, isDark: isDark)
     }
 
-    // MARK: - 日志级别着色
-
-    enum Severity {
-        case error, warning, info, debug
-
-        func color(theme: AppColorTheme, isDark: Bool) -> NSColor {
-            switch self {
-            case .error: resolvedColor(.error, theme: theme, isDark: isDark)
-            case .warning: resolvedColor(.warning, theme: theme, isDark: isDark)
-            case .info: NSColor(srgbRed: 0.55, green: 0.72, blue: 0.95, alpha: 1)
-            case .debug: resolvedColor(.secondaryText, theme: theme, isDark: isDark)
-            }
-        }
-    }
-
-    /// Matches the level as its own bracketed or spaced token so a path such as
-    /// `src/main/java/Error.java` is not mistaken for an error line.
-    private static let severityExpression = try! NSRegularExpression(
-        pattern: #"(?:^|\s|\[)(ERROR|SEVERE|FATAL|WARN(?:ING)?|INFO|DEBUG|TRACE)(?:\]|\s|:)"#
-    )
-
-    static func severity(ofLine line: String) -> Severity? {
-        let range = NSRange(line.startIndex..<line.endIndex, in: line)
-        guard let match = severityExpression.firstMatch(in: line, range: range),
-              let token = capture(match, at: 1, in: line) else { return nil }
-        switch token.uppercased() {
-        case "ERROR", "SEVERE", "FATAL": return .error
-        case "WARN", "WARNING": return .warning
-        case "INFO": return .info
-        case "DEBUG", "TRACE": return .debug
-        default: return nil
-        }
-    }
-
-    /// Colors whole lines by log level so a wall of white output separates into
-    /// scannable bands. Skipped when the process emitted its own ANSI colors --
-    /// overriding those would fight the tool's intended formatting.
-    private static func applySeverityColors(
-        to result: inout NSMutableAttributedString,
-        text: String,
-        ansiStyled: Bool,
-        theme: AppColorTheme,
-        isDark: Bool
-    ) {
-        guard !ansiStyled else { return }
-        var colored: [(Range<String.Index>, Severity)] = []
-        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: [.byLines]) { substring, lineRange, _, _ in
-            guard let line = substring, let severity = severity(ofLine: line) else { return }
-            colored.append((lineRange, severity))
-        }
-        for (lineRange, severity) in colored {
-            result.addAttribute(
-                .foregroundColor,
-                value: severity.color(theme: theme, isDark: isDark),
-                range: NSRange(lineRange, in: text)
-            )
-        }
-    }
-
-    /// Recedes the leading clock on every line so the timestamps read as a
-    /// gutter rather than competing with the message for attention. Applied
-    /// after severity coloring, which paints whole lines including the stamp.
+    /// Recedes timestamps only in legacy output panes; console producer styling is unchanged.
     private static func dimTimestamps(
         in result: inout NSMutableAttributedString,
         text: String,
@@ -966,7 +904,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
             return true
         }
 
-        private var baseFontSize: CGFloat = 13
+        private var baseFontSize: CGFloat = LitheConsoleStyle.defaultFontSize
         private var lastRender: (() -> Void)?
 
         func configureConsole(_ enabled: Bool, fontSize: CGFloat) {
@@ -1016,7 +954,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
         }
 
         func apply(
-            fontSize: CGFloat = 11.5,
+            fontSize: CGFloat = LitheConsoleStyle.defaultFontSize,
             usesIDEAConsoleStyle: Bool = false,
             output: String,
             emptyMessage: String,

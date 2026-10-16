@@ -3103,6 +3103,8 @@ fn invalid_settings_are_reported_without_starting_a_process() {
     }
 }
 
+// The timing harness starts this test cold: a missing custom command must not
+// wait for Node/npm version probes before reporting its spawn error.
 #[test]
 fn spawn_failure_reports_stopped_with_a_message() {
     let (sender, receiver) = mpsc::channel();
