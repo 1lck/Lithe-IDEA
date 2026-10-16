@@ -9,11 +9,15 @@ use std::collections::BTreeMap;
 /// Responses and failures never include authentication material or raw input.
 pub fn parse_provider_configuration(payload: Value) -> Result<Value, CoreError> {
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Request {
         /// CLI configuration format, either `codex` or `claude`.
         source: String,
         /// UTF-8 TOML or JSON, limited to 64 KiB before parsing.
         configuration: String,
+        /// Editor-only parsing preserves empty fields instead of applying CLI defaults.
+        #[serde(default)]
+        allow_incomplete: bool,
     }
     let invalid = || {
         CoreError::new(
@@ -22,11 +26,19 @@ pub fn parse_provider_configuration(payload: Value) -> Result<Value, CoreError> 
         )
     };
     let request: Request = serde_json::from_value(payload).map_err(|_| invalid())?;
-    if request.configuration.len() > 64 * 1024 || request.configuration.trim().is_empty() {
+    if request.configuration.len() > 64 * 1024
+        || (!request.allow_incomplete && request.configuration.trim().is_empty())
+    {
         return Err(invalid());
     }
     let environment = BTreeMap::new();
     let detected = match request.source.as_str() {
+        "codex" if request.allow_incomplete => {
+            super::configuration::parse_codex_draft(&request.configuration)
+        }
+        "claude" if request.allow_incomplete => {
+            super::configuration::parse_claude_draft(&request.configuration)
+        }
         "codex" => super::parse_codex(&request.configuration, "{}", &environment),
         "claude" => super::parse_claude(&request.configuration, "", "", &environment),
         _ => return Err(invalid()),

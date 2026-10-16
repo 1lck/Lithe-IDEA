@@ -3150,3 +3150,17 @@
 "%lld test total" = "共 %lld 个测试";
 "%lld tests total" = "共 %lld 个测试";
 ", " = "，";
+
+// Agent provider form
+"Use form" = "使用表单";
+"Edit configuration text" = "编辑配置文本";
+"API request URL" = "API 请求地址";
+"Enter API key" = "填写 API Key";
+"Enter model ID" = "填写模型 ID";
+"Show API key" = "显示密钥";
+"Hide API key" = "隐藏密钥";
+"Base URL for a service compatible with the OpenAI Responses API." = "填写兼容 OpenAI Responses API 的服务端基础地址。";
+"Base URL for an Anthropic Messages API service." = "填写兼容 Anthropic Messages API 的服务端基础地址。";
+"Use a model ID supported by your provider." = "填写该服务商支持的模型 ID。";
+"Enter a model ID supported by your provider." = "请填写该服务商支持的模型 ID。";
+"The API key is stored separately from settings. Your local CLI configuration is not changed." = "密钥与设置分开存储，不会修改本机 CLI 配置。";

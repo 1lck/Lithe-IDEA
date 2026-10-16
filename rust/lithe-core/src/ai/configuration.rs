@@ -24,6 +24,20 @@ pub fn parse_codex(
     auth: &str,
     environment: &BTreeMap<String, String>,
 ) -> Result<DetectedConfiguration, &'static str> {
+    parse_codex_configuration(config, auth, environment, false)
+}
+
+/// Reads editable fields without requiring a complete provider or adding CLI defaults.
+pub(super) fn parse_codex_draft(config: &str) -> Result<DetectedConfiguration, &'static str> {
+    parse_codex_configuration(config, "{}", &BTreeMap::new(), true)
+}
+
+fn parse_codex_configuration(
+    config: &str,
+    auth: &str,
+    environment: &BTreeMap<String, String>,
+    allow_incomplete: bool,
+) -> Result<DetectedConfiguration, &'static str> {
     let value: toml::Value = toml::from_str(config).map_err(|_| "AI_COMMIT_INVALID_CONFIG")?;
     let profile = value
         .get("profile")
@@ -45,10 +59,14 @@ pub fn parse_codex(
             .and_then(toml::Value::as_str)
     };
     let endpoint = option("base_url")
-        .or_else(|| (provider_name == "openai").then_some("https://api.openai.com/v1"))
+        .or_else(|| {
+            (!allow_incomplete && provider_name == "openai").then_some("https://api.openai.com/v1")
+        })
+        .or_else(|| allow_incomplete.then_some(""))
         .ok_or("AI_COMMIT_INVALID_CONFIG")?;
     let model = setting("model")
         .filter(|s| !s.is_empty())
+        .or_else(|| allow_incomplete.then_some(""))
         .ok_or("AI_COMMIT_INVALID_CONFIG")?;
     let auth: Value = serde_json::from_str(auth).unwrap_or(Value::Null);
     let uses_openai_auth = provider
@@ -101,6 +119,21 @@ pub fn parse_claude(
     root: &str,
     environment: &BTreeMap<String, String>,
 ) -> Result<DetectedConfiguration, &'static str> {
+    parse_claude_configuration(settings, credentials, root, environment, false)
+}
+
+/// Reads editable fields with aliases intact, leaving missing endpoint/model/key fields empty.
+pub(super) fn parse_claude_draft(settings: &str) -> Result<DetectedConfiguration, &'static str> {
+    parse_claude_configuration(settings.trim(), "", "", &BTreeMap::new(), true)
+}
+
+fn parse_claude_configuration(
+    settings: &str,
+    credentials: &str,
+    root: &str,
+    environment: &BTreeMap<String, String>,
+    allow_incomplete: bool,
+) -> Result<DetectedConfiguration, &'static str> {
     fn object(text: &str) -> Result<Value, &'static str> {
         if text.is_empty() {
             return Ok(Value::Null);
@@ -139,13 +172,21 @@ pub fn parse_claude(
         settings["apiBaseUrl"].as_str(),
         root["apiBaseUrl"].as_str(),
     ])
-    .unwrap_or("https://api.anthropic.com/v1");
+    .unwrap_or(if allow_incomplete {
+        ""
+    } else {
+        "https://api.anthropic.com/v1"
+    });
     let model = first_nonempty([
         env("ANTHROPIC_MODEL"),
         settings["model"].as_str(),
         root["model"].as_str(),
     ])
-    .unwrap_or("claude-sonnet-4-5");
+    .unwrap_or(if allow_incomplete {
+        ""
+    } else {
+        "claude-sonnet-4-5"
+    });
     let alias_key = format!("ANTHROPIC_DEFAULT_{}_MODEL", model.to_uppercase());
     let alias_name_key = format!("{alias_key}_NAME");
     let model = if matches!(
@@ -164,7 +205,11 @@ pub fn parse_claude(
         endpoint,
         model,
         "anthropicMessages",
-        if key.is_some() { "apiKey" } else { "bearer" },
+        if key.is_some() || (allow_incomplete && token.is_none()) {
+            "apiKey"
+        } else {
+            "bearer"
+        },
         credential,
     ))
 }
