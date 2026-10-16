@@ -78,7 +78,7 @@ fn main() {
             match profile_migration::prepare(app.handle()) {
                 Ok(true) => {
                     app.handle().plugin(
-                        tauri::plugin::Builder::new("profile-import-bootstrap")
+                        tauri::plugin::Builder::<tauri::Wry, ()>::new("profile-import-bootstrap")
                             .js_init_script(profile_migration::IMPORT_BOOTSTRAP)
                             .build(),
                     )?;
