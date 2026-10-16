@@ -292,8 +292,13 @@ struct LanguageTestsView: View {
                 selectedItemID = item.id
             } label: {
                 HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                    LitheIDEAIcon(resourcePath: Self.testItemIcon(status: status), size: LitheTheme.Tree.iconSize,
-                                  preservesOriginalColors: true)
+                    if status == nil, item.kind == .file {
+                        LitheIcon(kind: item.fileURL.map { LitheIcons.kind(for: $0, isDirectory: false) } ?? .generic,
+                                  size: LitheTheme.Tree.iconSize)
+                    } else {
+                        LitheIDEAIcon(resourcePath: Self.testItemIcon(status: status, kind: item.kind, hasChildren: hasChildren),
+                                      size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                    }
                     Text(item.label)
                         .font(LitheTheme.uiFont(size: 13, weight: .regular))
                         .foregroundStyle(LitheTheme.Tree.text)
@@ -402,15 +407,20 @@ struct LanguageTestsView: View {
                         Text(LocalizedStringKey(tab))
                             .font(LitheTheme.ActionStripe.titleFont)
                             .foregroundStyle(LitheTheme.ActionStripe.titleColor)
-                            .padding(.horizontal, 8)
-                            .frame(height: 28)
+                            .padding(.horizontal, LitheTheme.ActionStripe.tabHorizontalInset)
+                            .frame(height: LitheTheme.Metrics.toolbarHeight)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.litheNoPress)
-                    // IslandsTabPainter: 4pt horizontal / 6pt vertical inset in a 40pt tab.
-                    .modifier(LitheToolWindowTabStyle(isSelected: inspectorTab == tab, isActive: true))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 6)
+                    .litheRowHover(cornerRadius: 0, hoverBackground: LitheTheme.ActionStripe.tabHover)
+                    .overlay(alignment: .bottom) {
+                        if inspectorTab == tab {
+                            RoundedRectangle(cornerRadius: LitheTheme.ActionStripe.tabUnderlineRadius)
+                                .fill(LitheTheme.ActionStripe.tabUnderline)
+                                .frame(height: LitheTheme.ActionStripe.tabUnderlineHeight)
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .accessibilityAddTraits(inspectorTab == tab ? .isSelected : [])
                 }
                 Spacer(minLength: 0)
@@ -641,8 +651,14 @@ struct LanguageTestsView: View {
         }
     }
 
-    static func testItemIcon(status: String?) -> String {
-        "expui/run/test\(status ?? "NotRunYet").svg"
+    static func testItemIcon(status: String?, kind: LanguageTestItemKind? = nil, hasChildren: Bool = false) -> String {
+        if let status { return "expui/run/test\(status).svg" }
+        switch kind {
+        case .workspace: return "expui/nodes/testGroup.svg"
+        case .testCase: return "expui/nodes/\(hasChildren ? "class" : "method").svg"
+        case .file: return "fileTypes/unknown.svg"
+        case nil: return "expui/run/testNotRunYet.svg"
+        }
     }
 
     private func scopeDescription(_ item: LanguageTestItem) -> String {

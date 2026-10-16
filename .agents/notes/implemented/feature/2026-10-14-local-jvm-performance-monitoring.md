@@ -10,11 +10,10 @@ Performance 展示 Lithe 启动的目标 Java 进程的真实 CPU 和 JVM 堆数
 Test 的 Java 测试现在选择实际工作 JVM，以相同 jstat 端口采集 CPU 与堆内存；
 显式 JFR 录制和 Show Results 复用 JDK 的命令工具。Performance 与 Details 合并为右侧
 一个可收缩面板，以两个标签切换。非 Java 测试保留明确标注的进程树 CPU/RSS。
-这两个内容页签按 Community `c7f91397` 的 `IslandsUICustomization.paintTab` →
-`IslandsTabPainter` 覆盖绘制，复用 `LitheToolWindowTabStyle` 的明暗 hover、选中背景与边框。
-40pt 外层内水平留白4pt、垂直6pt，得到28pt圆角表面，文字仍为11pt常规标题。
-此前只追踪 `DarculaTabbedPaneUI` fallback 的3pt下划线，遗漏 Islands 的绘制覆盖；
-现已移除该下划线与独立 hover token，避免在 Test 页内维护第二套标签颜色。
+这两个内容页签按用户指定保留平面标签、矩形 hover 与底部3pt蓝色指示线，
+使用 Community `DarculaTabbedPaneUI` 的下划线模式及明暗主题颜色。
+Islands 的实际绘制覆盖会改成圆角选中块且不画下划线；用户已明确拒绝该形式，
+因此这里保留指定外观和紧凑标题，不再套用 `LitheToolWindowTabStyle`。
 暂不支持没有本地启动 PID 的远程附加目标。
 
 Test Console 与 Debug、Run 使用相同的 `OutputTextView` / `LitheConsoleStyle`，

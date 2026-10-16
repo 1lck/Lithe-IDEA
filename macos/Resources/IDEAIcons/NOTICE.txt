@@ -318,3 +318,9 @@ RunConfigurations.TestNotRan to expui/run/testNotRunYet.svg.
 Tests summary passed-with-ignored state: expui/run/testPassedIgnored{,_dark}.svg
 from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src.
 Copied unmodified; TestIconMapper/PlatformIconMappings assign ToolbarPassedIgnored.
+
+Tests discovery scope/type icons: expui/nodes/testGroup{,_dark}.svg and
+expui/nodes/method{,_dark}.svg copied unmodified from IntelliJ Community
+revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade, under
+platform/icons/src/expui/nodes, Apache-2.0. Files reuse the shared LitheIcons
+file-type catalog; discovered classes reuse the imported expui/nodes/class SVGs.

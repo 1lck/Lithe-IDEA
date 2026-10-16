@@ -65,6 +65,26 @@ struct LanguageTestPresentationTests {
         #expect(LanguageTestsView.testItemIcon(status: "Error") == "expui/run/testError.svg")
     }
 
+    @Test(arguments: [false, true])
+    func discoveryIconsDistinguishScopesAndKeepResultStatusPrecedence(dark: Bool) throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/IDEAIcons")
+        for (kind, children, expected) in [(LanguageTestItemKind.workspace, false, "testGroup"),
+                                         (.testCase, true, "class"), (.testCase, false, "method")] {
+            let path = LanguageTestsView.testItemIcon(status: nil, kind: kind, hasChildren: children)
+            #expect(path == "expui/nodes/\(expected).svg")
+            let asset = dark ? LitheIcons.darkIdeaAssetPath(for: path) : path
+            let image = try #require(NSImage(contentsOf: root.appendingPathComponent(asset)))
+            #expect(image.size == NSSize(width: 16, height: 16))
+            #expect(LanguageTestsView.testItemIcon(status: "Failed", kind: kind, hasChildren: children)
+                == "expui/run/testFailed.svg")
+        }
+        for (path, expected) in [("/fixture/Test.java", LitheIconKind.javaGeneric),
+                                 ("/fixture/test_demo.py", .pythonSource), ("/fixture/demo.test.js", .javaScript)] {
+            #expect(LitheIcons.kind(for: URL(fileURLWithPath: path), isDirectory: false) == expected)
+        }
+    }
+
     @Test func summaryIconDistinguishesMixedAndEmptyOutcomes() {
         for (failures, errors, passed, skipped, icon) in [(1, 0, 2, 1, "Failed"), (0, 1, 0, 0, "Error"),
             (0, 0, 2, 1, "PassedIgnored"), (0, 0, 1, 0, "Passed"),

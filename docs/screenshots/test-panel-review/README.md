@@ -12,7 +12,7 @@
 
 摘要样式补充：[深色](summary-dark.png)、[浅色](summary-light.png)。真实混合测试结果显示“2 tests failed, 3 passed, 1 ignored”及灰色总数；原生双击类名验证折叠/再次展开，叶子双击保持结果、没有启动新测试。
 
-## Performance / Details 页签纠正
+## 测试发现列表
 
-- `inspector-tabs-dark.png`、`inspector-tabs-light.png`：重建后的真实演示窗口，核对 Islands 圆角表面、选中边框及无底部蓝线。两个标签的切换已在原生窗口检查；hover 复用共享标签组件，本轮未单独捕获未选页签的鼠标悬停截图。
-- 上游依据：Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `IslandsUICustomization.paintTab` → `IslandsTabPainter`，不是 `DarculaTabbedPaneUI` 的下划线 fallback。
+- `discovery-dark.png`、`discovery-light.png`：本次重建应用中的真实未运行列表，显示工作区分组、共享Java文件、类与方法原始图标。已检查运行后通过/错误/失败/跳过状态、关闭运行后回到发现树，以及主题恢复为深色。
+- `LanguageTestPresentationTests` 6项通过，覆盖明暗原始资源尺寸、发现分组与方法图标、结果状态优先和共享文件类型分类；没有推送或更新PR。

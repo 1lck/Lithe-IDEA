@@ -1083,7 +1083,7 @@ struct RunConfigurationIntegrationTests {
             )
         )
         #expect(gradleMethodPlan.launchPlan.arguments == [
-            "test", "--tests", "example.UserServiceTest.logsIn",
+            "test", "--no-daemon", "--tests", "example.UserServiceTest.logsIn",
         ])
 
         let mavenMethodPlan = try javaProvider.testPlan(
@@ -1108,7 +1108,7 @@ struct RunConfigurationIntegrationTests {
             )
         )
         #expect(gradlePlan.frameworkID == "gradle")
-        #expect(gradlePlan.launchPlan.arguments == ["test"])
+        #expect(gradlePlan.launchPlan.arguments == ["test", "--no-daemon"])
         if case .toolchain(let executable) = gradlePlan.launchPlan.executable {
             #expect(executable == "project-gradle")
         } else {

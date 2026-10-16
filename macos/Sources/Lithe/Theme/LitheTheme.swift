@@ -749,6 +749,14 @@ enum LitheTheme {
         // Community UIUtil.SMALL + Islands text-default; compact pane titles.
         static var titleFont: Font { LitheTheme.uiFont(size: 11) }
         static var titleColor: Color { controlColor(light: 0x000000, dark: 0xD1D3D9) }
+        // Community c7f91397 TabbedPane + ManyIslands: flat content tabs, not HeaderTab pills.
+        static let tabHorizontalInset: CGFloat = 12
+        static let tabUnderlineHeight: CGFloat = 3
+        static let tabUnderlineRadius: CGFloat = 2 // tabSelectionArc is a diameter of 4.
+        static var tabUnderline: Color { controlColor(light: 0x3871E1, dark: 0x3871E1) }
+        static var tabHover: Color {
+            controlColor(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 18/255, darkAlpha: 23/255)
+        }
         static let width: CGFloat = 36
         static let iconSize: CGFloat = 16
         static let buttonSize: CGFloat = 22

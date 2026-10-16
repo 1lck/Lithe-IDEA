@@ -1273,3 +1273,9 @@ GRAYED_ATTRIBUTES → Component.infoForeground（#73767C）；不能用通用日
 
 结果树有子项的名称区域支持双击切换折叠；单击继续选择，箭头点击继续只切换折叠。
 复用 Maven 树的 simultaneous double-tap 方式，叶子双击不改折叠集合、不触发运行。
+
+Test 发现列表与运行结果分开处理图标语义：工作区入口使用原始 testGroup，文件复用
+LitheIcons.kind 文件分类与 LitheIcon；有子项的测试分组用 class，叶项用 method。
+它们均保留16pt原始明暗资源与共享树行；有报告状态时仍优先用运行结果图标，
+不把尚未运行的整个发现列表画成 testNotRunYet 灰点。原始资源只在构建时打包，
+运行时只读，不产生缓存或改变 bundle，既有 IDEAIcons 工作树资源归属不变。
