@@ -26,6 +26,8 @@ struct AgentContextUsageView: View {
     /// Estimated prompt composition from the optional model call proxy.
     var composition: AgentModelCall.Context?
     var showsPercentage = true
+    /// Off where a click opens the interactive breakdown instead.
+    var showsHoverCard = true
     @Environment(\.locale) private var locale
     private var ringStroke: CGFloat { showsPercentage ? 1.5 : 2 }
     private var ringInset: CGFloat { showsPercentage ? 0 : ringStroke / 2 }
@@ -62,12 +64,28 @@ struct AgentContextUsageView: View {
         .frame(width: showsPercentage ? nil : LitheTheme.Metrics.toolbarIconButtonSize,
                height: LitheTheme.Metrics.toolbarIconButtonSize)
         .fixedSize()
-        .workbenchHoverCard(placement: .above, maximumWidth: AgentStatusCardMetrics.width) {
-            AgentContextUsageCard(usage: usage, composition: composition)
-        }
+        .modifier(AgentContextHoverCard(isEnabled: showsHoverCard, usage: usage, composition: composition))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Context usage")
         .accessibilityValue(AgentContextUsagePresentation.details(usage, locale: locale))
         .accessibilityIdentifier("agent-context-usage")
+    }
+}
+
+private struct AgentContextHoverCard: ViewModifier {
+    let isEnabled: Bool
+    let usage: AgentContextUsage?
+    let composition: AgentModelCall.Context?
+    @Environment(\.agentUsesSubscription) private var usesSubscription
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.workbenchHoverCard(placement: .above, maximumWidth: AgentStatusCardMetrics.width) {
+                AgentContextUsageCard(usage: usage, composition: composition)
+                    .environment(\.agentUsesSubscription, usesSubscription)
+            }
+        } else {
+            content
+        }
     }
 }

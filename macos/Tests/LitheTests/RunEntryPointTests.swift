@@ -704,6 +704,67 @@ struct RunEntryPointTests {
         _ = await refreshTask.value
     }
 
+    @Test(arguments: [false, true])
+    func currentFileRestartSavesOriginalBufferAndAbortsOnSaveFailure(saveFails: Bool) async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let runs = ReadyRunConfigurationOperations()
+        let model = makeAppModel(
+            workspaceOperations: SequencedWorkspaceOperations(snapshots: [workspace.snapshot]),
+            runConfigurationOperations: runs
+        )
+        model.settings.autoSave = false
+        model.openProjectDirectly(workspace.root)
+        // Snapshot readiness precedes toolchain resolution. Wait for the full
+        // load before selecting Current File, or apply() can replace it with
+        // the default configuration. Opening the workspace owns this load;
+        // toggling Run would start another unawaited load of the same project.
+        try #require(await awaitLoadDrivenChange(on: model) {
+            model.runFeatureIfActive?.isProjectReady(
+                for: workspace.root, snapshotID: model.workspaceSnapshotID
+            ) == true && model.runFeatureIfActive?.isLoadingProject == false
+        })
+        await model.documentFeature.openFileAsync(
+            workspace.sourceURL, isReadOnly: false, displayPath: nil, activateWhenReady: true
+        )
+        let document = try #require(model.activeDocument)
+        let original = document.text
+        let feature = try #require(model.runFeatureIfActive)
+        feature.select(.currentFile)
+        try #require(feature.selectedConfiguration?.kind == .currentFile)
+        model.runSelectedConfiguration()
+        try #require(await runs.launchPlanRequested(1))
+        try #require(runs.launchedCurrentFileTexts == [original],
+                     "The initial launch must capture the original Current File target before testing restart")
+
+        document.text = original + "\n// v2"
+        let otherURL = workspace.root.appendingPathComponent("Other.java")
+        try "// unrelated buffer".write(to: otherURL, atomically: true, encoding: .utf8)
+        await model.documentFeature.openFileAsync(
+            otherURL, isReadOnly: false, displayPath: nil, activateWhenReady: true
+        )
+        let other = try #require(model.activeDocument)
+        other.text += " unsaved"
+        if saveFails {
+            // A directory at the destination makes writing fail regardless of user permissions.
+            try FileManager.default.removeItem(at: workspace.sourceURL)
+            try FileManager.default.createDirectory(at: workspace.sourceURL, withIntermediateDirectories: false)
+        }
+        model.restartSelectedRun()
+        if saveFails {
+            #expect(await awaitLoadDrivenChange(on: model) {
+                model.notifications.contains { $0.message == "Could not save App.java" }
+            })
+            #expect(runs.launchPlanCallCount == 1)
+            #expect(document.isDirty)
+        } else {
+            #expect(await runs.launchPlanRequested(2))
+            #expect(runs.launchedCurrentFileTexts == [original, document.text])
+            #expect(!document.isDirty)
+        }
+        #expect(other.isDirty, "Rerun must not save the newly focused editor")
+    }
+
     private func makeAppModel(
         workspaceOperations: any WorkspaceOperations,
         runConfigurationOperations: (any RunConfigurationOperations)? = nil,
@@ -866,6 +927,13 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
 private final class ReadyRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
     private let lock = NSLock()
     private var launchPlanCalls = 0
+    private var currentFileTexts: [String] = []
+
+    var launchedCurrentFileTexts: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentFileTexts
+    }
     private let launchPlanRequests: [TestGate]
 
     init(capacity: Int = 8) {
@@ -965,6 +1033,9 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
         debugPort: Int?
     ) throws -> SharedLaunchPlan {
         lock.lock()
+        if let currentFile {
+            currentFileTexts.append((try? String(contentsOf: projectURL.appendingPathComponent(currentFile), encoding: .utf8)) ?? "<unreadable>")
+        }
         launchPlanCalls += 1
         let ordinal = launchPlanCalls
         lock.unlock()

@@ -37,6 +37,7 @@ struct AgentConversationView: View {
                         model.showSettings(category: .providers)
                     }
                 )
+                .modifier(AgentEditorColumn(isEditor: isEditor))
             } else if let feature,
                       model.selectedAgentConversationID.map({ id in feature.agents.contains { $0.id == id } }) ?? true {
                 AgentConfiguredConversationView(
@@ -57,7 +58,9 @@ struct AgentConversationView: View {
                         if model.agentChatsInEditor { model.showAgentChatsInToolWindow() }
                         else { model.showAgentChatsInEditor() }
                     },
-                    onFocusEditor: { model.showAgentChatsInEditor() }
+                    onFocusEditor: { model.showAgentChatsInEditor() },
+                    isEditorLayout: isEditor,
+                    workspaceSummary: { AnyView(AgentEditorGitSummary(feature: model.gitFeatureIfActive)) }
                 )
             } else {
                 AgentUnconfiguredConversationView(
@@ -71,9 +74,9 @@ struct AgentConversationView: View {
                         model.selectAgentConversationAgent(id)
                     }
                 )
+                .modifier(AgentEditorColumn(isEditor: isEditor))
             }
         }
-        .frame(maxWidth: isEditor ? AgentPanelStyle.editorContentMaximumWidth : .infinity)
         .frame(maxWidth: .infinity, alignment: .center)
         .litheWorkbenchSurface(AgentPanelStyle.canvas)
         .workbenchHoverTooltipScope()
@@ -94,6 +97,17 @@ struct AgentConversationView: View {
 
     private func hidePanel() {
         model.workbenchFeature.setVisibility(.agent, isVisible: false)
+    }
+}
+
+/// Centers editor-tab content in the reading column; the tool window keeps its full width.
+struct AgentEditorColumn: ViewModifier {
+    let isEditor: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .frame(maxWidth: isEditor ? AgentPanelStyle.editorContentMaximumWidth : .infinity)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
@@ -120,6 +134,7 @@ struct AgentChatHeader: View {
     var showsActions = true
     var onRename: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
+    var onCopyConversation: (() -> Void)? = nil
     var showsToolbar = true
     var onToggleToolbar: (() -> Void)? = nil
     var activity: AgentActivitySummaryBar? = nil
@@ -195,6 +210,7 @@ struct AgentChatHeader: View {
                     }
                     LitheMenu {
                         LitheContextMenuItem.action("Rename Chat", isEnabled: onRename != nil) { onRename?() }
+                        LitheContextMenuItem.action("Copy Conversation", isEnabled: onCopyConversation != nil) { onCopyConversation?() }
                         LitheContextMenuItem.action("Delete Chat",
                             icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/delete.svg", size: LitheDropdownMetrics.iconSize,
                                                        fallbackSystemImage: "trash", preservesOriginalColors: true)),
@@ -257,6 +273,8 @@ struct AgentConfiguredConversationView: View {
     var chatsInEditor = false
     var onToggleLocation: (() -> Void)? = nil
     var onFocusEditor: (() -> Void)? = nil
+    var isEditorLayout = false
+    var workspaceSummary: () -> AnyView = { AnyView(EmptyView()) }
 
     var body: some View {
         if let connection = feature.selectedConnection, let agentID = feature.selectedAgentID {
@@ -273,13 +291,15 @@ struct AgentConfiguredConversationView: View {
                 onOpenFile: onOpenFile,
                 onRestoreFile: onRestoreFile,
                 historyOnly: historyOnly, showsChatActions: showsChatActions, chatsInEditor: chatsInEditor,
-                onToggleLocation: onToggleLocation, onFocusEditor: onFocusEditor
+                onToggleLocation: onToggleLocation, onFocusEditor: onFocusEditor,
+                isEditorLayout: isEditorLayout, workspaceSummary: workspaceSummary
             )
             .id(agentID)
         } else {
             AgentUnconfiguredConversationView(setupError: setupError, onOpenSettings: onOpenSettings,
                                               onHide: onHide, agents: availableAgents ?? AgentWelcomeVisit.builtInAgents,
                                               onChooseAgent: onSelectAgent)
+                .modifier(AgentEditorColumn(isEditor: isEditorLayout))
         }
     }
 }
@@ -373,6 +393,8 @@ private struct AgentConnectionView: View {
     var chatsInEditor = false
     var onToggleLocation: (() -> Void)? = nil
     var onFocusEditor: (() -> Void)? = nil
+    var isEditorLayout = false
+    var workspaceSummary: () -> AnyView = { AnyView(EmptyView()) }
     @State private var localError: String?
     @State private var showsSearch = false
     @State private var searchText = ""
@@ -381,6 +403,7 @@ private struct AgentConnectionView: View {
     @State private var renameTitle = ""
     @State private var deleteSessionID: String?
     @AppStorage("lithe.agent.showToolbar") private var showsToolbar = true
+    @AppStorage("lithe.agent.editor.showsDetails") private var showsEditorDetails = true
     @State private var draftReset = 0
     @Environment(\.scenePhase) private var scenePhase
 
@@ -459,7 +482,63 @@ private struct AgentConnectionView: View {
         }
     }
 
+    @ViewBuilder
     private var conversation: some View {
+        Group {
+            if isEditorLayout { editorConversation } else { toolWindowConversation }
+        }
+        .environment(\.agentUsesSubscription, feature.usesSubscription)
+    }
+
+    /// Editor tab: full-width header, centered reading column and an optional details column.
+    private var editorConversation: some View {
+        VStack(spacing: 0) {
+            AgentEditorChatHeader(
+                agentName: selectedAgent?.name ?? feature.agentName,
+                conversationTitle: conversationTitle,
+                historyPopup: historyPopup,
+                onNew: feature.isCreatingSession ? nil : startNewConversation,
+                onSearch: { showsSearch.toggle(); if !showsSearch { searchText = "" } },
+                showsDetails: showsEditorDetails,
+                onToggleDetails: { showsEditorDetails.toggle() },
+                onMoveToToolWindow: { onToggleLocation?() },
+                onOpenSettings: onOpenSettings,
+                onRename: renameAction,
+                onDelete: deleteAction,
+                onCopyConversation: copyConversationAction,
+                showsToolbar: showsToolbar,
+                onToggleToolbar: { showsToolbar.toggle() },
+                activity: activity
+            )
+            GeometryReader { geometry in
+                HStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        if showsSearch { searchBar }
+                        AgentConversationLayout {
+                            VStack(spacing: 0) {
+                                transcript
+                                errorNotice
+                            }
+                        } composer: {
+                            composer(layout: .editor)
+                        }
+                    }
+                    .modifier(AgentEditorColumn(isEditor: true))
+                    if showsEditorDetails && geometry.size.width >= AgentEditorConversationMetrics.detailsMinimumTotalWidth {
+                        AgentEditorDetailsPanel(
+                            statistics: feature.selectedConversation?.sessionStatistics,
+                            contextUsage: feature.selectedConversation?.contextUsage,
+                            fileChanges: AgentActivity(messages: feature.selectedConversation?.messages ?? [],
+                                                       reviewed: feature.selectedConversation?.reviewedFileChanges ?? [:]).files,
+                            workspace: workspaceSummary
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var toolWindowConversation: some View {
         VStack(spacing: 0) {
             AgentChatHeader(
                 agentName: selectedAgent?.name ?? feature.agentName,
@@ -468,22 +547,12 @@ private struct AgentConnectionView: View {
                 onOpenSettings: onOpenSettings,
                 onHide: onHide,
                 conversationTitle: historyOnly ? AgentLocalization.string("AI Chat", locale: locale) : conversationTitle,
-                historyPopup: { dismiss in
-                    AnyView(AgentHistoryPopover(feature: feature, history: history,
-                        agentName: selectedAgent?.name ?? feature.agentName,
-                        onSelect: { id in dismiss(); feature.selectSession(id) },
-                        onManage: { dismiss(); showsHistory = true },
-                        onSearch: { dismiss(); showsSearch = true }, onDismiss: dismiss))
-                },
+                historyPopup: historyPopup,
                 onToggleLocation: onToggleLocation, chatsInEditor: chatsInEditor,
                 showsAgentHeading: !historyOnly, showsActions: showsChatActions,
-                onRename: feature.selectedSessionID.map { id in {
-                    renameTitle = conversationTitle ?? ""
-                    renameSessionID = id
-                } },
-                onDelete: canDeleteConversation ? {
-                    if canDeleteConversation { deleteSessionID = feature.selectedSessionID }
-                } : nil,
+                onRename: renameAction,
+                onDelete: deleteAction,
+                onCopyConversation: copyConversationAction,
                 showsToolbar: showsToolbar,
                 onToggleToolbar: { showsToolbar.toggle() },
                 activity: activity
@@ -494,63 +563,102 @@ private struct AgentConnectionView: View {
                     onManage: { showsHistory = true }, onSearch: { showsSearch = true }, onDismiss: {},
                     isToolWindow: true)
             } else {
-                if showsSearch {
-                    HStack(spacing: 6) {
-                        LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
-                        LitheSearchTextField("Search conversation", text: $searchText)
-                        Button { showsSearch = false; searchText = "" } label: {
-                            LitheIDEAIcon(resourcePath: "expui/general/close.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
-                        }
-                            .litheToolbarIconButton()
-                            .help("Close search")
-                    }
-                    .padding(.leading, 12)
-                    .padding(.trailing, 6)
-                    .frame(height: 34)
-                    .litheWorkbenchSurface(AgentPanelStyle.context)
-                }
+                if showsSearch { searchBar }
                 AgentConversationLayout {
                     VStack(spacing: 0) {
                         transcript
-                        if let error = localError ?? feature.selectedConversation?.configurationError ?? feature.selectedConversation?.errorMessage ?? feature.errorMessage {
-                            AgentInlineNotice(text: error, status: .error)
-                        }
+                        errorNotice
                     }
                 } composer: {
-                    AgentComposerView(
-                        agents: agents,
-                        selectedAgent: selectedAgent,
-                        isResponding: feature.selectedConversation?.isResponding == true,
-                        isBlocked: feature.isCreatingSession
-                            || feature.selectedConversation?.isLoading == true
-                            || feature.connectionState != .ready,
-                        onSend: { try feature.send($0, files: $1) },
-                        onCancel: { feature.cancel() },
-                        onSelectAgent: onSelectAgent,
-                        onOpenSettings: onOpenSettings,
-                        onError: { localError = $0 },
-                        configOptions: feature.selectedConversation?.displayConfigOptions ?? [],
-                        sessionID: feature.selectedSessionID,
-                        isPreparingSession: isPreparingSession,
-                        isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
-                        isCancelling: feature.selectedConversation?.isCancelling == true,
-                        canSteer: feature.canSteer,
-                        isSendingSupplement: feature.selectedConversation?.pendingSteeringToken != nil,
-                        hasPendingContinuation: feature.hasPendingContinuation,
-                        contextUsage: feature.selectedConversation?.contextUsage,
-                        sessionStatistics: feature.selectedConversation?.sessionStatistics,
-                        showsSubscriptionQuota: feature.usesSubscription,
-                        subscriptionQuota: feature.subscriptionQuota,
-                        subscriptionAccount: feature.subscriptionEmail,
-                        quotaFailure: feature.quotaFailure,
-                        onSetConfig: { feature.setConfigOption($0, value: $1) },
-                        commands: feature.selectedConversation?.availableCommands ?? [],
-                        showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles
-                    )
-                    .id(draftReset)
+                    composer(layout: .toolWindow)
                 }
             }
         }
+    }
+
+    private func historyPopup(_ dismiss: @escaping () -> Void) -> AnyView {
+        AnyView(AgentHistoryPopover(feature: feature, history: history,
+            agentName: selectedAgent?.name ?? feature.agentName,
+            onSelect: { id in dismiss(); feature.selectSession(id) },
+            onManage: { dismiss(); showsHistory = true },
+            onSearch: { dismiss(); showsSearch = true }, onDismiss: dismiss))
+    }
+
+    private var renameAction: (() -> Void)? {
+        feature.selectedSessionID.map { id in {
+            renameTitle = conversationTitle ?? ""
+            renameSessionID = id
+        } }
+    }
+
+    private var copyConversationAction: (() -> Void)? {
+        guard let messages = feature.selectedConversation?.messages, !messages.isEmpty else { return nil }
+        let title = conversationTitle
+        return { AgentPasteboard.copy(AgentTranscriptExport.markdown(title: title, messages: messages, locale: locale)) }
+    }
+
+    private var deleteAction: (() -> Void)? {
+        canDeleteConversation ? {
+            if canDeleteConversation { deleteSessionID = feature.selectedSessionID }
+        } : nil
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 6) {
+            LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+            LitheSearchTextField("Search conversation", text: $searchText)
+            Button { showsSearch = false; searchText = "" } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/close.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+            }
+                .litheToolbarIconButton()
+                .help("Close search")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .frame(height: 34)
+        .litheWorkbenchSurface(AgentPanelStyle.context)
+    }
+
+    @ViewBuilder
+    private var errorNotice: some View {
+        if let error = localError ?? feature.selectedConversation?.configurationError ?? feature.selectedConversation?.errorMessage ?? feature.errorMessage {
+            AgentInlineNotice(text: error, status: .error)
+        }
+    }
+
+    private func composer(layout: AgentComposerLayout) -> some View {
+        AgentComposerView(
+            agents: agents,
+            selectedAgent: selectedAgent,
+            isResponding: feature.selectedConversation?.isResponding == true,
+            isBlocked: feature.isCreatingSession
+                || feature.selectedConversation?.isLoading == true
+                || feature.connectionState != .ready,
+            onSend: { try feature.send($0, files: $1) },
+            onCancel: { feature.cancel() },
+            onSelectAgent: onSelectAgent,
+            onOpenSettings: onOpenSettings,
+            onError: { localError = $0 },
+            configOptions: feature.selectedConversation?.displayConfigOptions ?? [],
+            sessionID: feature.selectedSessionID,
+            isPreparingSession: isPreparingSession,
+            isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
+            isCancelling: feature.selectedConversation?.isCancelling == true,
+            canSteer: feature.canSteer,
+            isSendingSupplement: feature.selectedConversation?.pendingSteeringToken != nil,
+            hasPendingContinuation: feature.hasPendingContinuation,
+            contextUsage: feature.selectedConversation?.contextUsage,
+            sessionStatistics: feature.selectedConversation?.sessionStatistics,
+            showsSubscriptionQuota: feature.usesSubscription,
+            subscriptionQuota: feature.subscriptionQuota,
+            subscriptionAccount: feature.subscriptionEmail,
+            quotaFailure: feature.quotaFailure,
+            onSetConfig: { feature.setConfigOption($0, value: $1) },
+            commands: feature.selectedConversation?.availableCommands ?? [],
+            showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles,
+            layout: layout
+        )
+        .id(draftReset)
     }
 
     private var conversationTitle: String? {

@@ -24,8 +24,11 @@ final class ToolWindowDragState: ObservableObject {
     var entries: [WorkbenchFeatureModel.ToolWindow: (frame: () -> CGRect, position: DockPosition, owner: ObjectIdentifier)] = [:]
     private var dragFrames: [WorkbenchFeatureModel.ToolWindow: (frame: CGRect, position: DockPosition)]?
     private var dragWorkspaceFrame: CGRect?
+    /// Tools whose renderer can reopen their content as an editor tab.
+    var editorTools: Set<WorkbenchFeatureModel.ToolWindow> = []
     @Published var source: WorkbenchFeatureModel.ToolWindow?
     @Published var target: Target?
+    @Published var targetsEditor = false
 
     func target(at point: CGPoint) -> Target? {
         let frames = dragFrames ?? entries.mapValues { (frame: $0.frame(), position: $0.position) }
@@ -49,12 +52,18 @@ final class ToolWindowDragState: ObservableObject {
         }
         return nil
     }
+    /// The center band left free by the dock bands is the editor area.
+    func isEditorTarget(at point: CGPoint) -> Bool {
+        guard let source, editorTools.contains(source), target(at: point) == nil else { return false }
+        let frame = dragWorkspaceFrame ?? workspaceFrame
+        return frame.width > 0 && frame.height > 0 && frame.contains(point)
+    }
     func begin(_ tool: WorkbenchFeatureModel.ToolWindow) {
         dragFrames = entries.mapValues { (frame: $0.frame(), position: $0.position) }
         dragWorkspaceFrame = workspaceFrame
         source = tool
     }
-    func finish() { source = nil; target = nil; dragFrames = nil; dragWorkspaceFrame = nil }
+    func finish() { source = nil; target = nil; targetsEditor = false; dragFrames = nil; dragWorkspaceFrame = nil }
 }
 
 /// Records AppKit window coordinates, matching the native drag source rather than a moving pane.
@@ -124,12 +133,14 @@ struct ToolWindowDragSource: NSViewRepresentable {
     let click: () -> Void
     let commit: (WorkbenchFeatureModel.ToolWindow, ToolWindowDragState.Target) -> Void
     var isEnabled = true
+    var openInEditor: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> SourceView { SourceView() }
     func updateNSView(_ view: SourceView, context: Context) {
         view.tool = tool; view.position = position; view.drag = drag; view.click = click; view.commit = commit
         view.image = image
         view.isEnabled = isEnabled
+        view.openInEditor = openInEditor
         view.record()
         view.cancelIfInactive()
     }
@@ -143,6 +154,7 @@ struct ToolWindowDragSource: NSViewRepresentable {
         var image: (() -> NSImage?)?
         var click: (() -> Void)?
         var commit: ((WorkbenchFeatureModel.ToolWindow, ToolWindowDragState.Target) -> Void)?
+        var openInEditor: (() -> Void)?
         private var pressed: NSEvent?
         private var dragging = false
         private var cancelled = false
@@ -165,6 +177,7 @@ struct ToolWindowDragSource: NSViewRepresentable {
                 let visible = self.visibleHitRect
                 return visible.isEmpty ? .null : self.convert(visible, to: nil)
             }, position, ObjectIdentifier(self))
+            if openInEditor != nil { drag?.editorTools.insert(tool) } else { drag?.editorTools.remove(tool) }
         }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -206,12 +219,15 @@ struct ToolWindowDragSource: NSViewRepresentable {
             guard isEnabled else { cancel(); pressed = nil; return }
             let wasDragging = dragging
             let destination = drag?.target(at: event.locationInWindow)
+            let opensEditor = destination == nil && drag?.isEditorTarget(at: event.locationInWindow) == true
             let tool = tool
             let commit = commit
+            let openInEditor = openInEditor
             cancel(); pressed = nil
             defer { cancelled = false }
             guard !cancelled else { return }
             if wasDragging, let destination, let tool { commit?(tool, destination) }
+            else if wasDragging, opensEditor { openInEditor?() }
             else if !wasDragging, visibleHitRect.contains(convert(event.locationInWindow, from: nil)) { click?() }
         }
         override func mouseDragged(with event: NSEvent) {
@@ -243,6 +259,8 @@ struct ToolWindowDragSource: NSViewRepresentable {
             preview?.setFrameOrigin(NSPoint(x: imageOrigin.x + delta.x, y: imageOrigin.y + delta.y))
             let target = drag.target(at: event.locationInWindow)
             if drag.target != target { drag.target = target }
+            let targetsEditor = target == nil && drag.isEditorTarget(at: event.locationInWindow)
+            if drag.targetsEditor != targetsEditor { drag.targetsEditor = targetsEditor }
         }
         func cancelIfInactive() {
             if dragging && (drag?.source != tool || !isEnabled) { cancel(); cancelled = true }

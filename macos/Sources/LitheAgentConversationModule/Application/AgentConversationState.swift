@@ -93,6 +93,9 @@ public struct AgentConversation: Equatable, Sendable {
     public var completedTurns: [AgentTurnStatistics] = []
     /// Session-wide provider requests observed by the optional Host proxy.
     public var modelCalls = AgentModelCallTotals()
+    /// Totals persisted before this conversation was loaded. Loading replays
+    /// messages only, so in-memory turns and calls start empty on top of it.
+    public var statisticsBaseline: AgentSessionStatisticsRecord?
     public var isResponding = false
     public var isLoading = false
     public var isCancelling = false
