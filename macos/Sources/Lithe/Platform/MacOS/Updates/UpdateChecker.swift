@@ -185,7 +185,8 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     init(bundle: Bundle = .main, preferences: UserDefaults = .standard,
          diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) }) {
         self.preferences = preferences
-        selectedChannel = AppUpdateChannel.saved(in: preferences)
+        selectedChannel = AppUpdateChannel.saved(in: preferences,
+            defaultChannel: MacAppIdentity(bundleIdentifier: bundle.bundleIdentifier).isDevelopment ? .autobuild : .stable)
         stableRollback = MacStableRollback(diagnosticSink: diagnosticSink)
         self.bundle = bundle
         buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
@@ -291,6 +292,12 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     func returnToStable() {
         guard canReturnToStable else { return }
+        if MacAppIdentity(bundleIdentifier: bundle.bundleIdentifier).isDevelopment {
+            // Different applications coexist. Never replace Lithe-Dev with Lithe
+            // or ask the legacy rollback installer to accept another bundle ID.
+            openRelease(AppUpdateChannel.stable.releaseURL(info: bundle.infoDictionary ?? [:]))
+            return
+        }
         if let reply = userDriver?.takeReply() {
             pendingChannel = .stable
             rollbackRequested = true

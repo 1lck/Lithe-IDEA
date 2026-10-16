@@ -201,15 +201,14 @@ enum MacEditorFontCatalog {
         return FamilyIndex(canonical: canonical, monospaced: [bundled] + monospaced)
     }
 
-    /// Detects fixed pitch from the family's regular face.
+    /// Detects fixed pitch from the family's regular face by measuring it.
     ///
-    /// The symbolic trait is authoritative when a font declares it, but several
-    /// monospaced families (and most screen fonts shipped by other vendors)
-    /// omit it. Measured advances catch those without trusting the name.
+    /// The `monoSpace` symbolic trait is not used: several monospaced families
+    /// omit it, and some CJK families (Lantinghei TC) declare it although their
+    /// Latin glyphs are proportional. The editor and the native Diff rely on
+    /// equal Latin advances, so only the measured advances decide.
     private static func isMonospaced(family: String) -> Bool {
         guard let face = regularFace(family: family) else { return false }
-
-        if face.fontDescriptor.symbolicTraits.contains(.monoSpace) { return true }
 
         let advances = ["i", "W", "0"].map {
             ($0 as NSString).size(withAttributes: [.font: face]).width

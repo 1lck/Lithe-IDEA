@@ -31,8 +31,11 @@ Issue #1090 的用户不喜欢默认的 JetBrains Mono。核对源码后确认 m
 ### 只允许等宽字体族
 
 候选列表由 `MacEditorFontCatalog.editorFamilies()` 生成，只包含等宽族，打包的
-JetBrains Mono 固定排第一。判定顺序是先看字型是否声明 `monoSpace` 符号 trait，再实测
-`i`、`W`、`0` 三个字形的 advance 是否相同——不少等宽字体不声明该 trait，只信 trait 会漏。
+JetBrains Mono 固定排第一。判定只看实测：`i`、`W`、`0` 三个字形的 advance 必须相同。
+不使用 `monoSpace` 符号 trait：不少等宽字体不声明它，只信 trait 会漏；反过来，兰亭黑
+`Lantinghei TC` 这类 CJK 字体声明了该 trait，但拉丁字形是比例宽度（实测约 2.4/12.4/7.3），
+信任 trait 会把它列为可选，破坏下面依赖等宽的 Diff 度量。这个缺陷在装有该下载字体的
+机器上由 `everyOfferedFamilyRendersFixedPitch` 发现。
 
 这条限制同时保护了上面第 3 点：因为所有可选字体都是等宽的，原生 Diff 现有的单字符
 advance 度量不需要改成逐行测量。如果以后允许比例字体，必须先重做 Diff 的横向宽度与

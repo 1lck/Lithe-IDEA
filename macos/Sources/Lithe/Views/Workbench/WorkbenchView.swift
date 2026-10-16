@@ -22,13 +22,16 @@ enum ActivityBarMetrics {
 /// Shared 30pt paint area centered in the activity rail's 37×40pt slot.
 struct LitheActivityBarButtonStyle: ButtonStyle {
     var isSelected = false
+    var isDragging = false
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
             .litheRowHover(isActive: isSelected, cornerRadius: 6, activeBackground: LitheTheme.selection)
-            .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
+            .frame(width: ActivityBarMetrics.slotWidth, height: isDragging ? 0 : ActivityBarMetrics.slotHeight)
+            .clipped()
+            .opacity(isDragging ? 0 : 1)
             .contentShape(Rectangle())
             .foregroundStyle(isSelected ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
             .opacity(isEnabled ? 1 : 0.45)
@@ -499,6 +502,7 @@ struct WorkbenchView: View {
                     // IDEA keeps the oldest balloon at the bottom; new messages grow upward.
                     ForEach(model.activeNotifications.reversed()) { notification in
                         WorkbenchNotificationBanner(message: notification.message,
+                            messageArguments: notification.arguments,
                             collapsedCount: notification.collapsedCount,
                             occurrenceCount: notification.occurrenceCount,
                             showHistory: { isNotificationCenterPresented = true }) {
@@ -969,9 +973,14 @@ struct WorkbenchView: View {
                     ? "arrow.clockwise"
                     : "play.fill"
             )
-                .foregroundStyle(LitheTheme.MainToolbar.runIcon)
+                .foregroundStyle(model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                                 ? LitheTheme.MainToolbar.runningIcon : LitheTheme.MainToolbar.runIcon)
         }
-        .buttonStyle(LitheMainToolbarButtonStyle(insets: LitheTheme.MainToolbar.runInsets))
+        .buttonStyle(LitheMainToolbarButtonStyle(
+            insets: LitheTheme.MainToolbar.runInsets,
+            executionBackground: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
+                ? LitheTheme.MainToolbar.runningBackground : nil
+        ))
         .help(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityLabel(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityIdentifier("run-selected-run-configuration")
@@ -988,9 +997,12 @@ struct WorkbenchView: View {
                 size: 16,
                 fallbackSystemImage: "ladybug.fill"
             )
-            .foregroundStyle(LitheTheme.MainToolbar.runIcon)
+            .foregroundStyle(isDebugSessionActive ? LitheTheme.MainToolbar.runningIcon : LitheTheme.MainToolbar.runIcon)
         }
-        .buttonStyle(LitheMainToolbarButtonStyle(insets: LitheTheme.MainToolbar.runInsets))
+        .buttonStyle(LitheMainToolbarButtonStyle(
+            insets: LitheTheme.MainToolbar.runInsets,
+            executionBackground: isDebugSessionActive ? LitheTheme.MainToolbar.runningBackground : nil
+        ))
         .help(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityLabel(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityIdentifier("debug-selected-run-configuration")
@@ -1001,16 +1013,16 @@ struct WorkbenchView: View {
             moduleUIRegistry.performAction(id: "workbench.stop-execution", model: model)
         } label: {
             LitheIDEAIcon(
-                resourcePath: "debugger/stop.svg",
+                resourcePath: "expui/run/stop_stroke.svg",
                 size: 16,
-                fallbackSystemImage: "stop.fill",
-                preservesOriginalColors: true
+                fallbackSystemImage: "stop"
             )
-                .frame(width: 28, height: 28)
-                .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+            .foregroundStyle(LitheTheme.MainToolbar.runningIcon)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .buttonStyle(LitheMainToolbarButtonStyle(
+            insets: LitheTheme.MainToolbar.runInsets,
+            executionBackground: LitheTheme.MainToolbar.stopBackground
+        ))
         .help("Stop active execution")
         .accessibilityLabel("Stop active execution")
         .accessibilityIdentifier("stop-active-execution")
@@ -1318,9 +1330,11 @@ struct WorkbenchView: View {
     }
 
     private func dockStripe(_ position: DockPosition) -> some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        let tools = model.workbenchFeature.tools(in: position).filter(isToolEntryVisible)
+        let hidesSource = toolWindowDrag.source.map { tools.contains($0) } ?? false
+        return ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 0) {
-                ForEach(model.workbenchFeature.tools(in: position).filter(isToolEntryVisible), id: \.self) { tool in
+                ForEach(tools, id: \.self) { tool in
                     let entry = contribution(for: tool)
                     let renderer = entry.flatMap { moduleUIRegistry.renderer(for: $0) }
                     let title = entry?.title ?? tool.rawValue
@@ -1330,7 +1344,7 @@ struct WorkbenchView: View {
                         ideaAssetPath: renderer?.ideaAssetPath ?? "expui/toolwindows/toolWindowComponents@20x20.svg",
                         icon: entry.flatMap { moduleUIRegistry.icon(for: $0, role: .toolWindow) },
                         help: renderer?.help ?? title, tooltipPlacement: position.anchor == .right ? .leading : .trailing,
-                        isSelected: model.workbenchFeature.isVisible(tool), action: { openTool(tool) }
+                        isSelected: model.workbenchFeature.isVisible(tool), isDragging: toolWindowDrag.source == tool, action: { openTool(tool) }
                     )
                     .disabled(!isToolAvailable(tool))
                     .overlay(ToolWindowDragSource(tool: tool, position: position, drag: toolWindowDrag, image: {
@@ -1343,7 +1357,7 @@ struct WorkbenchView: View {
                             .environment(\.colorScheme, colorScheme)).nsImage
                     }, click: { openTool(tool) }, commit: { moveTool($0, target: $1) }, isEnabled: isToolAvailable(tool),
                        openInEditor: renderer?.openInEditor.map { open in { open(model) } }))
-                    .opacity(toolWindowDrag.source == tool ? 0 : 1)
+                    .accessibilityHidden(toolWindowDrag.source == tool)
                     .litheContextMenu {
                         guard isToolAvailable(tool) else { return [] }
                         let editorItems: [LitheContextMenuItem] = renderer?.openInEditor.map { open in
@@ -1366,7 +1380,7 @@ struct WorkbenchView: View {
             }
             .frame(width: ActivityBarMetrics.width)
         }
-        .frame(height: max(1, min(CGFloat(model.workbenchFeature.tools(in: position).filter(isToolEntryVisible).count
+        .frame(height: max(1, min(CGFloat(tools.count - (hidesSource ? 1 : 0)
             + (toolWindowDrag.source != nil && toolWindowDrag.target?.position == position ? 1 : 0)) * ActivityBarMetrics.slotHeight,
                                 ActivityBarMetrics.toolViewportHeight)))
         .frame(maxWidth: .infinity)
@@ -1379,6 +1393,7 @@ struct WorkbenchView: View {
             .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
             .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
             .accessibilityHidden(true)
+            .background(ToolWindowWorkspaceAnchor(drag: toolWindowDrag, region: .insertion))
     }
 
     private func dockMoveTitle(_ position: DockPosition) -> String {
@@ -1409,6 +1424,7 @@ struct WorkbenchView: View {
             fraction: model.workbenchFeature.groupFractions[anchor.rawValue] ?? 0.5,
             hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
             showsFrameGradient: usesIDEAFrameExperiment,
+            drag: toolWindowDrag,
             commitFraction: { model.workbenchFeature.setGroupFraction($0, for: anchor) },
             content: { group in
                 toolContent(model.workbenchFeature.activeTool(in: .init(anchor: anchor, group: group)))
@@ -1468,6 +1484,7 @@ struct WorkbenchView: View {
         help: String,
         tooltipPlacement: WorkbenchHoverTooltipPlacement = .trailing,
         isSelected: Bool,
+        isDragging: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -1475,7 +1492,7 @@ struct WorkbenchView: View {
                 LitheIDEAIcon(resourcePath: ideaAssetPath, size: ActivityBarMetrics.iconSize)
             }
         }
-        .buttonStyle(LitheActivityBarButtonStyle(isSelected: isSelected))
+        .buttonStyle(LitheActivityBarButtonStyle(isSelected: isSelected, isDragging: isDragging))
         .workbenchHoverHelp(Text(LocalizedStringKey(help)), placement: tooltipPlacement)
         .accessibilityLabel(Text(LocalizedStringKey(help)))
     }
@@ -1532,11 +1549,12 @@ struct WorkbenchView: View {
                         EditorAreaView()
                     }
                 }
+                .background(ToolWindowWorkspaceAnchor(drag: toolWindowDrag, region: .editor))
             },
             bottomTool: { dockContent(on: .bottom) },
             rightTool: { dockContent(on: .right) }
         )
-        .background(ToolWindowWorkspaceAnchor(drag: toolWindowDrag))
+        .background(ToolWindowWorkspaceAnchor(drag: toolWindowDrag, sideWidths: [.left: sidebarWidth, .right: mavenPaneWidth]))
         .overlay { toolWindowDropOverlay.allowsHitTesting(false) }
     }
 
@@ -1558,27 +1576,18 @@ struct WorkbenchView: View {
                     .position(x: leading + (geometry.size.width - leading - trailing) / 2, y: height / 2)
             }
         } else if toolWindowDrag.source != nil, let target = toolWindowDrag.target {
-            GeometryReader { geometry in
-                let position = target.position
-                let counterpart: DockGroup = position.group == .primary ? .secondary : .primary
-                let splits = hasVisibleTool(on: position.anchor, group: counterpart)
-                let width = position.anchor == .bottom ? geometry.size.width / (splits ? 2 : 1)
-                    : min(position.anchor == .left ? sidebarWidth : mavenPaneWidth, geometry.size.width)
-                let height = position.anchor == .bottom ? geometry.size.height / 3
-                    : geometry.size.height / (splits ? 2 : 1)
-                let x = position.anchor == .left ? width / 2
-                    : position.anchor == .right ? geometry.size.width - width / 2
-                    : splits && position.group == .secondary ? geometry.size.width - width / 2 : width / 2
-                let y = position.anchor == .bottom || (splits && position.group == .secondary)
-                    ? geometry.size.height - height / 2 : height / 2
+            GeometryReader { _ in
+                let frame = toolWindowDrag.previewFrame(for: target)
+                let workspace = toolWindowDrag.workspaceFrame
+
                 Rectangle().fill(LitheTheme.toolWindowDropArea)
                     .overlay {
-                        Text(LocalizedStringKey(dockMoveTitle(position)))
+                        Text(LocalizedStringKey(dockMoveTitle(target.position)))
                             .font(LitheTheme.uiFont(size: 12))
                             .padding(8).background(LitheTheme.raised).cornerRadius(6)
                     }
-                    .frame(width: width, height: height)
-                    .position(x: x, y: y)
+                    .frame(width: max(0, frame.width), height: max(0, frame.height))
+                    .position(x: frame.midX - workspace.minX, y: workspace.maxY - frame.midY)
             }
         }
     }
@@ -1808,7 +1817,8 @@ private struct WorkbenchNotificationCenterView: View {
     /// Repeats of one message stay a single row whose text carries the count.
     private func message(for notification: WorkbenchNotification) -> String {
         WorkbenchNotificationPresentation.message(
-            String(localized: String.LocalizationValue(notification.message), locale: locale),
+            notification.message,
+            arguments: notification.arguments,
             occurrenceCount: notification.occurrenceCount,
             locale: locale
         )

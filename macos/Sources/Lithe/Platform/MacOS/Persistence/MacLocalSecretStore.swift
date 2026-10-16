@@ -22,11 +22,13 @@ final class MacLocalSecretStore: SecureStore, @unchecked Sendable {
 
     init(
         fileURL: URL? = nil,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        identity: MacAppIdentity = MacAppIdentity()
     ) {
         self.fileManager = fileManager
-        self.fileURL = fileURL ?? fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Lithe/ai-secrets.json")
+        self.fileURL = fileURL ?? identity.storageRoot(fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support", isDirectory: true))
+            .appendingPathComponent("Lithe/ai-secrets.json")
     }
 
     func read(key: String) -> String? {

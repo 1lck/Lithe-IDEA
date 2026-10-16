@@ -66,7 +66,8 @@
             "installation": {
               "source": "npm",
               "canUpdate": true,
-              "updateHint": "npm install -g @openai/codex"
+              "updateHint": "npm install -g @openai/codex",
+              "updateAvailable": true
             }
           },
           "issues": []
@@ -169,12 +170,14 @@
     "npm": {
       "source": "npm",
       "canUpdate": true,
-      "updateHint": "npm install -g @openai/codex"
+      "updateHint": "npm install -g @openai/codex",
+      "updateAvailable": true
     },
     "homebrew": {
       "source": "homebrew",
       "canUpdate": true,
-      "updateHint": "brew upgrade --cask codex"
+      "updateHint": "brew upgrade --cask codex",
+      "updateAvailable": true
     },
     "native": {
       "source": "native",

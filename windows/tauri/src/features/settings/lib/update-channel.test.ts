@@ -71,6 +71,15 @@ function memoryStorage() {
   };
 }
 
+test("isolated development defaults to its installed channel and preserves explicit choices", () => {
+  const storage = memoryStorage();
+  expect<string>(readUpdateChannel(storage, "autobuild")).toBe(fixture.developmentDefaultChannel);
+  storage.setItem(UPDATE_CHANNEL_STORAGE_KEY, "stable");
+  expect(readUpdateChannel(storage, "autobuild")).toBe("stable");
+  storage.setItem(UPDATE_CHANNEL_STORAGE_KEY, "invalid");
+  expect(readUpdateChannel(storage, "autobuild")).toBe("stable");
+});
+
 test("channel preference defaults to stable and rejects malformed stored choices", () => {
   const storage = memoryStorage();
   expect<string>(readUpdateChannel(storage)).toBe("stable");

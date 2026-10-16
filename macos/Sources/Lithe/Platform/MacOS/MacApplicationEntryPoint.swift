@@ -13,6 +13,13 @@ enum MacApplicationEntryPoint {
         if ProcessInfo.processInfo.environment["LITHE_GIT_ASKPASS_MODE"] == "1", CommandLine.arguments.count == 2 {
             exit(CommandLine.arguments[1].withCString { lithe_bridge_git_askpass($0) })
         }
+        #if DEBUG
+        if CommandLine.arguments.contains("--problems-demo")
+            || Bundle.main.object(forInfoDictionaryKey: "LitheProblemsDemo") as? Bool == true {
+            ProblemsDemo.run()
+            return
+        }
+        #endif
         LitheApp.main()
     }
 }

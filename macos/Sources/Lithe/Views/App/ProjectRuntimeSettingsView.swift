@@ -207,12 +207,12 @@ struct ProjectRuntimeSettingsView: View {
                     pathField(
                         title: "Maven Home",
                         value: mavenHomePathBinding,
-                        placeholder: "Choose Maven home or bin/mvn",
-                        chooseTitle: "Choose Maven home or bin/mvn",
+                        placeholder: "Choose Maven or mvnd home, bin, or executable",
+                        chooseTitle: "Choose Maven or mvnd home, bin, or executable",
                         fileOrDirectory: true
                     )
                 }
-                Text("Automatic uses a project mvnw first, then the system Maven on PATH.")
+                Text("Automatic uses a project mvnw first, then detected Maven, then mvnd.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                 if let workspaceURL = model.workspaceURL {
@@ -311,7 +311,7 @@ struct ProjectRuntimeSettingsView: View {
                     title: "Maven Home",
                     value: moduleMavenHomeBinding(for: subproject),
                     placeholder: "Inherit project Maven",
-                    chooseTitle: "Choose Maven home or bin/mvn",
+                    chooseTitle: "Choose Maven or mvnd home, bin, or executable",
                     fileOrDirectory: true
                 )
                 row("Maven JDK") {

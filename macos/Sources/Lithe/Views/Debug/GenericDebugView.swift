@@ -4,50 +4,43 @@ import LitheCoreContracts
 import LitheDebugModule
 
 struct GenericDebugView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: GenericDebugFeatureModel
+    @State private var performanceExpanded = false
+    @State private var performanceWidth: CGFloat = 360
+    @State private var inspectorWidth: CGFloat?
+    @State private var watchesHeight: CGFloat?
     @State private var stackListActive = false
+    @State private var showsStackSourceName = true
+    @State private var debugToolActive = false
     @State private var evaluateExpression = ""
+    @State private var showsVariableJSON = true
     @State private var editingVariable: DebugVariable?
     @State private var watchEditor: WatchEditorContext?
     @State private var smartStepTargets: [DebugStepInTarget] = []
     @State private var isSmartStepPickerPresented = false
     @State private var isJavaAttachPresented = false
     @State private var isJavaSteppingSettingsPresented = false
-    @State private var selectedContent: DebugContent = .debugger
-    @State private var consoleExpression = ""
-    @State private var programInput = ""
-    @FocusState private var isConsoleInputFocused: Bool
+    @State private var selectedContent: DebugContent = .console
+    @State private var consoleWrapsLines = false
+    @State private var consolePresentation = ConsoleFoldPresentation()
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            debugToolbar
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            if feature.isSessionActive || feature.hasOutput || feature.errorMessage != nil {
-                VStack(spacing: 0) {
-                    contentTabs
-                    Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                    activeContent
-                }
-            } else {
+            if feature.showsEmptyState {
                 emptyState
+            } else {
+                debugToolbar
+                activeContent
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
+        .background(LitheToolWindowActivityTracker(isActive: $debugToolActive))
         .sheet(item: $editingVariable) { variable in
             VariableValueEditorView(variable: variable) {
                 feature.setVariable(variable, value: $0)
-            }
-        }
-        .sheet(item: $watchEditor) { context in
-            WatchEditorView(watch: context.watch) { expression in
-                if let watch = context.watch {
-                    feature.updateWatch(watch, expression: expression)
-                } else {
-                    feature.addWatch(expression)
-                }
             }
         }
         .sheet(isPresented: $isJavaAttachPresented) {
@@ -64,24 +57,26 @@ struct GenericDebugView: View {
                 )
             }
         }
+        .onAppear { synchronizePerformanceSession() }
+        .onChange(of: feature.activeSessionID) { _ in synchronizePerformanceSession() }
+        .onDisappear { model.debugPerformanceFeature.setVisible(false) }
         .onChange(of: feature.state) { state in
+            synchronizePerformanceSession()
             switch state {
             case .paused:
                 selectedContent = .debugger
-                if isConsoleInputFocused {
-                    isConsoleInputFocused = false
-                }
-            case .failed:
+            case .initializing, .launching, .failed:
                 selectedContent = .console
             default:
                 break
             }
         }
-        .onChange(of: selectedContent) { content in
-            if content == .console && feature.state == .paused {
-                isConsoleInputFocused = true
-            }
-        }
+
+    }
+
+    private func synchronizePerformanceSession() {
+        model.debugPerformanceFeature.select(sessionID: feature.activeSessionID?.rawValue,
+            isActive: feature.isSessionActive)
     }
 
     @ViewBuilder
@@ -101,64 +96,45 @@ struct GenericDebugView: View {
                     selectedContent = content
                 } label: {
                     Text(content.title)
-                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                    .foregroundStyle(
-                        selectedContent == content
-                            ? LitheTheme.primaryText
-                            : LitheTheme.secondaryText
-                    )
-                    .padding(.horizontal, 11)
-                    .frame(height: 25)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(selectedContent == content
-                                ? LitheTheme.selection
-                                : Color.clear)
-                    )
-                    .overlay {
-                        if selectedContent == content {
-                            RoundedRectangle(cornerRadius: 5)
-                                .stroke(LitheTheme.accent.opacity(0.65), lineWidth: 1)
-                        }
-                    }
-                    .contentShape(Rectangle())
+                        .font(LitheTheme.uiFont(size: 13))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .padding(.horizontal, 8)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.litheNoPress)
-                .lithePointer()
+                .modifier(LitheToolWindowTabStyle(
+                    isSelected: selectedContent == content, isActive: debugToolActive
+                ))
+                .padding(.horizontal, 4)
             }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
-        .frame(height: 32)
-        .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 0) {
             Text("Debug")
-                .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.toolWindowText)
-            if let sessionTitle = debugSessionTitle {
-                debugSessionTab(sessionTitle)
+                .font(LitheTheme.uiFont(size: 13, weight: .bold))
+                .foregroundStyle(LitheTheme.primaryText)
+                .padding(.trailing, 16)
+            if !feature.showsEmptyState {
+                if let sessionTitle = debugSessionTitle {
+                    debugSessionTab(sessionTitle).padding(.horizontal, 4)
+                }
+                if feature.sessionSummaries.count > 1 { sessionPicker }
             }
-            if feature.sessionSummaries.count > 1 {
-                sessionPicker
+            Spacer(minLength: 12)
+            debugOptionsMenu.padding(.horizontal, 2)
+            LitheSidebarHideButton(title: "Debug") {
+                model.workbenchFeature.setVisibility(.debug, isVisible: false)
             }
-            if !feature.isSessionActive {
-                debugConfigurationPicker
-            }
-            Spacer(minLength: 8)
-            debugOptionsMenu
-            Button { model.workbenchFeature.setVisibility(.debug, isVisible: false) } label: {
-                Image(systemName: "minus")
-            }
-            .litheIconButton()
-            .help("Hide Debug tool window")
+            .padding(.horizontal, 2)
         }
         .padding(.leading, 12)
-        .padding(.trailing, 7)
-        .frame(height: DebugToolbarPresentation.sessionHeaderHeight)
+        .padding(.trailing, 8)
+        .frame(height: 41)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
     }
 
     private var debugSessionTitle: String? {
@@ -176,37 +152,26 @@ struct GenericDebugView: View {
     }
 
     private func debugSessionTab(_ title: String) -> some View {
-        HStack(spacing: 6) {
-            LitheIDEAIcon(
-                resourcePath: "debugger/debug.svg",
-                size: 14,
-                fallbackSystemImage: "ladybug.fill",
-                preservesOriginalColors: true
-            )
-            Text(title)
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .lineLimit(1)
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                LitheIDEAIcon(
+                    resourcePath: "debugger/debug.svg", size: 16,
+                    fallbackSystemImage: "ladybug", preservesOriginalColors: true
+                )
+                Text(title)
+                    .font(LitheTheme.uiFont(size: 13))
+                    .lineLimit(1)
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, feature.isSessionActive ? 3 : 8)
             if feature.isSessionActive {
-                Button(action: stopActiveDebugSession) {
-                    Image(systemName: "xmark")
-                        .font(LitheTheme.uiFont(size: 8, weight: .semibold))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(width: 16, height: 16)
-                }
-                .buttonStyle(.litheNoPress)
-                .lithePointer()
-                .help("Stop debug session")
+                LitheToolWindowTabCloseButton(action: stopActiveDebugSession)
+                    .help("Stop debug session")
+                    .accessibilityLabel("Stop debug session")
             }
         }
         .foregroundStyle(LitheTheme.primaryText)
-        .padding(.leading, 8)
-        .padding(.trailing, feature.isSessionActive ? 4 : 8)
-        .frame(height: 25)
-        .background(RoundedRectangle(cornerRadius: 5).fill(LitheTheme.selection))
-        .overlay {
-            RoundedRectangle(cornerRadius: 5)
-                .stroke(LitheTheme.accent.opacity(0.7), lineWidth: 1)
-        }
+        .modifier(LitheToolWindowTabStyle(isSelected: true, isActive: debugToolActive))
     }
 
     private var sessionPicker: some View {
@@ -257,54 +222,6 @@ struct GenericDebugView: View {
         return "\(summary.providerDisplayName) · \(rootName)"
     }
 
-    /// Keeps the Debug entry point visibly tied to the same Run configuration
-    /// used by the Run tool window. IDEA exposes this choice next to the
-    /// debugger session rather than hiding it behind a second, unrelated
-    /// launch flow.
-    private var debugConfigurationPicker: some View {
-        LitheMenu {
-            if let runFeature = model.runFeatureIfActive,
-                !runFeature.configurations.isEmpty
-            {
-                for configuration in runFeature.configurations {
-                    LitheContextMenuItem.action(
-                        configuration.name,
-                        icon: AnyView(RunConfigurationIcon(kind: configuration.kind, size: 14)),
-                        checked: configuration.id == runFeature.selectedConfiguration?.id
-                    ) {
-                        model.selectRunConfiguration(configuration)
-                    }
-                }
-            } else {
-                LitheContextMenuItem.action("Current File") {
-                    model.selectRunConfiguration(.currentFile)
-                }
-            }
-        } label: {
-            HStack(spacing: 5) {
-                RunConfigurationIcon(
-                    kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
-                    size: 13
-                )
-                Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
-                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(LitheTheme.uiFont(size: 8, weight: .bold))
-            }
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 8)
-            .frame(maxWidth: 210, minHeight: 25)
-            .background(RoundedRectangle(cornerRadius: 5).fill(LitheTheme.selection.opacity(0.72)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .fixedSize(horizontal: true, vertical: false)
-        .help("Select the Run configuration used by Debug")
-        .accessibilityLabel("Debug run configuration")
-        .accessibilityIdentifier("debug-run-configuration-picker")
-    }
-
     private var debugToolbar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
@@ -318,7 +235,8 @@ struct GenericDebugView: View {
                     Button { model.applyDebugServiceUpdate() } label: {
                         Image(systemName: "bolt.fill")
                     }
-                    .litheIconButton()
+                    .litheToolbarIconButton()
+                    .padding(.horizontal, 2)
                     .disabled(feature.updatingServiceSessionID != nil)
                     .help("Apply code changes to this service")
                     .accessibilityLabel("Apply code changes")
@@ -330,14 +248,15 @@ struct GenericDebugView: View {
                 if let message = feature.serviceUpdateMessage {
                     Text(message).font(.caption).lineLimit(1).help(message)
                 }
-                debugOptionsMenu
-                debugExecutionStatus
+                debugOptionsMenu.padding(.horizontal, 2)
+                contentTabs
                 Spacer(minLength: 8)
             }
             .padding(.horizontal, 8)
             .frame(height: DebugToolbarPresentation.toolbarHeight)
         }
         .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
         .litheDropdown(isPresented: $isSmartStepPickerPresented) {
             smartStepPicker
         }
@@ -355,14 +274,14 @@ struct GenericDebugView: View {
                 ),
                 size: DebugToolbarPresentation.iconSize,
                 fallbackSystemImage: DebugToolbarPresentation.fallbackSystemImage(for: action),
-                preservesOriginalColors: true
+                preservesOriginalColors: true,
+                usesIDEADisabledAppearance: true
             )
             .frame(width: DebugToolbarPresentation.iconSize, height: DebugToolbarPresentation.iconSize)
         }
-        .litheIconButton()
-        .frame(width: 32, height: 30)
+        .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, disabledOpacity: 1, cornerRadius: 4, hoverBackground: LitheTheme.toolbarHoverBackground, pressedBackground: LitheTheme.toolbarPressedBackground))
+        .padding(.horizontal, 2)
         .disabled(isDisabled)
-        .opacity(isDisabled ? 0.36 : 1)
         .help(debugToolbarActionHelp(action))
         .accessibilityLabel(debugToolbarActionHelp(action))
         .accessibilityIdentifier("debug-toolbar-\(action.rawValue)")
@@ -467,64 +386,9 @@ struct GenericDebugView: View {
 
     private var toolbarDivider: some View {
         Rectangle()
-            .fill(LitheTheme.divider)
-            .frame(width: 1, height: 18)
+            .fill(LitheTheme.ActionToolbar.separator)
+            .frame(width: 1, height: 16)
             .padding(.horizontal, 3)
-    }
-
-    private var debugExecutionStatus: some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(debugStatusColor)
-                .frame(width: 6, height: 6)
-            Text(debugStatusText)
-                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .lineLimit(1)
-            if let frame = feature.selectedFrame,
-               let sourceURL = frame.sourceURL {
-                Button {
-                    model.revealDebugLocation(
-                        url: sourceURL,
-                        line: frame.line,
-                        column: frame.column
-                    )
-                } label: {
-                    Text("· \(sourceURL.lastPathComponent):\(frame.line)")
-                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
-                        .foregroundStyle(LitheTheme.secondaryText.opacity(0.82))
-                        .lineLimit(1)
-                }
-                .buttonStyle(.litheNoPress)
-                .help("Reveal stopped location in editor")
-                .accessibilityLabel("Reveal stopped location in editor")
-            }
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 22)
-        .background(
-            Capsule()
-                .fill(LitheTheme.selection.opacity(0.58))
-        )
-        .help(debugStatusText)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(debugStatusText)
-    }
-
-    private var debugStatusText: String {
-        DebugToolbarPresentation.statusText(
-            for: feature.state,
-            stoppedReason: feature.stoppedReason
-        )
-    }
-
-    private var debugStatusColor: Color {
-        switch feature.state {
-        case .paused: return LitheTheme.warning
-        case .failed: return LitheTheme.error
-        case .terminated, .idle: return LitheTheme.secondaryText
-        default: return LitheTheme.success
-        }
     }
 
     private var debugOptionsMenu: some View {
@@ -550,12 +414,13 @@ struct GenericDebugView: View {
                 .disabled(!feature.hasOutput)
         } label: {
             LitheIDEAIcon(
-                resourcePath: "actions/moreVertical.svg",
-                size: 15,
-                fallbackSystemImage: "ellipsis"
+                resourcePath: "expui/general/moreVertical.svg",
+                size: 16,
+                fallbackSystemImage: "ellipsis",
+                preservesOriginalColors: true
             )
         }
-        .litheIconButton()
+        .litheToolbarIconButton()
         .help("More Debug actions")
         .accessibilityLabel("More Debug actions")
     }
@@ -601,12 +466,17 @@ struct GenericDebugView: View {
     }
 
     private var inspector: some View {
-        HSplitView {
-            executionInspector
-                .background(LitheToolWindowActivityTracker(isActive: $stackListActive))
-                .frame(minWidth: 240, idealWidth: 320, maxWidth: .infinity)
-            dataInspector
-                .frame(minWidth: 300, idealWidth: 480, maxWidth: .infinity)
+        GeometryReader { geometry in
+            LitheSplitPaneView(axis: .horizontal, placement: .leading,
+                defaultSize: inspectorWidth ?? geometry.size.width / 3,
+                minimum: 240, maximum: max(240, geometry.size.width - 300), flexibleMinimum: 300,
+                dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
+                onCommit: { inspectorWidth = $0 }) {
+                executionInspector
+                    .background(LitheToolWindowActivityTracker(isActive: $stackListActive))
+            } flexible: {
+                dataInspector
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.sidebar)
@@ -614,20 +484,28 @@ struct GenericDebugView: View {
 
     private var executionInspector: some View {
         VStack(spacing: 0) {
-            threadPicker
+            HStack(spacing: 0) {
+                threadPicker
+                Spacer(minLength: 0)
+                stackPresentationMenu
+                    .padding(.trailing, LitheTheme.Tree.horizontalInset)
+            }
             divider
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if feature.stackFrames.isEmpty {
-                        placeholder("Pause the process to inspect frames")
-                    } else {
+            if feature.stackFrames.isEmpty {
+                LitheToolWindowStatusText("Frames are not available")
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         if feature.areFilteredStackFramesExpanded,
                            feature.hiddenStackFrameCount > 0 {
                             Button {
                                 feature.collapseFilteredStackFrames()
                             } label: {
-                                Label("Collapse filtered frames", systemImage: "rectangle.compress.vertical")
-                                    .font(LitheTheme.smallFont)
+                                HStack(spacing: 6) {
+                                    LitheIDEAIcon(resourcePath: "expui/general/collapseAll.svg", size: 16, preservesOriginalColors: true)
+                                    Text("Collapse filtered frames")
+                                }
+                                    .font(LitheTheme.uiFont(size: 13))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .padding(.horizontal, 10)
                                     .frame(minHeight: 27)
@@ -648,26 +526,21 @@ struct GenericDebugView: View {
                                     }
                                 } label: {
                                     if frame.isFiltered {
-                                        Image(systemName: "ellipsis")
-                                            .foregroundStyle(LitheTheme.secondaryText)
-                                    } else if feature.selectedFrameID == frame.id {
-                                        LitheIDEAIcon(
-                                            resourcePath: "debugger/frame.svg",
-                                            size: 14,
-                                            fallbackSystemImage: "pause.fill",
-                                            preservesOriginalColors: true
-                                        )
-                                    } else {
-                                        Image(systemName: "chevron.right")
-                                            .foregroundStyle(LitheTheme.secondaryText)
+                                        LitheIDEAIcon(resourcePath: "expui/general/moreHorizontal.svg", size: 16,
+                                                          preservesOriginalColors: true)
                                     }
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(frame.name).lineLimit(1)
-                                        if let sourceURL = frame.sourceURL {
-                                            Text("\(sourceURL.lastPathComponent):\(frame.line)")
-                                                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
-                                                .foregroundStyle(LitheTheme.secondaryText)
-                                        }
+                                    Text(DebugToolbarPresentation.stackFrameText(frame,
+                                        showsSourceName: showsStackSourceName, isDark: colorScheme == .dark))
+                                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer(minLength: LitheTheme.Tree.horizontalInset)
+                                    if showsStackSourceName, let sourceURL = frame.sourceURL {
+                                        Text(sourceURL.lastPathComponent)
+                                            .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                                            .foregroundStyle(LitheTheme.Tree.secondaryText)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
                                     }
                                 }
                                 .opacity(frame.isFiltered ? 0.58 : 1)
@@ -695,11 +568,11 @@ struct GenericDebugView: View {
                                 Button {
                                     feature.expandFilteredStackFrames()
                                 } label: {
-                                    Label(
-                                        "\(row.hiddenFrameCount) hidden frames",
-                                        systemImage: "ellipsis.circle"
-                                    )
-                                    .font(LitheTheme.smallFont)
+                                    HStack(spacing: 6) {
+                                        LitheIDEAIcon(resourcePath: "expui/general/moreHorizontal.svg", size: 16, preservesOriginalColors: true)
+                                        Text("\(row.hiddenFrameCount) hidden frames")
+                                    }
+                                    .font(LitheTheme.uiFont(size: 13))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .padding(.horizontal, 10)
                                     .frame(minHeight: 27)
@@ -717,6 +590,21 @@ struct GenericDebugView: View {
         .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
+    private var stackPresentationMenu: some View {
+        LitheMenu {
+            LitheContextMenuItem.action("Show source file name", checked: showsStackSourceName) {
+                showsStackSourceName.toggle()
+            }
+        } label: {
+            LitheIDEAIcon(resourcePath: "expui/general/settings.svg",
+                          size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+        }
+        .litheToolbarIconButton()
+        .help("Stack frame display options")
+        .accessibilityLabel("Stack frame display options")
+        .accessibilityIdentifier("debug-stack-display-options")
+    }
+
     private var threadPicker: some View {
         LitheMenu {
             if feature.threads.isEmpty {
@@ -728,7 +616,7 @@ struct GenericDebugView: View {
                         icon: AnyView(
                             LitheIDEAIcon(
                                 resourcePath: threadIconResourcePath(thread),
-                                size: 14,
+                                size: 16,
                                 fallbackSystemImage: threadIcon(thread),
                                 preservesOriginalColors: true
                             ))
@@ -740,39 +628,28 @@ struct GenericDebugView: View {
         } label: {
             HStack(spacing: 7) {
                 if let thread = selectedThread {
-                    LitheIDEAIcon(
-                        resourcePath: threadIconResourcePath(thread),
-                        size: 14,
-                        fallbackSystemImage: threadIcon(thread),
-                        preservesOriginalColors: true
-                    )
                     Text(thread.name)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                     Text(feature.state == .paused ? "Paused" : feature.state.title)
-                        .font(LitheTheme.uiFont(size: 9.5))
+                        .font(LitheTheme.uiFont(size: 13))
                         .foregroundStyle(LitheTheme.secondaryText)
                 } else {
-                    LitheIDEAIcon(
-                        resourcePath: "debugger/threadSuspended.svg",
-                        size: 14,
-                        fallbackSystemImage: "circle.dotted",
-                        preservesOriginalColors: true
-                    )
                     Text(feature.threads.isEmpty ? "Load threads" : "Select thread")
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.down")
-                    .font(LitheTheme.uiFont(size: 8, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
+                LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
+                              preservesOriginalColors: true)
             }
-            .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 9)
-            .frame(height: 28)
+            .font(LitheTheme.uiFont(size: 13, weight: .regular))
+            .fontWeight(.regular)
+            .foregroundStyle(LitheTheme.Tree.text)
+            .padding(.horizontal, LitheTheme.Tree.horizontalInset)
+            .frame(height: LitheTheme.Debugger.inspectorHeaderHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.litheNoPress)
 
+        .litheRowHover()
         .accessibilityLabel("Debugger thread")
         .litheContextMenu {
             var items: [LitheContextMenuItem] = []
@@ -799,42 +676,84 @@ struct GenericDebugView: View {
         VStack(spacing: 0) {
             evaluateRow
             divider
+            GeometryReader { geometry in
+                LitheSplitPaneView(axis: .vertical, placement: .trailing,
+                    defaultSize: watchesHeight ?? max(80, geometry.size.height * 0.28), minimum: 80,
+                    maximum: max(80, geometry.size.height - 120), flexibleMinimum: 120,
+                    dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
+                    onCommit: { watchesHeight = $0 }) {
+                    watchesInspector
+                } flexible: {
+                    variablesInspector
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
+        .background(LitheCenteredPopup(isPresented: Binding(
+            get: { watchEditor != nil },
+            set: { if !$0 { watchEditor = nil } }
+        )) {
+            if let context = watchEditor {
+                WatchEditorView(watch: context.watch, onCancel: { watchEditor = nil }) { expression in
+                    if let watch = context.watch {
+                        feature.updateWatch(watch, expression: expression)
+                    } else {
+                        feature.addWatch(expression)
+                    }
+                    watchEditor = nil
+                }
+                .litheContextMenuSurface()
+                .id(context.id)
+            }
+        }.frame(width: 0, height: 0).allowsHitTesting(false))
+    }
+
+    private var variablesInspector: some View {
+        VStack(spacing: 0) {
+            variablesHeader
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if let exceptionInfo = feature.exceptionInfo {
                         exceptionInspector(exceptionInfo)
                         divider
                     }
-                    variablesHeader
-                    if feature.visibleVariableRows.isEmpty {
-                        placeholder("Select a stack frame to inspect variables")
-                    } else {
+                    if showsVariableJSON && !feature.presentedVariables.isEmpty {
+                        DebugVariableJSONView(feature: feature)
+                    } else if !feature.visibleVariableRows.isEmpty {
                         ForEach(feature.visibleVariableRows) { row in
                             switch row.content {
                             case .variable(let variable):
                                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                    Image(systemName: variableDisclosureSymbol(variable))
-                                        .font(LitheTheme.uiFont(size: 8, weight: .semibold))
-                                        .foregroundStyle(LitheTheme.secondaryText)
-                                        .frame(width: 9)
+                                    Group {
+                                        if feature.isVariableLoading(variable) {
+                                            ProgressView().controlSize(.mini)
+                                        } else {
+                                            LitheIDEAIcon(resourcePath: feature.isVariableExpanded(variable)
+                                                ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
+                                                size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                                        }
+                                    }
+                                        .frame(width: LitheTheme.Tree.disclosureSlot)
                                         .opacity(variable.isExpandable ? 1 : 0)
                                     LitheIDEAIcon(
                                         resourcePath: variableIconResourcePath(variable),
-                                        size: 13,
-                                        fallbackSystemImage: "circle.fill"
+                                        size: LitheTheme.Tree.iconSize,
+                                        preservesOriginalColors: true
                                     )
                                     Text(variable.name)
-                                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                                        .foregroundStyle(LitheTheme.Tree.text)
                                     Text("=")
                                         .foregroundStyle(LitheTheme.secondaryText)
                                     Text(variable.value)
-                                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
-                                        .foregroundStyle(LitheTheme.accent)
+                                        .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                                        .foregroundStyle(LitheTheme.Debugger.value)
                                         .lineLimit(2)
                                     if let type = variable.type, !type.isEmpty {
                                         Text(": \(type)")
-                                            .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
-                                            .foregroundStyle(LitheTheme.secondaryText)
+                                            .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                                            .foregroundStyle(LitheTheme.Debugger.type)
                                             .lineLimit(1)
                                     }
                                     Spacer(minLength: 0)
@@ -843,9 +762,11 @@ struct GenericDebugView: View {
                                 .onTapGesture {
                                     feature.toggleVariableExpansion(variable)
                                 }
-                                .padding(.leading, 10 + CGFloat(row.depth * 14))
+                                .padding(.leading, LitheTheme.Tree.horizontalInset + CGFloat(row.depth) * LitheTheme.Tree.indent)
                                 .padding(.trailing, 10)
-                                .padding(.vertical, 5)
+                                .padding(.vertical, LitheTheme.Tree.verticalInset)
+                                .frame(minHeight: LitheTheme.Tree.rowHeight)
+                                .litheRowHover()
                                 .litheContextMenu {
                                     var items: [LitheContextMenuItem] = []
                                     if feature.capabilities.supportsSetVariable,
@@ -884,40 +805,54 @@ struct GenericDebugView: View {
                         }
                     }
 
-                    divider
-                    watchSectionHeader
-                    if feature.watches.isEmpty {
-                        placeholder("Add an expression to watch while paused")
-                    } else {
+                }
+            }
+            .overlay {
+                if feature.visibleVariableRows.isEmpty && feature.exceptionInfo == nil {
+                    LitheToolWindowStatusText(feature.state == .paused
+                        ? "Select a stack frame to inspect variables" : "Pause the process to inspect variables")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var watchesInspector: some View {
+        VStack(spacing: 0) {
+            watchSectionHeader
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if !feature.watches.isEmpty {
                         ForEach(feature.watches) { watch in
                             HStack(alignment: .firstTextBaseline, spacing: 6) {
                                 LitheIDEAIcon(
-                                    resourcePath: "debugger/watch.svg",
-                                    size: 13,
-                                    fallbackSystemImage: "eye"
+                                    resourcePath: "expui/debugger/watch.svg",
+                                    size: LitheTheme.Tree.iconSize,
+                                    preservesOriginalColors: true
                                 )
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(watch.expression)
-                                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                                        .foregroundStyle(LitheTheme.Tree.text)
                                         .lineLimit(1)
                                     if let error = watch.error {
                                         Text(error)
-                                            .font(LitheTheme.uiFont(size: 9.5))
+                                            .font(LitheTheme.uiFont(size: 13))
                                             .foregroundStyle(LitheTheme.error)
                                             .lineLimit(2)
                                     } else if let value = watch.value {
                                         HStack(spacing: 4) {
                                             Text(value)
-                                                .foregroundStyle(LitheTheme.accent)
+                                                .foregroundStyle(LitheTheme.Debugger.value)
                                             if let type = watch.type {
-                                                Text(type).foregroundStyle(LitheTheme.secondaryText)
+                                                Text(type).foregroundStyle(LitheTheme.Debugger.type)
                                             }
                                         }
-                                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 13, design: .monospaced))
                                         .lineLimit(2)
                                     } else {
                                         Text(feature.state == .paused ? "Evaluating…" : "Not available")
-                                            .font(LitheTheme.uiFont(size: 9.5))
+                                            .font(LitheTheme.uiFont(size: 13))
                                             .foregroundStyle(LitheTheme.secondaryText)
                                     }
                                 }
@@ -943,26 +878,20 @@ struct GenericDebugView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private var variablesHeader: some View {
         HStack(spacing: 7) {
             Text("Variables")
-                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text(String(feature.presentedVariables.count))
-                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
-                .foregroundStyle(LitheTheme.secondaryText)
+                .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                .foregroundStyle(LitheTheme.Tree.text)
             Spacer(minLength: 0)
             if !feature.scopes.isEmpty {
                 LitheMenu {
                     for scope in feature.scopes {
                         LitheContextMenuItem.action(
                             scope.name,
-                            systemImage: feature.selectedScopeID == scope.id
-                                ? "checkmark"
-                                : "circle"
+                            checked: feature.selectedScopeID == scope.id
                         ) {
                             feature.selectScope(scope)
                         }
@@ -971,19 +900,27 @@ struct GenericDebugView: View {
                     HStack(spacing: 4) {
                         Text(selectedScopeName)
                             .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                            .font(LitheTheme.uiFont(size: 8, weight: .semibold))
+                        LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
+                                      preservesOriginalColors: true)
                     }
-                    .font(LitheTheme.uiFont(size: 9.5))
+                    .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .buttonStyle(.litheNoPress)
 
                 .accessibilityLabel("Variable scope")
             }
+            Button { showsVariableJSON.toggle() } label: {
+                LitheIDEAIcon(resourcePath: showsVariableJSON ? "expui/toolwindows/structure.svg" : "fileTypes/json.svg",
+                              size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+            }
+            .litheToolbarIconButton()
+            .help(showsVariableJSON ? "Show as tree" : "Show as JSON")
+            .accessibilityLabel(showsVariableJSON ? "Show as tree" : "Show as JSON")
+            .accessibilityIdentifier("debug-variable-view-toggle")
         }
         .padding(.horizontal, 10)
-        .frame(height: 27)
+        .frame(height: LitheTheme.Debugger.inspectorHeaderHeight)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
@@ -1002,22 +939,22 @@ struct GenericDebugView: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 7) {
                 Label("Exception", systemImage: "exclamationmark.octagon.fill")
-                    .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                     .foregroundStyle(LitheTheme.error)
                 Spacer(minLength: 8)
                 Text(exceptionBreakModeTitle(info.breakMode))
-                    .font(LitheTheme.uiFont(size: 9.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Text(info.exceptionID)
-                .font(LitheTheme.uiFont(size: 11, weight: .semibold, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold, design: .monospaced))
                 .foregroundStyle(LitheTheme.primaryText)
                 .textSelection(.enabled)
             if let description = info.description,
                !description.isEmpty,
                description != info.exceptionID {
                 Text(description)
-                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 13, design: .monospaced))
                     .foregroundStyle(LitheTheme.warning)
                     .textSelection(.enabled)
             }
@@ -1026,7 +963,7 @@ struct GenericDebugView: View {
                    !message.isEmpty,
                    message != info.description {
                     Text(message)
-                        .font(LitheTheme.uiFont(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 13))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .textSelection(.enabled)
                 }
@@ -1037,10 +974,10 @@ struct GenericDebugView: View {
                             .foregroundStyle(LitheTheme.secondaryText)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(cause.fullTypeName ?? cause.typeName ?? "Nested exception")
-                                .font(LitheTheme.uiFont(size: 10, weight: .medium, design: .monospaced))
+                                .font(LitheTheme.uiFont(size: 13, weight: .medium, design: .monospaced))
                             if let message = cause.message, !message.isEmpty {
                                 Text(message)
-                                    .font(LitheTheme.uiFont(size: 9.5))
+                                    .font(LitheTheme.uiFont(size: 13))
                                     .foregroundStyle(LitheTheme.secondaryText)
                             }
                         }
@@ -1048,7 +985,7 @@ struct GenericDebugView: View {
                 }
                 if let stackTrace = details.stackTrace, !stackTrace.isEmpty {
                     Text(stackTrace)
-                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 13, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(12)
                         .textSelection(.enabled)
@@ -1077,70 +1014,77 @@ struct GenericDebugView: View {
 
     private var evaluateRow: some View {
         HStack(spacing: 6) {
-            LitheIDEAIcon(
-                resourcePath: "debugger/evaluateExpression.svg",
-                size: 16,
-                fallbackSystemImage: "function",
-                preservesOriginalColors: true
-            )
-            TextField("Evaluate expression", text: $evaluateExpression)
-                .textFieldStyle(.plain)
-                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
-                .onSubmit { addWatchExpression() }
+            LitheSearchTextField("Evaluate expression", text: $evaluateExpression)
+                .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                .onSubmit { evaluateInspectorExpression() }
+
             Button { addWatchExpression() } label: {
                 LitheIDEAIcon(
-                    resourcePath: "actions/add.svg",
-                    size: 14,
+                    resourcePath: "expui/debugger/addToWatch.svg",
+                    size: 16,
                     fallbackSystemImage: "plus.circle",
-                    preservesOriginalColors: true
+                    preservesOriginalColors: true,
+                    usesIDEADisabledAppearance: true
                 )
             }
-            .litheIconButton()
+            .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, disabledOpacity: 1, cornerRadius: 4))
+            .disabled(evaluateExpression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .help("Add watch")
-            Button { feature.evaluate(evaluateExpression) } label: {
-                LitheIDEAIcon(
-                    resourcePath: "actions/execute.svg",
-                    size: 14,
-                    fallbackSystemImage: "arrow.right.circle",
-                    preservesOriginalColors: true
-                )
+            .accessibilityLabel("Add watch")
+            .litheContextMenu {
+                [
+                    .action("Previous console expression", isEnabled: !feature.consoleHistory.isEmpty) {
+                        if let expression = feature.previousConsoleExpression(current: evaluateExpression) {
+                            evaluateExpression = expression
+                        }
+                    },
+                    .action("Next console expression", isEnabled: !feature.consoleHistory.isEmpty) {
+                        if let expression = feature.nextConsoleExpression() { evaluateExpression = expression }
+                    }
+                ]
             }
-            .litheIconButton()
-            .disabled(feature.state != .paused || evaluateExpression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .help("Evaluate expression")
         }
         .padding(.horizontal, 10)
-        .frame(height: 32)
+        .frame(height: LitheTheme.Debugger.inspectorHeaderHeight)
+    }
+
+    private func evaluateInspectorExpression() {
+        guard feature.state == .paused,
+              !evaluateExpression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        feature.evaluate(evaluateExpression)
+        evaluateExpression = ""
+        selectedContent = .console
     }
 
     private var watchSectionHeader: some View {
         HStack {
             Text("Watches")
-                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
+                .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                .foregroundStyle(LitheTheme.Tree.text)
             Spacer()
-            Text(String(feature.watches.count))
-                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Button { feature.refreshWatches() } label: {
-                LitheIDEAIcon(
-                    resourcePath: "actions/refresh.svg",
-                    size: 13,
-                    fallbackSystemImage: "arrow.clockwise",
-                    preservesOriginalColors: true
-                )
+            if !feature.watches.isEmpty {
+                Button { feature.refreshWatches() } label: {
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/refresh.svg",
+                        size: 16,
+                        fallbackSystemImage: "arrow.clockwise",
+                        preservesOriginalColors: true, usesIDEADisabledAppearance: true
+                    )
+                }
+                .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, disabledOpacity: 1, cornerRadius: 4))
+                .disabled(feature.state != .paused || feature.watches.isEmpty)
+                .help("Refresh watches")
             }
-            .buttonStyle(.litheNoPress)
-            .disabled(feature.state != .paused || feature.watches.isEmpty)
-            .help("Refresh watches")
             Button { watchEditor = WatchEditorContext(watch: nil) } label: {
-                Image(systemName: "plus")
+                LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16,
+                              fallbackSystemImage: "plus", preservesOriginalColors: true)
             }
-            .buttonStyle(.litheNoPress)
+            .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, disabledOpacity: 1, cornerRadius: 4))
             .help("Add watch")
+
         }
         .padding(.horizontal, 10)
-        .frame(height: 27)
+        .frame(height: LitheTheme.Debugger.inspectorHeaderHeight)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
@@ -1153,10 +1097,18 @@ struct GenericDebugView: View {
         VStack(spacing: 0) {
             if feature.stoppedReason != nil || feature.errorMessage != nil {
                 debugConsoleStatus
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                divider
             }
+            DebugConsoleWithPerformance(feature: model.debugPerformanceFeature,
+                isExpanded: $performanceExpanded, width: $performanceWidth) {
             DebugConsoleOutputView(
                 presentation: feature.outputPresentation,
+                consolePresentation: consolePresentation,
+                wrapsLines: $consoleWrapsLines,
+                onClearOutput: feature.clearOutput,
+                standardInputSessionID: feature.activeSessionID?.rawValue,
+                onSubmitStandardInput: feature.isSessionActive && model.isDebugStandardInputAvailable
+                    ? { model.sendDebugStandardInput($0) } : nil,
                 searchRoots: model.runFeatureIfActive?.sourceSearchRoots
                     ?? model.workspaceURL.map { [$0] }
                     ?? [],
@@ -1165,9 +1117,7 @@ struct GenericDebugView: View {
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
             )
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            consoleInputRow
-            programInputRow
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.editor)
@@ -1177,12 +1127,12 @@ struct GenericDebugView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let stoppedReason = feature.stoppedReason {
                 Label(stoppedReason, systemImage: "pause.circle.fill")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
                     .foregroundStyle(LitheTheme.warning)
             }
             if let errorMessage = feature.errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(LitheTheme.uiFont(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(LitheTheme.error)
 
                 HStack(spacing: 8) {
@@ -1215,144 +1165,44 @@ struct GenericDebugView: View {
         .litheWorkbenchSurface(LitheTheme.editor)
     }
 
-    private var consoleInputRow: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "chevron.right")
-                .font(LitheTheme.uiFont(size: 10, weight: .semibold))
-                .foregroundStyle(LitheTheme.accent)
-            Button {
-                if let expression = feature.previousConsoleExpression(current: consoleExpression) {
-                    consoleExpression = expression
-                }
-            } label: {
-                Image(systemName: "chevron.up")
-            }
-            .litheIconButton()
-            .disabled(feature.consoleHistory.isEmpty || feature.state != .paused)
-            .help("Previous console expression")
-            TextField("Evaluate expression while paused", text: $consoleExpression)
-                .textFieldStyle(.plain)
-                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                .focused($isConsoleInputFocused)
-                .disabled(feature.state != .paused)
-                .onSubmit { evaluateConsoleExpression() }
-            Button { evaluateConsoleExpression() } label: {
-                LitheIDEAIcon(
-                    resourcePath: "debugger/evaluateExpression.svg",
-                    size: 15,
-                    fallbackSystemImage: "arrow.right.circle.fill",
-                    preservesOriginalColors: true
-                )
-            }
-            .litheIconButton()
-            .disabled(feature.state != .paused || consoleExpression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .help("Evaluate expression")
-            Button {
-                if let expression = feature.nextConsoleExpression() {
-                    consoleExpression = expression
-                }
-            } label: {
-                Image(systemName: "chevron.down")
-            }
-            .litheIconButton()
-            .disabled(feature.consoleHistory.isEmpty || feature.state != .paused)
-            .help("Next console expression")
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 34)
-        .litheWorkbenchSurface(LitheTheme.toolHeader)
-    }
-
-    private func evaluateConsoleExpression() {
-        guard feature.state == .paused else { return }
-        let expression = consoleExpression.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !expression.isEmpty else { return }
-        feature.evaluate(expression)
-        consoleExpression = ""
-    }
-
-    private var programInputRow: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "arrow.down.to.line")
-                .font(LitheTheme.uiFont(size: 10, weight: .semibold))
-                .foregroundStyle(LitheTheme.warning)
-            TextField("Send input to debuggee", text: $programInput)
-                .textFieldStyle(.plain)
-                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                .disabled(!model.isDebugStandardInputAvailable)
-                .onSubmit { sendProgramInput() }
-            Button { sendProgramInput() } label: {
-                LitheIDEAIcon(
-                    resourcePath: "debugger/run.svg",
-                    size: 15,
-                    fallbackSystemImage: "paperplane.fill",
-                    preservesOriginalColors: true
-                )
-            }
-            .litheIconButton()
-            .disabled(!model.isDebugStandardInputAvailable || programInput.isEmpty)
-            .help("Send program input")
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 34)
-        .litheWorkbenchSurface(LitheTheme.toolHeader)
-    }
-
-    private func sendProgramInput() {
-        guard !programInput.isEmpty,
-              model.sendDebugStandardInput(programInput) else { return }
-        programInput = ""
-    }
-
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            LitheIDEAIcon(
-                resourcePath: "debugger/debug.svg",
-                size: 32,
-                fallbackSystemImage: "ladybug",
-                preservesOriginalColors: true
-            )
-            .frame(width: 36, height: 36)
-            Text(emptyStateTitle)
-                .font(LitheTheme.uiFont(size: 13, weight: .medium))
-            Text(emptyStateSubtitle)
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-            Button("Start Debugging") { model.startDebugging() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(LitheTheme.accent)
-            Button("Connect to Running JVM") { isJavaAttachPresented = true }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            Button("View Breakpoints") { model.showDebugBreakpointManager() }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(model.workspaceURL == nil)
+        // ActivateDebugToolWindowAction + StatusText: left-aligned lines, above center.
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: LitheTheme.ToolWindowEmptyState.lineSpacing) {
+                Text("To debug your code, do one of the following:")
+                    .frame(height: LitheTheme.ToolWindowEmptyState.rowHeight)
+                Text("— Click the Run icon in the editor gutter")
+                    .frame(height: LitheTheme.ToolWindowEmptyState.rowHeight)
+                Text("— Select \"Debug...\" in the editor context menu")
+                    .frame(height: LitheTheme.ToolWindowEmptyState.rowHeight)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("— Launch a")
+                    Button("run configuration") {
+                        if !model.workbenchFeature.isVisible(.run) { model.toggleRun() }
+                    }
+                }
+                .frame(height: LitheTheme.ToolWindowEmptyState.rowHeight)
+                Color.clear.frame(width: 0, height: LitheTheme.ToolWindowEmptyState.rowHeight)
+                    .accessibilityHidden(true)
+                Link(destination: URL(string: "https://www.jetbrains.com/help/idea/debugging-code.html")!) {
+                    HStack(spacing: 2) {
+                        LitheIDEAIcon(resourcePath: "general/contextHelp.svg", size: 16, preservesOriginalColors: true)
+                            .accessibilityHidden(true)
+                        Text("Debugging code")
+                    }
+                }
+                .frame(height: LitheTheme.ToolWindowEmptyState.rowHeight)
+            }
+            .font(LitheTheme.uiFont(size: LitheTheme.ToolWindowEmptyState.fontSize, weight: .regular))
+            .foregroundStyle(LitheTheme.ToolWindowEmptyState.text)
+            .buttonStyle(LitheToolWindowEmptyLinkStyle())
+            .tint(LitheTheme.ToolWindowEmptyState.link)
+            Spacer(minLength: 0)
+            Spacer(minLength: 0)
         }
+        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var currentLanguageName: String {
-        guard let document = model.activeDocument,
-              let descriptor = model.languageProviderCatalog.provider(for: document.url)
-        else { return "source" }
-        return descriptor.displayName
-    }
-
-    private var emptyStateTitle: String {
-        if let configuration = model.runFeatureIfActive?.selectedConfiguration,
-           !configuration.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Debug \(configuration.name)"
-        }
-        return "Debug the current \(currentLanguageName) file"
-    }
-
-    private var emptyStateSubtitle: String {
-        if model.runFeatureIfActive?.selectedConfiguration != nil {
-            return "Uses the selected Run configuration and its project toolchain."
-        }
-        return "The Debug Adapter starts only when this action is used."
     }
 
     private func sectionHeader(_ title: String, count: Int) -> some View {
@@ -1370,15 +1220,10 @@ struct GenericDebugView: View {
         .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
-    private func variableDisclosureSymbol(_ variable: DebugVariable) -> String {
-        if feature.isVariableLoading(variable) { return "hourglass" }
-        return feature.isVariableExpanded(variable) ? "chevron.down" : "chevron.right"
-    }
-
     private func variableIconResourcePath(_ variable: DebugVariable) -> String {
         feature.automaticVariables.contains(where: { $0.id == variable.id })
-            ? "debugger/watch.svg"
-            : variable.name == "this" ? "nodes/variable.svg" : "nodes/field.svg"
+            ? "expui/debugger/watch.svg"
+            : variable.name == "this" ? "expui/nodes/variable.svg" : "expui/nodes/field.svg"
     }
 
     private func threadIcon(_ thread: DebugThread) -> String {
@@ -1393,11 +1238,11 @@ struct GenericDebugView: View {
     private func threadIconResourcePath(_ thread: DebugThread) -> String {
         if feature.selectedThreadID == thread.id,
            feature.stoppedThreadIDs.contains(thread.id) {
-            return "debugger/threadCurrent.svg"
+            return "expui/debugger/threadCurrent.svg"
         }
         return feature.stoppedThreadIDs.contains(thread.id)
-            ? "debugger/threadSuspended.svg"
-            : "debugger/threadRunning.svg"
+            ? "expui/debugger/threads.svg"
+            : "expui/debugger/threadRunning.svg"
     }
 
     private func threadColor(_ thread: DebugThread) -> Color {
@@ -1447,15 +1292,8 @@ struct GenericDebugView: View {
         .accessibilityLabel(isLoading ? "Loading debugger variables" : "Load more debugger variables")
     }
 
-    private func placeholder(_ text: String) -> some View {
-        Text(text)
-            .font(LitheTheme.smallFont)
-            .foregroundStyle(LitheTheme.secondaryText)
-            .padding(10)
-    }
-
     private var divider: some View {
-        Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        LitheToolWindowHeaderDivider()
     }
 
     private func rowButton<Label: View>(
@@ -1464,14 +1302,14 @@ struct GenericDebugView: View {
         @ViewBuilder label: () -> Label
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 7) {
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
                 label()
-                Spacer(minLength: 0)
             }
-            .font(LitheTheme.uiFont(size: 11))
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 10)
-            .frame(minHeight: 28)
+            .font(LitheTheme.uiFont(size: 13, weight: .regular))
+            .fontWeight(.regular)
+            .foregroundStyle(LitheTheme.Tree.text)
+            .padding(.horizontal, LitheTheme.Tree.horizontalInset)
+            .frame(minHeight: LitheTheme.Tree.rowHeight)
             .litheSelectionRow(isSelected: selected, isFocused: stackListActive)
             .contentShape(Rectangle())
         }
@@ -2571,6 +2409,11 @@ private struct DataBreakpointEditorView: View {
 
 private struct DebugConsoleOutputView: View {
     @ObservedObject var presentation: GenericDebugOutputPresentation
+    let consolePresentation: ConsoleFoldPresentation
+    @Binding var wrapsLines: Bool
+    let onClearOutput: () -> Void
+    let standardInputSessionID: UUID?
+    let onSubmitStandardInput: ((String) -> Bool)?
     let searchRoots: [URL]
     let fileExists: (URL) -> Bool
     let onOpenLocation: (URL, Int, Int?) -> Void
@@ -2580,9 +2423,16 @@ private struct DebugConsoleOutputView: View {
             output: presentation.text,
             searchRoots: searchRoots,
             fileExists: fileExists,
-            emptyMessage: "Waiting for Debug Adapter output…",
+            emptyMessage: onSubmitStandardInput == nil ? "Waiting for Debug Adapter output…" : "",
+            wrapsLines: wrapsLines,
+            showsConsoleToolbar: true,
+            onClearOutput: onClearOutput,
             fontSize: LitheConsoleStyle.defaultFontSize,
             usesIDEAConsoleStyle: true,
+            consolePresentation: consolePresentation,
+            standardInputSessionID: standardInputSessionID,
+            onSubmitStandardInput: onSubmitStandardInput,
+            onToggleWrapsLines: { wrapsLines.toggle() },
             onOpenLocation: onOpenLocation
         )
     }
@@ -2594,13 +2444,15 @@ private struct WatchEditorContext: Identifiable {
 }
 
 private struct WatchEditorView: View {
-    @Environment(\.dismiss) private var dismiss
     let watch: GenericDebugWatch?
+    let onCancel: () -> Void
     let onSave: (String) -> Void
     @State private var expression: String
+    @FocusState private var expressionFocused: Bool
 
-    init(watch: GenericDebugWatch?, onSave: @escaping (String) -> Void) {
+    init(watch: GenericDebugWatch?, onCancel: @escaping () -> Void, onSave: @escaping (String) -> Void) {
         self.watch = watch
+        self.onCancel = onCancel
         self.onSave = onSave
         _expression = State(initialValue: watch?.expression ?? "")
     }
@@ -2609,23 +2461,29 @@ private struct WatchEditorView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(watch == nil ? "Add Watch" : "Edit Watch")
                 .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-            TextField("Expression", text: $expression)
-                .textFieldStyle(.roundedBorder)
-                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
+            LitheSearchTextField("Expression", text: $expression)
+                .focused($expressionFocused)
+                .litheSearchField(isFocused: expressionFocused)
+                .onSubmit { save() }
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    onSave(expression)
-                    dismiss()
-                }
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") { save() }
+                .buttonStyle(LithePrimaryButtonStyle())
                 .disabled(expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(18)
-        .frame(width: 440, height: 150)
-        .litheWorkbenchSurface(LitheTheme.editor)
+        .padding(12)
+        .frame(width: 440)
+        .onAppear { expressionFocused = true }
+    }
+
+    private func save() {
+        guard !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        onSave(expression)
     }
 }
 

@@ -23,7 +23,7 @@ struct GitWorktreeRowsSnapshot: Equatable, Sendable {
 }
 
 struct GitWorktreeRowsView: NSViewRepresentable {
-    static let rowHeight: CGFloat = 35
+    static let rowHeight = GitGraphGeometry.rowHeight
 
     let snapshot: GitWorktreeRowsSnapshot
 
@@ -52,6 +52,7 @@ struct GitWorktreeRowsScrollView: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.hasHorizontalScroller = false
         scrollView.hasVerticalScroller = true
+        scrollView.verticalScroller = LitheScrollViewChrome.CompactScroller()
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
         scrollView.horizontalScrollElasticity = .none
@@ -186,8 +187,6 @@ final class GitWorktreeRowsNSView: NSView {
                     context: context
                 )
             }
-            context.setFillColor(style.divider.cgColor)
-            context.fill(CGRect(x: 0, y: rowRect.maxY - 1, width: rowRect.width, height: 1))
         }
     }
 
@@ -235,8 +234,8 @@ final class GitWorktreeRowsNSView: NSView {
         drawText(
             stageText,
             in: CGRect(x: max(32, rect.maxX - stageWidth), y: rect.minY, width: stageWidth - 8, height: rect.height),
-            font: style.metadataFont,
-            color: style.secondaryText,
+            font: style.bodyFont,
+            color: style.primaryText,
             lineBreakMode: .byTruncatingTail,
             alignment: .right
         )
@@ -269,7 +268,7 @@ final class GitWorktreeRowsNSView: NSView {
                 width: max(0, rect.width - subjectX - authorWidth - dateWidth - 16),
                 height: rect.height
             ),
-            font: style.bodyMediumFont,
+            font: style.bodyFont,
             color: style.primaryText,
             lineBreakMode: .byTruncatingTail
         )
@@ -281,15 +280,15 @@ final class GitWorktreeRowsNSView: NSView {
                 width: authorWidth,
                 height: rect.height
             ),
-            font: style.metadataFont,
-            color: style.secondaryText,
+            font: style.bodyFont,
+            color: style.primaryText,
             lineBreakMode: .byTruncatingTail
         )
         drawText(
             date,
             in: CGRect(x: max(subjectX, rect.maxX - dateWidth), y: rect.minY, width: dateWidth - 8, height: rect.height),
-            font: style.metadataFont,
-            color: style.secondaryText,
+            font: style.bodyFont,
+            color: style.primaryText,
             lineBreakMode: .byTruncatingTail,
             alignment: .right
         )
@@ -343,7 +342,6 @@ final class GitWorktreeRowsNSView: NSView {
 
     private struct DrawingStyle {
         let bodyFont = LitheTheme.uiNSFont(size: 13)
-        let bodyMediumFont = LitheTheme.uiNSFont(size: 13, weight: .medium)
         let metadataFont = LitheTheme.uiNSFont(size: 12.5)
         let monospacedFont = LitheTheme.uiNSFont(size: 12.5, weight: .regular)
         let primaryText: NSColor
@@ -352,7 +350,6 @@ final class GitWorktreeRowsNSView: NSView {
         let success: NSColor
         let warning: NSColor
         let error: NSColor
-        let divider: NSColor
         let bodyParagraph: NSParagraphStyle
         let middleParagraph: NSParagraphStyle
         let rightParagraph: NSParagraphStyle
@@ -364,7 +361,6 @@ final class GitWorktreeRowsNSView: NSView {
             success = LitheTheme.nsColor(.success, isDark: isDark)
             warning = LitheTheme.nsColor(.warning, isDark: isDark)
             error = LitheTheme.nsColor(.error, isDark: isDark)
-            divider = LitheTheme.nsColor(.divider, isDark: isDark)
             bodyParagraph = Self.paragraph(lineBreakMode: .byTruncatingTail, alignment: .left)
             middleParagraph = Self.paragraph(lineBreakMode: .byTruncatingMiddle, alignment: .left)
             rightParagraph = Self.paragraph(lineBreakMode: .byTruncatingTail, alignment: .right)

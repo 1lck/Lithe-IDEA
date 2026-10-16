@@ -83,7 +83,7 @@ struct OutputCopyCursorTests {
             #expect(cursorRects.allSatisfy { !$0.intersects(rect) })
             #expect(abs(cursorRects.reduce(0) { $0 + $1.width * $1.height } + rect.intersection(text.visibleRect).width * rect.intersection(text.visibleRect).height
                 - text.visibleRect.width * text.visibleRect.height) < 0.01)
-            // Icon, label and padding all belong to Copy; a stale cursor-update event from NSTextView must also restore the arrow.
+            // Icon and padding belong to Copy; a stale cursor-update event from NSTextView must also restore the arrow.
             for x in [button.bounds.minX + 2, button.bounds.midX, button.bounds.maxX - 2] {
                 let point = NSPoint(x: x, y: button.bounds.midY)
                 let hit = try #require(output.hitTest(button.convert(point, to: output.superview)))

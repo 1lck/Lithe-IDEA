@@ -64,6 +64,29 @@ struct MacRuntimeProbeCacheTests {
     }
 
     @Test
+    func mvndProbeUsesEmbeddedMavenAndInvalidatesItsLibraries() async throws {
+        try await onThrowingWorker {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let home = root.appendingPathComponent("daemon")
+            let executable = home.appendingPathComponent("bin/mvnd")
+            let library = home.appendingPathComponent("mvn/lib/maven-core-fixture.jar")
+            let log = home.appendingPathComponent("probes")
+            try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: library.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("first".utf8).write(to: library)
+            try Data("#!/bin/sh\necho probe >> \"$(dirname \"$0\")/../probes\"\necho 'Apache Maven Daemon (mvnd) 1.0.6'\necho 'Apache Maven 3.9.11 (fixture)'\n".utf8).write(to: executable)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+            #expect(MacRuntimeDiscovery.probeMaven(executable)?.version == "3.9.11")
+            #expect(MacRuntimeDiscovery.probeMaven(executable)?.version == "3.9.11")
+            #expect(try String(contentsOf: log, encoding: .utf8).split(separator: "\n").count == 1)
+            try Data("changed Maven library".utf8).write(to: library)
+            #expect(MacRuntimeDiscovery.probeMaven(executable)?.version == "3.9.11")
+            #expect(try String(contentsOf: log, encoding: .utf8).split(separator: "\n").count == 2)
+        }
+    }
+
+    @Test
     func mavenWrapperReusesVersionUntilDistributionChanges() async throws {
         try await onThrowingWorker {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

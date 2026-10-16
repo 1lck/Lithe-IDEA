@@ -75,6 +75,7 @@ final class MacServiceContainer {
         gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         platformUI providedPlatformUI: (any PlatformUI)? = nil,
+        aiConfigurationSources providedAIConfigurationSources: [any AIConfigurationSource]? = nil,
         gitPerformanceLogger: (any GitPerformanceLogger)? = nil
     ) {
         let gitExecutionJournal = GitExecutionJournal()
@@ -103,14 +104,14 @@ final class MacServiceContainer {
         let processRunner = MacProcessRunner()
         let secureStore = MacLocalSecretStore()
         let databaseSecureStore = MacKeychainSecureStore(
-            service: "app.lithe.desktop.database",
+            service: fileStorage.identity.keychainService("database"),
             legacyStore: secureStore
         )
         let githubService = GitHubService(
             core: RustGitHubCore(bridge: rustCore),
             transport: MacGitHubHTTPTransport(),
             configuration: MacGitHubConfiguration(),
-            secureStore: MacKeychainSecureStore(service: "app.lithe.desktop.github"),
+            secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("github")),
             git: MacGitHubGitOperations(core: rustCore)
         )
         let platformUI = providedPlatformUI ?? MacPlatformUI()
@@ -121,7 +122,7 @@ final class MacServiceContainer {
         )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
-        let aiConfigurationSources: [any AIConfigurationSource] = [
+        let aiConfigurationSources: [any AIConfigurationSource] = providedAIConfigurationSources ?? [
             codexConfigurationSource,
             claudeConfigurationSource
         ]
@@ -199,7 +200,7 @@ final class MacServiceContainer {
                     executableURL: databaseSidecarURL,
                     preferenceStore: MacDatabasePreferenceStore(store: store),
                     secureStore: MacKeychainSecureStore(
-                        service: "app.lithe.desktop.database",
+                        service: fileStorage.identity.keychainService("database"),
                         legacyStore: MacLocalSecretStore()
                     ),
                     recoveryStore: MacDatabaseRecoveryStore(fileStorage: fileStorage),
@@ -666,7 +667,8 @@ final class MacServiceContainer {
             workbenchBackgroundPlatform: MacWorkbenchBackgroundPlatform(store: store),
             directoryWatcherFactory: MacDirectoryWatcherFactory(),
             platformUI: platformUI,
-            shortcutDetectorFactory: MacShortcutDetectorFactory()
+            shortcutDetectorFactory: MacShortcutDetectorFactory(),
+            debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry)
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)

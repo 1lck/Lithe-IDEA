@@ -1,0 +1,30 @@
+{
+  "id": "debug-variable-json-view",
+  "area": "运行与调试",
+  "group": "调试器",
+  "capability": "调试变量默认JSON与树形切换",
+  "macos": {
+    "evidence": [
+      "macos/Sources/LitheDebugModule/Application/DebugVariableJSONSnapshot.swift",
+      "macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift",
+      "macos/Sources/Lithe/Views/Debug/DebugVariableJSONView.swift",
+      "macos/Sources/Lithe/Views/Debug/GenericDebugView.swift",
+      "macos/Tests/LitheDebugModuleTests/DebugVariableJSONSnapshotTests.swift",
+      ".agents/notes/implemented/feature/2026-10-14-debug-variable-json-view.md",
+      "macos/Tests/LitheTests/DebugJSONFoldingTests.swift",
+      "macos/Sources/Lithe/Views/Debug/DebugToolbarPresentation.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/debugger"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Debug",
+  "verification": "暂停真实目标，确认默认JSON可选择和复制，Variables标题右端按钮切树并切回JSON，树展开状态保持；切换线程/帧/作用域、恢复运行或离开JSON时取消并拒绝迟到结果。验证多层对象、连续索引数组、重复引用、循环、长整数、字段失败、根分页及深度/节点/输出限制标记；深浅主题高亮、固定标题和Watches原操作。 验证JSON对象/数组箭头折叠、父子状态保持、更新后清空旧折叠、折叠后仍可复制完整快照及紧凑线程选择器。 实际拖动Watches分隔条、缩放窗口、Add/Edit Watch居中与取消保存；比较Console空/非空及主题和壁纸背景。 验证JSON展开/收起行hover显隐、跨行移动、隐藏时点击不折叠、键盘聚焦、拖动期间隐藏及布局不跳动。 深浅主题验证方法/行号颜色、同名去重、关闭源码名称恢复、内部类与不同类名保留。",
+  "notes": "复用DAP变量请求与已有共享字体、高亮器、图标按钮，不执行目标序列化或toString，不写运行时资源；JSON是带诊断标记的有界调试快照，不等同业务序列化。演示和单元测试不提升真实JVM全流程验收状态。 调用栈使用单行Regular共享列表样式，不固定显示普通帧图标；线程选择器右侧共享菜单切换源码名称，默认开启，开启后同一行居右显示灰色源码名称，左侧方法/类名为主文字色。移除Variables标题底线。 Variables/Watches共享纵向分隔器支持拖动和独立滚动；监视表达式表单相对窗口居中，Console背景跟随共享表面。 JSON折叠按钮按行hover显隐，固定占位、隐藏时禁用指针命中，键盘聚焦保留可操作；分隔条拖动期间隐藏。 移除工具栏跟随所选栈帧变化的位置文字，保留调用栈源码定位。 调用栈方法/行号使用共享编辑器语法色，右侧源码保持灰色；只去掉与可见Java源文件完全同名的尾部类名，关闭源码名称时恢复完整标签。"
+}

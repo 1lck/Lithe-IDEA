@@ -17,6 +17,7 @@ archive="Lithe-$LITHE_VERSION-$LITHE_ARCH.zip"
 release_tag="v$LITHE_VERSION"
 feed_name="appcast-$LITHE_ARCH.xml"
 channel="${LITHE_UPDATE_CHANNEL:-stable}"
+[[ "$channel" == autobuild ]] && channel=preview
 if [[ "$channel" == preview ]]; then
     : "${LITHE_PREVIEW_TAG:?}"
     [[ "$LITHE_PREVIEW_TAG" == AutoBuild ]] || { print -u2 -- "AutoBuild requires the fixed AutoBuild tag"; exit 1; }
@@ -27,8 +28,10 @@ if [[ "$channel" == preview ]]; then
 elif [[ "$channel" != stable ]]; then
     print -u2 -- "Invalid update channel"; exit 1
 fi
-ditto "dist/Lithe-$LITHE_ARCH.app" "$temporary/bundle/Lithe.app"
-ditto -c -k --sequesterRsrc --keepParent "$temporary/bundle/Lithe.app" "$archives/$archive"
+app_name=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "dist/Lithe-$LITHE_ARCH.app/Contents/Info.plist")
+[[ "$app_name" == Lithe || "$app_name" == Lithe-Dev ]] || { print -u2 -- "Unsupported app name: $app_name"; exit 1; }
+ditto "dist/Lithe-$LITHE_ARCH.app" "$temporary/bundle/$app_name.app"
+ditto -c -k --sequesterRsrc --keepParent "$temporary/bundle/$app_name.app" "$archives/$archive"
 
 # Only prior Sparkle builds in the selected channel are baselines. Missing history is normal
 # for the bootstrap release; an API or download failure must fail publication.
@@ -42,6 +45,18 @@ fi
 while IFS=$'\t' read -r tag name; do
     [[ -n "$tag" ]] || continue
     node scripts/download-sparkle-baseline.mjs "$GITHUB_REPOSITORY" "$tag" "$name" "$archives"
+    bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "dist/Lithe-$LITHE_ARCH.app/Contents/Info.plist")
+    if zsh scripts/verify-sparkle-baseline.sh "$archives/$name" "$app_name" "$bundle_id"; then
+        :
+    else
+        baseline_status=$?
+        (( baseline_status == 3 )) || exit "$baseline_status"
+        # Pre-isolation AutoBuild belongs to another app. Its first migration is
+        # a separate full installation, never a delta or in-place identity change.
+        [[ "$name" == "${name:t}" && "$name" == *.zip ]] || exit 2
+        print -u2 -- "Skipping baseline with a different installed identity: $name"
+        rm -- "$archives/$name"
+    fi
 done < "$temporary/baselines"
 
 if [[ "$channel" == stable ]]; then

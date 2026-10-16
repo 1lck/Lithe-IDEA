@@ -21,10 +21,10 @@ function channelStorage(): ChannelStorage | null {
   }
 }
 
-export function readUpdateChannel(storage = channelStorage()): UpdateChannel {
+export function readUpdateChannel(storage = channelStorage(), installed = getInstalledUpdateChannel()): UpdateChannel {
   try {
     const value = storage?.getItem(UPDATE_CHANNEL_STORAGE_KEY);
-    return isUpdateChannel(value) ? value : "stable";
+    return value == null ? installed : isUpdateChannel(value) ? value : "stable";
   } catch {
     return "stable";
   }

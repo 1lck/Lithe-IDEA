@@ -2,6 +2,9 @@ import AppKit
 import WebKit
 import Foundation
 import LitheModuleAPI
+import LitheApplicationKernel
+import LitheDebugModule
+import LitheCoreContracts
 import LitheTerminalModule
 import Testing
 @testable import Lithe
@@ -9,6 +12,68 @@ import Testing
 @Suite("Terminal tab placement")
 @MainActor
 struct TerminalPlacementFeatureModelTests {
+    @Test
+    func debugStandardInputNeverFallsBackToAnotherActiveSessionsTerminal() async throws {
+        let runtime = ModuleRuntime()
+        for id in [ModuleID.workspace, .languageIntelligence, .execution] {
+            let manifest = ModuleManifest(id: id, displayName: id.rawValue, scope: .workspace)
+            try runtime.register(ModuleFactory(manifest: manifest) { InputTestDependency(manifest: manifest) })
+        }
+        let sessions = DebugAdapterSessionManager(providers: [
+            DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
+        ]) { _, _ in InputTestDebugSession() }
+        let feature = GenericDebugFeatureModel(sessions: sessions)
+        let graph = InputTestDebugGraph(feature: feature)
+        try runtime.register(ModuleFactory(manifest: DebugModule.moduleManifest, contributions: DebugModule.moduleContributions) { DebugModule(makeGraph: { graph }) })
+        let store = TerminalPlacementTestStore()
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings,
+            services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let aTransport = PlacementTestTerminalTransport(), bTransport = PlacementTestTerminalTransport()
+        var created = 0
+        let terminals = TerminalFeatureModel(terminalFactory: {
+            defer { created += 1 }
+            return created == 0 ? aTransport : bTransport
+        })
+        defer { terminals.stopAllSessions(); feature.reset() }
+        do {
+            _ = try await runtime.activate(.debug)
+            let capability = runtime.capability(.debugWorkspace) as? DebugModuleCapability
+            model.cacheModuleCapability(try #require(capability), id: .debugWorkspace, moduleID: .debug)
+            model.cacheModuleCapability(TerminalModuleCapability(feature: terminals), id: .terminalWorkspace, moduleID: .terminal)
+            let root = URL(fileURLWithPath: "/workspace/debug-input")
+            let source = root.appendingPathComponent("Main.java")
+            let a = try sessions.activateNew(for: source, rootURL: root).id
+            let b = try sessions.activateNew(for: source, rootURL: root).id
+            let aTerminal = terminals.createSession(in: root, shellPath: "/bin/zsh")
+            let bTerminal = terminals.createSession(in: root, shellPath: "/bin/zsh")
+            model.debugTerminalSessionIDs = [aTerminal.id, bTerminal.id]
+            model.activeDebugTerminalSessionID = bTerminal.id
+            model.debugTerminalSessionIDsByDebugSession = [a: [aTerminal.id], b: [bTerminal.id]]
+            model.activeDebugTerminalSessionIDsByDebugSession = [a: aTerminal.id, b: bTerminal.id]
+            aTerminal.stop()
+            #expect(feature.selectSession(a))
+            #expect(!model.isDebugStandardInputAvailable)
+            #expect(!model.sendDebugStandardInput("must not reach B"))
+            #expect(aTransport.sentInputs.isEmpty && bTransport.sentInputs.isEmpty)
+            // A missing binding also cannot fall back to the globally selected B.
+            model.debugTerminalSessionIDsByDebugSession[a] = nil
+            model.activeDebugTerminalSessionIDsByDebugSession[a] = nil
+            #expect(!model.isDebugStandardInputAvailable)
+            #expect(!model.sendDebugStandardInput("still A"))
+            #expect(bTransport.sentInputs.isEmpty)
+            #expect(feature.selectSession(b))
+            #expect(model.isDebugStandardInputAvailable)
+            #expect(model.sendDebugStandardInput("for B"))
+            #expect(bTransport.sentInputs == ["for B\n"])
+            #expect(aTransport.sentInputs.isEmpty)
+        } catch {
+            await runtime.shutdownAll()
+            throw error
+        }
+        await runtime.shutdownAll()
+    }
+
     @Test(arguments: [false, true])
     func remountDoesNotStealTerminalFocus(switchBeforeAttach: Bool) async throws {
         let context = makeTerminalCloseContext(), owner = UUID()
@@ -277,7 +342,8 @@ private final class PlacementTestTerminalTransport: TerminalTransport {
         return 1234
     }
 
-    func send(_ input: Data) throws {}
+    var sentInputs: [String] = []
+    func send(_ input: Data) throws { sentInputs.append(String(decoding: input, as: UTF8.self)) }
     func interrupt() throws {}
     func focus() {}
     func clear() {}
@@ -297,4 +363,34 @@ private final class TerminalPlacementTestStore: KeyValueStore, @unchecked Sendab
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+@MainActor
+private final class InputTestDebugSession: DebugAdapterSession {
+    var isRunning = false
+    var state: DebugAdapterState { isRunning ? .running : .idle }
+    func start(rootURL: URL) throws { isRunning = true }
+    func stop() { isRunning = false }
+}
+
+@MainActor
+private final class InputTestDebugGraph: DebugServiceGraph {
+    let feature: GenericDebugFeatureModel
+    init(feature: GenericDebugFeatureModel) { self.feature = feature }
+    var genericFeatureTarget: any GenericDebugFeatureTarget { feature }
+    var hasActiveDebugWork: Bool { feature.isSessionActive }
+    func activate(context: ModuleContext) {}
+    func prepareForSleep() async throws {}
+    func stop() async { feature.reset() }
+}
+
+@MainActor
+private final class InputTestDependency: LitheModule {
+    let manifest: ModuleManifest
+    init(manifest: ModuleManifest) { self.manifest = manifest }
+    func activate(context: ModuleContext) async throws {}
+    func prepareForSleep() async throws {}
+    func sleep() async {}
+    func shutdown() async {}
+    func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
 }
