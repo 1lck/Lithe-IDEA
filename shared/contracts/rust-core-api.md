@@ -537,11 +537,16 @@ CLI found on that `PATH` with its minimum version; they are installed with
 with the user's CLI through the adapter's variable (`CODEX_PATH`,
 `CLAUDE_CODE_EXECUTABLE`). A missing or
 too old CLI is an issue for the user to resolve, never installed by Lithe.
-For Codex, `cli.installation.updateAvailable` is `true` only when the verified
+For every catalog CLI, `cli.installation.updateAvailable` is `true` only when the verified
 installation owner reports a newer release, `false` when no newer release is found
 (npm's published version or Homebrew's local index), and absent when the check is
 unavailable. It does not change `canUpdate`, which only describes whether Lithe can
-safely invoke that owner. Homebrew checks do not refresh the local index automatically.
+safely invoke that owner. npm checks query the verified update target, including
+its explicit `@latest` tag; Homebrew checks query the verified owning package and
+do not refresh the local index automatically. Native installers without a
+read-only version protocol report an absent value; checks never execute an
+updater or substitute a different release channel. New catalog CLIs reuse this
+source-based check without command-name branches.
 `agent.install` runs `npm install` into a staging directory
 and replaces the previous install only after the adapter executable exists; it
 honors `operationId` cancellation and `timeoutMilliseconds`. Failures use
@@ -577,12 +582,12 @@ only when `canUpdate` is true. The hint is never executable input. Absent fields
 remain backward compatible with older hosts. Windows installer/shim ownership
 has not been verified; unrecognized installations use the manual path.
 The minimum CLI version is a compatibility requirement, not a latest-version
-check. For compatible Codex CLIs, macOS offers Update only when `canUpdate` and
+check. For all compatible CLIs, macOS offers Update only when `canUpdate` and
 `updateAvailable` are both true, including when the preflight row is collapsed.
 A false or absent `updateAvailable` hides that action. Too-old CLIs retain the
 upgrade repair action when `canUpdate` is true, regardless of `updateAvailable`;
-manual guidance remains available for owners Lithe cannot update. Other CLIs keep
-the owner-permitted update action.
+manual guidance remains available when a version check is unknown or an owner
+cannot be updated safely.
 After a successful update, users reconnect the Agent to start the updated CLI
 and obtain its model catalog; existing conversations are not interrupted automatically.
 
