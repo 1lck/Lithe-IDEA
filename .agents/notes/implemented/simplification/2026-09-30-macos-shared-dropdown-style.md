@@ -1246,3 +1246,5 @@ DarculaProgressBarUI 的确定进度绘制，状态条为3pt、两端半圆，�
 #E4656E/#4E9D6C；Dark 主题中的 failedcolor/passedcolor 是小写键，UITheme
 按大小写精确写入 UIDefaults，因此实际取 ExperimentalDark 父主题 Red6/Green6，
 即 #BD5757/#57965C，不能直接用 Dark 的 accent-error-bg/accent-success-bg 替代。
+
+状态条右端与控制台文本区对齐：扣除 OutputTextView 尾侧共享 ActionStripe.width 及其1pt分隔线，不延伸到控制台工具栏或 Performance 折叠条。

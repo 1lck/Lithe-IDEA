@@ -478,6 +478,7 @@ struct LanguageTestsView: View {
                 Capsule()
                     .fill(results.failures + results.errors > 0 ? LitheTheme.TestResult.failed : LitheTheme.TestResult.passed)
                     .frame(height: LitheTheme.TestResult.stripeHeight)
+                    .padding(.trailing, LitheTheme.ActionStripe.width + 1)
                     .allowsHitTesting(false)
             }
         }
