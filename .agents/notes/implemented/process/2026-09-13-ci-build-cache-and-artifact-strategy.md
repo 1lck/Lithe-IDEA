@@ -74,6 +74,12 @@ Mac mini 上运行时，`DesktopIsolationTests` 因 WindowServer 两秒内没有
 文件（否则上一个 PR 留下的 Swift 源文件会被 SwiftPM 的目录扫描编进去），只排除
 `.build`、`rust/target` 和四个依赖下载目录。Xcode、Swift 或 CPU 架构变化时
 丢弃编译输出；编译状态超过 40 GB 或磁盘剩余不足 25 GB 时也整体丢弃重建。
+首轮观察到，三个 runner 随机接任务时，打包（release 编译）和插件测试
+（debug 测试编译）经常轮流落到同一台机器，保留的状态几乎用不上。因此 runner
+再按编译配置分组：两台带 `lithe-mac-mini-debug`（Swift、插件、Rust Core 测试共用
+debug 测试编译和 debug Rust Core），一台带 `lithe-mac-mini-release`（打包）。
+选择器优先把 lane 分到自己的组，该组满了先借另一组的空闲 runner，再溢出到
+托管池；只带共享标签的旧 job 可能占用任意一台，所以整池容量仍然约束总数。
 同一时刻一个 runner 只跑一个 job，状态不跨 runner、不跨 worktree，因此不违反
 “可变构建状态不得共享”的规则；它只是让同一个工作目录不再每次从零编译。
 自托管 job 跳过 GitHub cache 的恢复与保存：本地目录已经保留了这些内容，

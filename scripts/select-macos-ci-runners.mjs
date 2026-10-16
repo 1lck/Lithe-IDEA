@@ -13,12 +13,26 @@ export const MAC_MINI_RUNNER = ['self-hosted', 'macOS', 'ARM64', 'lithe-mac-mini
 export const HOSTED_MACOS_RUNNER = 'macos-26';
 const MAC_MINI_LABEL = 'lithe-mac-mini';
 
+// Each Mac mini runner keeps its own build outputs between jobs, so lanes that
+// share a build configuration prefer the same runners. Debug lanes share one
+// SwiftPM test build and debug Rust Core; packaging owns the release build. The
+// labels are assigned to the runners in GitHub; capacities are their counts.
+export const MAC_MINI_GROUPS = Object.freeze({
+  debug: { label: 'lithe-mac-mini-debug', capacity: 2 },
+  release: { label: 'lithe-mac-mini-release', capacity: 1 },
+});
+const LANE_GROUP = Object.freeze({ swift: 'debug', plugins: 'debug', rust: 'debug', release: 'release' });
+
+// Pools are 'hosted' or 'mac-mini-<group>'.
+const miniPool = (group) => `mac-mini-${group}`;
+const groupOfPool = (pool) => (pool.startsWith('mac-mini-') ? pool.slice('mac-mini-'.length) : null);
+
 // The routing used before dynamic selection, and whenever the API cannot be
 // read: heavy compilation lanes on the Mac minis, the rest on hosted runners.
 export const STATIC_POOLS = Object.freeze({
   swift: 'hosted',
-  release: 'mac-mini',
-  rust: 'mac-mini',
+  release: miniPool('release'),
+  rust: miniPool('debug'),
   plugins: 'hosted',
 });
 
@@ -43,40 +57,63 @@ export function poolOfJob(job) {
   return null;
 }
 
+// Mac mini jobs count against the whole pool and, when they requested a group
+// label, against that group. Jobs from older workflow revisions request only
+// the shared label and may occupy any runner, so the pool total stays binding.
 export function countBusyRunners(jobs) {
-  const busy = { 'mac-mini': 0, hosted: 0 };
+  const busy = { 'mac-mini': 0, hosted: 0, groups: Object.fromEntries(Object.keys(MAC_MINI_GROUPS).map((g) => [g, 0])) };
   for (const job of jobs) {
     if (!ACTIVE_JOB_STATUSES.has(job.status)) continue;
     const pool = poolOfJob(job);
-    if (pool) busy[pool] += 1;
+    if (!pool) continue;
+    busy[pool] += 1;
+    if (pool !== 'mac-mini') continue;
+    const labels = (job.labels ?? []).map((label) => String(label).toLowerCase());
+    for (const [group, { label }] of Object.entries(MAC_MINI_GROUPS)) {
+      if (labels.includes(label)) busy.groups[group] += 1;
+    }
   }
   return busy;
 }
 
-// Pull requests take any free runner, preferring the Mac minis. Pushes and
-// manual runs stay on the Mac minis even when they are busy, so a merge never
-// takes a hosted runner that a pull request is waiting for.
+// Pull requests take a free runner in their preferred Mac mini group, then the
+// other group, then a free hosted runner. Pushes and manual runs stay on the
+// Mac minis even when they are busy, so a merge never takes a hosted runner
+// that a pull request is waiting for.
 export function assignPools({ lanes, busy, capacity, macMiniOnly }) {
-  const used = { ...busy };
+  const used = { 'mac-mini': busy['mac-mini'], hosted: busy.hosted, groups: { ...(busy.groups ?? {}) } };
+  for (const group of Object.keys(MAC_MINI_GROUPS)) used.groups[group] ??= 0;
+  const groupHasRoom = (group) => used['mac-mini'] < capacity['mac-mini']
+    && used.groups[group] < MAC_MINI_GROUPS[group].capacity;
   const pools = {};
   const ordered = LANE_PRIORITY.filter((lane) => lanes.includes(lane));
   for (const lane of ordered) {
+    const preferred = LANE_GROUP[lane];
+    const other = Object.keys(MAC_MINI_GROUPS).find((group) => group !== preferred);
     let pool;
     if (HOSTED_ONLY_LANES.has(lane)) {
       pool = 'hosted';
+    } else if (groupHasRoom(preferred)) {
+      pool = miniPool(preferred);
+    } else if (groupHasRoom(other)) {
+      pool = miniPool(other);
     } else if (macMiniOnly) {
-      pool = 'mac-mini';
-    } else if (used['mac-mini'] < capacity['mac-mini']) {
-      pool = 'mac-mini';
+      pool = miniPool(preferred);
     } else if (used.hosted < capacity.hosted) {
       pool = 'hosted';
     } else {
       // Both pools are full: join the shorter queue relative to its size.
       const miniPressure = (used['mac-mini'] + 1) / capacity['mac-mini'];
       const hostedPressure = (used.hosted + 1) / capacity.hosted;
-      pool = hostedPressure < miniPressure ? 'hosted' : 'mac-mini';
+      pool = hostedPressure < miniPressure ? 'hosted' : miniPool(preferred);
     }
-    used[pool] += 1;
+    const group = groupOfPool(pool);
+    if (group) {
+      used['mac-mini'] += 1;
+      used.groups[group] += 1;
+    } else {
+      used.hosted += 1;
+    }
     pools[lane] = pool;
   }
   return pools;
@@ -85,8 +122,8 @@ export function assignPools({ lanes, busy, capacity, macMiniOnly }) {
 export function runnersFor(pools) {
   const runners = {};
   for (const lane of Object.keys(STATIC_POOLS)) {
-    const pool = pools[lane] ?? STATIC_POOLS[lane];
-    runners[lane] = pool === 'mac-mini' ? MAC_MINI_RUNNER : HOSTED_MACOS_RUNNER;
+    const group = groupOfPool(pools[lane] ?? STATIC_POOLS[lane]);
+    runners[lane] = group ? [...MAC_MINI_RUNNER, MAC_MINI_GROUPS[group].label] : HOSTED_MACOS_RUNNER;
   }
   return runners;
 }
@@ -167,7 +204,10 @@ export async function selectRunners(env, fetchImpl = fetch) {
 
 function summaryMarkdown({ pools, busy, reason }) {
   const lines = ['### macOS runner selection', '', `Reason: ${reason}`];
-  if (busy) lines.push('', `Active jobs before this run: Mac mini ${busy['mac-mini']}, hosted ${busy.hosted}`);
+  if (busy) {
+    const groups = Object.entries(busy.groups).map(([group, count]) => `${group} ${count}`).join(', ');
+    lines.push('', `Active jobs before this run: Mac mini ${busy['mac-mini']} (${groups}), hosted ${busy.hosted}`);
+  }
   const lanes = Object.keys(pools);
   if (lanes.length > 0) {
     lines.push('', '| Lane | Pool |', '| --- | --- |', ...lanes.map((lane) => `| ${lane} | ${pools[lane]} |`));

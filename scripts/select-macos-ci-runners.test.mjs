@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   HOSTED_MACOS_RUNNER,
+  MAC_MINI_GROUPS,
   MAC_MINI_RUNNER,
   assignPools,
   countBusyRunners,
@@ -11,8 +12,12 @@ import {
 } from './select-macos-ci-runners.mjs';
 
 const capacity = { 'mac-mini': 3, hosted: 5 };
-const miniJob = (status) => ({ status, labels: [...MAC_MINI_RUNNER] });
+const DEBUG = [...MAC_MINI_RUNNER, MAC_MINI_GROUPS.debug.label];
+const RELEASE = [...MAC_MINI_RUNNER, MAC_MINI_GROUPS.release.label];
+const miniJob = (status, labels = DEBUG) => ({ status, labels: [...labels] });
 const hostedJob = (status) => ({ status, labels: [HOSTED_MACOS_RUNNER] });
+const busyOf = (debug, release, hosted, shared = 0) => (
+  { 'mac-mini': debug + release + shared, hosted, groups: { debug, release } });
 
 // Answers the two run listings and each run's job listing from fixtures; no
 // request leaves the process.
@@ -38,53 +43,72 @@ const pullRequestEnv = {
   GITHUB_RUN_ID: '100',
 };
 
-test('only active macOS jobs occupy a pool', () => {
+test('only active macOS jobs occupy a pool, and group labels occupy their group', () => {
   const busy = countBusyRunners([
-    miniJob('in_progress'), miniJob('queued'), miniJob('completed'),
+    miniJob('in_progress'), miniJob('queued', RELEASE), miniJob('completed'),
+    miniJob('in_progress', MAC_MINI_RUNNER),
     hostedJob('in_progress'), { status: 'in_progress', labels: ['ubuntu-latest'] },
   ]);
-  assert.deepEqual(busy, { 'mac-mini': 2, hosted: 1 });
+  assert.deepEqual(busy, busyOf(1, 1, 1, 1));
 });
 
-test('pull requests fill free Mac minis first, then hosted runners', () => {
+test('lanes take a free runner in the group that holds their build outputs', () => {
   assert.deepEqual(
-    assignPools({ lanes: ['rust', 'plugins', 'release'], busy: { 'mac-mini': 1, hosted: 0 }, capacity, macMiniOnly: false }),
-    { release: 'mac-mini', plugins: 'mac-mini', rust: 'hosted' });
+    assignPools({ lanes: ['rust', 'plugins', 'release'], busy: busyOf(0, 0, 0), capacity, macMiniOnly: false }),
+    { release: 'mac-mini-release', plugins: 'mac-mini-debug', rust: 'mac-mini-debug' });
+});
+
+test('a full preferred group borrows a free runner from the other group', () => {
+  assert.deepEqual(
+    assignPools({ lanes: ['plugins', 'release'], busy: busyOf(2, 0, 0), capacity, macMiniOnly: false }),
+    { release: 'mac-mini-release', plugins: 'hosted' });
+  assert.deepEqual(
+    assignPools({ lanes: ['plugins'], busy: busyOf(2, 0, 0), capacity, macMiniOnly: false }),
+    { plugins: 'mac-mini-release' });
+  assert.deepEqual(
+    assignPools({ lanes: ['release'], busy: busyOf(1, 1, 0), capacity, macMiniOnly: false }),
+    { release: 'mac-mini-debug' });
+});
+
+test('jobs on the shared label keep the whole Mac mini pool bounded', () => {
+  assert.deepEqual(
+    assignPools({ lanes: ['plugins'], busy: busyOf(0, 0, 0, 3), capacity, macMiniOnly: false }),
+    { plugins: 'hosted' });
 });
 
 test('a full Mac mini pool sends work to free hosted runners', () => {
   assert.deepEqual(
-    assignPools({ lanes: ['release', 'plugins'], busy: { 'mac-mini': 3, hosted: 3 }, capacity, macMiniOnly: false }),
+    assignPools({ lanes: ['release', 'plugins'], busy: busyOf(2, 1, 3), capacity, macMiniOnly: false }),
     { release: 'hosted', plugins: 'hosted' });
 });
 
 test('when both pools are full a lane joins the relatively shorter queue', () => {
   assert.deepEqual(
-    assignPools({ lanes: ['rust'], busy: { 'mac-mini': 5, hosted: 5 }, capacity, macMiniOnly: false }),
+    assignPools({ lanes: ['rust'], busy: busyOf(4, 1, 5), capacity, macMiniOnly: false }),
     { rust: 'hosted' });
   assert.deepEqual(
-    assignPools({ lanes: ['rust'], busy: { 'mac-mini': 3, hosted: 7 }, capacity, macMiniOnly: false }),
-    { rust: 'mac-mini' });
+    assignPools({ lanes: ['rust'], busy: busyOf(2, 1, 7), capacity, macMiniOnly: false }),
+    { rust: 'mac-mini-debug' });
 });
 
 test('pushes and manual runs never take a hosted runner for Mac mini lanes', () => {
   assert.deepEqual(
-    assignPools({ lanes: ['rust', 'release', 'plugins'], busy: { 'mac-mini': 3, hosted: 0 }, capacity, macMiniOnly: true }),
-    { release: 'mac-mini', plugins: 'mac-mini', rust: 'mac-mini' });
+    assignPools({ lanes: ['rust', 'release', 'plugins'], busy: busyOf(2, 1, 0), capacity, macMiniOnly: true }),
+    { release: 'mac-mini-release', plugins: 'mac-mini-debug', rust: 'mac-mini-debug' });
 });
 
 test('hosted-only lanes stay hosted and do not consume a Mac mini slot', () => {
   assert.deepEqual(
-    assignPools({ lanes: ['swift', 'release', 'plugins', 'rust'], busy: { 'mac-mini': 1, hosted: 0 }, capacity, macMiniOnly: false }),
-    { swift: 'hosted', release: 'mac-mini', plugins: 'mac-mini', rust: 'hosted' });
+    assignPools({ lanes: ['swift', 'release', 'plugins', 'rust'], busy: busyOf(1, 0, 0), capacity, macMiniOnly: false }),
+    { swift: 'hosted', release: 'mac-mini-release', plugins: 'mac-mini-debug', rust: 'hosted' });
   assert.deepEqual(
-    assignPools({ lanes: ['swift'], busy: { 'mac-mini': 0, hosted: 9 }, capacity, macMiniOnly: true }),
+    assignPools({ lanes: ['swift'], busy: busyOf(0, 0, 9), capacity, macMiniOnly: true }),
     { swift: 'hosted' });
 });
 
 test('every lane receives a valid runs-on value', () => {
-  assert.deepEqual(runnersFor({ swift: 'mac-mini' }), {
-    swift: MAC_MINI_RUNNER, release: MAC_MINI_RUNNER, rust: MAC_MINI_RUNNER, plugins: HOSTED_MACOS_RUNNER,
+  assert.deepEqual(runnersFor({ plugins: 'mac-mini-debug' }), {
+    swift: HOSTED_MACOS_RUNNER, release: RELEASE, rust: DEBUG, plugins: DEBUG,
   });
 });
 
@@ -97,10 +121,10 @@ test('selection counts jobs of other active runs and skips the current run', asy
   const { fetchImpl, requested } = fakeGitHub(
     { in_progress: [100, 101], queued: [101, 102] },
     { 100: [miniJob('in_progress'), miniJob('in_progress'), miniJob('in_progress')],
-      101: [miniJob('in_progress'), miniJob('in_progress')], 102: [hostedJob('queued')] });
+      101: [miniJob('in_progress'), miniJob('in_progress', RELEASE)], 102: [hostedJob('queued')] });
   const result = await selectRunners({ ...pullRequestEnv, LITHE_MACOS_LANES: 'release,rust' }, fetchImpl);
-  assert.deepEqual(result.busy, { 'mac-mini': 2, hosted: 1 });
-  assert.deepEqual(result.pools, { release: 'mac-mini', rust: 'hosted' });
+  assert.deepEqual(result.busy, busyOf(1, 1, 1));
+  assert.deepEqual(result.pools, { release: 'mac-mini-debug', rust: 'hosted' });
   assert.ok(!requested.some((path) => path.includes('/runs/100/')));
 });
 
@@ -108,8 +132,9 @@ test('API failures fall back to the static routing', async () => {
   const fetchImpl = async () => ({ ok: false, status: 403, json: async () => ({}) });
   const result = await selectRunners({ ...pullRequestEnv, LITHE_MACOS_LANES: 'swift,rust' }, fetchImpl);
   assert.match(result.reason, /^static fallback: GitHub API 403/);
-  assert.deepEqual(result.pools, { swift: 'hosted', rust: 'mac-mini' });
+  assert.deepEqual(result.pools, { swift: 'hosted', rust: 'mac-mini-debug' });
   assert.deepEqual(result.runners.swift, HOSTED_MACOS_RUNNER);
+  assert.deepEqual(result.runners.rust, DEBUG);
 });
 
 test('a missing token falls back without contacting GitHub', async () => {
@@ -122,7 +147,7 @@ test('a missing token falls back without contacting GitHub', async () => {
 test('pushes choose the Mac minis without reading the API', async () => {
   const { fetchImpl, requested } = fakeGitHub({}, {});
   const result = await selectRunners({ ...pullRequestEnv, GITHUB_EVENT_NAME: 'push', LITHE_MACOS_LANES: 'swift,rust' }, fetchImpl);
-  assert.deepEqual(result.pools, { swift: 'hosted', rust: 'mac-mini' });
+  assert.deepEqual(result.pools, { swift: 'hosted', rust: 'mac-mini-debug' });
   assert.deepEqual(requested, []);
 });
 

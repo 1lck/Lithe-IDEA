@@ -60,6 +60,13 @@ queued macOS jobs through the read-only `actions: read` token permission:
 - Pull requests take a free Mac mini slot first, then a free hosted slot. When
   both pools are full, a lane joins the queue that is shorter relative to its
   size.
+- Mac mini runners are grouped by the build outputs they keep:
+  `lithe-mac-mini-debug` (two runners: Swift, plugin, and Rust Core tests share
+  the debug SwiftPM test build and debug Rust Core) and `lithe-mac-mini-release`
+  (one runner: release packaging). A lane prefers its own group so the next job
+  on that runner builds incrementally, and borrows the other group's free runner
+  before falling back to hosted runners. Group labels and their runner counts
+  are set in `MAC_MINI_GROUPS`; a runner added later needs one of the labels.
 - Pushes to `preview` and manual runs always use the Mac minis, so post-merge
   verification never takes a hosted slot that a pull request is waiting for.
 - If the API cannot be read, routing falls back to the fixed assignment: Rust
