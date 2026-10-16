@@ -37,6 +37,8 @@ import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useGitBlame } from "@/features/git/hooks/use-git-blame";
+import GitLineHistoryPopup from "@/features/git/components/git-line-history-popup";
+import { gutterLineRange, type LineHistoryRange } from "@/features/git/utils/line-history-selection";
 import { useGitGutterBase, type GitGutterBase } from "@/features/git/hooks/use-git-gutter-base";
 import {
   openGitGutterFullDiff,
@@ -811,6 +813,12 @@ export function MonacoEditor({
     setCursorPosition,
     setSelection,
   });
+  const [lineHistoryMenu, setLineHistoryMenu] = useState<{
+    range: LineHistoryRange;
+    anchor: { x: number; y: number };
+    content: string;
+  } | null>(null);
+  const pendingLineHistoryRangeRef = useRef<LineHistoryRange | null>(null);
   const [contextMenuPosition, setContextMenuPosition] = useState<{
     x: number;
     y: number;
@@ -1239,7 +1247,35 @@ export function MonacoEditor({
         event.event.stopPropagation();
         setContextMenuRunMarker(null);
 
-        if (event.target.position) {
+        // Line-number targets pick their query span by line, so a click inside
+        // a selected line range must not collapse the selection first.
+        const isLineNumberTarget =
+          event.target.type === monacoEditor.MouseTargetType.GUTTER_LINE_NUMBERS;
+        if (isLineNumberTarget && event.target.position) {
+          const clickedLine = event.target.position.lineNumber;
+          const currentSelection = editor.getSelection();
+          let span: Parameters<typeof gutterLineRange>[1] = null;
+          if (currentSelection && !currentSelection.isEmpty()) {
+            const firstLine = Math.min(
+              currentSelection.startLineNumber,
+              currentSelection.endLineNumber,
+            );
+            const lastLine = Math.max(
+              currentSelection.startLineNumber,
+              currentSelection.endLineNumber,
+            );
+            const lastLineColumn =
+              currentSelection.endLineNumber >= currentSelection.startLineNumber
+                ? currentSelection.endColumn
+                : currentSelection.startColumn;
+            span = { firstLine, lastLine, lastLineColumn };
+          }
+          pendingLineHistoryRangeRef.current = gutterLineRange(clickedLine, span);
+        } else {
+          pendingLineHistoryRangeRef.current = null;
+        }
+
+        if (event.target.position && !isLineNumberTarget) {
           setContextMenuRunMarker(
             javaRunMarkerForLine(javaRunMarkersRef.current, event.target.position.lineNumber - 1),
           );
@@ -2542,6 +2578,20 @@ export function MonacoEditor({
             }
             onFind={() => executeEditorCommand("workbench.showFind")}
             onGoToLine={() => executeEditorCommand("editor.goToLine")}
+            onLineHistory={
+              rootFolderPath && filePath && !editorBuffer?.isVirtual && !isPreviewMode
+                ? () => {
+                    const range = pendingLineHistoryRangeRef.current;
+                    if (!range || !contextMenuPosition) return;
+                    setLineHistoryMenu({
+                      range,
+                      anchor: { x: contextMenuPosition.x, y: contextMenuPosition.y },
+                      content,
+                    });
+                    setContextMenuPosition(null);
+                  }
+                : undefined
+            }
             onDuplicate={canEdit ? () => executeEditorCommand("editor.duplicateLine") : undefined}
             onSelectNextOccurrence={() => executeEditorCommand("editor.selectNextOccurrence")}
             onSelectAllOccurrences={() => executeEditorCommand("editor.selectAllOccurrences")}
@@ -2591,6 +2641,19 @@ export function MonacoEditor({
                 : undefined
             }
             onClose={() => setRunMarkerMenu(null)}
+          />,
+          document.body,
+        )}
+      {lineHistoryMenu &&
+        rootFolderPath &&
+        createPortal(
+          <GitLineHistoryPopup
+            rootPath={rootFolderPath}
+            filePath={filePath}
+            content={lineHistoryMenu.content}
+            range={lineHistoryMenu.range}
+            anchor={lineHistoryMenu.anchor}
+            onClose={() => setLineHistoryMenu(null)}
           />,
           document.body,
         )}

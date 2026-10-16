@@ -30,6 +30,8 @@ interface Props {
   startAtFirstDifference: boolean;
   startAtLastDifference?: boolean;
   focusOnInitialDifference?: boolean;
+  /** One-based modified-side lines to land on; wins over the first/last landing. */
+  revealRange?: { startLine: number; endLine: number };
   blockControls?: CommitDiffBlockControls;
   onNavigationChange: (state: DiffNavigationState) => void;
   onSplitLayout: (width: number) => void;
@@ -41,7 +43,7 @@ export default function IndependentCommitDiff(props: Props) {
   const surface = useRef<ReturnType<typeof mountIndependentCommitDiff> | null>(null);
   const latest = useRef(props);
   latest.current = props;
-  const pendingFirst = useRef(props.startAtFirstDifference);
+  const pendingFirst = useRef(props.startAtFirstDifference || Boolean(props.revealRange));
   const landingDiff = useRef(props.diff);
   const [error, setError] = useState<string>();
   const rows = useMemo(() => monacoDiffRows(props.diff, { hideHunkHeaders: true }), [props.diff]);
@@ -72,10 +74,21 @@ export default function IndependentCommitDiff(props: Props) {
     if (pendingFirst.current) {
       pendingFirst.current = false;
       const changes = instance.plan.changes;
-      if (changes.length) instance.reveal(
-        changes[latest.current.startAtLastDifference ? changes.length - 1 : 0],
-        latest.current.focusOnInitialDifference !== false,
-      );
+      if (changes.length) {
+        // Plan rows map one-based to modified-side editor lines, so a change
+        // covers rightStart+1..rightEnd and intersects the requested range.
+        const reveal = latest.current.revealRange;
+        const landed =
+          reveal &&
+          changes.find(
+            (change) =>
+              change.rightStart + 1 <= reveal.endLine && change.rightEnd >= reveal.startLine,
+          );
+        instance.reveal(
+          landed ?? changes[latest.current.startAtLastDifference ? changes.length - 1 : 0],
+          latest.current.focusOnInitialDifference !== false,
+        );
+      }
     }
     const side = instance.focused,
       view = instance.views[side],

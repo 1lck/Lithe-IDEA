@@ -52,6 +52,8 @@ interface Props {
   startAtFirstDifference?: boolean;
   startAtLastDifference?: boolean;
   focusOnInitialDifference?: boolean;
+  /** One-based modified-side lines to land on; wins over the first/last landing. */
+  revealRange?: { startLine: number; endLine: number };
   highlightWords?: boolean;
   repositoryPreview?: boolean;
   onSplitLayout?: (originalWidth: number) => void;
@@ -75,6 +77,7 @@ export default function MonacoGitDiff({
   startAtFirstDifference = false,
   startAtLastDifference = false,
   focusOnInitialDifference = true,
+  revealRange,
   highlightWords = true,
   repositoryPreview = false,
   onSplitLayout,
@@ -107,11 +110,13 @@ export default function MonacoGitDiff({
   const sourcePath = diff.new_path || diff.file_path || diff.old_path || "";
   const latest = useRef({ rows, sourcePath, sourceRepoPath, isDeleted: diff.is_deleted });
   const updating = useRef(false);
-  const firstDifferencePending = useRef(startAtFirstDifference);
+  const firstDifferencePending = useRef(startAtFirstDifference || Boolean(revealRange));
   const initialDifferenceFocusRef = useRef(focusOnInitialDifference);
   initialDifferenceFocusRef.current = focusOnInitialDifference;
   const lastDifferenceLanding = useRef(startAtLastDifference);
   lastDifferenceLanding.current = startAtLastDifference;
+  const revealRangeLanding = useRef(revealRange);
+  revealRangeLanding.current = revealRange;
   const landingDiff = useRef(diff);
   const navigationListener = useRef(onNavigationChange);
   navigationListener.current = onNavigationChange;
@@ -205,7 +210,15 @@ export default function MonacoGitDiff({
           // Consume once after Monaco finishes; later cursor/model updates keep their position.
           firstDifferencePending.current = false;
           if (changes.length) {
-            const change = changes[lastDifferenceLanding.current ? changes.length - 1 : 0];
+            const reveal = revealRangeLanding.current;
+            const landed =
+              reveal &&
+              changes.find(
+                (candidate) =>
+                  candidate.modifiedEndLineNumber >= reveal.startLine &&
+                  candidate.modifiedStartLineNumber <= reveal.endLine,
+              );
+            const change = landed ?? changes[lastDifferenceLanding.current ? changes.length - 1 : 0];
             const lineNumber = differenceStartLine(change, editors[1].getModel()?.getLineCount() ?? 1);
             editors[1].setPosition({ lineNumber, column: 1 });
             editors[1].revealPositionInCenter({ lineNumber, column: 1 });
