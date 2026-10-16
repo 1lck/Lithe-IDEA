@@ -11,6 +11,21 @@ import Testing
 @MainActor
 struct RunEntryPointTests {
     @Test
+    func provisionalSnapshotStaysUnavailableAcrossRefreshesUntilReleased() throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let snapshot = workspace.snapshot
+        let operations = SequencedWorkspaceOperations.unavailableThenReady(snapshot)
+        for _ in 0..<3 {
+            #expect(operations.snapshot(at: workspace.root, visibilityRules: .default) == nil)
+        }
+        operations.releaseSnapshot()
+        for _ in 0..<3 {
+            #expect(operations.snapshot(at: workspace.root, visibilityRules: .default)?.id == snapshot.id)
+        }
+    }
+
+    @Test
     func javaBuildDecisionResumesTheSamePreparedTargetAndPersistsWorkspaceChoice() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
@@ -856,8 +871,8 @@ private final class StubRunExecutableResolver: RunExecutableResolving {
     }
 }
 
-/// Hands out prepared scans in call order, and reports the folder as unreadable
-/// once they run out.
+/// Supplies scans in call order, or holds a snapshot until explicitly released.
+/// Ordered scans report the folder as unreadable once they run out.
 ///
 /// Reporting "no snapshot" is how these tests reach the pre-snapshot entry path.
 /// Suspending the scan instead would model a scan in flight, but the workspace
@@ -881,8 +896,8 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
         SequencedWorkspaceOperations(snapshots: [])
     }
 
-    /// Keep every scan unavailable until the test explicitly publishes its
-    /// inventory. Background refreshes must not advance the scenario early.
+    /// Background refreshes must not publish the inventory before the test
+    /// explicitly releases it and calls `refreshCurrent()` (or reopens).
     static func unavailableThenReady(_ snapshot: WorkspaceSnapshot) -> SequencedWorkspaceOperations {
         let operations = SequencedWorkspaceOperations(snapshots: [])
         operations.heldSnapshot = snapshot
@@ -890,23 +905,17 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
     }
 
     func releaseSnapshot() {
-        lock.lock()
-        defer { lock.unlock() }
-        snapshotReleased = true
+        lock.withLock { snapshotReleased = true }
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
-        lock.lock()
-        if let heldSnapshot {
-            let snapshot = snapshotReleased ? heldSnapshot : nil
-            lock.unlock()
-            return snapshot
+        lock.withLock {
+            if let heldSnapshot { return snapshotReleased ? heldSnapshot : nil }
+            let ordinal = scanCount
+            scanCount += 1
+            guard ordinal < snapshots.count else { return nil }
+            return snapshots[ordinal]
         }
-        let ordinal = scanCount
-        scanCount += 1
-        lock.unlock()
-        guard ordinal < snapshots.count else { return nil }
-        return snapshots[ordinal]
     }
 
     func readFile(at rootURL: URL, relativePath: String) -> String? {
