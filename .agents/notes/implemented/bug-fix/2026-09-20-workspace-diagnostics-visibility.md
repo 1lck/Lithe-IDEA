@@ -145,3 +145,133 @@ if (!isDocumentOpen(published)) return;
   `windows/tauri/src/features/editor/lsp/lsp-client.ts`
 - 相关笔记：
   `.agents/notes/implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md`
+
+
+## macOS 的 File 展示范围与空状态（2026-10-14）
+
+macOS Problems 的 File 页跟随当前选中的文本编辑器文件，Project Errors 页继续展示
+工作区已收到的全部问题。File 只是展示过滤，不能据此删除其他文件的诊断，也不能
+把“诊断最多的文件”或项目树选中项当成当前文件。选择终端、数据库、图片或差异视图
+时不沿用旧文本文件；关闭或切换文件后由编辑器现有状态直接更新。
+
+依据 Community revision `373dcfbaea24c627febb7e4916125fed3e5b4bc3`：
+
+- `platform/problemsView/ui/src/com/intellij/analysis/problemsView/toolWindow/HighlightingPanel.kt`
+  的 `findSelectedFile` 读取 `FileEditorManager.selectedEditor`，并要求同时获得文件和文本
+  document。无文件时提示打开文件；文件无问题时显示 `No problems in {0}`；隐藏严重程度
+  时追加 `Problems could be filtered out`。
+- `platform/platform-api/src/com/intellij/util/ui/StatusText.java` 使用普通标签字体和
+  `GRAYED_ATTRIBUTES`，文字顶部位于剩余高度的三分之一。没有大图标或额外引导段落。
+- `platform/util/ui/src/com/intellij/util/ui/NamedColorUtil.java` 的灰色文字追到
+  `Component.infoForeground`；`platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json`
+  与 `ManyIslandsLight.theme.json` 的 `*.infoForeground` 均为 `text-secondary` → `gray-80` →
+  `#73767C`。Lithe 复用 `LitheTheme.Tree.secondaryText`、普通 13pt `uiFont`，标签页复用
+  `LitheToolWindowTabStyle`，不另加颜色和字体体系。
+
+Lithe 没有 Community daemon 的逐文件分析完成、暂停和省电状态信号，所以不复制其
+200ms 状态轮询，也不从空诊断列表推断正在分析。语言服务、分析进度协议和诊断保留
+策略不在本次展示调整范围内。
+
+组件验证：`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter ProblemsPanelPresentationTests`。
+覆盖同名不同路径、文件切换、无当前文件、工作区诊断保留，以及深浅主题和窄宽度下的
+空状态颜色、水平居中与三分之一高度。完整工作区中的编辑器切换仍需应用交互验收。
+
+适用源码：`macos/Sources/Lithe/Views/Language/JavaProblemsView.swift`。
+
+
+## macOS Problems 源码预览与左侧工具栏（2026-10-14）
+
+左侧 View Options 复用已有严重程度筛选；Show Editor Preview 在列表右侧打开源码，
+默认各占一半，通过 `LitheSplitPaneView` 调整宽度。开启时单击和上下键改变预览，双击
+与 Enter 仍在主编辑器定位；没有问题时禁用预览按钮。灯泡快速修复属于独立动作，
+本次工具栏只承接已有筛选和用户指定的源码预览。
+
+同一 Community revision 的
+`platform/problemsView/ui/resources/intellij.platform.problemView.ui.xml` 定义动作顺序，
+`platform/icons/src/PlatformIconMappings.json` 把 `Actions.GroupBy` 与 `Actions.PreviewDetails`
+映射到 `expui/general/show.svg` 与 `previewVertically.svg`。复用 Lithe 已导入的明暗图标、
+16pt 图标与共享 22pt 按钮；选中开关仍用 `LitheIconButtonStyle`。`ProblemsViewPanel.java`
+使用水平 `OnePixelSplitter` 和默认 0.5 比例；`JBUI.java` 的新 UI 竖向工具栏默认 insets
+为上下 5、左右 7，Islands 主题没有覆盖这项。
+
+`platform/lang-impl/src/com/intellij/ui/preview/DescriptorPreview.kt` 复用文档并让预览定位
+跟随问题。Lithe 继续使用现有 Monaco，而不是引入另一套编辑器；通过
+`DocumentFeatureModel.previewDocument` 取得已打开或临时文档，读取失败时显示失败文字，
+切换文件或关闭面板会取消该视图的加载结果交付。干净的临时文档仍由既有工作区预览缓存
+拥有，跟随现有 `discardPreviewDocuments` 与工作区关闭清理，不在工具窗口中自行删文档。
+
+IDEA 的该预览可编辑；此次 Lithe 提供只读源码预览。独立预览会话键包含 presentation ID，
+与主编辑器共享实时文档内容，但不移动主编辑器 WebView、不获取文档同步/保存/关闭屏障，
+也不修改文档本身的只读属性。预览关闭即可释放其会话。不能直接复用主编辑器会话键，
+否则 WebView 会从主区域搬入预览；也不能让第二个可编辑会话接管同步屏障，造成输入、
+撤销或保存归属竞争。将来若要编辑，先复用支持跨视图共享模型和撤销的编辑器宿主。
+
+`window.lithe.navigate` 的可选 `focus: false` 只移动预览位置，默认调用仍保留原先获得焦点
+的行为。独立只读预览不消费主编辑器导航事件，也不把 cursor/focus 事件写回主编辑器。
+原生桥同时拒绝预览编辑、保存与会执行修改的语言操作，不能只依赖 Web 前端的 readonly。
+
+验证入口：会话生命周期与保存归属使用 `MonacoWorkbenchSessionLifetimeTests`，
+分栏使用 `LitheSplitPaneGeometryTests` / `LitheSplitPaneCollapseTests`，真实 WebKit 使用
+`./scripts/probe-macos-monaco.sh --workbench-tests`。测试工具栏开关、分栏拖动和完整工作区
+焦点流时，仍须进行应用级交互验收。
+
+
+## Problems 文案跟随应用语言（2026-10-15）
+
+File / Project Errors 和空状态在视图中保留 `LocalizedStringKey`，由 SwiftUI 的
+`locale` 环境解析。不要先用 `String(localized:)` 生成字符串；它会先按进程的 bundle
+语言选取翻译，造成英文应用环境仍显示中文，且外层 `Text(String)` 无法重新翻译。
+文件名用本地化插值，预览加载失败和筛选提示沿用同一路径。
+
+`ProblemsPanelPresentationTests.problemsTextFollowsInterfaceLocale` 同时加载真实 en 与
+zh-Hans 资源，分别渲染两种应用语言，并与目标语言的参考文字逐像素比较，覆盖标签、
+无文件、带文件名的空状态、筛选与预览失败。不能只检查 strings 文件里是否存在翻译。
+
+
+## 列表焦点与独立演示（2026-10-15）
+
+Problems 列表仍需 `.focusable()` 接收方向键；SwiftUI 默认焦点效果会在整个列表外画蓝框。
+沿用 Git Log 已使用的 `litheFocusEffectHidden()`，只隐藏外框，保留键盘选择和行选中样式。
+只读源码预览只执行定位，不打开主编辑器的查找浮层，避免空查找框抢走焦点。
+
+Debug 构建通过 `./scripts/preview.sh --problems-demo` 打开真实 ProblemsView 演示，
+包含错误、警告、信息、提示、未知级别，以及废弃、未使用、关联信息、多行长文和 Unicode。
+演示使用独立设置域和临时工作区，不启动语言服务器；退出时关闭工作区并清理临时数据，
+5 秒截止机制防止关闭流程挂起。演示文件只写入系统临时目录，不写 app bundle；
+没有新增可复用下载或生成缓存资源。发布构建不包含这个入口。
+
+实际检查独立演示程序的选中、方向键与源码切换：没有外围蓝框，源码跟随选择且没有查找浮层。
+运行前后比较 app bundle 的 609 个文件哈希，内容未变；退出后演示进程和所属临时目录均清理。
+`ProblemsPanelPresentationTests` 验证演示数据覆盖全部级别、标签及有效文件位置。
+
+
+## Problems 文件图标与启动角标（2026-10-15）
+
+文件行复用项目树的 `JavaFileIconResolver` 判断 Java 类型，不能仅按扩展名选择咖啡杯。
+启动标记消费已有 Java 启动配置的 `sourcePath` / `mainClass`；没有已发现的入口时不猜测
+源码是否可运行，也不为绘制图标启动语言服务。Debug 演示显式提供 Main.java 的已知入口。
+这保留了 JDT 对启动入口的所有权，代价是入口尚未发现时不会显示启动角标。
+
+Community revision `373dcfbaea24c627febb7e4916125fed3e5b4bc3` 的 `FileNode.kt`
+通过文件语义取得图标，`JavaFileIconPatcher.kt` 优先使用同名类型的图标。
+`YAMLFileType.java` 返回 `AllIcons.FileTypes.Yaml`，application.yml 不单独换图标。
+类、YAML 和 runnableMark 均使用该 revision 的明暗 SVG。启动角标保持 16×16 画布
+自带的右上角位置，不缩放或平移成另一种装饰。
+
+问题行的错误与警告使用 `HighlightDisplayLevel` 对应的 inspections 蒙版，沿用共享
+诊断颜色；它们与右上角统计的 status 图标具有不同的内部留白，不能只比较外框尺寸。
+列表选中背景不依赖源码预览开关，方向键切换时滚动到所选问题，避免选择移出可视区域。
+
+`ProblemsPanelPresentationTests.fileIconsHaveDistinctThemeVariantsAtNativeSize` 加载真实
+类、YAML 和启动角标资源，检查明暗变体都可读取、画布为 16×16 且实际渲染不同。
+
+
+## 审核后的交互边界补充（2026-10-15）
+
+File 的当前文件解析同时排除 Agent Conversation 编辑器标签。该标签保留上一次
+activeDocument，不能仅用文档是否存在判断用户正看的内容；切回文本标签后恢复文件范围。
+
+Problems 只读预览的原生桥拒绝 javaRunMarkerAction。共享 Monaco 在文档为只读时
+不请求 Run Marker，清除角标和 Run/Debug 动作，并在执行回调时再次检查只读状态，
+防止切换前已经保存的菜单动作启动进程。编辑器正常可写时保留原有 Run/Debug 行为。
+验证分别覆盖文本→Agent→文本、原生消息策略，以及真实 WebKit 的动作移除和过期回调。

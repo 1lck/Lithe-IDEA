@@ -40,9 +40,9 @@ impl WorkspaceContext {
         text: String,
         files: Vec<PromptFile>,
     ) -> Result<Vec<ContentBlock>, String> {
-        // Native slash commands (including /usage) depend on an unmodified
-        // single text block. Their execution context is already session cwd.
-        let native_command = files.is_empty() && text.trim_start().starts_with('/');
+        // Native slash commands (including /usage) keep their original text
+        // and ordered attachments. Their execution context is already session cwd.
+        let native_command = text.trim_start().starts_with('/');
         let mut content = prompt::content(text, files)?;
         if !native_command {
             // Preserve the first user block and file references exactly. Plain
@@ -58,7 +58,10 @@ impl WorkspaceContext {
     pub(crate) fn present_update(&self, mut update: Value) -> Option<Value> {
         if update["sessionUpdate"] == "session_info_update" {
             if let Some(title) = update["title"].as_str() {
-                update["title"] = Value::String(self.present_title(title));
+                update["title"] = self
+                    .present_title(title)
+                    .map(Value::String)
+                    .unwrap_or(Value::Null);
             }
             return Some(update);
         }
@@ -87,10 +90,12 @@ impl WorkspaceContext {
     }
 
     /// Native agents may derive a truncated, whitespace-normalized title from
-    /// the complete first prompt. Hide only the recognized generated suffix.
-    pub(crate) fn present_title(&self, title: &str) -> String {
+    /// the complete first prompt. Hide only the recognized generated suffix;
+    /// a context-only title is absent so downstream UI can use its fallback.
+    pub(crate) fn present_title(&self, title: &str) -> Option<String> {
+        let nonblank = |value: &str| (!value.trim().is_empty()).then(|| value.to_owned());
         let Some(offset) = title.find(BEGIN) else {
-            return title.to_owned();
+            return nonblank(title);
         };
         let suffix = title[offset..]
             .split_whitespace()
@@ -99,9 +104,9 @@ impl WorkspaceContext {
         let expected = self.text.split_whitespace().collect::<Vec<_>>().join(" ");
         let generated_start = format!("{BEGIN} {INTRODUCTION}");
         if suffix.starts_with(&generated_start) && expected.starts_with(&suffix) {
-            title[..offset].trim_end().to_owned()
+            nonblank(title[..offset].trim_end())
         } else {
-            title.to_owned()
+            nonblank(title)
         }
     }
 }
@@ -204,7 +209,11 @@ mod tests {
                 .collect(),
         ] {
             let title = format!("Explain this project\n\n{suffix}");
-            assert_eq!(context.present_title(&title), "Explain this project");
+            assert_eq!(
+                context.present_title(&title).as_deref(),
+                Some("Explain this project")
+            );
+            assert_eq!(context.present_title(&suffix), None);
             let update = json!({ "sessionUpdate": "session_info_update", "title": title, "_meta": { "preserved": true } });
             assert_eq!(
                 context.present_update(update).unwrap(),
@@ -218,7 +227,10 @@ mod tests {
             "User <lithe_workspace_context> example",
             "<lithe_workspace_context> custom explanation",
         ] {
-            assert_eq!(context.present_title(title), title);
+            assert_eq!(context.present_title(title).as_deref(), Some(title));
+        }
+        for title in ["", " \n\t "] {
+            assert_eq!(context.present_title(title), None);
         }
     }
 }

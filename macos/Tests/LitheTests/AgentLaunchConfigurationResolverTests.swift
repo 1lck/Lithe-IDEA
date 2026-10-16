@@ -152,6 +152,60 @@ struct AgentLaunchConfigurationResolverTests {
         #expect(settings.commitMessageAI == before)
     }
 
+    @Test(arguments: [AIConfigurationSourceKind.codex, .claude])
+    func localHTTPPermissionPersistsAndReachesLaunchWithoutChangingOtherProviders(source: AIConfigurationSourceKind) async throws {
+        let store = LaunchSettingsStore()
+        let settings = AppSettings(store: store)
+        let current = AIConfigurationSnapshot(source: source, providerName: "Loopback",
+            endpoint: "http://127.0.0.1:3425/v1", model: "fixture-model",
+            apiProtocol: source == .codex ? .responses : .anthropicMessages,
+            reasoningEffort: nil, requiresAPIKey: true, apiKey: "fixture-secret")
+        let imported = settings.importAIConfiguration(current)
+        settings.setAgentProvider(imported.id, for: agentID(source), name: source.title)
+        let otherSource: AIConfigurationSourceKind = source == .codex ? .claude : .codex
+        let other = settings.importAIConfiguration(snapshot(otherSource, revision: "other"))
+        let before = settings.commitMessageAI
+        let bindings = settings.agentConfigurations
+        let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode,
+            aiConfigurationSources: []).services
+        let model = AppModel(settings: settings, services: services)
+        let resolver = AgentLaunchConfigurationResolver(settings: settings,
+            configurationSources: [LaunchConfigurationSource(snapshots: [current])],
+            credentialResolver: LaunchCredentialResolver(key: "must-not-use-this-key"))
+        do {
+            #expect(!imported.allowsInsecureHTTP)
+            try await model.setLocalAgentProviderHTTP(true, provider: imported)
+            let launch = try resolve(resolver, agentID: agentID(source))
+            #expect(launch.allowsInsecureHTTP)
+            #expect(launch.providerEndpoint == current.endpoint)
+            #expect(launch.apiKey == current.apiKey)
+            let enabled = try #require(settings.agentProvider(for: agentID(source)))
+            #expect(AppSettings(store: store).agentProvider(for: agentID(source)) == enabled)
+            #expect(settings.commitMessageAI.providers.first { $0.id == other.id } == other)
+            #expect(settings.commitMessageAI.activeProviderID == before.activeProviderID)
+            #expect(settings.agentConfigurations == bindings)
+
+            // Stale and deleted profiles cannot overwrite a newer choice or recreate a provider.
+            await #expect(throws: AgentProviderConfigurationError.invalidConfiguration) {
+                try await model.setLocalAgentProviderHTTP(false, provider: imported)
+            }
+            try await model.setLocalAgentProviderHTTP(false, provider: enabled)
+            #expect(try !resolve(resolver, agentID: agentID(source)).allowsInsecureHTTP)
+            #expect(AppSettings(store: store).agentProvider(for: agentID(source))?.allowsInsecureHTTP == false)
+            settings.removeAIProvider(imported.id)
+            await #expect(throws: AgentProviderConfigurationError.invalidConfiguration) {
+                try await model.setLocalAgentProviderHTTP(true, provider: imported)
+            }
+            #expect(settings.agentProvider(for: agentID(source)) == nil)
+            #expect(!String(decoding: try #require(store.data(forKey: "settings.commitMessageAI")), as: UTF8.self)
+                .contains("fixture-secret"))
+        } catch {
+            await model.shutdownProjectSession()
+            throw error
+        }
+        await model.shutdownProjectSession()
+    }
+
     private func resolve(_ resolver: AgentLaunchConfigurationResolver, agentID: String) throws -> AgentLaunchConfiguration {
         try resolver.resolve(agentID: agentID, workspaceURL: URL(fileURLWithPath: "/fixture/workspace"),
             dataDirectory: URL(fileURLWithPath: "/fixture/agent-data"))

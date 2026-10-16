@@ -75,6 +75,7 @@ final class MacServiceContainer {
         gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         platformUI providedPlatformUI: (any PlatformUI)? = nil,
+        aiConfigurationSources providedAIConfigurationSources: [any AIConfigurationSource]? = nil,
         gitPerformanceLogger: (any GitPerformanceLogger)? = nil
     ) {
         let gitExecutionJournal = GitExecutionJournal()
@@ -121,7 +122,7 @@ final class MacServiceContainer {
         )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
-        let aiConfigurationSources: [any AIConfigurationSource] = [
+        let aiConfigurationSources: [any AIConfigurationSource] = providedAIConfigurationSources ?? [
             codexConfigurationSource,
             claudeConfigurationSource
         ]
@@ -666,7 +667,8 @@ final class MacServiceContainer {
             workbenchBackgroundPlatform: MacWorkbenchBackgroundPlatform(store: store),
             directoryWatcherFactory: MacDirectoryWatcherFactory(),
             platformUI: platformUI,
-            shortcutDetectorFactory: MacShortcutDetectorFactory()
+            shortcutDetectorFactory: MacShortcutDetectorFactory(),
+            debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry)
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)

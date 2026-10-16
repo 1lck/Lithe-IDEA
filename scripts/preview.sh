@@ -86,7 +86,7 @@ codesign --force --deep --sign - "$APP_DIR"
 (
     trap 'rm -rf -- "$INSTANCE_DIR"' EXIT HUP INT TERM
     set +e
-    open -n -W "$APP_DIR" </dev/null >/dev/null 2>&1
+    open -n -W "$APP_DIR" --args "$@" </dev/null >/dev/null 2>&1
     open_status=$?
     rm -rf -- "$INSTANCE_DIR"
     trap - EXIT HUP INT TERM

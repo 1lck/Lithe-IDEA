@@ -12,6 +12,19 @@ export const overlayEntrance = {
   transition: quickTransition,
 } as const;
 
+export const overlayEntranceSelfClearing = {
+  initial: { opacity: 0, scale: 0.98, y: 6, filter: "blur(2px)" },
+  animate: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transitionEnd: { filter: "none" },
+  },
+  exit: { opacity: 0, scale: 0.98, y: 4, filter: "blur(2px)" },
+  transition: quickTransition,
+} as const;
+
 export const instantTransition: Transition = {
   duration: 0,
 };

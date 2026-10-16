@@ -211,8 +211,9 @@ repository and inherited `AGENTS.md`/`CLAUDE.md` retain their development-rule
 role, without replacing the subject of project-purpose/structure questions.
 The same builder handles `prompt` and `steer`, retry payloads, and prompts after
 `session/load`; it never reads a README or guesses a Git root. User text stays
-first and file links retain their order. Text-only native slash commands are
-sent unchanged so adapter command parsing and `/usage` detection keep working.
+first and file links retain their order. Native slash commands retain their original text and ordered attachment links,
+including leading whitespace and deferred steering commands; no workspace block
+is appended, so adapter command parsing and `/usage` detection keep working.
 No optional prompt capability, private system prompt, new command field, or
 provider-specific path override is required.
 
@@ -220,6 +221,9 @@ Only the exact Host-added workspace text suffix is omitted from
 `user_message_chunk` presentation, including adapters that join adjacent text
 blocks in history. Generated `session_info_update.title` and session-list titles
 also omit a recognized full or truncated, whitespace-normalized Host suffix.
+If the remaining title is empty or whitespace-only, it is represented as `null`
+in the Host event rather than an empty string, preserving downstream provisional
+message, New Chat, untitled-history and export fallbacks.
 Other user content, model output, tools and metadata pass through unchanged.
 Upstream history remains untouched and may retain this
 context as part of its original prompt; it contributes to upstream token usage.
@@ -494,6 +498,11 @@ CLI found on that `PATH` with its minimum version; they are installed with
 with the user's CLI through the adapter's variable (`CODEX_PATH`,
 `CLAUDE_CODE_EXECUTABLE`). A missing or
 too old CLI is an issue for the user to resolve, never installed by Lithe.
+For Codex, `cli.installation.updateAvailable` is `true` only when the verified
+installation owner reports a newer release, `false` when no newer release is found
+(npm's published version or Homebrew's local index), and absent when the check is
+unavailable. It does not change `canUpdate`, which only describes whether Lithe can
+safely invoke that owner. Homebrew checks do not refresh the local index automatically.
 `agent.install` runs `npm install` into a staging directory
 and replaces the previous install only after the adapter executable exists; it
 honors `operationId` cancellation and `timeoutMilliseconds`. Failures use
@@ -529,8 +538,12 @@ only when `canUpdate` is true. The hint is never executable input. Absent fields
 remain backward compatible with older hosts. Windows installer/shim ownership
 has not been verified; unrecognized installations use the manual path.
 The minimum CLI version is a compatibility requirement, not a latest-version
-check. macOS keeps an explicit update action available for compatible CLIs whose
-installation owner permits it, including when the preflight row is collapsed.
+check. For compatible Codex CLIs, macOS offers Update only when `canUpdate` and
+`updateAvailable` are both true, including when the preflight row is collapsed.
+A false or absent `updateAvailable` hides that action. Too-old CLIs retain the
+upgrade repair action when `canUpdate` is true, regardless of `updateAvailable`;
+manual guidance remains available for owners Lithe cannot update. Other CLIs keep
+the owner-permitted update action.
 After a successful update, users reconnect the Agent to start the updated CLI
 and obtain its model catalog; existing conversations are not interrupted automatically.
 

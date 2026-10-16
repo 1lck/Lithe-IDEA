@@ -26,10 +26,22 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 - [ToolWindowDragHelper.kt](https://github.com/JetBrains/intellij-community/blob/c7f91397daa3a961b4e78bc634fe467a0a7d9ade/platform/platform-impl/src/com/intellij/toolWindow/ToolWindowDragHelper.kt) 将拖动预览与最终提交分开。
 - [ManyIslandsDark.theme.json](https://github.com/JetBrains/intellij-community/blob/c7f91397daa3a961b4e78bc634fe467a0a7d9ade/platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json) 与同目录 Light 主题的 ToolWindow.DragAndDrop.areaBackground 为深色 #366ACF4D、浅色 #A0BDF84D；入口提示使用 Button.DragAndDrop.buttonDropBackground 的 #3671E580 / #3671E540。保留已有 37×40pt 槽位、30pt 按钮与 20pt IDEA 图标。
 
-拖动复用编辑器标签的原生浮动预览方式：AppKit 捕获当前入口一次，非激活面板只跟随鼠标移动，工具状态与落点预览留在当前视图。入口按固定窗口坐标记录，开始拖动时捕获当前矩形；蓝色圆角占位槽插入后仍按开始位置命中，避免占位推动图标后产生来回跳动。拖动结束清除矩形快照，下一次重新读取排序后的实际位置。侧栏插入槽与内容区落点分别显示，空分组也保留落点槽。
+拖动复用编辑器标签的原生浮动预览方式：AppKit 捕获当前入口一次，非激活面板只跟随鼠标移动，工具状态与落点预览留在当前视图。入口按固定窗口坐标记录；拖动源的槽位高度归零，后续按钮立即补齐，但接收鼠标事件的原生视图保留到松开或取消。按钮命中使用补齐后的可见矩形；鼠标在蓝色插入槽的纵向范围内时保留当前目标；这同样适用于鼠标已水平移入内容区的情况，避免占位推动按钮后反复换目标。侧栏插入槽与内容区落点分别显示，空分组也保留落点槽。
 按 IDEA createStripeButtonDragImage 的顺序，先绘制浮动图标，再隐藏原入口。拖动预览单独使用已有 IDEA SVG、普通图标前景色和浮动按钮外框，不截取源按钮的选中或悬停底色。Community `SquareStripeButtonLook.paintDraggingButton` → `IdeaActionButtonLook` 分别绘制背景、图标和同色 1pt 圆角边框；Islands `ToolWindow.DragAndDrop.buttonFloatingBackground` 为深色 #40434A / 浅色 #DDDFE4。普通灰色浮动背景与激活蓝底是不同状态，不能为去掉蓝底而删除全部按钮表面。拖动覆盖层仅通过鼠标事件监听处理按下与拖动，命中测试透传，保留原按钮 hover 底色和提示。像素回归检查浮动图标内容及透明边角，不能只检查面板存在。
 工具入口按 `bounds.intersection(visibleRect)` 处理按下与非拖动释放，隐藏祖先不参与命中；拖动开始快照也只记录裁剪后的可见矩形，滚出 280pt 视口的图标不能截获另一组点击或成为插入落点。
 鼠标经过落点时不写业务位置；松开后原子移动并保存。Esc、无效落点、失去应用激活状态和卸载清理预览，窗口外释放不创建浮动窗口；Esc 后同次按住不能重新开始拖动。
+
+落点与蓝色遮罩共用一次拖动开始时捕获的真实面板和编辑区矩形。
+依据同一 revision 的 `ToolWindowDropArea.kt`、`ToolWindowToolbar.kt` 和
+`ToolWindowDragHelper.kt`：有可见面板时优先用它的完整边界；已有双组时用各组的实际尺寸，
+只有单组时才按目标方向二分。底部面板左右二分保留原高度，侧面板上下二分保留原宽度，
+不能用整个工作区三分之一代替实际面板，也不能用全窗口中线判定侧面分组。
+侧面尚无面板时沿编辑区高度扩展，底部尚无面板时采用 `max(200, paneHeight / 4)`；
+侧宽使用已有工作台尺寸，未提供时沿用 Community 默认 350pt。
+落点重叠时优先拖动源停靠边，确保从底部入口水平移入底部内容区仍预测 Bottom Left/Right；
+直接指向其他侧栏按钮时仍以该按钮的分组和插入位置为准。
+所有矩形记录是视图本地状态，连续拖动不发布布局业务状态，也不写设置。
+卸载锚点时仅注销同一视图拥有的记录，避免旧视图清掉新布局的几何数据。
 
 布局按工作区通过已有设置存储保存，旧数据缺少新字段时保留尺寸并采用默认位置。
 恢复时忽略未知或重复窗口标识，纠正负顺序和同组多个可见窗口；不把缓存写到应用包内。
@@ -75,3 +87,21 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 - `macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift`
 - `macos/Sources/Lithe/Views/Workbench/`
 - `macos/Tests/LitheTests/ToolWindowDockingTests.swift`
+
+拖动回归补充：`ToolWindowDockingTests.horizontalDragUsesTheBottomPanelHeightAndActualSplitBounds`
+覆盖底部平移、编辑区排除、遮罩保持实际高度及不等宽双组；
+`insertionSlotRetainsItsTargetWhileButtonsReflow` 覆盖插入槽目标稳定；
+`draggedStripeEntryClosesItsSlotWithoutUnmountingTheMouseOwner` 使用真实 SwiftUI 按钮样式和
+原生拖动接收视图，检查源槽位消失、相邻按钮补齐、原接收者身份保留及取消后恢复。
+组件回归不能代替完整工作台的实际拖动、松开和 Esc 验收。
+
+侧栏插入顺序进一步按同一 revision 的
+`platform/platform-impl/src/com/intellij/openapi/wm/impl/AbstractDroppableStripe.kt`
+移植：`processDropButton` 把内容区鼠标投影到侧栏主轴，`recomputeBounds` 按每个可见按钮的中点
+选择插入索引。Lithe 的 AppKit Y 轴朝上，因此按 Y 从大到小遍历，同一套中点判定同时用于
+直接经过侧栏和进入内容区的拖动；不能在内容区只计算停靠边缘后将 `before` 固定成 `nil`，
+否则水平拖出中间按钮会把蓝色占位强制追加到组末尾。
+`ToolWindowDockingTests.horizontalContentDragProjectsInsertionOrderInsteadOfAppending` 覆盖此复现：
+从四个按钮中的第二个水平拖入内容区，保留中间插槽；纵向越过按钮中点后才改变顺序，
+真正低于全部按钮时才追加到末尾。Swift 继续用既有稳定窗口 ID 表示插入点，不复制 Java 的
+Swing 容器或另建一份持久化顺序。

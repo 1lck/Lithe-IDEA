@@ -258,6 +258,8 @@ async fn steering_when_idle_or_unsupported_never_sends_an_extension() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn steering_codex_commands_use_owned_prompts_without_a_detached_turn() {
+    let fixture = fixture();
+    let attached_command = &fixture["commands"]["nativeCommandWithFiles"];
     for (command, files) in [
         ("/status", json!([])),
         ("  \n/status", json!([])),
@@ -265,6 +267,10 @@ async fn steering_codex_commands_use_owned_prompts_without_a_detached_turn() {
         (
             "/status",
             json!([{"uri":"file:///fixture/README.md", "name":"README.md"}]),
+        ),
+        (
+            attached_command["text"].as_str().unwrap(),
+            attached_command["files"].clone(),
         ),
     ] {
         let mut harness = Harness::start();
@@ -297,7 +303,11 @@ async fn steering_codex_commands_use_owned_prompts_without_a_detached_turn() {
             .send(json!({"kind":"prompt", "sessionId":"session-1", "text":command, "files":files}));
         // Any unexpected _session/steering would be the next wire message.
         let prompt = harness.agent.expect("session/prompt").await;
-        assert_eq!(prompt["params"]["prompt"][0]["text"], command);
+        let mut expected = vec![json!({"type":"text", "text":command})];
+        for file in files.as_array().unwrap() {
+            expected.push(json!({"type":"resource_link", "uri":file["uri"], "name":file["name"]}));
+        }
+        assert_eq!(prompt["params"]["prompt"], json!(expected));
         harness
             .agent
             .reply(&prompt, json!({"stopReason":"end_turn"}))
@@ -3295,6 +3305,87 @@ async fn native_slash_command_reaches_acp_without_extra_context_or_arguments() {
             harness.event().await,
             AgentEvent::TurnFinished { .. }
         ));
+    }
+    let mut command = fixture()["commands"]["nativeCommandWithFiles"].clone();
+    command["sessionId"] = json!("commands");
+    harness.send(command);
+    let prompt = harness.agent.expect("session/prompt").await;
+    assert_eq!(
+        prompt["params"]["prompt"],
+        fixture()["workspaceContext"]["nativeCommandWithFilesContent"]
+    );
+    harness
+        .agent
+        .reply(&prompt, json!({"stopReason":"end_turn"}))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { .. }
+    ));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn context_only_titles_are_missing_in_live_updates_and_history() {
+    let mut harness = Harness::ready().await;
+    harness.open_session("file-only").await;
+    let mut command = fixture()["commands"]["fileOnlyPrompt"].clone();
+    command["sessionId"] = json!("file-only");
+    harness.send(command);
+    let prompt = harness.agent.expect("session/prompt").await;
+    let content = prompt["params"]["prompt"].as_array().unwrap();
+    assert_eq!(content[0]["type"], "resource_link");
+    let context = content.last().unwrap()["text"].as_str().unwrap();
+    let titles = [
+        context.to_owned(),
+        context.chars().take(300).collect(),
+        context
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(300)
+            .collect(),
+        " \n\t ".into(),
+    ];
+    harness
+        .agent
+        .reply(&prompt, json!({"stopReason":"end_turn"}))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { .. }
+    ));
+
+    let expected = fixture()["events"]["sessionsWithoutGeneratedTitles"].clone();
+    let sessions: Vec<_> = expected["sessions"].as_array().unwrap().iter().zip(&titles)
+        .map(|(session, title)| json!({"sessionId":session["sessionId"], "cwd":std::env::temp_dir(), "title":title}))
+        .collect();
+    harness.send(json!({"kind":"listSessions", "token":"untitled-history"}));
+    let list = harness.agent.expect("session/list").await;
+    harness
+        .agent
+        .reply(&list, json!({"sessions":sessions}))
+        .await;
+    assert_eq!(
+        serde_json::to_value(harness.event().await).unwrap(),
+        expected
+    );
+
+    for title in titles {
+        harness.agent.write(json!({"jsonrpc":"2.0", "method":"session/update", "params":{
+            "sessionId":"file-only", "update":{"sessionUpdate":"session_info_update", "title":title, "_meta":{"preserved":true}}
+        }})).await;
+        match harness.event().await {
+            AgentEvent::Update { update, .. } => {
+                assert!(
+                    update["title"].is_null(),
+                    "A removed title must not hide UI fallbacks"
+                );
+                assert_eq!(update["_meta"]["preserved"], true);
+            }
+            other => panic!("expected missing live title, got {other:?}"),
+        }
     }
     assert_eq!(harness.stop().await, Ok(()));
 }

@@ -1663,15 +1663,15 @@ async fn list_sessions(
                 .block_task(),
         )
         .await?;
-        sessions.extend(
-            page.sessions
-                .into_iter()
-                .map(|session| AgentSessionSummary {
-                    session_id: session.session_id.0.to_string(),
-                    title: session.title.map(|title| workspace.present_title(&title)),
-                    updated_at: session.updated_at,
-                }),
-        );
+        sessions.extend(page.sessions.into_iter().map(|session| {
+            AgentSessionSummary {
+                session_id: session.session_id.0.to_string(),
+                title: session
+                    .title
+                    .and_then(|title| workspace.present_title(&title)),
+                updated_at: session.updated_at,
+            }
+        }));
         match page.next_cursor {
             Some(next) if !next.is_empty() => cursor = Some(next),
             _ => return Ok(sessions),

@@ -3,7 +3,12 @@
   "workspaceContext": {
     "relativeRoots": ["parent/examples/spring-service", "parent/examples/another-service"],
     "question": "这个项目是用来做什么的",
-    "supplement": "继续讲解当前项目的结构"
+    "supplement": "继续讲解当前项目的结构",
+    "nativeCommandWithFilesContent": [
+      { "type": "text", "text": "  \n/status" },
+      { "type": "resource_link", "uri": "file:///example/project/Hello%20World.swift", "name": "Hello World.swift" },
+      { "type": "resource_link", "uri": "file:///example/project/README.md", "name": "README.md" }
+    ]
   },
   "commands": {
     "authenticate": { "kind": "authenticate" },
@@ -15,6 +20,7 @@
     "steer": { "kind": "steer", "token": "steer-1", "sessionId": "session-1", "text": "Focus on login" },
     "promptWithFiles": { "kind": "prompt", "sessionId": "session-1", "text": "Explain these files", "files": [{ "uri": "file:///example/project/Hello%20World.swift", "name": "Hello World.swift" }, { "uri": "file:///example/project/README.md", "name": "README.md" }] },
     "fileOnlyPrompt": { "kind": "prompt", "sessionId": "session-1", "text": "", "files": [{ "uri": "file:///example/project/README.md", "name": "README.md" }] },
+    "nativeCommandWithFiles": { "kind": "prompt", "sessionId": "session-1", "text": "  \n/status", "files": [{ "uri": "file:///example/project/Hello%20World.swift", "name": "Hello World.swift" }, { "uri": "file:///example/project/README.md", "name": "README.md" }] },
     "cancel": { "kind": "cancel", "sessionId": "session-1" },
     "setConfigOption": { "kind": "setConfigOption", "token": "config-1", "sessionId": "session-1", "configId": "model", "value": "example-model" },
     "allowPermission": { "kind": "permission", "requestId": "permission-1", "optionId": "allow_once" },
@@ -60,6 +66,15 @@
       "sessions": [
         { "sessionId": "session-1", "title": "Explain this project", "updatedAt": "2026-09-25T10:00:00Z" },
         { "sessionId": "session-2", "title": null, "updatedAt": null }
+      ]
+    },
+    "sessionsWithoutGeneratedTitles": {
+      "kind": "sessions", "token": "untitled-history",
+      "sessions": [
+        { "sessionId": "file-only", "title": null, "updatedAt": null },
+        { "sessionId": "truncated", "title": null, "updatedAt": null },
+        { "sessionId": "normalized", "title": null, "updatedAt": null },
+        { "sessionId": "blank", "title": null, "updatedAt": null }
       ]
     },
     "userMessageChunk": {

@@ -47,10 +47,24 @@ fn status_reports_every_catalog_agent_in_the_fixture_shape() {
     };
     assert_eq!(keys(&agents[0]), keys(&expected["agents"][0]));
     assert_eq!(keys(&agents[0]["cli"]), keys(&expected["agents"][0]["cli"]));
-    assert_eq!(
-        keys(&agents[0]["cli"]["installation"]),
-        keys(&expected["agents"][0]["cli"]["installation"])
-    );
+    let mut installation = agents[0]["cli"]["installation"].clone();
+    let mut expected_installation = expected["agents"][0]["cli"]["installation"].clone();
+    // Unknown update availability is omitted; installed tools and registry
+    // access on the runner must not make this optional field mandatory.
+    if let Some(available) = installation
+        .as_object_mut()
+        .unwrap()
+        .remove("updateAvailable")
+    {
+        assert!(available.is_boolean(), "{available}");
+    }
+    assert!(expected_installation
+        .as_object_mut()
+        .unwrap()
+        .remove("updateAvailable")
+        .unwrap()
+        .is_boolean());
+    assert_eq!(keys(&installation), keys(&expected_installation));
     assert_eq!(
         keys(&response["data"]["environment"]),
         keys(&expected["environment"])

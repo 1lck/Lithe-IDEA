@@ -18,19 +18,14 @@ struct AgentActivityPresentationTests {
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
-        // Retain the snapshot: a released window's address can be reused by the
-        // next popup, which would then be mistaken for a pre-existing window.
-        let snapshot = NSApp.windows
-        let initialWindows = Set(snapshot.map(ObjectIdentifier.init))
         defer {
             window.contentView = nil
-            for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
+            for popup in window.childWindows ?? [] { popup.close() }
             window.close()
-            withExtendedLifetime(snapshot) {}
         }
         host.layoutSubtreeIfNeeded()
-        try await openPanel(.edits, in: host, window: window, excluding: initialWindows)
-        let popup = try #require(await waitForPopup(excluding: initialWindows))
+        try await openPanel(.edits, in: host, window: window)
+        let popup = try #require(await waitForPopup(in: window, updating: host))
         let content = try #require(popup.contentView)
         try capture(content, name: "activity-edits-actions")
         let rowCenter = content.bounds.height - 22
@@ -44,8 +39,8 @@ struct AgentActivityPresentationTests {
         try click(NSPoint(x: diff.bounds.width - 32, y: 22), in: diff, window: sheet)
         try #require(await waitUntil { window.attachedSheet == nil }, "Done must dismiss the comparison")
 
-        try await openPanel(.edits, in: host, window: window, excluding: initialWindows)
-        let nextPopup = try #require(await waitForPopup(excluding: initialWindows))
+        try await openPanel(.edits, in: host, window: window)
+        let nextPopup = try #require(await waitForPopup(in: window, updating: host))
         let nextContent = try #require(nextPopup.contentView)
         try click(NSPoint(x: nextContent.bounds.width - 19, y: rowCenter), in: nextContent, window: nextPopup)
         try #require(await waitUntil { window.attachedSheet != nil }, "Rollback must ask for confirmation")
@@ -74,20 +69,15 @@ struct AgentActivityPresentationTests {
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderFront(nil)
-            // Retain the snapshot: a released window's address can be reused by the
-            // next popup, which would then be mistaken for a pre-existing window.
-            let snapshot = NSApp.windows
-            let initialWindows = Set(snapshot.map(ObjectIdentifier.init))
             defer {
                 window.contentView = nil
-                for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
+                for popup in window.childWindows ?? [] { popup.close() }
                 window.close()
-                withExtendedLifetime(snapshot) {}
             }
             for panel in AgentActivitySummaryBar.Panel.allCases {
                 host.layoutSubtreeIfNeeded()
-                try await openPanel(panel, in: host, window: window, excluding: initialWindows)
-                let popup = try #require(await waitForPopup(excluding: initialWindows), "The \(panel.rawValue) segment must open a native panel")
+                try await openPanel(panel, in: host, window: window)
+                let popup = try #require(await waitForPopup(in: window, updating: host), "The \(panel.rawValue) segment must open a native panel")
                 let content = try #require(popup.contentView)
                 #expect(abs(popup.frame.width - LitheDropdownMetrics.maximumWidth) < 1)
                 try capture(content, name: "activity-\(panel.rawValue)-\(scheme)")
@@ -134,20 +124,15 @@ struct AgentActivityPresentationTests {
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderFront(nil)
-            // Retain the snapshot: a released window's address can be reused by the
-            // next popup, which would then be mistaken for a pre-existing window.
-            let snapshot = NSApp.windows
-            let initialWindows = Set(snapshot.map(ObjectIdentifier.init))
             defer {
                 window.contentView = nil
-                for popup in NSApp.windows where !initialWindows.contains(ObjectIdentifier(popup)) { popup.close() }
+                for popup in window.childWindows ?? [] { popup.close() }
                 window.close()
-                withExtendedLifetime(snapshot) {}
             }
             for panel in AgentActivitySummaryBar.Panel.allCases {
                 host.layoutSubtreeIfNeeded()
-                try await openPanel(panel, in: host, window: window, excluding: initialWindows)
-                let popup = try #require(await waitForPopup(excluding: initialWindows))
+                try await openPanel(panel, in: host, window: window)
+                let popup = try #require(await waitForPopup(in: window, updating: host))
                 #expect(abs(popup.frame.width - LitheDropdownMetrics.maximumWidth) < 1)
                 #expect(popup.frame.height <= 290, "Long lists use an internal viewport instead of a tall outer card")
                 let content = try #require(popup.contentView)
@@ -228,18 +213,22 @@ struct AgentActivityPresentationTests {
             charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
     }
 
-    private func openPanel(_ panel: AgentActivitySummaryBar.Panel, in host: NSView, window: NSWindow,
-                           excluding windows: Set<ObjectIdentifier>) async throws {
-        for popup in NSApp.windows where !windows.contains(ObjectIdentifier(popup)) && popup.isVisible {
+    private func openPanel(_ panel: AgentActivitySummaryBar.Panel, in host: NSView, window: NSWindow) async throws {
+        for popup in window.childWindows ?? [] where popup is NSPanel && popup.isVisible {
             try closePopup(popup)
         }
-        host.layoutSubtreeIfNeeded()
+        try #require(await waitUntil(updating: host) {
+            guard let trigger = anchor(in: host) else { return false }
+            return window.childWindows?.contains { $0 is NSPanel && $0.isVisible } != true
+                && trigger.window === window && !trigger.bounds.isEmpty
+        }, "The previous panel must dismiss and the activity trigger must finish layout before clicking")
         let trigger = try #require(anchor(in: host))
         let rect = trigger.convert(trigger.bounds, to: host)
         let point = NSPoint(x: rect.midX, y: host.isFlipped ? rect.midY : host.bounds.height - rect.midY)
         try click(point, in: host, window: window)
-        let popup = try #require(await waitForPopup(excluding: windows))
+        let popup = try #require(await waitForPopup(in: window, updating: host))
         let content = try #require(popup.contentView)
+        content.layoutSubtreeIfNeeded()
         try capture(content, name: "activity-menu")
         let index = try #require(AgentActivitySummaryBar.Panel.allCases.firstIndex(of: panel))
         if panel == .running {
@@ -253,10 +242,10 @@ struct AgentActivityPresentationTests {
                 y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * (CGFloat(index) + 0.5)),
                 in: content, window: popup)
         }
-        try #require(await waitUntil {
-            NSApp.windows.contains { !windows.contains(ObjectIdentifier($0)) && $0.isVisible
-                && $0.frame.width >= LitheDropdownMetrics.maximumWidth - 1 }
-        })
+        try #require(await waitUntil(updating: host) {
+            window.childWindows?.contains { $0.isVisible
+                && $0.frame.width >= LitheDropdownMetrics.maximumWidth - 1 } == true
+        }, "The \(panel.rawValue) menu action must present its activity panel")
     }
 
     private func editedFile(path: String = "a.txt") -> AgentConversationMessage {
@@ -270,10 +259,14 @@ struct AgentActivityPresentationTests {
         return view.subviews.lazy.compactMap { nativeButton(in: $0, titles: titles) }.first
     }
 
-    private func waitForPopup(excluding windows: Set<ObjectIdentifier>) async -> NSWindow? {
-        func popup() -> NSWindow? { NSApp.windows.first { !windows.contains(ObjectIdentifier($0)) && $0.isVisible } }
-        _ = await waitUntil { popup() != nil }
-        return popup()
+    private func waitForPopup(in window: NSWindow, updating host: NSView) async -> NSWindow? {
+        // The dropdown is presented after SwiftUI delivers the parent layout.
+        // Drive that boundary and observe only this host's native child panel.
+        host.needsLayout = true
+        guard await waitUntil(updating: host, {
+            window.childWindows?.contains { $0 is NSPanel && $0.isVisible } == true
+        }) else { return nil }
+        return window.childWindows?.first { $0 is NSPanel && $0.isVisible }
     }
 
     private func scrollView(in view: NSView) -> NSScrollView? {
@@ -297,10 +290,10 @@ struct AgentActivityPresentationTests {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
         while clock.now < deadline {
+            await Task.yield()
             renderFrame()
             host?.layoutSubtreeIfNeeded()
             if condition() { return true }
-            await Task.yield()
         }
         return condition()
     }

@@ -1,0 +1,29 @@
+{
+  "id": "debug-performance",
+  "area": "运行与调试",
+  "group": "调试器",
+  "capability": "目标JVM实时CPU与堆内存图表",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Debug/DebugPerformancePane.swift",
+      "macos/Sources/Lithe/Application/Features/DebugPerformanceFeatureModel.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Debug/MacDebugPerformanceSampler.swift",
+      "macos/Tests/LitheTests/DebugPerformanceChartTests.swift",
+      "macos/Tests/LitheTests/DebugPerformanceSamplingTests.swift",
+      "macos/Tests/LitheTests/JVMPerformanceIntegrationTests.swift",
+      ".agents/notes/implemented/feature/2026-10-14-local-jvm-performance-monitoring.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/debugger"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Debug",
+  "verification": "用Lithe启动本地Java调试目标，展开Performance确认CPU与JDK堆数据，切换/结束会话、收起时释放采集。明暗主题检查折线与面积、底部基准线、紧凑高度，60秒窗口最新在右且历史左移，鼠标悬停两图显示同一真实采样的圆点/数值/时间；缺失数据不造零。 验证相同DAP会话重新启动新PID时清除旧历史；重复登记相同目标不重启；销毁Feature取消流；jstat超长/非法/缺失计数报错；显式Java21集成测试读取真实数据并核对取消后jstat PID退出。",
+  "notes": "复用OpenJDK jstat与原生目标进程CPU计数，支持已知本地Java目标；无对应采集能力时明确提示。图表复用系统Swift Charts与Lithe共享配色、字体、分隔线和Git Log收起条。公开Community未找到该面板源码，按用户同意的OpenJDK路线独立接入；不包含录制分析与Show Results。组件渲染/时间域可独立验证，完整JVM流程及交互验收保持pending。 审查补齐采集生命周期与真实JVM集成测试，原生流只缓冲最新一条，避免UI繁忙时累积；测试通过不提升完整用户项目验收状态。"
+}

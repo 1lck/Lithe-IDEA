@@ -48,13 +48,25 @@ Maven 自己的设置解析顺序是“用户级 `~/.m2/settings.xml` 叠加安�
 
 ## 决策
 
-**1. 安装级设置转成 `globalSettings`。** Core 从配置的 Maven 主目录或
-`<home>/bin/mvn*` 启动器推出 `conf/settings.xml`，作为
-`java.configuration.maven.globalSettings` 交给 JDT LS。
+**1. 安装级设置转成 `globalSettings`。** Core 接受 Maven 安装根目录、`bin`
+目录或已存在的 `mvn` / `mvnd` 启动器，根据实际选中的客户端推导全局设置，作为
+`java.configuration.maven.globalSettings` 交给 JDT LS。普通 Maven 使用
+`<home>/conf/settings.xml`；Maven Daemon（mvnd，复用后台 JVM 的 Maven 客户端）
+使用 `<home>/mvn/conf/settings.xml`，不能把 daemon 自己的 `conf` 当成 Maven 配置。
 
-推导失败时返回空，这是刻意的：项目 Wrapper（`mvnw`）不在任何安装目录里，
-没有安装级设置；此时 JDT LS 停留在自身默认，而这正是直接敲 `mvnw` 会得到的
-结果。两边仍然一致。
+目录必须含有可识别的客户端，仅存在 `conf/settings.xml` 不构成 Maven 安装。
+不存在的启动器、任意程序、Wrapper（包括放在 `bin` 下的 `mvnw`）和缺失的设置
+均返回空；选中 mvnd 后缺少内嵌设置时，也不能回退到旁边普通 Maven 的设置。
+这保留了 JDT 的默认设置行为，同时避免把无关文件送进语言服务。
+
+显式目录里同时有两种客户端时优先 mvnd；显式指定 `bin/mvn` 仍保留普通 Maven
+语义。比如选 `/tools/mvnd/bin/mvnd` 应读取 `/tools/mvnd/mvn/conf/settings.xml`，
+不能悄悄改为执行 `/tools/mvnd/mvn/bin/mvn`，也不能读取 `/tools/mvnd/conf/settings.xml`。
+Core 只读文件系统，不探测版本、不启动 daemon，也不接管 JDT 内置 m2e 的项目导入。
+
+为兼容 Homebrew 等安装器，直接选中的目录或客户端若是符号链接，会跟随到真实
+安装后定位设置；失效链接返回空。普通路径不统一做 canonicalize，避免 macOS
+`/var` 被无条件改写为 `/private/var`，影响已有上下文的路径一致性。
 
 **2. 设置随 `initialize` 一起送达。** `adapt_initialization_options()` 把
 `settings.java` 注入 `initializationOptions`，赶在 m2e 配置和首次导入之前。
@@ -71,6 +83,17 @@ Maven 设置面板的显式配置
 两个平台都把**解析后**的安装写进 Maven 启动上下文，而不是把空值传下去。
 
 这样在任意一处填 `D:\apache-maven-3.9.16`，语言服务和命令行都会用它。
+
+两平台的自动选择保留可用 Wrapper、普通 Maven、mvnd 的顺序，新增 mvnd 不能
+抢走已有 Maven 安装。普通 Maven 候选保持宿主原有顺序；mvnd 从 `MVND_HOME`
+和 PATH 补充，macOS 同时考虑 Homebrew 的标准位置。显式选择安装根目录、`bin`
+或启动文件则优先服从用户选择，Windows 前端的候选匹配也必须接受相同形式。
+
+工具链探测展示的是内嵌 **Apache Maven** 版本：`Apache Maven Daemon (mvnd)`
+标题不构成版本结果，只读后面的数字开头 `Apache Maven` 版本，保留预发行后缀；
+只有 daemon 标题时判为未获得 Maven 版本。两端使用
+`shared/fixtures/execution/maven-runtime-versions.json` 固定这些例子。macOS 探测
+缓存还观察内嵌 Maven 库，避免 mvnd 启动器未变但 Maven 更新后继续显示旧版本。
 
 **这条链上不允许启动进程。** 它跑在 Maven 工程加载里，而 Java 编辑器打开文件
 时会先 `await` 这个加载再启动语言服务（`resolve-editor-lsp-launch.ts`）。
@@ -115,6 +138,12 @@ Maven 设置面板的显式配置
 - **把两个「Maven 主目录」输入框合并成一个。** 被否。运行工具链和项目导入的
   作用域确实不同，合并会让“只想给某个运行配置换 JDK”的场景没法表达。改为共用
   一条解析链，保留两个入口。
+- **先完整拆出 Maven 插件，再支持 mvnd。** 延后插件化。mvnd 是既有 Maven
+  工具链的另一种启动器，复用宿主发现、执行和 Core 设置推导即可。完整插件化还
+  涉及运行配置、依赖树和 JDT 配置桥接；把它作为前提会扩大改动面。以后迁移归属
+  时连同这些选择规则和回归测试迁移，不能借插件化改变命令行与语言服务的一致性。
+- **选中 mvnd 后改跑内嵌 mvn，或使用 daemon 的 conf 兜底。** 被否。前者失去用户
+  选择 daemon 的意义，后者使 JDT 与实际构建使用不同配置；缺失设置应明确返回空。
 - **Core 直接读 `.lithe/run/local.json` 拿运行工具链。** 被否。运行配置的本地
   层由宿主读取后传入 Core（`local_layer_document`），Core 自己读盘会破坏既有的
   持久化归属。解析链因此留在平台侧。
@@ -375,8 +404,39 @@ profile 变化、失败或超时期间变更补跑、握手前无设置变化的
 
 ## 验证
 
+mvnd 的 Core 定向验证应包含整个 `tests::languages::`：除 mvnd 根目录、`bin`、
+四种启动文件、同目录普通 Maven、缺失内嵌设置与符号链接外，还覆盖普通 Maven
+目录必须含有启动器、Wrapper 拒绝以及原有 Maven/JDT 设置回归。Apple Silicon
+宿主可复用 macOS Core 构建目录运行以下单测试计时命令；其他宿主应使用自己的
+原生 target，不能把 macOS 结果当作 Windows 宿主验证。计时器生成 HTML、JUnit、
+JSON 和日志，报告目录独立以免覆盖并行 Swift 验证的首页。
+
+```bash
+CARGO_TARGET_DIR="$PWD/rust/target/macos" CARGO_BUILD_JOBS=2 node --input-type=module <<'NODE'
+import { run, parseArguments } from './.agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs';
+import { runProcess } from './.agents/skills/write-stable-tests/scripts/test-timing-lib.mjs';
+await run(parseArguments([
+  '--manifest', 'rust/lithe-core/Cargo.toml', '--package', 'lithe-core', '--keep-going',
+  '--report', '.artifacts/test-stability/core-mvnd/core-mvnd-languages.json',
+]), { runProcessImpl: request => runProcess({
+  ...request,
+  args: request.command === 'cargo'
+    ? [...request.args, '--target', 'aarch64-apple-darwin', '--jobs', '2', '--lib']
+    : request.args.includes('--list') ? [...request.args, 'tests::languages::'] : request.args,
+}) });
+NODE
+```
+
+宿主验收还需在各自原生系统覆盖：仅 `MVND_HOME`、仅 PATH、与普通 Maven 共存、
+有效 Wrapper 优先、无效 `MVND_HOME` 回退、三种显式选择形式，以及版本共享 fixture。
+macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
+`MavenRuntimeTests`；Windows 宿主使用 `run` 中的 Maven 发现与解析测试，前端
+使用 `run-configuration.test.ts`。真实 mvnd 验收须用独立临时项目、本地仓库和
+本次拥有的 daemon 状态目录，验证构建与 JDT 全局设置，并在有界结束后清理进程。
+单元测试或跨平台编译不能替代这一步，功能矩阵在原生验收完成前保持待验证。
+
 - Rust Core：`cargo test --manifest-path rust/lithe-core/Cargo.toml`
-  覆盖主目录与启动器两种写法都能推出 `conf/settings.xml`、Wrapper 与无 `conf`
+  覆盖主目录、bin 目录与启动器写法都能推出正确的全局设置、Wrapper 与无 `conf`
   的安装正确返回空、`initializationOptions` 注入且不吃掉扩展目录的键、
   Profile 指纹随安装变化，以及生成文档保留镜像/注释、插入缺失节点、展开空元素、
   转义路径中的 `&`、不误伤 profile 内的同名元素。完整校验运行

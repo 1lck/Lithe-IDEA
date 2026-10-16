@@ -20,9 +20,17 @@ final class ToolWindowDragState: ObservableObject {
         let position: DockPosition
         let before: WorkbenchFeatureModel.ToolWindow?
     }
+    enum Region: Hashable {
+        case editor
+        case insertion
+        case pane(DockPosition)
+    }
     var workspaceFrame: CGRect = .zero
+    var regions: [Region: (frame: CGRect, owner: ObjectIdentifier)] = [:]
+    var sideWidths: [DockAnchor: CGFloat] = [.left: 350, .right: 350]
     var entries: [WorkbenchFeatureModel.ToolWindow: (frame: () -> CGRect, position: DockPosition, owner: ObjectIdentifier)] = [:]
-    private var dragFrames: [WorkbenchFeatureModel.ToolWindow: (frame: CGRect, position: DockPosition)]?
+    private var sourcePosition: DockPosition?
+    private var dragRegions: [Region: CGRect]?
     private var dragWorkspaceFrame: CGRect?
     /// Tools whose renderer can reopen their content as an editor tab.
     var editorTools: Set<WorkbenchFeatureModel.ToolWindow> = []
@@ -30,25 +38,79 @@ final class ToolWindowDragState: ObservableObject {
     @Published var target: Target?
     @Published var targetsEditor = false
 
+    private func area(for anchor: DockAnchor) -> CGRect {
+        let frames = dragRegions ?? regions.mapValues(\.frame)
+        let panes = DockGroup.allCases.compactMap { frames[.pane(.init(anchor: anchor, group: $0))] }
+            .filter { !$0.isEmpty && !$0.isNull }
+        if let first = panes.first { return panes.dropFirst().reduce(first) { $0.union($1) } }
+        let workspace = dragWorkspaceFrame ?? workspaceFrame
+        if anchor == .bottom {
+            let height = min(workspace.height, max(200, workspace.height / 4))
+            return CGRect(x: workspace.minX, y: workspace.minY, width: workspace.width, height: height)
+        }
+        let document = frames[.editor] ?? workspace
+        let width = min(workspace.width, sideWidths[anchor] ?? 350)
+        return CGRect(x: anchor == .left ? workspace.minX : workspace.maxX - width,
+                      y: document.minY, width: width, height: document.height)
+    }
+
+    func previewFrame(for target: Target) -> CGRect {
+        let frames = dragRegions ?? regions.mapValues(\.frame)
+        let position = target.position
+        let first = frames[.pane(.init(anchor: position.anchor, group: .primary))]
+        let second = frames[.pane(.init(anchor: position.anchor, group: .secondary))]
+        if let first, let second, !first.isEmpty, !second.isEmpty {
+            return position.group == .primary ? first : second
+        }
+        var bounds = area(for: position.anchor)
+        if position.anchor == .bottom {
+            bounds.size.width /= 2
+            if position.group == .secondary { bounds.origin.x += bounds.width }
+        } else {
+            bounds.size.height /= 2
+            if position.group == .primary { bounds.origin.y += bounds.height }
+        }
+        return bounds
+    }
+
     func target(at point: CGPoint) -> Target? {
-        let frames = dragFrames ?? entries.mapValues { (frame: $0.frame(), position: $0.position) }
-        if let source, frames[source]?.frame.contains(point) == true { return nil }
+        if source != nil, let target, regions[.insertion]?.frame.contains(point) == true { return target }
+        let frames = entries.mapValues { (frame: $0.frame(), position: $0.position) }
+        // AbstractDroppableStripe.processDropButton/recomputeBounds projects the point onto the
+        // stripe's major axis, including when the pointer has moved into the content area.
+        func insertionTarget(_ position: DockPosition) -> Target {
+            if source != nil, let target, target.position == position,
+               let slot = regions[.insertion]?.frame, !slot.isEmpty,
+               point.y >= slot.minY, point.y <= slot.maxY { return target }
+            let buttons = frames.filter {
+                $0.key != source && $0.value.position == position && !$0.value.frame.isEmpty
+            }.sorted {
+                if $0.value.frame.midY != $1.value.frame.midY { return $0.value.frame.midY > $1.value.frame.midY }
+                return $0.key.rawValue < $1.key.rawValue
+            }
+            // AppKit Y runs upwards; the first midpoint below the pointer is the next entry.
+            let before = buttons.first { point.y >= $0.value.frame.midY }?.key
+            return .init(position: position, before: before)
+        }
         if let entry = frames.first(where: { $0.key != source && $0.value.frame.contains(point) }) {
-            return .init(position: entry.value.position, before: entry.key)
+            return insertionTarget(entry.value.position)
         }
         let frame = dragWorkspaceFrame ?? workspaceFrame
         guard frame.width > 0, frame.height > 0, point.y >= frame.minY, point.y <= frame.maxY,
               point.x >= frame.minX - ActivityBarMetrics.width,
               point.x <= frame.maxX + ActivityBarMetrics.rightWidth else { return nil }
-        let x = point.x - frame.minX
-        let y = frame.maxY - point.y
-        // IDEA WindowInfo uses a one-third default weight; reserve edge bands for side docks.
-        if x < frame.width / 3 || x > frame.width * 2 / 3 {
-            return .init(position: .init(anchor: x < frame.width / 3 ? .left : .right,
-                group: y < frame.height / 2 ? .primary : .secondary), before: nil)
-        }
-        if y >= frame.height * 2 / 3 {
-            return .init(position: .init(anchor: .bottom, group: x < frame.width / 2 ? .primary : .secondary), before: nil)
+        // IDEA gives the source stripe priority where visible dock areas overlap.
+        let preferred = sourcePosition?.anchor
+        for anchor in (preferred.map { preferred in [preferred] + DockAnchor.allCases.filter { $0 != preferred } } ?? DockAnchor.allCases) {
+            var bounds = area(for: anchor)
+            if anchor == .left { bounds.origin.x -= ActivityBarMetrics.width; bounds.size.width += ActivityBarMetrics.width }
+            if anchor == .right { bounds.size.width += ActivityBarMetrics.rightWidth }
+            guard bounds.contains(point) else { continue }
+            let secondary = previewFrame(for: .init(position: .init(anchor: anchor, group: .secondary), before: nil))
+            let group: DockGroup = anchor == .bottom
+                ? (point.x >= secondary.minX ? .secondary : .primary)
+                : (point.y <= secondary.maxY ? .secondary : .primary)
+            return insertionTarget(.init(anchor: anchor, group: group))
         }
         return nil
     }
@@ -59,24 +121,46 @@ final class ToolWindowDragState: ObservableObject {
         return frame.width > 0 && frame.height > 0 && frame.contains(point)
     }
     func begin(_ tool: WorkbenchFeatureModel.ToolWindow) {
-        dragFrames = entries.mapValues { (frame: $0.frame(), position: $0.position) }
+        sourcePosition = entries[tool]?.position
+        dragRegions = regions.mapValues(\.frame)
         dragWorkspaceFrame = workspaceFrame
         source = tool
     }
-    func finish() { source = nil; target = nil; targetsEditor = false; dragFrames = nil; dragWorkspaceFrame = nil }
+    func finish() {
+        source = nil; target = nil; targetsEditor = false
+        sourcePosition = nil; dragRegions = nil; dragWorkspaceFrame = nil
+    }
 }
 
 /// Records AppKit window coordinates, matching the native drag source rather than a moving pane.
 struct ToolWindowWorkspaceAnchor: NSViewRepresentable {
     let drag: ToolWindowDragState
+    var region: ToolWindowDragState.Region? = nil
+    var sideWidths: [DockAnchor: CGFloat]? = nil
     func makeNSView(context: Context) -> AnchorView { AnchorView() }
-    func updateNSView(_ view: AnchorView, context: Context) { view.drag = drag; view.record() }
+    func updateNSView(_ view: AnchorView, context: Context) {
+        view.drag = drag; view.region = region
+        if let sideWidths { drag.sideWidths = sideWidths }
+        view.record()
+    }
+    static func dismantleNSView(_ view: AnchorView, coordinator: ()) {
+        if let region = view.region, view.drag?.regions[region]?.owner == ObjectIdentifier(view) {
+            view.drag?.regions[region] = nil
+        }
+    }
     final class AnchorView: NSView {
         weak var drag: ToolWindowDragState?
+        var region: ToolWindowDragState.Region?
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func layout() { super.layout(); record() }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); record() }
-        func record() { if window != nil { drag?.workspaceFrame = convert(bounds, to: nil) } }
+        func record() {
+            guard window != nil else { return }
+            let visible = region == .insertion ? bounds.intersection(visibleRect) : bounds
+            let frame = convert(visible, to: nil)
+            if let region { drag?.regions[region] = (frame, ObjectIdentifier(self)) }
+            else { drag?.workspaceFrame = frame }
+        }
     }
 }
 
@@ -88,6 +172,7 @@ struct WorkbenchDockGroups<Content: View>: View {
     let fraction: Double
     var hasWorkbenchBackground = false
     var showsFrameGradient = false
+    var drag: ToolWindowDragState? = nil
     let commitFraction: (Double) -> Void
     let content: (DockGroup) -> Content
 
@@ -121,6 +206,9 @@ struct WorkbenchDockGroups<Content: View>: View {
             roundsCorners: !hasWorkbenchBackground,
             showsFrameGradient: showsFrameGradient
         )
+        .background {
+            if let drag { ToolWindowWorkspaceAnchor(drag: drag, region: .pane(.init(anchor: anchor, group: group))) }
+        }
     }
 }
 

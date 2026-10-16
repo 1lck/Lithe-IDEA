@@ -52,9 +52,11 @@ do not replace that scope. The shared Host adds the same explicit workspace
 context to ordinary prompts and supplementary messages, including prompts after
 history restoration. File contents and applicable rules remain Agent-owned;
 explicit user requests can select a different scope. Native slash commands retain
-their original payload. Host-added context is omitted from user-message replay
+their original text and ordered attachments, including deferred supplementary
+commands; attachments do not cause workspace context to be appended. Host-added context is omitted from user-message replay
 presented by Lithe and from generated live/history-list titles, without rewriting
-upstream history or filtering model replies.
+upstream history or filtering model replies. Titles left empty by this filtering
+are missing values, so presentation retains its existing title fallbacks.
 
 Agent activity presentation uses the selected session's reported plan, pending
 tools and file diffs. Review acknowledgements are local to the exact reported
