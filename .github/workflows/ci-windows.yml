@@ -326,7 +326,7 @@ jobs:
 
       - name: Test Agent management service and install progress
         shell: pwsh
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/agent/services/agent-management.test.ts
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent-management.json -- src/features/agent/services/agent-management.test.ts
 
       - name: Test welcome clone and modal isolation
         shell: pwsh

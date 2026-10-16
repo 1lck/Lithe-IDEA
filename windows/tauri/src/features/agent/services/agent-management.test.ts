@@ -30,12 +30,19 @@ describe("Agent management status", () => {
   test("a response outside the documented shape is rejected rather than half read", () => {
     expect(parseAgentManagementStatus(null)).toBeNull();
     expect(parseAgentManagementStatus("agents")).toBeNull();
-    expect(parseAgentManagementStatus({ agents: "codex-acp" })).toEqual({
+    // A catalog that is not a list, or an entry that is not a documented row,
+    // must reach the caller as an error instead of an empty catalog.
+    expect(parseAgentManagementStatus({ agents: "codex-acp" })).toBeNull();
+    expect(parseAgentManagementStatus({ agents: [{ name: "Codex" }] })).toBeNull();
+    expect(parseAgentManagementStatus({ agents: [{ id: "codex-acp" }] })).toBeNull();
+    // Both runtimes missing is a documented result, so it still parses.
+    expect(parseAgentManagementStatus({ environment: { node: null, npm: null }, agents: [] })).toEqual({
       environment: { node: null, npm: null },
       agents: [],
     });
-    // An entry without an id cannot be installed or selected, so it is dropped.
-    expect(parseAgentManagementStatus({ agents: [{ name: "Codex" }] })?.agents).toEqual([]);
+    // An optional field may be absent from the report, but not mistyped.
+    const node = { version: "20.11.0", path: "/opt/example/node/bin/node" };
+    expect(parseAgentManagementStatus({ environment: { node, npm: "10.2.4" }, agents: [] })).toBeNull();
   });
 });
 

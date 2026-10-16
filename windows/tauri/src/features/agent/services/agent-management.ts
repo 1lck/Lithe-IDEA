@@ -69,11 +69,15 @@ function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function runtime(value: unknown): DetectedRuntime | null {
-  if (!isRecord(value)) return null;
+/** Sentinel for a documented field that is present but not the documented shape. */
+const INVALID = Symbol("invalid");
+
+function optionalRuntime(value: unknown): DetectedRuntime | null | typeof INVALID {
+  if (value === null) return null;
+  if (!isRecord(value)) return INVALID;
   const version = asString(value.version);
   const path = asString(value.path);
-  return version !== null && path !== null ? { version, path } : null;
+  return version !== null && path !== null ? { version, path } : INVALID;
 }
 
 /**
@@ -96,59 +100,122 @@ export function installProgressEvent(value: unknown): AgentInstallProgress | nul
   };
 }
 
-function cliStatus(value: unknown): AgentCliStatus | null {
-  if (!isRecord(value)) return null;
-  const installation = isRecord(value.installation) ? value.installation : {};
+/** One CLI's install provenance, or `null` when the host reported none. */
+function optionalCliInstallation(value: unknown): AgentCliInstallation | null | typeof INVALID {
+  if (value === null) return null;
+  if (!isRecord(value)) return INVALID;
+  const source = asString(value.source);
+  const updateHint = asString(value.updateHint);
+  const canUpdate = value.canUpdate;
+  if (source === null || updateHint === null || typeof canUpdate !== "boolean") return INVALID;
+  return { source, canUpdate, updateHint };
+}
+
+function cliStatus(value: unknown): AgentCliStatus | null | typeof INVALID {
+  if (value === null) return null;
+  if (!isRecord(value)) return INVALID;
+  const name = asString(value.name);
+  const command = asString(value.command);
+  const minimumVersion = asString(value.minimumVersion);
+  const installHint = asString(value.installHint);
+  const detected = optionalRuntime(value.detected);
+  const installation = optionalCliInstallation(value.installation);
+  if (
+    name === null ||
+    command === null ||
+    minimumVersion === null ||
+    installHint === null ||
+    detected === INVALID ||
+    installation === INVALID
+  ) {
+    return INVALID;
+  }
   return {
-    name: asString(value.name) ?? "",
-    command: asString(value.command) ?? "",
-    minimumVersion: asString(value.minimumVersion) ?? "",
-    installHint: asString(value.installHint) ?? "",
-    detected: runtime(value.detected),
-    installation: {
-      source: asString(installation.source) ?? "unknown",
-      canUpdate: installation.canUpdate === true,
-      updateHint: asString(installation.updateHint) ?? "",
-    },
+    name,
+    command,
+    minimumVersion,
+    installHint,
+    detected,
+    // Without provenance Lithe only offers manual guidance, so an absent report
+    // means an unknown source rather than a missing field.
+    installation: installation ?? { source: "unknown", canUpdate: false, updateHint: "" },
   };
 }
 
-/** Read one agent entry, or `null` when the shape is not the documented one. */
+/**
+ * Read one agent entry. The shared host always serializes every documented
+ * field, so a missing or mistyped one means the response is not this contract
+ * and must not be half read into a catalog row.
+ */
 function agentStatus(value: unknown): CatalogAgentStatus | null {
   if (!isRecord(value)) return null;
   const id = asString(value.id);
-  if (id === null) return null;
-  const issues = Array.isArray(value.issues)
-    ? value.issues.filter((issue): issue is string => typeof issue === "string")
-    : [];
+  const name = asString(value.name);
+  const description = asString(value.description);
+  const packageName = asString(value.package);
+  const version = asString(value.version);
+  const protocol = asString(value.protocol);
+  const rawInstalled = value.installedVersion;
+  const installedVersion = rawInstalled === null ? null : asString(rawInstalled);
+  const minimumNodeMajor = value.minimumNodeMajor;
+  const verified = value.verified;
+  const rawIssues = value.issues;
+  const cli = cliStatus(value.cli);
+  if (
+    id === null ||
+    name === null ||
+    description === null ||
+    packageName === null ||
+    version === null ||
+    protocol === null ||
+    (installedVersion === null && rawInstalled !== null) ||
+    typeof minimumNodeMajor !== "number" ||
+    typeof verified !== "boolean" ||
+    !Array.isArray(rawIssues) ||
+    cli === INVALID
+  ) {
+    return null;
+  }
+  const issues: string[] = [];
+  for (const issue of rawIssues) {
+    if (typeof issue !== "string") return null;
+    issues.push(issue);
+  }
   return {
     id,
-    name: asString(value.name) ?? id,
-    description: asString(value.description) ?? "",
-    package: asString(value.package) ?? "",
-    version: asString(value.version) ?? "",
-    installedVersion: asString(value.installedVersion),
-    protocol: asString(value.protocol) ?? "",
-    minimumNodeMajor: typeof value.minimumNodeMajor === "number" ? value.minimumNodeMajor : 0,
-    verified: value.verified === true,
-    cli: cliStatus(value.cli),
+    name,
+    description,
+    package: packageName,
+    version,
+    installedVersion,
+    protocol,
+    minimumNodeMajor,
+    verified,
+    cli,
     issues,
   };
 }
 
+/**
+ * Read the whole `agent.status` response, or `null` when it violates the shared
+ * contract. An unreadable status has to reach the caller as an error instead of
+ * looking like a machine with nothing installed.
+ */
 export function parseAgentManagementStatus(value: unknown): AgentManagementStatus | null {
   if (!isRecord(value)) return null;
-  const environment = isRecord(value.environment) ? value.environment : {};
-  const agents = Array.isArray(value.agents)
-    ? value.agents.flatMap((entry) => {
-        const parsed = agentStatus(entry);
-        return parsed === null ? [] : [parsed];
-      })
-    : [];
-  return {
-    environment: { node: runtime(environment.node), npm: runtime(environment.npm) },
-    agents,
-  };
+  const environment = value.environment;
+  if (!isRecord(environment)) return null;
+  const node = optionalRuntime(environment.node);
+  const npm = optionalRuntime(environment.npm);
+  const rawAgents = value.agents;
+  if (node === INVALID || npm === INVALID || !Array.isArray(rawAgents)) return null;
+  const agents: CatalogAgentStatus[] = [];
+  for (const entry of rawAgents) {
+    const parsed = agentStatus(entry);
+    if (parsed === null) return null;
+    agents.push(parsed);
+  }
+  return { environment: { node, npm }, agents };
 }
 
 export async function loadAgentManagementStatus(
