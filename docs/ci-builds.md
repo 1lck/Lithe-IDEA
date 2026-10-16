@@ -42,6 +42,24 @@ for a branch, manually run **Release AutoBuild** and provide that branch as
 `source_branch`; the Windows workflow is reusable and only builds an artifact
 for that caller.
 
+### What runs after a pull request merges
+
+A pull request into `preview` carries the full verification, and merging it
+requires that verification. Later events run only what the pull request could
+not observe:
+
+| Event | What runs |
+| --- | --- |
+| Pull request into `preview` | Every lane the classifier selects |
+| Push to `preview` (the merge) | **macOS CI** builds the universal package when the merge touched anything packaged; nothing else. The universal build is the only Intel (`x86_64`) compile and link, and it also compiles the merged combination of pull requests that each passed on their own. Light Linux checks (platform feature matrix, Agent Notes board deployment) still run. |
+| Pull request from `preview` into `main` | No lane. **macOS CI** checks that the same commit already passed **macOS CI** as a `preview` push; re-run the job once that push run has succeeded. |
+| Push to `main` | Nothing. |
+
+The classifier implements this through `LITHE_CI_SCOPE` (`pull_request`,
+`post_merge`, or `release_promotion`). Windows CI no longer runs on `preview`
+pushes, so its GitHub cache entries are refreshed only by pull requests; a
+`Cargo.lock` change makes the next pull requests restore an older prefix match.
+
 ### Shared Mac mini runners
 
 **Swift tests**, **Rust Core tests**, **Release package verification**, and
@@ -85,7 +103,10 @@ and two runs classified at the same moment can pick the same free slot.
 Each runner needs its own installation and work directory and the
 `lithe-mac-mini` label. Keep the service user logged in and the machine awake.
 Install and select Xcode 26.6 before starting the services. CI checks both Xcode
-and Swift 6.3.3 without changing the machine-wide Xcode selection. The runner
+and Swift 6.3.3 without changing the machine-wide Xcode selection, and sets
+`SDKROOT` to that Xcode's macOS SDK: the Mac minis also carry Command Line Tools
+with a newer macOS SDK, whose `libSystem` stubs the Xcode 26.6 linker cannot
+read when it links the `x86_64` slice. The runner
 also needs Git, Python 3, Ruby, and outbound access to dependency hosts. CI sets
 up Node 24, Rust, and (for packaging) Bun itself.
 
