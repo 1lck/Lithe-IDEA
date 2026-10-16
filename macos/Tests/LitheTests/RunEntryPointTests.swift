@@ -15,11 +15,11 @@ struct RunEntryPointTests {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
         let snapshot = workspace.snapshot
-        let operations = SequencedWorkspaceOperations.unavailableThenReady(snapshot)
+        let operations = SequencedWorkspaceOperations.neverScans()
         for _ in 0..<3 {
             #expect(operations.snapshot(at: workspace.root, visibilityRules: .default) == nil)
         }
-        operations.releaseSnapshot()
+        operations.publish(snapshot)
         for _ in 0..<3 {
             #expect(operations.snapshot(at: workspace.root, visibilityRules: .default)?.id == snapshot.id)
         }
@@ -30,6 +30,7 @@ struct RunEntryPointTests {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
         let model = makeAppModel(workspaceOperations: SequencedWorkspaceOperations(snapshots: [workspace.snapshot]))
+        defer { model.closeProject() }
         model.openProjectDirectly(workspace.root)
         let identity = try #require(model.currentWorkspaceIdentity)
         let target = JavaDebugLaunchTarget(
@@ -83,8 +84,9 @@ struct RunEntryPointTests {
     func runBeforeTheSnapshotDefersGenerationUntilTheInventoryIsComplete() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
-        let operations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let operations = SequencedWorkspaceOperations.neverScans()
         let model = makeAppModel(workspaceOperations: operations)
+        defer { model.closeProject() }
 
         model.openProjectDirectly(workspace.root)
         model.runSelectedConfiguration()
@@ -102,7 +104,7 @@ struct RunEntryPointTests {
         #expect(runFeature.generationState == .projectNotReady)
         #expect(!workspace.hasGeneratedConfiguration, "a partial inventory must not be written")
 
-        operations.releaseSnapshot()
+        operations.publish(workspace.snapshot)
         await model.workspaceFeature.refreshCurrent()
 
         let ready = await awaitLoadDrivenChange(on: model) {
@@ -125,8 +127,9 @@ struct RunEntryPointTests {
     func runDefersAndResumesWhenTheSnapshotArrivesLater() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
-        let operations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let operations = SequencedWorkspaceOperations.neverScans()
         let model = makeAppModel(workspaceOperations: operations)
+        defer { model.closeProject() }
 
         model.openProjectDirectly(workspace.root)
         model.runSelectedConfiguration()
@@ -134,7 +137,7 @@ struct RunEntryPointTests {
         let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
         #expect(deferred, "Run must be deferred while the inventory is provisional")
 
-        operations.releaseSnapshot()
+        operations.publish(workspace.snapshot)
         await model.workspaceFeature.refreshCurrent()
 
         let ready = await awaitLoadDrivenChange(on: model) {
@@ -156,12 +159,13 @@ struct RunEntryPointTests {
     func runWithExistingConfigurationLaunchesOnlyAfterTheSnapshotArrives() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
-        let workspaceOperations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let workspaceOperations = SequencedWorkspaceOperations.neverScans()
         let runConfigurations = ReadyRunConfigurationOperations()
         let model = makeAppModel(
             workspaceOperations: workspaceOperations,
             runConfigurationOperations: runConfigurations
         )
+        defer { model.closeProject() }
 
         model.openProjectDirectly(workspace.root)
         model.runSelectedConfiguration()
@@ -178,7 +182,13 @@ struct RunEntryPointTests {
             "Run must not build a launch plan from a provisional inventory"
         )
 
-        workspaceOperations.releaseSnapshot()
+        // A background rescan must not release the snapshot before the test does.
+        await model.workspaceFeature.refreshCurrent()
+        try #require(model.workspaceSnapshotID == nil)
+        #expect(model.pendingRunAction?.kind == .run)
+        #expect(runConfigurations.launchPlanCallCount == 0)
+
+        workspaceOperations.publish(workspace.snapshot)
         await model.workspaceFeature.refreshCurrent()
 
         // Production clears the deferred action before it re-issues Run, so
@@ -214,13 +224,14 @@ struct RunEntryPointTests {
     func runResumesWhenTheSnapshotLandsDuringTheEntryPointsOwnLoad() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
-        let workspaceOperations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let workspaceOperations = SequencedWorkspaceOperations.neverScans()
         let runConfigurations = InspectionGatedRunConfigurationOperations()
         defer { runConfigurations.releaseAll() }
         let model = makeAppModel(
             workspaceOperations: workspaceOperations,
             runConfigurationOperations: runConfigurations
         )
+        defer { model.closeProject() }
 
         model.openProjectDirectly(workspace.root)
         model.runSelectedConfiguration()
@@ -235,7 +246,7 @@ struct RunEntryPointTests {
         // The snapshot lands and is fully consumed while that load is suspended.
         // The refresh cannot be awaited here: the load it drives suspends on the
         // inspection this test releases further down.
-        workspaceOperations.releaseSnapshot()
+        workspaceOperations.publish(workspace.snapshot)
         let refreshTask = Task { await model.workspaceFeature.refreshCurrent() }
         #expect(
             await runConfigurations.inspectionEntered(2),
@@ -270,8 +281,9 @@ struct RunEntryPointTests {
     func debugBeforeTheSnapshotDefersGenerationUntilTheInventoryIsComplete() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
-        let operations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let operations = SequencedWorkspaceOperations.neverScans()
         let model = makeAppModel(workspaceOperations: operations)
+        defer { model.closeProject() }
 
         model.openProjectDirectly(workspace.root)
         model.startDebugging()
@@ -282,7 +294,7 @@ struct RunEntryPointTests {
         #expect(bound, "the Debug entry point never bound the workspace")
         #expect(model.runFeatureIfActive?.isProjectReady(for: workspace.root, snapshotID: model.workspaceSnapshotID) == false)
 
-        operations.releaseSnapshot()
+        operations.publish(workspace.snapshot)
         await model.workspaceFeature.refreshCurrent()
 
         let ready = await awaitLoadDrivenChange(on: model) {
@@ -304,6 +316,7 @@ struct RunEntryPointTests {
         // protects: no entry point is involved.
         let operations = SequencedWorkspaceOperations(snapshots: [workspace.snapshot])
         let model = makeAppModel(workspaceOperations: operations)
+        defer { model.closeProject() }
 
         model.openProjectDirectly(workspace.root)
 
@@ -323,12 +336,13 @@ struct RunEntryPointTests {
     func startRunConfigurationDefersAndResumesAfterTheSnapshotArrives() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
-        let workspaceOperations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let workspaceOperations = SequencedWorkspaceOperations.neverScans()
         let runConfigurations = ReadyRunConfigurationOperations()
         let model = makeAppModel(
             workspaceOperations: workspaceOperations,
             runConfigurationOperations: runConfigurations
         )
+        defer { model.closeProject() }
         let configuration = ReadyRunConfigurationOperations.entryPoint
 
         model.openProjectDirectly(workspace.root)
@@ -343,7 +357,7 @@ struct RunEntryPointTests {
             "direct start must not build a launch plan from a provisional inventory"
         )
 
-        workspaceOperations.releaseSnapshot()
+        workspaceOperations.publish(workspace.snapshot)
         await model.workspaceFeature.refreshCurrent()
 
         let relaunched = await runConfigurations.launchPlanRequested(1)
@@ -355,7 +369,7 @@ struct RunEntryPointTests {
     func checkedBatchDefersTogetherAndAttemptsEveryUniqueConfiguration() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
-        let operations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let operations = SequencedWorkspaceOperations.neverScans()
         let runConfigurations = ReadyRunConfigurationOperations()
         let model = makeAppModel(workspaceOperations: operations, runConfigurationOperations: runConfigurations)
         defer { model.closeProject() }
@@ -366,7 +380,7 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction?.kind == .startConfigurations(ids.sorted()))
         #expect(runConfigurations.launchPlanCallCount == 0)
 
-        operations.releaseSnapshot()
+        operations.publish(workspace.snapshot)
         await model.workspaceFeature.refreshCurrent()
         #expect(await runConfigurations.launchPlanRequested(2))
         #expect(model.pendingRunAction == nil)
@@ -385,12 +399,13 @@ struct RunEntryPointTests {
     func runAllServicesDefersAndResumesAfterTheSnapshotArrives() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
-        let workspaceOperations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let workspaceOperations = SequencedWorkspaceOperations.neverScans()
         let runConfigurations = ReadyRunConfigurationOperations()
         let model = makeAppModel(
             workspaceOperations: workspaceOperations,
             runConfigurationOperations: runConfigurations
         )
+        defer { model.closeProject() }
 
         model.openProjectDirectly(workspace.root)
         model.runAllServiceConfigurations()
@@ -404,7 +419,7 @@ struct RunEntryPointTests {
             "run-all-services must not build a launch plan from a provisional inventory"
         )
 
-        workspaceOperations.releaseSnapshot()
+        workspaceOperations.publish(workspace.snapshot)
         await model.workspaceFeature.refreshCurrent()
 
         let relaunched = await runConfigurations.launchPlanRequested(1)
@@ -418,12 +433,13 @@ struct RunEntryPointTests {
     func selectedServicesDeferAndResumeAsOneBatch() async throws {
         let workspace = try JavaWorkspaceFixture()
         defer { workspace.remove() }
-        let workspaceOperations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let workspaceOperations = SequencedWorkspaceOperations.neverScans()
         let runConfigurations = ReadyRunConfigurationOperations()
         let model = makeAppModel(
             workspaceOperations: workspaceOperations,
             runConfigurationOperations: runConfigurations
         )
+        defer { model.closeProject() }
 
         model.openProjectDirectly(workspace.root)
         let services = [
@@ -438,7 +454,7 @@ struct RunEntryPointTests {
         #expect(deferred)
         #expect(runConfigurations.launchPlanCallCount == 0)
 
-        workspaceOperations.releaseSnapshot()
+        workspaceOperations.publish(workspace.snapshot)
         await model.workspaceFeature.refreshCurrent()
         let relaunched = await runConfigurations.launchPlanRequested(2)
         #expect(relaunched)
@@ -477,6 +493,7 @@ struct RunEntryPointTests {
             runConfigurationOperations: runConfigurations,
             gitWatchContextProvider: watchContext
         )
+        defer { model.closeProject() }
 
         // Establish an application session through the same deferred-run path the
         // existing entry tests already cover, then refresh to a newer snapshot
@@ -546,6 +563,7 @@ struct RunEntryPointTests {
             workspaceOperations: workspaceOperations,
             runConfigurationOperations: runConfigurations
         )
+        defer { model.closeProject() }
         let configurationA = ReadyRunConfigurationOperations.entryPoint
         let configurationB = ReadyRunConfigurationOperations.serviceEntryPoint
 
@@ -591,7 +609,7 @@ struct RunEntryPointTests {
         // The first opening never gets a snapshot, so the direct start takes the
         // pre-snapshot path and suspends in its own load; the second opening
         // scans normally.
-        let workspaceOperations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let workspaceOperations = SequencedWorkspaceOperations.neverScans()
         let runConfigurations = InspectionGatedRunConfigurationOperations()
         defer { runConfigurations.releaseAll() }
         // This test does not coordinate on the watch configuration, and the real
@@ -603,6 +621,7 @@ struct RunEntryPointTests {
             runConfigurationOperations: runConfigurations,
             gitWatchContextProvider: watchContext
         )
+        defer { model.closeProject() }
         let earlierConfiguration = ReadyRunConfigurationOperations.entryPoint
 
         model.openProjectDirectly(workspace.root)
@@ -614,7 +633,7 @@ struct RunEntryPointTests {
         )
 
         // Reopen the same path and let this opening reach a fully loaded state.
-        workspaceOperations.releaseSnapshot()
+        workspaceOperations.publish(workspace.snapshot)
         model.openProjectDirectly(workspace.root)
         #expect(model.pendingRunAction == nil, "reopening must clear the previous pending")
         #expect(
@@ -682,6 +701,7 @@ struct RunEntryPointTests {
             runConfigurationOperations: runConfigurations,
             gitWatchContextProvider: watchContext
         )
+        defer { model.closeProject() }
 
         model.openProjectDirectly(workspace.root)
         #expect(await watchContext.entered(1))
@@ -884,38 +904,33 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
     private let lock = NSLock()
     private let snapshots: [WorkspaceSnapshot?]
     private var scanCount = 0
-    private var heldSnapshot: WorkspaceSnapshot?
-    private var snapshotReleased = false
+    private var publishedSnapshot: WorkspaceSnapshot?
 
     init(snapshots: [WorkspaceSnapshot?]) {
         self.snapshots = snapshots
     }
 
-    /// No scan ever succeeds, so every opening stays before its inventory.
+    /// No scan succeeds until the test explicitly publishes its inventory.
     static func neverScans() -> SequencedWorkspaceOperations {
         SequencedWorkspaceOperations(snapshots: [])
     }
 
-    /// Background refreshes must not publish the inventory before the test
-    /// explicitly releases it and calls `refreshCurrent()` (or reopens).
-    static func unavailableThenReady(_ snapshot: WorkspaceSnapshot) -> SequencedWorkspaceOperations {
-        let operations = SequencedWorkspaceOperations(snapshots: [])
-        operations.heldSnapshot = snapshot
-        return operations
-    }
-
-    func releaseSnapshot() {
-        lock.withLock { snapshotReleased = true }
+    /// File-system callbacks may rescan while Run is loading configuration.
+    /// Keep every scan provisional until the test reaches its release point.
+    func publish(_ snapshot: WorkspaceSnapshot) {
+        lock.lock()
+        defer { lock.unlock() }
+        publishedSnapshot = snapshot
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
-        lock.withLock {
-            if let heldSnapshot { return snapshotReleased ? heldSnapshot : nil }
-            let ordinal = scanCount
-            scanCount += 1
-            guard ordinal < snapshots.count else { return nil }
-            return snapshots[ordinal]
-        }
+        lock.lock()
+        defer { lock.unlock() }
+        if let publishedSnapshot { return publishedSnapshot }
+        let ordinal = scanCount
+        scanCount += 1
+        guard ordinal < snapshots.count else { return nil }
+        return snapshots[ordinal]
     }
 
     func readFile(at rootURL: URL, relativePath: String) -> String? {

@@ -132,7 +132,10 @@ private struct AgentDetailView: View {
     private var isBusy: Bool { feature.busyAgentID == agent.id }
     private var hasProvider: Bool { settings.agentConfigurations[agent.id]?.isConfigured == true }
     private var checks: [AgentPreflightCheck] {
-        AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: hasProvider)
+        let bundle = Bundle.main.url(forResource: settings.language.rawValue, withExtension: "lproj")
+            .flatMap(Bundle.init(url:)) ?? .main
+        return AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: hasProvider,
+                                               bundle: bundle)
     }
 
     var body: some View {

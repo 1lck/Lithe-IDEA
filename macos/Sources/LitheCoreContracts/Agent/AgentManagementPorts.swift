@@ -54,10 +54,13 @@ public struct AgentCliInstallation: Decodable, Equatable, Sendable {
     public let canUpdate: Bool
     /// Display only; the host resolves the real command again when updating.
     public let updateHint: String
-    public init(source: Source, canUpdate: Bool, updateHint: String) {
+    /// Nil when a newer release could not be confirmed.
+    public let updateAvailable: Bool?
+    public init(source: Source, canUpdate: Bool, updateHint: String, updateAvailable: Bool? = nil) {
         self.source = source
         self.canUpdate = canUpdate
         self.updateHint = updateHint
+        self.updateAvailable = updateAvailable
     }
 }
 

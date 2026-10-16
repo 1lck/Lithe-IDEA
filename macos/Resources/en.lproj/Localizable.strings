@@ -1597,3 +1597,6 @@
 "AutoBuild Update" = "AutoBuild Update";
 "AutoBuild — Built at %@" = "AutoBuild — Built at %@";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
+
+"No updates found in the local Homebrew index." = "No updates found in the local Homebrew index.";
+"Run `brew update` manually, then check again for updates." = "Run `brew update` manually, then check again for updates.";
