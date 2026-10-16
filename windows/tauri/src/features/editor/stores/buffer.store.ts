@@ -1560,7 +1560,16 @@ const createBufferStore = (workspaceId: string) => {
         },
 
         showNewTabView: () => {
-          get().actions.openContent({ type: "newTab" });
+          const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+          const untitledCount = get().buffers.filter((buffer) =>
+            buffer.path.startsWith("untitled:"),
+          ).length;
+          const name =
+            untitledCount === 0
+              ? t("files.untitled")
+              : t("files.untitledNumber", { number: untitledCount + 1 });
+          const path = `untitled:${name}`;
+          get().actions.openBuffer(path, name, "", false, undefined, false, true);
         },
 
         updateBufferContent: (
