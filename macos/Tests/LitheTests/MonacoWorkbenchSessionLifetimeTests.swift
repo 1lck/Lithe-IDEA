@@ -65,4 +65,41 @@ struct MonacoWorkbenchSessionLifetimeTests {
         #expect(MonacoWorkbenchSession.forModel(project, documentID: UUID()) !== session)
         #expect(MonacoWorkbenchSession.forModel(UUID(), documentID: document) !== session)
     }
+
+    @Test func readOnlyPreviewRejectsRunActionsAtTheNativeBoundary() {
+        let main = MonacoWorkbenchSession.forModel(UUID())
+        let preview = MonacoWorkbenchSession.forModel(UUID(), documentID: UUID(), previewID: UUID())
+        for message in ["javaRunMarkerAction", "format", "rename", "executeCodeAction"] {
+            #expect(main.allowsMessage(message))
+            #expect(!preview.allowsMessage(message))
+        }
+        #expect(preview.allowsMessage("hover"))
+        #expect(preview.allowsMessage("definition"))
+    }
+
+    @Test func independentPreviewKeepsMainDocumentAndSynchronizationOwner() throws {
+        let project = UUID(), previewID = UUID()
+        let document = EditorDocument(url: URL(fileURLWithPath: "/fixture/Problems.java"),
+                                      text: "class Problems {}", modificationDate: nil)
+        let main = MonacoWorkbenchSession.forModel(project, documentID: document.id)
+        main.register(document)
+        let owner = try #require(document.editorSynchronizationOwnerID)
+        defer { document.synchronizeEditor = nil; document.holdEditorForClose = nil }
+        var preview: MonacoWorkbenchSession? = MonacoWorkbenchSession.forModel(project,
+            documentID: document.id, previewID: previewID)
+        weak var released = preview
+        #expect(preview !== main)
+        #expect(preview?.isReadOnlyPreview == true)
+        #expect(MonacoWorkbenchSession.forModel(project, documentID: document.id, previewID: previewID) === preview)
+        preview?.register(document)
+        #expect(document.editorSynchronizationOwnerID == owner)
+        #expect(!document.isReadOnly, "Preview must not make the actual editor document read-only")
+        document.applyLiveEditorText("class Problems { int changed; }")
+        #expect(document.text.contains("changed"))
+        preview = nil
+        #expect(released == nil, "Closing a read-only preview must release its session")
+        #expect(document.editorSynchronizationOwnerID == owner)
+        #expect(MonacoWorkbenchSession.forModel(project, documentID: document.id) === main)
+    }
+
 }

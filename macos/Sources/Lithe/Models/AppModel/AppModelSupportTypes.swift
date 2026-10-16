@@ -119,6 +119,8 @@ enum LitheFeatureAvailability {
 struct WorkbenchNotification: Identifiable, Equatable {
     let id: UUID
     let message: String
+    /// Raw substitutions stay locale-independent until balloon/history rendering.
+    let arguments: [String]
     let createdAt: Date
     /// When the message was shown last. Repeating a message keeps the single
     /// entry but moves this forward, so the list reports fresh activity.
@@ -133,11 +135,13 @@ struct WorkbenchNotification: Identifiable, Equatable {
     init(
         id: UUID = UUID(),
         message: String,
+        arguments: [String] = [],
         createdAt: Date = Date(),
         isRead: Bool = false
     ) {
         self.id = id
         self.message = message
+        self.arguments = arguments
         self.createdAt = createdAt
         self.updatedAt = createdAt
         self.isRead = isRead
