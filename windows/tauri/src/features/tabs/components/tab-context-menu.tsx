@@ -35,6 +35,7 @@ interface TabContextMenuProps {
   onRename?: (bufferId: string) => void;
   onCloseTab: (bufferId: string) => void;
   onCloseOthers: (bufferId: string) => void;
+  onCloseSaved: () => void;
   onCloseAll: () => void;
   onCloseToRight: (bufferId: string) => void;
   onCopyPath?: (path: string) => void;
@@ -54,6 +55,7 @@ const TabContextMenu = ({
   onRename,
   onCloseTab,
   onCloseOthers,
+  onCloseSaved,
   onCloseAll,
   onCloseToRight,
   onCopyPath,
@@ -84,6 +86,11 @@ const TabContextMenu = ({
       id: "close-right",
       label: t("tabs.closeToRight"),
       onClick: () => onCloseToRight(buffer.id),
+    },
+    {
+      id: "close-saved",
+      label: t("tabs.closeSaved"),
+      onClick: onCloseSaved,
     },
     {
       id: "close-all",
