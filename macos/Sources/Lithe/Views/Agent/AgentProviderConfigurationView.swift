@@ -121,7 +121,21 @@ struct AgentProviderConfigurationView: View {
                 }
                 .buttonStyle(LitheSecondaryButtonStyle())
             }
-            if active, let selected { metadata(selected) }
+            if active, let selected {
+                metadata(selected)
+                LitheSettingsCheckbox(isOn: Binding(
+                    get: { self.selected?.allowsInsecureHTTP ?? false },
+                    set: { allowed in
+                        perform { try await model.setLocalAgentProviderHTTP(allowed, provider: selected) }
+                    }
+                ), title: "Allow insecure HTTP")
+                .disabled(actionTask != nil)
+                if selected.usesInsecureHTTP {
+                    AgentSettingsHint(selected.allowsInsecureHTTP
+                        ? "HTTP sends the API credential without encryption. Use only a trusted endpoint."
+                        : "HTTP is blocked until you explicitly allow it for this provider.")
+                }
+            }
         }
         .padding(.vertical, 6)
     }
