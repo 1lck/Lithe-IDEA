@@ -225,6 +225,14 @@ struct AgentHistoryTests {
             #expect(fixture.feature.sessions.map(\.id) == ["session-b"])
             #expect(fixture.feature.archivedSessions.map(\.id) == ["session-a"])
             #expect(fixture.feature.archivedSessions.first?.title == "Archived upstream")
+            let activeRows = AgentHistoryPresentation.managementSessions(
+                fixture.feature.sessions, openSessionIDs: fixture.feature.openSessionIDs,
+                conversations: fixture.feature.conversations,
+                archivedSessionIDs: Set(fixture.feature.archivedSessions.map(\.id)),
+                metadata: fixture.history.metadata, query: "", filter: .all
+            )
+            #expect(activeRows.map(\.id) == ["session-b"],
+                    "An open archived tab must not reappear as an active local conversation")
             if loaded {
                 #expect(fixture.feature.conversations["session-a"]?.isAttached == true,
                         "History reconciliation preserves the locally opened transcript")

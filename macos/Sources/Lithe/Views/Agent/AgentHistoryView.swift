@@ -64,10 +64,13 @@ enum AgentHistoryPresentation {
     /// The original management page also includes open chats that the Agent has
     /// not listed yet. Titles are derived for display without changing its history.
     static func managementSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
-                                   conversations: [String: AgentConversation], metadata: [String: AgentHistoryMetadata],
+                                   conversations: [String: AgentConversation], archivedSessionIDs: Set<String> = [],
+                                   metadata: [String: AgentHistoryMetadata],
                                    query: String, filter: AgentHistoryFilter, locale: Locale = .current) -> [AgentSessionSummary] {
-        let listedIDs = Set(sessions.map(\.id))
-        let rows = popupSessions(sessions, openSessionIDs: openSessionIDs, metadata: [:], locale: locale).map { session in
+        let activeSessions = sessions.filter { !archivedSessionIDs.contains($0.id) }
+        let activeOpenIDs = openSessionIDs.filter { !archivedSessionIDs.contains($0) }
+        let listedIDs = Set(activeSessions.map(\.id))
+        let rows = popupSessions(activeSessions, openSessionIDs: activeOpenIDs, metadata: [:], locale: locale).map { session in
             var row = session
             if !listedIDs.contains(session.id), let prompt = conversations[session.id]?.messages.first(where: {
                 $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -122,7 +125,8 @@ struct AgentHistoryView: View {
 
     private var sessions: [AgentSessionSummary] {
         AgentHistoryPresentation.managementSessions(feature.sessions, openSessionIDs: feature.openSessionIDs,
-            conversations: feature.conversations, metadata: history.metadata, query: query, filter: filter, locale: locale)
+            conversations: feature.conversations, archivedSessionIDs: Set(feature.archivedSessions.map(\.id)),
+            metadata: history.metadata, query: query, filter: filter, locale: locale)
     }
     /// Searched and filtered like active rows; local restoration never loads a transcript.
     private var archived: [AgentSessionSummary] {
