@@ -1224,3 +1224,16 @@ Community `JBUI.Fonts.smallFont`→`UIUtil.FontSize.SMALL`（13pt默认下11pt�
 Islands `*.foreground`→`text-default`（dark #D1D3D9/light black）；共享 ActionStripe
 标题 token 同时用于折叠条、Debug Performance 及 Test 的两个标签，避免继承系统白色。
 录制图标原样使用 Community `expui/profiler/rec{,_dark}.svg`，不以Run图标代替。
+
+Test Performance 的 Show Results 改为复用 `LitheActionButtonStyle`：从 CommitAreaView
+移至共享组件，Commit 操作继续消费同一个实现。依据同 revision 的 DarculaButtonUI、
+DarculaButtonPainter、DarculaButtonBorder 与 ManyIslands 明暗主题：28pt 可见高度、
+72pt 最小宽度、14pt 文字内边距、3pt 外部边框留白、4pt 圆角和13pt常规字。普通按钮
+深色透明、浅色白底；禁用使用独立 text-disabled/control-border-disabled，不能整块降透明度。
+上游普通文字按钮不另外叠加 hover/pressed 底色，保留默认箭头。录制图标仍走共享工具栏
+按钮，原始 SVG 已应用 IDEA GrayFilter，禁用时不再叠加按钮透明度。
+
+Show Results 的结果窗口同时复用 Git Patch 等表单的 `LitheCenteredPopup(dialogTitle:)`，
+由共享 presenter 提供原生标题栏、父窗口居中、关闭和事件隔离；内容继续使用统一
+OutputTextView。关闭动作放在对话框底部，采用现有对话框按钮与 Esc，移除独立 sheet
+标题行和工作台表面，避免系统 sheet 圆角背景与产品对话框混用。

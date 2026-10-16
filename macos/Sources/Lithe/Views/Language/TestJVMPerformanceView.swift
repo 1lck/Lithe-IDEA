@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TestJVMPerformanceView: View {
     @ObservedObject var feature: TestJVMPerformanceFeatureModel
+    @Environment(\.locale) private var locale
 
     var body: some View {
         VStack(spacing: 0) {
@@ -11,12 +12,12 @@ struct TestJVMPerformanceView: View {
                         LitheIDEAIcon(resourcePath: feature.isRecording ? "expui/run/stop.svg" : "expui/profiler/rec.svg",
                             size: 16, preservesOriginalColors: true, usesIDEADisabledAppearance: true)
                     }
-                    .litheToolbarIconButton()
+                    .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, disabledOpacity: 1))
                     .disabled(feature.isBusy || (!feature.isRecording && !feature.canStartRecording))
                     .help(feature.isRecording ? "Stop Recording" : "Start Recording")
                     .accessibilityLabel(feature.isRecording ? "Stop Recording" : "Start Recording")
                     Button("Show Results", action: feature.showResults)
-                        .buttonStyle(LitheCommitDialogButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                         .disabled(feature.recording == nil || feature.isRecording || feature.isBusy)
                     if feature.isBusy { ProgressView().controlSize(.small) }
                     Spacer(minLength: 0)
@@ -63,20 +64,26 @@ struct TestJVMPerformanceView: View {
             }
             TestJVMLiveCharts(feature: feature.metrics, residentMemory: !feature.usesJVM)
         }
-        .sheet(isPresented: Binding(get: { feature.report != nil }, set: { if !$0 { feature.report = nil } })) {
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Performance Results").font(LitheTheme.uiFont(size: 13))
-                    Spacer()
-                    Button("Close") { feature.report = nil }.buttonStyle(LitheCommitDialogButtonStyle())
-                }.padding(12)
-                LitheToolWindowHeaderDivider()
+        .background(LitheCenteredPopup(isPresented: Binding(
+            get: { feature.report != nil }, set: { if !$0 { feature.report = nil } }
+        ), dialogTitle: String(localized: "Performance Results", locale: locale)) {
+            VStack(spacing: 10) {
                 OutputTextView(output: feature.report ?? "", searchRoots: [], fileExists: { _ in false },
                     emptyMessage: "No profiling events were recorded.", wrapsLines: false) { _, _, _ in }
+                HStack {
+                    Spacer()
+                    Button("Close") { feature.report = nil }
+                        .buttonStyle(LitheCommitDialogButtonStyle())
+                        .keyboardShortcut(.cancelAction)
+                }
             }
-            .frame(minWidth: 760, minHeight: 500)
-            .litheWorkbenchSurface(LitheTheme.editor)
-        }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .frame(width: 760, height: 500)
+            .foregroundStyle(LitheTheme.primaryText)
+            .background(LitheCommitDialogStyle.background)
+            .environment(\.lithePointingHandCursorEnabled, false)
+            .onExitCommand { feature.report = nil }
+        }.frame(width: 0, height: 0).allowsHitTesting(false))
     }
 }
 
