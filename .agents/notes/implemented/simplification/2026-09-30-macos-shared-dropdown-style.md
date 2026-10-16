@@ -1252,3 +1252,11 @@ DarculaProgressBarUI 的确定进度绘制，状态条为3pt、两端半圆，�
 没有 Maven 结构化报告时，结果摘要按 LanguageTestService.state 保留通过、失败、取消及
 超时；仅 idle 使用未运行提示，不把 Go/Python/Node/Rust/Gradle 的结束状态丢掉。
 无报告的通过/失败仍使用同一状态条，取消不冒充成功。
+
+Test 左侧结果树对照同 revision 的 TestTreeRenderer → TestsPresentationUtil：根与叶的名称
+均使用 REGULAR_ATTRIBUTES，对应13pt常规字和共享 Tree.text；不因选中或失败加粗/着色
+名称。展开箭头改用 Tree 主题指定的 expui/general/chevronRight/Down 原始明暗16pt SVG。
+未运行项复用 PoolOfTestIcons.NOT_RAN → PlatformIconMappings 的 testNotRunYet，
+执行错误用 testError，断言失败用 testFailed，保留 passed/ignored 原始图标，不用SF图标
+替代测试状态或通过调色修改源SVG。列表左右留白复用 Tree.horizontalInset（12pt），
+行高24pt、层级19pt、文字间距2pt，选中/失焦/hover仍由共享树行负责。

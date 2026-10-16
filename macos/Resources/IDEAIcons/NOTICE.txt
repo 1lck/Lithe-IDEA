@@ -308,3 +308,9 @@ platform/icons/src/expui/run/. Original geometry and colors are preserved.
 
 Test JFR recording: expui/profiler/rec.svg and rec_dark.svg copied unmodified from
 JetBrains/intellij-community c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src.
+
+Tests tree error/not-run states: expui/run/testError{,_dark}.svg and
+expui/run/testNotRunYet{,_dark}.svg copied unmodified from IntelliJ Community
+revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade, platform/icons/src.
+PoolOfTestIcons/TestIconMapper assign these statuses; PlatformIconMappings maps
+RunConfigurations.TestNotRan to expui/run/testNotRunYet.svg.

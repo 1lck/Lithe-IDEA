@@ -228,7 +228,7 @@ struct LanguageTestsView: View {
                     providerSection(descriptor)
                 }
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, LitheTheme.Tree.horizontalInset)
             .padding(.vertical, LitheTheme.Tree.verticalInset)
         }
         .litheScrollViewChrome()
@@ -251,7 +251,8 @@ struct LanguageTestsView: View {
                     else { collapsedProviderIDs.insert(descriptor.id) }
                 } label: {
                     HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        LitheIDEAIcon(resourcePath: "expui/general/chevron\(isCollapsed ? "Right" : "Down").svg",
+                            size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
                             .frame(width: LitheTheme.Tree.disclosureSlot)
                         providerIcon(for: descriptor)
                         Text(descriptor.displayName).lineLimit(1)
@@ -278,8 +279,8 @@ struct LanguageTestsView: View {
                     if isCollapsed { collapsedTestIDs.remove(item.id) }
                     else { collapsedTestIDs.insert(item.id) }
                 } label: {
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(LitheTheme.uiFont(size: 9))
+                    LitheIDEAIcon(resourcePath: "expui/general/chevron\(isCollapsed ? "Right" : "Down").svg",
+                        size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
                         .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
                 }
                 .buttonStyle(.litheNoPress)
@@ -291,14 +292,12 @@ struct LanguageTestsView: View {
                 selectedItemID = item.id
             } label: {
                 HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                    if let status {
-                        LitheIDEAIcon(resourcePath: "expui/run/test\(status).svg", size: LitheTheme.Tree.iconSize,
-                                      preservesOriginalColors: true)
-                    } else {
-                        Image(systemName: testItemIcon(item))
-                            .frame(width: LitheTheme.Tree.iconSize)
-                    }
-                    Text(item.label).lineLimit(1)
+                    LitheIDEAIcon(resourcePath: Self.testItemIcon(status: status), size: LitheTheme.Tree.iconSize,
+                                  preservesOriginalColors: true)
+                    Text(item.label)
+                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                        .foregroundStyle(LitheTheme.Tree.text)
+                        .lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -323,7 +322,8 @@ struct LanguageTestsView: View {
             grouped[outcome.className + "#" + method, default: []].append(outcome.status)
         }
         return grouped.compactMapValues { statuses in
-            if statuses.contains("failed") || statuses.contains("error") { return "Failed" }
+            if statuses.contains("error") { return "Error" }
+            if statuses.contains("failed") { return "Failed" }
             if statuses.allSatisfy({ $0 == "skipped" }) { return "Ignored" }
             if statuses.allSatisfy({ $0 == "passed" || $0 == "skipped" }) { return "Passed" }
             return nil
@@ -610,12 +610,8 @@ struct LanguageTestsView: View {
         }
     }
 
-    private func testItemIcon(_ item: LanguageTestItem) -> String {
-        switch item.kind {
-        case .workspace: "square.stack.3d.up"
-        case .file: "doc.text.magnifyingglass"
-        case .testCase: item.depth > 1 ? "function" : "cube"
-        }
+    static func testItemIcon(status: String?) -> String {
+        "expui/run/test\(status ?? "NotRunYet").svg"
     }
 
     private func scopeDescription(_ item: LanguageTestItem) -> String {
@@ -632,11 +628,9 @@ struct LanguageTestsView: View {
     @ViewBuilder
     private func providerIcon(for descriptor: LanguageProviderDescriptor) -> some View {
         if let kind = Self.iconKind(for: descriptor.id) {
-            LitheIcon(kind: kind, size: 14)
+            LitheIcon(kind: kind, size: LitheTheme.Tree.iconSize)
         } else {
-            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                .font(LitheTheme.uiFont(size: 10, weight: .medium))
-                .foregroundStyle(LitheTheme.accent)
+            Color.clear.frame(width: LitheTheme.Tree.iconSize, height: LitheTheme.Tree.iconSize)
         }
     }
 

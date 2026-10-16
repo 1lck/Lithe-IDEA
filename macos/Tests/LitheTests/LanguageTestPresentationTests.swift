@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import LitheCoreContracts
 import LitheExecutionModule
@@ -13,13 +14,16 @@ struct LanguageTestPresentationTests {
             MavenTestCaseOutcome(className: "demo.Example", method: "skips", status: "skipped"),
             MavenTestCaseOutcome(className: "demo.Example", method: "fails(String)[1]", status: "passed"),
             MavenTestCaseOutcome(className: "demo.Example", method: "fails(String)[2]", status: "error"),
+            MavenTestCaseOutcome(className: "demo.Failed", method: "assertion", status: "failed"),
             MavenTestCaseOutcome(className: "demo.Skipped", method: "disabled", status: "skipped"),
             MavenTestCaseOutcome(className: "demo.Unknown", method: "pending", status: "unknown")
         ])
-        #expect(statuses["demo.Example"] == "Failed")
+        #expect(statuses["demo.Example"] == "Error")
         #expect(statuses["demo.Example#passes"] == "Passed")
         #expect(statuses["demo.Example#skips"] == "Ignored")
-        #expect(statuses["demo.Example#fails"] == "Failed")
+        #expect(statuses["demo.Example#fails"] == "Error")
+        #expect(statuses["demo.Failed"] == "Failed")
+        #expect(statuses["demo.Failed#assertion"] == "Failed")
         #expect(statuses["demo.Skipped"] == "Ignored")
         #expect(statuses["demo.Unknown"] == nil)
         let item = testItem("method", selector: "demo.Example#passes()", depth: 2)
@@ -45,6 +49,20 @@ struct LanguageTestPresentationTests {
         for (state, expected) in states {
             #expect(LanguageTestsView.summaryText(for: state) == expected)
         }
+    }
+
+    @Test(arguments: [false, true])
+    func resultIconsLoadOriginalSixteenPointLightAndDarkAssets(dark: Bool) throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/IDEAIcons")
+        for status in [nil, "Passed", "Failed", "Error", "Ignored"] as [String?] {
+            let path = LanguageTestsView.testItemIcon(status: status)
+            let asset = dark ? LitheIcons.darkIdeaAssetPath(for: path) : path
+            let image = try #require(NSImage(contentsOf: root.appendingPathComponent(asset)))
+            #expect(image.size == NSSize(width: 16, height: 16))
+        }
+        #expect(LanguageTestsView.testItemIcon(status: nil) == "expui/run/testNotRunYet.svg")
+        #expect(LanguageTestsView.testItemIcon(status: "Error") == "expui/run/testError.svg")
     }
 
     private func testItem(_ id: String, selector: String? = nil, depth: Int) -> LanguageTestItem {
