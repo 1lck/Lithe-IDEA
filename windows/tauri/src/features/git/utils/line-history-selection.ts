@@ -14,9 +14,9 @@ export interface LineHistoryRange {
 }
 
 /**
- * Line range a gutter context menu should query: the clicked line alone,
- * unless the click falls inside the selection's line span. A caret parked on
- * the next line's first column never widens the query by that line.
+ * Line range a context menu should query: the clicked line alone, unless the
+ * click falls inside the selection's line span. A caret parked on the next
+ * line's first column never widens the query by that line.
  */
 export function gutterLineRange(
   clickedLine: number,
