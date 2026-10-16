@@ -38,6 +38,9 @@ export default function GitLineHistoryPopup({
   const operationRef = useRef<string | null>(null);
   const [status, setStatus] = useState<LineHistoryStatus>("loading");
   const [history, setHistory] = useState<GitLineHistory | null>(null);
+  // Nested repositories resolve to their own root; entries must open there,
+  // not in the workspace root that merely contains them.
+  const [resolvedRepoPath, setResolvedRepoPath] = useState<string>(rootPath);
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
@@ -47,6 +50,7 @@ export default function GitLineHistoryPopup({
     setStatus("loading");
     setHistory(null);
 
+    setResolvedRepoPath(rootPath);
     void getGitLineHistory({
       rootPath,
       filePath,
@@ -59,6 +63,7 @@ export default function GitLineHistoryPopup({
       if (generationRef.current !== generation) return;
       if (result) {
         setHistory(result.history);
+        setResolvedRepoPath(result.repoPath);
         setStatus("ready");
       } else {
         setStatus("failed");
@@ -86,7 +91,7 @@ export default function GitLineHistoryPopup({
   const openEntry = async (entry: GitLineHistoryCommit) => {
     const firstRange = entry.relevantRanges[0];
     await openCommitDiffBuffer({
-      repoPath: rootPath,
+      repoPath: resolvedRepoPath,
       commitHash: entry.hash,
       message: entry.subject,
       author: entry.authorName,
@@ -189,6 +194,26 @@ export default function GitLineHistoryPopup({
                 <div className="border-t px-3 py-1.5 opacity-60" data-line-history-truncated>
                   {t("git.lineHistory.truncated", { count: history.commits.length })}
                 </div>
+              ) : null}
+              {history && history.commits.length > 0 ? (
+                <button
+                  type="button"
+                  className="border-t px-3 py-1.5 text-left opacity-70 hover:bg-foreground/5"
+                  data-line-history-whole-commit
+                  onClick={() => {
+                    const newest = history.commits[0];
+                    void openCommitDiffBuffer({
+                      repoPath: resolvedRepoPath,
+                      commitHash: newest.hash,
+                      message: newest.subject,
+                      author: newest.authorName,
+                      date: new Date(newest.authorTime * 1000).toLocaleString(),
+                    });
+                    onClose();
+                  }}
+                >
+                  {t("git.lineHistory.viewCommit")}
+                </button>
               ) : null}
             </div>
           )}

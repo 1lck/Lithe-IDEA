@@ -1,10 +1,27 @@
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act } from "react";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 
 const restoreDom = installHappyDom();
 afterAll(restoreDom);
+
+// All commands the sibling line-history suites may route through this shared
+// mock: bun's mock.module registry is global across test files, so whichever
+// file registers last must still serve every consumer.
+const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> => {
+  if (command === "git_discover_repo") return "C:/repo";
+  if (command === "git.lineHistory") {
+    return { baseCommit: "b".repeat(40), unmappedLines: [], commits: [], truncated: false };
+  }
+  if (command === "git.diff") {
+    return [{ file_path: "doc.txt", new_path: "doc.txt", lines: [] }];
+  }
+  if (command === "git_commit_diff") {
+    return [{ file_path: "doc.txt", new_path: "doc.txt", lines: [] }];
+  }
+  throw new Error(`Unexpected command: ${command}`);
+});
 
 const cancelCoreOperation = mock(async () => true);
 let resolveQuery: ((value: unknown) => void) | null = null;
@@ -18,14 +35,40 @@ const getGitLineHistory = mock((_query: MockedLineHistoryQuery) =>
     resolveQuery = resolve;
   }),
 );
-const openCommitDiffBuffer = mock(async (_options: unknown): Promise<string | null> => "buffer-1");
+const openBuffer = mock(
+  async (
+    _virtualPath: string,
+    _displayName: string,
+    _content: string,
+    _preview: boolean,
+    _undefined: undefined,
+    _pinned: boolean,
+    _restored: boolean,
+    diffData: Record<string, unknown>,
+  ) => "buffer-1",
+);
 
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 mock.module("@/core/lithe-core-client", () => ({ cancelCoreOperation }));
 mock.module("@/features/git/api/git-line-history-api", () => ({ getGitLineHistory }));
-mock.module("@/features/git/utils/open-commit-diff-buffer", () => ({ openCommitDiffBuffer }));
+const bufferStoreModule = await import("@/features/editor/stores/buffer.store");
+mock.module("@/features/editor/stores/buffer.store", () => ({
+  ...bufferStoreModule,
+  useBufferStore: { getState: () => ({ actions: { openBuffer } }) },
+}));
 
 const { default: GitLineHistoryPopup } = await import("./git-line-history-popup");
 const { createRoot } = await import("react-dom/client");
+const { clearRepositoryDiscoveryCache } = await import("@/features/git/api/git-repo-api");
+
+beforeEach(() => {
+  invoke.mockClear();
+  openBuffer.mockClear();
+  // Discovery caching would leak one test's repository identity into the
+  // next entry-open assertion.
+  clearRepositoryDiscoveryCache();
+});
 
 const sampleHistory = {
   baseCommit: "b".repeat(40),
@@ -123,13 +166,48 @@ describe("GitLineHistoryPopup", () => {
 
     entry!.click();
     await flush();
-    expect(openCommitDiffBuffer).toHaveBeenCalledTimes(1);
-    const options = openCommitDiffBuffer.mock.calls[0][0] as Record<string, unknown>;
-    // Merge entries open against the recorded first-parent base, not a
-    // combined merge diff, and land on the entry's relevant range.
-    expect(options.compareReference).toBe(`${"d".repeat(40)}..${"c".repeat(40)}`);
-    expect(options.pathspecs).toEqual(["doc.txt"]);
-    expect(options.initialRevealRange).toEqual({ startLine: 3, endLine: 3 });
+    // The click traverses the real scoped-open path: the dotted git.diff
+    // carries the merge's first-parent comparison, and the opened buffer is
+    // the single-file preview carrying the reveal range.
+    const scoped = invoke.mock.calls.find((call) => call[0] === "git.diff");
+    expect(scoped).toBeTruthy();
+    const args = scoped?.[1] as Record<string, unknown>;
+    expect(args.reference).toBe(`${"d".repeat(40)}..${"c".repeat(40)}`);
+    expect(args.pathspecs).toEqual(["doc.txt"]);
+    expect(openBuffer).toHaveBeenCalledTimes(1);
+    const diffData = openBuffer.mock.calls[0][7] as Record<string, unknown>;
+    expect(diffData.commitFilePreview).toBe(true);
+    expect(diffData.initialRevealRange).toEqual({ startLine: 3, endLine: 3 });
+
+    await act(async () => {
+      root.unmount();
+      host.remove();
+    });
+  });
+
+  test("offers a whole-commit entry that opens the unscoped stack", async () => {
+    const { host, root } = mountPopup();
+    await flush();
+    await act(async () => {
+      resolveQuery?.({
+        history: sampleHistory,
+        repoPath: "C:/nested/repo",
+        filePath: "doc.txt",
+      });
+    });
+    await flush();
+
+    const whole = host.querySelector<HTMLButtonElement>("[data-line-history-whole-commit]");
+    expect(whole).toBeTruthy();
+    whole!.click();
+    await flush();
+    const discover = invoke.mock.calls.find((call) => call[0] === "git_discover_repo");
+    const discoverArgs = discover?.[1] as Record<string, unknown> | undefined;
+    // The whole-commit entry resolves through the repository the query
+    // reported, not the workspace root, and keeps the generic stack.
+    expect(String(discoverArgs?.path ?? "")).toContain("C:/nested/repo");
+    const wholeDiff = openBuffer.mock.calls[0][7] as Record<string, unknown>;
+    expect(wholeDiff.commitFilePreview).toBeUndefined();
 
     await act(async () => {
       root.unmount();

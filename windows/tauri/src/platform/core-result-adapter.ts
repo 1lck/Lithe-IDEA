@@ -295,6 +295,7 @@ export function adaptCoreResult<T>(
     }
     case "git_diff_file":
     case "git_commit_diff":
+    case "git.diff":
     case "git_ref_diff":
     case "git_working_tree_ref_diff":
     case "git_stash_diff":

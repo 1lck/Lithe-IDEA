@@ -2918,6 +2918,7 @@ const catalogs = {
     "git.lineHistory.unmapped.unreliable": "Line {line} has uncommitted edits and cannot be mapped to a committed version.",
     "git.lineHistory.mergeBadge": "merge (first parent)",
     "git.lineHistory.truncated": "Only the most recent {count} entries are shown.",
+    "git.lineHistory.viewCommit": "View whole commit",
     "git.rollbackPathsConfirm":
       "Roll back changes in {count} selected path(s)? This cannot be undone.",
     "git.showDiff": "Show Diff",
@@ -7396,6 +7397,7 @@ const catalogs = {
     "git.lineHistory.unmapped.unreliable": "第 {line} 行有未提交修改，无法可靠对应到提交版本。",
     "git.lineHistory.mergeBadge": "合并（相对第一父）",
     "git.lineHistory.truncated": "仅显示最近 {count} 条记录。",
+    "git.lineHistory.viewCommit": "查看整个提交",
     "git.rollbackPathsConfirm": "确定回滚选中的 {count} 个路径吗？此操作无法撤销。",
     "git.showDiff": "显示差异",
     "git.jumpToSource": "跳转到源",

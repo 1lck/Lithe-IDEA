@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// All commands the sibling line-history suites may route through this shared
+// mock: bun's mock.module registry is global across test files, so whichever
+// file registers last must still serve every consumer.
 const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> => {
   if (command === "git_discover_repo") return "C:/repo";
   if (command === "git.lineHistory") {
-    return {
-      baseCommit: "a".repeat(40),
-      unmappedLines: [],
-      commits: [],
-      truncated: false,
-    };
+    return { baseCommit: "b".repeat(40), unmappedLines: [], commits: [], truncated: false };
+  }
+  if (command === "git.diff") {
+    return [{ file_path: "doc.txt", new_path: "doc.txt", lines: [] }];
+  }
+  if (command === "git_commit_diff") {
+    return [{ file_path: "doc.txt", new_path: "doc.txt", lines: [] }];
   }
   throw new Error(`Unexpected command: ${command}`);
 });

@@ -75,15 +75,23 @@ export default function IndependentCommitDiff(props: Props) {
       pendingFirst.current = false;
       const changes = instance.plan.changes;
       if (changes.length) {
-        // Plan rows map one-based to modified-side editor lines, so a change
-        // covers rightStart+1..rightEnd and intersects the requested range.
+        // change.rightStart/rightEnd index projection rows, not file lines;
+        // translate the reveal range through the rows' newLine numbers before
+        // matching, or distant blocks would never anchor the landing.
         const reveal = latest.current.revealRange;
-        const landed =
-          reveal &&
-          changes.find(
-            (change) =>
-              change.rightStart + 1 <= reveal.endLine && change.rightEnd >= reveal.startLine,
-          );
+        let landed: (typeof changes)[number] | undefined;
+        if (reveal) {
+          const rows = instance.plan.right;
+          for (let index = 0; index < rows.length; index++) {
+            const line = rows[index]?.newLine;
+            if (line !== null && line !== undefined && line >= reveal.startLine && line <= reveal.endLine) {
+              landed = changes.find(
+                (change) => index >= change.rightStart && index < change.rightEnd,
+              );
+              if (landed) break;
+            }
+          }
+        }
         instance.reveal(
           landed ?? changes[latest.current.startAtLastDifference ? changes.length - 1 : 0],
           latest.current.focusOnInitialDifference !== false,

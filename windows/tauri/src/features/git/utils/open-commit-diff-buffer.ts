@@ -3,6 +3,7 @@ import { getCommitDiff } from "@/features/git/api/git-diff-api";
 import type { GitDiff } from "@/features/git/types/git.types";
 import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
 import { countDiffStats } from "@/features/git/utils/git-diff-helpers";
+import { createCommitFileDiffPreview } from "@/features/git/utils/multi-file-diff";
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { resolveRepositoryPath } from "@/features/git/api/git-repo-api";
 
@@ -13,7 +14,7 @@ interface OpenCommitDiffBufferOptions {
   description?: string;
   author?: string;
   date?: string;
-  /** Restricts the diff to these workspace-relative paths, e.g. line history. */
+  /** Restricts the diff to one workspace-relative path, e.g. line history. */
   pathspecs?: string[];
   /**
    * Explicit `base..target` comparison for entries that must not render as a
@@ -54,10 +55,46 @@ export const openCommitDiffBuffer = async ({
   compareReference,
   initialRevealRange,
 }: OpenCommitDiffBufferOptions): Promise<string | null> => {
-  const diffs =
-    pathspecs || compareReference
-      ? await loadScopedCommitDiff(repoPath, commitHash, pathspecs ?? ["."], compareReference)
-      : await getCommitDiff(repoPath, commitHash);
+  // Scoped opens reuse the Git Log single-file preview so the reveal range is
+  // actually consumed; the generic stack would ignore positioning entirely.
+  if (pathspecs?.length === 1 || compareReference) {
+    const diffs = await loadScopedCommitDiff(
+      repoPath,
+      commitHash,
+      pathspecs ?? ["."],
+      compareReference,
+    );
+    if (!diffs || diffs.length === 0) {
+      return null;
+    }
+    const preview = createCommitFileDiffPreview({
+      repoPath,
+      commitHash,
+      diffs,
+      filePath: pathspecs?.[0] ?? diffs[0]?.new_path ?? diffs[0]?.file_path ?? "",
+      label: commitHash.substring(0, 7),
+    });
+    if (!preview) {
+      return null;
+    }
+    if (initialRevealRange) {
+      preview.diffData.initialRevealRange = initialRevealRange;
+    }
+    return useBufferStore
+      .getState()
+      .actions.openBuffer(
+        preview.virtualPath,
+        preview.displayName,
+        "",
+        false,
+        undefined,
+        true,
+        true,
+        preview.diffData,
+      );
+  }
+
+  const diffs = await getCommitDiff(repoPath, commitHash);
   if (!diffs || diffs.length === 0) {
     return null;
   }
@@ -76,18 +113,10 @@ export const openCommitDiffBuffer = async ({
     totalFiles: diffs.length,
     totalAdditions: additions,
     totalDeletions: deletions,
-    hideFileList: pathspecs?.length === 1,
-    initialRevealRange,
   };
 
-  const virtualPath =
-    pathspecs && pathspecs.length === 1
-      ? `diff://commit/${commitHash}/${pathspecs[0]}`
-      : `diff://commit/${commitHash}/all-files`;
-  const displayName =
-    pathspecs && pathspecs.length === 1
-      ? `Commit ${shortHash} (${pathspecs[0]})`
-      : `Commit ${shortHash} (${diffs.length} files)`;
+  const virtualPath = `diff://commit/${commitHash}/all-files`;
+  const displayName = `Commit ${shortHash} (${diffs.length} files)`;
 
   return useBufferStore
     .getState()
