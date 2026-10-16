@@ -1,0 +1,29 @@
+{
+  "id": "windows-title-run-selector",
+  "area": "运行与调试",
+  "group": "工具栏",
+  "capability": "Windows标题栏选中配置Run / Debug控制",
+  "owner": "Windows / Run",
+  "macos": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": ["shared/contracts/application-boundary.md"]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/run/actions/selected-run-actions.ts",
+      "windows/tauri/src/features/run/actions/selected-run-actions.test.ts",
+      "windows/tauri/src/features/run/components/title-run-control.tsx",
+      "windows/tauri/src/features/run/components/title-run-control.test.tsx",
+      "windows/tauri/src/features/window/components/title-bar/title-bar.tsx",
+      ".github/workflows/ci-windows.yml",
+      "windows/tauri/src/features/layout/components/title-bar-update-control.test.tsx",
+      "windows/tauri/src/features/run/stores/run.store.ts",
+      "windows/tauri/src/features/run/actions/selected-run-owner.test.ts"
+    ]
+  },
+  "verification": "在Spring Boot与普通Java之间切换命名配置，验证Run/Debug/Rerun/Redebug/Stop的配置及workspace归属、编译准备中取消、不同配置的运行状态、进程退出与已有调试会话保护。验证非Java的Debug禁用，并保留下拉Edit入口和全局设置入口。 两个工具栏测试入口使用 Windows CI 独立计时进程。集成保留现有项目菜单、紧凑菜单、New Entry host 与官方更新器；重跑标题栏更新器及相关菜单/拖动回归，但实际 GUI 验证仍单独待办。 真实Run owner首次service取消覆盖stop/save/context前置阶段，sessions为空时Stop仍退役预留execution；验证替代执行和构建决策不被旧取消影响，完成后解绑signal。",
+  "notes": "依赖已确认Java入口与共享调试生命周期；只编排既有Run/JDT/DAP所有者，不重新扫描Java。Gradle与其他语言不因此获得新的Debug后端。"
+}

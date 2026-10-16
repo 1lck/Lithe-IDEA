@@ -151,11 +151,13 @@ interface RunState {
       id: string,
       currentFile?: string,
       debugPort?: number,
+      signal?: AbortSignal,
     ) => Promise<string | null>;
     runConfigurationInstance: (
       id: string,
       currentFile?: string,
       debugPort?: number,
+      signal?: AbortSignal,
     ) => Promise<RunProcessInstance | null>;
     continueJavaLaunch: (sessionId: string, decisionId: string, remember: boolean) => void;
     cancelJavaLaunch: (sessionId: string, decisionId?: string) => void;
@@ -798,12 +800,15 @@ export const createRunStore = (
       selectSession: (id) => set({ selectedSessionId: id }),
       editConfiguration: (id) => set({ editingConfigurationId: id }),
 
-      runConfiguration: async (id, currentFile, debugPort) => {
-        const instance = await get().actions.runConfigurationInstance(id, currentFile, debugPort);
+      runConfiguration: async (id, currentFile, debugPort, signal) => {
+        const instance = await get().actions.runConfigurationInstance(
+          id, currentFile, debugPort, signal,
+        );
         return instance?.sessionId ?? null;
       },
 
-      runConfigurationInstance: async (id, currentFile, debugPort) => {
+      runConfigurationInstance: async (id, currentFile, debugPort, signal) => {
+        if (signal?.aborted) return null;
         const state = get();
         const root = state.root;
         const configuration = state.configurations.find((item) => item.id === id);
@@ -858,11 +863,21 @@ export const createRunStore = (
             primaryTitle: configuration.name,
           });
         }
-        const isCurrent = () => executions.get(sessionId) === executionId && get().root === root;
+        const isCurrent = () =>
+          !signal?.aborted && executions.get(sessionId) === executionId && get().root === root;
+        const cancelExecution = () => {
+          // Cancel the reserved execution even before a service session is visible.
+          // An old operation's abort must not touch a replacement's slot/decision.
+          if (executions.get(sessionId) === executionId)
+            void get().actions.stop(sessionId, executionId);
+        };
+        signal?.addEventListener("abort", cancelExecution, { once: true });
+        if (signal?.aborted) cancelExecution();
         bindRunSessionWorkspace(sessionId, workspaceId);
         resetOutputStamper(sessionId);
-        await dependencies.stopRunProcess(sessionId).catch(() => undefined);
         try {
+          if (!isCurrent()) return null;
+          await dependencies.stopRunProcess(sessionId).catch(() => undefined);
           if (!isCurrent()) return null;
           let save = workspaceSaveInFlight.get(workspaceId);
           if (!save) {
@@ -1167,6 +1182,8 @@ export const createRunStore = (
             });
           }
           return null;
+        } finally {
+          signal?.removeEventListener("abort", cancelExecution);
         }
       },
 
@@ -1300,10 +1317,12 @@ export const createRunStore = (
 
       stop: async (sessionId, executionId) => {
         const target = sessionId ?? get().selectedSessionId ?? PRIMARY_SESSION_ID;
-        get().actions.cancelJavaLaunch(target);
         const ownedExecution = executions.get(target);
         const ownsSlot = !executionId || executionId === ownedExecution;
-        if (ownsSlot) executions.delete(target);
+        if (ownsSlot) {
+          executions.delete(target);
+          get().actions.cancelJavaLaunch(target);
+        }
         // Native ownership remains authoritative after a workspace store is disposed/recreated.
         await dependencies
           .stopRunProcess(target, executionId ?? ownedExecution)
