@@ -13,6 +13,10 @@ cd "$TEST_ROOT"
 git init -q
 git config user.email "ci@example.invalid"
 git config user.name "CI Test"
+# Each case commits; a detached automatic gc would still be writing to .git
+# when the EXIT trap removes the repository.
+git config gc.auto 0
+git config maintenance.auto false
 mkdir -p \
     Casks \
     Plugins/mac/Official/GoSupport \
