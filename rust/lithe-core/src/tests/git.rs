@@ -5017,3 +5017,402 @@ fn git_text(root: &Path, arguments: &[&str]) -> String {
     );
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
+
+// ---------------------------------------------------------------------------
+// git.lineHistory
+// ---------------------------------------------------------------------------
+
+fn line_history_repository(label: &str) -> std::path::PathBuf {
+    let root = temporary_root(label);
+    fs::create_dir_all(&root).expect("line-history repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.name", "Tester"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    root
+}
+
+fn line_history_commit(root: &Path, message: &str) {
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["add", "-A"]).status.success());
+    assert!(run(&["commit", "-qm", message]).status.success());
+}
+
+fn line_history_query(root: &Path, path: &str, content: &str, start: usize, end: usize) -> Value {
+    let request = serde_json::json!({
+        "id": "line-history",
+        "command": "git.lineHistory",
+        "payload": {
+            "root": root,
+            "path": path,
+            "content": content,
+            "startLine": start,
+            "endLine": end,
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("line-history request should encode"),
+    ))
+    .expect("line-history response should be JSON");
+    response
+}
+
+fn line_history_subjects(data: &Value) -> Vec<String> {
+    data["commits"]
+        .as_array()
+        .expect("line-history commits should be an array")
+        .iter()
+        .map(|commit| commit["subject"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
+#[test]
+fn git_line_history_lists_touching_commits_for_clean_snapshot() {
+    let root = line_history_repository("line-history-clean");
+    fs::write(root.join("notes.txt"), "alpha\nbravo\ncharlie\n")
+        .expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+    fs::write(root.join("notes.txt"), "alpha\nbravo-two\ncharlie\n")
+        .expect("line-history file should be writable");
+    line_history_commit(&root, "reword bravo");
+
+    let response = line_history_query(&root, "notes.txt", "alpha\nbravo-two\ncharlie\n", 2, 2);
+    assert_eq!(response["ok"], true, "{response:?}");
+    let data = &response["data"];
+    assert_eq!(
+        data["baseCommit"].as_str().map(str::len),
+        Some(40),
+        "{response:?}"
+    );
+    assert_eq!(data["unmappedLines"].as_array().map(Vec::len), Some(0));
+    assert_eq!(data["truncated"], false);
+
+    let commits = data["commits"].as_array().expect("commits should list");
+    assert_eq!(line_history_subjects(data), vec!["reword bravo", "initial"]);
+    assert_eq!(commits[0]["authorName"], "Tester");
+    assert_eq!(commits[0]["kind"], "commit");
+    assert_eq!(commits[0]["pathAtCommit"], "notes.txt");
+    // The reword compares against its parent; only the root entry has no base.
+    assert_eq!(
+        commits[0]["compareBase"].as_str(),
+        commits[1]["hash"].as_str(),
+        "{response:?}"
+    );
+    assert_eq!(commits[1]["compareBase"].as_str(), Some(""));
+
+    let ranges = commits[0]["relevantRanges"]
+        .as_array()
+        .expect("reword entry should carry one range");
+    assert_eq!(ranges.len(), 1, "{response:?}");
+    assert_eq!(ranges[0]["oldStart"], 2);
+    assert_eq!(ranges[0]["oldEnd"], 2);
+    assert_eq!(ranges[0]["newStart"], 2);
+    assert_eq!(ranges[0]["newEnd"], 2);
+
+    let creation = commits[1]["relevantRanges"]
+        .as_array()
+        .expect("root entry should carry its creation range");
+    assert_eq!(creation.len(), 1, "{response:?}");
+    // `-L` reports the traced line's own insertion, not the whole file block.
+    assert_eq!(creation[0]["oldStart"], 0);
+    assert_eq!(creation[0]["newStart"], 2);
+    assert_eq!(creation[0]["newEnd"], 2);
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_maps_unsaved_top_insertion_to_revision_lines() {
+    let root = line_history_repository("line-history-top-insert");
+    fs::write(root.join("doc.txt"), "one\ntwo\nthree\nfour\nfive\n")
+        .expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+    fs::write(root.join("doc.txt"), "one\ntwo\nTHREE\nfour\nfive\n")
+        .expect("line-history file should be writable");
+    line_history_commit(&root, "shout three");
+
+    let snapshot = "top\none\ntwo\nTHREE\nfour\nfive\n";
+    let response = line_history_query(&root, "doc.txt", snapshot, 4, 4);
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        line_history_subjects(&response["data"]),
+        vec!["shout three", "initial"],
+        "{response:?}"
+    );
+
+    let inserted = line_history_query(&root, "doc.txt", snapshot, 1, 1);
+    assert_eq!(inserted["ok"], true, "{inserted:?}");
+    assert_eq!(
+        inserted["data"]["unmappedLines"],
+        serde_json::json!([{ "line": 1, "kind": "new" }]),
+        "{inserted:?}"
+    );
+    assert_eq!(
+        inserted["data"]["commits"].as_array().map(Vec::len),
+        Some(0)
+    );
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_classifies_unmapped_lines_as_new_or_unreliable() {
+    let root = line_history_repository("line-history-unmapped");
+    fs::write(root.join("doc.txt"), "a\nb\nc\nd\n").expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+
+    let snapshot = "a\nB2\nc\nX\nd\n";
+    let rewritten = line_history_query(&root, "doc.txt", snapshot, 2, 2);
+    assert_eq!(rewritten["ok"], true, "{rewritten:?}");
+    assert_eq!(
+        rewritten["data"]["unmappedLines"],
+        serde_json::json!([{ "line": 2, "kind": "unreliable" }]),
+        "{rewritten:?}"
+    );
+
+    let inserted = line_history_query(&root, "doc.txt", snapshot, 4, 4);
+    assert_eq!(inserted["ok"], true, "{inserted:?}");
+    assert_eq!(
+        inserted["data"]["unmappedLines"],
+        serde_json::json!([{ "line": 4, "kind": "new" }]),
+        "{inserted:?}"
+    );
+
+    let mapped = line_history_query(&root, "doc.txt", snapshot, 5, 5);
+    assert_eq!(mapped["ok"], true, "{mapped:?}");
+    assert_eq!(
+        mapped["data"]["unmappedLines"].as_array().map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(line_history_subjects(&mapped["data"]), vec!["initial"]);
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_keeps_deleted_line_from_widening_intervals() {
+    let root = line_history_repository("line-history-deletion");
+    fs::write(root.join("doc.txt"), "A\nB\nC\n").expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+    fs::write(root.join("doc.txt"), "A\nB2\nC\n").expect("line-history file should be writable");
+    line_history_commit(&root, "reword middle");
+
+    // The snapshot deletes the middle line without committing it, so the two
+    // queried lines map onto non-consecutive revision lines 1 and 3. Padding
+    // them into one range would attribute the middle-only reword to them.
+    let response = line_history_query(&root, "doc.txt", "A\nC\n", 1, 2);
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["unmappedLines"].as_array().map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(
+        line_history_subjects(&response["data"]),
+        vec!["initial"],
+        "{response:?}"
+    );
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_follows_renames_with_previous_path() {
+    let root = line_history_repository("line-history-rename");
+    fs::write(root.join("f.txt"), "one\ntwo\n").expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+    fs::write(root.join("f.txt"), "one\nTWO\n").expect("line-history file should be writable");
+    line_history_commit(&root, "reword two");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["mv", "f.txt", "g.txt"]).status.success());
+    line_history_commit(&root, "rename file");
+
+    let response = line_history_query(&root, "g.txt", "one\nTWO\n", 2, 2);
+    assert_eq!(response["ok"], true, "{response:?}");
+    let subjects = line_history_subjects(&response["data"]);
+    assert!(
+        !subjects.contains(&"rename file".to_string()),
+        "{response:?}"
+    );
+    assert_eq!(subjects, vec!["reword two", "initial"]);
+    let commits = response["data"]["commits"].as_array().expect("commits");
+    assert_eq!(commits[0]["pathAtCommit"], "f.txt");
+    assert_eq!(commits[0]["previousPath"].as_str(), None);
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_keeps_first_parent_chain() {
+    let root = line_history_repository("line-history-merge");
+    // Three lines keep the branch edits one context line apart, so the merge
+    // resolves cleanly instead of conflicting on adjacent edits.
+    fs::write(root.join("doc.txt"), "x\ny\nz\n").expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["checkout", "-qb", "side"]).status.success());
+    fs::write(root.join("doc.txt"), "x\ny\nz-side\n")
+        .expect("line-history file should be writable");
+    line_history_commit(&root, "side reword");
+    assert!(run(&["checkout", "-q", "master"]).status.success());
+    fs::write(root.join("doc.txt"), "x-main\ny\nz\n")
+        .expect("line-history file should be writable");
+    line_history_commit(&root, "main reword");
+    assert!(run(&["merge", "-q", "--no-ff", "side", "-m", "merge side"])
+        .status
+        .success());
+
+    // The first line: the merged branch's internal commit stays unlisted on
+    // the first-parent chain, and the merge left it unchanged relative to its
+    // first parent, so only the master-side history shows.
+    let snapshot = "x-main\ny\nz-side\n";
+    let first = line_history_query(&root, "doc.txt", snapshot, 1, 1);
+    assert_eq!(first["ok"], true, "{first:?}");
+    assert_eq!(
+        line_history_subjects(&first["data"]),
+        vec!["main reword", "initial"],
+        "{first:?}"
+    );
+
+    // The third line changed inside the merge relative to its first parent:
+    // one merge entry carries the positioning metadata, and the branch's own
+    // commit still never appears.
+    let third = line_history_query(&root, "doc.txt", snapshot, 3, 3);
+    assert_eq!(third["ok"], true, "{third:?}");
+    assert_eq!(
+        line_history_subjects(&third["data"]),
+        vec!["merge side", "initial"],
+        "{third:?}"
+    );
+    let merge_entry = &third["data"]["commits"][0];
+    assert_eq!(merge_entry["kind"], "merge-first-parent", "{third:?}");
+    assert_eq!(
+        merge_entry["compareBase"].as_str().map(str::len),
+        Some(40),
+        "{third:?}"
+    );
+    let merge_ranges = merge_entry["relevantRanges"]
+        .as_array()
+        .expect("merge entry should carry its range");
+    assert_eq!(merge_ranges.len(), 1, "{third:?}");
+    assert_eq!(merge_ranges[0]["oldStart"], 3);
+    assert_eq!(merge_ranges[0]["newStart"], 3);
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_reports_truncation_beyond_limit() {
+    let root = line_history_repository("line-history-limit");
+    fs::write(root.join("doc.txt"), "v0\n").expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+    for step in 1..=3 {
+        fs::write(root.join("doc.txt"), format!("v{step}\n"))
+            .expect("line-history file should be writable");
+        line_history_commit(&root, &format!("bump {step}"));
+    }
+    let request = serde_json::json!({
+        "id": "line-history",
+        "command": "git.lineHistory",
+        "payload": {
+            "root": root,
+            "path": "doc.txt",
+            "content": "v3\n",
+            "startLine": 1,
+            "endLine": 1,
+            "limit": 2,
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("line-history request should encode"),
+    ))
+    .expect("line-history response should be JSON");
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["truncated"], true);
+    assert_eq!(
+        response["data"]["commits"].as_array().map(Vec::len),
+        Some(2)
+    );
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_rejects_invalid_paths_and_ranges() {
+    let root = line_history_repository("line-history-invalid");
+    fs::write(root.join("doc.txt"), "one\n").expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+
+    let traversal = line_history_query(&root, "../outside.txt", "one\n", 1, 1);
+    assert_eq!(traversal["ok"], false, "{traversal:?}");
+
+    let reversed = line_history_query(&root, "doc.txt", "one\n", 2, 1);
+    assert_eq!(reversed["ok"], false, "{reversed:?}");
+
+    let beyond = line_history_query(&root, "doc.txt", "one\n", 1, 5);
+    assert_eq!(beyond["ok"], false, "{beyond:?}");
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_reports_new_lines_for_repository_without_commits() {
+    let root = line_history_repository("line-history-empty");
+    fs::write(root.join("doc.txt"), "one\ntwo\n").expect("line-history file should be writable");
+
+    let response = line_history_query(&root, "doc.txt", "one\ntwo\n", 1, 2);
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["baseCommit"], "");
+    assert_eq!(
+        response["data"]["unmappedLines"],
+        serde_json::json!([
+            { "line": 1, "kind": "new" },
+            { "line": 2, "kind": "new" }
+        ])
+    );
+    assert_eq!(
+        response["data"]["commits"].as_array().map(Vec::len),
+        Some(0)
+    );
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn git_line_history_rejects_snapshots_beyond_the_size_budget() {
+    let root = line_history_repository("line-history-budget");
+    fs::write(root.join("doc.txt"), "one\n").expect("line-history file should be writable");
+    line_history_commit(&root, "initial");
+
+    let oversized = "x".repeat(8 * 1024 * 1024 + 1);
+    let response = line_history_query(&root, "doc.txt", &oversized, 1, 1);
+    assert_eq!(response["ok"], false, "{response:?}");
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}

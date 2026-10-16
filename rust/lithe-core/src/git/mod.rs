@@ -52,10 +52,12 @@ use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
     GitCommitLookupResponse, GitCommitResponse, GitComparisonResponse, GitConflictMarkerResponse,
     GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
-    GitIntegrationPreflightResponse, GitOperationStateResponse, GitPullPreflightResponse,
-    GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitStashResponse,
-    GitStashesResponse, GitStatusResponse, GitWatchContextResponse, GitWorktreeResponse,
-    GitWorktreesResponse, WorkspaceRepositoriesResponse, WorkspaceRepositoryResponse,
+    GitIntegrationPreflightResponse, GitLineHistoryCommit, GitLineHistoryRange,
+    GitLineHistoryResponse, GitLineHistoryUnmappedLine, GitOperationStateResponse,
+    GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse,
+    GitStashResponse, GitStashesResponse, GitStatusResponse, GitWatchContextResponse,
+    GitWorktreeResponse, GitWorktreesResponse, WorkspaceRepositoriesResponse,
+    WorkspaceRepositoryResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -790,6 +792,33 @@ pub struct GitOperationStateRequest {
 pub struct GitBlameRequest {
     pub root: String,
     pub path: String,
+}
+
+/// Largest editor snapshot accepted by `git.lineHistory`; larger documents must
+/// use committed state instead of an unsaved buffer.
+const LINE_HISTORY_MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
+/// Default entry limit for `git.lineHistory` before truncation is reported.
+const LINE_HISTORY_DEFAULT_LIMIT: usize = 50;
+/// Hard ceiling for a client-requested `git.lineHistory` limit.
+const LINE_HISTORY_MAX_LIMIT: usize = 200;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request for the committed history of one one-based snapshot line range.
+pub struct GitLineHistoryRequest {
+    pub root: String,
+    /// Workspace-relative file path validated as a safe pathspec.
+    pub path: String,
+    /// Editor buffer content at query time; the line range addresses this
+    /// snapshot, not the on-disk file, so unsaved edits stay answerable.
+    pub content: String,
+    /// First one-based snapshot line to trace, inclusive.
+    pub start_line: usize,
+    /// Last one-based snapshot line to trace, inclusive.
+    pub end_line: usize,
+    /// Maximum deduplicated entries to return; defaults to 50, capped at 200.
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 
 fn default_review_context_lines() -> usize {
@@ -3275,6 +3304,452 @@ pub fn blame(request: GitBlameRequest) -> Result<GitBlameResponse, CoreError> {
         }
     }
     Ok(GitBlameResponse { lines })
+}
+
+/// Removes one line-history scratch directory on every exit path.
+struct ScopedLineHistoryDirectory(std::path::PathBuf);
+
+impl Drop for ScopedLineHistoryDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Creates an isolated scratch directory under the platform temp root. The
+/// snapshot may hold private source text, so POSIX permissions are applied at
+/// atomic creation exactly like the Git commit context directories.
+fn create_line_history_scratch() -> Result<ScopedLineHistoryDirectory, CoreError> {
+    let prefix = format!("lithe-line-history-{}", std::process::id());
+    let mut attempt = 0u128;
+    loop {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or_default()
+            + attempt;
+        let candidate = std::env::temp_dir().join(format!("{prefix}-{stamp}"));
+        let builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        let mut builder = {
+            use std::os::unix::fs::DirBuilderExt;
+            let mut builder = builder;
+            builder.mode(0o700);
+            builder
+        };
+        match builder.create(&candidate) {
+            Ok(()) => return Ok(ScopedLineHistoryDirectory(candidate)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                attempt += 1;
+                continue;
+            }
+            Err(error) => {
+                return Err(CoreError::new(
+                    ErrorCode::Unknown,
+                    "Could not create a line-history scratch directory",
+                )
+                .with_details(error.to_string()));
+            }
+        }
+    }
+}
+
+fn line_history_io_error(error: std::io::Error) -> CoreError {
+    CoreError::new(
+        ErrorCode::Unknown,
+        "Could not stage the line-history snapshot",
+    )
+    .with_details(error.to_string())
+}
+
+/// Parses one `@@ -a[,n] +b[,m] @@` header into raw hunk coordinates. A zero
+/// count marks an empty side, whose start is the line count before the hunk.
+fn parse_line_history_hunk_header(line: &str) -> Option<(usize, usize, usize, usize)> {
+    let rest = line.strip_prefix("@@ -")?;
+    let (old, rest) = rest.split_once(' ')?;
+    let rest = rest.strip_prefix('+')?;
+    let (new, _) = rest.split_once(" @@")?;
+    let parse = |text: &str| -> Option<(usize, usize)> {
+        match text.split_once(',') {
+            Some((start, count)) => Some((start.parse().ok()?, count.parse().ok()?)),
+            None => Some((text.parse().ok()?, 1)),
+        }
+    };
+    let (old_start, old_count) = parse(old)?;
+    let (new_start, new_count) = parse(new)?;
+    Some((old_start, old_count, new_start, new_count))
+}
+
+fn parse_line_history_hunks(diff: &str) -> Vec<(usize, usize, usize, usize)> {
+    diff.lines()
+        .filter_map(parse_line_history_hunk_header)
+        .collect()
+}
+
+/// Inclusive end of one hunk side; an empty side collapses to its position.
+fn line_history_endpoint(start: usize, count: usize) -> usize {
+    if count == 0 {
+        start
+    } else {
+        start + count - 1
+    }
+}
+
+/// Maps snapshot lines onto pinned-revision lines through `-U0` hunks, using
+/// the unified-format rule that a zero-count side starts between lines.
+/// Returns matched `(snapshot_line, revision_line)` pairs plus unmapped lines
+/// flagged as provably inserted (`true`) or unreliably rewritten (`false`).
+fn map_snapshot_lines(
+    snapshot_line_count: usize,
+    hunks: &[(usize, usize, usize, usize)],
+) -> (Vec<(usize, usize)>, Vec<(usize, bool)>) {
+    let mut mapped = Vec::new();
+    let mut unmapped = Vec::new();
+    let mut snapshot_line = 1usize;
+    let mut revision_line = 1usize;
+    for &(old_start, old_count, new_start, new_count) in hunks {
+        let first_new = if new_count == 0 {
+            new_start + 1
+        } else {
+            new_start
+        };
+        while snapshot_line < first_new && snapshot_line <= snapshot_line_count {
+            mapped.push((snapshot_line, revision_line));
+            snapshot_line += 1;
+            revision_line += 1;
+        }
+        if new_count > 0 {
+            let replaced_end = new_start + new_count - 1;
+            while snapshot_line <= replaced_end && snapshot_line <= snapshot_line_count {
+                unmapped.push((snapshot_line, old_count == 0));
+                snapshot_line += 1;
+            }
+        }
+        if old_count > 0 {
+            // Jump to the first revision line after the replaced block; pure
+            // insertions leave the incremental positions aligned already.
+            revision_line = old_start + old_count;
+        }
+    }
+    while snapshot_line <= snapshot_line_count {
+        mapped.push((snapshot_line, revision_line));
+        snapshot_line += 1;
+        revision_line += 1;
+    }
+    (mapped, unmapped)
+}
+
+/// Recovers merge relevance from the ordinary first-parent diff, keeping only
+/// hunks whose commit side intersects the carried trace positions.
+fn line_history_merge_ranges(
+    root: &str,
+    compare_base: &str,
+    hash: &str,
+    path: &str,
+    tracked: &[(usize, usize)],
+) -> Result<Option<Vec<GitLineHistoryRange>>, CoreError> {
+    let diff = readonly_command(GitCommandRequest {
+        root: root.to_string(),
+        arguments: vec![
+            "diff".to_string(),
+            "--unified=0".to_string(),
+            "--no-ext-diff".to_string(),
+            "--no-textconv".to_string(),
+            compare_base.to_string(),
+            hash.to_string(),
+            "--".to_string(),
+            path.to_string(),
+        ],
+        input: None,
+    })?;
+    if diff.exit_code != 0 {
+        return Ok(None);
+    }
+    let mut ranges = Vec::new();
+    for (old_start, old_count, new_start, new_count) in parse_line_history_hunks(&diff.output) {
+        let new_end = line_history_endpoint(new_start, new_count);
+        let intersects = tracked
+            .iter()
+            .any(|(start, end)| new_start <= *end && new_end >= *start);
+        if intersects {
+            ranges.push(GitLineHistoryRange {
+                old_start,
+                old_end: line_history_endpoint(old_start, old_count),
+                new_start,
+                new_end,
+            });
+        }
+    }
+    Ok(Some(ranges))
+}
+
+/// Traces which commits touched one one-based line range of an editor
+/// snapshot. The snapshot is mapped onto a pinned HEAD revision through an
+/// isolated temp comparison, so unsaved edits stay answerable without ever
+/// writing inside the workspace or repository metadata.
+pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResponse, CoreError> {
+    if !is_safe_pathspec(&request.path) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git line history contains an invalid path",
+        ));
+    }
+    if request.start_line == 0 || request.end_line < request.start_line {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git line history requires an ascending one-based line range",
+        ));
+    }
+    if request.content.len() > LINE_HISTORY_MAX_SNAPSHOT_BYTES {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git line history snapshot exceeds the size budget",
+        )
+        .with_details(format!("{} bytes", request.content.len())));
+    }
+    let limit = request
+        .limit
+        .unwrap_or(LINE_HISTORY_DEFAULT_LIMIT)
+        .clamp(1, LINE_HISTORY_MAX_LIMIT);
+    let snapshot_line_count = request.content.lines().count();
+    if request.end_line > snapshot_line_count.max(1) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git line history range exceeds the snapshot",
+        ));
+    }
+
+    // Pin one revision so the snapshot mapping and the history walk cannot
+    // observe different HEADs when a commit lands mid-query.
+    let base_commit = readonly_command(GitCommandRequest {
+        root: request.root.clone(),
+        arguments: vec!["rev-parse".to_string(), "HEAD".to_string()],
+        input: None,
+    })
+    .ok()
+    .filter(|response| response.exit_code == 0)
+    .map(|response| response.output.trim().to_string())
+    .unwrap_or_default();
+    let unmapped_new_lines = || {
+        (request.start_line..=request.end_line)
+            .map(|line| GitLineHistoryUnmappedLine {
+                line,
+                kind: "new".to_string(),
+            })
+            .collect::<Vec<_>>()
+    };
+    if base_commit.is_empty() {
+        // A repository without commits has no line history at all.
+        return Ok(GitLineHistoryResponse {
+            base_commit,
+            unmapped_lines: unmapped_new_lines(),
+            commits: Vec::new(),
+            truncated: false,
+        });
+    }
+
+    let head_content = readonly_command(GitCommandRequest {
+        root: request.root.clone(),
+        arguments: vec![
+            "show".to_string(),
+            format!("{base_commit}:{}", request.path),
+        ],
+        input: None,
+    });
+    let head_content = match head_content {
+        Ok(response) if response.exit_code == 0 => response.output,
+        // The pinned revision does not contain the file: every queried line is new.
+        _ => {
+            return Ok(GitLineHistoryResponse {
+                base_commit,
+                unmapped_lines: unmapped_new_lines(),
+                commits: Vec::new(),
+                truncated: false,
+            })
+        }
+    };
+
+    let scratch = create_line_history_scratch()?;
+    let head_path = scratch.0.join("head.txt");
+    let snapshot_path = scratch.0.join("snapshot.txt");
+    std::fs::write(&head_path, &head_content).map_err(line_history_io_error)?;
+    std::fs::write(&snapshot_path, &request.content).map_err(line_history_io_error)?;
+
+    // Exit code 1 only reports differences between the two scratch files;
+    // anything above that is a genuine failure. Driver overrides keep the
+    // hunk coordinates raw and deterministic on every machine.
+    let diff = readonly_command(GitCommandRequest {
+        root: request.root.clone(),
+        arguments: vec![
+            "diff".to_string(),
+            "--no-index".to_string(),
+            "--unified=0".to_string(),
+            "--no-ext-diff".to_string(),
+            "--no-textconv".to_string(),
+            head_path.to_string_lossy().to_string(),
+            snapshot_path.to_string_lossy().to_string(),
+        ],
+        input: None,
+    })?;
+    if diff.exit_code > 1 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Git line history mapping failed")
+                .with_details(diff.output),
+        );
+    }
+    let hunks = parse_line_history_hunks(&diff.output);
+    let (mapped, unmapped) = map_snapshot_lines(snapshot_line_count, &hunks);
+
+    let requested = request.start_line..=request.end_line;
+    let mut intervals: Vec<(usize, usize)> = Vec::new();
+    for (snapshot_line, revision_line) in mapped {
+        if !requested.contains(&snapshot_line) {
+            continue;
+        }
+        match intervals.last_mut() {
+            // Split whenever revision lines are not strictly consecutive, so a
+            // line deleted between two queried lines never widens the range.
+            Some((_, end)) if *end + 1 == revision_line => *end = revision_line,
+            _ => intervals.push((revision_line, revision_line)),
+        }
+    }
+    let unmapped_lines = unmapped
+        .into_iter()
+        .filter(|(line, _)| requested.contains(line))
+        .map(|(line, inserted)| GitLineHistoryUnmappedLine {
+            line,
+            kind: if inserted { "new" } else { "unreliable" }.to_string(),
+        })
+        .collect::<Vec<_>>();
+    if intervals.is_empty() {
+        return Ok(GitLineHistoryResponse {
+            base_commit,
+            unmapped_lines,
+            commits: Vec::new(),
+            truncated: false,
+        });
+    }
+
+    // One process traces every interval; `-L` emits only hunks intersecting
+    // the traced lines, and `--first-parent` pins the merge semantics.
+    let mut arguments = vec!["log".to_string()];
+    for (start, end) in &intervals {
+        arguments.push(format!("-L{start},{end}:{}", request.path));
+    }
+    arguments.push("--first-parent".to_string());
+    arguments.push("--patch".to_string());
+    // Zero context keeps every emitted hunk exactly the touched lines; default
+    // three-line context would report whole-file ranges on small documents.
+    arguments.push("--unified=0".to_string());
+    arguments.push("--no-color".to_string());
+    arguments.push("--no-ext-diff".to_string());
+    arguments.push("--no-textconv".to_string());
+    arguments.push(format!("--max-count={}", limit + 1));
+    arguments.push("--pretty=format:%x1e%H%x1f%an%x1f%at%x1f%P%x1f%s".to_string());
+    arguments.push(base_commit.clone());
+    let log = readonly_command(GitCommandRequest {
+        root: request.root.clone(),
+        arguments,
+        input: None,
+    })?;
+    if log.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Git line history query failed")
+                .with_details(log.output),
+        );
+    }
+
+    let mut commits: Vec<GitLineHistoryCommit> = Vec::new();
+    // Traced positions carried while walking newest-to-oldest; merge entries
+    // filter their supplementary diff against these intervals. Positions drift
+    // when unlisted commits shift surrounding lines, which bounds only which
+    // merge hunks count as relevant, never the listed entries themselves.
+    let mut tracked: Vec<(usize, usize)> = intervals.clone();
+    for record in log.output.split('\x1e') {
+        let record = record.trim_start_matches('\n');
+        if record.trim().is_empty() {
+            continue;
+        }
+        let (header, body) = record.split_once('\n').unwrap_or((record, ""));
+        let fields: Vec<&str> = header.split('\x1f').collect();
+        if fields.len() < 5 {
+            continue;
+        }
+        let hash = fields[0].to_string();
+        let parent_hashes = fields[3].split_whitespace().collect::<Vec<_>>();
+        let is_merge = parent_hashes.len() > 1;
+        let compare_base = parent_hashes
+            .first()
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        // Paths with spaces are not representable in this minimal `diff --git`
+        // header parse; traced files are expected to use ordinary names.
+        let mut path_at_commit = request.path.clone();
+        let mut previous_path = None;
+        let mut ranges = Vec::new();
+        for line in body.lines() {
+            if let Some(rest) = line.strip_prefix("diff --git a/") {
+                if let Some((old, new)) = rest.split_once(" b/") {
+                    path_at_commit = new.to_string();
+                    if old != new {
+                        previous_path = Some(old.to_string());
+                    }
+                }
+            } else if let Some((old_start, old_count, new_start, new_count)) =
+                parse_line_history_hunk_header(line)
+            {
+                ranges.push(GitLineHistoryRange {
+                    old_start,
+                    old_end: line_history_endpoint(old_start, old_count),
+                    new_start,
+                    new_end: line_history_endpoint(new_start, new_count),
+                });
+            }
+        }
+        if is_merge && ranges.is_empty() && !compare_base.is_empty() {
+            // `-L` emits merge headers without hunks; recover relevance from
+            // the ordinary first-parent diff, filtered by the carried trace.
+            if let Some(supplement) = line_history_merge_ranges(
+                &request.root,
+                &compare_base,
+                &hash,
+                &path_at_commit,
+                &tracked,
+            )? {
+                ranges = supplement;
+            }
+        }
+        // Walking to older entries moves the trace to the parent-side lines.
+        if !ranges.is_empty() {
+            tracked = ranges
+                .iter()
+                .map(|range| (range.old_start, range.old_end))
+                .collect();
+        }
+        commits.push(GitLineHistoryCommit {
+            hash,
+            kind: if is_merge {
+                "merge-first-parent"
+            } else {
+                "commit"
+            }
+            .to_string(),
+            author_name: fields[1].to_string(),
+            author_time: fields[2].parse::<i64>().unwrap_or_default(),
+            subject: fields[4].to_string(),
+            path_at_commit,
+            previous_path,
+            compare_base,
+            relevant_ranges: ranges,
+        });
+    }
+    let truncated = commits.len() > limit;
+    commits.truncate(limit);
+    Ok(GitLineHistoryResponse {
+        base_commit,
+        unmapped_lines,
+        commits,
+        truncated,
+    })
 }
 
 /// Rejects Windows names that cannot round-trip through ordinary path identifiers.
