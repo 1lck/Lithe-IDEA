@@ -345,19 +345,15 @@ struct AgentConversationLayout<Transcript: View, Composer: View>: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let minimum = min(composerMinimumHeight, max(0, geometry.size.height - SplitHandleView.hitThickness))
-            LitheSplitPaneView(
-                axis: .vertical,
-                placement: .trailing,
-                defaultSize: AgentComposerMetrics.minimumHeight(hasFiles: false),
-                minimum: minimum,
-                maximum: max(minimum, geometry.size.height * 0.6),
-                showsIdleDivider: false
-            ) {
+            let fixedHeight = composerMinimumHeight - AgentComposerMetrics.writingLineHeight
+            let writingLimit = max(AgentComposerMetrics.writingLineHeight,
+                min(AgentComposerMetrics.maximumWritingHeight, geometry.size.height * 0.6 - fixedHeight))
+            VStack(spacing: 0) {
+                transcript.frame(maxWidth: .infinity, maxHeight: .infinity)
                 composer
                     .padding(.top, AgentComposerMetrics.splitTopInset)
-            } flexible: {
-                transcript
+                    .environment(\.agentComposerMaximumWritingHeight, writingLimit)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .onPreferenceChange(AgentComposerMinimumHeightKey.self) { composerMinimumHeight = $0 }

@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import Foundation
 import Testing
 @testable import Lithe
@@ -73,6 +75,32 @@ struct AgentMarkdownTests {
         }
         let bold = try #require(styled.range(of: "加粗中文"))
         #expect(styled[bold].runs.first?.swiftUI.font == LitheTheme.uiFont(size: 13, weight: .semibold))
+    }
+
+    @Test
+    @MainActor
+    func tableCellsGrowToShowFullHeadersAndBody() {
+        let chinese = String(repeating: "两数之和 → 合并两个有序数组 → 三数之和 → 字母异位词分组。", count: 5)
+        let unbroken = String(repeating: "veryLongIdentifier", count: 24)
+        for width: CGFloat in [360, 720, 1100] {
+            for dark in [false, true] {
+                func height(header: String, body: String) -> CGFloat {
+                    let source = "| 顺序 | \(header) | 目标 |\n| --- | --- | --- |\n| 1 | \(body) | 完整尾部 |"
+                    let host = NSHostingView(rootView: AgentMarkdownMessage(text: source)
+                        .environment(\.colorScheme, dark ? .dark : .light)
+                        .lineLimit(1)
+                        .frame(width: width))
+                    return host.fittingSize.height
+                }
+                let compact = height(header: "题目顺序", body: "两数之和")
+                for content in ["**\(chinese)**", unbroken] {
+                    #expect(height(header: "题目顺序", body: content) > compact + 60,
+                            "Long body must wrap and grow at width \(width), dark=\(dark)")
+                    #expect(height(header: content, body: "两数之和") > compact + 60,
+                            "Long header must wrap and grow at width \(width), dark=\(dark)")
+                }
+            }
+        }
     }
 
     @Test
