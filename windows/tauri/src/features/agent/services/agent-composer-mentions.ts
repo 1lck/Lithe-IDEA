@@ -30,10 +30,13 @@ export function agentMentionQuery(textBeforeCaret: string): AgentMentionQuery | 
 
 /**
  * Remove the `@query` token that opened the picker, so picking a file leaves no
- * stray text in the prompt. A draft edited after the picker opened keeps
- * whatever the user has typed since; only the matched range is dropped.
+ * stray text in the prompt. The offset is only trusted while the draft still
+ * holds that exact token: a draft edited after the picker opened keeps whatever
+ * the user typed since, and unrelated text is never cut.
  */
 export function removeAgentMention(text: string, mention: AgentMentionQuery): string {
-  const end = Math.min(text.length, mention.start + 1 + mention.query.length);
+  const token = `@${mention.query}`;
+  const end = mention.start + token.length;
+  if (text.slice(mention.start, end) !== token) return text;
   return `${text.slice(0, mention.start)}${text.slice(end)}`;
 }

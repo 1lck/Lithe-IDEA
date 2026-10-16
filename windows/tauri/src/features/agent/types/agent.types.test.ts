@@ -3,6 +3,7 @@ import fixture from "../../../../../../shared/fixtures/agent/acp-events-v1.json"
 import {
   addFileReferences,
   AgentFileReferenceError,
+  AgentFileReferenceLimitError,
   AGENT_FILE_LIMIT,
   appendMessage,
   configOptionLabel,
@@ -168,6 +169,8 @@ describe("Prompts and titles", () => {
     expect(addFileReferences([], allowed)).toHaveLength(AGENT_FILE_LIMIT);
     const tooMany = [...allowed, `file:///example/${AGENT_FILE_LIMIT}.md`];
     expect(() => addFileReferences([], tooMany)).toThrow(/32 files/);
+    // The composer translates this typed error, so the limit must travel with it.
+    expect(() => addFileReferences([], tooMany)).toThrow(AgentFileReferenceLimitError);
   });
 
   test("a provisional title is the first line, bounded", () => {

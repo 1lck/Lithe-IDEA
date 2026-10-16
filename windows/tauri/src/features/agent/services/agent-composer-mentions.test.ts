@@ -23,4 +23,12 @@ describe("Agent composer file mentions", () => {
     // A shorter draft than the match (user deleted text) is not over-sliced.
     expect(removeAgentMention("", { start: 0, query: "src" })).toBe("");
   });
+
+  test("a draft edited after the picker opened is left untouched", () => {
+    const mention = agentMentionQuery("hello @sr");
+    if (mention === null) throw new Error("the helper must open the picker");
+    // Typing past the reference made the offset stale, so cutting that range
+    // would silently delete text the user wrote after the picker opened.
+    expect(removeAgentMention("hello world", mention)).toBe("hello world");
+  });
 });

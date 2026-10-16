@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   AGENT_DROP_TARGET_SELECTOR,
   AGENT_FILE_DROP_EVENT,
+  AGENT_FILE_DROP_HOVER_EVENT,
+  dispatchAgentDropHover,
   dispatchDroppedPathsToAgent,
   getExternalFileDropRoute,
 } from "./file-system-drop-controller";
@@ -57,5 +59,16 @@ describe("external file drop routing", () => {
     const composer = element([AGENT_DROP_TARGET_SELECTOR]);
     expect(dispatchDroppedPathsToAgent(composer, ["relative.txt"])).toBe(false);
     expect(composer.dispatched).toHaveLength(0);
+  });
+
+  test("reports hover to the composer so the drop point can highlight", () => {
+    const composer = element([AGENT_DROP_TARGET_SELECTOR]);
+    expect(dispatchAgentDropHover(composer, true)).toBe(true);
+    expect(dispatchAgentDropHover(composer, false)).toBe(true);
+    expect(composer.dispatched.map((event) => [event.type, event.detail])).toEqual([
+      [AGENT_FILE_DROP_HOVER_EVENT, { active: true }],
+      [AGENT_FILE_DROP_HOVER_EVENT, { active: false }],
+    ]);
+    expect(dispatchAgentDropHover(element([]), true)).toBe(false);
   });
 });

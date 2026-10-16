@@ -7,12 +7,22 @@ export const TERMINAL_FILE_DROP_EVENT = "lithe-terminal-file-drop";
  * tree drags with mouse events, so neither reaches an HTML5 `drop` handler.
  */
 export const AGENT_FILE_DROP_EVENT = "lithe-agent-file-drop";
+/**
+ * Dispatched on the Agent composer while a drag is over it. OS drops and
+ * project-tree drags never reach an HTML5 `dragenter`, so the drop point needs
+ * this signal to highlight the same way the macOS composer does.
+ */
+export const AGENT_FILE_DROP_HOVER_EVENT = "lithe-agent-file-drop-hover";
 
 export interface TerminalFileDropDetail {
   paths: string[];
 }
 
 export type AgentFileDropDetail = TerminalFileDropDetail;
+
+export interface AgentFileDropHoverDetail {
+  active: boolean;
+}
 
 export function resolveDropClientPoint(
   position: { x: number; y: number },
@@ -131,6 +141,22 @@ export function dispatchDroppedPathsToAgent(
   agentTarget.dispatchEvent(
     new CustomEvent<AgentFileDropDetail>(AGENT_FILE_DROP_EVENT, {
       detail: { paths },
+    }),
+  );
+  return true;
+}
+
+/** Tell the Agent composer under `target` whether a drag is over it. */
+export function dispatchAgentDropHover(
+  target: Pick<Element, "closest"> | null | undefined,
+  active: boolean,
+): boolean {
+  const agentTarget = target?.closest<HTMLElement>(AGENT_DROP_TARGET_SELECTOR);
+  if (!agentTarget) return false;
+
+  agentTarget.dispatchEvent(
+    new CustomEvent<AgentFileDropHoverDetail>(AGENT_FILE_DROP_HOVER_EVENT, {
+      detail: { active },
     }),
   );
   return true;
