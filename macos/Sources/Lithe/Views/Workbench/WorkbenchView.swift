@@ -211,6 +211,7 @@ struct WorkbenchView: View {
     @Environment(\.projectWindowScope) private var projectWindowScope
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var toolWindowDrag = ToolWindowDragState()
+    @StateObject private var toolContentStore = WorkbenchToolContentStore()
     @State private var sidebarWidth: CGFloat = 320
     @State private var rightSidebarWidth: CGFloat = 380
     @State private var mavenPaneWidth = CGFloat(WorkbenchLayout.defaultMavenPaneWidth)
@@ -244,6 +245,7 @@ struct WorkbenchView: View {
             HStack(spacing: 0) {
                 activityBar
                 workspaceArea
+                    .overlay { WorkbenchToolContentSurface(store: toolContentStore) }
                     .padding(.trailing, WorkbenchLayoutMetrics.workspaceTrailingInset)
             }
             .frame(maxHeight: .infinity)
@@ -1437,7 +1439,22 @@ struct WorkbenchView: View {
         if tool == .references { LanguageReferencesView() }
         else if tool == .spring { SpringEndpointsView() }
         else if let tool, let entry = contribution(for: tool), let renderer = moduleUIRegistry.renderer(for: entry) {
-            ModuleToolContent(rendererID: renderer.id, contentIdentity: renderer.contentIdentity(model), content: renderer.content(model)).equatable()
+            let content = ModuleToolContent(rendererID: renderer.id,
+                contentIdentity: renderer.contentIdentity(model), content: renderer.content(model)).equatable()
+            if tool == .gitLog || tool == .terminal {
+                RetainedWorkbenchToolContent(store: toolContentStore, tool: tool, content: content
+                    .workbenchPaneChrome(
+                        background: model.workbenchBackgroundFeature.hasImage ? .clear : LitheTheme.editor,
+                        surrounding: model.workbenchBackgroundFeature.hasImage ? .clear : LitheTheme.titlebar,
+                        roundsCorners: !model.workbenchBackgroundFeature.hasImage,
+                        showsFrameGradient: usesIDEAFrameExperiment)
+                    .environmentObject(model).environmentObject(settings).environmentObject(projectSessions)
+                    .environment(\.projectWindowScope, projectWindowScope),
+                    contentIdentity: AnyHashable([renderer.contentIdentity(model),
+                        AnyHashable(model.workbenchBackgroundFeature.hasImage), AnyHashable(usesIDEAFrameExperiment)]))
+            } else {
+                content
+            }
         }
     }
 

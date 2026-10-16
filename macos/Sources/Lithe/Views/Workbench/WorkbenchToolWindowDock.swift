@@ -164,6 +164,142 @@ struct ToolWindowWorkspaceAnchor: NSViewRepresentable {
     }
 }
 
+/// Hosts stay in one native surface for the workbench lifetime. Reparenting a
+/// hosting view through SwiftUI dock slots resets its descendant native controls.
+@MainActor
+final class WorkbenchToolContentStore: ObservableObject {
+    @MainActor
+    final class Entry {
+        let host: NSHostingView<AnyView>
+        var identity: AnyHashable
+        weak var slot: Slot?
+        init(identity: AnyHashable, content: AnyView) {
+            self.identity = identity
+            host = NSHostingView(rootView: content)
+            host.sizingOptions = []
+        }
+    }
+
+    final class Surface: NSView {
+        weak var store: WorkbenchToolContentStore?
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let hit = super.hitTest(point)
+            return hit === self ? nil : hit
+        }
+        override func accessibilityChildren() -> [Any]? {
+            NSAccessibility.unignoredChildren(from: subviews.filter { !$0.isHidden })
+        }
+        override func layout() { super.layout(); store?.refresh() }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); store?.refresh() }
+    }
+
+    final class Slot: NSView {
+        weak var store: WorkbenchToolContentStore?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func layout() { super.layout(); store?.refresh() }
+        override func setFrameOrigin(_ origin: NSPoint) { super.setFrameOrigin(origin); store?.refresh() }
+        override func setFrameSize(_ size: NSSize) { super.setFrameSize(size); store?.refresh() }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); store?.refresh() }
+    }
+
+    let surface = Surface()
+    private(set) var entries: [WorkbenchFeatureModel.ToolWindow: Entry] = [:]
+
+    init() { surface.store = self }
+
+    func show(_ tool: WorkbenchFeatureModel.ToolWindow, in slot: Slot,
+              identity: AnyHashable, content: () -> AnyView) {
+        // SwiftUI reuses a slot when two tools have the same renderer type.
+        // Transfer ownership before showing the new tool in that slot.
+        for (otherTool, other) in entries where otherTool != tool && other.slot === slot {
+            other.slot = nil
+            hide(other)
+        }
+        let entry: Entry
+        if let existing = entries[tool] {
+            entry = existing
+            if entry.identity != identity {
+                entry.host.rootView = content()
+                entry.identity = identity
+            }
+        } else {
+            entry = Entry(identity: identity, content: content())
+            entries[tool] = entry
+            surface.addSubview(entry.host)
+        }
+        slot.store = self
+        entry.slot = slot
+        refresh()
+    }
+
+    func detach(_ slot: Slot) {
+        for entry in entries.values where entry.slot === slot {
+            entry.slot = nil
+            hide(entry)
+        }
+        slot.store = nil
+    }
+
+    private func hide(_ entry: Entry) {
+        if let window = entry.host.window, let responder = window.firstResponder as? NSView,
+           responder.isDescendant(of: entry.host) {
+            window.makeFirstResponder(nil)
+        }
+        entry.host.isHidden = true
+    }
+
+    func refresh() {
+        for entry in entries.values {
+            guard let slot = entry.slot, let window = slot.window,
+                  window === surface.window, !slot.isHiddenOrHasHiddenAncestor else {
+                hide(entry)
+                continue
+            }
+            let frame = slot.convert(slot.bounds, to: surface)
+            if entry.host.frame != frame { entry.host.frame = frame }
+            entry.host.isHidden = frame.isEmpty
+        }
+    }
+}
+
+struct WorkbenchToolContentSurface: NSViewRepresentable {
+    let store: WorkbenchToolContentStore
+    func makeNSView(context: Context) -> WorkbenchToolContentStore.Surface { store.surface }
+    func updateNSView(_ view: WorkbenchToolContentStore.Surface, context: Context) { store.refresh() }
+}
+
+struct RetainedWorkbenchToolContent<Content: View>: NSViewRepresentable {
+    let store: WorkbenchToolContentStore
+    let tool: WorkbenchFeatureModel.ToolWindow
+    let content: Content
+    var contentIdentity: AnyHashable = 0
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.locale) private var locale
+    @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.isLithePaneResizing) private var isResizing
+
+    func makeNSView(context: Context) -> WorkbenchToolContentStore.Slot { .init() }
+
+    func updateNSView(_ view: WorkbenchToolContentStore.Slot, context: Context) {
+        let identity: [AnyHashable] = [contentIdentity, locale.identifier, colorScheme == .dark,
+            controlActiveState == .key, controlActiveState == .active, isEnabled, isResizing]
+        store.show(tool, in: view, identity: AnyHashable(identity)) {
+            AnyView(content
+                .environment(\.colorScheme, colorScheme)
+                .environment(\.locale, locale)
+                .environment(\.controlActiveState, controlActiveState)
+                .environment(\.isEnabled, isEnabled)
+                .environment(\.isLithePaneResizing, isResizing)
+                .workbenchHoverTooltipScope())
+        }
+    }
+
+    static func dismantleNSView(_ view: WorkbenchToolContentStore.Slot, coordinator: ()) {
+        view.store?.detach(view)
+    }
+}
+
 /// Keeps both groups visible and delegates high-frequency resizing to the shared split.
 struct WorkbenchDockGroups<Content: View>: View {
     let anchor: DockAnchor

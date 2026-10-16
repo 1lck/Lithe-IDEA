@@ -18,6 +18,7 @@ struct GitLogView: View {
     let projectName: String
     let navigation: GitLogNavigation
     let worktreeActions: GitWorktreeActions
+    var presentationCache = GitLogPresentationCache()
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.controlActiveState) private var controlActiveState
@@ -74,6 +75,31 @@ struct GitLogView: View {
         let succeeded: Bool?
     }
 
+    init(feature: GitFeatureModel, workbench: WorkbenchFeatureModel,
+         background: WorkbenchBackgroundFeatureModel, projectName: String,
+         navigation: GitLogNavigation, worktreeActions: GitWorktreeActions,
+         presentationCache: GitLogPresentationCache? = nil) {
+        let presentationCache = presentationCache ?? GitLogPresentationCache()
+        self.feature = feature
+        self.workbench = workbench
+        self.background = background
+        self.projectName = projectName
+        self.navigation = navigation
+        self.worktreeActions = worktreeActions
+        self.presentationCache = presentationCache
+        // A task runs after mounting. Seed matching data now so reopening does
+        // not first lay out empty panes and then build the loaded panes again.
+        if let cached = presentationCache.value(for: graphProjectionIdentity) {
+            _graphPresentation = State(initialValue: cached)
+        }
+        if let cached = presentationCache.referenceRows(for: referenceRowsTaskIdentity) {
+            _localReferenceRows = State(initialValue: cached.local)
+            _remoteReferenceRows = State(initialValue: cached.remote)
+            _tagReferenceRows = State(initialValue: cached.tags)
+            _repositoryReferenceRows = State(initialValue: cached.repositories)
+        }
+    }
+
     /// IDEA control sizes with the application's bundled default font.
     private enum GitVisual {
         static let title = LitheTheme.uiFont(size: 13, weight: .bold)
@@ -119,6 +145,10 @@ struct GitLogView: View {
         .onChange(of: currentReference?.id) { _ in headSelected = false }
         .task(id: graphProjectionIdentity) {
             let identity = graphProjectionIdentity
+            if let cached = presentationCache.value(for: identity) {
+                graphPresentation = cached
+                return
+            }
             let commits = feature.gitCommits
             let references = feature.gitReferences
             let repositoryCommits = feature.gitGraphRepositoryCommits
@@ -128,11 +158,12 @@ struct GitLogView: View {
             let task = Task.detached(priority: .userInitiated) {
                 let layout = GitGraphLayoutService.layout(commits: commits, references: references,
                     repositoryCommits: repositoryCommits, visibleHashes: visibleHashes, options: options)
+                let referenceIndex = GitGraphReferenceGroup.ReferenceIndex(references)
                 return GitGraphPresentation(rows: layout.rows,
                     routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
                     hasMissingParents: layout.hasMissingParents,
                     referenceGroups: Dictionary(uniqueKeysWithValues: layout.rows.map {
-                        ($0.commit.hash, GitGraphReferenceGroup(labels: $0.labels, references: references))
+                        ($0.commit.hash, GitGraphReferenceGroup(labels: $0.labels, index: referenceIndex))
                     }),
                     currentBranchHashes: highlightsCurrentBranch
                         ? GitGraphLayoutService.currentBranchHashes(commits: commits, repositoryCommits: repositoryCommits, references: references) : [])
@@ -143,6 +174,7 @@ struct GitLogView: View {
                 task.cancel()
             }
             guard !Task.isCancelled, graphProjectionIdentity == identity else { return }
+            presentationCache.store(presentation, for: identity)
             graphPresentation = presentation
         }
         // The three section arrays are derived, not user state. Rebuilding them
@@ -1385,7 +1417,7 @@ struct GitLogView: View {
         Group {
             if let commit = feature.selectedGitCommit {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         Text(commit.subject)
                             .font(LitheTheme.uiFont(size: 13, weight: .bold, design: .monospaced))
                             .foregroundStyle(LitheTheme.Tree.text)
@@ -1532,21 +1564,11 @@ struct GitLogView: View {
         let id = UUID()
     }
 
-    private struct GraphProjectionIdentity: Equatable {
-        let historyVersion: Int
-        let repositoryVersion: Int
-        let referencesVersion: Int
-        let filterVersion: Int
-        let filtering: Bool
-        let showLongEdges: Bool
-        let highlightsCurrentBranch: Bool
-    }
-
-    private var graphProjectionIdentity: GraphProjectionIdentity {
-        GraphProjectionIdentity(historyVersion: feature.gitCommitsVersion,
+    private var graphProjectionIdentity: GitLogPresentationCache.Identity {
+        GitLogPresentationCache.Identity(historyVersion: feature.gitCommitsVersion,
             repositoryVersion: feature.gitGraphRepositoryVersion,
             referencesVersion: feature.gitReferencesVersion,
-            filterVersion: feature.gitLogFilterVersion, filtering: hasActiveGitLogFilter,
+            filterVersion: hasActiveGitLogFilter ? feature.gitLogFilterVersion : 0, filtering: hasActiveGitLogFilter,
             showLongEdges: showLongGraphEdges,
             highlightsCurrentBranch: feature.isShowingAllGitReferences
                 || (feature.selectedGitReference.map { !$0.isCurrent && $0.shortName != "HEAD" } ?? false))
@@ -1825,6 +1847,14 @@ struct GitLogView: View {
     }
 
     private func rebuildReferenceRows() {
+        let identity = referenceRowsTaskIdentity
+        if let cached = presentationCache.referenceRows(for: identity) {
+            localReferenceRows = cached.local
+            remoteReferenceRows = cached.remote
+            tagReferenceRows = cached.tags
+            repositoryReferenceRows = cached.repositories
+            return
+        }
         let references = feature.gitReferences
         localReferenceRows = GitReferenceRowsBuilder.rows(
             from: references.filter { $0.kind == .local },
@@ -1842,6 +1872,8 @@ struct GitLogView: View {
             collapsedGroups: collapsedReferenceGroups
         )
         rebuildRepositoryReferenceRows(activeReferences: references)
+        presentationCache.store(.init(identity: identity, local: localReferenceRows,
+            remote: remoteReferenceRows, tags: tagReferenceRows, repositories: repositoryReferenceRows))
     }
 
     /// Groups the visible repository roots with their references. The active
@@ -1854,6 +1886,10 @@ struct GitLogView: View {
             activeRoot: feature.gitRepositoryRoot,
             showWorktreeRepositories: showWorktreeRepositories
         )
+        guard visibleRoots.count > 1 else {
+            repositoryReferenceRows = []
+            return
+        }
         repositoryReferenceRows = visibleRoots.map { root in
             let isActive = root.standardizedFileURL == activeRoot
             let repositoryReferences: [GitReference]
@@ -1866,17 +1902,17 @@ struct GitLogView: View {
             }
             return GitRepositoryReferenceRows(
                 repositoryRoot: root,
-                localRows: GitReferenceRowsBuilder.rows(
+                localRows: isActive ? localReferenceRows : GitReferenceRowsBuilder.rows(
                     from: repositoryReferences.filter { $0.kind == .local },
                     kind: .local,
                     collapsedGroups: collapsedReferenceGroups
                 ),
-                remoteRows: GitReferenceRowsBuilder.rows(
+                remoteRows: isActive ? remoteReferenceRows : GitReferenceRowsBuilder.rows(
                     from: repositoryReferences.filter { $0.kind == .remote },
                     kind: .remote,
                     collapsedGroups: collapsedReferenceGroups
                 ),
-                tagRows: GitReferenceRowsBuilder.rows(
+                tagRows: isActive ? tagReferenceRows : GitReferenceRowsBuilder.rows(
                     from: repositoryReferences.filter { $0.kind == .tag },
                     kind: .tag,
                     collapsedGroups: collapsedReferenceGroups
@@ -2777,30 +2813,6 @@ struct GitCheckoutConflictDialog: View {
 }
 
 // MARK: - Git Reference Row Actions & View
-
-/// Combined `.task(id:)` key for the flattened reference rows, so the rows are
-/// rebuilt when either the references or the collapse state changes.
-private struct GitReferenceRowsIdentity: Equatable {
-    let references: [GitReference]
-    let repositoryReferences: [GitRepositoryReferences]
-    let availableRepositoryRoots: [URL]
-    let activeRepositoryRoot: URL?
-    let showWorktreeRepositories: Bool
-    let collapsedGroups: Set<String>
-}
-
-/// One repository's flattened reference rows for the grouped pane.
-private struct GitRepositoryReferenceRows: Identifiable {
-    let repositoryRoot: URL
-    let localRows: [GitReferenceRow]
-    let remoteRows: [GitReferenceRow]
-    let tagRows: [GitReferenceRow]
-    let totalCount: Int
-    let currentReference: GitReference?
-
-    var id: String { repositoryRoot.standardizedFileURL.path }
-    var name: String { repositoryRoot.lastPathComponent }
-}
 
 private struct GitReferenceRowActions {
     var select: (GitReference) -> Void

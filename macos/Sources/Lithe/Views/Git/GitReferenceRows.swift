@@ -316,3 +316,27 @@ private final class MutableGitReferenceTreeNode {
         self.path = path
     }
 }
+
+/// Combined `.task(id:)` key for the flattened reference rows, so the rows are
+/// rebuilt when either the references or the collapse state changes.
+struct GitReferenceRowsIdentity: Equatable {
+    var references: [GitReference]
+    var repositoryReferences: [GitRepositoryReferences]
+    var availableRepositoryRoots: [URL]
+    var activeRepositoryRoot: URL?
+    var showWorktreeRepositories: Bool
+    var collapsedGroups: Set<String>
+}
+
+/// One repository's flattened reference rows for the grouped pane.
+struct GitRepositoryReferenceRows: Identifiable {
+    let repositoryRoot: URL
+    let localRows: [GitReferenceRow]
+    let remoteRows: [GitReferenceRow]
+    let tagRows: [GitReferenceRow]
+    let totalCount: Int
+    let currentReference: GitReference?
+
+    var id: String { repositoryRoot.standardizedFileURL.path }
+    var name: String { repositoryRoot.lastPathComponent }
+}

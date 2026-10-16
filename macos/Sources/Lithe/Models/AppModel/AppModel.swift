@@ -57,6 +57,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         get { searchSessionFeature.selectedReplacementPaths }
         set { searchSessionFeature.selectedReplacementPaths = newValue }
     }
+    let gitLogPresentationCache = GitLogPresentationCache()
     let editorChrome = EditorChromeModel()
     let editorDiagnosticsStore = EditorDiagnosticsStore()
     /// 编辑器当前选中的单行文本，供 Find/Replace in Files 预填查询词。
