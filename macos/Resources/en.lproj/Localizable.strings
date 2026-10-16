@@ -1642,6 +1642,20 @@
 "Collapse JSON block" = "Collapse JSON block";
 
 
+"Project Errors" = "Project Errors";
+
+"Open file in editor to see problems" = "Open file in editor to see problems";
+
+"No problems in %@" = "No problems in %@";
+
+"Problems could be filtered out" = "Problems could be filtered out";
+
+"View Options" = "View Options";
+
+"Show Editor Preview" = "Show Editor Preview";
+
+"Could not load file preview" = "Could not load file preview";
+
 /* Explicit update channel selection. */
 "Update channel" = "Update channel";
 "Stable (Recommended)" = "Stable (Recommended)";

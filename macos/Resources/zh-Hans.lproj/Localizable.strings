@@ -3035,6 +3035,21 @@
 "Collapse JSON block" = "收起 JSON 段落";
 
 
+"Project Errors" = "项目错误";
+
+"Open file in editor to see problems" = "在编辑器中打开文件以查看问题";
+
+"No problems in %@" = "%@ 中没有问题";
+
+"Problems could be filtered out" = "问题可能已被筛选隐藏";
+
+"View Options" = "视图选项";
+
+"Show Editor Preview" = "显示编辑器预览";
+
+"Could not load file preview" = "无法加载文件预览";
+
+
 /* Agent conversation as an editor tab */
 "Open in Editor" = "在编辑器中打开";
 "Hide Session Details" = "隐藏会话详情";

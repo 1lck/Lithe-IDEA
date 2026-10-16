@@ -22,6 +22,9 @@ struct MonacoPreviewConfiguration: Equatable {
     let matchCase: Bool
     let wholeWord: Bool
     let regex: Bool
+    var utf16Column: Int = 0
+    /// Independent read-only previews must not move the main editor's WebView or own save barriers.
+    var presentationID: UUID? = nil
 }
 
 struct MonacoWorkbenchThemeConfiguration: Equatable {
@@ -95,7 +98,7 @@ struct MonacoWorkbenchEditor: View {
 
     var body: some View {
         MonacoWorkbenchContent(document: document, secondaryDocument: secondaryDocument, sessionGroupID: sessionGroupID, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model)
-            .id(sessionGroupID == nil ? nil : document.id)
+            .id(sessionGroupID == nil && preview?.presentationID == nil ? nil : document.id)
     }
 }
 
@@ -118,7 +121,9 @@ private struct MonacoWorkbenchContent: View {
         self.markdownScrollPosition = markdownScrollPosition
         self.model = model
         _background = ObservedObject(wrappedValue: model.workbenchBackgroundFeature)
-        _session = StateObject(wrappedValue: MonacoWorkbenchSession.forModel(model.id, documentID: sessionGroupID == nil ? nil : document.id))
+        _session = StateObject(wrappedValue: MonacoWorkbenchSession.forModel(model.id,
+            documentID: sessionGroupID == nil && preview?.presentationID == nil ? nil : document.id,
+            previewID: preview?.presentationID))
     }
 
     var body: some View {
@@ -225,16 +230,17 @@ private final class MonacoWorkbenchMessages: NSObject, WKScriptMessageHandlerWit
 @MainActor
 final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDelegate {
     private struct SessionReference { weak var value: MonacoWorkbenchSession? }
-    private struct SessionKey: Hashable { let modelID: UUID; let documentID: UUID? }
+    private struct SessionKey: Hashable { let modelID: UUID; let documentID: UUID?; let previewID: UUID? }
     private static var sessions: [SessionKey: SessionReference] = [:]
-    static func forModel(_ id: UUID, documentID: UUID? = nil) -> MonacoWorkbenchSession {
+    static func forModel(_ id: UUID, documentID: UUID? = nil, previewID: UUID? = nil) -> MonacoWorkbenchSession {
         // A document carries its existing Monaco model, undo stack and view state between groups.
         // ponytail: one WebView per visited document; use a shared Monaco grid if tab counts exceed the memory budget.
-        let key = SessionKey(modelID: id, documentID: documentID)
+        let key = SessionKey(modelID: id, documentID: documentID, previewID: previewID)
         sessions = sessions.filter { $0.value.value != nil }
         if let existing = sessions[key]?.value { return existing }
         let session = MonacoWorkbenchSession()
         session.scopedDocumentID = documentID
+        session.isReadOnlyPreview = previewID != nil
         sessions[key] = SessionReference(value: session)
         return session
     }
@@ -244,6 +250,11 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         var update: (() -> Void)?
     }
     private var scopedDocumentID: UUID?
+    private(set) var isReadOnlyPreview = false
+
+    private func isReadOnly(_ document: EditorDocument) -> Bool {
+        document.isReadOnly || isReadOnlyPreview
+    }
     private let synchronizationOwnerID = UUID()
     private var mounts: [UUID: Mount] = [:]
     private var mountOrder: [UUID] = []
@@ -403,11 +414,11 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         guard mounts[ownerID] != nil else { return }
         self.model = model
         observeFind(model: model)
-        navigation.observe(
+        if !isReadOnlyPreview { navigation.observe(
             model.$editorNavigationTarget.receive(on: DispatchQueue.main).eraseToAnyPublisher(),
             isReady: { [weak self] in self?.ready == true },
             present: { [weak self] in self?.latestUpdate?() }
-        )
+        ) }
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
             self.present(document: document, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers)
@@ -428,10 +439,13 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             if let preview, self.lastPreview != preview || self.previewDocumentID != document.id.uuidString {
                 self.lastPreview = preview
                 self.previewDocumentID = document.id.uuidString
-                self.call("window.lithe.find(payload)", arguments: ["payload": ["id": document.id.uuidString,
-                    "query": preview.query, "matchCase": preview.matchCase, "wholeWord": preview.wholeWord, "regex": preview.regex]])
+                if !self.isReadOnlyPreview {
+                    self.call("window.lithe.find(payload)", arguments: ["payload": ["id": document.id.uuidString,
+                        "query": preview.query, "matchCase": preview.matchCase, "wholeWord": preview.wholeWord, "regex": preview.regex]])
+                }
                 self.call("window.lithe.navigate(payload)", arguments: ["payload": ["id": document.id.uuidString,
-                    "line": max(0, preview.line - 1), "column": 0]])
+                    "line": max(0, preview.line - 1), "column": max(0, preview.utf16Column),
+                    "focus": !self.isReadOnlyPreview]])
             }
         }
         if viewOwnerID == ownerID {
@@ -491,7 +505,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     private func bindSynchronization(_ document: EditorDocument) {
         // Cross-file edits observe a mirror; only the document's own session
         // may own the barriers that drain its visible editor before save/close.
-        guard scopedDocumentID == nil || scopedDocumentID == document.id else { return }
+        guard !isReadOnlyPreview,
+              scopedDocumentID == nil || scopedDocumentID == document.id else { return }
         let id = document.id.uuidString
         document.editorSynchronizationOwnerID = synchronizationOwnerID
         // The document retains its editor while it remains open, even if SwiftUI
@@ -506,7 +521,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             if unconfirmedModels.contains(id) {
                 arguments["payload"] = ["id": id, "text": document.text, "revision": revisions[id] ?? 0,
                                         "filename": document.url.lastPathComponent, "locationRevision": document.locationRevision,
-                                        "readonly": document.isReadOnly]
+                                        "readonly": self.isReadOnly(document)]
             } else { arguments["payload"] = NSNull() }
             call("window.lithe.holdForClose(id, token, payload)", arguments: arguments) { [weak self, weak document] result in
                 guard let self else { completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return }
@@ -543,10 +558,10 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         }
         readOnlySubscriptions[id] = document.$isReadOnly.dropFirst().sink { [weak self, weak document] _ in
             guard let self, let document, self.currentDocument(id) === document else { return }
-            self.documentReadOnlyStates[id] = document.isReadOnly
+            self.documentReadOnlyStates[id] = self.isReadOnly(document)
             self.call("window.lithe.updateDocument(payload)", arguments: ["payload": [
                 "id": id, "filename": document.url.lastPathComponent,
-                "locationRevision": document.locationRevision, "readonly": document.isReadOnly
+                "locationRevision": document.locationRevision, "readonly": self.isReadOnly(document)
             ]])
         }
     }
@@ -569,7 +584,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             await model.documentFeature.openFileAsync(url, isReadOnly: false, displayPath: nil, activateWhenReady: false)
             guard workspace.matches(documents: model.documentFeature.editorDocuments, workspaceURL: model.workspaceURL),
                   let document = model.openDocuments.first(where: { $0.url.standardizedFileURL == url.standardizedFileURL }),
-                  !document.isReadOnly else { throw EditorDocument.DocumentError.editorNotSynchronized }
+                  !self.isReadOnly(document) else { throw EditorDocument.DocumentError.editorNotSynchronized }
             if scopedDocumentID != nil && scopedDocumentID != document.id {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                     document.withSynchronizedEditor { continuation.resume(with: $0) }
@@ -784,20 +799,20 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         if needsModel { register(document) }
         else if document.editorSynchronizationOwnerID != synchronizationOwnerID { bindSynchronization(document) }
         let locationChanged = documentLocations[id] != document.locationRevision
-        let readOnlyChanged = documentReadOnlyStates[id] != document.isReadOnly
+        let readOnlyChanged = documentReadOnlyStates[id] != self.isReadOnly(document)
         documentLocations[id] = document.locationRevision
-        documentReadOnlyStates[id] = document.isReadOnly
+        documentReadOnlyStates[id] = self.isReadOnly(document)
         if activeIDs[surface] == id, locationChanged || readOnlyChanged {
             call("window.lithe.updateDocument(payload)", arguments: ["payload": ["id": id,
                 "filename": document.url.lastPathComponent, "locationRevision": document.locationRevision,
-                "readonly": document.isReadOnly]])
+                "readonly": self.isReadOnly(document)]])
         }
         if activeIDs[surface] != id {
             activeIDs[surface] = id
             let interval = LitheSignpost.begin("monaco.document.activate")
             var payload: [String: Any] = ["id": id,
                 "revision": revisions[id] ?? 0, "filename": document.url.lastPathComponent,
-                "locationRevision": document.locationRevision, "readonly": document.isReadOnly, "focus": surface == "primary" && (scopedDocumentID == nil || isActiveDocument(document.id, model: model)),
+                "locationRevision": document.locationRevision, "readonly": self.isReadOnly(document), "focus": !isReadOnlyPreview && surface == "primary" && (scopedDocumentID == nil || isActiveDocument(document.id, model: model)),
                 "measure": LithePerformanceBaseline.isEnabled]
             // A retained Monaco model already owns its current text and undo
             // history. Tab activation only needs its identity and view state.
@@ -818,7 +833,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             lastLiveIDs = liveIDs
             call("window.lithe.retain(ids)", arguments: ["ids": Array(liveIDs).sorted()])
         }
-        if scopedDocumentID != nil, surface == "primary" {
+        if !isReadOnlyPreview, scopedDocumentID != nil, surface == "primary" {
             let focused = isActiveDocument(document.id, model: model)
             if lastEditorFocused != focused {
                 lastEditorFocused = focused
@@ -861,7 +876,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
             call("window.lithe.markers(id, markers)", arguments: ["id": id, "markers": values])
         }
-        if let target = navigation.jump(for: model.editorNavigationTarget, in: document.url) {
+        if !isReadOnlyPreview, let target = navigation.jump(for: model.editorNavigationTarget, in: document.url) {
             call("window.lithe.navigate(payload)", arguments: ["payload": ["id": id, "line": target.line, "column": target.utf16Column]])
         }
     }
@@ -976,6 +991,11 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             documents: documents, workspaceURL: model.workspaceURL)
     }
 
+    func allowsMessage(_ type: String) -> Bool {
+        !isReadOnlyPreview || !["format", "codeActions", "resolveCodeAction", "executeCodeAction",
+                               "rename", "resolveCompletion", "javaRunMarkerAction"].contains(type)
+    }
+
     func receive(_ message: WKScriptMessage, reply: @escaping (Any?, String?) -> Void) {
         guard message.frameInfo.isMainFrame, message.frameInfo.securityOrigin.protocol == "lithe-editor",
               message.frameInfo.securityOrigin.host == "app", let body = message.body as? [String: Any],
@@ -1026,6 +1046,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         // drain them. Position-based tooling must use the current file identity.
         if type != "edit", type != "save", let locationRevision = body["locationRevision"] as? UInt64,
            locationRevision != document.locationRevision {
+            reply(["cancelled": true], nil); return
+        }
+        if !allowsMessage(type) {
             reply(["cancelled": true], nil); return
         }
         switch type {
@@ -1118,7 +1141,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                   let action = body["action"] as? String else { reply(["cancelled": true], nil); return }
             let change = model.gitChange(for: document.url)
             let working = change?.hasWorkingTreeChange == true
-            guard action == "show" || (!document.isReadOnly &&
+            guard action == "show" || (!self.isReadOnly(document) &&
                 ((action == "stage" || action == "discard") && working || action == "unstage" && change?.isStaged == true && !working)) else {
                 reply(["cancelled": true], nil); return
             }
@@ -1158,7 +1181,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
             reply(["ok": true], nil)
         case "prepareImagePaste":
-            guard !failed, !document.isReadOnly, body["revision"] as? Int == revisions[id] else {
+            guard !failed, !self.isReadOnly(document), body["revision"] as? Int == revisions[id] else {
                 reply(["cancelled": true], nil); return
             }
             do {
@@ -1173,7 +1196,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 reply(["maximumByteCount": MarkdownImageSource.maximumByteCount], nil)
             } catch { reply(nil, error.localizedDescription) }
         case "pasteImage":
-            guard let model, !failed, !document.isReadOnly,
+            guard let model, !failed, !self.isReadOnly(document),
                   let revision = body["revision"] as? Int, revision == revisions[id],
                   let offset = body["offset"] as? Int, let length = body["length"] as? Int,
                   let base64 = body["base64"] as? String, let mimeType = body["mimeType"] as? String else {
@@ -1198,7 +1221,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 do {
                     let result = try await model.importMarkdownImage(source, for: document)
                     guard self.isCurrent(context), self.revisions[id] == revision,
-                          document.url == originalURL, !document.isReadOnly, !self.failed else {
+                          document.url == originalURL, !self.isReadOnly(document), !self.failed else {
                         model.showNotification("Saved image to \(result.relativePath); insertion cancelled because the document changed")
                         reply(["cancelled": true], nil); return
                     }
@@ -1212,7 +1235,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 }
             }
         case "edit":
-            guard !document.isReadOnly, !failed, body["baseRevision"] as? Int == revisions[id],
+            guard !self.isReadOnly(document), !failed, body["baseRevision"] as? Int == revisions[id],
                   let changes = body["changes"] as? [[String: Any]] else { reply(nil, "Stale editor edit"); return }
             var bound = (document.text as NSString).length
             let ordered = changes.sorted { ($0["offset"] as? Int ?? -1) > ($1["offset"] as? Int ?? -1) }
@@ -1243,6 +1266,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             if let model { refreshDebugState(model: model) }
             reply(["revision": revisions[id] ?? 0], nil)
         case "save":
+            guard !isReadOnlyPreview else { reply(["ok": true], nil); return }
             model?.saveEditorDocument(document); reply(["ok": true], nil)
         case "findState":
             if let model, body["token"] as? String == findToken, model.isFindBarVisible,
@@ -1253,6 +1277,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
             reply(["ok": true], nil)
         case "focus", "cursor":
+            guard !isReadOnlyPreview else { reply(["ok": true], nil); return }
             // Setting a background group's model also emits cursor events.
             // Only an actual focus event may change the selected editor group.
             if type == "focus", scopedDocumentID != nil {
@@ -1270,7 +1295,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             reply(["ok": true], nil)
         case "toggleBreakpoint", "editBreakpoint", "runToCursor":
             guard body["revision"] as? Int == revisions[id], let line = body["line"] as? Int,
-                  line >= 1, !document.isReadOnly else { reply(["cancelled": true], nil); return }
+                  line >= 1, !self.isReadOnly(document) else { reply(["cancelled": true], nil); return }
             if type == "toggleBreakpoint" { model?.toggleDebugBreakpoint(fileURL: document.url, line: line) }
             else if type == "runToCursor" {
                 guard let column = body["column"] as? Int, column >= 1 else { reply(["cancelled": true], nil); return }
