@@ -58,6 +58,24 @@ struct AgentHistoryTests {
     }
 
     @Test
+    func managementPageRetainsUnlistedChatsAndSearchesTheirDisplayTitles() {
+        let sessions = [AgentSessionSummary(id: "saved", title: "Saved upstream", updatedAt: "2026-10-16T08:00:00Z")]
+        var draft = AgentConversation()
+        draft.messages = [.init(id: "prompt", role: .user, text: "Draft topic")]
+        let metadata = ["hidden": AgentHistoryMetadata(isHidden: true), "saved": AgentHistoryMetadata(isFavorite: true)]
+        func rows(_ query: String, _ filter: AgentHistoryFilter) -> [AgentSessionSummary] {
+            AgentHistoryPresentation.managementSessions(sessions, openSessionIDs: ["saved", "draft", "hidden"],
+                conversations: ["draft": draft], metadata: metadata, query: query, filter: filter)
+        }
+        #expect(Set(rows("", .all).map(\.id)) == ["saved", "draft"])
+        #expect(rows("Draft topic", .all).map(\.id) == ["draft"])
+        #expect(rows("", .favorites).map(\.id) == ["saved"])
+        #expect(rows("", .removed).map(\.id) == ["hidden"])
+        #expect(sessions.map(\.id) == ["saved"], "The management page cannot modify Agent-owned history")
+        #expect(draft.messages.first?.text == "Draft topic")
+    }
+
+    @Test
     func annotationsSurviveReloadAndStayIsolatedFromAgentTitlesAndOtherScopes() async throws {
         try await HistoryFixture().run { fixture in
             let history = fixture.history

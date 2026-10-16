@@ -92,9 +92,10 @@ pub struct ModelCall {
     pub api: ModelApi,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// Upstream HTTP status, or 502 when the provider could not be reached.
+    /// Upstream HTTP status (200 for a WebSocket response), or 502 for
+    /// transport failure. A WebSocket error supplies its explicit status.
     pub status: u16,
-    /// `true` only when the provider answered with an event stream.
+    /// True for SSE and WebSocket streaming responses.
     pub streaming: bool,
     /// Milliseconds from forwarding the request to the first generated delta.
     /// Absent for non-streaming responses and streams without output.
@@ -113,6 +114,9 @@ pub struct ModelCall {
 pub(crate) struct RequestShape {
     pub(crate) model: Option<String>,
     system_bytes: u64,
+    /// Standalone instructions are replaced rather than inherited by a
+    /// Responses continuation; system/developer input items remain in history.
+    instruction_bytes: u64,
     tool_bytes: u64,
     mcp_tool_bytes: u64,
     message_bytes: u64,
@@ -160,7 +164,8 @@ pub(crate) fn request_shape(api: ModelApi, body: &[u8]) -> Option<RequestShape> 
         ModelApi::Responses => (request.get("instructions"), request.get("input")),
         ModelApi::ChatCompletions => (None, request.get("messages")),
     };
-    shape.system_bytes += system.map(text_len).unwrap_or_default();
+    shape.instruction_bytes = system.map(text_len).unwrap_or_default();
+    shape.system_bytes += shape.instruction_bytes;
     match messages {
         Some(Value::Array(items)) => {
             for item in items {
@@ -182,6 +187,63 @@ pub(crate) fn request_shape(api: ModelApi, body: &[u8]) -> Option<RequestShape> 
 }
 
 impl RequestShape {
+    /// Reconstruct only sizes of a validated WebSocket continuation. No
+    /// request or response text survives an observed message.
+    pub(crate) fn continue_responses(
+        &mut self,
+        previous: &Self,
+        output: &Self,
+        inherits_instructions: bool,
+        inherits_tools: bool,
+    ) {
+        self.system_bytes += previous
+            .system_bytes
+            .saturating_sub(previous.instruction_bytes)
+            + output.system_bytes;
+        self.message_bytes += previous.message_bytes + output.message_bytes;
+        if inherits_instructions {
+            self.instruction_bytes = previous.instruction_bytes;
+            self.system_bytes += previous.instruction_bytes;
+        }
+        if inherits_tools {
+            self.tool_bytes = previous.tool_bytes;
+            self.mcp_tool_bytes = previous.mcp_tool_bytes;
+            self.tool_count = previous.tool_count;
+            self.mcp_tool_count = previous.mcp_tool_count;
+        }
+        if self.model.is_none() {
+            self.model = previous.model.clone();
+        }
+    }
+
+    /// Measure completed output items exactly as subsequent Responses input.
+    pub(crate) fn response_output(output: &Value) -> Option<Self> {
+        let items = output.as_array()?;
+        let shapes: Vec<_> = items.iter().map(Self::response_item).collect();
+        Some(Self::sum_outputs(shapes.iter()))
+    }
+
+    pub(crate) fn response_item(item: &Value) -> Self {
+        let mut shape = Self::default();
+        if matches!(
+            item.get("role").and_then(Value::as_str),
+            Some("system" | "developer")
+        ) {
+            shape.system_bytes = item.get("content").map(text_len).unwrap_or_default();
+        } else {
+            shape.message_bytes = serialized_len(item);
+        }
+        shape
+    }
+
+    pub(crate) fn sum_outputs<'a>(outputs: impl Iterator<Item = &'a Self>) -> Self {
+        outputs.fold(Self::default(), |mut sum, item| {
+            sum.system_bytes += item.system_bytes;
+            sum.message_bytes += item.message_bytes;
+            sum
+        })
+    }
+
     fn composition(&self, usage: Option<&ModelCallUsage>) -> ContextComposition {
         let sections = [
             self.system_bytes,
@@ -352,7 +414,20 @@ impl ResponseObserver {
         let Ok(event) = serde_json::from_str::<Value>(&data) else {
             return;
         };
-        if self.first_token.is_none() && self.is_generated_delta(&event) {
+        self.event(&event, now);
+    }
+
+    /// SSE and WebSocket responses share provider counters and generated-delta
+    /// semantics; transport framing never participates in the token estimate.
+    pub(crate) fn event(&mut self, event: &Value, now: Instant) {
+        if let Some(status @ 400..=599) = event.get("status").and_then(Value::as_u64) {
+            self.status = status as u16;
+        }
+        if self.status < 400 && matches!(event["type"].as_str(), Some("error" | "response.failed"))
+        {
+            self.status = 502;
+        }
+        if self.first_token.is_none() && self.is_generated_delta(event) {
             self.first_token = Some(now.saturating_duration_since(self.started));
         }
         let usage = match self.api {

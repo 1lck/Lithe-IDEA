@@ -64,6 +64,10 @@ public enum AgentResponseStatus: Equatable, Sendable {
 public struct AgentConversation: Equatable, Sendable {
     public var messages: [AgentConversationMessage] = []
     public var contextUsage: AgentContextUsage?
+    /// A restored report is displayed as historical until the Agent reports again.
+    public var contextUsageIsHistorical = false
+    /// A replayed invalid/unknown report must not be replaced by an older saved one.
+    var hasReportedContextUsage = false
     /// Latest complete plan from the agent; history replay restores it.
     public var plan: AgentPlan?
     /// Slash commands the agent currently advertises for this session.

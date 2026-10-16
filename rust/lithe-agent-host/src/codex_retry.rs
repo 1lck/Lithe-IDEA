@@ -15,7 +15,10 @@ use crate::prompt_retry::MAX_ATTEMPTS;
 pub(crate) struct Relay(PathBuf);
 
 impl Relay {
-    pub(crate) fn create(executable: &Path) -> Result<(Self, Vec<(String, String)>), String> {
+    pub(crate) fn create(
+        executable: &Path,
+        native_recovery: bool,
+    ) -> Result<(Self, Vec<(String, String)>), String> {
         let directory =
             std::env::temp_dir().join(format!("lithe-codex-retry-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&directory)
@@ -52,6 +55,10 @@ impl Relay {
             relay,
             vec![
                 ("CODEX_PATH".into(), script.to_string_lossy().into_owned()),
+                (
+                    "LITHE_CODEX_NATIVE_RECOVERY".into(),
+                    if native_recovery { "1" } else { "0" }.into(),
+                ),
                 (
                     "LITHE_CODEX_EXECUTABLE".into(),
                     executable.to_string_lossy().into_owned(),

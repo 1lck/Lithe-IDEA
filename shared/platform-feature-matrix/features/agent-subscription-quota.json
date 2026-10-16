@@ -2,7 +2,7 @@
   "id": "agent-subscription-quota",
   "area": "AI",
   "group": "Agent 对话",
-  "capability": "Codex 订阅额度：上下文右侧紧凑显示、可见时定时刷新、悬停多窗口与重置时间、未知与过期状态及账号隔离",
+  "capability": "Codex 订阅额度：输入框上方原位置的灰色图标文字摘要，悬停显示灰底分窗口进度条；五小时优先且缺失时显示七天，已用超过60%黄色、超过90%红色、默认绿色，未知/过期灰显，实际重置时间与账号隔离",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -10,7 +10,10 @@
       "macos/Sources/Lithe/Views/Agent/AgentSubscriptionQuotaView.swift",
       "macos/Sources/LitheAgentConversationModule/Application/AgentSubscriptionQuota.swift",
       "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
-      "rust/lithe-agent-host/src/subscription/tests.rs"
+      "rust/lithe-agent-host/src/subscription/tests.rs",
+      "macos/Sources/Lithe/Views/Agent/AgentComposerView.swift",
+      "macos/Tests/LitheTests/AgentSessionSelectorLayoutTests.swift",
+      "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
     ]
   },
   "windows": {
@@ -22,5 +25,5 @@
     ]
   },
   "owner": "Agent",
-  "verification": "macOS：订阅会话上下文右侧显示额度，悬停查看窗口时长/已用百分比/重置和更新时间；真实账号验证可见且活跃时每分钟刷新、隐藏不轮询、单连接不并发探测，查询不创建会话或模型请求；周窗口作为 primary 仍显示 7d，缺失不报 0%；网络失败保留并灰显旧值，账号不匹配清除；API Key 模式不查询。窄宽面板、深浅主题、关闭面板/项目和取消时确认探测进程清理。Windows UI 与真实账号验证待完成。"
+  "verification": "macOS：真实订阅模式在输入框上方原位置显示灰色图标与5h/7d已用文字摘要，仅悬停展示灰底面板，移开收起，无底部圆环或点击弹层、五小时/七天已用百分比及灰轨进度条、实际重置时间与账号；五小时存在时优先显示，没有时回退七天，不伪造窗口时长，未上报保留未知。检查60%仍绿色、超过60%黄色、90%仍黄色、超过90%红色；未知及过期灰显。窄宽面板、深浅主题、单周窗口和缺失值截图检查，切换会话/账号或隐藏工具栏后清除旧悬停。原可见且活跃时每分钟刷新、隐藏停止轮询、单连接不并发、查询不创建会话或模型请求保持；失败保留旧值，账号不匹配清除，API Key模式不显示。Windows UI与真实账号完整验收仍待完成。"
 }

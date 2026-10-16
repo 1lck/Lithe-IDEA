@@ -2,12 +2,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import LitheAgentConversationModule
 
-/// Where the composer is hosted. The editor page has room for every session
-/// selector below the input and shows session statistics above it instead.
-enum AgentComposerLayout {
-    case toolWindow, editor
-}
-
 /// Context strip, flexible writing area, and a compact bottom command bar.
 struct AgentComposerView: View {
     @Environment(\.locale) private var locale
@@ -40,11 +34,13 @@ struct AgentComposerView: View {
     var showsToolbar = true
     var draftText: Binding<String>? = nil
     var draftFiles: Binding<[AgentFileReference]>? = nil
-    var layout: AgentComposerLayout = .toolWindow
+    var detailsContent: (() -> AnyView)? = nil
     @State private var completion = AgentCommandCompletion()
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
     @State private var showsFilePicker = false
+    @State private var showsDetails = false
+    @State private var showsContext = false
     @FocusState private var isFocused: Bool
 
     private var attachments: [AgentFileReference] {
@@ -68,20 +64,7 @@ struct AgentComposerView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if layout == .editor {
-                // Session figures sit on the composer's top edge as an attached
-                // tab, so they read as part of the input rather than the transcript.
-                AgentEditorStatusStrip(statistics: sessionStatistics, contextUsage: contextUsage)
-                    .padding(.horizontal, AgentComposerMetrics.statusTabInset)
-                    .padding(.bottom, -1)
-                    .zIndex(-1)
-            }
-            composerContent
-        }
-        .transformPreference(AgentComposerMinimumHeightKey.self) { height in
-            if layout == .editor { height += AgentComposerMetrics.contextHeight - 1 }
-        }
+        composerContent
         .dropDestination(for: URL.self) { urls, _ in
             addFiles(urls)
         } isTargeted: { isDropTargeted = $0 }
@@ -93,6 +76,8 @@ struct AgentComposerView: View {
         }
         .onChange(of: sessionID) { newSessionID in
             if newSessionID != nil { attachments.removeAll() }
+            showsDetails = false
+            showsContext = false
         }
         .onAppear { if let draftText { completion.draft = draftText.wrappedValue } }
         .onChange(of: draftText?.wrappedValue) { value in
@@ -125,47 +110,7 @@ struct AgentComposerView: View {
     }
 
     private var contextBar: some View {
-        HStack(spacing: 8) {
-            agentMenu
-            if !isPreparingSession {
-                if layout == .editor { modeSelectors }
-                if !configOptions.isEmpty {
-                    AgentSessionSelectors(
-                        options: configOptions.filter { $0.category != "mode" },
-                        agentName: selectedAgent?.name,
-                        isDisabled: isBlocked || isConfiguring,
-                        appliesToNextTurn: isResponding,
-                        onSelect: onSetConfig
-                    )
-                    .id(sessionID ?? selectedAgent?.id)
-                } else if let model = selectedAgent?.modelName, !model.isEmpty {
-                    HStack(spacing: 5) {
-                        AgentBrandIcon(name: selectedAgent?.name, size: 12, style: .brand)
-                        Text(AgentLocalization.string(String.LocalizationValue(model), locale: locale)).lineLimit(1).truncationMode(.middle)
-                    }
-                    .font(LitheTheme.uiFont(size: 11))
-                    .foregroundStyle(AgentPanelStyle.secondary)
-                    .padding(.horizontal, 4)
-                    .help(model)
-                }
-            }
-            if layout == .toolWindow, let sessionStatistics {
-                AgentSessionStatusView(statistics: sessionStatistics, contextUsage: contextUsage, showsContext: false)
-                    .layoutPriority(1)
-            }
-            Spacer(minLength: 0)
-            if showsSubscriptionQuota {
-                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
-            }
-        }
-        .font(LitheTheme.uiFont(size: 11))
-        .foregroundStyle(AgentPanelStyle.secondary)
-        .frame(height: AgentComposerMetrics.contextHeight - 2)
-        .padding(.bottom, 1)
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Button { showsFilePicker = true } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: LitheTheme.Metrics.toolbarIconSize,
                               fallbackSystemImage: "plus", preservesOriginalColors: true)
@@ -173,6 +118,40 @@ struct AgentComposerView: View {
             .litheToolbarIconButton()
             .accessibilityLabel(isDropTargeted ? "Drop files here" : "Attach files")
             .help("Drag files here or click to choose files")
+            Spacer(minLength: 0)
+            if showsSubscriptionQuota {
+                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
+                    .id(sessionID ?? selectedAgent?.id)
+            }
+            Button { showsContext = false; showsDetails.toggle() } label: {
+                LitheIDEAIcon(resourcePath: "expui/status/info.svg", size: LitheTheme.Metrics.toolbarIconSize,
+                              fallbackSystemImage: "info.circle", preservesOriginalColors: true)
+            }
+            .litheToolbarIconButton()
+            .help("Show Session Details")
+            .accessibilityLabel("Session statistics")
+            .accessibilityIdentifier("agent-session-details")
+            .litheDropdown(isPresented: $showsDetails, opensUpward: true) {
+                Group {
+                    if let detailsContent { detailsContent() }
+                    else {
+                        AgentEditorDetailsPanel(statistics: sessionStatistics, contextUsage: contextUsage,
+                            fileChanges: [], workspace: { EmptyView() })
+                            .frame(height: AgentEditorConversationMetrics.detailsPopupHeight)
+                    }
+                }
+            }
+        }
+        .font(LitheTheme.uiFont(size: 11))
+        .foregroundStyle(AgentPanelStyle.secondary)
+        .padding(.horizontal, 5)
+        .frame(height: AgentComposerMetrics.contextHeight - 2)
+        .background(AgentPanelStyle.context)
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 4) {
+            agentMenu
             if isPreparingSession {
                 Label("Loading session settings…", systemImage: "hourglass")
                     .font(LitheTheme.uiFont(size: 11))
@@ -180,16 +159,17 @@ struct AgentComposerView: View {
                     .lineLimit(1)
                     .padding(.horizontal, 4)
                     .accessibilityIdentifier("agent-session-settings-loading")
-            } else if layout == .toolWindow {
-                modeSelectors
-            } else if isConfiguring {
-                ProgressView().controlSize(.mini)
+            } else if !configOptions.isEmpty {
+                AgentSessionSelectors(options: configOptions, agentName: selectedAgent?.name,
+                    isDisabled: isBlocked || isConfiguring, appliesToNextTurn: isResponding, onSelect: onSetConfig)
+                    .id(sessionID ?? selectedAgent?.id)
+                if isConfiguring { ProgressView().controlSize(.mini) }
+            } else if let model = selectedAgent?.modelName, !model.isEmpty {
+                Text(model).font(LitheTheme.uiFont(size: 11)).lineLimit(1).truncationMode(.middle)
+                    .foregroundStyle(AgentPanelStyle.secondary).help(model)
             }
             Spacer(minLength: 0)
-            if layout == .toolWindow {
-                AgentContextUsageView(usage: contextUsage, composition: sessionStatistics?.modelCalls?.latestContext,
-                                      showsPercentage: false)
-            }
+            contextButton
             if isResponding || hasPendingContinuation {
                 Button(action: onCancel) {
                     LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: LitheTheme.Metrics.toolbarIconSize,
@@ -213,19 +193,20 @@ struct AgentComposerView: View {
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)
     }
 
-    /// Permission and approval modes, such as Ask or Auto-approve edits.
-    @ViewBuilder
-    private var modeSelectors: some View {
-        if !configOptions.isEmpty {
-            AgentSessionSelectors(
-                options: configOptions.filter { $0.category == "mode" },
-                agentName: selectedAgent?.name,
-                isDisabled: isBlocked || isConfiguring,
-                appliesToNextTurn: isResponding,
-                onSelect: onSetConfig
-            )
-            .id(sessionID ?? selectedAgent?.id)
-            if layout == .toolWindow && isConfiguring { ProgressView().controlSize(.mini) }
+    private var contextButton: some View {
+        Button { showsDetails = false; showsContext.toggle() } label: {
+            AgentContextUsageView(usage: contextUsage, showsPercentage: false, showsHoverCard: false)
+        }
+        .buttonStyle(.litheNoPress)
+        .workbenchHoverCard(placement: .above, maximumWidth: LitheDropdownMetrics.maximumWidth) {
+            WorkbenchHoverTooltipLabel(title: Text(verbatim:
+                AgentContextUsagePresentation.details(contextUsage, locale: locale)))
+        }
+        .litheDropdown(isPresented: $showsContext, opensUpward: true) {
+            AgentContextPanel(usage: contextUsage, composition: sessionStatistics?.modelCalls?.latestContext,
+                              onClose: { showsContext = false })
+            .padding(14)
+            .frame(width: AgentContextPanel.popoverWidth)
         }
     }
 
@@ -245,19 +226,10 @@ struct AgentComposerView: View {
             LitheContextMenuItem.separator
             LitheContextMenuItem.action("Agent Settings…", action: onOpenSettings)
         } label: {
-            HStack(spacing: 4) {
-                AgentBrandIcon(name: displayAgentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
-                Text(displayAgentName ?? AgentLocalization.string("Agent", locale: locale))
-                    .lineLimit(1)
-                LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheTheme.Metrics.toolbarIconSize,
-                              fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
-            }
-            .foregroundStyle(AgentPanelStyle.secondary)
-            .font(LitheTheme.uiFont(size: 11))
-            .padding(.horizontal, 4)
+            AgentBrandIcon(name: displayAgentName, size: LitheTheme.Metrics.toolbarIconSize, style: .brand)
+                .foregroundStyle(AgentPanelStyle.secondary)
         }
-        .litheToolbarIconButton(isIconOnly: false)
-        .fixedSize()
+        .litheToolbarIconButton()
         .help(displayAgentName ?? AgentLocalization.string("Choose an Agent", locale: locale))
         .accessibilityLabel("Switch Agent")
         .accessibilityIdentifier("agent-composer-agent-selector")

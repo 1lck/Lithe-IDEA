@@ -142,6 +142,7 @@
       "sessionId": "session-1",
       "update": { "sessionUpdate": "session_info_update", "title": "Project overview" }
     },
+    "historicalUsageUpdate": {"kind": "update", "sessionId": "session-1", "update": {"sessionUpdate": "usage_update", "used": 125300, "size": 300000, "_meta": {"lithe": {"contextUsageSource": "history"}}}},
     "usageUpdate": {
       "kind": "update",
       "sessionId": "session-1",
@@ -201,6 +202,51 @@
     "stopped": { "kind": "stopped", "message": "The Agent connection closed unexpectedly" }
   },
   "upstream": {
+    "codexSubscriptionObservation": {
+      "accountRead": {
+        "id": 1,
+        "result": {
+          "account": {
+            "type": "chatgpt",
+            "email": "person@example.test",
+            "planType": "plus"
+          },
+          "workspaceRouting": {
+            "chatgptAccountId": "fixture-account",
+            "backendOrigin": "https://chatgpt.com",
+            "accountRoutingOverride": "NO_CONSTRAINT"
+          }
+        }
+      },
+      "request": {
+        "type": "response.create",
+        "model": "test-model",
+        "instructions": "A fixed system prompt.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "exec_command",
+            "parameters": {}
+          },
+          {
+            "type": "function",
+            "name": "mcp__files__read",
+            "parameters": {}
+          }
+        ],
+        "input": [
+          {
+            "role": "developer",
+            "content": "Project rules."
+          },
+          {
+            "role": "user",
+            "content": "Hello"
+          }
+        ]
+      }
+    },
+    "codexContextReplay": {"resumeRequest": {"id": 7, "method": "thread/resume", "params": {"threadId": "session-a", "excludeTurns": true, "modelProvider": "openai"}}, "resumeResponse": {"id": 7, "result": {"thread": {"id": "session-a"}}}, "notification": {"method": "thread/tokenUsage/updated", "params": {"threadId": "session-a", "turnId": "turn-a", "tokenUsage": {"last": {"totalTokens": 125300}, "total": {"totalTokens": 9000000}, "modelContextWindow": 300000}}}, "hostUpdate": {"sessionUpdate": "usage_update", "used": 125300, "size": 300000, "_meta": {"lithe": {"contextUsageSource": "history"}}}},
     "codexFailureResponse": {
       "stopReason": "end_turn", "_meta": {"jetbrains": {"air": {"version": 1, "sessionFailure": {"id": "upstream-turn-1:error", "revision": 5, "category": "connection", "severity": "error", "title": "{\"litheCodexFailure\":{\"message\":\"Local Codex fixture failure\",\"codexErrorInfo\":{\"httpConnectionFailed\":{\"httpStatusCode\":503}},\"turnId\":\"upstream-turn-1\",\"willRetry\":false,\"activeTurn\":true,\"sequence\":5}}", "actions": ["retry", "new_session"]}}}}
     },

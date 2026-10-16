@@ -11,6 +11,9 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufRea
 // Official Codex ChatGPT route, matching the upstream default. This is passed
 // to Codex configuration only; Lithe never issues authenticated HTTP requests.
 const CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/";
+/// Official inference origin; the native provider's backend path is retained
+/// after the proxy capability prefix, not appended to this upstream twice.
+pub(super) const INFERENCE_ORIGIN: &str = "https://chatgpt.com";
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_REPLY_BYTES: u64 = 1024 * 1024;
@@ -179,6 +182,22 @@ pub(super) fn resolve(
         secret: String::new(),
         subscription_cli: Some(executable),
     })
+}
+
+/// Change only inference routing for this process. Keeping the native backend
+/// suffix preserves Codex model discovery, compaction and backend capabilities.
+/// The ChatGPT login/quota URL and all authentication settings stay unchanged.
+pub(super) fn observe_model_calls(launch: &mut ResolvedLaunch, proxy: &str) -> Result<(), String> {
+    let (_, config) = launch
+        .env
+        .iter_mut()
+        .find(|(key, _)| key == "CODEX_CONFIG")
+        .ok_or("Codex subscription configuration is unavailable")?;
+    let mut value: Value = serde_json::from_str(config)
+        .map_err(|_| "Codex subscription configuration is unavailable")?;
+    value["openai_base_url"] = json!(format!("{proxy}/backend-api/codex"));
+    *config = value.to_string();
+    Ok(())
 }
 
 /// Prevent inherited API overrides from silently changing the selected billing source.

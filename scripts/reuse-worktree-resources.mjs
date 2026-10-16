@@ -377,6 +377,8 @@ async function main() {
       // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
+      // Per-launch Codex helpers also own memory-only context replay tickets and
+      // loopback capabilities; they stay on this exclusion route, never a copy stage.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.identity}; ${excluded.reason}; it cannot be reused across worktrees`);
