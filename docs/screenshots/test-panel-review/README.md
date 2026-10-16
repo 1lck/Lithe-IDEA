@@ -11,3 +11,8 @@
 左侧结果树补充验收：[深色](tree-dark.png)、[浅色](tree-light.png)。演示数据含通过、断言失败、执行错误和跳过；核对13pt常规文字、16pt原始状态/箭头SVG、共享边距和选中样式，并操作分组折叠/展开。
 
 摘要样式补充：[深色](summary-dark.png)、[浅色](summary-light.png)。真实混合测试结果显示“2 tests failed, 3 passed, 1 ignored”及灰色总数；原生双击类名验证折叠/再次展开，叶子双击保持结果、没有启动新测试。
+
+## Performance / Details 页签纠正
+
+- `inspector-tabs-dark.png`、`inspector-tabs-light.png`：重建后的真实演示窗口，核对 Islands 圆角表面、选中边框及无底部蓝线。两个标签的切换已在原生窗口检查；hover 复用共享标签组件，本轮未单独捕获未选页签的鼠标悬停截图。
+- 上游依据：Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `IslandsUICustomization.paintTab` → `IslandsTabPainter`，不是 `DarculaTabbedPaneUI` 的下划线 fallback。

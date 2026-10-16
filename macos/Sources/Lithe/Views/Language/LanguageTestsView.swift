@@ -402,20 +402,15 @@ struct LanguageTestsView: View {
                         Text(LocalizedStringKey(tab))
                             .font(LitheTheme.ActionStripe.titleFont)
                             .foregroundStyle(LitheTheme.ActionStripe.titleColor)
-                            .padding(.horizontal, LitheTheme.ActionStripe.tabHorizontalInset)
-                            .frame(height: LitheTheme.Metrics.toolbarHeight)
+                            .padding(.horizontal, 8)
+                            .frame(height: 28)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.litheNoPress)
-                    .litheRowHover(cornerRadius: 0, hoverBackground: LitheTheme.ActionStripe.tabHover)
-                    .overlay(alignment: .bottom) {
-                        if inspectorTab == tab {
-                            RoundedRectangle(cornerRadius: LitheTheme.ActionStripe.tabUnderlineRadius)
-                                .fill(LitheTheme.ActionStripe.tabUnderline)
-                                .frame(height: LitheTheme.ActionStripe.tabUnderlineHeight)
-                                .allowsHitTesting(false)
-                        }
-                    }
+                    // IslandsTabPainter: 4pt horizontal / 6pt vertical inset in a 40pt tab.
+                    .modifier(LitheToolWindowTabStyle(isSelected: inspectorTab == tab, isActive: true))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 6)
                     .accessibilityAddTraits(inspectorTab == tab ? .isSelected : [])
                 }
                 Spacer(minLength: 0)
