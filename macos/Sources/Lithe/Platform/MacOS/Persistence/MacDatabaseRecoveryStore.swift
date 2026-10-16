@@ -202,7 +202,7 @@ final class MacDatabaseRecoveryStore: DatabaseRecoveryStoring, @unchecked Sendab
 
     private static func defaultRootURL(fileManager: FileManager) -> URL {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
-        return base.appendingPathComponent("Lithe/DatabaseRecovery", isDirectory: true)
+        return MacAppIdentity().storageRoot(base).appendingPathComponent("Lithe/DatabaseRecovery", isDirectory: true)
     }
 }
 

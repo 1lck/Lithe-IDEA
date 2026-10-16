@@ -1,26 +1,38 @@
 import Foundation
 
 struct MacFileStorage: FileStorage {
+    let identity: MacAppIdentity
+
+    init(identity: MacAppIdentity = MacAppIdentity()) {
+        self.identity = identity
+    }
+
     func homeDirectory() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
     }
 
     func cacheDirectory() -> URL {
-        FileManager.default.urls(
+        identity.storageRoot(FileManager.default.urls(
             for: .cachesDirectory,
             in: .userDomainMask
-        ).first ?? FileManager.default.temporaryDirectory
+        ).first ?? FileManager.default.temporaryDirectory)
     }
 
     func applicationSupportDirectory() -> URL {
-        FileManager.default.urls(
+        identity.storageRoot(FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first ?? FileManager.default.temporaryDirectory
+        ).first ?? FileManager.default.temporaryDirectory)
     }
 
     func temporaryDirectory() -> URL {
-        FileManager.default.temporaryDirectory
+        let root = identity.storageRoot(FileManager.default.temporaryDirectory)
+        // Consumers write individual files directly into this nonthrowing port.
+        // If creation fails, their write reports the underlying filesystem error.
+        if identity.isDevelopment {
+            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        }
+        return root
     }
 
     func metadata(for url: URL) -> FileMetadata? {
