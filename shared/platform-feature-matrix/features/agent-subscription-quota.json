@@ -22,9 +22,13 @@
     "evidence": [
       "rust/lithe-agent-host/src/subscription.rs",
       "shared/fixtures/agent/acp-events-v1.json",
-      "windows/tauri/src-tauri/src/agent.rs"
+      "windows/tauri/src-tauri/src/agent.rs",
+      "windows/tauri/src/features/agent/components/agent-usage-panel.tsx",
+      "windows/tauri/src/features/agent/types/agent.types.ts",
+      "windows/tauri/src/features/agent/components/agent-panel.tsx"
     ]
   },
   "owner": "Agent",
-  "verification": "macOS：真实订阅模式在输入框上方原位置只显示一个灰轨圆环，按五小时/七天中已用最多的窗口填充并着色，不再显示文字；仅悬停展示灰底面板，移开收起，无点击弹层，面板含五小时/七天已用百分比及灰轨进度条、实际重置时间与账号；面板中五小时优先，不伪造窗口时长，未上报时圆环只有灰轨。检查60%仍绿色、超过60%黄色、90%仍黄色、超过90%红色；未知及过期灰显。窄宽面板、深浅主题、单周窗口和缺失值截图检查，切换会话/账号或隐藏工具栏后清除旧悬停。原可见且活跃时每分钟刷新、隐藏停止轮询、单连接不并发、查询不创建会话或模型请求保持；失败保留旧值，账号不匹配清除，API Key模式不显示。Windows连接桥已接通，UI与真实账号完整验收仍待完成。"
+  "verification": "macOS：真实订阅模式在输入框上方原位置只显示一个灰轨圆环，按五小时/七天中已用最多的窗口填充并着色，不再显示文字；仅悬停展示灰底面板，移开收起，无点击弹层，面板含五小时/七天已用百分比及灰轨进度条、实际重置时间与账号；面板中五小时优先，不伪造窗口时长，未上报时圆环只有灰轨。检查60%仍绿色、超过60%黄色、90%仍黄色、超过90%红色；未知及过期灰显。窄宽面板、深浅主题、单周窗口和缺失值截图检查，切换会话/账号或隐藏工具栏后清除旧悬停。原可见且活跃时每分钟刷新、隐藏停止轮询、单连接不并发、查询不创建会话或模型请求保持；失败保留旧值，账号不匹配清除，API Key模式不显示。Windows连接桥已接通，UI与真实账号完整验收仍待完成。",
+  "notes": "2026-10-16 Windows：订阅额度复用同一用量区块，按共享字段的窗口与重置时间判断是否过期，账号未知时显示占位；真实账号、断网灰显与换账号清理仍待验收。"
 }
