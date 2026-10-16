@@ -103,10 +103,15 @@ jobs:
           MANUAL: ${{ steps.base.outputs.manual }}
           BASE_SHA: ${{ steps.base.outputs.base_sha }}
           LITHE_CI_DRAFT_PULL_REQUEST: ${{ github.event.pull_request.draft == true }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         shell: bash
         run: |
           if [[ "$MANUAL" == "true" ]]; then
             {
+              echo "ci_scope=pull_request"
               echo "swift=true"
               echo "swift_database=true"
               echo "rust_core=true"
@@ -118,7 +123,30 @@ jobs:
             exit 0
           fi
 
+          export LITHE_CI_SCOPE=pull_request
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            LITHE_CI_SCOPE=post_merge
+          elif [[ "$BASE_REF" == "main" && "$HEAD_REF" == "preview" && "$HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" ]]; then
+            LITHE_CI_SCOPE=release_promotion
+          fi
           ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      # Promoting preview to main reruns no lane: the same commit must already
+      # have passed macOS CI as a preview push.
+      - name: Require the preview verification of this commit
+        if: steps.classify.outputs.ci_scope == 'release_promotion'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          conclusions=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci-macos.yml/runs?head_sha=$HEAD_SHA&event=push&branch=preview" \
+            --jq '[.workflow_runs[] | .status + ":" + (.conclusion // "")] | join(" ")')
+          echo "preview push runs for $HEAD_SHA: ${conclusions:-none}"
+          if [[ " $conclusions " != *" completed:success "* ]]; then
+            echo "::error::macOS CI has not passed on preview for $HEAD_SHA. Wait for the preview push run to succeed, then re-run this job."
+            exit 1
+          fi
 
       # runs-on is fixed when a job is created, so each selected lane picks the
       # Mac mini or hosted pool here from the jobs already running or queued.
@@ -179,9 +207,10 @@ jobs:
           RUST_COMMENTS: ${{ steps.classify.outputs.rust_comments }}
           METADATA: ${{ steps.classify.outputs.metadata }}
           GIT_VALIDATION: ${{ steps.classify.outputs.git_validation }}
+          CI_SCOPE: ${{ steps.classify.outputs.ci_scope }}
         run: |
           {
-            echo "### macOS CI lanes"
+            echo "### macOS CI lanes ($CI_SCOPE)"
             echo "| Lane | Run |"
             echo "| --- | --- |"
             echo "| Swift tests | $SWIFT |"

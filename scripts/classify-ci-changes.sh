@@ -449,6 +449,53 @@ if [[ "${LITHE_CI_DRAFT_PULL_REQUEST:-false}" == "true" ]]; then
     git_validation=false
 fi
 
+# Note: .agents/notes/implemented/process/2026-09-13-ci-build-cache-and-artifact-strategy.md
+# Pull requests into preview carry the full verification. Afterwards only what
+# a pull request cannot observe still runs: the post-merge push builds the
+# universal package (pull requests build arm64 only), which also compiles the
+# merged combination of pull requests. Promoting preview to main reruns
+# nothing, because the same commit already passed on preview.
+ci_scope="${LITHE_CI_SCOPE:-pull_request}"
+case "$ci_scope" in
+    pull_request) ;;
+    post_merge)
+        package_affected=false
+        for lane in "$swift" "$plugins" "$swift_database" "$rust_core" "$macos_release"; do
+            if [[ "$lane" == true ]]; then package_affected=true; fi
+        done
+        swift=false
+        plugins=false
+        swift_database=false
+        rust_core=false
+        rust_database=false
+        macos_release="$package_affected"
+        windows=false
+        windows_rust=false
+        java_jdt=false
+        rust_comments=false
+        metadata=false
+        git_validation=false
+        ;;
+    release_promotion)
+        swift=false
+        plugins=false
+        swift_database=false
+        rust_core=false
+        rust_database=false
+        macos_release=false
+        windows=false
+        windows_rust=false
+        java_jdt=false
+        rust_comments=false
+        metadata=false
+        git_validation=false
+        ;;
+    *)
+        printf '%s\n' "LITHE_CI_SCOPE must be pull_request, post_merge, or release_promotion" >&2
+        exit 2
+        ;;
+esac
+
 printf 'swift=%s\n' "$swift"
 printf 'plugins=%s\n' "$plugins"
 printf 'swift_database=%s\n' "$swift_database"
@@ -461,3 +508,4 @@ printf 'java_jdt=%s\n' "$java_jdt"
 printf 'rust_comments=%s\n' "$rust_comments"
 printf 'metadata=%s\n' "$metadata"
 printf 'git_validation=%s\n' "$git_validation"
+printf 'ci_scope=%s\n' "$ci_scope"

@@ -43,6 +43,24 @@ GitHub 在创建 job 时固定 `runs-on`，job 排队后不能改投另一个池
 避免合并后的复验占用 PR 正在等待的托管槽位。API 读取失败或没有令牌时
 退回固定分配（Rust Core、打包在 Mac mini，Swift、插件在托管池），不阻塞 CI。
 
+合并之后只运行 PR 观察不到的部分。PR 是合入 `preview` 的门槛，完整验证在 PR
+上完成；合并后的 push 只在改动涉及打包内容时构建 universal 包。这是 x86_64
+唯一一次编译和链接，也会编译“各自通过的 PR 合在一起”的组合，PR 自己的 CI
+覆盖不到这两点。`preview` → `main` 的 PR 不跑任何 lane，只核对同一提交在
+`preview` 的 push 上已经通过 macOS CI；push 到 `main` 不触发 CI。分类脚本用
+`LITHE_CI_SCOPE`（`pull_request`、`post_merge`、`release_promotion`）区分这些
+场景。被否方案：合并后完全不跑 CI（Intel 编译和 PR 组合问题会一直留到 AutoBuild
+或发布时才暴露）；要求 PR 与 `preview` 保持最新后再合并（并行 PR 多时每次合并
+都要重跑完整 CI，总用量反而更高）。Windows CI 因此不再在 `preview` push 上运行，
+代价是 Windows 的 GitHub 缓存只由 PR 刷新，`Cargo.lock` 变化后的几个 PR 会从
+较旧的前缀命中开始编译。
+
+自托管 runner 同时装有带更新 macOS SDK 的 Command Line Tools。首次在 Mac mini 上
+构建 universal 包时，链接 x86_64 时解析到了 `CommandLineTools/SDKs/MacOSX27.0.sdk`，
+Xcode 26.6 的链接器无法读取其中的 `libSystem.B.tbd`。`setup-macos-toolchain` 因此在
+自托管 runner 上把 `SDKROOT` 固定为所选 Xcode 自带的 SDK，并拒绝解析到 Xcode
+之外的 SDK。
+
 Swift 测试 lane 目前固定在托管池（选择器的 `HOSTED_ONLY_LANES`）：首轮在
 Mac mini 上运行时，`DesktopIsolationTests` 因 WindowServer 两秒内没有登记原生
 窗口而失败，这要求机器保持一个有显示器且未休眠的图形会话。机器配置好之后

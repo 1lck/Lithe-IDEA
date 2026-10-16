@@ -10,7 +10,7 @@ on:
       - '.github/workflows/verify-issue-automation.yml'
       - 'scripts/test-lithe-issue-*.mjs'
   push:
-    branches: [main, preview]
+    branches: [preview]
     paths:
       - '.github/ISSUE_TEMPLATE/**'
       - '.github/lithe-issue-*/**'

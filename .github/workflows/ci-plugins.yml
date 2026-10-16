@@ -5,9 +5,6 @@ on:
   pull_request:
     # ready_for_review reruns the deferred runner lane after a draft is ready.
     types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -61,6 +58,9 @@ jobs:
           MANUAL: ${{ steps.base.outputs.manual }}
           BASE_SHA: ${{ steps.base.outputs.base_sha }}
           LITHE_CI_DRAFT_PULL_REQUEST: ${{ github.event.pull_request.draft == true }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         shell: bash
         run: |
           if [[ "$MANUAL" == "true" ]]; then
@@ -68,6 +68,11 @@ jobs:
             exit 0
           fi
 
+          # Promoting preview to main reruns no lane; macOS CI requires the
+          # preview verification of the same commit instead.
+          if [[ "$BASE_REF" == "main" && "$HEAD_REF" == "preview" && "$HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" ]]; then
+            export LITHE_CI_SCOPE=release_promotion
+          fi
           ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Choose macOS runner
