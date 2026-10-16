@@ -157,6 +157,17 @@ macOS 的审批模式、模型和思考强度在等待、推理、输出、工�
 - **计划（`plan`）**：ACP 规定每次都发完整计划，所以整体替换，不做合并；空列表清除计划，格式错误的更新忽略，最多保留 100 条。计划条状态只认 `pending`、`in_progress`、`completed`，未知状态的条目丢弃而不是猜测。点击底部“任务”打开计划与进度；没有计划时显示该会话的工具列表，不编造计划。`session/load` 回放会自然恢复计划。
 - **斜杠命令（`available_commands_update`）**：按会话保存上游列表，最多读取前 200 条；同名命令只保留首条定义，保证命令行身份唯一。断连时清空每个会话的旧命令，重连加载后等待新进程重新上报，避免显示已经失效的能力。输入框以 `/` 开头且命令名中还没有空白时弹出过滤结果，前缀匹配排在包含匹配之前；选择后只把 `/name ` 填入草稿，命令文本仍作为普通 prompt 原样发送，由 Agent 自己解释。实测 codex-acp 1.13.1 把 Skill 以 `$name` 形式放进同一个命令列表，而它的命令解析会跳过 `/$name`，Skill 需要以 `$name` 提及。因此名字以 `$` 开头的命令补全为 `$name `；输入 `$` 只列 Skill，Agent 没有上报 Skill 时 `$` 仍是普通文字。Lithe 不扫描 SKILL.md 或命令目录，也不内置命令表，避免和 Agent 的真实能力不一致。方向键和 Tab 导航依赖 macOS 14 的 `onKeyPress`；macOS 13 保留鼠标选择和 Return 补全。Return、Esc、方向键与 Tab 共用视图局部的补全状态，Return 在命令名未完整时只补全、完整时发送；Esc 先关闭补全，再次 Esc 才停止回复，编辑草稿后重新显示匹配。补全高度由输入区内部的局部布局容器按剩余空间限制，先保留一行可编辑文字；最小输入区放不下一整行命令时，列表浮在输入框上方，通过锚点偏好在整个对话布局中绘制，让鼠标点击范围不被较小的输入面板限制；沿用工作台悬停提示的局部 overlay 模式，不新增全局位置状态或鼠标监听。输入区的最小高度包含上下栏、可编辑行和外边距，附带文件时再预留附件行；这个值只在附件有无改变时通过视图偏好更新，不跟随拖动逐帧发布。不要让固定高度的命令列表参与分隔条的最小尺寸计算，也不要把逐帧几何尺寸发布到会话模型。
 - **模式通知（`current_mode_update`）**：Agent 自己切换模式（例如退出计划模式）时，只更新 `category == "mode"` 且包含该值的配置选项，不向上游回发设置请求；选项中不存在的模式 ID 忽略，不显示原始 ID。
+- **即时通知（`notice`）**：共享 Host 启用固定 SDK 的 `unstable_session_notices` 能力，并声明 `clientCapabilities.session.notices: {}`，让适配器通过独立事件发送警告。macOS 每个会话只保存最新一条通知，用现有 `LitheBanner` 展示和关闭；通知不计入回复、历史导出或轮次统计，下一条 prompt 成功提交及断连时清除。上游通知字段限制为标题 256 字符、详情 4096 字符，未知严重程度和空标题忽略。
+
+Claude ACP 0.81.2 会在默认 Auto 不可用时回退到 `acceptEdits`，但把启动警告延迟到第一次 prompt 才发送。用户可能此前已确认切到 Plan，所以仅把通知从聊天消息移出来仍会误报。该版本没有通知错误码，因此只在 `claude-acp` 连接中识别结构化 warning 标题 `Auto mode unavailable`，结合 Agent 已确认的模式决定是否仍适用；模式不再是 `acceptEdits`，或已确认切换模型，就清除这条通知。配置预选、请求尚未确认和失败都不能把现存有效警告清掉。通知先于会话创建/加载确认时，确认配置后再核对。其他通知保留原内容和严重程度，不能凭回复正文里的英文句子猜通知类型。依据是上游固定版本的 `src/session-mode.ts` 与 `src/session-notices.ts`；不修改用户已安装适配器、不升级依赖版本。
+
+正确示例：用户在首次发消息前切到 Plan，迟到的 Auto 启动警告不会成为聊天回复，也不会声称当前仍在 Accept edits。不要这样做：每次点击选择器立即删掉警告，或按英文字符串清理所有回复；前者会掩盖配置失败，后者可能删除模型真正回答的内容。代价是这个兼容识别依赖固定适配器的结构化标题，升级时必须复验；Windows 尚未接入共享 Host 对话 UI，不因此标为已实现或已验证。
+
+配置请求处理中收到的新降级通知先保留，等同一 token（请求标识）的配置结果或失败确认后再核对实际模式。上游选择 Auto 或换模型时可能先通知降级、随后发布配置；不能用旧的 Plan 值提前丢掉这条新警告，也不能因随后确认新模型就清掉它。等待期间如果同一会话收到更新的有效通知，旧的暂存警告立即失效；例如先降级警告、后工具错误，配置成功或失败都必须保留工具错误。反过来先工具错误、后降级警告时，新警告仍等待配置结果，再按实际模式显示。格式无效或其他会话的通知不改变这一顺序，避免配置重放把旧警告变成“最新通知”。旧通知仍由已确认的配置变化清理。
+
+通知和权限卡片共用直接挂在 `ScrollView` 上的 `safeAreaInset`（为底部卡片预留原生滚动空间），优先显示需要用户操作的权限卡，答复后再显示仍有效的通知。两张卡叠加时，窄面板中可能占满消息视口，所以不能直接堆叠；通知标题最多两行、详情最多三行，悬停可读完整原文。原生回放等待可观察的底部跟随结果再断言，不用一次布局回调代替完成信号。
+
+原生 `/model` 或模型拒绝后的上游切换没有本地请求 token，仍会依次发出模式降级、新通知和完整模型配置。连接模型因此在观察到 Auto→Accept edits 时记录转换前的通知身份；紧接着的第一份完整配置只清理转换前的旧通知，保留转换中新产生的通知，然后释放转换记录。记录按会话隔离，新消息提交和断连也清理，不新增计时器或持久化数据。正确做法是把本次降级原因保留到用户能看到，同时让后续再次换模型清掉它；不要把“发生模型变化”直接等同于“屏幕上的所有通知都已过期”，也不要永久豁免这条警告。
 
 正确做法：新的更新类型先在 fixture 中加入样例，让 Rust 往返测试证明它是合法 ACP，再在平台功能模型中解析。不要这样做：在视图中直接解析原始更新；为了显示命令列表而自己维护一份 Claude 或 Codex 命令表。
 
@@ -338,6 +349,8 @@ Windows 已可用。本功能不新增下载、缓存或运行时资源路径，
 
 ## 验证
 
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentConversationSelectionTests|AgentNextTurnConfigurationTests|AgentTranscriptScrollTests|AgentThoughtTranscriptTests|LitheBannerAppearanceTests'`：控制 Plan 配置确认→首轮消息→迟到通知顺序，验证有效降级通知、通知早于配置结果、配置失败/过期确认、Agent 自行切模式、模型切换、通知早于创建确认、会话隔离、关闭/下一轮/断连清理，且不删除同文模型回复；控制暂存降级警告→新错误→配置成功/失败，确保保留新错误，相反顺序显示最新有效降级警告，格式无效和其他会话通知不能使暂存警告失效。原生 `/model` 无 token 路径按模式→通知→完整配置验证新通知保留、下一次模型变化清理、后台会话隔离和轮次边界。原生共享 Banner 在深浅主题、窄宽面板中验证换行和关闭，长历史回放确认通知与权限同时出现及关闭后仍保留浏览位置或跟随最新回复。`LITHE_AGENT_NOTICE_REVIEW_SCREENSHOTS` 可导出选择回放中模型切换、权限优先、答复后通知恢复及 Plan 清理的原生快照；输出只写调用方指定的验证目录，不属于运行时产品资源。
+- `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host`：通过内存 ACP 连接确认通知能力协商与原样转发，fixture 使用 SDK 官方 notice 类型往返；不连接真实供应商。
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml --test real_agent real_agent_keeps_nested_project_scope_through_steering_and_history_restore -- --ignored --nocapture`：通过既有 `LITHE_ACP_E2E_*` 显式配置真实供应商，使用独立 CLI 临时目录。外层 IDE 与内层 Spring Boot 的 README 内容不同，核对工具实际返回的内层文档、回复中补充、重连恢复后的项目用途，以及用户消息、实时标题和历史列表不出现 Host 上下文。真实 Claude 与 Codex 均需执行；受控 ACP 回归另覆盖两个不同工作区、文本能力、附件、原生命令与完整/截断标题，默认跳过网络测试不算真实通过。
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentTranscriptScrollTests`：真实原生会话视图在独立子进程中驱动四轮溢出历史、工具更新、编辑/执行权限、最终统计与窄宽窗口。验证主动浏览不被拉走，权限卡片不遮住最新回复，回到底部后继续跟随；子进程有八秒期限，布局死循环也能由父进程结束并报告最后阶段。最终窗口宽度变更后的底部检查最多等待两秒的原生布局事务，仍要求差距小于2pt，不强制滚动或放宽精度。完整工作区双窗口回放额外覆盖原卡点与连续面板宽度变化，不把合成事件回放等同于真实模型端到端通过。macOS 13 的源码兼容性与最低部署目标保留，旧系统运行仍须在对应系统复验。

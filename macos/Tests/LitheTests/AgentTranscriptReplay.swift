@@ -78,17 +78,30 @@ final class TranscriptReplay {
                     "status": "in_progress", "rawInput": ["command": title]],
                     "options": [["optionId": "allow_once", "name": "Yes, once", "kind": "allow_once"],
                                 ["optionId": "reject_once", "name": "No", "kind": "reject_once"]]]])
+            try update(["sessionUpdate": "notice", "severity": "warning", "title": "Tool advisory",
+                        "description": "The tool is waiting for your permission. Existing history must remain readable."])
+            guard let noticeID = feature.selectedConversation?.notice?.id else { throw ReplayError.missingNotice }
             try await layout("permission-\(id)")
             if !browsingHistory {
-                guard let document = scroll.documentView,
-                      clip.bounds.maxY - scroll.contentInsets.bottom >= document.frame.maxY - 1 else {
-                    throw ReplayError.permissionObscuredTheLatestReply
+                // Inset changes queue native bottom-following after the render.
+                // Await its visible result, rather than assuming one layout runs it.
+                let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+                while clip.bounds.maxY - scroll.contentInsets.bottom < (scroll.documentView?.frame.maxY ?? 0) - 1 {
+                    guard ContinuousClock.now < deadline else {
+                        throw ReplayError.latestReplyWasNotVisible(document: scroll.documentView?.frame.maxY ?? 0,
+                            viewport: clip.bounds.maxY, frame: clip.frame.maxY, inset: scroll.contentInsets.bottom)
+                    }
+                    try await layout("following-permission-\(id)")
                 }
             }
             guard feature.selectedConversation?.permission?.id == id else { throw ReplayError.missingPermission }
             feature.answerPermission(optionID: "allow_once")
             try await layout("permission-answer-\(id)")
             guard feature.selectedConversation?.permission == nil else { throw ReplayError.remainingPermission }
+            guard feature.selectedConversation?.notice?.id == noticeID else { throw ReplayError.missingNotice }
+            feature.dismissNotice(noticeID, in: "replay")
+            try await layout("notice-dismiss-\(id)")
+            guard feature.selectedConversation?.notice == nil else { throw ReplayError.remainingNotice }
             if browsingHistory {
                 guard abs(clip.bounds.minY - browsingY) < 1 else { throw ReplayError.historyPositionWasLost }
             }
@@ -185,6 +198,6 @@ private final class ReplayConnection: AgentConnection {
     func close() async {}
 }
 private enum ReplayError: Error {
-    case missingSession, missingPermission, remainingPermission, missingReply, invalidCommand, missingScrollView, historyPositionWasLost, permissionObscuredTheLatestReply
+    case missingSession, missingPermission, remainingPermission, missingNotice, remainingNotice, missingReply, invalidCommand, missingScrollView, historyPositionWasLost
     case latestReplyWasNotVisible(document: CGFloat, viewport: CGFloat, frame: CGFloat, inset: CGFloat)
 }

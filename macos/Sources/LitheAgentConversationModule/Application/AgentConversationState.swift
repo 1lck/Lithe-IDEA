@@ -117,6 +117,12 @@ public struct AgentConversation: Equatable, Sendable {
         }
     }
     public var configurationError: String?
+    /// Latest live advisory; never part of the Agent's persisted transcript.
+    public var notice: AgentSessionNotice?
+    /// A fallback can be reported before the configuration result that makes it applicable.
+    var pendingModeNotice: AgentSessionNotice?
+    /// Native /model changes have no local config token; consume this on the next snapshot.
+    var autoFallbackTransition: AgentAutoFallbackTransition?
     /// A new process must load this session before prompting it again.
     public var isAttached = false
     /// Only successful creation or loading establishes a complete history snapshot.

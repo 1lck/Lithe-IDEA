@@ -50,6 +50,7 @@ java_jdt=false
 rust_comments=false
 metadata=false
 git_validation=false
+swift_hosted=false
 
 enable_all_validation() {
     swift=true
@@ -275,6 +276,13 @@ classify_path() {
             swift=true
             git_validation=true
             ;;
+        macos/tests/lithetestdesktopisolation/*|macos/tests/lithetestdesktopisolationtests/*)
+            # The WindowServer alpha check of the test isolation is skipped on
+            # the Mac minis' macOS 27 (#1278); changes to it must run Swift
+            # tests where that check executes, on hosted macOS 26 runners.
+            swift=true
+            swift_hosted=true
+            ;;
         macos/tests/*)
             swift=true
             ;;
@@ -475,6 +483,7 @@ case "$ci_scope" in
         rust_comments=false
         metadata=false
         git_validation=false
+        swift_hosted=false
         ;;
     release_promotion)
         swift=false
@@ -489,6 +498,7 @@ case "$ci_scope" in
         rust_comments=false
         metadata=false
         git_validation=false
+        swift_hosted=false
         ;;
     *)
         printf '%s\n' "LITHE_CI_SCOPE must be pull_request, post_merge, or release_promotion" >&2
@@ -508,4 +518,5 @@ printf 'java_jdt=%s\n' "$java_jdt"
 printf 'rust_comments=%s\n' "$rust_comments"
 printf 'metadata=%s\n' "$metadata"
 printf 'git_validation=%s\n' "$git_validation"
+printf 'swift_hosted=%s\n' "$swift_hosted"
 printf 'ci_scope=%s\n' "$ci_scope"
