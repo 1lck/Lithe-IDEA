@@ -35,11 +35,11 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock,
-    InitializeRequest, ListSessionsRequest, LoadSessionRequest, PromptRequest,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionConfigOption, SessionNotification,
-    SetSessionConfigOptionRequest,
+    AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities,
+    ClientSessionCapabilities, ContentBlock, InitializeRequest, ListSessionsRequest,
+    LoadSessionRequest, NoticeCapabilities, PromptRequest, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
+    SessionConfigOption, SessionNotification, SetSessionConfigOptionRequest,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
@@ -1121,6 +1121,8 @@ where
             let typed_failures = claude_api_key || gateway.as_ref().is_some_and(|route| route.native_recovery);
             let air_capabilities = if typed_failures { vec!["recommendedValue", "sessionFailure"] } else { vec!["recommendedValue"] };
             let capabilities = ClientCapabilities::new()
+                // Keep upstream advisories out of assistant transcript chunks.
+                .session(ClientSessionCapabilities::new().notices(NoticeCapabilities::new()))
                 .auth(AuthCapabilities::new().meta(serde_json::Map::from_iter([(
                     GATEWAY_AUTH_METHOD.to_owned(),
                     serde_json::Value::Bool(true),

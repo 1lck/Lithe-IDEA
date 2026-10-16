@@ -2,12 +2,19 @@
   "id": "agent-mode-sync",
   "area": "AI",
   "group": "Agent 对话",
-  "capability": "Agent 自行切换模式（ACP current_mode_update）时同步当前会话的权限模式选择器，仅接受上游配置中存在的模式，不回发设置请求",
+  "capability": "Agent 自行切换模式时同步权限选择器；结构化 notice 与回复分开，过期 Auto 提示不覆盖 Plan，本地或原生 /model 切换中新产生的降级原因保留，配置结果不重放旧警告覆盖新通知，后续换模型清理旧通知",
   "macos": {
     "evidence": [
       "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
       "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
-      "shared/fixtures/agent/acp-events-v1.json"
+      "macos/Tests/LitheTests/AgentConversationPresentationTests.swift",
+      "macos/Tests/LitheTests/AgentTranscriptReplay.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentSessionNotice.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
+      "rust/lithe-agent-host/src/tests.rs",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "macos/Tests/LitheTests/AgentConversationSelectionTests.swift",
+      "docs/agent-mode-notice-visual-check.md"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -20,5 +27,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Agent",
-  "verification": "macOS：使用真实 Agent 进入并退出计划模式，确认 current_mode_update 只同步当前会话中包含该模式 ID 的 mode 配置，模型与思考选项不改变，不向 Agent 回发 setConfigOption；未知模式 ID 不改变选择器且不显示原始 ID。切换会话确认各自模式独立，历史加载后以 Agent 回放为准。Windows Agent 对话 UI 尚未实现。"
+  "verification": "macOS：使用真实 Agent 进入并退出计划模式，确认 current_mode_update 只同步有效模式且不回发请求。Claude 默认 Auto 且模型不支持时，先切 Plan 再首次发送，迟到降级提示不出现；实际降级时显示可关闭通知，成功切模式或模型后清除旧通知，配置失败保留。新降级通知早于配置结果时等待确认，不能被旧 Plan 或新模型确认误删；暂存警告→新错误→配置成功/失败都保留新错误，相反顺序保留最新有效警告，无效或其他会话通知不改变顺序。无本地 token 的原生 /model 按 mode→notice→config 顺序保留本次新通知，转换只保护一份完整配置，后续换模型仍清理旧警告；覆盖后台会话隔离和新轮次清理。确认通知不进入回复、导出或轮次统计，各会话独立；深浅主题和窄宽面板使用共享 Banner。执行 AgentConversationFeatureModelTests、AgentConversationPresentationTests、AgentTranscriptScrollTests、Host notice 握手与转发测试，通知与权限同时出现及关闭时保持长历史滚动。真实供应商验收仍 pending，Windows Agent 对话 UI 尚未实现。"
 }

@@ -427,6 +427,35 @@ Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
 the agent. Permission displays combine already received tool details with the
 permission request, and distinguish allow/reject option kinds.
 
+The Host advertises `clientCapabilities.session.notices: {}` using the pinned
+SDK's `unstable_session_notices` feature. ACP `notice` updates retain their
+`severity`, plain-text `title`, and optional `description` in the existing
+`update` envelope. They are live advisories, not assistant replies or persisted
+history. macOS displays the latest notice per session through its shared Banner,
+allows dismissal, and clears it on the next submitted prompt or disconnect.
+An outstanding permission request takes presentation priority without discarding
+the notice; the notice is displayed after the user answers. Visible text is
+bounded to two title lines and three detail lines, with full text on hover.
+Claude ACP 0.81.2 may defer its initial Auto fallback warning until the first
+prompt: its structured warning title `Auto mode unavailable` is shown only
+while the confirmed mode is `acceptEdits`. A confirmed model change clears a
+warning from before that change, while preserving a new warning emitted between
+an upstream Auto-to-Accept-edits mode transition and its next complete config
+snapshot. This transition is session-local and consumed by one config snapshot;
+it also covers native `/model` changes without a local request token. A later
+model change clears the warning normally. A pending or failed local setting must not clear a still-applicable
+warning. Plain assistant text is never classified or removed by this rule.
+When a configuration request is pending, the matching fallback notice waits for
+that request's result before checking the confirmed mode. This preserves a new
+fallback sent before its `config_option_update` or response, while still dropping
+an obsolete startup notice after a confirmed switch to Plan. A newer applicable
+notice in the same session invalidates the older pending fallback, so a later
+configuration success or failure cannot replay it over the newer notice. In the
+reverse order, the newest fallback still waits for confirmation before replacing
+the earlier notice. Invalid notices and notices for other sessions do not change
+that ordering.
+Windows has no consumer for this shared Host conversation API yet.
+
 The caller must close each handle
 exactly once; closing revokes callbacks and stops the process tree, force
 killing processes that do not exit after a short grace period. The callback
