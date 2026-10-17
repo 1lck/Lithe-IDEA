@@ -238,3 +238,76 @@ test("a menu item with children opens a nested submenu", async () => {
   await act(async () => child.click());
   expect(select).toHaveBeenCalledTimes(1);
 });
+
+test("keyboard focus highlights, scrolls to, and activates grouped menu rows", async () => {
+  const selectAll = mock(() => {});
+  const selectDev = mock(() => {});
+  const keydown = (key: string) =>
+    act(async () =>
+      document
+        .querySelector<HTMLInputElement>("input")!
+        .dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true })),
+    );
+  await render(
+    <Dropdown
+      isOpen
+      animated={false}
+      searchable
+      point={{ x: 40, y: 60 }}
+      onClose={() => {}}
+      sections={[
+        { id: "all", items: [{ id: "all", label: "All", onClick: selectAll }] },
+        {
+          id: "local",
+          label: "Local",
+          items: [
+            { id: "main", label: "main", onClick: () => {} },
+            { id: "legacy", label: "legacy", onClick: () => {}, disabled: true },
+            { id: "dev", label: "dev", onClick: selectDev },
+          ],
+        },
+        {
+          id: "remote",
+          label: "origin/…",
+          items: [{ id: "origin-release", label: "origin/release", onClick: () => {} }],
+        },
+      ]}
+    />,
+  );
+
+  const rows = () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+  // The focused variant adds the exact "bg-accent" token; the idle row only has "hover:bg-accent".
+  const focusedRow = () => rows().find((row) => row.className.split(/\s+/).includes("bg-accent"));
+  const scrolled: Element[] = [];
+  const previousScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
+  window.HTMLElement.prototype.scrollIntoView = function scrollIntoViewRecorder() {
+    scrolled.push(this);
+  };
+
+  try {
+    // End reaches the last enabled row of the last group and scrolls it into view.
+    await keydown("End");
+    expect(focusedRow()?.textContent).toBe("origin/release");
+    expect(scrolled[scrolled.length - 1]?.textContent).toBe("origin/release");
+
+    // ArrowUp crosses back into the "local" group and skips its disabled row.
+    await keydown("ArrowUp");
+    expect(focusedRow()?.textContent).toBe("dev");
+    await keydown("ArrowUp");
+    expect(focusedRow()?.textContent).toBe("main");
+    expect(scrolled[scrolled.length - 1]?.textContent).toBe("main");
+
+    await keydown("Home");
+    expect(focusedRow()?.textContent).toBe("All");
+
+    // Enter activates the row the highlight is on, never the disabled one.
+    await keydown("ArrowDown");
+    await keydown("ArrowDown");
+    expect(focusedRow()?.textContent).toBe("dev");
+    await keydown("Enter");
+    expect(selectDev).toHaveBeenCalledTimes(1);
+    expect(selectAll).toHaveBeenCalledTimes(0);
+  } finally {
+    window.HTMLElement.prototype.scrollIntoView = previousScrollIntoView;
+  }
+});

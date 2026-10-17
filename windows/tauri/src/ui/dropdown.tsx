@@ -370,6 +370,25 @@ export interface DropdownSection {
   items: MenuItem[];
 }
 
+// MenuItemsList numbers every non-separator row, disabled rows included, while the menu's
+// keyboard index counts only enabled rows; translate between the two conventions so the
+// highlighted row always matches the row Enter activates, in flat and grouped menus alike.
+function translateKeyboardFocus(items: MenuItem[], keyboardIndex: number) {
+  let remaining = keyboardIndex;
+  let listIndex = -1;
+  let enabledCount = 0;
+  let localFocusIndex = -1;
+  for (const item of items) {
+    if (item.separator) continue;
+    listIndex += 1;
+    if (item.disabled) continue;
+    if (remaining === 0 && localFocusIndex < 0) localFocusIndex = listIndex;
+    remaining -= 1;
+    enabledCount += 1;
+  }
+  return { localFocusIndex, enabledCount };
+}
+
 type AnchorSide = "top" | "bottom";
 type AnchorAlign = "start" | "end";
 
@@ -799,6 +818,19 @@ export function Dropdown(props: DropdownProps) {
   const transformOrigin =
     originMap[`${resolvedSide}-${anchorAlign}`] ?? (point ? "top left" : "top left");
 
+  const filteredItems = hasItems ? getFilteredItems() : [];
+  const itemFocusIndex = translateKeyboardFocus(filteredItems, focusIndex).localFocusIndex;
+  const filteredSections = hasSections ? getFilteredSections() : [];
+  let enabledBefore = 0;
+  const sectionFocusIndices = filteredSections.map((section) => {
+    const { localFocusIndex, enabledCount } = translateKeyboardFocus(
+      section.items,
+      focusIndex - enabledBefore,
+    );
+    enabledBefore += enabledCount;
+    return localFocusIndex;
+  });
+
   return (
     <FloatingPopoverContent
       isOpen={isOpen}
@@ -843,15 +875,15 @@ export function Dropdown(props: DropdownProps) {
         {hasChildren && (props as ChildrenContent).children}
         {hasItems && (
           <MenuItemsList
-            items={getFilteredItems()}
-            focusIndex={focusIndex}
+            items={filteredItems}
+            focusIndex={itemFocusIndex}
             onItemSelect={closeOnSelect ? onClose : undefined}
             density={density}
             showIcons={showIcons}
           />
         )}
         {hasSections &&
-          getFilteredSections().map((section, sectionIdx) => (
+          filteredSections.map((section, sectionIdx) => (
             <div key={section.id}>
               {sectionIdx > 0 && <div className="my-0.5 border-border/70 border-t" />}
               {section.label && (
@@ -859,6 +891,7 @@ export function Dropdown(props: DropdownProps) {
               )}
               <MenuItemsList
                 items={section.items}
+                focusIndex={sectionFocusIndices[sectionIdx]}
                 onItemSelect={closeOnSelect ? onClose : undefined}
                 density={density}
                 showIcons={showIcons}

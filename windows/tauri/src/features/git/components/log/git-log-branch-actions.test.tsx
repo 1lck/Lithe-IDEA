@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useRepositoryStore } from "../../stores/git-repository.store";
+import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitReference } from "../../types/git.types";
 import { GitLogToolWindow } from "./git-log-tool-window";
 
@@ -65,6 +66,9 @@ let restoreDom: () => void;
 let container: HTMLDivElement;
 let root: Root;
 let previousRepos: ReturnType<typeof useRepositoryStore.getState>;
+// The tool window persists the applied Branch filter per repository; restore the shared
+// preferences store so randomized suite order cannot leak this file's references.
+let previousGitLogPreferences: ReturnType<typeof useGitLogPreferencesStore.getState>;
 const globals = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousAct: boolean | undefined;
 const content = ({ children }: { children?: ReactNode }) => <div>{children}</div>;
@@ -74,6 +78,7 @@ beforeEach(() => {
   previousAct = globals.IS_REACT_ACT_ENVIRONMENT;
   globals.IS_REACT_ACT_ENVIRONMENT = true;
   previousRepos = useRepositoryStore.getState();
+  previousGitLogPreferences = useGitLogPreferencesStore.getState();
   useRepositoryStore.setState({ activeRepoPath: "C:/repo-a", availableRepoPaths: ["C:/repo-a"] });
   refresh.mockClear();
   confirm.mockClear();
@@ -188,6 +193,7 @@ afterEach(async () => {
   } finally {
     for (const spy of spies.splice(0)) spy.mockRestore();
     useRepositoryStore.setState(previousRepos);
+    useGitLogPreferencesStore.setState(previousGitLogPreferences, true);
     container.remove();
     if (previousAct === undefined) delete globals.IS_REACT_ACT_ENVIRONMENT;
     else globals.IS_REACT_ACT_ENVIRONMENT = previousAct;
