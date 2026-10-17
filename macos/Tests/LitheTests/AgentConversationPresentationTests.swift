@@ -930,12 +930,14 @@ struct AgentConversationPresentationTests {
 private final class AgentGrowingComposerDraft: ObservableObject {
     @Published var text = ""
     @Published var files: [AgentFileReference] = []
+    @Published var fileMentionRevision: UUID?
 }
 
 private struct AgentGrowingComposerFixture: View {
     @ObservedObject var draft: AgentGrowingComposerDraft
     let editorLayout: Bool
     let onComposer: (NSView) -> Void
+    var findFiles: ((String) async -> [AgentFileMention])? = nil
 
     var body: some View {
         AgentConversationLayout {
@@ -943,6 +945,7 @@ private struct AgentGrowingComposerFixture: View {
         } composer: {
             AgentComposerView(agents: [], selectedAgent: nil, isResponding: false, isBlocked: false,
                 onSend: { _, _ in }, onCancel: {}, onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                findFiles: findFiles, fileMentionRevision: draft.fileMentionRevision,
                 draftText: $draft.text, draftFiles: $draft.files)
                 .background(AgentDraftFrameProbe(onCreate: onComposer))
                 .modifier(AgentEditorColumn(isEditor: editorLayout))
@@ -964,6 +967,87 @@ private struct AgentDraftFrameProbe: NSViewRepresentable {
 }
 
 extension AgentConversationPresentationTests {
+    @Test(arguments: ["@", "＠"], [ColorScheme.dark, .light])
+    func bareFileMentionOpensTheProductionComposerList(trigger: String, scheme: ColorScheme) async throws {
+        let draft = AgentGrowingComposerDraft()
+        let file = AgentFileMention(path: "Sources/示例.swift", url: URL(fileURLWithPath: "/example/project/Sources/示例.swift"))
+        var inventory: [AgentFileMention] = []
+        var queries: [String] = []
+        let host = NSHostingView(rootView: AgentGrowingComposerFixture(draft: draft, editorLayout: false,
+            onComposer: { _ in }, findFiles: { query in queries.append(query); return inventory })
+            .environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+
+        func input(in view: NSView) -> NSTextField? {
+            (view as? NSTextField) ?? view.subviews.lazy.compactMap { input(in: $0) }.first
+        }
+        func list() -> NSScrollView? {
+            guard let field = input(in: host) else { return nil }
+            return commandScroll(in: host, excluding: field)
+        }
+        func layout(until condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            repeat {
+                await withCheckedContinuation { gate in
+                    DispatchQueue.main.async {
+                        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
+                        host.needsLayout = true
+                        host.layoutSubtreeIfNeeded()
+                        gate.resume()
+                    }
+                }
+                if condition() { return }
+            } while ContinuousClock.now < deadline
+            try #require(condition(), "The production composer did not update its file candidates")
+        }
+        // Exercise the real binding and task before the initial workspace scan finishes.
+        draft.text = trigger
+        try await layout { !queries.isEmpty }
+        #expect(queries == [""], "Typing @ must request the workspace inventory without a keyword")
+        inventory = [file]
+        draft.fileMentionRevision = UUID()
+        try await layout { list()?.bounds.height ?? 0 >= 26 }
+        #expect(queries == ["", ""], "Loaded files must appear without deleting and retyping @")
+        let suggestions = try #require(list(), "The production composer must display file candidates for a bare @")
+        #expect(suggestions.bounds.height >= 26)
+        #expect(draft.text == trigger && draft.files.isEmpty, "Opening candidates must not attach or send a file")
+
+        if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_FILE_MENTION_SCREENSHOTS"] {
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: folder).appendingPathComponent("bare-\(trigger == "@" ? "ascii" : "fullwidth")-\(scheme).png"))
+        }
+    }
+
+    @Test(arguments: ["@", "＠", "review @"])
+    func bareFileMentionSupportsSelectionDismissalAndKeywordReplacement(draft: String) {
+        let first = AgentCommand.fileMention(AgentFileMention(path: "README.md", url: URL(fileURLWithPath: "/example/project/README.md")))
+        let second = AgentCommand.fileMention(AgentFileMention(path: "Sources/示例.swift", url: URL(fileURLWithPath: "/example/project/Sources/示例.swift")))
+        var completion = AgentCommandCompletion()
+        completion.draft = draft
+        completion.setFileMentions([first, second], for: "")
+        #expect(completion.suggestions(in: []) == [first, second])
+        #expect(completion.handle(.down, commands: [], isResponding: false) == .handled)
+        #expect(completion.handle(.tab, commands: [], isResponding: false) == .attach(second))
+        #expect(completion.draft == String(draft.dropLast()))
+        #expect(completion.suggestions(in: []) == nil)
+
+        completion.draft = draft
+        completion.setFileMentions([first, second], for: "")
+        #expect(completion.handle(.escape, commands: [], isResponding: true) == .handled)
+        #expect(completion.suggestions(in: []) == nil)
+        completion.draft += "Read"
+        #expect(completion.suggestions(in: []) == nil, "Default candidates cannot be selected for a newer keyword")
+        completion.setFileMentions([first], for: "Read")
+        #expect(completion.handle(.submit, commands: [], isResponding: false) == .attach(first))
+        #expect(completion.draft == String(draft.dropLast()))
+    }
+
     @Test
     func chineseInputTriggersOpenCommandsAndSkills() {
         let commands = [AgentCommand(name: "review", description: "Review"),

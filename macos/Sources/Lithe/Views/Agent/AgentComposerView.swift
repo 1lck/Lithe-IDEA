@@ -33,6 +33,8 @@ struct AgentComposerView: View {
     var commands: [AgentCommand] = []
     /// Workspace files matching an `@` query; nil where no workspace is open.
     var findFiles: ((String) async -> [AgentFileMention])? = nil
+    /// Refresh a bare @ when the workspace's initial scan or file inventory changes.
+    var fileMentionRevision: UUID? = nil
     /// Saves a pasted image to platform storage and returns the file to attach.
     var savePastedImage: ((Data) throws -> URL)? = nil
     var showsToolbar = true
@@ -67,6 +69,14 @@ struct AgentComposerView: View {
     private var commandSuggestions: [AgentCommand]? {
         completion.suggestions(in: commands)
     }
+    private struct FileMentionRequest: Equatable {
+        let query: String?
+        let inventoryRevision: UUID?
+    }
+    private var fileMentionRequest: FileMentionRequest {
+        let query = AgentCommand.mentionQuery(in: currentDraft)
+        return FileMentionRequest(query: query, inventoryRevision: query == "" ? fileMentionRevision : nil)
+    }
 
     var body: some View {
         composerContent
@@ -88,8 +98,8 @@ struct AgentComposerView: View {
         .onChange(of: draftText?.wrappedValue) { value in
             if let value, value != completion.draft { completion.draft = value }
         }
-        .task(id: AgentCommand.mentionQuery(in: currentDraft)) {
-            await loadFileMentions(for: AgentCommand.mentionQuery(in: currentDraft))
+        .task(id: fileMentionRequest) {
+            await loadFileMentions(for: fileMentionRequest.query)
         }
         .padding(.horizontal, AgentComposerMetrics.horizontalInset)
         .padding(.bottom, AgentComposerMetrics.bottomInset)
@@ -287,11 +297,15 @@ struct AgentComposerView: View {
 
     /// Debounced so a fast typist searches once per pause, not per keystroke.
     private func loadFileMentions(for query: String?) async {
-        guard let query, !query.isEmpty, let findFiles else {
+        guard let query, let findFiles else {
             completion.setFileMentions([], for: nil)
             return
         }
-        try? await Task.sleep(for: .milliseconds(150))
+        // A bare @ lists the loaded workspace immediately; only searches debounce.
+        if !query.isEmpty {
+            do { try await Task.sleep(for: .milliseconds(150)) }
+            catch { return }
+        }
         guard !Task.isCancelled else { return }
         let files = await findFiles(query)
         guard !Task.isCancelled else { return }
