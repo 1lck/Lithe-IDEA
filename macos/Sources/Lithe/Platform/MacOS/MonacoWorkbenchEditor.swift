@@ -43,7 +43,7 @@ struct MonacoWorkbenchThemeConfiguration: Equatable {
             "selection": Self.cssColor(palette.selection),
             "lineHighlight": Self.cssColor(palette.currentLine),
             "lineNumber": Self.cssColor(palette.lineNumber),
-            "activeLineNumber": Self.cssColor(palette.text),
+            "activeLineNumber": Self.cssColor(palette.activeLineNumber),
             "guide": Self.cssColor(palette.guide),
             "activeGuide": Self.cssColor(palette.activeGuide),
             "link": Self.cssColor(palette.link)
@@ -95,9 +95,10 @@ struct MonacoWorkbenchEditor: View {
     var sessionGroupID: UUID? = nil
     var preview: MonacoPreviewConfiguration? = nil
     var markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
+    var showsSoftWrapToggle = false
 
     var body: some View {
-        MonacoWorkbenchContent(document: document, secondaryDocument: secondaryDocument, sessionGroupID: sessionGroupID, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model)
+        MonacoWorkbenchContent(document: document, secondaryDocument: secondaryDocument, sessionGroupID: sessionGroupID, preview: preview, markdownScrollPosition: markdownScrollPosition, showsSoftWrapToggle: showsSoftWrapToggle, model: model)
             .id(sessionGroupID == nil && preview?.presentationID == nil ? nil : document.id)
     }
 }
@@ -113,12 +114,14 @@ private struct MonacoWorkbenchContent: View {
     let secondaryDocument: EditorDocument?
     let preview: MonacoPreviewConfiguration?
     let markdownScrollPosition: Binding<MarkdownScrollPosition>?
+    let showsSoftWrapToggle: Bool
 
-    init(document: EditorDocument, secondaryDocument: EditorDocument?, sessionGroupID: UUID?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel) {
+    init(document: EditorDocument, secondaryDocument: EditorDocument?, sessionGroupID: UUID?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, showsSoftWrapToggle: Bool, model: AppModel) {
         self.document = document
         self.secondaryDocument = secondaryDocument
         self.preview = preview
         self.markdownScrollPosition = markdownScrollPosition
+        self.showsSoftWrapToggle = showsSoftWrapToggle
         self.model = model
         _background = ObservedObject(wrappedValue: model.workbenchBackgroundFeature)
         _session = StateObject(wrappedValue: MonacoWorkbenchSession.forModel(model.id,
@@ -141,6 +144,9 @@ private struct MonacoWorkbenchContent: View {
                     minimap: settings.editorMinimapEnabled,
                     markers: diagnostics.diagnostics(for: document.url),
                     secondaryMarkers: secondaryDocument.map { diagnostics.diagnostics(for: $0.url) } ?? [])
+                    .overlay(alignment: .topTrailing) {
+                        if showsSoftWrapToggle { EditorSoftWrapToggle(session: session) }
+                    }
             } else {
                 Text("Editor resources are missing. Rebuild or reinstall Lithe.")
                     .foregroundStyle(.secondary)
@@ -229,6 +235,9 @@ private final class MonacoWorkbenchMessages: NSObject, WKScriptMessageHandlerWit
 
 @MainActor
 final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDelegate {
+    /// View-local Monaco geometry; never republished through the workbench model.
+    @Published private(set) var minimapTrailingInset: CGFloat?
+
     private struct SessionReference { weak var value: MonacoWorkbenchSession? }
     private struct SessionKey: Hashable { let modelID: UUID; let documentID: UUID?; let previewID: UUID? }
     private static var sessions: [SessionKey: SessionReference] = [:]
@@ -1007,6 +1016,13 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
             ready = true; latestUpdate?(); reply(["ok": true], nil); return
         }
+        if type == "editorLayout" {
+            guard let inset = body["minimapTrailingInset"] as? Double, inset.isFinite, inset >= 0 else {
+                reply(nil, "Invalid editor layout"); return
+            }
+            if minimapTrailingInset != CGFloat(inset) { minimapTrailingInset = CGFloat(inset) }
+            reply(["ok": true], nil); return
+        }
         if type == "performance" {
             if LithePerformanceBaseline.isEnabled,
                let metrics = body["metrics"] as? [String: Any],
@@ -1094,6 +1110,10 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                       self.javaRunMarkerRequests[id] == requestID else {
                     reply(["cancelled": true], nil); return
                 }
+                let hasTests = markers.contains { $0.kind == .testClass || $0.kind == .testMethod }
+                if document.hasJavaTests != hasTests { document.hasJavaTests = hasTests }
+                let hasMain = markers.contains { $0.kind == .main }
+                if document.hasRunnableJavaMain != hasMain { document.hasRunnableJavaMain = hasMain }
                 self.javaRunMarkerLists[id] = (context, revision, url, markers)
                 reply(["canDebug": true, "markers": markers.map { marker in
                     ["id": marker.id, "line": marker.line + 1, "endLine": marker.endLine + 1,

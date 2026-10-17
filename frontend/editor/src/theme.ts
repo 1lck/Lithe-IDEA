@@ -42,6 +42,9 @@ export function defineWorkbenchTheme(input: WorkbenchThemeInput, palette: Syntax
   }
   const colors: Record<string, string> = {
     "editor.foreground": input.colors?.foreground ?? syntaxColors.get("text")!,
+    // Keep the minimap shadow and overview ruler border from forming vertical separators.
+    "scrollbar.shadow": "#00000000",
+    "editorOverviewRuler.border": "#00000000",
     "editorOverviewRuler.wordHighlightForeground": "#00000000",
     "editorOverviewRuler.wordHighlightStrongForeground": "#00000000",
     "editorOverviewRuler.wordHighlightTextForeground": "#00000000",
@@ -55,8 +58,8 @@ export function defineWorkbenchTheme(input: WorkbenchThemeInput, palette: Syntax
     ["lineHighlight", ["editor.lineHighlightBackground"]],
     ["lineNumber", ["editorLineNumber.foreground"]],
     ["activeLineNumber", ["editorLineNumber.activeForeground"]],
-    ["guide", ["editorIndentGuide.background1"]],
-    ["activeGuide", ["editorIndentGuide.activeBackground1"]],
+    ["guide", ["editorIndentGuide.background1", ...Array.from({ length: 6 }, (_, index) => `editorBracketPairGuide.background${index + 1}`)]],
+    ["activeGuide", ["editorIndentGuide.activeBackground1", ...Array.from({ length: 6 }, (_, index) => `editorBracketPairGuide.activeBackground${index + 1}`)]],
     ["link", ["editorLink.activeForeground"]],
   ];
   for (const [role, monacoKeys] of surfaceColors) {

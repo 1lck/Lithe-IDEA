@@ -22,7 +22,6 @@ struct WelcomeView: View {
     private var separatorColor: Color { colorScheme == .dark ? Color(red: 0.149, green: 0.157, blue: 0.173) : Color(red: 0.875, green: 0.882, blue: 0.898) }
     private var selectionColor: Color { colorScheme == .dark ? Color(red: 0.165, green: 0.263, blue: 0.443) : Color(red: 0.831, green: 0.886, blue: 1) }
     private var hoverColor: Color { colorScheme == .dark ? .white.opacity(0.063) : Color(red: 0.922, green: 0.925, blue: 0.941) }
-    private var borderColor: Color { colorScheme == .dark ? Color(red: 0.251, green: 0.263, blue: 0.290) : Color(red: 0.788, green: 0.800, blue: 0.839) }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -30,6 +29,7 @@ struct WelcomeView: View {
             Rectangle().fill(separatorColor).frame(width: 1)
             projectsContent
         }
+        .padding(8)
         .background(surface.ignoresSafeArea(.container, edges: .top))
         .background(WelcomeInitialFocusReset())
         .sheet(isPresented: $showingStableRollback) {
@@ -102,12 +102,12 @@ struct WelcomeView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 HStack(spacing: 8) {
-                    LitheSystemIcon(systemImage: "magnifyingglass")
-                        .font(LitheTheme.uiFont(size: 12.5))
-                        .foregroundStyle(mutedColor)
-                    TextField("Search projects", text: $projectFilter)
-                        .textFieldStyle(.plain)
-                        .font(LitheTheme.uiFont(size: 13))
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/search.svg",
+                        size: 16,
+                        preservesOriginalColors: true
+                    )
+                    LitheSearchTextField("Search projects", text: $projectFilter)
                         .focused($searchFocused)
                 }
                 .foregroundStyle(textColor)
@@ -116,23 +116,22 @@ struct WelcomeView: View {
 
                 Spacer()
 
-                Button("New Project") {
-                    model.chooseProject(title: "New Project", prompt: "Choose Folder")
-                }
-                .buttonStyle(.litheNoPress)
-                .welcomeActionStyle(foreground: textColor, border: borderColor, hover: hoverColor)
+                HStack(spacing: 6) {
+                    Button("New Project") {
+                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                    }
+                    .buttonStyle(LitheActionButtonStyle(borderInset: 0))
 
-                Button("Open") {
-                    model.chooseProject()
-                }
-                .buttonStyle(.litheNoPress)
-                .welcomeActionStyle(foreground: textColor, border: borderColor, hover: hoverColor)
+                    Button("Open") {
+                        model.chooseProject()
+                    }
+                    .buttonStyle(LitheActionButtonStyle(borderInset: 0))
 
-                Button("Clone Repository") {
-                    model.showCloneRepository()
+                    Button("Clone Repository") {
+                        model.showCloneRepository()
+                    }
+                    .buttonStyle(LitheActionButtonStyle(borderInset: 0))
                 }
-                .buttonStyle(.litheNoPress)
-                .welcomeActionStyle(foreground: textColor, border: borderColor, hover: hoverColor)
             }
             .padding(.horizontal, 14)
             .frame(height: 68)
@@ -199,11 +198,10 @@ struct WelcomeView: View {
                     }
                     Spacer(minLength: 8)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
-            .lithePointer()
             .disabled(!exists)
 
             Spacer(minLength: 0)
@@ -222,6 +220,7 @@ struct WelcomeView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(hoveredProjectMenuID == project.id ? hoverColor : .clear)
+                        .frame(width: LitheTheme.Metrics.toolbarIconButtonSize, height: LitheTheme.Metrics.toolbarIconButtonSize)
                     LitheSystemIcon(systemImage: "ellipsis")
                         .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                         .foregroundStyle(mutedColor)
@@ -242,6 +241,8 @@ struct WelcomeView: View {
         .frame(height: 68)
         .background(hoveredProjectID == project.id ? selectionColor : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle())
+        .lithePointer()
         .onHover { isHovering in
             hoveredProjectID = isHovering ? project.id : nil
         }
@@ -311,35 +312,6 @@ struct WelcomeView: View {
             locale: locale,
             opensUpward: true
         )
-    }
-}
-
-private struct WelcomeActionStyle: ViewModifier {
-    let foreground: Color
-    let border: Color
-    let hover: Color
-    @State private var isHovering = false
-
-    func body(content: Content) -> some View {
-        content
-            .font(LitheTheme.uiFont(size: 13, weight: .regular))
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 13)
-            .frame(height: 28)
-            .background(isHovering ? hover : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay {
-                RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(border, lineWidth: 1)
-            }
-            .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
-    }
-}
-
-private extension View {
-    func welcomeActionStyle(foreground: Color, border: Color, hover: Color) -> some View {
-        modifier(WelcomeActionStyle(foreground: foreground, border: border, hover: hover))
     }
 }
 

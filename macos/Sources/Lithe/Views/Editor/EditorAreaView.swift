@@ -12,6 +12,13 @@ enum EditorDocumentIconResolver {
     ) -> LitheIconKind {
         resolvedKind ?? LitheIcons.kind(for: url, isDirectory: false)
     }
+
+    static func overlayResourcePath(for url: URL, hasTests: Bool, hasMain: Bool) -> String? {
+        guard url.pathExtension.lowercased() == "java" else { return nil }
+        if hasTests { return "expui/nodes/junitTestMark.svg" }
+        return hasMain ? "expui/nodes/runnableMark.svg" : nil
+    }
+
 }
 
 private struct EditorDocumentTabIcon: View {
@@ -36,6 +43,13 @@ private struct EditorDocumentTabIcon: View {
             kind: EditorDocumentIconResolver.kind(for: document.url, resolvedKind: resolvedKind),
             size: size
         )
+        .overlay {
+            if let resource = EditorDocumentIconResolver.overlayResourcePath(
+                for: document.url, hasTests: document.hasJavaTests, hasMain: document.hasRunnableJavaMain
+            ) {
+                LitheIDEAIcon(resourcePath: resource, size: size, preservesOriginalColors: true)
+            }
+        }
         .onChange(of: resolvedKind) { kind in
             onResolvedKind?(EditorDocumentIconResolver.kind(for: document.url, resolvedKind: kind))
         }
@@ -1373,18 +1387,13 @@ struct EditorAreaView: View {
             .overlay(alignment: .top) {
                 if paneItem == activeItem { FindBarOverlay() }
             }
-            .overlay(alignment: .topTrailing) {
-                EditorSoftWrapToggle()
-                    .padding(.top, 8)
-                    .padding(.trailing, 10)
-            }
     }
 
     private func codeEditor(
         _ document: EditorDocument,
         markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
     ) -> some View {
-        MonacoWorkbenchEditor(document: document, sessionGroupID: groupID, markdownScrollPosition: markdownScrollPosition)
+        MonacoWorkbenchEditor(document: document, sessionGroupID: groupID, markdownScrollPosition: markdownScrollPosition, showsSoftWrapToggle: true)
         .clipped()
     }
 

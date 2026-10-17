@@ -516,6 +516,236 @@ async function verify() {
       container.remove();
     }
   });
+  await check("native gutter places line numbers before Run icons and preserves hit targets", async () => {
+    const id = "gutter-order";
+    const folding = languages.registerFoldingRangeProvider("java", {
+      provideFoldingRanges: () => [{ start: 1, end: 4 }],
+    });
+    await window.lithe.activate({ id, text: "class Main {\n  second\n  third\n}", revision: 0, language: "java", readonly: false });
+    try {
+      await window.lithe.refreshJavaRunMarkers();
+      editor.render(true);
+      await runEditorCommand(editor, { type: "foldAll" }, false);
+      await runEditorCommand(editor, { type: "unfoldAll" }, false);
+      editor.render(true);
+      const foldIcon = document.querySelector("#editor .cldr.codicon-folding-expanded")!;
+      assert(!!foldIcon, "expanded folding arrow was missing");
+      const foldStyle = getComputedStyle(foldIcon, ":before");
+      assert(foldStyle.width === "9px" && foldStyle.height === "9px" && foldStyle.backgroundImage.includes("6F737A"),
+        "folding arrow did not use original dark 9pt SVG geometry and color");
+      const layout = editor.getLayoutInfo();
+      assert(layout.glyphMarginWidth === 0 && layout.lineNumbersLeft < layout.decorationsLeft,
+        "glyph margin still precedes line numbers");
+      const run = document.querySelector("#editor .cldr.lithe-java-run-run")!;
+      assert(!!run, "Run decoration was not rendered after the line numbers");
+      const rect = run.getBoundingClientRect();
+      const number = [...document.querySelectorAll("#editor .line-numbers")]
+        .map(element => element.getBoundingClientRect()).find(bounds => bounds.width > 0 && bounds.top === rect.top)!;
+      assert(foldIcon.getBoundingClientRect().left - rect.right === 4, "folding arrow overlapped the action lanes");
+      assert(rect.left - number.right === 4 && rect.width === 16, `Run icon gap=${rect.left - number.right}, width=${rect.width}, number=${JSON.stringify(number.toJSON())}, layout=${JSON.stringify(layout)}, run=${JSON.stringify(rect.toJSON())}`);
+      const target = editor.getTargetAtClientPoint(rect.left + 8, rect.top + rect.height / 2);
+      assert(target?.type === monacoEditor.MouseTargetType.GUTTER_LINE_DECORATIONS && target.position?.lineNumber === 1,
+        "Run hit target did not follow its visible decoration");
+      const beforeRunClick = editor.getTopForLineNumber(4);
+      const runPoint = { bubbles: true, button: 0, buttons: 1,
+        clientX: rect.left + 8, clientY: rect.top + rect.height / 2 };
+      run.dispatchEvent(new MouseEvent("mousedown", runPoint));
+      run.dispatchEvent(new MouseEvent("mouseup", { ...runPoint, buttons: 0 }));
+      assert(editor.getTopForLineNumber(4) === beforeRunClick, `Run click changed fold height ${beforeRunClick} -> ${editor.getTopForLineNumber(4)}`);
+      await send({ type: "lastContextMenu" });
+      const style = getComputedStyle(run);
+      assert(style.backgroundSize === "16px 16px" && style.backgroundImage.includes("57965C"),
+        "Run marker did not use the original dark IDEA 16pt icon");
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+      assert(getComputedStyle(run).backgroundImage.includes("208A3C"), "light Run icon kept dark colors");
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+      await window.lithe.debugState(id, { muted: false, breakpoints: [
+        { line: 2, enabled: true, verified: true, logpoint: false },
+      ] });
+      editor.render(true);
+      const breakpoint = document.querySelector("#editor .line-numbers.lithe-breakpoint")!;
+      assert(!!breakpoint, "breakpoint did not render in the line number region");
+      const point = breakpoint.getBoundingClientRect();
+      assert(editor.getTargetAtClientPoint(point.right - 4, point.top + point.height / 2)?.type ===
+        monacoEditor.MouseTargetType.GUTTER_LINE_NUMBERS, "breakpoint hit region moved away from its icon");
+      let clickListener: { dispose(): void } | undefined;
+      const observedClick = new Promise<void>(resolve => {
+        const listener = clickListener = editor.onMouseDown(() => { listener.dispose(); resolve(); });
+        try {
+          const event = { bubbles: true, button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true,
+            clientX: point.right - 4, clientY: point.top + point.height / 2 };
+          breakpoint.dispatchEvent(new MouseEvent("mousedown", event));
+          document.dispatchEvent(new MouseEvent("mouseup", { ...event, buttons: 0 }));
+        } catch (error) { listener.dispose(); throw error; }
+      });
+      try { await withDeadline(observedClick, "breakpoint pointer click did not reach Monaco"); }
+      finally { clickListener?.dispose(); }
+      const request = (await send({ type: "debugRequests" })).requests.at(-1);
+      assert(request?.type === "toggleBreakpoint" && request.id === id && request.line === 2,
+        "line number click did not toggle the owning line's breakpoint");
+      editor.render(true);
+      const expanded = document.querySelector("#editor .cldr.codicon-folding-expanded")!;
+      const foldRect = expanded.getBoundingClientRect();
+      const foldPoint = { bubbles: true, button: 0, buttons: 1,
+        clientX: foldRect.left + 8, clientY: foldRect.top + foldRect.height / 2 };
+      assert(editor.getTargetAtClientPoint(foldPoint.clientX, foldPoint.clientY)?.type ===
+        monacoEditor.MouseTargetType.GUTTER_LINE_DECORATIONS, "folding hit target moved into code");
+      const beforeFold = editor.getTopForLineNumber(4);
+      expanded.dispatchEvent(new MouseEvent("mousedown", foldPoint));
+      expanded.dispatchEvent(new MouseEvent("mouseup", { ...foldPoint, buttons: 0 }));
+      assert(editor.getTopForLineNumber(4) < beforeFold, "clicking the moved arrow did not collapse its range");
+      editor.render(true);
+      const collapsed = document.querySelector("#editor .cldr.codicon-folding-collapsed")!;
+      assert(!!collapsed && getComputedStyle(collapsed, ":before").backgroundImage.includes("3%208L6.5"),
+        "collapsed arrow did not switch to original right-facing SVG");
+      await window.lithe.activate({ id: "gutter-test-class", text: "class Tests {\n  second\n  third\n}",
+        revision: 0, language: "java", readonly: false });
+      await window.lithe.refreshJavaRunMarkers();
+      editor.render(true);
+      const runAll = document.querySelector("#editor .cldr.lithe-java-run-run-all")!;
+      assert(!!runAll && getComputedStyle(runAll).backgroundSize === "16px 16px" &&
+        getComputedStyle(runAll).backgroundImage.includes("57965C"), "test class retained the old filled 12pt Run All icon");
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+      assert(getComputedStyle(runAll).backgroundImage.includes("208A3C"), "Run All did not select the light original SVG");
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+
+      await window.lithe.activate({ id: "gutter-test-passed", text: "void passed() {}",
+        revision: 0, language: "java", readonly: false });
+      await window.lithe.refreshJavaRunMarkers();
+      editor.render(true);
+      const passed = document.querySelector("#editor .cldr.lithe-java-run-passed")!;
+      assert(!!passed && getComputedStyle(passed).backgroundSize === "14px 14px" &&
+        getComputedStyle(passed).backgroundImage.includes("57965C"), "passed test did not use dark runSuccess SVG");
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+      assert(getComputedStyle(passed).backgroundImage.includes("55A76A"), "passed test did not select light runSuccess SVG");
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+
+      await window.lithe.activate({ id: "gutter-test-failed", text: "void failed() {}",
+        revision: 0, language: "java", readonly: false });
+      await window.lithe.refreshJavaRunMarkers();
+      editor.render(true);
+      const failed = document.querySelector("#editor .cldr.lithe-java-run-failed")!;
+      assert(!!failed && getComputedStyle(failed).backgroundSize === "14px 14px" &&
+        getComputedStyle(failed).backgroundImage.includes("E55765"), "failed test did not use runError SVG");
+    } finally { folding.dispose(); await window.lithe.retain([]); }
+  });
+  await check("native line numbers use the plain editor font one point smaller", async () => {
+    await window.lithe.activate({ id: "gutter-font", text: "first\nsecond", revision: 0, language: "plaintext", readonly: false });
+    try {
+      for (const fontSize of [13, 16]) {
+        window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize, wrap: false, minimap: true });
+        editor.render(true);
+        const number = document.querySelector("#editor .margin-view-overlays .line-numbers")!;
+        const style = getComputedStyle(number);
+        assert(parseFloat(style.fontSize) === fontSize - 1, "line number size did not follow editor font minus one");
+        assert(style.fontWeight === "400", "line number inherited a synthetic emphasis");
+        assert(style.fontFamily === getComputedStyle(document.querySelector("#editor .view-lines")!).fontFamily, "line number changed font family");
+      }
+    } finally {
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+      await window.lithe.retain([]);
+    }
+  });
+  await check("native structural guide highlights only matching brace boundaries", async () => {
+    const text = ["class Scope {", "    void run() {", "        int x = 1;", "        if (x > 0) {",
+      "            x++;", "        }", '        String text = "{";', "        // }", "    }", "}"].join("\n");
+    await window.lithe.activate({ id: "structural-guide", text, revision: 0, language: "java", readonly: true });
+    try {
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true,
+        theme: { id: "structural-guide", dark: true, colors: { background: "#191A1C", guide: "#323438", activeGuide: "#4E5157" } } });
+      const model = editor.getModel()!;
+      model.tokenization.forceTokenization(model.getLineCount());
+      const move = (lineNumber: number, column: number, active: boolean) => {
+        editor.setPosition({ lineNumber, column });
+        editor.render(true);
+        const guides = [...document.querySelectorAll("#editor .core-guide.indent-active")];
+        assert(editor.getOption(monacoEditor.EditorOption.guides).bracketPairs === (active ? "active" : false),
+          `guide activation was wrong at ${lineNumber}:${column}`);
+        assert(active ? guides.length > 0 : guides.length === 0, `guide rendering was wrong at ${lineNumber}:${column}`);
+        if (active) assert(guides.every(guide => getComputedStyle(guide).boxShadow.includes("78, 81, 87")),
+          "matched guide did not use the IDEA color");
+      };
+      move(2, model.getLineMaxColumn(2), true);
+      editor.setSelection({ startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: model.getLineMaxColumn(2) });
+      assert(editor.getOption(monacoEditor.EditorOption.guides).bracketPairs === false, "selection retained a matched guide");
+      move(3, 15, false);
+      const normal = document.querySelector("#editor .core-guide-indent")!;
+      assert(!!normal && getComputedStyle(normal).boxShadow.includes("50, 52, 56"), "normal guide did not use the IDEA color");
+      move(4, model.getLineMaxColumn(4), true);
+      move(5, 14, false);
+      move(6, 9, true);
+      move(9, 5, true);
+      move(7, model.getLineContent(7).indexOf("{") + 1, false);
+      move(8, model.getLineContent(8).indexOf("}") + 1, false);
+      // Display reconfiguration and split views must retain the same caret rule.
+      move(2, model.getLineMaxColumn(2), true);
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 16, wrap: true, minimap: true });
+      assert(editor.getOption(monacoEditor.EditorOption.guides).bracketPairs === "active", "configuration reset the active scope rule");
+      await window.lithe.showSecondary({ id: "structural-guide-split", text, revision: 0, language: "java", readonly: true });
+      const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
+      secondary.setPosition({ lineNumber: 3, column: 15 });
+      assert(secondary.getOption(monacoEditor.EditorOption.guides).bracketPairs === false, "split inherited another view's active scope");
+    } finally {
+      window.lithe.hideSecondary();
+      await window.lithe.retain([]);
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+    }
+  });
+  await check("native number column measures the smaller font and grows with document digits", async () => {
+    const canvas = document.createElement("canvas"), context = canvas.getContext("2d")!;
+    await window.lithe.activate({ id: "number-width", text: "line", revision: 0, language: "plaintext", readonly: true });
+    let revision = 0;
+    try {
+      for (const [fontFamily, fontSize] of [["monospace", 13], ["monospace", 16], ["JetBrains Mono", 13]] as const) {
+        window.lithe.configure({ dark: true, fontFamily, fontSize, wrap: false, minimap: true });
+        for (const count of [9, 99, 100, 1000, 9]) {
+          await window.lithe.replace({ id: "number-width", text: Array(count).fill("line").join("\n"),
+            previousRevision: revision, revision: ++revision });
+          editor.render(true);
+          const number = [...document.querySelectorAll("#editor .line-numbers")]
+            .find(element => element.getBoundingClientRect().width > 0)!;
+          const style = getComputedStyle(number);
+          context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          const digitWidth = Math.max(...[..."0123456789"].map(digit => context.measureText(digit).width));
+          const expected = Math.round(Math.max(16, String(count).length * digitWidth));
+          assert(Math.abs(editor.getLayoutInfo().lineNumbersWidth - expected) <= 1,
+            `number column did not follow measured font: ${count} lines, ${fontSize}pt`);
+          assert(editor.getLayoutInfo().lineNumbersLeft === 0, "number column retained an extra left glyph margin");
+          assert(style.textAlign === "right", "line numbers lost right alignment");
+        }
+      }
+      await window.lithe.showSecondary({ id: "number-width-split", text: Array(1000).fill("line").join("\n"),
+        revision: 0, language: "plaintext", readonly: true });
+      const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
+      assert(secondary.getLayoutInfo().lineNumbersWidth > editor.getLayoutInfo().lineNumbersWidth,
+        "split editors shared one document's line-number width");
+    } finally {
+      window.lithe.hideSecondary();
+      await window.lithe.retain([]);
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+    }
+  });
+  await check("native soft wrap placement follows minimap visibility and editor width", async () => {
+    const original = editor.getLayoutInfo();
+    try {
+      for (const minimap of [true, false]) {
+        window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap });
+        for (const width of [640, 420]) {
+          editor.layout({ width, height: original.height });
+          // Bridge requests are ordered; the snapshot observes the preceding layout event.
+          const reported = await send({ type: "editorLayoutSnapshot" });
+          const layout = editor.getLayoutInfo();
+          const expected = layout.minimap.minimapWidth > 0
+            ? layout.width - layout.minimap.minimapLeft : layout.verticalScrollbarWidth;
+          assert(reported.minimapTrailingInset === expected, "native button did not follow Monaco's minimap edge");
+          assert(Number.isFinite(expected) && expected >= 0, "invalid native placement");
+        }
+      }
+    } finally {
+      editor.layout({ width: original.width, height: original.height });
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+    }
+  });
   await check("native split layout shares minimap settings and restores the primary width", async () => {
     window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: false });
     assert(!editor.getOption(monacoEditor.EditorOption.minimap).enabled, "primary minimap ignored disabled setting");
@@ -611,11 +841,11 @@ async function verify() {
     const backgroundColor = () => getComputedStyle(surface).backgroundColor.replace(/ /g, "");
     const overviewRulerBackground = () => getComputedStyle(surface)
       .getPropertyValue("--vscode-editorOverviewRuler-background").trim().replace(/ /g, "");
-    const overviewRulerPixel = () => {
+    const overviewRulerPixel = (leftEdge = false) => {
       editor.render();
       const canvas = surface.querySelector<HTMLCanvasElement>(".decorationsOverviewRuler")!;
       assert(canvas.width > 0 && canvas.height > 0, "overview ruler has no render surface");
-      return [...canvas.getContext("2d")!.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data];
+      return [...canvas.getContext("2d")!.getImageData(leftEdge ? 0 : Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data];
     };
     try {
       window.lithe.configure({
@@ -630,6 +860,9 @@ async function verify() {
       assert(overviewRulerBackground() === "#f2f3f4",
         `opaque overview ruler background did not match the editor surface: ${overviewRulerBackground()}`);
       assert(overviewRulerPixel().join() === "242,243,244,255", "solid overview ruler rendered with a different background");
+      assert(overviewRulerPixel(true).join() === "242,243,244,255", "overview ruler still draws a left border");
+      const shadow = getComputedStyle(surface).getPropertyValue("--vscode-scrollbar-shadow").trim().replace(/ /g, "");
+      assert(shadow === "rgba(0,0,0,0)", `minimap shadow still draws a separator: ${shadow}`);
       window.lithe.configure({
         fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true,
         theme: { id: "probe-light-wallpaper", dark: false, colors: {
@@ -642,6 +875,7 @@ async function verify() {
       assert(overviewRulerBackground() === "rgba(0,0,0,0)",
         `overview ruler still covered the native wallpaper: ${overviewRulerBackground()}`);
       assert(overviewRulerPixel().join() === "0,0,0,0", "transparent overview ruler rendered an opaque strip");
+      assert(overviewRulerPixel(true).join() === "0,0,0,0", "transparent overview ruler still draws a border");
     } finally {
       window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
       await window.lithe.retain([]);
@@ -853,6 +1087,9 @@ async function verify() {
       await window.lithe.refreshJavaNavigation();
       const markers = model.getAllDecorations().filter(value => value.options.glyphMarginClassName?.includes("lithe-java-navigation"));
       assert(markers.length === 2 && markers[0].options.glyphMarginClassName?.includes("both"), "same-line hierarchy directions were lost");
+      assert(editor.getDomNode()!.classList.contains("lithe-gutter-navigation"), "navigation markers did not reserve their action lane");
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+      assert(editor.getDomNode()!.classList.contains("lithe-gutter-navigation"), "theme configuration removed a populated navigation lane");
       assert(markers[0].options.glyphMargin?.position === monacoEditor.GlyphMarginLane.Left, "hierarchy marker occupied the breakpoint lane");
       assert(markers[0].options.glyphMarginClassName?.includes("up-interface") && markers[0].options.glyphMarginClassName?.includes("down-inheritance"), "first-line relation icons were lost");
       assert(markers[1].options.glyphMarginClassName?.includes("up-inheritance") && markers[1].options.glyphMarginClassName?.includes("down-interface"), "second-line relation icons were lost");
@@ -873,6 +1110,7 @@ async function verify() {
       await window.lithe.activate({ id: "navigation", filename: "child.txt", readonly: false });
       await window.lithe.refreshJavaNavigation();
       assert(!model.getAllDecorations().some(value => value.options.glyphMarginClassName?.includes("lithe-java-navigation")), "non-Java rename retained hierarchy arrows");
+      assert(!editor.getDomNode()!.classList.contains("lithe-gutter-navigation"), "empty navigation lane remained after rename");
     } finally { await window.lithe.retain([]); }
   });
   for (const ending of ["edit", "rename", "close", "supersede"]) {
@@ -1014,7 +1252,7 @@ async function verify() {
       assert(editor.getRawOptions().lineNumbers === "on", "blame metadata leaked into another tab");
       assert(typeof split.getRawOptions().lineNumbers === "function", "switching the primary cleared the split's blame");
       await window.lithe.gitState("blame", { revision: 0, markers: [], blameVisible: false, blame: [] });
-      assert(split.getRawOptions().lineNumbers === "on" && split.getRawOptions().lineNumbersMinChars === 5, "closing blame left a wide gutter");
+      assert(split.getRawOptions().lineNumbers === "on" && split.getRawOptions().lineNumbersMinChars === 1, "closing blame left a wide gutter");
       await split.getAction("lithe.git.blameCommit")!.run();
       assert((await send({ type: "blameCommits" })).commits.length === 1, "hidden blame remained actionable");
     } finally {

@@ -4,6 +4,18 @@ import Testing
 
 @Suite("Workbench rendering safety")
 struct WorkbenchRenderingSafetyTests {
+    @MainActor
+    @Test
+    func projectTabsSizeToContentAndBoundLongLabels() {
+        let short = WorkbenchLayoutMetrics.projectTabWidth(name: "API", documentName: nil, needsAttention: false)
+        let longer = WorkbenchLayoutMetrics.projectTabWidth(name: "workspace-services", documentName: nil, needsAttention: false)
+        #expect(short == 120)
+        #expect(longer > short)
+        #expect(WorkbenchLayoutMetrics.projectTabWidth(name: "API", documentName: "README.md", needsAttention: false) > short)
+        #expect(WorkbenchLayoutMetrics.projectTabWidth(name: "workspace-services", documentName: nil, needsAttention: true) > longer)
+        #expect(WorkbenchLayoutMetrics.projectTabWidth(name: String(repeating: "W", count: 200), documentName: nil, needsAttention: true) == 360)
+    }
+
     @Test
     func projectNamePopupDoesNotNestTheApplicationEventLoop() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)

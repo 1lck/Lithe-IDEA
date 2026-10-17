@@ -86,6 +86,9 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     private(set) var diskIdentity: String?
     /// Invalidates the tab's content-based icon after disk writes or watcher events.
     @Published private(set) var iconContentRevision: UInt64 = 0
+    /// Presentation metadata from the current, revision-checked JDT Run marker response.
+    @Published var hasRunnableJavaMain = false
+    @Published var hasJavaTests = false
     private(set) var externalDiskIdentity: String?
     @Published private(set) var savedText: String
     private(set) var lifecycleState: DocumentLifecycleState
