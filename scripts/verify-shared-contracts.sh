@@ -310,7 +310,7 @@ done
       abort "Windows #{appearance} #{role} differs from shared palette" unless syntax.fetch(role).casecmp?(expected)
     end
     colors = theme.fetch("colors")
-    abort "Windows #{appearance} text differs from shared palette" unless colors.fetch("foreground").casecmp?(resolve_role.call(appearance, "text"))
+    abort "Windows #{appearance} editor text differs from shared palette" unless colors.fetch("editor-foreground").casecmp?(resolve_role.call(appearance, "text"))
     abort "Windows #{appearance} invalid differs from shared palette" unless colors.fetch("destructive").casecmp?(resolve_role.call(appearance, "invalid"))
   end
 ' "$syntax_theme_fixture" "$macos_syntax_colors" "$windows_lithe_theme"

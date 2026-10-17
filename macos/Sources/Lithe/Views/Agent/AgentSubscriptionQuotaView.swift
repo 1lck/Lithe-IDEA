@@ -45,6 +45,12 @@ enum AgentSubscriptionQuotaPresentation {
         }
     }
 
+    /// The window the compact ring shows: the most used one, so the ring turns
+    /// yellow or red as soon as any window nears its limit.
+    static func ringWindow(_ quota: AgentSubscriptionQuota?) -> AgentSubscriptionQuota.Window? {
+        quota?.mostUsedWindow ?? windows(quota).first
+    }
+
     static func percentage(_ window: AgentSubscriptionQuota.Window?, locale: Locale) -> String {
         window?.usedPercent.map {
             ($0 / 100).formatted(.percent.precision(.fractionLength(0)).locale(locale))
@@ -75,23 +81,28 @@ struct AgentSubscriptionQuotaView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { timeline in
             let stale = failure != nil || quota?.isStale(at: timeline.date) == true
-            let primary = AgentSubscriptionQuotaPresentation.windows(quota).first
-            HStack(spacing: 4) {
-                Image(systemName: stale ? "clock" : "gauge.medium")
-                Text(primary.map { AgentSubscriptionQuotaPresentation.usage($0, locale: locale) }
-                     ?? AgentLocalization.string("Quota —", locale: locale))
-                    .monospacedDigit().lineLimit(1)
+            let ring = AgentSubscriptionQuotaPresentation.ringWindow(quota)
+            let level = AgentSubscriptionQuotaPresentation.level(ring?.usedPercent, stale: stale)
+            // A single ring like Claude Desktop: gray track, filled by the most used
+            // window and colored by its level. Window names and resets live in the card.
+            ZStack {
+                Circle().stroke(LitheTheme.settingsControlBorder, lineWidth: 2)
+                if let used = ring?.usedPercent {
+                    Circle().trim(from: 0, to: min(max(used / 100, 0), 1))
+                        .stroke(level.color, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
             }
-            .font(LitheTheme.uiFont(size: 11))
-            .foregroundStyle(stale ? AgentPanelStyle.muted : AgentPanelStyle.secondary)
-            .fixedSize()
-            .padding(.vertical, 4)
+            .padding(1)
+            .frame(width: LitheTheme.Metrics.toolbarIconSize, height: LitheTheme.Metrics.toolbarIconSize)
+            .frame(width: LitheTheme.Metrics.toolbarIconButtonSize, height: LitheTheme.Metrics.toolbarIconButtonSize)
+            .contentShape(Rectangle())
             .workbenchHoverCard(placement: .above, maximumWidth: AgentStatusCardMetrics.width) {
                 panel(stale: stale).litheHoverTooltipSurface()
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Codex subscription quota")
-            .accessibilityValue(primary.map { AgentSubscriptionQuotaPresentation.usage($0, locale: locale) }
+            .accessibilityValue(ring.map { AgentSubscriptionQuotaPresentation.usage($0, locale: locale) }
                                 ?? AgentLocalization.string("Quota —", locale: locale))
             .accessibilityIdentifier("agent-subscription-quota")
         }

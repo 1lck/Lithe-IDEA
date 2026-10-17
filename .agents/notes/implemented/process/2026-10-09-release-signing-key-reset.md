@@ -21,7 +21,7 @@
 - 组织仓库密钥轮换只适用于组织发布的应用与插件。个人仓库恢复后，应用发布、更新、回退稳定版和 Homebrew 使用 `1lck/Lithe-IDEA`，继续读取个人仓库原有 Sparkle/Tauri Secrets 和公钥变量；不能把组织公钥或私钥覆盖过去，否则既有个人版客户端无法验证更新。
 - 插件市场、官方插件下载与插件 v2 公钥继续使用组织仓库。`release-official-plugins.yml` 的发布和索引写入任务只允许在 `Lithe-IDEA/Lithe-IDEA` 运行，个人仓库保留 PR 校验，不重复发布插件或依赖个人仓库的插件私钥。
 - Homebrew 从应用发布仓库的默认分支更新，下载 URL、版本和 SHA-256 必须来自同一仓库。更新脚本同时改 URL 和校验值，不能把个人包校验值配上组织包地址。正确做法是个人预发布版回退到个人签名的稳定版；不能下载组织稳定版再用个人公钥验签。
-- 两条正式发布工作流支持 `publish=false` 的完整预检。先完成打包、客户端公钥验签和临时目录内安装启动验证，再合并准备 PR、重建标签并发布；预检不得写 GitHub Release、Homebrew 分支或 AtomGit。
+- 两条正式发布工作流支持 `publish=false` 的完整预检。先完成打包、客户端公钥验签和临时目录内安装启动验证，再合并准备 PR、重建标签并发布；预检不得写 GitHub Release 或 Homebrew 分支。
 - Sparkle 使用 Node 的 Ed25519 加密实现验证 DMG 和 appcast 中的每个归档；Tauri 使用上游 minisign 验证更新器签名。插件仍由既有签名工具按内置 v2 公钥验证，不能只检查签名文件存在。
 - Developer ID 和 Authenticode 证书没有伪造配置；它们仍是独立的可选签名材料。
 

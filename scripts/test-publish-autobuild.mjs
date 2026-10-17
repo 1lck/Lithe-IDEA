@@ -31,11 +31,12 @@ function fixture(t, options = {}) {
     write(name, name); write(`${name}.sha256`, `${hash(name)}  ${name}\n`);
   }
   for (const architecture of ['arm64', 'x86_64']) {
-    const names = [`Lithe-preview-${config.build}-${architecture}.zip`, `Lithe${config.build}-58.1-${architecture}.delta`];
+    const names = [`Lithe-preview-${config.build}-${architecture}.zip`, `${options.appName ?? 'Lithe'}${config.build}-${options.baselineBuild ?? '58.1'}-${architecture}.delta`];
     for (const name of names) write(`sparkle-${architecture}/${name}`, name);
     write(`sparkle-${architecture}/orphan.delta`, 'not in manifest');
     const quote = architecture === 'arm64' ? "'" : '"';
-    write(`sparkle-${architecture}/appcast-preview-${architecture}.xml`, `<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item><sparkle:version>${config.build}</sparkle:version><pubDate>${new Date(config.timestamp).toUTCString()}</pubDate>${names.map(name => `<enclosure url=${quote}https://github.com/example/lithe/releases/download/AutoBuild/${name}${quote} length="${Buffer.byteLength(name)}" sparkle:edSignature="${Buffer.alloc(64).toString('base64')}"/>`).join('')}</item></channel></rss>`);
+    const enclosures = names.map(name => `<enclosure url=${quote}https://github.com/example/lithe/releases/download/AutoBuild/${name}${quote} length="${Buffer.byteLength(name)}" sparkle:edSignature="${Buffer.alloc(64).toString('base64')}"/>`);
+    write(`sparkle-${architecture}/appcast-preview-${architecture}.xml`, `<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item><sparkle:version>${config.build}</sparkle:version><pubDate>${new Date(config.timestamp).toUTCString()}</pubDate>${enclosures[0]}<sparkle:deltas>${enclosures[1]}</sparkle:deltas></item></channel></rss>`);
   }
   const stale = ['Lithe-0.3.0-arm64.dmg', 'Lithe-preview-58.1-arm64.zip', 'PHP-0.9.0.zip', 'old-windows.exe'];
   let assets = stale.map((name, i) => ({ id: i + 1, name, size: 1, state: 'uploaded', digest: `sha256:${hash('x')}` }));
@@ -135,6 +136,40 @@ function fixture(t, options = {}) {
 }
 const deletes = f => f.calls.filter(call => call.includes('DELETE'));
 const uploads = f => f.calls.filter(call => call[1] === 'release' && call[2] === 'upload');
+
+for (const appName of ['Lithe', 'Lithe-Dev']) {
+  await test(`publication accepts ${appName} Sparkle delta names for both architectures`, { timeout: 5000 }, t => {
+    const f = fixture(t, { appName, build: '20261017.074424', timestamp: '2026-10-17T07:44:24Z', baselineBuild: '20261016.101031', baselineTimestamp: '2026-10-16T10:10:31Z' });
+    const manifest = publishAutoBuild(f.config, { run: f.run });
+    for (const architecture of ['arm64', 'x86_64']) {
+      const name = `${appName}20261017.074424-20261016.101031-${architecture}.delta`;
+      assert.ok(manifest.includes(name));
+      assert.deepEqual(f.remoteBytes.get(name), Buffer.from(name));
+    }
+    assert.deepEqual(f.assets().map(asset => asset.name).sort(), manifest);
+    assert.deepEqual(fs.readdirSync(f.temp), []);
+  });
+
+  for (const [reason, rename] of [
+    ['target build', name => name.replace('20261015.124354', '20261015.1243540')],
+    ['architecture', name => name.replace('-arm64.delta', '-x86_64.delta')],
+    ['application name', name => name.replace(appName, `${appName}-Other`)],
+    ['asset path', name => `../${name}`],
+    ['extension', name => `${name}.zip`],
+  ]) await test(`${appName} delta with unexpected ${reason} fails before release mutation`, { timeout: 5000 }, t => {
+    const f = fixture(t, { appName });
+    const directory = path.join(f.dist, 'sparkle-arm64');
+    const feed = path.join(directory, 'appcast-preview-arm64.xml');
+    const name = `${appName}${f.config.build}-58.1-arm64.delta`;
+    const unexpected = rename(name);
+    fs.writeFileSync(path.join(directory, path.basename(unexpected)), name);
+    fs.writeFileSync(feed, fs.readFileSync(feed, 'utf8').replace(name, unexpected));
+    assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /Unexpected appcast asset/);
+    assert.equal(uploads(f).length, 0); assert.equal(deletes(f).length, 0);
+    assert.ok(!f.calls.some(call => call.includes('PATCH') || call.includes('create') || call.includes('edit')));
+    assert.deepEqual(fs.readdirSync(f.temp), []);
+  });
+}
 
 for (const failAt of [
   'uploaded:autobuild-publication.json',

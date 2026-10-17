@@ -324,3 +324,10 @@ expui/nodes/method{,_dark}.svg copied unmodified from IntelliJ Community
 revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade, under
 platform/icons/src/expui/nodes, Apache-2.0. Files reuse the shared LitheIcons
 file-type catalog; discovered classes reuse the imported expui/nodes/class SVGs.
+
+Agent reply links to github.com show the unmodified vcs/vendors/github.svg from
+Community revision 233ba81d5f6ec3f90ebd3be3159f425ecc3073ff
+(platform/icons/src/vcs/vendors/github.svg). It is drawn as a template image in
+the link color and only marks a link's destination; it is the GitHub service
+mark that Community ships for its GitHub integration, not a JetBrains product
+logo or a third-party plugin icon.
