@@ -122,6 +122,9 @@ struct AgentHistoryView: View {
     /// The user's explicit toggle; a new search falls back to the default.
     @State private var archivedExpansion: Bool?
     @State private var pendingUnarchiveID: String?
+    /// Opens a conversation once its unarchive completes. Leaving the page
+    /// cancels only the navigation; the confirmed upstream restore still finishes.
+    @State private var unarchiveOpenTask: Task<Void, Never>?
 
     private var sessions: [AgentSessionSummary] {
         AgentHistoryPresentation.managementSessions(feature.sessions, openSessionIDs: feature.openSessionIDs,
@@ -210,15 +213,22 @@ struct AgentHistoryView: View {
             Button("Cancel", role: .cancel) { pendingUnarchiveID = nil }
             Button("Unarchive and open") {
                 pendingUnarchiveID = nil
-                Task {
+                unarchiveOpenTask?.cancel()
+                unarchiveOpenTask = Task {
                     // Failures are shown through the model's archived history error.
-                    if (try? await feature.unarchiveSession(id)) != nil { onSelect(id) }
+                    let canOpen = (try? await feature.unarchiveSession(id)) == true
+                    if canOpen, !Task.isCancelled { onSelect(id) }
                 }
             }
         } message: { _ in
             Text(String(format: AgentLocalization.string("Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them.", locale: locale), agentDisplayName))
         }
-        .onDisappear { pendingRemovalIDs = nil; pendingUnarchiveID = nil }
+        .onDisappear {
+            pendingRemovalIDs = nil
+            pendingUnarchiveID = nil
+            unarchiveOpenTask?.cancel()
+            unarchiveOpenTask = nil
+        }
         .accessibilityIdentifier("agent-history-page")
     }
 

@@ -390,6 +390,62 @@ struct AgentHistoryTests {
     }
 
     @Test
+    func unarchivingDiscardsLateFailuresOfSupersededListRequests() async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [["sessionId": "restore-me"]], "complete": true])
+            // Event order: refresh starts, unarchive succeeds, replacement refresh
+            // starts, then the host answers both obsolete requests with failures.
+            fixture.feature.refreshSessions()
+            let oldTokens = fixture.transport.connection.commands.suffix(2).compactMap { $0["token"] as? String }
+            #expect(oldTokens.count == 2)
+            defer { fixture.transport.connection.onCommand = nil }
+            fixture.transport.connection.onCommand = { command in
+                guard command["kind"] as? String == "unarchiveSession" else { return }
+                fixture.feature.receive(HistoryFixture.json(["kind": "sessionUnarchived",
+                    "token": command["token"] as Any, "sessionId": "restore-me"]))
+            }
+            try await fixture.feature.unarchiveSession("restore-me")
+            let newTokens = fixture.transport.connection.commands.suffix(2).compactMap { $0["token"] as? String }
+            for token in oldTokens {
+                try fixture.emit(["kind": "requestFailed", "token": token, "message": "Obsolete list request failed."])
+            }
+            #expect(fixture.feature.errorMessage == nil, "An obsolete query must not surface as a conversation error")
+            #expect(fixture.feature.historyError == nil && fixture.feature.archivedHistoryError == nil)
+            #expect(fixture.feature.isRefreshingSessions && fixture.feature.isRefreshingArchivedSessions)
+
+            // The replacement requests still report their own failures.
+            for token in newTokens {
+                try fixture.emit(["kind": "requestFailed", "token": token, "message": "Replacement failed."])
+            }
+            #expect(fixture.feature.historyError == "Replacement failed.")
+            #expect(fixture.feature.archivedHistoryError == "Replacement failed.")
+            #expect(fixture.feature.errorMessage == nil)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func unarchivingDoesNotNavigateOverALaterSelection(selectsDuringRestore: Bool) async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [["sessionId": "restore-me"]], "complete": true])
+            defer { fixture.transport.connection.onCommand = nil }
+            fixture.transport.connection.onCommand = { command in
+                guard command["kind"] as? String == "unarchiveSession" else { return }
+                // The user opens another conversation before the restore returns.
+                if selectsDuringRestore { fixture.feature.selectSession("session-b") }
+                fixture.feature.receive(HistoryFixture.json(["kind": "sessionUnarchived",
+                    "token": command["token"] as Any, "sessionId": "restore-me"]))
+            }
+            let selectionBeforeRestore = fixture.feature.selectedSessionID
+            let canOpen = try await fixture.feature.unarchiveSession("restore-me")
+            #expect(canOpen == !selectsDuringRestore)
+            #expect(fixture.feature.archivedSessions.isEmpty, "The confirmed restore completes either way")
+            #expect(fixture.feature.selectedSessionID == (selectsDuringRestore ? "session-b" : selectionBeforeRestore))
+        }
+    }
+
+    @Test
     func archivedHistoryNeverOutlivesItsConnectionOrAppearsForOtherAgents() async throws {
         let event = try Self.fixtureEvent("archivedSessions")
         try await HistoryFixture().run(archived: true) { fixture in
