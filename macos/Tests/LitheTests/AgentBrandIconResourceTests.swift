@@ -13,7 +13,11 @@ struct AgentBrandIconResourceTests {
             selectedAgent: .init(id: "example-agent", name: name),
             isResponding: false, isBlocked: false, onSend: { _, _ in }, onCancel: {},
             onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in }
-        ).environment(\.colorScheme, isDark ? .dark : .light))
+        )
+        // The composer sizes to its draft; pin it to the bottom as the
+        // conversation layout does, so the crop below finds its toolbar.
+        .frame(maxHeight: .infinity, alignment: .bottom)
+        .environment(\.colorScheme, isDark ? .dark : .light))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 200),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
