@@ -36,7 +36,6 @@ export type PaneContentType =
   | "terminal"
   | "agent"
   | "webViewer"
-  | "newTab"
   | "diff"
   | "image"
   | "pdf"
@@ -143,10 +142,6 @@ export interface WebViewerContent extends PaneContentBase {
   profileKey?: string;
   history?: string[];
   historyIndex?: number;
-}
-
-export interface NewTabContent extends PaneContentBase {
-  type: "newTab";
 }
 
 export interface DiffContent extends PaneContentBase {
@@ -263,7 +258,6 @@ export type PaneContent =
   | TerminalContent
   | AgentContent
   | WebViewerContent
-  | NewTabContent
   | DiffContent
   | ImageContent
   | PdfContent
@@ -301,7 +295,6 @@ const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   "terminal",
   "agent",
   "webViewer",
-  "newTab",
   "pullRequest",
   "githubIssue",
   "githubAction",
@@ -388,7 +381,6 @@ export type OpenContentSpec =
       history?: string[];
       historyIndex?: number;
     }
-  | { type: "newTab" }
   | {
       type: "diff";
       path: string;

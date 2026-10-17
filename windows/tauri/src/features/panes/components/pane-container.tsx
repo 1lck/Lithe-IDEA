@@ -39,7 +39,7 @@ import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
 import { usePaneStore } from "../stores/pane.store";
 import type { PaneGroup } from "../types/pane.types";
-import type { EditorContent, NewTabContent } from "../types/pane-content.types";
+import type { EditorContent } from "../types/pane-content.types";
 import {
   ensureBufferInPaneDropTarget,
   getOrCreatePaneDropTarget,
@@ -129,7 +129,7 @@ interface PaneContainerProps {
 const MAX_MOUNTED_EDITOR_BUFFERS = 8;
 
 type EditorBufferShell = Pick<EditorContent, "id" | "path" | "name" | "type" | "readOnly">;
-type PaneRenderBuffer = Exclude<Buffer, EditorContent | NewTabContent> | EditorBufferShell;
+type PaneRenderBuffer = Exclude<Buffer, EditorContent> | EditorBufferShell;
 type PaneRenderState = {
   activeBuffer: PaneRenderBuffer | null;
   paneBuffers: PaneRenderBuffer[];
@@ -161,7 +161,6 @@ function getEditorBufferShell(buffer: EditorContent): EditorBufferShell {
 
 function toPaneRenderBuffer(buffer: Buffer | undefined): PaneRenderBuffer | undefined {
   if (!buffer) return undefined;
-  if (buffer.type === "newTab") return undefined;
   if (buffer.type === "editor") return getEditorBufferShell(buffer);
   return buffer;
 }
