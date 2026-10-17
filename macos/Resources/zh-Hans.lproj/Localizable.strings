@@ -2516,6 +2516,16 @@
 "Remove from history" = "从历史列表移除";
 "Toggle favorite" = "切换收藏";
 "Removed conversations are hidden only in Lithe. The Agent's original records are kept." = "移除仅隐藏 Lithe 中的会话，Agent 的原始记录仍保留。";
+"Archived (%d)" = "已归档（%d）";
+"Archived" = "已归档";
+"Only the most recent archived conversations are shown." = "仅显示最近的归档会话。";
+"Unarchive this conversation?" = "取消归档此会话？";
+"Unarchive and open" = "取消归档并打开";
+"Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them." = "打开后，该会话会从 %@ 的归档中移回历史记录。仅浏览归档会话不会改动它们。";
+"%@ does not provide archived conversations." = "%@ 不支持归档会话。";
+"This Agent" = "该 Agent";
+"Codex archived history could not be read." = "无法读取 Codex 的归档历史。";
+"Codex could not restore this archived conversation." = "Codex 无法取消归档此会话。";
 "Exporting conversations…" = "正在导出会话…";
 "Loading history…" = "正在加载历史…";
 "No matching conversations" = "没有匹配的会话";
