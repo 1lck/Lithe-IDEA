@@ -109,6 +109,49 @@ struct LanguageTestPresentationTests {
         }
     }
 
+    @Test
+    func parseDurationsExtractsClassAndMethodDurations() {
+        let output = """
+        [INFO] Running demo.CalculatorTest
+        Checking 2 + 3
+        [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.582 s -- in demo.CalculatorTest
+        [INFO] Results:
+        [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.017 s
+        """
+        let outcomes = [
+            MavenTestCaseOutcome(className: "demo.CalculatorTest", method: "addsPositiveNumbers()", status: "passed")
+        ]
+        let durations = LanguageTestsView.parseDurations(from: output, outcomes: outcomes)
+        #expect(durations["demo.CalculatorTest"] == "582 ms")
+        #expect(durations["CalculatorTest"] == "582 ms")
+        #expect(durations["demo.CalculatorTest#addsPositiveNumbers"] == "17 ms")
+        #expect(durations["addsPositiveNumbers"] == "17 ms")
+    }
+
+    @Test
+    func synthesizeResultItemsGeneratesClassAndMethodNodes() {
+        let outcomes = [
+            MavenTestCaseOutcome(className: "demo.CalculatorTest", method: "addsPositiveNumbers()", status: "passed"),
+            MavenTestCaseOutcome(className: "demo.CalculatorTest", method: "handlesZero()", status: "passed")
+        ]
+        let items = LanguageTestsView.synthesizeResultItems(from: outcomes, providerID: "java")
+        #expect(items.count == 3)
+        #expect(items[0].label == "CalculatorTest")
+        #expect(items[0].depth == 1)
+        #expect(items[0].kind == .testCase)
+        #expect(items[1].label == "addsPositiveNumbers")
+        #expect(items[1].depth == 2)
+        #expect(items[2].label == "handlesZero")
+        #expect(items[2].depth == 2)
+    }
+
+    @Test
+    func activeTestTargetFormatsMethodAndClassNamesCorrectly() {
+        #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest#addsPositiveNumbers()") == "CalculatorTest.addsPositiveNumbers")
+        #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest#intentionalFailureForPreview()") == "CalculatorTest.intentionalFailureForPreview")
+        #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest") == "CalculatorTest")
+    }
+
     private func testItem(_ id: String, selector: String? = nil, depth: Int) -> LanguageTestItem {
         LanguageTestItem(id: id, providerID: "java", label: id, kind: .testCase,
                          fileURL: nil, testIdentifier: selector, depth: depth)

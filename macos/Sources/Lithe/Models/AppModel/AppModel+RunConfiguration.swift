@@ -68,6 +68,7 @@ extension AppModel {
     }
 
     func selectRunConfiguration(_ configuration: RunConfiguration) {
+        activeTestTarget = nil
         runFeatureIfActive?.select(configuration)
     }
 
@@ -95,6 +96,13 @@ extension AppModel {
     }
 
     func runSelectedConfiguration() {
+        if let target = activeTestTarget {
+            runTest(
+                providerID: target.providerID,
+                scope: .testCase(identifier: target.identifier, fileURL: target.fileURL)
+            )
+            return
+        }
         Task { [weak self] in await self?.runSelectedConfigurationAfterActivation() }
     }
 

@@ -20,6 +20,7 @@ struct LanguageTestsView: View {
     @State private var wrapsLines = false
     @State private var consolePresentation = ConsoleFoldPresentation()
     @State private var resultStatuses: [String: String] = [:]
+    @State private var testDurations: [String: String] = [:]
     @State private var collapsedTestIDs: Set<String> = []
 
     private var localization: LanguageTestLocalization {
@@ -81,10 +82,13 @@ struct LanguageTestsView: View {
         .onAppear {
             selectDefaultItemIfNeeded()
             syncPerformance()
-            resultStatuses = Self.resultStatuses(service.results?.testCases ?? [])
+            updateResultsAndDurations()
         }
-        .onChange(of: service.results) { results in
-            resultStatuses = Self.resultStatuses(results?.testCases ?? [])
+        .onChange(of: service.results) { _ in
+            updateResultsAndDurations()
+        }
+        .onChange(of: service.output) { _ in
+            updateResultsAndDurations()
         }
         .onChange(of: service.itemsByProviderID) { _ in selectDefaultItemIfNeeded() }
     }
@@ -238,7 +242,20 @@ struct LanguageTestsView: View {
     private func providerSection(_ descriptor: LanguageProviderDescriptor) -> some View {
         let discovered = service.itemsByProviderID[descriptor.id] ?? []
         let reported = discovered.filter { $0.kind == .testCase && resultStatuses[Self.resultKey($0)] != nil }
-        let items = reported.isEmpty ? discovered : reported
+        let outcomes = service.results?.testCases ?? service.testOutcomes
+        let items: [LanguageTestItem]
+        let isResultTree: Bool
+        if !reported.isEmpty {
+            items = reported
+            isResultTree = true
+        } else if !outcomes.isEmpty {
+            items = Self.synthesizeResultItems(from: outcomes, providerID: descriptor.id)
+            isResultTree = true
+        } else {
+            items = discovered
+            isResultTree = false
+        }
+
         let isCollapsed = collapsedProviderIDs.contains(descriptor.id)
         let parentIDs = Set(zip(items, items.dropFirst()).compactMap { current, next in
             next.depth > current.depth ? current.id : nil
@@ -263,7 +280,7 @@ struct LanguageTestsView: View {
             }
             if !isCollapsed || testProviderDescriptors.count == 1 {
                 ForEach(Self.visibleItems(items, collapsed: collapsedTestIDs)) { item in
-                    testItemRow(item, hasChildren: parentIDs.contains(item.id), usesResultTree: !reported.isEmpty)
+                    testItemRow(item, hasChildren: parentIDs.contains(item.id), usesResultTree: isResultTree)
                 }
             }
         }
@@ -273,6 +290,7 @@ struct LanguageTestsView: View {
         let isCollapsed = collapsedTestIDs.contains(item.id)
         let selected = selectedItemID == item.id
         let status = resultStatuses[Self.resultKey(item)]
+        let duration = testDurations[Self.resultKey(item)] ?? testDurations[item.label]
         return HStack(spacing: LitheTheme.Tree.iconTextGap) {
             if hasChildren {
                 Button {
@@ -299,10 +317,18 @@ struct LanguageTestsView: View {
                         LitheIDEAIcon(resourcePath: Self.testItemIcon(status: status, kind: item.kind, hasChildren: hasChildren),
                                       size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
                     }
-                    Text(item.label)
-                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
-                        .foregroundStyle(LitheTheme.Tree.text)
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(item.label)
+                            .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                            .foregroundStyle(LitheTheme.Tree.text)
+                            .lineLimit(1)
+                        if let duration, !duration.isEmpty {
+                            Text(hasChildren ? ": \(duration)" : duration)
+                                .font(LitheTheme.uiFont(size: 11, weight: .regular))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .lineLimit(1)
+                        }
+                    }
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -318,6 +344,125 @@ struct LanguageTestsView: View {
         .padding(.leading, CGFloat(max(0, item.depth - (usesResultTree ? 1 : 0))) * LitheTheme.Tree.indent)
         .padding(.trailing, 4)
         .litheTreeRow(isSelected: selected, isFocused: itemListActive)
+    }
+
+    static func parseDurations(
+        from output: String,
+        outcomes: [MavenTestCaseOutcome] = []
+    ) -> [String: String] {
+        var durations: [String: String] = [:]
+
+        // Class duration line: Time elapsed: 0.582 s -- in demo.CalculatorTest
+        if let classRegex = try? NSRegularExpression(
+            pattern: #"Time elapsed:\s*([0-9]+(?:\.[0-9]+)?)\s*s\s*--?\s*in\s+([A-Za-z0-9_$.]+)"#
+        ) {
+            let matches = classRegex.matches(in: output, range: NSRange(output.startIndex..., in: output))
+            for match in matches {
+                if let timeRange = Range(match.range(at: 1), in: output),
+                   let classRange = Range(match.range(at: 2), in: output) {
+                    let timeStr = String(output[timeRange])
+                    let fullClassName = String(output[classRange])
+                    if let sec = Double(timeStr) {
+                        let formatted = formatDuration(seconds: sec)
+                        if durations[fullClassName] == nil {
+                            durations[fullClassName] = formatted
+                            let shortName = fullClassName.split(separator: ".").last.map(String.init) ?? fullClassName
+                            durations[shortName] = formatted
+                        }
+                    }
+                }
+            }
+        }
+
+        // Summary duration line: Time elapsed: 0.017 s (without "-- in")
+        var summaryDuration: String? = nil
+        if let summaryRegex = try? NSRegularExpression(
+            pattern: #"Time elapsed:\s*([0-9]+(?:\.[0-9]+)?)\s*s(?!\s*--?\s*in)"#
+        ) {
+            let matches = summaryRegex.matches(in: output, range: NSRange(output.startIndex..., in: output))
+            if let lastMatch = matches.last,
+               let timeRange = Range(lastMatch.range(at: 1), in: output),
+               let sec = Double(output[timeRange]) {
+                summaryDuration = formatDuration(seconds: sec)
+            }
+        }
+
+        // Map method outcomes
+        if let summary = summaryDuration {
+            for outcome in outcomes {
+                let method = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
+                let fullKey = outcome.className + "#" + method
+                if durations[fullKey] == nil {
+                    durations[fullKey] = summary
+                }
+                if durations[method] == nil {
+                    durations[method] = summary
+                }
+            }
+        }
+
+        return durations
+    }
+
+    static func formatDuration(seconds: Double) -> String {
+        if seconds < 1.0 {
+            let ms = Int(round(seconds * 1000.0))
+            return "\(ms) ms"
+        } else {
+            let rounded = round(seconds * 100.0) / 100.0
+            if rounded.truncatingRemainder(dividingBy: 1.0) == 0 {
+                return "\(Int(rounded)) s"
+            } else {
+                return String(format: "%.2f s", rounded)
+            }
+        }
+    }
+
+    static func synthesizeResultItems(
+        from outcomes: [MavenTestCaseOutcome],
+        providerID: String
+    ) -> [LanguageTestItem] {
+        var classOrder: [String] = []
+        var classGroups: [String: [MavenTestCaseOutcome]] = [:]
+        for outcome in outcomes {
+            if classGroups[outcome.className] == nil {
+                classOrder.append(outcome.className)
+            }
+            classGroups[outcome.className, default: []].append(outcome)
+        }
+
+        var items: [LanguageTestItem] = []
+        for fullClassName in classOrder {
+            let shortClassName = fullClassName.split(separator: ".").last.map(String.init) ?? fullClassName
+            let methods = classGroups[fullClassName] ?? []
+
+            let classNode = LanguageTestItem(
+                id: "testCase:\(providerID):\(fullClassName)",
+                providerID: providerID,
+                label: shortClassName,
+                kind: .testCase,
+                fileURL: nil,
+                testIdentifier: fullClassName,
+                depth: 1
+            )
+            items.append(classNode)
+
+            for outcome in methods {
+                let methodName = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
+                let methodID = "\(fullClassName)#\(methodName)"
+                let methodNode = LanguageTestItem(
+                    id: "testCase:\(providerID):\(methodID)",
+                    providerID: providerID,
+                    label: methodName,
+                    kind: .testCase,
+                    fileURL: nil,
+                    testIdentifier: methodID,
+                    depth: 2
+                )
+                items.append(methodNode)
+            }
+        }
+        return items
     }
 
     static func resultKey(_ item: LanguageTestItem) -> String {
@@ -389,6 +534,12 @@ struct LanguageTestsView: View {
         .onChange(of: detailsExpanded) { _ in updatePerformanceVisibility() }
         .onChange(of: inspectorTab) { _ in updatePerformanceVisibility() }
         .onDisappear { model.testPerformanceFeature.setVisible(false) }
+    }
+
+    private func updateResultsAndDurations() {
+        let outcomes = service.results?.testCases ?? service.testOutcomes
+        resultStatuses = Self.resultStatuses(outcomes)
+        testDurations = Self.parseDurations(from: service.output, outcomes: outcomes)
     }
 
     private func syncPerformance() {

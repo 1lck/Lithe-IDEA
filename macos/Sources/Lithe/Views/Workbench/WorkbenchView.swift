@@ -1030,14 +1030,26 @@ struct WorkbenchView: View {
         } label: {
             HStack(spacing: 2) {
                 HStack(spacing: 6) {
-                    RunConfigurationIcon(
-                        kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
-                        size: LitheTheme.MainToolbar.iconSize
-                    )
-                    Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
-                        .font(LitheTheme.MainToolbar.font)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    if let target = model.activeTestTarget {
+                        LitheIDEAIcon(
+                            resourcePath: "expui/runConfigurations/junit.svg",
+                            size: LitheTheme.MainToolbar.iconSize,
+                            preservesOriginalColors: true
+                        )
+                        Text(target.name)
+                            .font(LitheTheme.MainToolbar.font)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else {
+                        RunConfigurationIcon(
+                            kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
+                            size: LitheTheme.MainToolbar.iconSize
+                        )
+                        Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
+                            .font(LitheTheme.MainToolbar.font)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
                 LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16)
                     .foregroundStyle(LitheTheme.MainToolbar.icon)
@@ -1067,6 +1079,35 @@ struct WorkbenchView: View {
                 .padding(.top, 6)
             ScrollView {
                 VStack(spacing: 3) {
+                    if let activeTarget = model.activeTestTarget {
+                        Button {
+                            isRunConfigurationPickerPresented = false
+                        } label: {
+                            HStack(spacing: 10) {
+                                LitheIDEAIcon(
+                                    resourcePath: "expui/runConfigurations/junit.svg",
+                                    size: 16,
+                                    preservesOriginalColors: true
+                                )
+                                Text(activeTarget.name)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer(minLength: 12)
+                                Image(systemName: "checkmark")
+                                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
+                                    .opacity(1)
+                            }
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .frame(minHeight: LitheDropdownMetrics.rowHeight)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(LitheDropdownRowStyle(isSelected: true))
+                        .help(activeTarget.name)
+                        .accessibilityAddTraits(.isSelected)
+
+                        Divider().padding(.vertical, 3)
+                    }
+
                     ForEach(visibleConfigurations) { configuration in
                         if configuration.id == services.first?.id {
                             Divider().padding(.vertical, 3)

@@ -127,6 +127,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         set { editorChrome.update(caret: newValue) }
     }
     @Published var editorNavigationTarget: EditorNavigationTarget?
+    @Published var activeTestTarget: ActiveTestTarget?
     var navigationHistoryFeature: NavigationHistoryFeatureModel {
         featureGraph.navigationHistory
     }
