@@ -1,6 +1,18 @@
 import AppKit
 import SwiftUI
 
+// Standalone Console hosts keep the bundled default without requiring AppSettings.
+private struct ConsoleFontFamilyKey: EnvironmentKey {
+    static let defaultValue = EditorFontDefaults.monospacedFamily
+}
+
+extension EnvironmentValues {
+    var consoleFontFamily: String {
+        get { self[ConsoleFontFamilyKey.self] }
+        set { self[ConsoleFontFamilyKey.self] = newValue }
+    }
+}
+
 // MARK: - 输出文本视图(ANSI 着色 + 可点击错误定位 + 智能滚动 + 一键复制)
 
 /// 构建/运行输出的统一渲染视图:
@@ -40,6 +52,7 @@ struct ConsoleToolbarRequest {
 }
 
 struct OutputTextView: View {
+    @Environment(\.consoleFontFamily) private var fontFamily
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.workbenchHasBackgroundImage) private var hasBackgroundImage
     let output: String
@@ -88,6 +101,7 @@ struct OutputTextView: View {
             standardInputSessionID: standardInputSessionID,
             onSubmitStandardInput: onSubmitStandardInput,
             fontSize: fontSize,
+            fontFamily: fontFamily,
             onToggleWrapsLines: onToggleWrapsLines,
             scrollToLatestRequest: scrollToLatestRequest,
             bottomThreshold: Self.bottomThreshold,
@@ -95,7 +109,7 @@ struct OutputTextView: View {
             consoleToolbarRequest: consoleToolbarRequest,
             onConsoleOccurrencesChange: { hasConsoleOccurrences = $0 },
             render: { source, roots, exists, dark, theme, size in
-                let rendered = NSMutableAttributedString(attributedString: Self.renderOutput(source, searchRoots: roots, fileExists: exists, isDark: dark, theme: theme, fontSize: size, usesIDEAConsoleStyle: usesIDEAConsoleStyle))
+                let rendered = NSMutableAttributedString(attributedString: Self.renderOutput(source, searchRoots: roots, fileExists: exists, isDark: dark, theme: theme, fontSize: size, fontFamily: fontFamily, usesIDEAConsoleStyle: usesIDEAConsoleStyle))
                 decorateOutput?(rendered, dark)
                 return rendered
             },
@@ -155,6 +169,7 @@ struct OutputTextView: View {
         isDark: Bool,
         theme: AppColorTheme,
         fontSize: CGFloat = LitheConsoleStyle.defaultFontSize,
+        fontFamily: String = EditorFontDefaults.monospacedFamily,
         usesIDEAConsoleStyle: Bool = false
     ) -> NSAttributedString {
         let defaultForeground = usesIDEAConsoleStyle ? LitheConsoleStyle.foreground(dark: isDark)
@@ -162,10 +177,10 @@ struct OutputTextView: View {
         let parsed = ANSIOutputRenderer.parse(source, defaultForeground: defaultForeground,
             palette: usesIDEAConsoleStyle ? LitheConsoleStyle.palette(dark: isDark) : nil)
         guard !parsed.cleanText.isEmpty else { return NSAttributedString() }
-        var result = ANSIOutputRenderer.render(parsed, fontSize: fontSize)
+        var result = ANSIOutputRenderer.render(parsed, fontSize: fontSize, fontFamily: fontFamily)
         if usesIDEAConsoleStyle {
             LitheConsoleStyle.normalizeLogLevels(in: result, dark: isDark)
-            result.addAttribute(.paragraphStyle, value: LitheConsoleStyle.paragraphStyle(fontSize: fontSize),
+            result.addAttribute(.paragraphStyle, value: LitheConsoleStyle.paragraphStyle(fontSize: fontSize, fontFamily: fontFamily),
                 range: NSRange(location: 0, length: result.length))
         }
         if !usesIDEAConsoleStyle {
@@ -671,6 +686,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
     let standardInputSessionID: UUID?
     let onSubmitStandardInput: ((String) -> Bool)?
     let fontSize: CGFloat
+    let fontFamily: String
     let onToggleWrapsLines: (() -> Void)?
     let scrollToLatestRequest: Int
     let bottomThreshold: CGFloat
@@ -734,7 +750,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
             .environment(\.colorScheme, colorScheme).environment(\.locale, context.environment.locale)
             .environment(\.isEnabled, context.environment.isEnabled).fixedSize())
         scrollView.needsLayout = true
-        context.coordinator.configureConsole(usesIDEAConsoleStyle, fontSize: fontSize)
+        context.coordinator.configureConsole(usesIDEAConsoleStyle, fontSize: fontSize, fontFamily: fontFamily)
         // The shared SwiftUI surface owns theme and wallpaper backgrounds for every output pane.
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
@@ -748,6 +764,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
         context.coordinator.applyWrapsLines(wrapsLines)
         context.coordinator.apply(
             fontSize: fontSize,
+            fontFamily: fontFamily,
             usesIDEAConsoleStyle: usesIDEAConsoleStyle,
             output: output,
             emptyMessage: emptyMessage,
@@ -864,9 +881,9 @@ private struct OutputTextStorageView: NSViewRepresentable {
         }
 
         private var inputAttributes: [NSAttributedString.Key: Any] {
-            [.font: LitheTheme.editorFont(size: consoleFontSize),
+            [.font: MacEditorFontCatalog.font(family: consoleFontFamily, size: consoleFontSize),
              .foregroundColor: LitheConsoleStyle.foreground(dark: renderedIsDark ?? false),
-             .paragraphStyle: LitheConsoleStyle.paragraphStyle(fontSize: consoleFontSize)]
+             .paragraphStyle: LitheConsoleStyle.paragraphStyle(fontSize: consoleFontSize, fontFamily: consoleFontFamily)]
         }
 
         func textView(_ view: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
@@ -904,10 +921,12 @@ private struct OutputTextStorageView: NSViewRepresentable {
             return true
         }
 
+        private var consoleFontFamily = EditorFontDefaults.monospacedFamily
         private var baseFontSize: CGFloat = LitheConsoleStyle.defaultFontSize
         private var lastRender: (() -> Void)?
 
-        func configureConsole(_ enabled: Bool, fontSize: CGFloat) {
+        func configureConsole(_ enabled: Bool, fontSize: CGFloat, fontFamily: String) {
+            consoleFontFamily = fontFamily
             usesIDEAConsoleStyle = enabled
             baseFontSize = fontSize
             if !enabled { consoleFontSize = fontSize }
@@ -920,6 +939,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
         private var source = ""
         private var sourceHadANSI = false
         private var showingEmptyMessage = false
+        private var renderedFontFamily: String?
         private var renderedFontSize: CGFloat?
         private var renderedConsoleStyle: Bool?
         private var renderedTheme: AppColorTheme?
@@ -955,6 +975,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
 
         func apply(
             fontSize: CGFloat = LitheConsoleStyle.defaultFontSize,
+            fontFamily: String = EditorFontDefaults.monospacedFamily,
             usesIDEAConsoleStyle: Bool = false,
             output: String,
             emptyMessage: String,
@@ -969,16 +990,16 @@ private struct OutputTextStorageView: NSViewRepresentable {
             if !output.hasPrefix(source) { lastFollowedConsoleLink = nil }
             let wasAtBottom = isAtBottom
             let appearanceChanged = renderedTheme != theme || renderedIsDark != isDark
-                || renderedFontSize != fontSize || renderedConsoleStyle != usesIDEAConsoleStyle
+                || renderedFontSize != fontSize || renderedFontFamily != fontFamily || renderedConsoleStyle != usesIDEAConsoleStyle
             if output.isEmpty {
                 guard appearanceChanged || !showingEmptyMessage || storage.string != emptyMessage else { return }
                 storage.setAttributedString(NSAttributedString(
                     string: emptyMessage,
                     attributes: [
-                        .font: LitheTheme.editorFont(size: consoleFontSize),
+                        .font: MacEditorFontCatalog.font(family: consoleFontFamily, size: consoleFontSize),
                         .foregroundColor: usesIDEAConsoleStyle ? LitheConsoleStyle.foreground(dark: isDark)
                             : LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark),
-                        .paragraphStyle: usesIDEAConsoleStyle ? LitheConsoleStyle.paragraphStyle(fontSize: consoleFontSize) : NSParagraphStyle.default
+                        .paragraphStyle: usesIDEAConsoleStyle ? LitheConsoleStyle.paragraphStyle(fontSize: consoleFontSize, fontFamily: consoleFontFamily) : NSParagraphStyle.default
                     ]
                 ))
                 source = ""
@@ -1044,6 +1065,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 refreshFolds(dark: isDark, force: appearanceChanged)
                 lastRender = { [weak self] in self?.refreshFolds(dark: isDark, force: true) }
             }
+            renderedFontFamily = fontFamily
             renderedFontSize = fontSize
             renderedConsoleStyle = usesIDEAConsoleStyle
             renderedTheme = theme
@@ -1062,7 +1084,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 guard selection.location >= start, selection.location != NSNotFound else { return nil }
                 return NSRange(location: selection.location - start, length: selection.length)
             }
-            let projected = NSMutableAttributedString(attributedString: folds.project(unfoldedStorage, dark: dark, fontSize: consoleFontSize))
+            let projected = NSMutableAttributedString(attributedString: folds.project(unfoldedStorage, dark: dark, fontSize: consoleFontSize, fontFamily: consoleFontFamily))
             inputStart = onSubmitStandardInput == nil ? nil : projected.length
             if inputStart != nil {
                 var attributes = inputAttributes
@@ -1099,7 +1121,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 if let font = value as? NSFont, let resized = NSFont(descriptor: font.fontDescriptor, size: size) { fonts.append((range, resized)) }
             }
             for (range, font) in fonts { unfoldedStorage.addAttribute(.font, value: font, range: range) }
-            unfoldedStorage.addAttribute(.paragraphStyle, value: LitheConsoleStyle.paragraphStyle(fontSize: size),
+            unfoldedStorage.addAttribute(.paragraphStyle, value: LitheConsoleStyle.paragraphStyle(fontSize: size, fontFamily: consoleFontFamily),
                 range: NSRange(location: 0, length: unfoldedStorage.length))
             lastRender?()
         }
@@ -1258,12 +1280,12 @@ enum ANSIOutputRenderer {
         render(parse(source), fontSize: fontSize)
     }
 
-    static func render(_ parsed: ParsedOutput, fontSize: CGFloat) -> NSMutableAttributedString {
+    static func render(_ parsed: ParsedOutput, fontSize: CGFloat, fontFamily: String = EditorFontDefaults.monospacedFamily) -> NSMutableAttributedString {
         let result = NSMutableAttributedString()
         for segment in parsed.segments {
             var attributes: [NSAttributedString.Key: Any] = [
                 .foregroundColor: segment.foreground,
-                .font: LitheTheme.editorFont(size: fontSize, weight: segment.bold ? .bold : .regular)
+                .font: MacEditorFontCatalog.font(family: fontFamily, size: fontSize, weight: segment.bold ? .bold : .regular)
             ]
             if let background = segment.background {
                 attributes[.backgroundColor] = background

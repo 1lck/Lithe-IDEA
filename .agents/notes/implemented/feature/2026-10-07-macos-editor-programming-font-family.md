@@ -6,8 +6,8 @@
 
 代码编辑器的编程字体族现在是用户设置：设置 → 编辑器 → 显示 → Font。默认值仍是随安装包
 分发的 JetBrains Mono，所以没有改过设置的用户看到的渲染和旧版本完全一致。候选列表只列
-等宽的已安装字体族；终端、Output 工具窗和提交信息输入框继续使用打包字体，与 IDEA 的
-Editor font / Console font 分工一致。用户选的字体被卸载后，编辑器渲染和所有排版度量都
+等宽的已安装字体族；macOS Console 按 Issue #1256 跟随同一字体族，字号仍由 Console 自己控制。
+终端保留 Nerd Font Mono 选择策略，提交信息输入框继续使用打包字体。用户选的字体被卸载后，编辑器渲染和所有排版度量都
 回退到打包字体，设置项仍保留用户原值。
 
 ## 问题
@@ -72,11 +72,21 @@ call("configure", ["fontFamily": settings.editorFontFamily])        // 失效族
 对 WebKit 的 WebContent 进程是全局可见的，这是它和打包字体（进程内注册，必须走 `@font-face`）
 的关键区别。
 
-### 作用范围刻意排除终端与输出窗口
+### Console 跟随字体族，终端保留独立策略
 
-`LitheTheme.editorFont(size:weight:)` 没有被改成“读设置”，它仍然表示**打包字体**。终端、
-Output 工具窗、提交信息输入框，以及搜索结果里的 Before/After 小片段继续调用它。只有这样
-才保住 IDEA 的 Editor font / Console font 分工；将来要做 Console font，是独立的一项设置。
+Issue #1256 将 macOS Console 纳入 Editor 字体族设置，覆盖构建、运行、调试、测试等
+使用 `OutputTextView` 的输出面板。`WorkbenchView` 已经观察 `AppSettings`，由它把族名
+放进 SwiftUI 环境值 `consoleFontFamily`；该值默认是打包族，因此独立测试宿主无需注入
+设置对象。输出视图再通过参数传给原生渲染器，并将族名纳入外观变化判断：即使没有新输出，
+切换字体也会重新渲染已有内容。ANSI 粗体、折叠提示、空状态、标准输入和行高都通过
+`MacEditorFontCatalog` 解析同一字体族，保留原来的 Console 字号、缩放和输入草稿。
+数据库输出的 SQL 高亮也读取该环境值，避免高亮过程把公共输出字体覆盖为打包字体。
+
+`LitheTheme.editorFont(size:weight:)` 仍然表示**打包字体**，不直接读取设置。提交信息
+输入框和搜索结果里的 Before/After 小片段继续使用它。终端由 `MacTerminalTransport`
+独立选择 Nerd Font Mono，保证 Starship 私有区图标与文字来自同一字型、使用相同单元格
+度量；直接套用 Editor 字体会重现 Issue #1082 的缺字与圆弧拼接问题，因此本次未改终端。
+字体查询和切换只使用进程内缓存，不写安装包，代码签名与 Sparkle delta 基线不受影响。
 
 要区分两种“搜索预览”，它们不是同一件事：
 
@@ -166,8 +176,8 @@ adapter 写到 Caches/Application Support，不能写安装目录。
 
 ### 直接把 `LitheTheme.editorFont` 改成读设置
 
-改动最小：一个入口改完，所有消费者自动跟随。没有采用的原因是终端、Output 工具窗和提交
-信息输入框也会一起换字体，既偏离 IDEA 的 Editor/Console 分工，也让用户无法只改代码字体。
+改动最小：一个入口改完，所有消费者自动跟随。没有采用的原因是提交信息输入框和其他固定
+等宽内容也会一起换字体，超出 Issue #1256 的 Console 范围；终端还需要独立的 Nerd Font 度量。
 
 ### 使用系统的 `NSFontPanel` 字体面板
 
@@ -189,7 +199,7 @@ IDEA 的编辑器字体组合框确实有这个开关，功能上更完整。本
 ## 后果
 
 - 收益：macOS 与 Windows 的编辑器字体能力对齐；默认行为不变，属于纯增量；原生 Diff 与
-  主编辑器使用同一字体族。
+  主编辑器使用同一字体族，Console 也跟随字体族并保留自己的字号。
 - 代价：只支持等宽字体；用户字体缺少对应字重时按 `NSFontManager` 最接近的字重降级，
   不会合成八个字重；原生 Diff 的度量现在依赖“可选字体都是等宽”这个前提。
 - 代价：字体目录是**进程级静态缓存**（`MacEditorFontCatalog.index` 只在进程内构建一次，
@@ -210,6 +220,7 @@ IDEA 的编辑器字体组合框确实有这个开关，功能上更完整。本
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter SettingsSearchVocabularyTests`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter SearchableSettingsSelectTests`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentActivityPresentationTests`
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter ConsoleInlineInputTests`
 - `./scripts/test-macos.sh`
 - `./scripts/verify-platform-feature-matrix.sh`
 - `./scripts/verify-runtime-bundle-immutability.sh`
@@ -221,6 +232,12 @@ IDEA 的编辑器字体组合框确实有这个开关，功能上更完整。本
 缺字描述在单个脚本时点名、多个脚本时收敛为通用措辞。
 
 ## 适用范围
+
+- `macos/Sources/Lithe/Views/Database/DatabaseServicesView.swift`
+- `macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`
+- `macos/Sources/Lithe/Views/Workbench/OutputTextView.swift`
+- `macos/Sources/Lithe/Views/Workbench/LitheConsoleStyle.swift`
+- `macos/Tests/LitheTests/ConsoleInlineInputTests.swift`
 
 - `macos/Sources/Lithe/Models/Settings/EditorFontDefaults.swift`
 - `macos/Sources/Lithe/Models/Settings/EditorFontCoverage.swift`

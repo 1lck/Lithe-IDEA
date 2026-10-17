@@ -253,6 +253,7 @@ struct WorkbenchView: View {
 
             statusBar
         }
+        .environment(\.consoleFontFamily, settings.editorFontFamily)
         .environment(\.workbenchHasBackgroundImage, model.workbenchBackgroundFeature.hasImage)
         .coordinateSpace(name: WorkbenchFrameGradient.coordinateSpace)
         .background {

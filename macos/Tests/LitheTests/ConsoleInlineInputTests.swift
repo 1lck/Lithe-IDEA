@@ -8,6 +8,76 @@ import LitheDebugModule
 @Suite("Console inline standard input", .serialized)
 struct ConsoleInlineInputTests {
     @Test(arguments: [false, true])
+    func fontFamilyChangesRestyleRetainedOutputFoldsAndInput(dark: Bool) throws {
+        try #require(MacEditorFontCatalog.resolvedFamily("Menlo") == "Menlo")
+        let presentation = ConsoleFoldPresentation()
+        presentation.fontSize = 17 // Retained Console zoom is independent of the Editor font size.
+        let sessionID = UUID()
+        let source = "plain \u{1b}[1;31mbold\u{1b}[0m\n"
+            + (1...12).map { "\tat demo.Main.frame\($0)(Main.java:1)\n" }.joined()
+        func content(_ family: String, output: String = source, acceptsInput: Bool = true) -> some View {
+            OutputTextView(output: output, searchRoots: [], fileExists: { _ in false }, emptyMessage: "No output",
+                consolePresentation: presentation, standardInputSessionID: sessionID,
+                onSubmitStandardInput: acceptsInput ? { _ in true } : nil, onOpenLocation: { _, _, _ in })
+                .environment(\.consoleFontFamily, family)
+                .environment(\.colorScheme, dark ? .dark : .light)
+        }
+        let host = NSHostingView(rootView: content(EditorFontDefaults.monospacedFamily))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let view = try #require(findTextView(host))
+        window.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: view.string.utf16.count, length: 0))
+        view.insertText("draft", replacementRange: view.selectedRange())
+        let retainedText = view.string
+
+        for family in ["Menlo", "Lithe Missing Monospace Family", "Menlo"] {
+            // Only the font changes: an unchanged producer buffer must still be restyled.
+            host.rootView = content(family)
+            host.layoutSubtreeIfNeeded()
+            #expect(findTextView(host) === view)
+            #expect(view.string == retainedText)
+            #expect(presentation.inputDraft == "draft")
+            #expect(presentation.fontSize == 17)
+            let storage = try #require(view.textStorage)
+            for (token, weight) in [("plain", NSFont.Weight.regular), ("bold", .bold),
+                                    ("<4 folded frames>", .regular), ("draft", .regular)] {
+                let range = (view.string as NSString).range(of: token)
+                try #require(range.location != NSNotFound)
+                let font = try #require(storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont)
+                let expected = MacEditorFontCatalog.font(family: family, size: 17, weight: weight)
+                #expect(font.fontName == expected.fontName)
+                #expect(font.pointSize == 17)
+                let paragraph = try #require(storage.attribute(.paragraphStyle, at: range.location,
+                    effectiveRange: nil) as? NSParagraphStyle)
+                #expect(paragraph.minimumLineHeight == LitheConsoleStyle.lineHeight(
+                    for: MacEditorFontCatalog.font(family: family, size: 17)))
+            }
+            let boldOffset = (view.string as NSString).range(of: "bold").location
+            #expect(storage.attribute(.foregroundColor, at: boldOffset, effectiveRange: nil) as? NSColor
+                == LitheConsoleStyle.palette(dark: dark)[1])
+        }
+        host.rootView = content("Menlo", output: source + "appended\n")
+        host.layoutSubtreeIfNeeded()
+        let appended = (view.string as NSString).range(of: "appended")
+        try #require(appended.location != NSNotFound)
+        let font = try #require(view.textStorage?.attribute(.font, at: appended.location, effectiveRange: nil) as? NSFont)
+        #expect(font.fontName == MacEditorFontCatalog.font(family: "Menlo", size: 17).fontName)
+        #expect(view.string.hasSuffix("appended\ndraft"))
+        for family in [EditorFontDefaults.monospacedFamily, "Menlo"] {
+            host.rootView = content(family, output: "", acceptsInput: false)
+            host.layoutSubtreeIfNeeded()
+            #expect(view.string == "No output")
+            let placeholder = try #require(view.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+            #expect(placeholder.fontName == MacEditorFontCatalog.font(family: family, size: 17).fontName)
+        }
+    }
+
+    @Test(arguments: [false, true])
     func nativeInputProtectsLogsAndSendsOnlyTheDraft(dark: Bool) throws {
         let presentation = ConsoleFoldPresentation()
         var submitted: [String] = []

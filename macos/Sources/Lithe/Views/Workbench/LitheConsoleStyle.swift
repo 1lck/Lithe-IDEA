@@ -12,9 +12,9 @@ enum LitheConsoleStyle {
     static func lineHeight(for font: NSFont) -> CGFloat {
         ceil((ceil(font.ascender) + ceil(-font.descender) + ceil(font.leading)) * lineSpacing)
     }
-    static func paragraphStyle(fontSize: CGFloat) -> NSParagraphStyle {
+    static func paragraphStyle(fontSize: CGFloat, fontFamily: String = EditorFontDefaults.monospacedFamily) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
-        let height = lineHeight(for: LitheTheme.editorFont(size: fontSize))
+        let height = lineHeight(for: MacEditorFontCatalog.font(family: fontFamily, size: fontSize))
         style.minimumLineHeight = height
         style.maximumLineHeight = height
         return style
@@ -204,7 +204,7 @@ final class ConsoleFoldPresentation {
     var inputSessionID: UUID?
     var inputDraft = ""
 
-    func project(_ raw: NSAttributedString, dark: Bool, fontSize: CGFloat) -> NSAttributedString {
+    func project(_ raw: NSAttributedString, dark: Bool, fontSize: CGFloat, fontFamily: String = EditorFontDefaults.monospacedFamily) -> NSAttributedString {
         // ponytail: Debug caps output at 400k characters and publishes at 10Hz. This
         // bounded scan preserves nested rules; above that ceiling index dirty lines.
         regions = ConsoleStackTraceFolding.regions(in: raw.string)
@@ -223,8 +223,8 @@ final class ConsoleFoldPresentation {
             }
             let label = region.label
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: LitheTheme.editorFont(size: fontSize),
-                .paragraphStyle: LitheConsoleStyle.paragraphStyle(fontSize: fontSize),
+                .font: MacEditorFontCatalog.font(family: fontFamily, size: fontSize),
+                .paragraphStyle: LitheConsoleStyle.paragraphStyle(fontSize: fontSize, fontFamily: fontFamily),
                 .foregroundColor: LitheConsoleStyle.foldedForeground(dark: dark),
                 .backgroundColor: LitheConsoleStyle.foldedBackground(dark: dark),
                 .link: URL(string: "lithe-console-fold://toggle/" + region.id)!,

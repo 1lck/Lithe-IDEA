@@ -30,7 +30,8 @@ Project 树字号对齐 IDEA 的 13pt。欢迎页应用名、导航、普通项�
 JetBrains Mono 2.304 的 16 个原始静态 TTF、OFL 和作者信息。Mono 文件与用户再次提供的归档逐文件核对，16 个文件均字节一致。
 普通 UI 通过明确的字型名称匹配 Regular、Medium、SemiBold、Bold 等真实字重；SwiftUI 不再对已经指定字型的字体重复调用 `.weight`。
 代码默认读取 Mono 字型；`LitheTheme.editorFont` 仍然只表示打包字体。终端按下文
-独立选择 Nerd Font Mono，终端、Output 工具窗和提交信息输入框均不跟随编辑器字体族设置。
+独立选择 Nerd Font Mono，终端和提交信息输入框不跟随编辑器字体族设置。macOS Output 工具窗
+按 Issue #1256 跟随 Editor 字体族，字号与缩放仍由 Console 控制，具体传递方式见上述字体族笔记。
 构建脚本在签名前复制到 app 的 `Fonts`
 资源目录；CoreText（macOS 的字体管理服务）按 process 范围注册，即只对当前
 进程生效，不安装到用户系统。不能因机器已经装有同名字体而跳过打包资源。
