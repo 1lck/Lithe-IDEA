@@ -467,7 +467,7 @@ function AgentMenu({
         render={<button type="button" />}
       >
         <span className="flex size-7 items-center justify-center rounded text-subtle-foreground hover:bg-accent">
-          <AgentBrandIcon name={agentName} size={16} />
+          <AgentBrandIcon name={agentName} size={16} variant="brand" />
         </span>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-48 gap-0 p-1">
@@ -477,6 +477,7 @@ function AgentMenu({
           </div>
         ) : (
           <div className="flex items-center gap-2 rounded px-2.5 py-1.5 text-foreground ui-text-sm">
+            <AgentBrandIcon name={agentName} size={14} variant="brand" />
             <span className="flex-1">{agentName}</span>
             <CheckIcon className="size-3" />
           </div>

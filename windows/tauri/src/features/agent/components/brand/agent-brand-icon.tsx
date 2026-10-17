@@ -10,6 +10,7 @@
  */
 
 import { SparkleIcon } from "@/ui/icons";
+import { cn } from "@/utils/cn";
 
 const PATHS: Record<"openai" | "claude", readonly string[]> = {
   openai: [
@@ -32,18 +33,47 @@ function brandOf(name: string | null | undefined): keyof typeof PATHS | null {
   }
 }
 
+/**
+ * Vendor tint as `AgentPanelStyle.brandTint` chooses it: Claude keeps its orange
+ * star, while the Codex knot follows the theme's text color.
+ */
+function brandTint(name: string | null | undefined): string {
+  switch (brandOf(name)) {
+    case "claude":
+      return "text-[#d97757]";
+    case "openai":
+      return "text-foreground";
+    default:
+      return "";
+  }
+}
+
 interface AgentBrandIconProps {
   name: string | null | undefined;
   /** Edge length in CSS pixels. */
   size?: number;
+  /** `brand` applies the vendor tint; `template` inherits the text color. */
+  variant?: "template" | "brand";
   className?: string;
 }
 
 /** Vendor mark for a known agent, or the generic sparkle like macOS. */
-export function AgentBrandIcon({ name, size = 16, className }: AgentBrandIconProps) {
+export function AgentBrandIcon({
+  name,
+  size = 16,
+  variant = "template",
+  className,
+}: AgentBrandIconProps) {
   const brand = brandOf(name);
+  const tint = variant === "brand" ? brandTint(name) : "";
   if (brand === null) {
-    return <SparkleIcon aria-hidden className={className} style={{ width: size, height: size }} />;
+    return (
+      <SparkleIcon
+        aria-hidden
+        className={className}
+        style={{ width: size, height: size }}
+      />
+    );
   }
   return (
     <svg
@@ -53,7 +83,7 @@ export function AgentBrandIcon({ name, size = 16, className }: AgentBrandIconPro
       height={size}
       fill="currentColor"
       fillRule="evenodd"
-      className={className}
+      className={cn(tint, className)}
     >
       {PATHS[brand].map((d) => (
         <path key={d.slice(0, 24)} d={d} />

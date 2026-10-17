@@ -14,12 +14,15 @@
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "shared/contracts/application-boundary.md"
+      "windows/tauri/src/features/agent/components/agent-session-selectors.tsx",
+      "windows/tauri/src/features/agent/services/agent-session-selectors.ts",
+      "windows/tauri/src/features/agent/services/agent-session-selectors.test.ts"
     ]
   },
   "owner": "Agent",
-  "verification": "中文和英文环境分别验证 Claude/Codex：权限名称保留上游原文，Plan 菜单与底栏一致，模式入口只显示名称及向下箭头，未知选项原文不变；当前模式说明在入口 tooltip 使用当前界面语言，保留各 Agent 实际的审批和环境约束。检查原始 ID、数量、顺序及确认/失败行为不变。使用指定语言的资源 Bundle 验证名称与通用 Plan 翻译不会串用；菜单使用共享单行选项、左侧勾选、普通/hover/选中/禁用状态；深浅主题验证紧凑菜单、长列表方向键/Enter 导航、选择后关闭及响应期间下一轮配置仍可操作。Windows 对话 UI 待实现。"
+  "verification": "中文和英文环境分别验证 Claude/Codex：权限名称保留上游原文，Plan 菜单与底栏一致，模式入口只显示名称及向下箭头，未知选项原文不变；当前模式说明在入口 tooltip 使用当前界面语言，保留各 Agent 实际的审批和环境约束。检查原始 ID、数量、顺序及确认/失败行为不变。使用指定语言的资源 Bundle 验证名称与通用 Plan 翻译不会串用；菜单使用共享单行选项、左侧勾选、普通/hover/选中/禁用状态；深浅主题验证紧凑菜单、长列表方向键/Enter 导航、选择后关闭及响应期间下一轮配置仍可操作。Windows 已按同一呈现规则实现，真机中英文验收待执行。",
+  "notes": "2026-10-17 Windows：权限模式名称保留上游原文，当前模式说明在入口 tooltip 按界面语言显示；菜单改为左侧勾选的紧凑单行列表，去掉两行说明，选项数量、ID、顺序与确认行为不变；未知选项原文显示。真机中英文验收待执行。"
 }

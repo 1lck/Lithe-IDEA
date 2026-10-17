@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
 import { cn } from "@/utils/cn";
 import {
   choiceTitle,
+  currentChoiceDescription,
   currentChoiceTitle,
   filteredChoices,
   localizedAgentLabel,
@@ -53,12 +54,10 @@ function ModeIcon({ id }: { id: string }) {
 
 function SelectorRow({
   isSelected,
-  minHeight = 32,
   onClick,
   children,
 }: {
   isSelected: boolean;
-  minHeight?: number;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -71,12 +70,11 @@ function SelectorRow({
         "flex w-full items-center gap-2 px-3 py-2 text-left text-foreground ui-text-sm",
         isSelected ? "bg-selected" : "hover:bg-accent",
       )}
-      style={{ minHeight }}
       onClick={onClick}
     >
+      <CheckIcon className={cn("size-3 shrink-0 text-success", !isSelected && "invisible")} />
       {children}
       <span className="min-w-2 flex-1" />
-      <CheckIcon className={cn("size-3 shrink-0 text-success", !isSelected && "invisible")} />
     </button>
   );
 }
@@ -248,7 +246,7 @@ export function AgentSessionSelectors({
           <PopoverTrigger
             disabled={isDisabled}
             aria-label={`${t("agent.selector.mode")}: ${currentChoiceTitle(mode, labels)}`}
-            title={localizedAgentLabel(mode.name, labels)}
+            title={currentChoiceDescription(mode, labels) ?? localizedAgentLabel(mode.name, labels)}
             render={<button type="button" />}
           >
             {selectorTrigger(
@@ -263,19 +261,11 @@ export function AgentSessionSelectors({
               {mode.choices.map((choice) => (
                 <SelectorRow
                   key={choice.id}
-                  minHeight={64}
                   isSelected={choice.id === mode.currentValue}
                   onClick={() => select(mode.id, choice.id)}
                 >
                   <ModeIcon id={choice.id} />
-                  <span className="min-w-0 space-y-0.5">
-                    <span className="block truncate">{choiceTitle(choice, mode, labels)}</span>
-                    {choice.description === null || choice.description.length === 0 ? null : (
-                      <span className="line-clamp-2 block text-subtle-foreground ui-text-caption">
-                        {localizedAgentLabel(choice.description, labels)}
-                      </span>
-                    )}
-                  </span>
+                  <span className="truncate">{choiceTitle(choice, mode, labels)}</span>
                 </SelectorRow>
               ))}
             </div>
@@ -292,7 +282,7 @@ export function AgentSessionSelectors({
           >
             {selectorTrigger(
               <>
-                <AgentBrandIcon name={agentName} size={12} className="shrink-0" />
+                <AgentBrandIcon name={agentName} size={12} variant="brand" className="shrink-0" />
                 <span className="truncate">{modelSummary(model, options, labels)}</span>
               </>,
             )}

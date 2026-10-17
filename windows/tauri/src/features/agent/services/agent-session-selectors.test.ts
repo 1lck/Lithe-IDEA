@@ -3,6 +3,7 @@ import type { AgentSessionConfigOption } from "../types/agent.types";
 import {
   choiceTitle,
   contextUsageDetails,
+  currentChoiceDescription,
   filteredChoices,
   modelSummary,
   optionTitle,
@@ -16,6 +17,14 @@ const zh = {
   speed: "速度",
   standard: "标准",
   fast: "快速",
+};
+
+const en = {
+  language: "en-US" as const,
+  thinkingLevel: "Thinking level",
+  speed: "Speed",
+  standard: "Standard",
+  fast: "Fast",
 };
 
 function option(
@@ -68,7 +77,22 @@ describe("Agent session selectors", () => {
     expect(choiceTitle(fast.choices[1], fast, zh)).toBe("快速");
     // Model names are product identifiers and are never translated.
     expect(choiceTitle(model.choices[0], model, zh)).toBe("gpt-5.5");
-    expect(modelSummary(model, [model, effort], zh)).toBe("gpt-5.5 高");
+    expect(modelSummary(model, [model, effort], zh)).toBe("gpt-5.5 High");
+    // Mode and thinking-level names are upstream vocabulary and stay as sent.
+    expect(choiceTitle(effort.choices[0], effort, zh)).toBe("High");
+    expect(choiceTitle(mode.choices[0], mode, zh)).toBe("Ask for approval");
+  });
+
+  test("the mode trigger explains the current mode in the interface language", () => {
+    const approval = option("mode", "mode", "agent", [["agent", "Ask for approval"]], "Approval mode");
+    approval.choices[0].description = "Only ask for actions detected as potentially unsafe";
+    expect(currentChoiceDescription(approval, zh)).toBe(
+      "自动审批，仅在检测到潜在风险时请求你的确认。",
+    );
+    expect(currentChoiceDescription(approval, en)).toBe(
+      "Only ask for actions detected as potentially unsafe",
+    );
+    expect(currentChoiceDescription(effort, zh)).toBeNull();
   });
 
   test("model search matches name, id and group", () => {
