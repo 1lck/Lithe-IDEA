@@ -53,3 +53,39 @@ test("resolves workspace A Maven context while workspace B is active", async () 
     }),
   );
 });
+
+test("forwards the declared Gradle import context to the launch", async () => {
+  const launch = await resolveEditorLspLaunch(
+    "D:/work/src/App.java",
+    { workspaceId: "workspace-a", root: "D:/work" },
+    {
+      resolveJavaLspLaunch: mock(async () => ({
+        providerId: "java",
+        languageId: "java",
+        executablePath: "C:/Lithe/jdtls/bin/jdtls.bat",
+        arguments: [],
+        cacheDirectory: "C:/Users/example/AppData/Local/Lithe/jdtls",
+        environment: {},
+        javaGradle: { wrapperPresent: true },
+      })),
+      mavenLaunchContextForWorkspace,
+      ensureWorkspaceGitBootstrap: async () => "skipped",
+    },
+  );
+
+  expect(launch?.javaGradle).toEqual({ wrapperPresent: true });
+});
+
+test("omits the Gradle import context for a workspace without one", async () => {
+  const launch = await resolveEditorLspLaunch(
+    "D:/work/src/App.java",
+    { workspaceId: "workspace-a", root: "D:/work" },
+    {
+      resolveJavaLspLaunch,
+      mavenLaunchContextForWorkspace,
+      ensureWorkspaceGitBootstrap: async () => "skipped",
+    },
+  );
+
+  expect(launch?.javaGradle).toBeNull();
+});
