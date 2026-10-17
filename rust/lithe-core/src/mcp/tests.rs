@@ -451,6 +451,38 @@ startup_timeout_sec = 20
 }
 
 #[test]
+fn claude_rename_preserves_unmodelled_fields() {
+    let content = r#"{"mcpServers": {"remote": {"type": "http", "url": "https://example.test/mcp", "headers": {"X-Client": "lithe"}, "alwaysAllow": ["search"]}}}"#;
+    let parsed = parse("claude", "global", content, None);
+    let hash = server_hash(&parsed, "remote");
+    let result = plan(json!({
+        "source": "claude",
+        "scope": "global",
+        "content": content,
+        "operation": "set",
+        "previousName": "remote",
+        "server": {
+            "name": "renamed",
+            "transport": "http",
+            "args": [],
+            "env": [],
+            "url": "https://example.test/mcp",
+            "headers": [{"key": "X-Client", "value": "lithe"}]
+        },
+        "owned": [{"name": "remote", "definitionHash": hash}]
+    }));
+    let next = result["content"].as_str().unwrap();
+    let parsed: Value = serde_json::from_str(next).unwrap();
+    assert_eq!(parsed["mcpServers"]["renamed"]["alwaysAllow"][0], "search");
+    assert_eq!(
+        parsed["mcpServers"]["renamed"]["headers"]["X-Client"],
+        "lithe"
+    );
+    // Claude's edit leaves the old name in place; the host removes it next.
+    assert!(parsed["mcpServers"].get("remote").is_some());
+}
+
+#[test]
 fn write_hash_matches_the_reparsed_definition_for_unsorted_entries() {
     let result = plan(json!({
         "source": "claude",

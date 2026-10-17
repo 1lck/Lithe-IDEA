@@ -235,12 +235,18 @@ fn write_claude(
     };
     let object = document.ensure_object(&path)?;
     // A rename starts from the existing entry so Claude-specific fields Lithe
-    // does not model move with the server; modeled keys are overwritten.
-    let value = match previous {
-        Some(previous) => match document.member_value(object, previous)? {
-            Some(existing) => merge_claude_value(&existing, server)?,
-            None => server_value(server),
+    // does not model move with the server; modeled keys are overwritten. If a
+    // target with the new name already exists, its own fields take precedence,
+    // matching the Codex path.
+    let base = match document.member_value(object, name)? {
+        Some(target) => Some(target),
+        None => match previous {
+            Some(previous) => document.member_value(object, previous)?,
+            None => None,
         },
+    };
+    let value = match base {
+        Some(existing) => merge_claude_value(&existing, server)?,
         None => server_value(server),
     };
     let value = serde_json::to_string(&value).map_err(|_| invalid_request())?;
