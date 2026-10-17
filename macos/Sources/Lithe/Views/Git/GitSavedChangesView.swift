@@ -260,9 +260,11 @@ private struct GitSaveChangesDialog: View {
 }
 
 /// Reuses the branch popup's bounded, clickable hover expansion lifecycle with tree-row styling.
-struct GitSavedChangesRow<Label: View>: NSViewRepresentable {
-    @Environment(\.self) private var environment
+struct GitSavedChangesRow<Label: View>: View {
+    @Environment(\.locale) private var locale
+    @Environment(\.isEnabled) private var isEnabled
     @Environment(\.isLithePaneResizing) private var resizing
+    @State private var isHovered = false
     let accessibilityTitle: String
     /// Label inputs that the accessibility title does not already describe.
     var contentKey: AnyHashable = 0
@@ -270,21 +272,17 @@ struct GitSavedChangesRow<Label: View>: NSViewRepresentable {
     var menu: [LitheContextMenuItem] = []
     @ViewBuilder let label: (Bool, Bool) -> Label
 
-    func makeNSView(context: Context) -> BranchPopupRowControl { BranchPopupRowControl() }
-    func updateNSView(_ view: BranchPopupRowControl, context: Context) {
-        view.onPress = onPress
-        view.onSecondaryPress = { [weak view] point in
-            LitheContextMenuPresenter.shared.show(items: menu, at: point,
-                appearance: view?.effectiveAppearance, locale: environment.locale, parentWindow: view?.window)
-        }
-        view.render = { expanded, highlighted in
-            AnyView(label(expanded, highlighted).environment(\.self, environment))
-        }
-        view.update(BranchPopupRowControl.RenderState(title: accessibilityTitle, content: contentKey,
-                                                      isPresented: false, isEnabled: environment.isEnabled && !resizing,
-                                                      environment: environment))
-    }
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: BranchPopupRowControl, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? LitheDropdownMetrics.branchMinimumWidth, height: LitheTheme.Tree.rowHeight)
+    var body: some View {
+        label(false, isHovered)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .overlay(BranchPopupRowTracker(isPresented: false, isEnabled: isEnabled && !resizing,
+                                           accessibilityTitle: accessibilityTitle, contentKey: contentKey,
+                                           onPress: onPress, onSecondaryPress: { [menu, locale] view, point in
+                LitheContextMenuPresenter.shared.show(items: menu, at: point, appearance: view.effectiveAppearance,
+                                                      locale: locale, parentWindow: view.window)
+            }, onHoverChange: { isHovered = $0 }) {
+                label(true, true)
+            })
     }
 }

@@ -566,7 +566,10 @@ private struct BranchActionMenuRow<Label: View>: View {
         BranchPopupRowView(isPresented: isPresented, accessibilityTitle: accessibilityTitle,
                            contentKey: contentKey, onPress: { isPresented.toggle() }, label: label)
             .overlay {
-                LitheDropdownPopover(opensToSide: true, isPresented: $isPresented, items: menuContent()) { EmptyView() }
+                // Building every branch's actions while it merely scrolls past is
+                // wasted work; the items only matter once the menu is open.
+                LitheDropdownPopover(opensToSide: true, isPresented: $isPresented,
+                                     items: isPresented ? menuContent() : []) { EmptyView() }
             }
             .frame(height: LitheDropdownMetrics.rowHeight)
     }

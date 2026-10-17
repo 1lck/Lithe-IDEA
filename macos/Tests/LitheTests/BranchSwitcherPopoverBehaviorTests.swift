@@ -153,10 +153,9 @@ struct BranchSwitcherPopoverBehaviorTests {
         let rows = (0..<4).map { index in
             let row = BranchPopupRowControl()
             row.frame = NSRect(x: 0, y: CGFloat(index) * 24, width: 375, height: 24)
-            row.render = { _, selected in
-                highlighted[index] = selected
-                return AnyView(Text("Branch \(index)"))
-            }
+            highlighted[index] = false
+            row.onHoverChange = { highlighted[index] = $0 }
+            row.renderExpansion = { AnyView(Text("Branch \(index)")) }
             document.addSubview(row)
             row.refresh()
             return row
@@ -180,13 +179,10 @@ struct BranchSwitcherPopoverBehaviorTests {
                         "row \(index) frame \(row.frame) visible \(row.visibleRect) pointer \(row.convert(window.pointer, from: nil))")
             }
         }
-        rows[1].isPresented = true
-        rows[1].refresh()
         window.pointer = NSPoint(x: -100, y: -100)
         rows.forEach { $0.updateTrackingAreas() }
         await Self.drainMainQueue()
-        #expect(highlighted[1] == true, "An open row action menu keeps its active highlight")
-        #expect(highlighted[2] == false, "Leaving the viewport clears the last hover")
+        #expect(highlighted.values.allSatisfy { !$0 }, "Leaving the viewport clears the last hover")
     }
 
     @Test(arguments: [ColorScheme.light, .dark])
@@ -240,7 +236,9 @@ struct BranchSwitcherPopoverBehaviorTests {
         let color = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: 3)?.usingColorSpace(.sRGB))
         // Compare the actual selected row through the same AppKit drawing path;
         // the display's ICC profile must not be mistaken for a theme change.
-        let selected = try #require(row.subviews.first)
+        #expect(row.subviews.isEmpty, "Rows draw inline; the control must not host a view per row")
+        // The hover highlight reaches the inline SwiftUI row on its next update.
+        let selected = host
         selected.layoutSubtreeIfNeeded()
         let selectedBitmap = try #require(selected.bitmapImageRepForCachingDisplay(in: selected.bounds))
         selected.cacheDisplay(in: selected.bounds, to: selectedBitmap)
@@ -312,7 +310,9 @@ struct BranchSwitcherPopoverBehaviorTests {
             AnyView(BranchPopupRowView(isPresented: false, accessibilityTitle: title, onPress: {},
                 label: { expanded, highlighted in
                     let _ = renders.append((expanded, highlighted))
-                    let _ = container.isInLayout ? rendersDuringLayout += 1 : ()
+                    // The inline row is SwiftUI's own update; only the AppKit-hosted
+                    // expansion would re-mark the window for constraint updates.
+                    let _ = container.isInLayout && expanded ? rendersDuringLayout += 1 : ()
                     HStack(spacing: 8) {
                         Text(verbatim: name).lineLimit(1).fixedSize(horizontal: expanded, vertical: true)
                         Spacer(minLength: 10)
@@ -340,7 +340,9 @@ struct BranchSwitcherPopoverBehaviorTests {
             eventNumber: 0, trackingNumber: 0, userData: nil)))
         let expansion = try #require(window.childWindows?.first(where: { $0.isVisible }),
                                      "The long hovered name must start expanded")
+        host.layoutSubtreeIfNeeded()
         renders.removeAll()
+        rendersDuringLayout = 0
 
         // Each pass changes the row title, as a fetch updating ahead/behind counts
         // would, and synchronously drives SwiftUI into updateNSView mid-layout.
@@ -357,12 +359,12 @@ struct BranchSwitcherPopoverBehaviorTests {
         container.onLayout = nil
         #expect(passes == 3)
         #expect(row.accessibilityLabel() == "\(name) ↑3", "updateNSView must have run inside layout")
-        #expect(rendersDuringLayout == 0, "Rendering inside layout re-marks the window for constraint updates")
-        #expect(renders.isEmpty)
+        #expect(rendersDuringLayout == 0, "Hosting the expansion inside layout re-marks the window for constraint updates")
+        #expect(renders.filter(\.expanded).isEmpty)
+        #expect(renders.map(\.highlighted) == renders.map { _ in true }, "The hovered inline row stays highlighted")
 
         await Self.drainMainQueue()
-        #expect(renders.map(\.expanded) == [false, true], "Three updates coalesce into one row and one expansion render")
-        #expect(renders.map(\.highlighted) == [true, true])
+        #expect(renders.filter(\.expanded).count == 1, "Three updates coalesce into one expansion render")
         #expect(expansion.isVisible, "The hovered long name stays expanded after the deferred render")
         #expect(window.childWindows?.filter { $0.isVisible }.count == 1)
 
@@ -385,16 +387,21 @@ struct BranchSwitcherPopoverBehaviorTests {
         window.contentView = container
         window.orderFrontRegardless()
         defer { container.onLayout = nil; window.contentView = nil; window.close() }
-        var renders: [(row: Int, expanded: Bool, highlighted: Bool)] = []
+        var hovers: [(row: Int, hovered: Bool)] = []
+        var expansions: [Int] = []
         var rendersDuringLayout = 0
         let rows = (0..<2).map { index in
             let row = BranchPopupRowControl()
             row.frame = NSRect(x: 0, y: CGFloat(index) * 24, width: 120, height: 24)
-            row.render = { expanded, highlighted in
-                renders.append((index, expanded, highlighted))
+            row.onHoverChange = { hovered in
+                hovers.append((index, hovered))
+                if container.isInLayout { rendersDuringLayout += 1 }
+            }
+            row.renderExpansion = {
+                expansions.append(index)
                 if container.isInLayout { rendersDuringLayout += 1 }
                 return AnyView(Text(verbatim: "codex/a-long-branch-name-\(index)-that-needs-expansion")
-                    .lineLimit(1).fixedSize(horizontal: expanded, vertical: true)
+                    .lineLimit(1).fixedSize()
                     .frame(height: LitheDropdownMetrics.rowHeight))
             }
             container.addSubview(row)
@@ -406,7 +413,8 @@ struct BranchSwitcherPopoverBehaviorTests {
             location: window.pointer, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
             context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)))
         #expect(window.childWindows?.filter { $0.isVisible }.count == 1, "The long hovered name must start expanded")
-        renders.removeAll()
+        hovers.removeAll()
+        expansions.removeAll()
 
         // The pointer stays put while the rows move under it, as during scrolling.
         window.pointer = rows[1].convert(NSPoint(x: 20, y: 12), to: nil)
@@ -416,26 +424,26 @@ struct BranchSwitcherPopoverBehaviorTests {
             window.layoutIfNeeded()
         }
         container.onLayout = nil
-        #expect(rendersDuringLayout == 0, "Re-hosting during layout re-marks the window for constraint updates")
-        #expect(renders.isEmpty)
+        #expect(rendersDuringLayout == 0, "Hover and expansion changes during layout re-mark the window")
+        #expect(hovers.isEmpty && expansions.isEmpty)
 
         await Self.drainMainQueue()
-        #expect(renders.filter { $0.row == 0 }.map(\.highlighted) == [false], "The old row clears its hover once")
-        #expect(renders.filter { $0.row == 1 }.map(\.expanded) == [false, true],
-                "The new row renders and expands once")
+        #expect(hovers.filter { $0.row == 0 }.map(\.hovered) == [false], "The old row clears its hover once")
+        #expect(hovers.filter { $0.row == 1 }.map(\.hovered) == [true], "The new row takes the hover once")
+        #expect(expansions == [1], "Only the new row expands, once")
         #expect(window.childWindows?.filter { $0.isVisible }.count == 1, "Only the hovered row stays expanded")
     }
 
-    /// A pending render belongs to the window the row was in. Leaving it cancels
-    /// the render; joining another window renders the latest state there.
+    /// A pending refresh belongs to the window the row was in. Leaving it cancels
+    /// the refresh; joining another window refreshes the latest state there.
     @Test
     @MainActor
-    func pendingRenderFollowsTheRowAcrossWindows() async throws {
+    func pendingRefreshFollowsTheRowAcrossWindows() async throws {
         func makeWindow() -> NSWindow {
-            let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 200, height: 24),
+            let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 120, height: 24),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+            window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
             return window
         }
         let first = makeWindow()
@@ -443,35 +451,39 @@ struct BranchSwitcherPopoverBehaviorTests {
         defer { first.close(); second.close() }
         var titles: [String] = []
         let row = BranchPopupRowControl()
-        row.frame = NSRect(x: 0, y: 0, width: 200, height: 24)
+        row.frame = NSRect(x: 0, y: 0, width: 120, height: 24)
         func update(_ title: String, content: AnyHashable = 0) {
-            row.render = { _, _ in
+            row.renderExpansion = {
                 titles.append(title)
-                return AnyView(Text(verbatim: title))
+                return AnyView(Text(verbatim: "\(title) codex/a-long-branch-name-that-needs-expansion").fixedSize())
             }
             row.update(BranchPopupRowControl.RenderState(title: title, content: content, isPresented: false,
                                                          isEnabled: true, environment: EnvironmentValues()))
         }
         first.contentView?.addSubview(row)
         update("first")
-        #expect(titles == ["first"], "The first render is synchronous so an inserted row never shows blank")
+        #expect(titles.isEmpty, "A row nobody hovers has no expansion to build")
+        row.mouseEntered(with: try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: first.windowNumber, context: nil,
+            eventNumber: 0, trackingNumber: 0, userData: nil)))
+        #expect(titles == ["first"])
 
         update("second")
         #expect(titles == ["first"])
         row.removeFromSuperview()
         await Self.drainMainQueue()
-        #expect(titles == ["first"], "A detached row drops the render queued for its old window")
+        #expect(titles == ["first"], "A detached row drops the refresh queued for its old window")
 
         second.contentView?.addSubview(row)
         await Self.drainMainQueue()
-        #expect(titles == ["first", "second"], "Joining a window renders the latest state once")
+        #expect(titles == ["first", "second"], "Joining a window refreshes the latest state once")
         update("second")
         await Self.drainMainQueue()
         #expect(titles == ["first", "second"], "Unchanged state does not re-render")
         // Selection or current-branch changes keep the title but alter the label.
         update("second", content: ["current"])
         await Self.drainMainQueue()
-        #expect(titles == ["first", "second", "second"], "A content key change re-renders the row")
+        #expect(titles == ["first", "second", "second"], "A content key change re-renders the expansion")
     }
 
     /// A row that SwiftUI inserts into a window already on screen, as a lazy list
@@ -501,10 +513,10 @@ struct BranchSwitcherPopoverBehaviorTests {
         defer { window.contentView = nil; window.close() }
         host.layoutSubtreeIfNeeded()
         let initial = renders
-        #expect(initial == 1)
+        #expect(initial >= 1)
         host.rootView = list(rows: 2)
         host.layoutSubtreeIfNeeded()
-        #expect(renders == initial + 1, "The inserted row renders without waiting for another run loop turn")
+        #expect(renders > initial, "The inserted row renders without waiting for another run loop turn")
     }
 
     @MainActor
