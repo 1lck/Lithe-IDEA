@@ -8,6 +8,21 @@ import UniformTypeIdentifiers
 @Suite("Editor tab layout", .serialized)
 struct EditorTabLayoutTests {
     @Test
+    func javaTabTestMarkTakesPriorityAndClearsForOrdinaryOrRenamedFiles() {
+        let java = URL(fileURLWithPath: "/workspace/CalculatorTest.java")
+        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: true, hasMain: false)
+            == "expui/nodes/junitTestMark.svg")
+        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: true, hasMain: true)
+            == "expui/nodes/junitTestMark.svg")
+        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: false, hasMain: true)
+            == "expui/nodes/runnableMark.svg")
+        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: false, hasMain: false) == nil)
+        #expect(EditorDocumentIconResolver.overlayResourcePath(
+            for: java.deletingPathExtension().appendingPathExtension("txt"), hasTests: true, hasMain: true
+        ) == nil)
+    }
+
+    @Test
     func javaTabsPreferTheSemanticIconResolvedForTheProjectTree() {
         let url = URL(fileURLWithPath: "/workspace/UploadService.java")
 

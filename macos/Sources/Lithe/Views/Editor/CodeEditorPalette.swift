@@ -37,11 +37,19 @@ struct CodeEditorPalette {
     }
     var bracket: NSColor { color(light: (0.18, 0.43, 0.79, 0.19), dark: (0.72, 0.72, 0.72, 0.22)) }
     var symbol: NSColor { color(light: (0.18, 0.43, 0.79, 0.11), dark: (0.68, 0.68, 0.68, 0.14)) }
-    var guide: NSColor { themeColor(.guide) }
-    var activeGuide: NSColor { themeColor(.activeGuide) }
+    var guide: NSColor { theme == .lithe && isDark ? color((50, 52, 56)) : themeColor(.guide) }
+    var activeGuide: NSColor { theme == .lithe && isDark ? color((78, 81, 87)) : themeColor(.activeGuide) }
     var unusedCode: NSColor { color(light: (0.48, 0.49, 0.52, 1), dark: (0.48, 0.48, 0.48, 1)) }
     var link: NSColor { themeColor(.accent) }
-    var lineNumber: NSColor { color(light: (0.43, 0.45, 0.49, 1), dark: (0.34, 0.34, 0.34, 1)) }
+    var lineNumber: NSColor {
+        guard theme == .lithe && isDark else {
+            return color(light: (0.43, 0.45, 0.49, 1), dark: (0.34, 0.34, 0.34, 1))
+        }
+        return color((75, 80, 89)) // Islands Dark LINE_NUMBERS_COLOR: #4B5059.
+    }
+    var activeLineNumber: NSColor {
+        theme == .lithe && isDark ? color((161, 163, 171)) : text
+    }
     var foldHover: NSColor { color(light: (0, 0, 0, 0.07), dark: (1, 1, 1, 0.07)) }
     var foldIndicator: NSColor { color(light: (0.28, 0.30, 0.34, 0.58), dark: (0.62, 0.62, 0.62, 0.46)) }
     var foldIndicatorHover: NSColor { color(light: (0.12, 0.14, 0.17, 0.90), dark: (0.86, 0.86, 0.86, 0.96)) }

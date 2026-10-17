@@ -542,6 +542,77 @@ Agent 输入区底栏的切换菜单向上展开，菜单底边锚定触发控�
 已有 `AgentBrandIcon` 的 16pt 品牌图标并保留独立勾选；此前只提交名称导致图标缺失。
 这些资源是构建时打包的只读输入，不增加运行时写入或下载。
 
+## 欢迎页项目动作按钮
+
+欢迎页内容容器四周增加 8pt 留白，避免头部动作和侧栏内容紧贴窗口边缘。
+这是 Lithe 本页的布局调整值，不作为 Community 的精确外边距参数；
+内部按钮尺寸及项目行命中区域保持各自现有所有权，背景继续覆盖窗口安全区。
+
+欢迎页 New Project、Open、Clone Repository 与 Commit、Test Performance 共用
+`Views/Components/LitheActionButtonStyle.swift` 的 `LitheActionButtonStyle`，不再保留页面私有按钮样式。
+统一圆角半径 4pt、最小宽度 72pt、内容留白 14pt、可见高度 28pt、13pt Regular；
+欢迎页按钮组间距仍为 6pt。表单默认保留 3pt 外部边框留白；欢迎页使用 0pt，
+悬停底色统一读取 `LitheTheme.hoverBackground`，页面不得再传入自己的按钮悬停颜色；
+该规则同时适用于欢迎页、Commit、Test 和打开项目弹窗。主按钮和禁用样式保留各自语义。
+依据 Community `b75ab523e6adbe1d26112219729eacbcfd24daa0`（`idea/262.9437.185`）的
+`WelcomeScreenActionsUtil.java` → `DarculaButtonUI.java` / `DarculaButtonPainter.java`，
+以及 `ManyIslandsDark.theme.json`：`Button.arc = 8` 是直径，`minimumSize = 72,28`，
+相邻按钮组件的绘制留白形成 6pt 可见间距。仅按钮组使用此间距，搜索区保留原有布局。
+
+按钮文字保持 13pt Regular，水平内容留白按 `DarculaButtonUI.HORIZONTAL_PADDING` 使用 14pt；
+28pt 高度、边框和焦点逻辑保持不变；悬停底色由共享主题维护。
+共享入口支持主按钮与禁用状态，不改变欢迎页字重及按压反馈。后续全项目普通文字动作按钮
+均以此入口迁移，避免在页面另写 `.bordered`、局部悬停色或重复的按钮几何；本轮不批量迁移其他页面。
+工具栏图标、标签和选择器仍由各自共享入口管理，其悬停配色继续复用主题 token。
+最小宽度允许长文案继续增长，不能把全部按钮固定为 72pt。
+按钮同时保留内容所需的水平宽度（`fixedSize(horizontal: true, vertical: false)`），
+避免搜索区与按钮组分配空间时把长文案压缩成省略号；搜索区仍可随可用空间收缩。
+
+同 revision 的 `ProjectsTabFactory.kt` 为搜索输入指定 `AllIcons.Actions.Search`；
+`RecentProjectFilteringTree.kt.installSearchField` 去掉输入边框，并通过 `emptyText`
+绘制提示。欢迎页因此保留无边框布局，复用 `LitheSearchTextField` 的 13pt Regular
+提示文字、专用提示色和输入法组合处理。搜索图标使用已有 `expui/general/search.svg`
+及深色变体，保留原始 16pt 和资源颜色；不使用会统一染色的兼容图标包装。
+
+## 打开其他项目的选择弹窗
+
+`RootView` 的项目打开位置提示复用 `LitheCenteredPopup` 的带标题居中窗口，
+不使用系统 sheet 的大圆角卡片。内容使用现有 `LitheCommitDialogStyle.background`、
+13pt 正常文字、原始 16pt IDEA 问号图标、`LitheSettingsCheckbox` 和 `LitheActionButtonStyle`；
+主按钮保留蓝色动作语义，普通按钮使用统一边框和悬停配色，不单独绘制页脚色块。
+
+保留取消、新窗口、此窗口与“不再询问”的原有行为。Return 选择此窗口，Escape 或标题栏关闭
+取消本次打开；取消必须匹配请求 ID，避免旧弹窗回调清掉新的请求。仅发起请求的窗口显示弹窗，
+并通过共享容器拦截父窗口输入，独立窗口、主题和语言沿用已有窗口环境。
+
+## macOS 编辑器缩略图的分隔装饰
+
+Monaco WebKit 的缩略图阴影会退化为 1pt 深色线，右侧概览标尺还有独立边框。
+现有 `frontend/editor/src/theme.ts` 统一将 `scrollbar.shadow` 与 `editorOverviewRuler.border`
+设为透明，主编辑器、分屏和主题切换共用该主题入口；不改第三方源码，不隐藏标尺本体。
+缩略图导航、滚动和诊断标记仍保留。真实 WebKit 集成检查核对阴影颜色与标尺左边缘像素。
+Windows 当前使用自己的编辑器主题适配器，本次不迁移其主题。
+
+## 多项目标签的选中与悬停
+
+`WorkbenchView.projectTab` 的项目切换标签使用紧凑标签语义，不套用动作按钮样式。
+标签按名称、当前文档和 Agent 提醒的文字与图标度量分配宽度，限制在 120～360pt；
+超长文字截断、超出容器的标签横向滚动，切换项目继续自动滚动到活动标签。
+标签使用 28pt 高度、4pt 圆角、6pt 间距；选中使用 `subtleSelection` 中性底色，
+未选中悬停使用 `hoverBackground`，移除焦点式外框和底部指示线。
+这些是本轮 Lithe 紧凑项目标签的布局值，参考 Community `ManyIslandsDark.theme.json`
+对 hover 与 selected 的区分，不声称复制 IDEA 的项目窗口标签几何。
+
+多项目时，标签栏放在左右工具栏之间，与工作区内容组成一列；两侧工具栏与
+标签栏从同一高度开始。中间列左右各保留 4pt 真实间隔，标签栏下方也保留 4pt；不拉伸标签或加装饰块填空。
+标签栏外容器复用 `workbenchPaneChrome` 的 10pt 圆角和窗口渐变收口，
+不再单独裁剪成 6pt 圆角；内部标签仍保留 4pt 圆角。
+单项目继续隐藏标签栏并保留原间距；不改变其他面板的颜色、圆角、标题栏和内容。
+
+项目名统一 13pt Regular；目录与关闭动作使用已有 IDEA 16pt 明暗资源，
+标签与关闭按钮保留默认箭头。保持项目切换、关闭行为和 Agent 提醒。
+关闭按钮仍在选中或悬停时出现，点击不触发项目切换。
+
 ## 原生窗口布局反馈的边界
 
 SwiftUI 更新锚点时，AppKit（macOS 原生界面库）可能还在计算父窗口布局。
@@ -1283,3 +1354,140 @@ LitheIcons.kind 文件分类与 LitheIcon；有子项的测试分组用 class，
 Test摘要把整体运行结论与报告计数分别保留：Maven解析器即使无报告也可返回零计数，
 因此.failed/.timedOut必须优先决定错误图标和红色状态条；报告没有失败计数时，
 额外保留Failed/Timed Out文字。部分测试通过不代表整体构建成功，取消不画绿色状态条。
+
+### 主编辑器软换行按钮
+
+软换行开关复用 `LitheIconButtonStyle` 的工具栏尺寸（22pt 点击区、16pt 原始
+`expui/general/softWrap.svg` 图标，内部每侧3pt），共享悬停、按下和选中底色。
+按钮位于缩略图左侧，保留8pt间隙；关闭缩略图后位于滚动条左侧。位置来自
+Monaco `getLayoutInfo()` 的实际缩略图边界，不能假定缩略图固定宽度。
+`editorLayout` 桥接消息仅在尾侧占用宽度变化时发布，几何状态由对应
+`MonacoWorkbenchSession` 持有，不经 AppModel 或工作台重新发布。主编辑器和
+独立文件窗口使用同一开关，预览与差异窗口不增加按钮。查找栏出现时继续隐藏
+开关，设置持久化、禁用条件和辅助功能描述保持原语义。
+真实 WebKit 回归覆盖两种宽度、缩略图开关与桥接定位值。
+
+### Islands Dark 内容区精确底色
+
+依据 Community `idea/262.9437.185` 的
+`platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json`，
+`editor-bg` 与 `tool-window-bg` 均经 `layer-0-bg` 解析到 `gray-10 = #191A1C`。
+Lithe 深色主题原先使用 `(0.094, 0.098, 0.106)` 小数近似值，转成8位颜色为
+`#18191B`，不能与精确主题值等同。共享调色板改用精确 `#191A1C`，覆盖编辑器、
+侧栏、面板标题和原先同底色的活动标签；浅色主题和其他颜色主题保持原值。
+Monaco 继续通过原有主题桥接读取相同 editor token，不引入单独的网页底色。
+截图像素经过显示器配置与截图色彩配置转换，不直接当作源代码中的 sRGB 常量。
+回归核对原生内容底色与 Monaco 背景，以及原有壁纸透明和主题切换语义。
+
+### 行号与 Java 启动类标签
+
+Community `idea/262.9437.185` 的 `themes/islands/IslandSchemeDark.xml` 定义
+`LINE_NUMBERS_COLOR = #4B5059`、`LINE_NUMBER_ON_CARET_ROW_COLOR = #A1A3AB`。
+macOS Lithe 深色主题通过 CodeEditorPalette 把专用颜色传给 Monaco，其他主题不改。
+`EditorGutterComponentImpl.getFontForLineNumbers()` 使用编辑器 Plain 字体加
+`PlatformExtensions.xml` 中默认 `editor.gutter.linenumber.font.size.delta = -1`。
+macOS 网页适配层仅将行号设为继承字体的小1pt常规字，最小1pt，保留原行高、行号
+命中区域、代码字号与引擎布局；不改变 Windows 的适配层。
+
+Java 编辑器标签复用已经导入的 `expui/nodes/runnableMark.svg` 原始16pt角标，
+与 Run Configuration 和 Problems 文件标题的装饰方式一致，角标本身没有额外点击动作。
+`EditorDocument.hasRunnableJavaMain` 由已有 Monaco Java Run marker 响应更新，必须先通过
+当前文档、路径、revision 和 requestID 校验；只在 main 标记存在时显示，不把普通类或
+测试类误标成启动类，也不另发语言服务请求或新增源码启发式解析。
+
+### macOS 行号优先的编辑器边栏
+
+macOS 宿主启用 `WorkbenchHost.lineNumbersFirst`，关闭 Monaco 原始左侧 glyph margin，
+使用公开的 linesDecorationsClassName 将运行和导航标记放在行号右侧的两个16pt区域。
+主方法运行图标复用 `expui/run/run.svg` 及其 dark 变体的原始16pt描边图形，
+不再把实心12pt TestState.Run 当作主方法的运行图标；测试结果状态保留原资源。
+断点使用公开 lineNumberClassName 在行号区显示，点击数字区域仍走原调试请求，
+暂停箭头使用右侧装饰区；运行/导航菜单、revision 校验及键盘命令保持原入口。
+保留 glyph 装饰元数据以维持未启用此宿主选项的平台表现，不修改 Monaco 内部布局、
+鼠标控制器或第三方源码，也不通过 CSS 互换两块引擎命中区域。
+WebKit 回归核对绘制矩形、getTargetAtClientPoint 类型及行号、运行 SVG 尺寸和
+深色资源、断点行号区域，并继续覆盖分屏、导航、只读和调试标记生命周期。
+
+### 行号后的间距与折叠箭头
+
+Community `idea/262.9437.185` 的 `JBUI.CurrentTheme.Editor.Gutter` 默认
+`gapAfterLineNumbersWidth` 和 `gapAfterIconsWidth` 均为4pt；Islands Dark 及
+ExperimentalDark 主题未覆盖。原先32pt的动作区扩展为：4pt行号后留白、两个16pt
+动作槽、4pt动作后留白和16pt折叠命中槽。最后16pt由 Monaco 开启折叠时自动添加，宿主不重复预留。尺寸由同一个 nativeGutter 定义推导，
+运行、导航/暂停箭头、折叠控件互不重叠，仍全部位于 Monaco 实际装饰区域内。
+
+折叠控件替换字体图标为现有 `expui/gutter/fold{,_dark}.svg` 和
+`unfold{,_dark}.svg`：原始9×9 viewBox、1pt描边及圆头，深色 #6F737A、浅色
+#A8ADBD。16pt容器内居中绘制，不缩放笔画，不另画箭头，保留引擎展开/收起与悬停语义。
+样式只作用于宿主 extraEditorClassName 标记的行号优先编辑器，不影响差异审阅布局。
+运行/导航图标的 mouseup 在 document 捕获阶段按编辑器 DOM 所有权判断后停止冒泡，避免同一装饰区的引擎
+折叠处理器在打开动作菜单时同时折叠声明；监听器随编辑器销毁清理。
+真实 WebKit 核对4pt间距、箭头绘制和命中矩形、展开/收起 SVG、真实点击折叠、
+断点点击，以及点击运行图标不会折叠声明。
+
+### 测试类 Run All 与空导航槽
+
+测试类未运行状态使用 Community `idea/262.9437.185` 的原始
+`platform/icons/src/expui/actions/runAll{,_dark}.svg`（16pt描边双三角），与主方法
+Run 的16pt、描边色和明暗变体一致，不再使用旧12pt实心 TestState.Run_run。
+新资源版权和来源记入 IDEAIcons/NOTICE.txt；测试类仍使用 run-all 语义，测试
+方法仍使用 run，成功/失败状态保留原图标，不改变测试动作。
+
+单动作槽的折叠位置为4pt行号后留白 + 16pt运行槽 + 4pt间距；仅当当前模型
+已有 Java 导航标记时追加16pt导航槽。通过已有导航响应和模型切换更新当前编辑器
+配置，无额外语言服务请求；保留旧导航显示期间的槽位，避免每次键入导致边栏闪动。
+从引擎现有配置判断是否需要更新，不在每次光标变化时重复布局。主题和字体配置更新后
+重新核对导航槽，避免全局显示配置冲掉当前文件的槽位；各分屏仍各自判断。
+回归覆盖 Run All 原始16pt明暗资源、无导航时运行与折叠的4pt间隔、有导航时保留
+导航槽、主题配置不清除已有槽位，以及文件重命名清空导航后的回收。
+
+### 行号栏按实际字体与位数计算
+
+IDEA `idea/262.9437.185` 的 `EditorGutterComponentImpl` 用最大行号的普通编辑字体
+（字号减1）测量宽度，并用 New UI 断点图标宽度作为下限。macOS 的行号栏不再固定
+预留5位：普通模式设置最小字符数为1，宽度按行号字体的数字宽度 × 文档最大行号位数
+计算，最低16pt以容纳当前断点图标。原生编辑字体为等宽字体；数字仍右对齐，文档
+增长、缩短、字体变更及分屏均由对应编辑器重新计算。Git blame 自定义行号模式保留
+原26字符注释空间，关闭后回到普通测量模式，Windows 保留既有5字符配置。
+
+Monaco 0.55.1 的公开 lineNumbersMinChars 只接受整数，layoutInfo 使用代码字体
+的 maxDigitWidth，无法精确表达更小字号的行号和16pt最低宽。因此仅在 macOS 网页
+适配层包装固定版本 EditorOptions.layoutInfo.compute，且只作用于带行号优先标记的
+普通行号编辑器。复用引擎 FontMeasurements 缓存和 BareFontInfo 测量字号减1的常规字，
+向原计算函数提供行号专用 maxDigitWidth；不修改实际代码 fontInfo、正文字符测量、
+caret 或第三方文件，不复制布局公式，不在 Swift 工作台发布几何。其余内容区宽度、
+换行、缩略图和鼠标命中继续由同一次上游布局计算得出；差异预览及自定义注释栏旁路。
+
+这是固定版本的窄兼容点：升级 Monaco 时必须复核 maxDigitWidth 在 layoutInfo
+计算中的用途及 compute/font measurement 参数；上游提供独立行号字体/像素宽度选项后
+改用正式选项并删除包装。真实 WebKit 用独立 Canvas 字体测量核对9/99/100/1000行、
+缩回个位行、不同字号与实际 JetBrains Mono 字体，并检查分屏独立宽度；同时保留
+行号区断点点击、运行/折叠布局和 blame 开关回归。
+
+### Java 测试文件标签角标
+
+Community `idea/262.9437.185` 的 `JavaFileIconPatcher.kt` 取文件对应类的图标，
+`ElementPresentationUtil.getClassKindImpl/getFlags` 优先识别测试类，再识别 runnable
+类，并注册 `PlatformIcons.JunitTestMark` 图层。macOS 编辑器标签保留语义类图标，
+右上角叠加原始 `expui/nodes/junitTestMark{,_dark}.svg`：16pt viewBox 内的红绿
+测试标记，使用原始颜色、几何及明暗变体，版权来源记入 IDEAIcons/NOTICE.txt。
+
+`EditorDocument.hasJavaTests` 与 main 标记共用已有 JDT Run marker 响应，且仅在
+文档、URL、revision 和 requestID 校验通过后更新；测试类或测试方法标记均可证明
+文件含测试，不通过 *Test.java 文件名或目录猜测，不增加语言服务请求。测试角标
+优先于 main 角标，结果通过/失败不改变测试文件身份。无测试时撤销测试角标，
+非 Java 文件不显示遗留标记；辅助函数回归覆盖测试、main、同时存在、普通类和改扩展名。
+本次仅修改编辑器标签，不额外修改项目树或其他面板。
+
+
+### 2026-10-17 编辑器结构线颜色与匹配边界
+
+- 依据 Community `idea/262.9437.185` 的 `platform/platform-resources/src/themes/islands/IslandSchemeDark.xml`，Lithe 深色编辑器普通结构线使用 `INDENT_GUIDE=#323438`，配对结构线使用 `MATCHED_BRACES_INDENT_GUIDE_COLOR=#4E5157`；其他主题沿用原配色。
+- 核对 `BraceHighlightingHandler.kt`、`IndentGuideRenderer.java` 与 `IndentsModelImpl.java` 后，按本次产品要求限制为光标紧邻多行配对花括号时突出对应结构线；普通块内语句及文本选择不触发。关闭 Monaco 默认“所在缩进持续高亮”，避免两套规则叠加。
+- macOS frontend 使用固定 Monaco 0.55.1 `TextModel.bracketPairs.matchBracket`，匹配预算 5ms，并校验既有词法 token 排除字符串和注释；不另建括号解析器、不强制同步词法解析。绑定各编辑器的选择、模型、内容及 token 变化，关闭时释放监听；分屏互不继承光标状态。
+- 普通线与括号线统一消费 palette 的 `guide` / `activeGuide`，嵌套深度不额外引入彩虹线色。原生宿主关闭水平括号辅助线；Windows 宿主行为不变。
+- `MonacoWorkbenchThemeTests` 验证原生颜色，`workbench.integration.ts` 在真实 WKWebView 验证首尾括号、内部语句、嵌套块、注释与字符串、选择、配置更新和独立分屏。完整应用视觉验收仍待进行。
+
+### 2026-10-17 软换行覆盖按钮光标
+
+软换行按钮覆盖在 WebKit 编辑器上，共享图标按钮样式只处理绘制，不覆盖下层编辑器的 I 形光标。仅在 `EditorSoftWrapToggle` 的完整按钮命中区使用已有 `onContinuousHover` 模式持续设置默认箭头；离开后由目标控件恢复光标，不 push/pop，不改全局按钮规则、编辑区输入光标、换行点击行为或禁用状态。完整应用悬停检查待验收。

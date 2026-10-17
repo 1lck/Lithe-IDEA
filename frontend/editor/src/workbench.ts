@@ -22,12 +22,23 @@ import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/b
 import { Action, Separator, type IAction } from "monaco-editor/esm/vs/base/common/actions.js";
 import { normalizeRunMarkers, runMarkerForLine, runMarkerIcon, type RunMarker, type RunMarkerIcon } from "./run-markers";
 
+const escapeHTML = (value: string) => value.replace(/[&<>"']/g, character =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+
+// IDEA JBUI.CurrentTheme.Editor.Gutter gaps and original action/folding SVG sizes.
+const nativeGutter = { gap: 4, icon: 16, fold: 9 };
+const nativeFoldingOffset = nativeGutter.gap * 2 + nativeGutter.icon;
+
 export interface WorkbenchHost {
   request(payload: object): Promise<any>;
   palette: { defaults: Record<string, { light: string; dark: string }> };
   javaNavigationIcons?: Record<"up-interface" | "up-inheritance" | "down-interface" | "down-inheritance", string>;
   /** IDEA test-state SVGs for Java Run markers. */
   javaRunIcons?: Record<RunMarkerIcon, string>;
+  javaRunIconsDark?: Partial<Record<RunMarkerIcon, string>>;
+  /** Native IDEA order: line numbers, then action decorations. */
+  lineNumbersFirst?: boolean;
+  foldingIcons?: Record<"expanded" | "collapsed", { light: string; dark: string }>;
   keybindings?: { command: string; label: string; keybinding: number }[];
 }
 
@@ -170,6 +181,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       const icons = [...directions.values()].map(marker => `lithe-java-navigation-${marker.direction}-${marker.relation === "interface" ? "interface" : "inheritance"}`).join(" ");
       return { range: new monaco.Range(line, 1, line, 1), options: {
         glyphMarginClassName: `lithe-java-navigation lithe-java-navigation-${direction} ${icons}`,
+        linesDecorationsClassName: host.lineNumbersFirst ? `lithe-java-navigation lithe-java-navigation-${direction} ${icons}` : undefined,
+        linesDecorationsTooltip: host.lineNumbersFirst ? "Go to super declaration or implementations" : undefined,
         glyphMargin: { position: monaco.editor.GlyphMarginLane.Left },
         glyphMarginHoverMessage: { value: direction === "up" ? "Go to super declaration" : direction === "down"
           ? "Go to implementations" : "Go to super declaration (left) or implementations (right)", isTrusted: false },
@@ -206,6 +219,8 @@ export function mountWorkbench(host: WorkbenchHost) {
     state.decorations = entry.model.deltaDecorations(state.decorations, markers.map(marker => ({
       range: new monaco.Range(marker.line, 1, marker.line, 1), options: {
         glyphMarginClassName: `lithe-java-run lithe-java-run-${runMarkerIcon(marker)}`,
+        linesDecorationsClassName: host.lineNumbersFirst ? `lithe-java-run lithe-java-run-${runMarkerIcon(marker)}` : undefined,
+        linesDecorationsTooltip: host.lineNumbersFirst ? escapeHTML(`Run '${marker.label}'`) : undefined,
         // Left holds implementation markers and the default lane breakpoints;
         // the right lane is shared only with the paused-frame arrow.
         glyphMargin: { position: monaco.editor.GlyphMarginLane.Right },
@@ -401,8 +416,6 @@ export function mountWorkbench(host: WorkbenchHost) {
   function attachGitInteractions(view: monaco.editor.IStandaloneCodeEditor) {
     const blameKey = view.createContextKey("litheGit.blame", false);
     let renderedBlame: object | undefined;
-    const escapeHTML = (value: string) => value.replace(/[&<>"']/g, character =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
     const blameContext = (line = view.getPosition()?.lineNumber) => {
       const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
       if (!pair) return;
@@ -443,7 +456,7 @@ export function mountWorkbench(host: WorkbenchHost) {
           const label = value ? `${value.author} · ${value.date}` : "";
           const metadata = value ? `<span class="lithe-blame" title="${escapeHTML(`${label} · ${value.commit.slice(0, 8)}`)}">${show ? escapeHTML(label) : "&#8203;"}</span>` : "";
           return `${metadata}<span class="lithe-blame-line">${line}</span>`;
-        } } : { lineNumbers: "on", lineNumbersMinChars: 5 });
+        } } : { lineNumbers: "on", lineNumbersMinChars: host.lineNumbersFirst ? 1 : 5 });
       }
       const value = current();
       for (const action of ["show", "stage", "unstage", "discard"] as const)
@@ -567,6 +580,18 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
 
   function attachRunInteractions(view: monaco.editor.IStandaloneCodeEditor) {
+    if (host.lineNumbersFirst) {
+      // Action decorations share Monaco's folding region; consume their release
+      // before FoldingController interprets it as a click on the folding arrow.
+      const actionMouseUp = (event: MouseEvent) => {
+        const element = event.target as Element | null;
+        if (element?.closest(".lithe-java-run,.lithe-java-navigation") && view.getDomNode()?.contains(element)) {
+          event.stopPropagation();
+        }
+      };
+      document.addEventListener("mouseup", actionMouseUp, true);
+      view.onDidDispose(() => document.removeEventListener("mouseup", actionMouseUp, true));
+    }
     const context = (line = view.getPosition()?.lineNumber) => {
       const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
       if (!pair || line === undefined) return;
@@ -643,6 +668,16 @@ export function mountWorkbench(host: WorkbenchHost) {
       return { id, entry, state, markers: state.markers.filter(marker => marker.line === line) };
     };
     const refresh = () => {
+      if (host.lineNumbersFirst) {
+        const entry = [...entries.values()].find(entry => entry.model === view.getModel());
+        const needsLane = !!(entry && navigationStates.get(entry)?.markers.length);
+        const width = nativeFoldingOffset + (needsLane ? nativeGutter.icon : 0);
+        const className = `lithe-line-numbers-first${needsLane ? " lithe-gutter-navigation" : ""}`;
+        const options = view.getRawOptions();
+        if (options.lineDecorationsWidth !== width || options.extraEditorClassName !== className) {
+          view.updateOptions({ lineDecorationsWidth: width, extraEditorClassName: className });
+        }
+      }
       const value = navigation();
       for (const direction of ["up", "down"] as const) navigationKeys[direction].set(!!value?.markers.some(marker => marker.direction === direction));
     };
@@ -701,8 +736,9 @@ export function mountWorkbench(host: WorkbenchHost) {
     if (attached) scheduleNavigation(...attached);
     refresh();
     return view.onMouseDown(event => {
-      if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run")) return;
-      if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN || !event.target.position ||
+      if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run, .lithe-blame")) return;
+      if ((event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+           !(host.lineNumbersFirst && event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS)) || !event.target.position ||
           (!event.event.leftButton && !event.event.rightButton)) return;
       event.event.preventDefault();
       event.event.stopPropagation();
@@ -983,7 +1019,10 @@ export function mountWorkbench(host: WorkbenchHost) {
         wordWrap: payload.wrap ? "on" : "off",
         minimap: { enabled: payload.minimap !== false },
       });
-      for (const view of allEditors()) view.updateOptions(displayOptions);
+      for (const view of allEditors()) {
+        view.updateOptions(displayOptions);
+        navigationContexts.get(view)?.();
+      }
       monaco.editor.setTheme(name);
     },
     async debugState(id: string, state: { breakpoints: { line: number; enabled: boolean; verified: boolean; logpoint: boolean; conditional?: boolean; message?: string }[]; muted: boolean; paused?: boolean; canRunToCursor?: boolean; executionLine?: number; revision?: number; variables?: { name: string; value: string }[] }) {
@@ -995,16 +1034,21 @@ export function mountWorkbench(host: WorkbenchHost) {
       for (const view of allEditors()) if (view.getModel() === entry.model)
         debugRunContexts.get(view)?.set(state.canRunToCursor === true);
       const decorations: monaco.editor.IModelDeltaDecoration[] = state.breakpoints
-        .filter(point => point.line >= 1 && point.line <= entry.model.getLineCount()).map(point => ({
-          range: new monaco.Range(point.line, 1, point.line, 1),
-          options: { glyphMarginClassName: `codicon codicon-${point.logpoint ? "debug-breakpoint-log" : point.conditional ? "debug-breakpoint-conditional" : "debug-breakpoint"}${!point.enabled || state.muted ? "-disabled" : !point.verified ? "-unverified" : ""} lithe-breakpoint`,
-            glyphMarginHoverMessage: point.message ? { value: point.message, isTrusted: false } : undefined,
-            stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges },
-        }));
+        .filter(point => point.line >= 1 && point.line <= entry.model.getLineCount()).map(point => {
+          const className = `codicon codicon-${point.logpoint ? "debug-breakpoint-log" : point.conditional ? "debug-breakpoint-conditional" : "debug-breakpoint"}${!point.enabled || state.muted ? "-disabled" : !point.verified ? "-unverified" : ""} lithe-breakpoint`;
+          return {
+            range: new monaco.Range(point.line, 1, point.line, 1),
+            options: { lineNumberClassName: host.lineNumbersFirst ? className : undefined,
+              glyphMarginClassName: className,
+              glyphMarginHoverMessage: point.message ? { value: point.message, isTrusted: false } : undefined,
+              stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges },
+          };
+        });
       if (state.executionLine && state.executionLine <= entry.model.getLineCount() && state.executionLine >= 1) {
         decorations.push({ range: new monaco.Range(state.executionLine, 1, state.executionLine, 1),
           options: { isWholeLine: true, className: "lithe-execution-line",
             glyphMarginClassName: "codicon codicon-debug-stackframe lithe-execution-marker",
+            linesDecorationsClassName: host.lineNumbersFirst ? "codicon codicon-debug-stackframe lithe-execution-marker" : undefined,
             glyphMargin: { position: monaco.editor.GlyphMarginLane.Right },
             stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges } });
         const variables = new Map((state.revision === undefined || state.revision === entry.revision ? state.variables ?? [] : [])
@@ -1142,12 +1186,22 @@ export function mountWorkbench(host: WorkbenchHost) {
     }, host.palette);
     displayOptions = {
       model: null, automaticLayout: true, minimap: { enabled: true }, theme: bootstrapTheme, fontSize: 13,
-      glyphMargin: true, scrollBeyondLastLine: false, fixedOverflowWidgets: true, "semanticHighlighting.enabled": true,
+      glyphMargin: !host.lineNumbersFirst, ...(host.lineNumbersFirst ? { guides: { bracketPairs: false, bracketPairsHorizontal: false, highlightActiveIndentation: false }, lineNumbersMinChars: 1, lineDecorationsWidth: nativeFoldingOffset, extraEditorClassName: "lithe-line-numbers-first" } : {}), scrollBeyondLastLine: false, fixedOverflowWidgets: true, "semanticHighlighting.enabled": true,
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
     installWordHighlightLifecycle(editor);
     attachDebugInteractions(editor);
-    editor.onDidLayoutChange(preserveMarkdownScroll);
+    let lastMinimapTrailingInset: number | undefined;
+    const reportEditorLayout = () => {
+      const layout = editor.getLayoutInfo();
+      const inset = layout.minimap.minimapWidth > 0
+        ? layout.width - layout.minimap.minimapLeft : layout.verticalScrollbarWidth;
+      if (inset === lastMinimapTrailingInset) return;
+      lastMinimapTrailingInset = inset;
+      void send({ type: "editorLayout", minimapTrailingInset: inset }).catch(console.error);
+    };
+    editor.onDidLayoutChange(() => { preserveMarkdownScroll(); reportEditorLayout(); });
+    reportEditorLayout();
     editor.onDidScrollChange(event => {
       if (event.scrollHeightChanged) { preserveMarkdownScroll(); return; }
       if (!event.scrollTopChanged || applyingMarkdownScroll || !active || active !== markdownScrollID || markdownScrollTimer !== undefined) return;
@@ -1167,6 +1221,13 @@ export function mountWorkbench(host: WorkbenchHost) {
     const debugStyle = document.createElement("style");
     const runIconStyles = Object.entries(host.javaRunIcons ?? {}).map(([icon, svg]) =>
       `.monaco-editor .lithe-java-run-${icon}{background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
+    const darkRunIconStyles = Object.entries(host.javaRunIconsDark ?? {}).map(([icon, svg]) =>
+      `.monaco-editor.vs-dark .lithe-java-run-${icon}{background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
+    const foldingIconStyles = Object.entries(host.foldingIcons ?? {}).flatMap(([state, icons]) =>
+      (["light", "dark"] as const).map(appearance => {
+        const theme = (appearance === "dark" ? ".vs-dark" : "") + ".lithe-line-numbers-first";
+        return `.monaco-editor${theme} .cldr.codicon-folding-${state}:before,.monaco-editor${theme} .cldr.codicon-folding-manual-${state}:before{background-image:url("data:image/svg+xml,${encodeURIComponent(icons[appearance])}")}`;
+      })).join("\n");
     const navigationIconStyles = Object.entries(host.javaNavigationIcons ?? {}).map(([kind, svg]) =>
       `.monaco-editor .lithe-java-navigation-${kind}:${kind.startsWith("up-") ? "before" : "after"}{content:"";background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
     debugStyle.textContent = `.monaco-editor .lithe-java-navigation{cursor:pointer;font-family:monospace;font-size:12px;display:flex!important;align-items:center;justify-content:center}
@@ -1178,6 +1239,18 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor .lithe-java-run{cursor:pointer;background-size:12px 12px;background-repeat:no-repeat;background-position:center;opacity:.9}
       .monaco-editor .lithe-java-run:hover{opacity:1}
       ${runIconStyles}
+      ${darkRunIconStyles}
+      ${host.lineNumbersFirst ? `
+      .monaco-editor.lithe-line-numbers-first .line-numbers.lithe-breakpoint{font-size:0;color:var(--vscode-debugIcon-breakpointForeground,#e51400)}
+      .monaco-editor.lithe-line-numbers-first .line-numbers.lithe-breakpoint:before{font-size:16px}
+      .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-run{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap}px;opacity:1}
+      .monaco-editor.lithe-line-numbers-first .lithe-java-run-run,.monaco-editor.lithe-line-numbers-first .lithe-java-run-run-all{background-size:16px 16px}
+      .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-navigation,.monaco-editor.lithe-line-numbers-first .cldr.lithe-execution-marker{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap + nativeGutter.icon}px}
+      .monaco-editor.lithe-line-numbers-first .margin-view-overlays .cldr[class*="codicon-folding-"]{width:${nativeGutter.icon}px!important;margin-left:${nativeFoldingOffset}px}
+      .monaco-editor.lithe-line-numbers-first.lithe-gutter-navigation .cldr[class*="codicon-folding-"]{margin-left:${nativeFoldingOffset + nativeGutter.icon}px}
+      .monaco-editor.lithe-line-numbers-first .cldr[class*="codicon-folding-"]:before{content:"";width:${nativeGutter.fold}px;height:${nativeGutter.fold}px;background-repeat:no-repeat;background-position:center;background-size:${nativeGutter.fold}px ${nativeGutter.fold}px}
+      ${foldingIconStyles}
+      ` : ""}
       .monaco-editor .lithe-blame{display:inline-block;max-width:calc(100% - 5ch);float:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;text-align:left}
       .monaco-editor .lithe-blame-line{display:inline-block;min-width:4ch;text-align:right}
       .monaco-editor .lithe-git-marker{width:3px!important;margin-left:2px;cursor:pointer}

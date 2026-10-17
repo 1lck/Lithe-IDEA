@@ -6,7 +6,8 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Workspace",
-      "macos/Sources/Lithe/Views/Editor"
+      "macos/Sources/Lithe/Views/Editor",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -23,5 +24,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Workspace",
-  "verification": "同时打开多个项目和文件，确认标签、项目上下文和关闭恢复行为。 Windows 重复打开同一本地目录（含大小写、分隔符和目录链接别名）时，恢复并聚焦已有窗口及项目标签；连续打开只产生一个窗口，关闭或打开失败后可以重试。"
+  "verification": "同时打开多个项目和文件，确认标签、项目上下文和关闭恢复行为。 Windows 重复打开同一本地目录（含大小写、分隔符和目录链接别名）时，恢复并聚焦已有窗口及项目标签；连续打开只产生一个窗口，关闭或打开失败后可以重试。 macOS 明暗主题检查紧凑项目标签：按名称、当前文档及 Agent 提醒测量宽度（120～360pt），28pt 高度、4pt 圆角、6pt 间距；选中中性底色、悬停轻量底色，无外框或下划线。标签栏位于左右工具栏之间，三者顶端对齐，中间列两侧及标签栏下方保留 4pt 间隔，标签栏外容器复用工作台面板的 10pt 圆角及渐变收口；单项目隐藏标签栏且保持原间距，其他面板设计不变。名称为 13pt Regular，目录和关闭图标为原始 16pt IDEA 资源。验证切换、关闭、关闭显隐、长名称截断、窄窗口滚动及 Agent 提醒仍可用。主工作窗口红色关闭按钮应确认本窗口全部未保存文档并等待全部项目清理，再回到欢迎页；取消或保存失败保留所有项目，重复点击不重复清理。标签关闭仍仅关闭单个项目；独立窗口、Cmd+W 及其他窗口项目隔离保持原行为。"
 }

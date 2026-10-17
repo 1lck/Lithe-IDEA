@@ -62,6 +62,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     ]]
     var debugRequests: [[String: Any]] = []
     var definitionRequests: [[String: Any]] = []
+    var editorLayout: [String: Any] = [:]
     var markdownScrollRequests: [[String: Any]] = []
     var markdownScrollWaiter: ((Any?, String?) -> Void)?
     var fixtureDocuments: [String: (text: String, revision: Int)] = [:]
@@ -156,8 +157,8 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 replyHandler(["selected": NSNull()], nil)
             case "lastContextMenu": replyHandler(lastContextMenu, nil)
             case "javaRunMarkers":
-                let markers: [[String: Any]] = body["id"] as? String == "readonly-run-test"
-                    ? [["id": "main", "line": 1, "endLine": 1, "kind": "main", "label": "Main.main()", "status": "none"]] : []
+                let markers: [[String: Any]] = ["readonly-run-test", "gutter-order", "gutter-test-class"].contains(body["id"] as? String ?? "")
+                    ? [["id": "main", "line": 1, "endLine": 1, "kind": body["id"] as? String == "gutter-test-class" ? "testClass" : "main", "label": "Main.main()", "status": "none"]] : []
                 replyHandler(["markers": markers, "canDebug": true], nil)
             case "javaRunMarkerAction":
                 javaRunActionCount += 1
@@ -271,7 +272,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
             case "rename":
                 guard let name = body["newName"] as? String else { throw ProbeError.invalid("Missing rename") }
                 replyHandler(["changes": try workspaceFixtureChanges(name: name)], nil)
-            case "runToCursor":
+            case "toggleBreakpoint", "editBreakpoint", "runToCursor":
                 debugRequests.append(body)
                 replyHandler(["ok": true], nil)
             case "debugRequests":
@@ -281,6 +282,11 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 replyHandler(["ok": true], nil)
             case "definitionRequests":
                 replyHandler(["requests": definitionRequests], nil)
+            case "editorLayout":
+                editorLayout = body
+                replyHandler(["ok": true], nil)
+            case "editorLayoutSnapshot":
+                replyHandler(editorLayout, nil)
             case "markdownScroll":
                 markdownScrollRequests.append(body)
                 markdownScrollWaiter?(["requests": markdownScrollRequests], nil); markdownScrollWaiter = nil

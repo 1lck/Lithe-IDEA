@@ -331,3 +331,11 @@ Community revision 233ba81d5f6ec3f90ebd3be3159f425ecc3073ff
 the link color and only marks a link's destination; it is the GitHub service
 mark that Community ships for its GitHub integration, not a JetBrains product
 logo or a third-party plugin icon.
+
+The editor gutter expui/actions/runAll.svg and runAll_dark.svg are original
+Community idea/262.9437.185 platform/icons/src/expui/actions assets, also shipped
+in IntelliJ IDEA 2026.2.1 build 262.9437.185. Their Apache 2.0 notices are preserved.
+
+The editor tab expui/nodes/junitTestMark.svg and junitTestMark_dark.svg are original
+Community idea/262.9437.185 platform/icons/src/expui/nodes resources, also shipped
+in IntelliJ IDEA 2026.2.1 build 262.9437.185. Their Apache 2.0 notices are preserved.
