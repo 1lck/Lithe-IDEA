@@ -7,6 +7,8 @@ struct BranchPopupRowView<Label: View>: NSViewRepresentable {
     @Environment(\.self) private var environment
     var isPresented: Bool
     let accessibilityTitle: String
+    /// Label inputs that the accessibility title does not already describe.
+    var contentKey: AnyHashable = 0
     let onPress: () -> Void
     @ViewBuilder let label: (Bool, Bool) -> Label
 
@@ -21,9 +23,9 @@ struct BranchPopupRowView<Label: View>: NSViewRepresentable {
                 .environment(\.self, environment)
                 .fontWeight(.regular))
         }
-        view.update(BranchPopupRowControl.RenderState(title: accessibilityTitle, isPresented: isPresented,
-                                                      isEnabled: environment.isEnabled,
-                                                      colorScheme: environment.colorScheme))
+        view.update(BranchPopupRowControl.RenderState(title: accessibilityTitle, content: contentKey,
+                                                      isPresented: isPresented, isEnabled: environment.isEnabled,
+                                                      environment: environment))
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: BranchPopupRowControl, context: Context) -> CGSize? {
@@ -33,13 +35,28 @@ struct BranchPopupRowView<Label: View>: NSViewRepresentable {
 
 final class BranchPopupRowControl: NSControl {
     /// Representable inputs that change the drawn row. Label closures are rebuilt
-    /// on every SwiftUI update and cannot be compared, so the title stands in for
-    /// the label content; hover highlight is owned by the control itself.
+    /// on every SwiftUI update and cannot be compared, so callers describe the
+    /// label with its title plus a content key; hover highlight is owned by the
+    /// control itself.
     struct RenderState: Equatable {
         var title: String
+        var content: AnyHashable
         var isPresented: Bool
         var isEnabled: Bool
         var colorScheme: ColorScheme
+        var locale: Locale
+        var dynamicTypeSize: DynamicTypeSize
+
+        init(title: String, content: AnyHashable, isPresented: Bool, isEnabled: Bool,
+             environment: EnvironmentValues) {
+            self.title = title
+            self.content = content
+            self.isPresented = isPresented
+            self.isEnabled = isEnabled
+            colorScheme = environment.colorScheme
+            locale = environment.locale
+            dynamicTypeSize = environment.dynamicTypeSize
+        }
     }
 
     var render: ((Bool, Bool) -> AnyView)?
@@ -52,9 +69,9 @@ final class BranchPopupRowControl: NSControl {
     private var parentCloseObserver: NSObjectProtocol?
     private var hoverTracking: NSTrackingArea?
     private var renderedState: RenderState?
+    /// Set while the drawn row is stale; cleared by every refresh.
     private var needsDeferredRefresh = false
-    private var isDeferredRefreshScheduled = false
-    private var deferredRefreshGeneration = 0
+    private var pendingRefresh: DispatchWorkItem?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { isEnabled }
@@ -74,40 +91,47 @@ final class BranchPopupRowControl: NSControl {
 
     /// SwiftUI also calls updateNSView from inside a window layout pass, e.g. when
     /// FocusBridge rebuilds the key view loop as the app activates or resigns.
-    /// Replacing the hosted root view or resizing the expansion there marks the
-    /// window for another constraint pass, and AppKit aborts with
+    /// Replacing the hosted root view or resizing the expansion on every such pass
+    /// keeps marking the window for another constraint pass, and AppKit aborts with
     /// NSGenericException (issue 1277). Unchanged state is ignored; a changed row
     /// in a window renders once on the next run loop turn, after layout finishes.
     func update(_ state: RenderState) {
         if isEnabled != state.isEnabled { isEnabled = state.isEnabled }
         isPresented = state.isPresented
         if accessibilityLabel() != state.title { setAccessibilityLabel(state.title) }
+        // Child-window removal does not touch the parent's layout, and a disabled
+        // or presented row must not leave a clickable expansion for one more turn.
+        if !state.isEnabled || state.isPresented { closeExpansion() }
         guard state != renderedState else { return }
+        let isFirstRender = renderedState == nil
         renderedState = state
-        // A detached row cannot be part of a window layout pass; rendering it now
-        // avoids showing an empty row for a frame when a lazy list inserts it.
-        guard window != nil else { refresh(); return }
-        needsDeferredRefresh = true
-        scheduleDeferredRefresh()
+        // The first render happens once per row and cannot repeat across layout
+        // passes; doing it now keeps a newly inserted lazy row from flashing blank.
+        guard window != nil, !isFirstRender else { refresh(); return }
+        setNeedsDeferredRefresh()
     }
 
-    private func scheduleDeferredRefresh() {
-        guard needsDeferredRefresh, window != nil, !isDeferredRefreshScheduled else { return }
-        isDeferredRefreshScheduled = true
-        let generation = deferredRefreshGeneration
-        DispatchQueue.main.async { [weak self] in
+    /// Coalesces hover and representable changes raised during layout into one
+    /// render after the current pass.
+    private func setNeedsDeferredRefresh() {
+        needsDeferredRefresh = true
+        guard pendingRefresh == nil, window != nil else { return }
+        let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, generation == self.deferredRefreshGeneration else { return }
-                self.isDeferredRefreshScheduled = false
-                guard self.needsDeferredRefresh, self.window != nil else { return }
-                self.refresh()
+                guard let self else { return }
+                self.pendingRefresh = nil
+                if self.needsDeferredRefresh, self.window != nil { self.refresh() }
             }
         }
+        pendingRefresh = work
+        DispatchQueue.main.async(execute: work)
     }
 
     func refresh() {
         // Event-driven refreshes already render the latest state.
         needsDeferredRefresh = false
+        pendingRefresh?.cancel()
+        pendingRefresh = nil
         hosting.rootView = render?(false, isHovered || isPresented) ?? AnyView(EmptyView())
         hosting.frame = bounds
         updateExpansion()
@@ -130,11 +154,13 @@ final class BranchPopupRowControl: NSControl {
             let point = convert($0.mouseLocationOutsideOfEventStream, from: nil)
             return bounds.contains(point) && visibleRect.contains(point)
         } ?? false
+        // AppKit rebuilds tracking areas while it lays out the window, so the
+        // hover transfer and expansion reposition wait for the pass to finish.
         if isHovered != hovered {
             isHovered = hovered
-            refresh()
+            setNeedsDeferredRefresh()
         } else if expansion != nil {
-            updateExpansion()
+            setNeedsDeferredRefresh()
         }
     }
 
@@ -168,15 +194,15 @@ final class BranchPopupRowControl: NSControl {
         if newWindow !== window {
             closeExpansion()
             // A pending render targets the old window; reschedule after the move.
-            deferredRefreshGeneration &+= 1
-            isDeferredRefreshScheduled = false
+            pendingRefresh?.cancel()
+            pendingRefresh = nil
         }
         super.viewWillMove(toWindow: newWindow)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        scheduleDeferredRefresh()
+        if needsDeferredRefresh { setNeedsDeferredRefresh() }
     }
 
     private func closeExpansion() {

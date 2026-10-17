@@ -106,7 +106,9 @@ struct GitSavedChangesView: View {
     }
 
     private func record(title: String, detail: String, date: String, branch: Bool, selected: Bool, menu: [LitheContextMenuItem], action: @escaping () -> Void) -> some View {
-        GitSavedChangesRow(accessibilityTitle: "\(title), \(date), \(detail)", onPress: action, menu: menu) { expanded, hovered in
+        let content: [AnyHashable] = [branch, detail == feature.currentBranch, selected, isActive, controlActiveState == .key]
+        return GitSavedChangesRow(accessibilityTitle: "\(title), \(date), \(detail)", contentKey: content,
+                                  onPress: action, menu: menu) { expanded, hovered in
             HStack(spacing: 4) {
                 Text(title).foregroundStyle(LitheTheme.primaryText).lineLimit(1)
                 if expanded { Text(date).foregroundStyle(LitheTheme.secondaryText).fixedSize() }
@@ -262,6 +264,8 @@ struct GitSavedChangesRow<Label: View>: NSViewRepresentable {
     @Environment(\.self) private var environment
     @Environment(\.isLithePaneResizing) private var resizing
     let accessibilityTitle: String
+    /// Label inputs that the accessibility title does not already describe.
+    var contentKey: AnyHashable = 0
     let onPress: () -> Void
     var menu: [LitheContextMenuItem] = []
     @ViewBuilder let label: (Bool, Bool) -> Label
@@ -276,9 +280,9 @@ struct GitSavedChangesRow<Label: View>: NSViewRepresentable {
         view.render = { expanded, highlighted in
             AnyView(label(expanded, highlighted).environment(\.self, environment))
         }
-        view.update(BranchPopupRowControl.RenderState(title: accessibilityTitle, isPresented: false,
-                                                      isEnabled: environment.isEnabled && !resizing,
-                                                      colorScheme: environment.colorScheme))
+        view.update(BranchPopupRowControl.RenderState(title: accessibilityTitle, content: contentKey,
+                                                      isPresented: false, isEnabled: environment.isEnabled && !resizing,
+                                                      environment: environment))
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: BranchPopupRowControl, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? LitheDropdownMetrics.branchMinimumWidth, height: LitheTheme.Tree.rowHeight)
