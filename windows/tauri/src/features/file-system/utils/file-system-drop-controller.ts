@@ -6,6 +6,16 @@ export interface TerminalFileDropDetail {
   paths: string[];
 }
 
+/**
+ * In-app drops carry text the explorer already formatted (workspace-relative and
+ * quoted), unlike OS drops whose absolute paths still need parsing.
+ */
+export const TERMINAL_PATH_INSERT_EVENT = "lithe-terminal-path-insert";
+
+export interface TerminalPathInsertDetail {
+  text: string;
+}
+
 export function resolveDropClientPoint(
   position: { x: number; y: number },
   scaleFactor: number,
@@ -93,6 +103,34 @@ const LOCAL_DROP_TARGET_SELECTOR = [
   "[data-ai-context-drop-target]",
 ].join(",");
 const PANE_DROP_TARGET_SELECTOR = "[data-pane-container]";
+
+/**
+ * Whether the point is inside a terminal, which accepts dropped text directly.
+ * The explorer uses this before its pane handling, because a terminal lives
+ * inside a pane container and would otherwise open the file instead.
+ */
+export function isTerminalDropTarget(target: Element | null | undefined): boolean {
+  return Boolean(target?.closest(TERMINAL_DROP_TARGET_SELECTOR));
+}
+
+/**
+ * Insert already formatted text into the terminal at `target`.
+ * Returns false when the target is not a terminal or there is nothing to insert.
+ */
+export function dispatchTerminalPathInsert(
+  target: Element | null | undefined,
+  text: string,
+): boolean {
+  const terminalTarget = target?.closest<HTMLElement>(TERMINAL_DROP_TARGET_SELECTOR);
+  if (!terminalTarget || !text) return false;
+
+  terminalTarget.dispatchEvent(
+    new CustomEvent<TerminalPathInsertDetail>(TERMINAL_PATH_INSERT_EVENT, {
+      detail: { text },
+    }),
+  );
+  return true;
+}
 
 export function dispatchDroppedPathsToTerminal(
   target: Pick<Element, "closest"> | null | undefined,

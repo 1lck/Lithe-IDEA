@@ -1,6 +1,19 @@
 import { invoke } from "@/platform/tauri-core";
 import { create } from "zustand";
 import { createSelectors } from "@/utils/zustand-selectors";
+import { readClipboardText } from "@/utils/clipboard";
+
+/**
+ * Record what the system clipboard held when files were copied, without
+ * writing it. A failed read must not break copying, so it reports "unknown".
+ */
+async function snapshotClipboardText(): Promise<string | null> {
+  try {
+    return await readClipboardText();
+  } catch {
+    return null;
+  }
+}
 
 export interface ClipboardEntry {
   path: string;
@@ -20,6 +33,12 @@ interface PastedEntry {
 
 interface FileClipboardStore {
   clipboard: FileClipboardState | null;
+  /**
+   * System clipboard text observed when the entries were copied. The terminal
+   * compares it with the current clipboard to tell whether the file copy is
+   * still the user's latest action; reading it never writes the clipboard.
+   */
+  sourceClipboardText: string | null;
   actions: {
     copy: (entries: ClipboardEntry[]) => Promise<void>;
     cut: (entries: ClipboardEntry[]) => Promise<void>;
@@ -31,14 +50,15 @@ interface FileClipboardStore {
 
 const useFileClipboardStoreBase = create<FileClipboardStore>()((set) => ({
   clipboard: null,
+  sourceClipboardText: null,
   actions: {
     copy: async (entries: ClipboardEntry[]) => {
       await invoke("clipboard_set", { entries, operation: "copy" });
-      set({ clipboard: { entries, operation: "copy" } });
+      set({ clipboard: { entries, operation: "copy" }, sourceClipboardText: await snapshotClipboardText() });
     },
     cut: async (entries: ClipboardEntry[]) => {
       await invoke("clipboard_set", { entries, operation: "cut" });
-      set({ clipboard: { entries, operation: "cut" } });
+      set({ clipboard: { entries, operation: "cut" }, sourceClipboardText: await snapshotClipboardText() });
     },
     paste: async (targetDirectory: string) => {
       const result = await invoke<PastedEntry[]>("clipboard_paste", {
@@ -51,10 +71,10 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set) => ({
     },
     clear: async () => {
       await invoke("clipboard_clear");
-      set({ clipboard: null });
+      set({ clipboard: null, sourceClipboardText: null });
     },
     setClipboard: (state: FileClipboardState | null) => {
-      set({ clipboard: state });
+      set(state ? { clipboard: state } : { clipboard: null, sourceClipboardText: null });
     },
   },
 }));
