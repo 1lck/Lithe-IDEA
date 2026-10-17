@@ -1,10 +1,5 @@
 import { invoke } from "@/platform/tauri-core";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CodexIntegrationService } from "@/features/ai/integrations/codex/codex-integration-service";
-import {
-  BUILT_IN_AI_INTEGRATIONS,
-  CODEX_INTEGRATION_ID,
-} from "@/features/ai/integrations/integration-registry";
 import { isTerminalAgent, TERMINAL_AGENT_OPTIONS } from "@/features/ai/lib/terminal-agents";
 import type { AgentConfig } from "@/features/ai/types/acp.types";
 import type { AgentType } from "@/features/ai/types/ai-chat.types";
@@ -36,10 +31,8 @@ export function useAgentOptions(currentAgentId: AgentType) {
   const loadInstalledAgents = useCallback(async () => {
     try {
       const detectedAgents = await invoke<AgentConfig[]>("get_available_agents");
-      const codex = await CodexIntegrationService.status().catch(() => null);
       setAgentConfigs(new Map(detectedAgents.map((agent) => [agent.id, agent])));
       const installed = new Set<string>(["custom"]);
-      if (codex?.installed) installed.add(CODEX_INTEGRATION_ID);
       for (const agent of detectedAgents) {
         if (agent.installed) installed.add(agent.id);
       }
@@ -59,7 +52,6 @@ export function useAgentOptions(currentAgentId: AgentType) {
     );
     const availableAgents = [
       LITHE_AGENT_OPTION,
-      ...BUILT_IN_AI_INTEGRATIONS,
       ...TERMINAL_AGENT_OPTIONS,
       ...registryAgents,
     ];
@@ -69,7 +61,6 @@ export function useAgentOptions(currentAgentId: AgentType) {
       const isInstalled = installedAgents.has(agent.id);
       const agentConfig = agentConfigs.get(agent.id);
       const isTerminal = isTerminalAgent(agent.id);
-      const isIntegration = agent.id === CODEX_INTEGRATION_ID;
 
       return {
         id: agentId,
@@ -77,10 +68,7 @@ export function useAgentOptions(currentAgentId: AgentType) {
         description: agentConfig?.description ?? agent.description ?? "ACP-compatible coding agent",
         isInstalled: isTerminal || isInstalled,
         isCurrent: agent.id === currentAgentId,
-        canInstall:
-          agent.id === "custom" || isTerminal || isIntegration
-            ? false
-            : (agentConfig?.canInstall ?? true),
+        canInstall: agent.id === "custom" || isTerminal ? false : (agentConfig?.canInstall ?? true),
         isInstalling: installingAgentId === agent.id,
       };
     });
@@ -88,7 +76,7 @@ export function useAgentOptions(currentAgentId: AgentType) {
 
   const installAgent = useCallback(
     async (agentId: AgentType, agentName: string) => {
-      if (agentId === "custom" || agentId === CODEX_INTEGRATION_ID || installingAgentId) return;
+      if (agentId === "custom" || installingAgentId) return;
 
       setInstallingAgentId(agentId);
       try {

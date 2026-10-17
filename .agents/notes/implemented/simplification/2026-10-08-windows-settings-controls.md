@@ -48,6 +48,6 @@ Windows 设置页的固定选项和可搜索选项统一通过 `SettingsSelect` 
 - `windows/tauri/src/ui/select.tsx`
 - `windows/tauri/src/features/settings/components/`
 - `windows/tauri/src/features/ai/components/selectors/`
-- `windows/tauri/src/features/ai/integrations/codex/codex-settings.tsx`
+- `windows/tauri/src/features/settings/components/tabs/ai-settings.tsx`
 - `windows/tauri/src/features/run/components/run-configuration-editor.tsx`
 - `windows/tauri/src/features/host-api/mcp-settings.tsx`
