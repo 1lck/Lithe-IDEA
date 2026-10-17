@@ -283,7 +283,7 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-run.json -- --preload ./src/test-utils/vite-assets.ts src/features/run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
-          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-watcher.json -- src/features/file-system/services/file-watcher-listener.test.ts src/features/file-system/stores/file-watcher.store.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-system.json -- src/features/file-system/services/file-watcher-listener.test.ts src/features/file-system/stores/file-watcher.store.test.ts src/features/file-system/stores/recent-folders.store.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Merged notification counts rely on toast identity, so the resend path
           # stays covered instead of only its formatter.
@@ -449,6 +449,8 @@ jobs:
             "src/features/git/components/log/git-commit-table-keyboard-menu.test.tsx",
             "src/features/git/components/log/git-commit-table-tag.test.tsx",
             "src/features/git/components/log/git-create-tag-dialog.test.tsx",
+            "src/features/git/components/log/git-commit-table.toolbar.test.tsx",
+            "src/features/git/components/log/git-create-branch-dialog.test.tsx",
             "src/features/git/components/log/git-graph-row.test.ts",
             "src/features/git/components/log/git-graph-row.theme.test.tsx",
             "src/features/git/components/log/git-log-branch-actions.test.tsx",
@@ -456,10 +458,12 @@ jobs:
             "src/features/git/hooks/use-git-log-controller.integration.test.tsx",
             "src/features/git/stores/git-log-preferences.store.test.ts",
             "src/features/git/utils/git-checkout-failure-presentation.test.ts",
+            "src/features/git/utils/git-branch-name.test.ts",
             "src/features/git/utils/git-graph-colors.test.ts",
             "src/features/git/utils/git-graph-geometry.test.ts",
             "src/features/git/utils/git-graph-highlights.test.ts",
-            "src/features/git/utils/git-graph-reference-group.test.ts"
+            "src/features/git/utils/git-graph-reference-group.test.ts",
+            "src/features/git/utils/git-log-branch-filter.test.ts"
           )
           # These files mock shared Git modules; random orders keep one file's mock from hiding in another.
           foreach ($seed in @(1, 3, 7)) {
@@ -494,6 +498,11 @@ jobs:
         shell: pwsh
         timeout-minutes: 3
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-wheel-scroll.json -- src/ui/wheel-scroll-animation.test.ts src/ui/scroll-container-wheel.integration.test.ts
+
+      - name: Test shared dropdown and notification UI
+        shell: pwsh
+        timeout-minutes: 3
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-ui-controls.json -- src/ui/dropdown.test.tsx src/ui/idea-notification.test.tsx
 
       - name: Test system font settings and search matching
         shell: pwsh

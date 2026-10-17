@@ -66,6 +66,31 @@ describe("git graph decoration labels", () => {
     }
   });
 
+  test("HEAD row paints IDEA's three-ring node; other rows keep one filled node", () => {
+    const commits: GitCommit[] = ["tip", "root"].map((hash, row) => ({
+      hash,
+      shortHash: hash,
+      parentHashes: row === 0 ? ["root"] : [],
+      message: hash,
+      author: "fixture",
+      date: "unknown",
+      decorations: row === 0 ? "HEAD -> main" : "",
+    }));
+    const layout = layoutGitGraph(commits);
+    const render = (index: number) =>
+      renderToStaticMarkup(
+        createElement(GitGraphRow, { row: layout.rows[index], showDecorations: false }),
+      ).split("</svg>")[0];
+    const head = render(0);
+    expect(head.match(/<ellipse /g)).toHaveLength(3);
+    // The middle ring is the row background, not the node color.
+    expect(head.match(/git-graph-head-gap/g)).toHaveLength(1);
+    expect(head.match(/rx="(\d+(?:\.\d+)?)"/g)).toEqual(['rx="6.5"', 'rx="4.5"', 'rx="2.5"']);
+    const plain = render(1);
+    expect(plain.match(/<ellipse /g)).toHaveLength(1);
+    expect(plain).not.toContain("git-graph-head-gap");
+  });
+
   test("unfiltered SVG connects shifted passing lanes at the same boundary midpoint", () => {
     const parents = [["1"], ["3", "2"], ["3", "5"], ["5", "4"], ["5"], []];
     const commits: GitCommit[] = parents.map((parentHashes, row) => ({

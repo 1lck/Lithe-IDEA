@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -46,6 +46,7 @@ import {
   selectedCommitsInHistoryOrder,
 } from "../../utils/git-history-selection";
 import { GitGraphRow } from "./git-graph-row";
+import { GitLogBranchFilter } from "./git-log-branch-filter";
 import { GitLogColumnResizeHandle } from "./git-log-column-resize-handle";
 import { GitLogDateCell } from "./git-log-date-cell";
 import { isGitHeadCommit } from "../../utils/git-history-message";
@@ -80,6 +81,7 @@ export function GitCommitTable({
   onRevert,
   onCreateTag,
   onLoadMore,
+  onSelectReference,
 }: {
   commits: GitCommit[];
   repositoryCommits?: readonly GitCommit[];
@@ -115,6 +117,8 @@ export function GitCommitTable({
   onRevert: (commit: GitCommit) => void;
   onCreateTag: (commit: GitCommit) => void;
   onLoadMore: () => void;
+  /** Applies the Branch filter; `null` shows all references. */
+  onSelectReference: (reference: GitReference | null) => void;
 }) {
   const { t } = useTranslation();
   const query = useGitLogPreferencesStore.use.filterQuery();
@@ -133,6 +137,10 @@ export function GitCommitTable({
     }
     return scrollRef.current;
   }, []);
+  // The applied filter lives in the store; the field edits a draft until Enter. The draft also
+  // follows external changes, such as "navigate to head" clearing the filter.
+  const [draftQuery, setDraftQuery] = useState(query);
+  useEffect(() => setDraftQuery(query), [query]);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const paint = useGitGraphPaint();
   const graphLayout = useMemo(
@@ -368,11 +376,17 @@ export function GitCommitTable({
   return (
     <div className="flex h-full min-h-0 flex-col bg-background font-sans ui-text-sm select-none">
       <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b bg-background px-2">
-        <div className="flex h-6 min-w-36 max-w-72 flex-1 items-center gap-1.5 rounded border border-border bg-background px-2 focus-within:border-border-strong">
+        <div className="flex h-6 w-40 shrink-0 items-center gap-1.5 rounded border border-border bg-background px-2 focus-within:border-border-strong">
           <Search className="size-3.5 shrink-0 text-subtle-foreground" />
           <input
-            value={query}
-            onChange={(event) => setFilterQuery(event.target.value)}
+            value={draftQuery}
+            onChange={(event) => setDraftQuery(event.target.value)}
+            // Like IDEA's text filter, typing alone does not search; Enter applies it.
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              setFilterQuery(draftQuery);
+            }}
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-subtle-foreground"
             placeholder={t("git.log.filterPlaceholder", {
               field: t(
@@ -385,10 +399,13 @@ export function GitCommitTable({
             })}
             aria-label={t("git.log.filter")}
           />
-          {query ? (
+          {draftQuery ? (
             <button
               type="button"
-              onClick={() => setFilterQuery("")}
+              onClick={() => {
+                setDraftQuery("");
+                setFilterQuery("");
+              }}
               className="text-subtle-foreground hover:text-foreground"
               aria-label={t("git.log.clearFilter")}
             >
@@ -406,6 +423,11 @@ export function GitCommitTable({
           <option value="author">{t("git.log.filterAuthor")}</option>
           <option value="branch">{t("git.log.filterBranch")}</option>
         </select>
+        <GitLogBranchFilter
+          references={references ?? []}
+          selectedReference={selectedReference ?? null}
+          onSelect={onSelectReference}
+        />
         <Button
           type="button"
           variant="ghost"

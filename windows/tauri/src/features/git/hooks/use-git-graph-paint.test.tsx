@@ -81,12 +81,13 @@ afterEach(async () => {
 });
 
 test("DPI changes repaint the real SVG without rebuilding commit layout", async () => {
-  expect(container.querySelector("ellipse")?.getAttribute("rx")).toBe("4.5");
+  // The fixture row carries HEAD, so the first ellipse is the HEAD node outer ring.
+  expect(container.querySelector("ellipse")?.getAttribute("rx")).toBe("6.5");
   await act(async () => {
     window.devicePixelRatio = 2;
     window.dispatchEvent(new Event("resize"));
   });
-  expect(container.querySelector("ellipse")?.getAttribute("rx")).toBe("4.25");
+  expect(container.querySelector("ellipse")?.getAttribute("rx")).toBe("6.75");
   expect(container.querySelector("svg")?.getAttribute("height")).toBe("26");
   expect(layoutBuilds).toBe(1);
   expect(queries).toEqual(["(resolution: 1dppx)", "(resolution: 2dppx)"]);

@@ -9,7 +9,7 @@
 
 macOS 和 Windows 的 Git 提交图现在使用同一套 IntelliJ 风格的永久图规则：先按引用优先级确定图头，再为每个图头分配稳定的图片段和颜色，最后根据提交顺序投影到屏幕泳道。这样本地分支新增提交时，不会因为沿用父分支的第一条泳道而和父分支混成同一种颜色；两个端的分支优先级、颜色身份和合并拓扑也保持一致。
 
-Windows 使用 SVG 行渲染，图头排序、永久布局、紧凑长边及绘制尺寸与 macOS 的 IntelliJ 基准一致。颜色使用完整有符号身份生成明暗主题 RGB，节点为实心、连线为直线，尺寸按字号和显示器缩放调整。今后修改提交图时，必须同时以 macOS 的实现和 IntelliJ 固定基准为准，不要重新引入泳道着色或六色取模。
+Windows 使用 SVG 行渲染，图头排序、永久布局、紧凑长边及绘制尺寸与 macOS 的 IntelliJ 基准一致。颜色使用完整有符号身份生成明暗主题 RGB，节点为实心（HEAD 提交为三层同心圆）、连线为直线，尺寸按字号和显示器缩放调整。今后修改提交图时，必须同时以 macOS 的实现和 IntelliJ 固定基准为准，不要重新引入泳道着色或六色取模。
 
 Windows 的日志筛选也基于完整已加载历史生成可见图。隐藏中间提交后，用虚线连接仍可见的祖先，而不是直接删除已绘制的行；清空筛选恢复原图。
 
@@ -145,6 +145,29 @@ Java 32 位溢出及单精度浮点舍入，避免负数 ID 或明暗主题下 R
 和列距采用向下取整及奇数物理像素规则，包括 Windows 的分数缩放。标题使用
 下述可见图建议宽度，复杂行单独扩宽。去掉逐行分隔线及水平额外内边距，
 避免行盒与图形坐标偏移。
+
+HEAD 提交节点对照 Community `fb72b4df43aba102479eb0502d20b03586b9c5b8` 中的
+`HeadNodePainter` 与 `GraphTableModel.withPossibleHeadNode`：只要该行引用含 `HEAD`，
+节点就由外圈（节点色，半径 4+2）、中圈（行背景色）和内圈（节点色）三层同心圆组成，
+每层按 `RADIUS_DELTA=2` 缩小，随行高成比例并沿用 FLOOR/ODD 物理像素规则。
+几何在 `headNodeCircles`，中圈颜色读取提交行的 `--git-log-row-background`，
+因此当前分支背景、hover 和选中行都不会露出实心底色；其他提交仍是单个实心节点。
+目前未实现 IDEA 的节点 hover 高亮，所以不绘制 HeadNodePainter 的 selected 分支。
+
+### 工具栏文本筛选与 Branch 筛选
+
+对照 Community `VcsLogClassicFilterUi.TextFilterField`：文本筛选只在 Enter（或清除）时
+应用，输入过程只修改本地草稿，宽度按其最小宽度 150px 取固定值；外部清空筛选
+（如定位分支头）会同步草稿。输入法组词期间的 Enter 不触发。
+
+Branch 下拉对应 `BranchFilterPopupComponent`，选择结果就是日志控制器的已选引用，
+与左侧引用树共用同一入口 `handleReferenceSelect`（含跨仓库引用切换）。
+分组由 `groupGitLogBranchFilterReferences` 产生：Local、每个远程一组（不含 Tags，标签不是分支），
+忽略远程符号 `HEAD`。所选引用按仓库路径保存在 `git-log-preferences` 的
+`selectedReferenceByRepository`，只在一次加载到 `ready` 后写入，因此已删除的
+分支会先回退为 All 再落盘，不会写回过期名称；重新打开项目时作为控制器的初始
+引用，沿用既有的“引用缺失则回退全部”逻辑。控制器在同一仓库内因 `load` 身份变化
+重跑时保留当前选择，避免语言切换清掉筛选。
 
 ### 图形与提交文字按行混排
 

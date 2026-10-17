@@ -111,6 +111,7 @@ function Harness({ selected = true }: { selected?: boolean }) {
         onCherryPick={() => {}}
         onRevert={() => {}}
         onLoadMore={() => {}}
+        onSelectReference={() => {}}
       />
     </div>
   );

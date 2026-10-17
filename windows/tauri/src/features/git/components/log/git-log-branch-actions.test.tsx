@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useRepositoryStore } from "../../stores/git-repository.store";
+import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitReference } from "../../types/git.types";
 import { GitLogToolWindow } from "./git-log-tool-window";
 
@@ -65,6 +66,9 @@ let restoreDom: () => void;
 let container: HTMLDivElement;
 let root: Root;
 let previousRepos: ReturnType<typeof useRepositoryStore.getState>;
+// The tool window persists the applied Branch filter per repository; restore the shared
+// preferences store so randomized suite order cannot leak this file's references.
+let previousGitLogPreferences: ReturnType<typeof useGitLogPreferencesStore.getState>;
 const globals = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousAct: boolean | undefined;
 const content = ({ children }: { children?: ReactNode }) => <div>{children}</div>;
@@ -74,6 +78,7 @@ beforeEach(() => {
   previousAct = globals.IS_REACT_ACT_ENVIRONMENT;
   globals.IS_REACT_ACT_ENVIRONMENT = true;
   previousRepos = useRepositoryStore.getState();
+  previousGitLogPreferences = useGitLogPreferencesStore.getState();
   useRepositoryStore.setState({ activeRepoPath: "C:/repo-a", availableRepoPaths: ["C:/repo-a"] });
   refresh.mockClear();
   confirm.mockClear();
@@ -188,6 +193,7 @@ afterEach(async () => {
   } finally {
     for (const spy of spies.splice(0)) spy.mockRestore();
     useRepositoryStore.setState(previousRepos);
+    useGitLogPreferencesStore.setState(previousGitLogPreferences, true);
     container.remove();
     if (previousAct === undefined) delete globals.IS_REACT_ACT_ENVIRONMENT;
     else globals.IS_REACT_ACT_ENVIRONMENT = previousAct;
@@ -211,19 +217,20 @@ test("Git Log Checkout starts directly without a second confirmation and refresh
   expect(confirm).not.toHaveBeenCalled();
   expect(checkout.mock.calls).toEqual([["C:/repo-a", reference]]);
   expect(refresh).toHaveBeenCalledTimes(1);
-  expect(success).toHaveBeenCalledWith("Checkout completed for topic");
+  // Like IDEA, a successful checkout needs no popup; the branch label switching is the feedback.
+  expect(success).not.toHaveBeenCalled();
 });
 
 test.each([
-  ["en-US", "checkout", "Checkout completed for topic"],
-  ["zh-CN", "checkout", "已对 topic 完成“检出”"],
-  ["en-US", "checkout-remote", "Checkout completed for upstream/preview"],
-  ["zh-CN", "checkout-remote", "已对 upstream/preview 完成“检出”"],
-] as const)("Checkout shows a translated success message for %s / %s when the API message is empty", async (language, action, message) => {
+  ["en-US", "checkout"],
+  ["zh-CN", "checkout"],
+  ["en-US", "checkout-remote"],
+  ["zh-CN", "checkout-remote"],
+] as const)("Checkout shows no success popup for %s / %s", async (language, action) => {
   await render(language);
   await act(async () => button(action).click());
-  expect(success).toHaveBeenCalledTimes(1);
-  expect(success).toHaveBeenCalledWith(message);
+  expect(success).not.toHaveBeenCalled();
+  expect(failure).not.toHaveBeenCalled();
   expect(confirm).not.toHaveBeenCalled();
   expect(checkout.mock.calls).toEqual([["C:/repo-a", action === "checkout" ? reference : remoteReference]]);
   expect(refresh).toHaveBeenCalledTimes(1);

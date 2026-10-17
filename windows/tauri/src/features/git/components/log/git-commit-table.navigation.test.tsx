@@ -81,6 +81,7 @@ function Harness({
         onRevert={noop}
         onCreateTag={noop}
         onLoadMore={noop}
+        onSelectReference={noop}
       />
     </LocaleProvider>
   );
