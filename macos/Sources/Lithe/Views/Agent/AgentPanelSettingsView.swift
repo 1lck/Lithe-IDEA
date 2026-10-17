@@ -15,9 +15,7 @@ struct AgentPanelSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Agents").font(LitheTheme.uiFont(size: 16, weight: .semibold))
-                Text("Install ACP adapters, check the runtime, and manage local or custom providers.")
-                    .font(LitheTheme.uiFont(size: 12))
-                    .foregroundStyle(LitheTheme.secondaryText)
+                    .litheSettingsInfo("Install ACP adapters, check the runtime, and manage local or custom providers.")
             }
             AgentsManagementPage(model: model, settings: settings, feature: feature)
         }
@@ -72,21 +70,19 @@ private struct AgentsManagementPage: View {
     }
 
     private var featureRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 4) {
             LitheSettingsCheckbox(isOn: Binding(
                 get: { model.isAgentConversationEnabled },
                 set: { enabled in Task { await model.setAgentConversationEnabled(enabled) } }
             ), title: "Enable Agent conversation")
-            AgentSettingsHint("Turning this off stops every Agent process.")
-                .padding(.leading, 24)
+            LitheInfoTip("Turning this off stops every Agent process.")
         }
     }
 
     private var statisticsRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 4) {
             LitheSettingsCheckbox(isOn: $settings.agentModelCallStatistics, title: "Model call statistics")
-            AgentSettingsHint("Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting.")
-                .padding(.leading, 24)
+            LitheInfoTip("Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting.")
         }
     }
 
@@ -167,6 +163,9 @@ private struct AgentDetailView: View {
                     .font(LitheTheme.uiFont(size: 14, weight: .medium))
                     .foregroundStyle(LitheTheme.accent)
                 Text(agent.name).font(LitheTheme.uiFont(size: 14, weight: .semibold))
+                    .litheSettingsInfo(agent.cli.map { cli in
+                        LocalizedStringKey(String(format: AgentLocalization.string("Runs the %@ installed on this Mac through the %@ adapter.", locale: locale), cli.name, agent.package))
+                    })
                 AgentBadge(text: "ACP adapter", color: LitheTheme.secondaryText)
                     .help("Lithe installs the ACP adapter package, not the vendor CLI. The two are independent and share the CLI's configuration.")
                 if !agent.verified {
@@ -174,12 +173,6 @@ private struct AgentDetailView: View {
                         .help("Lithe has not yet completed a real conversation with this adapter version.")
                 }
                 Spacer()
-            }
-            if let cli = agent.cli {
-                Text(String(format: AgentLocalization.string("Runs the %@ installed on this Mac through the %@ adapter.", locale: locale), cli.name, agent.package))
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

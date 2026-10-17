@@ -27,10 +27,10 @@ struct AgentProviderConfigurationView: View {
     }
 
     var body: some View {
-        LitheSettingsSection("Providers") {
+        LitheSettingsSection(title: "Providers", accessory: {
+            LitheInfoTip(Text("Use local configuration or add your own provider.") + Text(verbatim: "\n\n") + Text("Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation."))
+        }) {
             HStack {
-                Text("Use local configuration or add your own provider.")
-                    .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 8)
                 if let source {
                     Button { openEditor(source: source) } label: { Label("Add", systemImage: "plus") }
@@ -69,7 +69,6 @@ struct AgentProviderConfigurationView: View {
             if let errorMessage {
                 AgentSettingsIssue(errorMessage)
             }
-            AgentSettingsHint("Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation.")
         }
         .disabled(model.isChangingAgentProvider)
         .sheet(item: $editor) { draft in
@@ -94,8 +93,7 @@ struct AgentProviderConfigurationView: View {
                 .foregroundStyle(usesSubscription ? LitheTheme.accent : LitheTheme.secondaryText)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Codex subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
-                Text("Use your local ChatGPT account. No API key or URL is needed.")
-                    .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+                    .litheSettingsInfo("Use your local ChatGPT account. No API key or URL is needed.")
             }
             Spacer(minLength: 8)
             Button(usesSubscription ? "Enabled" : "Enable") {
@@ -200,6 +198,9 @@ private struct AgentProviderEditorView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(draft.providerID == nil ? "Add provider" : "Edit provider")
                 .font(LitheTheme.uiFont(size: 17, weight: .semibold))
+                .litheSettingsInfo(draft.isEditingConfigurationText
+                    ? "Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields."
+                    : "The API key is stored separately from settings. Your local CLI configuration is not changed.")
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     requiredField("Provider name") {
@@ -224,11 +225,6 @@ private struct AgentProviderEditorView: View {
                         } catch { errorMessage = error.localizedDescription }
                     }
                     .buttonStyle(LitheSecondaryButtonStyle())
-                    if draft.isEditingConfigurationText {
-                        AgentSettingsHint("Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.")
-                    } else {
-                        AgentSettingsHint("The API key is stored separately from settings. Your local CLI configuration is not changed.")
-                    }
                 }
             }
             // Errors stay visible even when the configuration editors fill the scroll viewport.
@@ -272,27 +268,26 @@ private struct AgentProviderEditorView: View {
                         .buttonStyle(LitheSecondaryButtonStyle())
                 }
             }
-            requiredField("API request URL") {
+            requiredField("API request URL", info: draft.source == .codex
+                ? "Base URL for a service compatible with the OpenAI Responses API."
+                : "Base URL for an Anthropic Messages API service.") {
                 TextField(draft.source == .codex ? "https://api.example.com/v1" : "https://api.example.com", text: $draft.endpoint)
                     .litheSettingsTextField()
                     .accessibilityLabel("API request URL")
-                AgentSettingsHint(draft.source == .codex
-                    ? "Base URL for a service compatible with the OpenAI Responses API."
-                    : "Base URL for an Anthropic Messages API service.")
             }
-            requiredField("Model") {
+            requiredField("Model", info: "Use a model ID supported by your provider.") {
                 TextField("Enter model ID", text: $draft.model).litheSettingsTextField()
                     .accessibilityLabel("Model")
-                AgentSettingsHint("Use a model ID supported by your provider.")
             }
         }
     }
 
-    private func requiredField<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
+    private func requiredField<Content: View>(_ title: LocalizedStringKey, info: LocalizedStringKey? = nil, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
                 Text(title).font(LitheTheme.uiFont(size: 12, weight: .medium))
                 Text("*").foregroundStyle(LitheTheme.error).accessibilityHidden(true)
+                if let info { LitheInfoTip(info) }
             }
             content()
         }

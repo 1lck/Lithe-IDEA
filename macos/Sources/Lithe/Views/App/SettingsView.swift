@@ -397,7 +397,7 @@ struct SettingsView: View {
                     )
                 }
 
-                row("Appearance mode") {
+                row("Appearance mode", info: "Choose a color theme and whether Lithe follows the system appearance.") {
                     LitheSettingsSegmentedControl(
                         selection: $settings.themePreference,
                         options: AppThemePreference.allCases,
@@ -406,22 +406,16 @@ struct SettingsView: View {
                     )
                 }
 
-                Text("Choose a color theme and whether Lithe follows the system appearance.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-
                 Divider().padding(.vertical, 2)
 
                 Text("Workbench background")
+                    .litheSettingsInfo("Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.")
                     .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
 
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(model.workbenchBackgroundFeature.displayName ?? "No background image selected")
                             .lineLimit(1)
-                        Text("Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.")
-                            .font(LitheTheme.smallFont)
-                            .foregroundStyle(LitheTheme.secondaryText)
                     }
 
                     Spacer(minLength: 8)
@@ -471,7 +465,7 @@ struct SettingsView: View {
             }
 
             group("Language") {
-                row("Language") {
+                row("Language", info: "The interface language changes immediately. English is the default.") {
                     LitheSettingsSelect(
                         selection: $settings.language,
                         options: AppLanguage.allCases,
@@ -480,14 +474,10 @@ struct SettingsView: View {
                         title: \AppLanguage.title
                     )
                 }
-
-                Text("The interface language changes immediately. English is the default.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
             }
 
             group("Projects") {
-                row("Open projects in") {
+                row("Open projects in", info: "Choose whether opening another project asks first, stays in this window, or creates a new window.") {
                     LitheSettingsSelect(
                         selection: $settings.projectOpenBehavior,
                         options: ProjectOpenBehavior.allCases,
@@ -496,10 +486,6 @@ struct SettingsView: View {
                         title: \ProjectOpenBehavior.title
                     )
                 }
-
-                Text("Choose whether opening another project asks first, stays in this window, or creates a new window.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
             }
 
             group("Files") {
@@ -521,7 +507,7 @@ struct SettingsView: View {
             }
 
             group("Git") {
-                row("Save local changes with") {
+                row("Save local changes with", info: LocalizedStringKey(settings.gitSaveChangesPolicy.description)) {
                     LitheSettingsSelect(
                         selection: $settings.gitSaveChangesPolicy,
                         options: GitSaveChangesPolicy.allCases,
@@ -530,18 +516,9 @@ struct SettingsView: View {
                         title: \GitSaveChangesPolicy.title
                     )
                 }
-
-                Text(LocalizedStringKey(settings.gitSaveChangesPolicy.description))
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            group("Hidden paths") {
-                Text("One entry per line. Directory names hide matching folders; file entries support * and ?.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-
+            group("Hidden paths", info: "One entry per line. Directory names hide matching folders; file entries support * and ?.") {
                 Text("Directories")
                     .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 TextEditor(text: $viewState.hiddenDirectoriesDraft)
@@ -757,7 +734,7 @@ struct SettingsView: View {
 
     private var terminalSettings: some View {
         group("Shell") {
-            row("Default shell") {
+            row("Default shell", info: "Used for new terminal sessions.") {
                 LitheSettingsSelect(
                     selection: Binding(
                         get: { settings.terminalShellPath ?? "" },
@@ -782,9 +759,6 @@ struct SettingsView: View {
                 viewState.detectedTerminalShells = model.availableTerminalShells
                 viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
             }
-            Text("Used for new terminal sessions.")
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.secondaryText)
         }
         .task {
             guard await model.activateTerminalModule() else { return }
@@ -855,7 +829,6 @@ struct SettingsView: View {
                             .font(LitheTheme.smallFont)
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
-
                 }
 
                 HStack(spacing: 8) {
@@ -910,6 +883,8 @@ struct SettingsView: View {
                         .litheSettingsTextField()
                         .disabled(editingProviderIsConfigurationManaged)
 
+                    Text("API key or token")
+                        .litheSettingsInfo(editingProviderIsConfigurationManaged ? nil : "API keys are stored in Lithe's local application data and are never written to Lithe settings.")
                     HStack(spacing: 8) {
                         SecureField("API key or token", text: $viewState.aiAPIKeyDraft)
                             .litheSettingsTextField()
@@ -994,14 +969,7 @@ struct SettingsView: View {
                         .buttonStyle(LitheSecondaryButtonStyle())
                     }
                 }
-
-                if !editingProviderIsConfigurationManaged {
-                    Text("API keys are stored in Lithe's local application data and are never written to Lithe settings.")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
             }
-
         }
         .frame(maxWidth: 760, alignment: .leading)
     }
@@ -1055,7 +1023,7 @@ struct SettingsView: View {
                     .buttonStyle(LitheSecondaryButtonStyle())
             }
 
-            group("Commit message generation") {
+            group("Commit message generation", info: "Low effort and a small output limit are recommended for fast commit-message generation.") {
                 row("Reasoning effort") {
                     LitheSettingsSelect(
                         selection: $settings.commitMessageAI.reasoningEffort,
@@ -1111,13 +1079,9 @@ struct SettingsView: View {
                     TextEditor(text: $settings.commitMessageAI.customInstructions)
                         .litheSettingsTextEditor(height: 92)
                 }
-
-                Text("Low effort and a small output limit are recommended for fast commit-message generation.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
             }
 
-            group("Pull request description generation") {
+            group("Pull request description generation", info: "Pull request generation uses the selected provider, language, reasoning effort, and diff limit above.") {
                 row("Description format") {
                     LitheSettingsSelect(
                         selection: $settings.commitMessageAI.pullRequestFormat,
@@ -1131,6 +1095,7 @@ struct SettingsView: View {
                 if settings.commitMessageAI.pullRequestFormat == .custom {
                     HStack {
                         Text("Markdown template")
+                            .litheSettingsInfo("Supported placeholders: {summary}, {changes}, {testing}, {risks}.")
                             .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         Spacer()
                         Button("Restore Default Template") {
@@ -1144,15 +1109,7 @@ struct SettingsView: View {
 
                     TextEditor(text: $settings.commitMessageAI.pullRequestCustomTemplate)
                         .litheSettingsTextEditor(height: 150)
-
-                    Text("Supported placeholders: {summary}, {changes}, {testing}, {risks}.")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
                 }
-
-                Text("Pull request generation uses the selected provider, language, reasoning effort, and diff limit above.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
 
                 Label(
                     "The selected branch diff is sent to the active AI provider when you generate.",
@@ -1167,6 +1124,7 @@ struct SettingsView: View {
     private var formatPicker: some View {
         HStack(alignment: .top, spacing: 10) {
             Text("Format")
+                .litheSettingsInfo(LocalizedStringKey(settings.commitMessageAI.format.description))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 118, alignment: .leading)
 
@@ -1184,10 +1142,6 @@ struct SettingsView: View {
                             Text(LocalizedStringKey(settings.commitMessageAI.format.title))
                                 .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                                 .foregroundStyle(LitheTheme.primaryText)
-                            Text(LocalizedStringKey(settings.commitMessageAI.format.description))
-                                .font(LitheTheme.smallFont)
-                                .foregroundStyle(LitheTheme.secondaryText)
-                                .lineLimit(1)
                         }
 
                         Spacer(minLength: 8)
@@ -1368,14 +1322,11 @@ struct SettingsView: View {
     private var updatesSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
             group("Application version") {
-                row("Current version") {
+                row("Current version", info: "Lithe checks GitHub Releases for published updates.") {
                     Text(updateChecker.versionDescription)
                         .foregroundStyle(LitheTheme.secondaryText)
                         .monospacedDigit()
                 }
-                Text("Lithe checks GitHub Releases for published updates.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
             }
 
             group("Update channel") {
@@ -1438,11 +1389,7 @@ struct SettingsView: View {
 
     private var diagnosticsSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
-            group("Diagnostic bundle") {
-                Text("Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-
+            group("Diagnostic bundle", info: "Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written.") {
                 Button {
                     model.diagnosticsFeature.presentExport()
                 } label: {
@@ -1523,14 +1470,15 @@ struct SettingsView: View {
         }
     }
 
-    private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        LitheSettingsSection(title, content: content)
+    private func group<Content: View>(_ title: String, info: LocalizedStringKey? = nil, @ViewBuilder content: () -> Content) -> some View {
+        LitheSettingsSection(title, info: info, content: content)
     }
 
-    private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func row<Content: View>(_ title: String, info: LocalizedStringKey? = nil, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
             Text(LocalizedStringKey(title))
                 .fixedSize(horizontal: true, vertical: false)
+                .litheSettingsInfo(info)
             content()
             Spacer(minLength: 0)
         }

@@ -7,19 +7,24 @@ import SwiftUI
 /// (Space/Return when focused) opens it too, for users who do not hover. The
 /// text is also the accessibility hint, so VoiceOver reads it without opening.
 struct LitheInfoTip: View {
-    private static let hoverDelayNanoseconds: UInt64 = 300_000_000
+    private static let hoverDelayNanoseconds: UInt64 = 500_000_000
 
-    private let text: LocalizedStringKey
+    private let text: Text
     @State private var isPresented = false
     @State private var isPinned = false
     @State private var hoverTask: Task<Void, Never>?
 
     init(_ text: LocalizedStringKey) {
+        self.text = Text(text)
+    }
+
+    init(_ text: Text) {
         self.text = text
     }
 
     var body: some View {
         Button {
+            hoverTask?.cancel()
             isPinned.toggle()
             isPresented = isPinned
         } label: {
@@ -44,7 +49,7 @@ struct LitheInfoTip: View {
             }
         }
         .litheDropdown(isPresented: $isPresented) {
-            Text(text)
+            text
                 .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -56,6 +61,18 @@ struct LitheInfoTip: View {
         }
         .onDisappear { hoverTask?.cancel() }
         .accessibilityLabel(Text("More information"))
-        .accessibilityHint(Text(text))
+        .accessibilityHint(text)
+    }
+}
+
+/// Keeps setting explanations beside their title without occupying a second row.
+extension View {
+    func litheSettingsInfo(_ text: LocalizedStringKey?) -> some View {
+        HStack(spacing: 4) {
+            self
+            if let text {
+                LitheInfoTip(text)
+            }
+        }
     }
 }

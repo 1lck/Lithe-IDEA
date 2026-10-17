@@ -168,7 +168,7 @@ struct ProjectRuntimeSettingsView: View {
     private var projectDefaultsDetail: some View {
         VStack(alignment: .leading, spacing: 18) {
             group("Java SDK") {
-                row("Project JDK") {
+                row("Project JDK", info: "Maven, Run, and Debug use this JDK unless a subproject or run configuration overrides it.") {
                     runtimePicker(
                         selection: javaHomeBinding,
                         options: javaHomeOptions(current: feature.settings.javaHomePath),
@@ -188,13 +188,10 @@ struct ProjectRuntimeSettingsView: View {
                     mode: feature.settings.javaHomePath.isEmpty ? .automatic : .configured,
                     requirements: requirementMessages(for: "project-jdk")
                 )
-                Text("Maven, Run, and Debug use this JDK unless a subproject or run configuration overrides it.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
             }
 
             group("Maven") {
-                row("Maven source") {
+                row("Maven source", info: "Automatic uses a project mvnw first, then detected Maven, then mvnd.") {
                     LitheSettingsSelect(
                         selection: mavenHomeSelectionBinding,
                         options: MavenHomeSelection.allCases,
@@ -212,9 +209,6 @@ struct ProjectRuntimeSettingsView: View {
                         fileOrDirectory: true
                     )
                 }
-                Text("Automatic uses a project mvnw first, then detected Maven, then mvnd.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
                 if let workspaceURL = model.workspaceURL {
                     EffectiveRuntimeLabel(
                         feature: feature,
@@ -282,7 +276,7 @@ struct ProjectRuntimeSettingsView: View {
         let effectiveJavaHome = feature.effectiveJavaHome(for: subproject)
         return VStack(alignment: .leading, spacing: 18) {
             group("Java SDK") {
-                row("Project JDK") {
+                row("Project JDK", info: "This subproject can use a different JDK from other backends in the same workspace.") {
                     runtimePicker(
                         selection: moduleJavaHomeBinding(for: subproject),
                         options: javaHomeOptions(current: override?.javaHomePath ?? "", includeAutomatic: true),
@@ -301,9 +295,6 @@ struct ProjectRuntimeSettingsView: View {
                     kind: .java,
                     mode: (override?.javaHomePath ?? "").isEmpty ? .inherited : .configured
                 )
-                Text("This subproject can use a different JDK from other backends in the same workspace.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
             }
 
             group("Maven") {
@@ -454,10 +445,11 @@ struct ProjectRuntimeSettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func row<Content: View>(_ title: String, info: LocalizedStringKey? = nil, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
             Text(LocalizedStringKey(title))
                 .fixedSize(horizontal: true, vertical: false)
+                .litheSettingsInfo(info)
             content()
             Spacer(minLength: 0)
         }

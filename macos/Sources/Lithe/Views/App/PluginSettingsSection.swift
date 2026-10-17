@@ -55,6 +55,7 @@ private struct PluginSettingRow: View {
             HStack(alignment: .center, spacing: 12) {
                 Text(LocalizedStringKey(setting.declaration.title))
                     .foregroundStyle(LitheTheme.primaryText)
+                    .litheSettingsInfo(setting.declaration.summary.map { LocalizedStringKey($0) })
                 Spacer(minLength: 12)
                 control
                 Button(LocalizedStringKey("Reset to Default")) { onChange(nil) }
@@ -62,12 +63,6 @@ private struct PluginSettingRow: View {
                     .font(LitheTheme.smallFont)
                     .opacity(setting.isDefault ? 0 : 1)
                     .disabled(setting.isDefault)
-            }
-            if let summary = setting.declaration.summary {
-                Text(LocalizedStringKey(summary))
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

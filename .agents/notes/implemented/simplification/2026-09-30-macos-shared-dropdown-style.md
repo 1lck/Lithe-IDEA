@@ -169,6 +169,19 @@ IDEA 的 `AbstractPopup` / `WindowRoundedCornersManager` 将 macOS 深色 toolti
 `WorkbenchHoverTooltipTests.sharedTooltipPalette` 检查深浅实际渲染像素；原有
 四周定位、窄窗换行和窗口隔离检查继续保留。
 
+### macOS 设置说明
+
+设置项和分组的解释文字通过 `LitheInfoTip` 放在标题后的信息图标中，复用已有
+`litheDropdown`，保留原文和本地化。鼠标停留 0.5 秒才展开，离开时取消等待；
+点击或键盘仍可打开，VoiceOver 从辅助功能提示读取全文。设置行通过
+`litheSettingsInfo`、分组通过 `LitheSettingsSection` 传入说明，避免各页重复计时和弹层。
+
+常驻长说明会让设置页过密，因此不继续放在控件下方；代价是需要主动查看解释。
+当前值、版本状态、错误、风险警告和空态仍直接显示。Windows 保持原有展示。
+验收时在中英文、深浅主题下打开通用、Git、Agents、项目环境和插件设置，确认
+图标紧跟对应标题、快速划过不展开、停留约半秒显示完整说明，点击、键盘打开和
+关闭弹层仍可用；展开后切换页面或关闭设置，不应留下弹层或延迟打开旧说明。
+
 ### 分支名称的原位展开
 
 顶部项目、分支按钮使用箭头光标，分支按钮不再附加完整名称帮助提示。
@@ -616,6 +629,7 @@ SwiftUI 更新锚点时，AppKit（macOS 原生界面库）可能还在计算父
 - `macos/Sources/Lithe/Views/Components/LitheDropdown.swift`
 - `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift`
 - `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`
+- `macos/Sources/Lithe/Views/Components/LitheInfoTip.swift`
 - `macos/Sources/Lithe/Theme/LitheTheme.swift`
 - `macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`
 - `macos/Sources/Lithe/Views/Workspace/ProjectSwitcherPopover.swift`

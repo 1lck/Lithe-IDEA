@@ -57,6 +57,7 @@ private struct LitheSettingsControlChrome: ViewModifier {
 
 struct LitheSettingsSection<Content: View, Accessory: View>: View {
     let title: String
+    var info: LocalizedStringKey? = nil
     @ViewBuilder let accessory: Accessory
     @ViewBuilder let content: Content
 
@@ -67,6 +68,7 @@ struct LitheSettingsSection<Content: View, Accessory: View>: View {
                     .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize()
+                    .litheSettingsInfo(info)
                 accessory
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
@@ -80,8 +82,8 @@ struct LitheSettingsSection<Content: View, Accessory: View>: View {
 }
 
 extension LitheSettingsSection where Accessory == EmptyView {
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.init(title: title, accessory: { EmptyView() }, content: content)
+    init(_ title: String, info: LocalizedStringKey? = nil, @ViewBuilder content: () -> Content) {
+        self.init(title: title, info: info, accessory: { EmptyView() }, content: content)
     }
 }
 

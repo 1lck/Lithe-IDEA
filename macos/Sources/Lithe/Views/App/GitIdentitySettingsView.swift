@@ -27,8 +27,11 @@ private struct GitIdentitySettingsPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Commit identity").font(LitheTheme.uiFont(size: 15, weight: .semibold))
-            Text("Git records this name and email in new commits. These settings do not change existing commits.")
-                .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+                .litheSettingsInfo("Git records this name and email in new commits. These settings do not change existing commits.")
+            Text("Configuration scope")
+                .litheSettingsInfo(scope == .global
+                    ? "Global identity applies to other repositories unless they override it."
+                    : "Repository identity overrides inherited global values. Clear an override to use inherited settings.")
             LitheSettingsSegmentedControl(
                 selection: $scope,
                 options: GitIdentityScope.allCases,
@@ -37,10 +40,6 @@ private struct GitIdentitySettingsPane: View {
             )
             .accessibilityLabel("Configuration scope")
             .disabled(editor.isBusy)
-            Text(scope == .global
-                 ? LocalizedStringKey("Global identity applies to other repositories unless they override it.")
-                 : LocalizedStringKey("Repository identity overrides inherited global values. Clear an override to use inherited settings."))
-                .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             if let root = feature.repositorySetupRoot {
                 Text(root.path).font(LitheTheme.uiFont(size: 11, design: .monospaced)).textSelection(.enabled)
                 if editor.state?.isRepository == false && scope == .local {
@@ -51,8 +50,6 @@ private struct GitIdentitySettingsPane: View {
                               configured: editor.state?.configuredName, effective: editor.state?.effectiveName)
                 identityField(.email, title: "Committer email", draft: $editor.email,
                               configured: editor.state?.configuredEmail, effective: editor.state?.effectiveEmail)
-                Text("Save each field separately. Switching scope reloads the saved values.")
-                    .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
                 Button("Reload Git Configuration") { Task { await editor.load(at: root, scope: scope) } }
                     .disabled(editor.isBusy).lithePointer()
             } else {
@@ -72,6 +69,7 @@ private struct GitIdentitySettingsPane: View {
                                draft: Binding<String>, configured: String?, effective: String?) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title).font(LitheTheme.uiFont(size: 12, weight: .medium))
+                .litheSettingsInfo("Save each field separately. Switching scope reloads the saved values.")
             HStack {
                 TextField(title, text: draft).litheSettingsTextField()
                 Button("Save") { save(field) }

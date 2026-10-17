@@ -25,14 +25,8 @@ struct GitExecutionSettingsView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 7) {
-                GitSettingsRow("Credentials") {
-                    Toggle("Use credential helper", isOn: $settings.gitUseCredentialHelper)
-                }
-                Text("Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage.")
-                    .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-                    .padding(.leading, 150)
-                    .fixedSize(horizontal: false, vertical: true)
+            GitSettingsRow("Credentials", info: "Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage.") {
+                Toggle("Use credential helper", isOn: $settings.gitUseCredentialHelper)
             }
 
             DisclosureGroup(isExpanded: $showsAdvanced) {
@@ -66,28 +60,40 @@ struct GitSettingsHeader: View {
     let icon: String
     let title: LocalizedStringKey
     let subtitle: LocalizedStringKey
+    var additionalInfo: LocalizedStringKey? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 4) {
             Label(title, systemImage: icon)
                 .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-            Text(subtitle).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+            LitheInfoTip(explanation)
+        }
+    }
+
+    private var explanation: Text {
+        if let additionalInfo {
+            Text(subtitle) + Text(verbatim: "\n\n") + Text(additionalInfo)
+        } else {
+            Text(subtitle)
         }
     }
 }
 
 struct GitSettingsRow<Content: View>: View {
     let title: LocalizedStringKey
+    let info: LocalizedStringKey?
     @ViewBuilder let content: Content
 
-    init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
+    init(_ title: LocalizedStringKey, info: LocalizedStringKey? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.info = info
         self.content = content()
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Text(title)
+                .litheSettingsInfo(info)
                 .frame(width: 138, alignment: .leading)
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -193,12 +199,8 @@ private struct GitExecutionConfigurationPane: View {
                         .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.accent)
                         .frame(width: 18)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                        Text(subtitle)
-                            .font(LitheTheme.uiFont(size: 10.5))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                    }
+                    Text(title).font(LitheTheme.uiFont(size: 13, weight: .semibold))
+                        .litheSettingsInfo(subtitle)
                     Spacer(minLength: 12)
                 }
                 .padding(.bottom, 8)
@@ -315,13 +317,8 @@ private struct GitPaneSectionHeader: View {
     let subtitle: LocalizedStringKey
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(LitheTheme.uiFont(size: 13, weight: .semibold))
-            Text(subtitle)
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        Text(title).font(LitheTheme.uiFont(size: 13, weight: .semibold))
+            .litheSettingsInfo(subtitle)
     }
 }
 
@@ -451,6 +448,7 @@ private struct GitEditableConfigurationRow: View {
                     Text(title)
                         .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                         .foregroundStyle(LitheTheme.primaryText)
+                        .litheSettingsInfo(description)
                     if !field.configuredValues.isEmpty {
                         Text("Override")
                             .font(LitheTheme.uiFont(size: 9.5, weight: .semibold))
@@ -461,11 +459,6 @@ private struct GitEditableConfigurationRow: View {
                             .clipShape(Capsule())
                     }
                 }
-                Text(description)
-                    .font(LitheTheme.uiFont(size: 10.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
                 effectiveValueLine
                 if !field.configuredValues.isEmpty {
                     // Reset targets the nearest lower-priority configured scope,
