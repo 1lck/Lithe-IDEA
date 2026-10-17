@@ -20,7 +20,9 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { extractDroppedFilePaths } from "@/features/file-system/utils/file-system-dropped-paths";
 import {
   TERMINAL_FILE_DROP_EVENT,
+  TERMINAL_PATH_INSERT_EVENT,
   type TerminalFileDropDetail,
+  type TerminalPathInsertDetail,
 } from "@/features/file-system/utils/file-system-drop-controller";
 import { showConfirmDialog } from "@/ui/dialog";
 import {
@@ -31,8 +33,9 @@ import {
   ContextMenuTrigger,
 } from "@/ui/context-menu";
 import { ClipboardIcon, CopyIcon } from "@/ui/icons";
-import { readClipboardText, writeClipboardText } from "@/utils/clipboard";
+import { writeClipboardText } from "@/utils/clipboard";
 import { currentPlatform } from "@/utils/platform";
+import { readTerminalPasteText } from "@/features/terminal/utils/file-clipboard-paste";
 import {
   createTerminalAddons,
   injectLinkStyles,
@@ -204,9 +207,22 @@ export const XtermTerminal = ({
       insertDroppedPaths(detail?.paths ?? []);
     };
 
+    // In-app drops arrive pre-formatted because the explorer owns path
+    // relativization; re-parsing them would drop relative paths.
+    const handlePathInsert = (event: Event) => {
+      const detail = (event as CustomEvent<TerminalPathInsertDetail>).detail;
+      if (!detail?.text) return;
+      writeBuffered(detail.text);
+      requestAnimationFrame(() => xtermRef.current?.focus());
+    };
+
     container.addEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
-    return () => container.removeEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
-  }, [insertDroppedPaths]);
+    container.addEventListener(TERMINAL_PATH_INSERT_EVENT, handlePathInsert);
+    return () => {
+      container.removeEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
+      container.removeEventListener(TERMINAL_PATH_INSERT_EVENT, handlePathInsert);
+    };
+  }, [insertDroppedPaths, writeBuffered]);
 
   const handleTerminalDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!Array.from(event.dataTransfer.types).includes("Files")) return;
@@ -240,7 +256,7 @@ export const XtermTerminal = ({
     (terminal: Terminal) => {
       if (!currentConnectionIdRef.current) return;
 
-      void readClipboardText()
+      void readTerminalPasteText()
         .then((text) => pasteIntoTerminal(terminal, text))
         .catch((error) => console.error("Failed to paste into terminal:", error));
     },
