@@ -224,10 +224,18 @@ export function AgentPanel({
   const headerTitle =
     selected === null ? t("agent.actions.newConversation") : sessionTitle(selected);
 
+  // A tab carries its own session even while another surface shows a different
+  // conversation, so it titles itself from `sessionID`, never from the global
+  // selection. Hidden tabs must not rename themselves or their neighbours.
+  const sessionKnown =
+    sessionID === null || snapshot.sessions.some((entry) => entry.id === sessionID);
+  const editorTabTitle = sessionID === null ? headerTitle : sessionTitle(sessionID);
+
   useEffect(() => {
-    if (!isEditorPlacement || !isConfigured || onTitleChange === undefined) return;
-    onTitleChange(headerTitle);
-  }, [headerTitle, isConfigured, isEditorPlacement, onTitleChange]);
+    if (!isEditorPlacement || !isActive || !isConfigured || !sessionKnown) return;
+    if (onTitleChange === undefined) return;
+    onTitleChange(editorTabTitle);
+  }, [editorTabTitle, isActive, isConfigured, isEditorPlacement, onTitleChange, sessionKnown]);
 
   const tabs = useMemo(
     () =>

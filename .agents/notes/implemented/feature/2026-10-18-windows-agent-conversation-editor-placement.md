@@ -28,6 +28,8 @@ Windows 编辑器原本已有 `agent` 缓冲区类型，但它渲染的是旧的
 - 编辑器标签像终端和 WebView 一样常驻挂载，普通标签切换只隐藏，不卸载。否则每次切走都会丢失滚动位置并触发“关闭标签”的清理逻辑。只有当前可见标签的 `isActive` 为真时才允许它选择共享连接，避免隐藏标签争抢会话。
 - 工具窗口检测到 `editorSessionIDs` 非空时显示历史列表。选择历史行会聚焦该会话已有标签，或为尚未放置的会话新开标签。
 - 关闭编辑区标签会清除放置记录并打开工具窗口；项目切换导致的批量卸载不会强行弹出 Agent 面板。
+- 编辑区标签的标题只来自它绑定的会话，并且只有当前可见标签会同步标题；隐藏标签不使用全局选中会话的标题，避免把别的会话名字写到自己的标签上。
+- 切换工作区会停止旧连接并清空窗口级放置状态（草稿、编辑区放置记录、详情开关）；草稿按会话 ID 保存，但“新对话”草稿不属于任何项目，必须随项目切换丢弃。
 - 编辑区放置只在本次运行内有效。现有工作区会话持久化只恢复文件、终端和 WebView 标签，本次没有把 ACP 会话标签写进磁盘。
 
 ## 考虑过的备选方案
@@ -49,7 +51,7 @@ Windows 编辑器原本已有 `agent` 缓冲区类型，但它渲染的是旧的
 ## 验证
 
 - `windows/tauri`: `bun run typecheck` 通过。
-- `src/features/agent`、`src/i18n`、后端能力、拖放路由和图标测试套件共 117 条通过；新增 `agent-surface.store.test.ts` 覆盖放置登记、按会话草稿隔离和清理。
+- `src/features/agent` 套件 98 条通过；编辑区标签 `buffer-agent-conversation.test.ts` 3 条通过。`agent-surface.store.test.ts` 覆盖放置登记、按会话草稿隔离和工作区切换清理。
 - 新增 `buffer-agent-conversation.test.ts` 覆盖同一会话只开一个标签、不同会话使用确定性虚拟路径、Agent 标签不被自动淘汰。
 - 仓库门禁：功能矩阵 `--check`、矩阵变更门禁、`verify-agent-notes.mjs`、`verify-windows-boundaries.ps1`、`verify-windows-plugin-isolation.mjs` 与构建后的 PHP 隔离扫描均通过。
 - 真机验收仍需在 Windows 上执行：从工具窗口打开编辑区、重复打开只聚焦、关闭标签返回工具窗口、深浅主题与窄窗口详情栏、草稿和附件在往返后保留、无 `lithe-windows.exe` 残留。

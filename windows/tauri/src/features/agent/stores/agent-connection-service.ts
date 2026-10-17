@@ -21,6 +21,7 @@ import {
   AgentConnectionModel,
   type AgentConnectionSnapshot,
 } from "./agent-connection.model";
+import { useAgentSurfaceStore } from "./agent-surface.store";
 
 let model: AgentConnectionModel | null = null;
 let workspacePath: string | null = null;
@@ -86,7 +87,9 @@ export async function openAgentConnection(
   const key = launchKey(nextWorkspacePath, settings);
   if (workspacePath !== nextWorkspacePath) {
     // A different project starts from nothing; kept Agent sessions belong to
-    // the previous workspace and must not leak into this one.
+    // the previous workspace and must not leak into this one. Placement state
+    // is keyed by session but lives window-wide, so clear it before reconnecting.
+    useAgentSurfaceStore.getState().actions.reset();
     await connection.stop();
     connection.reset();
     keptSnapshots.clear();

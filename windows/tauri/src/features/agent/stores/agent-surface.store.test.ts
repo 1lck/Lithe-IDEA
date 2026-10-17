@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { useAgentSurfaceStore } from "./agent-surface.store";
+import { NEW_AGENT_DRAFT_KEY, useAgentSurfaceStore } from "./agent-surface.store";
 
 beforeEach(() => {
   useAgentSurfaceStore.getState().actions.reset();
@@ -34,6 +34,23 @@ describe("agent surface placement", () => {
     expect(useAgentSurfaceStore.getState().drafts["session-a"]?.text).toBe("keep this text");
     expect(useAgentSurfaceStore.getState().drafts["session-a"]?.files).toHaveLength(1);
     expect(useAgentSurfaceStore.getState().drafts["session-b"]?.text).toBe("other conversation");
+  });
+
+  test("clears window-wide placement state when the workspace changes", () => {
+    const { registerEditorSession, reset, setDetailsOpen, setDraft } =
+      useAgentSurfaceStore.getState().actions;
+
+    registerEditorSession("session-a");
+    setDetailsOpen(true);
+    setDraft("session-a", { text: "old project draft", files: [] });
+    setDraft(NEW_AGENT_DRAFT_KEY, { text: "unsent new conversation", files: [] });
+
+    reset();
+
+    const state = useAgentSurfaceStore.getState();
+    expect(state.editorSessionIDs).toEqual([]);
+    expect(state.detailsOpen).toBe(false);
+    expect(state.drafts).toEqual({});
   });
 
   test("clears a draft without disturbing the other conversation", () => {
