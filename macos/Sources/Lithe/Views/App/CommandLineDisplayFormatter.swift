@@ -32,32 +32,47 @@ struct CommandLineDisplay: Equatable {
 /// Rust Core reports a command as its arguments joined by spaces, so argument
 /// boundaries are already gone here. Long options start their own line, and an
 /// argument that is a complete JSON object or array, such as an Agent CLI's
-/// `--settings {...}`, is re-indented keeping its key order and escapes. Text
-/// that is not valid JSON is shown unchanged; copying uses the raw command.
+/// `--settings {...}`, is re-indented keeping its key order and escapes. All
+/// other text, including the line breaks and runs of spaces of an inline
+/// script, is shown as reported; copying uses the raw command.
 enum CommandLineDisplayFormatter {
     static let indentUnit = "  "
     /// Characters the bracket matcher may examine in total. Every unmatched
     /// `{` or `[` rescans the rest of the line, so pathological input would
     /// otherwise cost quadratic time inside a modal dialog.
     static let scanBudget = 1_000_000
+    /// Indentation the JSON layout may add in total. Every line break repeats
+    /// its depth's indentation, so deep and wide JSON could grow far past the
+    /// command itself; JSON past the budget is shown as reported.
+    static let layoutBudget = 200_000
 
     static func format(_ commandLine: String) -> CommandLineDisplay {
         var builder = LineBuilder()
         var indent = ""
-        for (index, piece) in pieces(of: Array(commandLine)).enumerated() {
-            let separated = index > 0 && !piece.isAttached
-            switch piece {
-            case let .word(word, _):
-                if separated, word.hasPrefix("--"), isOption(word) {
+        var remainingLayout = Self.layoutBudget
+        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        for piece in pieces(of: Array(trimmed)) {
+            switch piece.kind {
+            case .word:
+                // Only a break we add replaces spaces; a reported line break stays as it is.
+                if !piece.separator.isEmpty, !piece.separator.contains(where: \.isNewline),
+                   piece.text.hasPrefix("--"), isOption(piece.text) {
                     indent = indentUnit
                     builder.startLine(indent: indent)
-                } else if separated {
-                    builder.append(" ", .text)
+                } else {
+                    appendWhitespace(piece.separator, to: &builder)
                 }
-                appendWord(word, to: &builder)
-            case let .json(json, _):
-                if separated { builder.append(" ", .text) }
-                appendJSON(json, indent: indent, to: &builder)
+                appendWord(piece.text, to: &builder)
+            case .json:
+                appendWhitespace(piece.separator, to: &builder)
+                let tokens = jsonTokens(Array(piece.text))
+                let cost = indentationCost(of: tokens, base: indent.count)
+                if cost <= remainingLayout {
+                    remainingLayout -= cost
+                    appendJSON(tokens, indent: indent, to: &builder)
+                } else {
+                    builder.append(piece.text, .text)
+                }
             }
         }
         return CommandLineDisplay(lines: builder.finish())
@@ -65,29 +80,26 @@ enum CommandLineDisplayFormatter {
 
     // MARK: - Splitting
 
-    private enum Piece {
-        case word(String, attached: Bool)
-        case json(String, attached: Bool)
+    private struct Piece {
+        enum Kind { case word, json }
 
-        /// No whitespace between this piece and the previous one, as in `--settings={...}`.
-        var isAttached: Bool {
-            switch self {
-            case let .word(_, attached), let .json(_, attached): attached
-            }
-        }
+        let kind: Kind
+        let text: String
+        /// Whitespace before this piece as reported; empty when attached, as in `--settings={...}`.
+        let separator: String
     }
 
     private static func pieces(of characters: [Character]) -> [Piece] {
         var pieces: [Piece] = []
         var word = ""
-        var wordAttached = false
-        var followsWhitespace = true
+        var wordSeparator = ""
+        var whitespace = ""
         var budget = scanBudget
         var index = 0
 
         func flushWord() {
             guard !word.isEmpty else { return }
-            pieces.append(.word(word, attached: wordAttached))
+            pieces.append(Piece(kind: .word, text: word, separator: wordSeparator))
             word = ""
         }
 
@@ -95,20 +107,22 @@ enum CommandLineDisplayFormatter {
             let character = characters[index]
             if character.isWhitespace {
                 flushWord()
-                followsWhitespace = true
+                whitespace.append(character)
                 index += 1
                 continue
             }
             if let end = jsonEnd(in: characters, from: index, budget: &budget) {
                 flushWord()
-                pieces.append(.json(String(characters[index...end]), attached: !followsWhitespace))
-                followsWhitespace = false
+                pieces.append(Piece(kind: .json, text: String(characters[index...end]), separator: whitespace))
+                whitespace = ""
                 index = end + 1
                 continue
             }
-            if word.isEmpty { wordAttached = !followsWhitespace }
+            if word.isEmpty {
+                wordSeparator = whitespace
+                whitespace = ""
+            }
             word.append(character)
-            followsWhitespace = false
             index += 1
         }
         flushWord()
@@ -178,6 +192,14 @@ enum CommandLineDisplayFormatter {
         return (dashes == 1 || dashes == 2) && name.first?.isLetter == true
     }
 
+    private static func appendWhitespace(_ whitespace: String, to builder: inout LineBuilder) {
+        let lines = whitespace.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        for (index, line) in lines.enumerated() {
+            if index > 0 { builder.startLine(indent: "") }
+            builder.append(String(line), .text)
+        }
+    }
+
     private static func appendWord(_ word: String, to builder: inout LineBuilder) {
         guard isOption(word) else {
             builder.append(word, .text)
@@ -200,8 +222,23 @@ enum CommandLineDisplayFormatter {
         case scalar(String)
     }
 
-    private static func appendJSON(_ json: String, indent base: String, to builder: inout LineBuilder) {
-        let tokens = jsonTokens(Array(json))
+    /// Upper bound of the indentation `appendJSON` adds; empty containers count as broken.
+    private static func indentationCost(of tokens: [JSONToken], base: Int) -> Int {
+        var depth = 0
+        var cost = 0
+        for token in tokens {
+            switch token {
+            case .open: depth += 1
+            case .close: depth -= 1
+            case .comma: break
+            case .colon, .string, .scalar: continue
+            }
+            cost += base + depth * indentUnit.count
+        }
+        return cost
+    }
+
+    private static func appendJSON(_ tokens: [JSONToken], indent base: String, to builder: inout LineBuilder) {
         var depth = 0
         var index = 0
         func lineIndent() -> String { base + String(repeating: indentUnit, count: depth) }

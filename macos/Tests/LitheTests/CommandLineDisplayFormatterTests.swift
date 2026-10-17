@@ -82,6 +82,30 @@ struct CommandLineDisplayFormatterTests {
         #expect(!runs.contains(.init(text: "-5", role: .option)))
     }
 
+    /// An inline script must read exactly as it runs, so reported line breaks,
+    /// indentation, tabs and repeated spaces survive and no break is re-indented.
+    @Test func inlineScriptsKeepTheirLineBreaksAndSpaces() {
+        let script = "python3 -c import time\nwhile True:\n    time.sleep(1)"
+        let display = CommandLineDisplayFormatter.format(script)
+        #expect(display.text == script)
+        #expect(display.lines.count == 3)
+        for command in ["printf a  b\tc", "run\n--flag value", "sh -c echo a\r\n  done"] {
+            let text = CommandLineDisplayFormatter.format(command).text
+            #expect(text.replacingOccurrences(of: "\r\n", with: "\n") == command.replacingOccurrences(of: "\r\n", with: "\n"))
+        }
+        #expect(CommandLineDisplayFormatter.format("  npm run dev \n").text == "npm run dev")
+    }
+
+    /// Indenting deep and wide JSON would multiply its size; past the layout
+    /// budget it is shown as reported instead.
+    @Test func jsonPastTheLayoutBudgetStaysAsReported() {
+        let json = String(repeating: "[", count: 400)
+            + Array(repeating: "0", count: 50_000).joined(separator: ",")
+            + String(repeating: "]", count: 400)
+        let display = CommandLineDisplayFormatter.format("tool --settings " + json)
+        #expect(display.text == "tool\n  --settings " + json)
+    }
+
     @Test func emptyAndWhitespaceOnlyCommandsProduceOneEmptyLine() {
         #expect(CommandLineDisplayFormatter.format("").lines == [[]])
         #expect(CommandLineDisplayFormatter.format("   ").lines == [[]])
