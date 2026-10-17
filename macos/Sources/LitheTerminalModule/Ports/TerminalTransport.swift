@@ -34,6 +34,24 @@ public struct TerminalProcessLaunch: Equatable, Sendable {
     }
 }
 
+/// A program started from a terminal that is still running, reported per job
+/// (process group). Used to ask the user before the terminal is closed.
+public struct TerminalRunningProgram: Equatable, Sendable, Identifiable {
+    public let processID: Int32
+    public let commandLine: String
+    public let listeningPorts: [Int]
+    public let startedAt: Date?
+
+    public var id: Int32 { processID }
+
+    public init(processID: Int32, commandLine: String, listeningPorts: [Int] = [], startedAt: Date? = nil) {
+        self.processID = processID
+        self.commandLine = commandLine
+        self.listeningPorts = listeningPorts
+        self.startedAt = startedAt
+    }
+}
+
 /// Platform terminal runtime injected by the native composition root.
 @MainActor
 public protocol TerminalTransport: AnyObject {
@@ -57,5 +75,18 @@ public protocol TerminalTransport: AnyObject {
     func interrupt() throws
     func focus()
     func clear()
+    /// Starts stopping every process of the terminal session, including jobs
+    /// in their own process groups and jobs that outlived the shell.
     func stop()
+    /// Stops like `stop()` and returns once the session's processes are gone
+    /// or the bounded forced-termination phase has ended.
+    func stopAndWait() async
+    /// Programs other than an interactive shell that still run in this
+    /// terminal's session, even after the shell itself has exited.
+    func runningPrograms() -> [TerminalRunningProgram]
+}
+
+public extension TerminalTransport {
+    func stopAndWait() async { stop() }
+    func runningPrograms() -> [TerminalRunningProgram] { [] }
 }

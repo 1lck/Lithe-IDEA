@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "quit with default settings",
+      "request": {
+        "context": "quit",
+        "records": [
+          {"id": "idle-shell", "kind": "terminal", "ownership": "launched", "idle": true},
+          {"id": "spring", "kind": "terminal", "ownership": "launched"},
+          {"id": "migration", "kind": "agentTask", "ownership": "scopeToken"},
+          {"id": "gradle-daemon", "kind": "daemon", "ownership": "scopeToken", "recognizerId": "gradle.daemon", "recognizedPolicy": "askOnExit"},
+          {"id": "unknown-detached", "kind": "pluginTool", "ownership": "scopeToken", "detached": true},
+          {"id": "jdtls", "kind": "languageServer", "ownership": "launched"},
+          {"id": "outside-docker", "kind": "container", "ownership": "unproven"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "idle-shell", "kind": "terminal", "policy": "terminate", "action": "terminate", "reason": "idleTerminal"},
+          {"id": "spring", "kind": "terminal", "policy": "confirmEach", "action": "confirm", "reason": "busyTerminal"},
+          {"id": "migration", "kind": "agentTask", "policy": "confirmEach", "action": "confirm", "reason": "agentTask"},
+          {"id": "gradle-daemon", "kind": "daemon", "policy": "askOnExit", "action": "ask", "reason": "recognizer"},
+          {"id": "unknown-detached", "kind": "pluginTool", "policy": "askOnExit", "action": "ask", "reason": "detachedProcess"},
+          {"id": "jdtls", "kind": "languageServer", "policy": "terminate", "action": "terminate", "reason": "defaultTerminate"},
+          {"id": "outside-docker", "kind": "container", "policy": "external", "action": "ignore", "reason": "ownershipUnproven"}
+        ]
+      }
+    },
+    {
+      "name": "quit with every prompt disabled",
+      "request": {
+        "context": "quit",
+        "settings": {
+          "terminalOnQuit": "terminate",
+          "agentTasks": "keep",
+          "backgroundResources": "terminate",
+          "gracefulStopSeconds": 12
+        },
+        "records": [
+          {"id": "spring", "kind": "terminal", "ownership": "launched"},
+          {"id": "migration", "kind": "agentTask", "ownership": "scopeToken"},
+          {"id": "container", "kind": "container", "ownership": "instanceLabel"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 12000,
+        "decisions": [
+          {"id": "spring", "kind": "terminal", "policy": "confirmEach", "action": "terminate", "reason": "terminalOnQuitSetting"},
+          {"id": "migration", "kind": "agentTask", "policy": "confirmEach", "action": "retain", "reason": "agentTasksSetting"},
+          {"id": "container", "kind": "container", "policy": "askOnExit", "action": "terminate", "reason": "backgroundSetting"}
+        ]
+      }
+    },
+    {
+      "name": "remembered choices win over the background setting",
+      "request": {
+        "context": "quit",
+        "settings": {
+          "backgroundResources": "terminate",
+          "rememberedChoices": {"gradle.daemon": "keep", "kotlin.daemon": "terminate"}
+        },
+        "records": [
+          {"id": "gradle", "kind": "daemon", "ownership": "scopeToken", "recognizerId": "gradle.daemon", "recognizedPolicy": "askOnExit"},
+          {"id": "kotlin", "kind": "daemon", "ownership": "scopeToken", "recognizerId": "kotlin.daemon"},
+          {"id": "retained-before", "kind": "daemon", "ownership": "scopeToken", "retained": true}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "gradle", "kind": "daemon", "policy": "askOnExit", "action": "retain", "reason": "rememberedChoice"},
+          {"id": "kotlin", "kind": "daemon", "policy": "askOnExit", "action": "terminate", "reason": "rememberedChoice"},
+          {"id": "retained-before", "kind": "daemon", "policy": "askOnExit", "action": "retain", "reason": "retainedByUser"}
+        ]
+      }
+    },
+    {
+      "name": "launcher declaration outranks recognizers and detachment",
+      "request": {
+        "context": "quit",
+        "records": [
+          {"id": "declared", "kind": "pluginTool", "ownership": "launched", "declaredPolicy": "terminate", "recognizedPolicy": "askOnExit", "detached": true},
+          {"id": "recognized", "kind": "pluginTool", "ownership": "scopeToken", "recognizedPolicy": "terminate", "detached": true},
+          {"id": "agent-daemon", "kind": "agentTask", "ownership": "scopeToken", "recognizedPolicy": "askOnExit", "detached": true}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "declared", "kind": "pluginTool", "policy": "terminate", "action": "terminate", "reason": "declaredByLauncher"},
+          {"id": "recognized", "kind": "pluginTool", "policy": "terminate", "action": "terminate", "reason": "recognizer"},
+          {"id": "agent-daemon", "kind": "agentTask", "policy": "confirmEach", "action": "confirm", "reason": "agentTask"}
+        ]
+      }
+    },
+    {
+      "name": "closing one terminal tab",
+      "request": {
+        "context": "closeTerminalTab",
+        "records": [
+          {"id": "busy", "kind": "terminal", "ownership": "launched"},
+          {"id": "detached-from-tab", "kind": "oneShot", "ownership": "scopeToken", "detached": true}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "busy", "kind": "terminal", "policy": "confirmEach", "action": "confirm", "reason": "busyTerminal"},
+          {"id": "detached-from-tab", "kind": "oneShot", "policy": "askOnExit", "action": "defer", "reason": "decidedOnQuit"}
+        ]
+      }
+    },
+    {
+      "name": "closing a terminal tab without confirmation",
+      "request": {
+        "context": "closeTerminalTab",
+        "settings": {"confirmTerminalTabClose": false},
+        "records": [
+          {"id": "busy", "kind": "terminal", "ownership": "launched"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "busy", "kind": "terminal", "policy": "confirmEach", "action": "terminate", "reason": "terminalTabCloseSetting"}
+        ]
+      }
+    },
+    {
+      "name": "disconnecting an Agent that should end its tasks",
+      "request": {
+        "context": "agentDisconnect",
+        "settings": {"agentTasks": "terminate"},
+        "records": [
+          {"id": "deploy", "kind": "agentTask", "ownership": "scopeToken"},
+          {"id": "mcp-daemon", "kind": "daemon", "ownership": "scopeToken"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "deploy", "kind": "agentTask", "policy": "confirmEach", "action": "terminate", "reason": "agentTasksSetting"},
+          {"id": "mcp-daemon", "kind": "daemon", "policy": "askOnExit", "action": "defer", "reason": "decidedOnQuit"}
+        ]
+      }
+    },
+    {
+      "name": "crash recovery never ends Agent tasks even when told to",
+      "request": {
+        "context": "crashRecovery",
+        "settings": {"agentTasks": "terminate"},
+        "records": [
+          {"id": "migration", "kind": "agentTask", "ownership": "scopeToken"},
+          {"id": "spring", "kind": "terminal", "ownership": "scopeToken"},
+          {"id": "daemon", "kind": "daemon", "ownership": "scopeToken"},
+          {"id": "run", "kind": "run", "ownership": "scopeToken"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "migration", "kind": "agentTask", "policy": "confirmEach", "action": "retain", "reason": "agentTaskNeverEndedUnattended"},
+          {"id": "spring", "kind": "terminal", "policy": "confirmEach", "action": "terminate", "reason": "busyTerminal"},
+          {"id": "daemon", "kind": "daemon", "policy": "askOnExit", "action": "retain", "reason": "leftForStartupSweep"},
+          {"id": "run", "kind": "run", "policy": "terminate", "action": "terminate", "reason": "defaultTerminate"}
+        ]
+      }
+    },
+    {
+      "name": "startup sweep ending leftovers still confirms Agent tasks",
+      "request": {
+        "context": "startupSweep",
+        "settings": {"startupSweep": "terminate", "agentTasks": "terminate"},
+        "records": [
+          {"id": "migration", "kind": "agentTask", "ownership": "scopeToken"},
+          {"id": "orphan", "kind": "daemon", "ownership": "scopeToken"},
+          {"id": "kept", "kind": "daemon", "ownership": "scopeToken", "retained": true}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "migration", "kind": "agentTask", "policy": "confirmEach", "action": "confirm", "reason": "agentTaskAlwaysConfirmedAtStartup"},
+          {"id": "orphan", "kind": "daemon", "policy": "askOnExit", "action": "terminate", "reason": "startupSweepSetting"},
+          {"id": "kept", "kind": "daemon", "policy": "askOnExit", "action": "retain", "reason": "retainedByUser"}
+        ]
+      }
+    },
+    {
+      "name": "startup sweep asking about leftovers",
+      "request": {
+        "context": "startupSweep",
+        "records": [
+          {"id": "orphan", "kind": "oneShot", "ownership": "scopeToken", "detached": true}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "orphan", "kind": "oneShot", "policy": "askOnExit", "action": "ask", "reason": "startupSweepSetting"}
+        ]
+      }
+    },
+    {
+      "name": "final sweep ends only approved identities and defers unseen background successors",
+      "request": {
+        "context": "finalSweep",
+        "records": [
+          {"id": "unseen-successor", "kind": "daemon", "ownership": "scopeToken", "detached": true},
+          {"id": "approved-service", "kind": "daemon", "ownership": "scopeToken", "detached": true, "terminationApproved": true},
+          {"id": "kept-service", "kind": "daemon", "ownership": "scopeToken", "detached": true, "retained": true},
+          {"id": "unseen-task", "kind": "agentTask", "ownership": "scopeToken"},
+          {"id": "run", "kind": "run", "ownership": "launched"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "unseen-successor", "kind": "daemon", "policy": "askOnExit", "action": "defer", "reason": "backgroundResourceRequiresStartupConfirmation"},
+          {"id": "approved-service", "kind": "daemon", "policy": "askOnExit", "action": "terminate", "reason": "finalSweepApproved"},
+          {"id": "kept-service", "kind": "daemon", "policy": "askOnExit", "action": "retain", "reason": "retainedByUser"},
+          {"id": "unseen-task", "kind": "agentTask", "policy": "confirmEach", "action": "defer", "reason": "agentTaskRequiresStartupConfirmation"},
+          {"id": "run", "kind": "run", "policy": "terminate", "action": "terminate", "reason": "finalSweepApproved"}
+        ]
+      }
+    },
+    {
+      "name": "final sweep applies choices made in advance to unseen background services",
+      "request": {
+        "context": "finalSweep",
+        "settings": {"backgroundResources": "terminate", "rememberedChoices": {"example.keep": "keep"}},
+        "records": [
+          {"id": "unseen-service", "kind": "daemon", "ownership": "scopeToken", "detached": true},
+          {"id": "remembered-service", "kind": "daemon", "ownership": "scopeToken", "recognizerId": "example.keep", "recognizedPolicy": "askOnExit"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "unseen-service", "kind": "daemon", "policy": "askOnExit", "action": "terminate", "reason": "backgroundSetting"},
+          {"id": "remembered-service", "kind": "daemon", "policy": "askOnExit", "action": "retain", "reason": "rememberedChoice"}
+        ]
+      }
+    }
+  ]
+}

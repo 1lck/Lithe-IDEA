@@ -291,7 +291,56 @@ extension AppModel {
         showToolWindow(.terminal)
     }
 
+    /// Closes a terminal tab, first asking when programs still run in it
+    /// (Settings › Process Termination Policy).
     func requestCloseTerminalSession(_ session: TerminalSession) {
+        guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
+        guard let coordinator = services.processExitCoordinator,
+              settings.processTermination.confirmTerminalTabClose else {
+            closeTerminalSession(session)
+            return
+        }
+        let candidate = terminalExitCandidate(for: session)
+        guard !candidate.programs.isEmpty else {
+            closeTerminalSession(session)
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard await coordinator.confirmTerminalClose(
+                settings: self?.settings.processTermination ?? ProcessTerminationSettings(),
+                terminal: candidate
+            ) else { return }
+            self?.closeTerminalSession(session)
+        }
+    }
+
+    /// Every terminal tab of this window, for the quit confirmation.
+    var terminalExitCandidates: [TerminalExitCandidate] {
+        terminalSessions.map(terminalExitCandidate)
+    }
+
+    func terminalExitCandidate(for session: TerminalSession) -> TerminalExitCandidate {
+        TerminalExitCandidate(
+            ownerID: id,
+            sessionID: session.id,
+            title: terminalTitle(for: session),
+            projectName: workspaceURL == nil ? "" : projectName,
+            workingDirectory: session.currentDirectory?.path ?? "",
+            programs: session.runningPrograms()
+        )
+    }
+
+    /// Shows a terminal tab, wherever it is placed.
+    func revealTerminalSession(_ sessionID: UUID) {
+        guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
+        if terminalPlacementFeature.editorSessionIDs.contains(sessionID) {
+            selectEditorTerminalSession(session)
+        } else {
+            selectTerminalSession(session)
+        }
+    }
+
+    private func closeTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
         debugTerminalSessionIDs.remove(session.id)
         for debugSessionID in debugTerminalSessionIDsByDebugSession.keys {

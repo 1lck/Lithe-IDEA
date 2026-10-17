@@ -72,6 +72,10 @@ const STDERR_TAIL_LINES: usize = 20;
 /// Auth method id and `_meta` key of the ACP custom model gateway extension.
 /// Responses API-key mode uses this method and never falls back to account login.
 const GATEWAY_AUTH_METHOD: &str = "gateway";
+/// Environment variable naming the platform's process scope of one connection.
+/// Every descendant of the agent inherits it, which is how a host recognizes the
+/// agent's tasks even after they left its process group.
+pub const AGENT_SCOPE_ENVIRONMENT: &str = "LITHE_AGENT_SCOPE";
 
 /// Launch configuration supplied by the owning desktop product.
 ///
@@ -99,6 +103,9 @@ pub struct AgentLaunch {
     /// proxy and emit model-call measurements without retaining request bodies.
     #[serde(default)]
     pub observe_model_calls: bool,
+    /// Exported as [`AGENT_SCOPE_ENVIRONMENT`] to the agent process tree.
+    #[serde(default)]
+    pub process_scope: Option<String>,
 }
 
 /// Subscription access is explicit and limited to the installed Codex adapter.
@@ -399,6 +406,15 @@ pub enum AgentCommand {
         request_id: String,
         option_id: Option<String>,
     },
+    /// Processes of the agent tree the user chose to keep running.
+    ///
+    /// Once any process is preserved, stopping the connection ends only the
+    /// agent process itself: the host has already ended the descendants it
+    /// was not asked to keep, and a tree or group kill would also hit the
+    /// preserved ones. Takes effect immediately on the calling thread.
+    PreserveProcesses {
+        process_ids: Vec<u32>,
+    },
 }
 
 /// One entry of the agent-owned conversation history for the workspace.
@@ -579,10 +595,18 @@ enum Control {
     Stop,
 }
 
+/// Process IDs of the agent tree that stopping the connection must not end.
+type PreservedProcesses = Arc<Mutex<Vec<u32>>>;
+
+fn has_preserved_processes(preserved: &PreservedProcesses) -> bool {
+    preserved.lock().map(|ids| !ids.is_empty()).unwrap_or(false)
+}
+
 /// One agent process and ACP connection. Dropping it stops the process tree.
 pub struct AgentHandle {
     controls: async_mpsc::UnboundedSender<Control>,
     permissions: PendingPermissions,
+    preserved: PreservedProcesses,
     child_pid: Arc<AtomicU32>,
     stop_requested: Arc<AtomicBool>,
     finished: mpsc::Receiver<()>,
@@ -601,7 +625,9 @@ impl AgentHandle {
         let permissions: PendingPermissions = Arc::new(Mutex::new(HashMap::new()));
         let child_pid = Arc::new(AtomicU32::new(0));
         let stop_requested = Arc::new(AtomicBool::new(false));
+        let preserved: PreservedProcesses = Arc::new(Mutex::new(Vec::new()));
         let pending = permissions.clone();
+        let kept = preserved.clone();
         let pid = child_pid.clone();
         let stop = stop_requested.clone();
         let worker = std::thread::Builder::new()
@@ -615,9 +641,12 @@ impl AgentHandle {
                         .block_on(run_agent(
                             launch,
                             receiver,
-                            pending,
-                            pid,
-                            stop,
+                            AgentProcessState {
+                                permissions: pending,
+                                preserved: kept,
+                                child_pid: pid,
+                                stop_requested: stop,
+                            },
                             emit.clone(),
                         ))
                         .err(),
@@ -630,6 +659,7 @@ impl AgentHandle {
         Ok(Self {
             controls,
             permissions,
+            preserved,
             child_pid,
             stop_requested,
             finished,
@@ -645,6 +675,16 @@ impl AgentHandle {
                 request_id,
                 option_id,
             } => answer_permission(&self.permissions, &request_id, option_id),
+            AgentCommand::PreserveProcesses { process_ids } => {
+                let mut preserved = self
+                    .preserved
+                    .lock()
+                    .map_err(|_| "Agent process state is unavailable".to_string())?;
+                preserved.extend(process_ids);
+                preserved.sort_unstable();
+                preserved.dedup();
+                Ok(())
+            }
             command => {
                 if let AgentCommand::Cancel { session_id } = &command {
                     // ACP requires pending permission requests of a cancelled
@@ -673,7 +713,11 @@ impl AgentHandle {
         if self.finished.recv_timeout(STOP_TIMEOUT).is_err() {
             let pid = self.child_pid.load(Ordering::SeqCst);
             if pid != 0 {
-                force_kill_tree(pid);
+                if has_preserved_processes(&self.preserved) {
+                    force_kill_process(pid);
+                } else {
+                    force_kill_tree(pid);
+                }
             }
             let _ = self.finished.recv_timeout(STOP_TIMEOUT);
         }
@@ -776,16 +820,29 @@ fn child_path(command: &Path, base: Option<OsString>) -> Option<OsString> {
         .flatten()
 }
 
+/// State shared between an [`AgentHandle`] and its connection worker.
+struct AgentProcessState {
+    permissions: PendingPermissions,
+    preserved: PreservedProcesses,
+    child_pid: Arc<AtomicU32>,
+    stop_requested: Arc<AtomicBool>,
+}
+
 async fn run_agent(
     launch: AgentLaunch,
     controls: async_mpsc::UnboundedReceiver<Control>,
-    permissions: PendingPermissions,
-    child_pid: Arc<AtomicU32>,
-    stop_requested: Arc<AtomicBool>,
+    state: AgentProcessState,
     emit: Emit,
 ) -> Result<(), String> {
+    let AgentProcessState {
+        permissions,
+        preserved,
+        child_pid,
+        stop_requested,
+    } = state;
     let cancelled = || stop_requested.load(Ordering::Acquire);
     let observe_model_calls = launch.observe_model_calls;
+    let process_scope = launch.process_scope.clone();
     let mut launch = resolve_with_cancel(launch, &cancelled)?;
     if cancelled() {
         return Err("Agent launch was cancelled".into());
@@ -943,6 +1000,9 @@ async fn run_agent(
     if let Some(path) = child_path(&launch.command, search_path) {
         command.env("PATH", path);
     }
+    if let Some(scope) = &process_scope {
+        command.env(AGENT_SCOPE_ENVIRONMENT, scope);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -1003,8 +1063,13 @@ async fn run_agent(
     )
     .await;
     // The connection may finish before the child exits. Never leave its process
-    // tree running, including wrapper commands which launch another process.
-    terminate_tree(&mut child).await;
+    // tree running, including wrapper commands which launch another process,
+    // unless the user chose to keep some of its tasks.
+    if has_preserved_processes(&preserved) {
+        terminate_process(&mut child).await;
+    } else {
+        terminate_tree(&mut child).await;
+    }
     child_pid.store(0, Ordering::SeqCst);
     let _ = tokio::time::timeout(STOP_TIMEOUT, stderr_task).await;
     result.map_err(|message| {
@@ -1061,6 +1126,43 @@ async fn terminate_tree(child: &mut tokio::process::Child) {
         force_kill_tree(process_id);
     }
     let _ = tokio::time::timeout(STOP_TIMEOUT, child.wait()).await;
+}
+
+/// End only the agent process: the host already ended the descendants the user
+/// did not keep, and signalling the tree or group would end the kept ones too.
+async fn terminate_process(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id().and_then(|pid| libc::pid_t::try_from(pid).ok()) {
+        // SAFETY: `kill` only sends a signal to the direct child this
+        // connection spawned and has not yet reaped.
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+        if tokio::time::timeout(STOP_TIMEOUT, child.wait())
+            .await
+            .is_ok()
+        {
+            return;
+        }
+    }
+    let _ = child.start_kill();
+    let _ = tokio::time::timeout(STOP_TIMEOUT, child.wait()).await;
+}
+
+/// SIGKILL one process without touching its descendants or group.
+///
+/// Only hosts that send [`AgentCommand::PreserveProcesses`] reach this; the
+/// Windows host does not, and `kill_on_drop` still ends the direct child there.
+fn force_kill_process(process_id: u32) {
+    #[cfg(unix)]
+    if let Ok(pid) = libc::pid_t::try_from(process_id) {
+        // SAFETY: `kill` only sends a signal to one process ID.
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = process_id;
 }
 
 /// SIGKILL a process and its descendants; a process that already exited is ignored.
@@ -1728,7 +1830,7 @@ where
                             });
                         }
                     }
-                    AgentCommand::Permission { .. } => {}
+                    AgentCommand::Permission { .. } | AgentCommand::PreserveProcesses { .. } => {}
                 }
             }
             let running: Vec<String> = turns
