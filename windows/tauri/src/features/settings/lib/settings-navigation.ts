@@ -307,7 +307,6 @@ export const settingsCategories: Array<{
       "API key",
       "Endpoint",
       "Ollama",
-      "Codex",
       "aiSettings.provider",
       "aiSettings.model",
       "aiSettings.customProvider",

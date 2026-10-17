@@ -1,6 +1,5 @@
 import { usePaneStore } from "@/features/panes/stores/pane.store";
 import type { PaneGroup } from "@/features/panes/types/pane.types";
-import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { ensureBufferInPane } from "@/features/panes/utils/pane-buffer-actions";
 import {
   resolveMainPaneForBufferOpen,
@@ -114,23 +113,4 @@ export const removeBufferFromPanes = (
       paneStore.actions.removeBufferFromPane(pane.id, bufferId, preserveEmptyPane);
     }
   }
-};
-
-export const closeNewTabInActivePane = (
-  buffers: PaneContent[],
-  workspaceId?: string,
-): PaneContent[] => {
-  const paneStore = getPaneState(workspaceId);
-  const activePane = paneStore.actions.getActivePane();
-  const paneBufferIds = activePane?.bufferIds ?? [];
-  const newTabBuffer = buffers.find((buffer) => {
-    return buffer.type === "newTab" && paneBufferIds.includes(buffer.id);
-  });
-
-  if (!newTabBuffer) {
-    return buffers;
-  }
-
-  removeBufferFromPanes(newTabBuffer.id, true, workspaceId);
-  return buffers.filter((buffer) => buffer.id !== newTabBuffer.id);
 };

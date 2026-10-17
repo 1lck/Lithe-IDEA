@@ -197,15 +197,18 @@ Lithe 使用 `BranchPopupRowView` 包装原有 SwiftUI 行，保留共享 `Lithe
 可能超出自身边界；只检查可见区会把同一窗口内多行同时判为悬停。
 回归检查固定窗口鼠标位置、移动原生滚动区，确认 hover 随当前行转移，
 已打开动作菜单的行仍保留高亮，不添加全局滚轮监听或每行滚动观察器。
-固定行的宽高由外层布局分配，`BranchPopupRowControl` 内的原生宿主
-（承载 SwiftUI 标签的 `NSHostingView`）关闭自动最小、理想和最大尺寸约束，
-避免更新 `rootView` 时再把内容尺寸反馈给正在布局的窗口。这个边界也适用于
-共用该控件的 Stash/Shelf 行；悬停展开的独立测量宿主继续使用 `fittingSize`，
-才能取得完整名称的宽度。不要把固定行的设置套到需要内容测量的展开窗口上。
-`fixedRowRefreshDoesNotInvalidateIntrinsicSizingDuringFocusLayout` 反复改变内容并
-触发焦点与布局，检查行边界稳定、内部宿主不再提供固有尺寸（由内容推导的尺寸）。
-修改前该检查在宽高两项失败；这是尺寸反馈边界的回归检查，不等于已复现
-#1277 的原始异常，macOS 27.2 的滚动崩溃仍需在原环境验收。
+固定行的宽高由外层布局分配，标签直接留在父级 SwiftUI 树中，透明的
+`BranchPopupRowTracker` 只承担原生鼠标、点击及无障碍交互，不再给每行嵌套
+`NSHostingView`。仅关闭内部宿主的自动尺寸约束不足以修复 #1277：窗口失焦时，
+悬停展开仍可能在布局过程中更新宿主，反复请求约束计算。PR #1298 已替代该候选方案：
+状态未变化时跳过刷新；`updateNSView` 和 `updateTrackingAreas` 引起的悬停展开更新
+合并到布局结束后执行，脱离窗口时取消，换窗后重新安排；真实鼠标事件仍立即响应。
+Stash/Shelf 复用同一边界，独立展开宿主继续测量完整名称。
+`layoutReentrantUpdatesDeferHoveredExpansionRendering`、
+`trackingAreaRebuildsDuringLayoutDeferHoverRendering` 和
+`pendingRefreshFollowsTheRowAcrossWindows` 检查布局重入、跟踪区域重建和换窗行为。
+#1298 作者报告 macOS 27.2 前后台切换与滚动实测通过；本地其他系统上的定向回归
+不能替代该环境的验收，也不能把旧固有尺寸检查表述为崩溃已经消除。
 原先附加 `.help` 的做法只提供独立文字提示，不能复现这种原位展开，因此移除。
 `BranchSwitcherPopoverBehaviorTests` 检查深浅选中底色、尺寸、无须展开的行、
 动作和禁用行为；悬停必须实际创建可见子窗口，检查完整内容、原行位置、

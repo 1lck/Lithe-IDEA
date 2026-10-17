@@ -189,6 +189,7 @@ enum GitReferenceRowMenu {
     static func entries(
         kind: GitReferenceKind,
         isCurrent: Bool,
+        hasUpstream: Bool,
         showsCompareWithCurrent: Bool,
         showsCompareWithSource: Bool,
         isPerformingBranchOperation: Bool,
@@ -229,7 +230,9 @@ enum GitReferenceRowMenu {
 
         if kind == .local {
             entries.append(.separator)
-            entries.append(.action(.update, isEnabled: isCurrent && !isPerformingBranchOperation, isDestructive: false))
+            // Other branches fast-forward from their upstream; without one there is nothing to update from.
+            entries.append(.action(.update, isEnabled: (isCurrent || hasUpstream) && !isPerformingBranchOperation,
+                                   isDestructive: false))
             entries.append(.action(.push, isEnabled: !isPerformingBranchOperation, isDestructive: false))
 
             if !isCurrent {

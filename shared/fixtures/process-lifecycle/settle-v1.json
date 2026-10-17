@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "answers, silent decisions and remembered choices",
+      "request": {
+        "settings": {"rememberedChoices": {"old.daemon": "keep"}},
+        "remember": true,
+        "decisions": [
+          {"id": "idle", "action": "terminate"},
+          {"id": "spring", "action": "confirm"},
+          {"id": "migration", "action": "confirm"},
+          {"id": "gradle", "action": "ask", "recognizerId": "gradle.daemon"},
+          {"id": "unknown", "action": "ask"},
+          {"id": "kept", "action": "retain"},
+          {"id": "later", "action": "defer"},
+          {"id": "outside", "action": "ignore"}
+        ],
+        "answers": {"spring": "terminate", "migration": "keep", "gradle": "terminate", "unknown": "keep"}
+      },
+      "expected": {
+        "terminate": ["idle", "spring", "gradle"],
+        "keep": ["migration", "unknown", "kept"],
+        "settings": {
+          "terminalOnQuit": "confirmEach",
+          "confirmTerminalTabClose": true,
+          "agentTasks": "confirmEach",
+          "backgroundResources": "ask",
+          "rememberedChoices": {"gradle.daemon": "terminate", "old.daemon": "keep"},
+          "startupSweep": "ask",
+          "gracefulStopSeconds": 5
+        }
+      }
+    },
+    {
+      "name": "unanswered questions keep, and confirmations are never remembered",
+      "request": {
+        "remember": true,
+        "decisions": [
+          {"id": "task", "action": "confirm", "recognizerId": "agent.task"},
+          {"id": "service", "action": "ask"}
+        ]
+      },
+      "expected": {
+        "terminate": [],
+        "keep": ["task", "service"],
+        "settings": {
+          "terminalOnQuit": "confirmEach",
+          "confirmTerminalTabClose": true,
+          "agentTasks": "confirmEach",
+          "backgroundResources": "ask",
+          "rememberedChoices": {},
+          "startupSweep": "ask",
+          "gracefulStopSeconds": 5
+        }
+      }
+    }
+  ]
+}

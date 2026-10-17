@@ -208,6 +208,7 @@ rename_rust_to_markdown() {
     mkdir -p docs
     git mv rust/lithe-core/src/lib.rs docs/lib.md
 }
+add_chinese_swift_source() { printf '%s\n' 'struct Example {}' > 'macos/Sources/Lithe/示例 "quoted".swift'; }
 rename_swift_source() {
     git mv macos/Sources/Lithe/App.swift macos/Sources/Lithe/RenamedApp.swift
 }
@@ -391,6 +392,28 @@ assert_classification desktop-isolation-runtime-runs-on-hosted \
 assert_classification ordinary-swift-test-may-use-mac-mini \
     "$(classification true false false false false false false false false false)" \
     modify_swift_test
+modify_swift_and_rust() {
+    modify_swift_source
+    modify_rust_code
+}
+# Path lists live outside the fixture repository, which each case cleans.
+ONLY_PATHS_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_ROOT" "$ONLY_PATHS_DIR"' EXIT
+printf '%s\n' 'macos/Sources/Lithe/App.swift' > "$ONLY_PATHS_DIR/only-swift.txt"
+LITHE_CI_ONLY_PATHS="$ONLY_PATHS_DIR/only-swift.txt" assert_classification only-paths-limits-classification \
+    "$(classification true false false false false false false false false false)" \
+    modify_swift_and_rust
+assert_classification chinese-swift-source-keeps-its-raw-path \
+    "$(classification true false false false false false false false false false)" \
+    add_chinese_swift_source
+printf '%s\n' 'macos/Sources/Lithe/示例 "quoted".swift' > "$ONLY_PATHS_DIR/only-chinese.txt"
+LITHE_CI_ONLY_PATHS="$ONLY_PATHS_DIR/only-chinese.txt" assert_classification only-paths-matches-raw-chinese-path \
+    "$(classification true false false false false false false false false false)" \
+    add_chinese_swift_source
+: > "$ONLY_PATHS_DIR/only-none.txt"
+LITHE_CI_ONLY_PATHS="$ONLY_PATHS_DIR/only-none.txt" assert_classification only-paths-empty-selects-nothing \
+    "$(classification false false false false false false false false false false)" \
+    modify_swift_and_rust
 LITHE_CI_SCOPE=post_merge assert_classification post-merge-builds-only-the-package \
     "$(classification false false false false false true false false false false false false post_merge)" \
     modify_swift_source

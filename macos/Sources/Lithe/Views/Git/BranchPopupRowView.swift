@@ -2,46 +2,111 @@ import AppKit
 import SwiftUI
 
 /// IDEA expands the selected tree renderer in place, rather than showing help text.
-/// The row owns its hover expansion; automatic cell tooltips do not cover this hosted control.
-struct BranchPopupRowView<Label: View>: NSViewRepresentable {
-    @Environment(\.self) private var environment
+/// The row is drawn inline by SwiftUI; a transparent AppKit control on top owns
+/// hover, clicks, accessibility and the hover expansion. Hosting every row in its
+/// own NSHostingView made each row that scrolled into a lazy list pay for a new
+/// hosting graph, which is what made long branch lists stutter.
+struct BranchPopupRowView<Label: View>: View {
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
     var isPresented: Bool
     let accessibilityTitle: String
+    /// Label inputs that the accessibility title does not already describe.
+    var contentKey: AnyHashable = 0
     let onPress: () -> Void
     @ViewBuilder let label: (Bool, Bool) -> Label
+
+    var body: some View {
+        row(expanded: false, highlighted: isHovered || isPresented)
+            .overlay(BranchPopupRowTracker(isPresented: isPresented, isEnabled: isEnabled,
+                                           accessibilityTitle: accessibilityTitle, contentKey: contentKey,
+                                           onPress: onPress, onHoverChange: { isHovered = $0 }) {
+                row(expanded: true, highlighted: true)
+            })
+    }
+
+    private func row(expanded: Bool, highlighted: Bool) -> some View {
+        Button {} label: { label(expanded, highlighted) }
+            .buttonStyle(LitheDropdownRowStyle(isSelected: highlighted, tracksHover: false))
+            .fixedSize(horizontal: expanded, vertical: true)
+            .fontWeight(.regular)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// AppKit half of a hover-expanding row. It draws nothing itself: the row below
+/// renders `highlighted` from `onHoverChange`, and `expansion` is hosted only
+/// while the pointer rests on a clipped row.
+struct BranchPopupRowTracker<Expansion: View>: NSViewRepresentable {
+    @Environment(\.self) private var environment
+    var isPresented: Bool
+    var isEnabled: Bool
+    let accessibilityTitle: String
+    var contentKey: AnyHashable
+    let onPress: () -> Void
+    var onSecondaryPress: ((NSView, NSPoint) -> Void)?
+    let onHoverChange: (Bool) -> Void
+    @ViewBuilder let expansion: () -> Expansion
 
     func makeNSView(context: Context) -> BranchPopupRowControl { BranchPopupRowControl() }
 
     func updateNSView(_ view: BranchPopupRowControl, context: Context) {
-        view.isEnabled = environment.isEnabled
-        view.isPresented = isPresented
         view.onPress = onPress
-        view.setAccessibilityLabel(accessibilityTitle)
-        view.render = { expanded, highlighted in
-            AnyView(Button {} label: { label(expanded, highlighted) }
-                .buttonStyle(LitheDropdownRowStyle(isSelected: highlighted, tracksHover: false))
-                .fixedSize(horizontal: expanded, vertical: true)
-                .environment(\.self, environment)
-                .fontWeight(.regular))
+        view.onSecondaryPress = onSecondaryPress.map { handler in
+            { [weak view] point in if let view { handler(view, point) } }
         }
-        view.refresh()
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: BranchPopupRowControl, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? LitheDropdownMetrics.branchMinimumWidth, height: LitheDropdownMetrics.rowHeight)
+        view.onHoverChange = onHoverChange
+        view.renderExpansion = { AnyView(expansion().environment(\.self, environment)) }
+        view.update(BranchPopupRowControl.RenderState(title: accessibilityTitle, content: contentKey,
+                                                      isPresented: isPresented, isEnabled: isEnabled,
+                                                      environment: environment))
     }
 }
 
 final class BranchPopupRowControl: NSControl {
-    var render: ((Bool, Bool) -> AnyView)?
+    /// Representable inputs that change the expansion. Label closures are rebuilt
+    /// on every SwiftUI update and cannot be compared, so callers describe the
+    /// label with its title plus a content key.
+    struct RenderState: Equatable {
+        var title: String
+        var content: AnyHashable
+        var isPresented: Bool
+        var isEnabled: Bool
+        var colorScheme: ColorScheme
+        var locale: Locale
+        var dynamicTypeSize: DynamicTypeSize
+
+        init(title: String, content: AnyHashable, isPresented: Bool, isEnabled: Bool,
+             environment: EnvironmentValues) {
+            self.title = title
+            self.content = content
+            self.isPresented = isPresented
+            self.isEnabled = isEnabled
+            colorScheme = environment.colorScheme
+            locale = environment.locale
+            dynamicTypeSize = environment.dynamicTypeSize
+        }
+    }
+
+    var renderExpansion: (() -> AnyView)?
+    /// Reports the pointer hover the row below should highlight.
+    var onHoverChange: ((Bool) -> Void)?
     var onPress: (() -> Void)?
     var onSecondaryPress: ((NSPoint) -> Void)?
     var isPresented = false
     private var isHovered = false
-    private let hosting = NSHostingView(rootView: AnyView(EmptyView()))
+    private var reportedHover = false
     private var expansion: NSPanel?
     private var parentCloseObserver: NSObjectProtocol?
     private var hoverTracking: NSTrackingArea?
+    private var renderedState: RenderState?
+    /// The state and fitted width the open expansion was built from. Tracking
+    /// rebuilds only move it; re-hosting unchanged content wastes a SwiftUI pass.
+    private var expansionContent: (state: RenderState, width: CGFloat)?
+    /// Set while hover or expansion is stale; cleared by every refresh.
+    private var needsDeferredRefresh = false
+    private var pendingRefresh: DispatchWorkItem?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { isEnabled }
@@ -49,22 +114,59 @@ final class BranchPopupRowControl: NSControl {
 
     init() {
         super.init(frame: .zero)
-        // The outer row supplies fixed bounds. Content updates must not feed
-        // automatic min/intrinsic/max size constraints back into window layout.
-        hosting.sizingOptions = []
-        hosting.autoresizingMask = [.width, .height]
-        addSubview(hosting)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        setAccessibilityChildren([])
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    /// SwiftUI also calls updateNSView from inside a window layout pass, e.g. when
+    /// FocusBridge rebuilds the key view loop as the app activates or resigns.
+    /// Hosting or resizing the expansion, or publishing hover back into SwiftUI,
+    /// on every such pass keeps marking the window for another constraint pass,
+    /// and AppKit aborts with NSGenericException (issue 1277). Unchanged state is
+    /// ignored; a changed row in a window refreshes once on the next run loop turn.
+    func update(_ state: RenderState) {
+        if isEnabled != state.isEnabled { isEnabled = state.isEnabled }
+        isPresented = state.isPresented
+        if accessibilityLabel() != state.title { setAccessibilityLabel(state.title) }
+        // Child-window removal does not touch the parent's layout, and a disabled
+        // or presented row must not leave a clickable expansion for one more turn.
+        if !state.isEnabled || state.isPresented { closeExpansion() }
+        guard state != renderedState else { return }
+        renderedState = state
+        // A fresh row is not hovered and has no expansion, so it has nothing to
+        // refresh; the row content itself is already drawn by SwiftUI.
+        guard isHovered || expansion != nil else { return }
+        setNeedsDeferredRefresh()
+    }
+
+    /// Coalesces hover and representable changes raised during layout into one
+    /// refresh after the current pass.
+    private func setNeedsDeferredRefresh() {
+        needsDeferredRefresh = true
+        guard pendingRefresh == nil, window != nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.pendingRefresh = nil
+                if self.needsDeferredRefresh, self.window != nil { self.refresh() }
+            }
+        }
+        pendingRefresh = work
+        DispatchQueue.main.async(execute: work)
+    }
+
     func refresh() {
-        hosting.rootView = render?(false, isHovered || isPresented) ?? AnyView(EmptyView())
-        hosting.frame = bounds
+        // Event-driven refreshes already apply the latest state.
+        needsDeferredRefresh = false
+        pendingRefresh?.cancel()
+        pendingRefresh = nil
+        if reportedHover != isHovered {
+            reportedHover = isHovered
+            onHoverChange?(isHovered)
+        }
         updateExpansion()
     }
 
@@ -85,11 +187,13 @@ final class BranchPopupRowControl: NSControl {
             let point = convert($0.mouseLocationOutsideOfEventStream, from: nil)
             return bounds.contains(point) && visibleRect.contains(point)
         } ?? false
+        // AppKit rebuilds tracking areas while it lays out the window, so the
+        // hover transfer and expansion reposition wait for the pass to finish.
         if isHovered != hovered {
             isHovered = hovered
-            refresh()
+            setNeedsDeferredRefresh()
         } else if expansion != nil {
-            updateExpansion()
+            setNeedsDeferredRefresh()
         }
     }
 
@@ -120,13 +224,24 @@ final class BranchPopupRowControl: NSControl {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow !== window { closeExpansion() }
+        if newWindow !== window {
+            closeExpansion()
+            // A pending refresh targets the old window; reschedule after the move.
+            pendingRefresh?.cancel()
+            pendingRefresh = nil
+        }
         super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if needsDeferredRefresh { setNeedsDeferredRefresh() }
     }
 
     private func closeExpansion() {
         if let parentCloseObserver { NotificationCenter.default.removeObserver(parentCloseObserver) }
         parentCloseObserver = nil
+        expansionContent = nil
         guard let closing = expansion else { return }
         expansion = nil
         closing.parent?.removeChildWindow(closing)
@@ -135,12 +250,22 @@ final class BranchPopupRowControl: NSControl {
 
     private func updateExpansion() {
         guard isHovered, isEnabled, !isPresented, visibleRect.contains(bounds),
-              let window, let render else { closeExpansion(); return }
-        let content = NSHostingView(rootView: render(true, true))
+              let window, let renderExpansion else { closeExpansion(); return }
+        if let expansion, let renderedState, let built = expansionContent, built.state == renderedState {
+            var frame = window.convertToScreen(convert(bounds, to: nil))
+            let availableWidth = (window.screen?.visibleFrame.maxX ?? frame.maxX) - frame.minX
+            frame.size.width = min(built.width, availableWidth)
+            guard frame.width > bounds.width else { closeExpansion(); return }
+            expansion.setFrame(frame, display: false)
+            expansion.orderFrontRegardless()
+            return
+        }
+        let content = NSHostingView(rootView: renderExpansion())
         content.appearance = effectiveAppearance
         var frame = window.convertToScreen(convert(bounds, to: nil))
         let availableWidth = (window.screen?.visibleFrame.maxX ?? frame.maxX) - frame.minX
-        frame.size.width = min(ceil(content.fittingSize.width), availableWidth)
+        let fittedWidth = ceil(content.fittingSize.width)
+        frame.size.width = min(fittedWidth, availableWidth)
         guard frame.width > bounds.width else { closeExpansion(); return }
         let panel = expansion ?? NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
                                         backing: .buffered, defer: false)
@@ -176,6 +301,7 @@ final class BranchPopupRowControl: NSControl {
             ) { [weak self] _ in MainActor.assumeIsolated { self?.closeExpansion() } }
         }
         expansion = panel
+        expansionContent = renderedState.map { ($0, fittedWidth) }
         panel.orderFrontRegardless()
     }
 }

@@ -149,6 +149,7 @@ struct GitReferenceRowMenuTests {
     private func entries(
         kind: GitReferenceKind = .local,
         isCurrent: Bool = false,
+        hasUpstream: Bool = false,
         showsCompareWithCurrent: Bool = false,
         showsCompareWithSource: Bool = false,
         isPerforming: Bool = false,
@@ -157,6 +158,7 @@ struct GitReferenceRowMenuTests {
         GitReferenceRowMenu.entries(
             kind: kind,
             isCurrent: isCurrent,
+            hasUpstream: hasUpstream,
             showsCompareWithCurrent: showsCompareWithCurrent,
             showsCompareWithSource: showsCompareWithSource,
             isPerformingBranchOperation: isPerforming,
@@ -181,8 +183,15 @@ struct GitReferenceRowMenuTests {
         #expect(result.contains(.action(.push, isEnabled: true, isDestructive: false)))
         #expect(result.contains(.action(.delete, isEnabled: true, isDestructive: true)))
         #expect(result.contains(.action(.rename, isEnabled: true, isDestructive: false)))
-        // Update applies only to the checked-out branch.
+        // A branch without an upstream has nothing to update from.
         #expect(result.contains(.action(.update, isEnabled: false, isDestructive: false)))
+    }
+
+    @Test
+    func trackedNonCurrentBranchEnablesInPlaceUpdate() {
+        #expect(entries(hasUpstream: true).contains(.action(.update, isEnabled: true, isDestructive: false)))
+        #expect(entries(hasUpstream: true, isPerforming: true)
+            .contains(.action(.update, isEnabled: false, isDestructive: false)))
     }
 
     @Test

@@ -2452,6 +2452,84 @@ struct GitModuleTests {
         #expect(feature.recentlyDeletedBranch?.name == "feature/a")
     }
 
+    /// IDEA's Update on a branch that is not checked out fast-forwards it from
+    /// its upstream in place. Git prints refusals in the user's locale, so the
+    /// message comes from the branch's own counts, never from parsing output.
+    @Test(arguments: [
+        (0, GitProcessResult(arguments: ["fetch"], output: "", exitCode: 0), "Updated feature/a"),
+        (1, GitProcessResult(arguments: ["fetch"], output: " ! [已拒绝]  feature/a -> feature/a  (非快进)\n", exitCode: 1),
+         "feature/a has diverged from origin/feature/a. Check it out to merge or rebase."),
+        (0, GitProcessResult(arguments: ["fetch"], output: "fatal: couldn't find remote ref feature/a\n", exitCode: 128),
+         "fatal: couldn't find remote ref feature/a")
+    ])
+    func nonCurrentBranchUpdateFastForwardsInPlace(ahead: Int, result: GitProcessResult, message: String) async {
+        var notifications: [String] = []
+        let recorder = BranchCallRecorder()
+        let (feature, _) = makeTagTestFeature(
+            TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: URL(fileURLWithPath: "/workspace"), branch: "main", changes: []),
+                updateBranchResult: result,
+                branchCallRecorder: recorder
+            ),
+            onNotify: { notifications.append($0) }
+        )
+        await feature.refreshGit()
+        await feature.updateBranch(GitReference(fullName: "refs/heads/feature/a", shortName: "feature/a", kind: .local,
+                                                isCurrent: false, upstreamShortName: "origin/feature/a",
+                                                ahead: ahead, behind: 2))
+
+        #expect(recorder.recorded == [BranchCallRecorder.Call(name: "update", reference: "refs/heads/feature/a", checkout: false)])
+        #expect(notifications == [message])
+        #expect(!feature.isPerformingBranchOperation)
+    }
+
+    @Test
+    func nonCurrentBranchCheckedOutInAnotherWorktreeIsNotFetchedInto() async {
+        var notifications: [String] = []
+        let recorder = BranchCallRecorder()
+        let root = URL(fileURLWithPath: "/workspace")
+        let feature = GitFeatureModel(
+            service: GitService(operations: TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+                branchCallRecorder: recorder
+            )),
+            worktreesProvider: { _ in [makeTestWorktree(path: "/workspace-feature", branch: "feature/a")] }
+        )
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { notifications.append($0) },
+            onStateRefreshed: {}
+        )
+        await feature.refreshGit()
+        // The Worktrees tab never loaded, so the published list is empty.
+        #expect(feature.gitWorktrees.isEmpty)
+        await feature.updateBranch(GitReference(fullName: "refs/heads/feature/a", shortName: "feature/a", kind: .local,
+                                                isCurrent: false, upstreamShortName: "origin/feature/a", behind: 2))
+
+        #expect(recorder.recorded.isEmpty)
+        #expect(notifications == ["feature/a is checked out in another worktree. Update it there."])
+    }
+
+    @Test
+    func nonCurrentBranchWithoutUpstreamIsNotUpdated() async {
+        var notifications: [String] = []
+        let recorder = BranchCallRecorder()
+        let (feature, _) = makeTagTestFeature(
+            TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: URL(fileURLWithPath: "/workspace"), branch: "main", changes: []),
+                branchCallRecorder: recorder
+            ),
+            onNotify: { notifications.append($0) }
+        )
+        await feature.refreshGit()
+        await feature.updateBranch(GitReference(fullName: "refs/heads/local-only", shortName: "local-only", kind: .local,
+                                                isCurrent: false, upstreamShortName: nil))
+
+        #expect(recorder.recorded.isEmpty)
+        #expect(notifications == ["local-only tracks no remote branch"])
+    }
+
     @Test
     func gitBranchRestoreReplaysRecordedNameAndTarget() async {
         var notifications: [String] = []
@@ -4235,6 +4313,7 @@ private struct TestGitOperations: GitOperations {
     private let createBranchResult: GitProcessResult?
     private let deleteBranchResult: GitProcessResult?
     private let deleteBranchResults: GitProcessResultQueue?
+    private let updateBranchResult: GitProcessResult?
     private let branchCallRecorder: BranchCallRecorder?
     private let exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)?
     private let removeWorktreeResult: GitProcessResult?
@@ -4281,6 +4360,7 @@ private struct TestGitOperations: GitOperations {
         createBranchResult: GitProcessResult? = nil,
         deleteBranchResult: GitProcessResult? = nil,
         deleteBranchResults: GitProcessResultQueue? = nil,
+        updateBranchResult: GitProcessResult? = nil,
         branchCallRecorder: BranchCallRecorder? = nil,
         exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)? = nil,
         removeWorktreeResult: GitProcessResult? = nil,
@@ -4326,6 +4406,7 @@ private struct TestGitOperations: GitOperations {
         self.createBranchResult = createBranchResult
         self.deleteBranchResult = deleteBranchResult
         self.deleteBranchResults = deleteBranchResults
+        self.updateBranchResult = updateBranchResult
         self.branchCallRecorder = branchCallRecorder
         self.exportPatchHandler = exportPatchHandler
         self.removeWorktreeResult = removeWorktreeResult
@@ -4497,6 +4578,10 @@ private struct TestGitOperations: GitOperations {
         )
     }
     func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> GitProcessResult? { nil }
+    func updateBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
+        branchCallRecorder?.record(BranchCallRecorder.Call(name: "update", reference: reference.fullName, checkout: false))
+        return updateBranchResult
+    }
     func pullRemoteReference(
         _ reference: GitReference,
         strategy: GitPullStrategy,

@@ -14,6 +14,7 @@ mod github;
 mod languages;
 mod lsp;
 pub mod plugins;
+pub mod process;
 mod project;
 mod protocol;
 mod runtime;

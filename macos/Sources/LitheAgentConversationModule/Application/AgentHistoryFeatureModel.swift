@@ -96,7 +96,7 @@ public final class AgentHistoryFeatureModel: ObservableObject {
     }
 
     private func change(_ ids: [String], mutation: (inout AgentHistoryMetadata) -> Void) -> Bool {
-        let validIDs = Set(connection.sessions.map(\.id)).intersection(ids)
+        let validIDs = Set((connection.sessions + connection.archivedSessions).map(\.id)).intersection(ids)
         guard !validIDs.isEmpty else { return false }
         do {
             // Re-read before mutation so two windows do not overwrite each other's annotations.
