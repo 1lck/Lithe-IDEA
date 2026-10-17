@@ -1,0 +1,32 @@
+{
+  "id": "java-gradle-project-import",
+  "area": "Java",
+  "group": "Java/Gradle",
+  "capability": "导入 Gradle 工程并对其源码做索引、跳转与补全",
+  "macos": {
+    "evidence": [
+      "rust/lithe-core/src/lsp/languages/jdt.rs",
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "macos/Sources/Lithe/Platform/MacOS/Runtime/MacJdtWorkspaceState.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-core/src/lsp/languages/jdt.rs",
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "windows/tauri/src-tauri/src/lsp.rs",
+      "windows/tauri/src-tauri/src/lsp/jdt_workspace.rs",
+      "windows/tauri/src/features/editor/lsp/java-lsp-host-api.ts",
+      "windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts",
+      "windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts",
+      "windows/tauri/src/platform/lsp-core-adapter.ts",
+      "windows/tauri/src/platform/lsp-core-adapter.test.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Java / Gradle",
+  "verification": "打开一个带 Gradle wrapper 的工程，确认 JDT LS 通过 Buildship 导入工程、依赖解析完成，源码可跳转、补全与语义高亮到 Gradle 依赖中的类型。"
+}
