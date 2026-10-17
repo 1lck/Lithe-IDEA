@@ -476,6 +476,55 @@ struct McpServerLibraryTests {
     }
 
     @Test
+    func renamingAnExternallyCreatedEntryMovesIt() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedClaude("""
+        {"mcpServers": {"alpha": {"command": "/bin/echo", "args": ["keep"]}}}
+        """)
+        let feature = fixture.feature()
+        feature.refresh()
+        let row = try #require(feature.rows.first { $0.name == "alpha" })
+        #expect(row.ownedGlobalAgents.isEmpty)
+
+        // An explicit edit may move an entry Lithe did not create, but both
+        // the new name and the removal of the old name need the displayed
+        // hash as authorization.
+        var draft = feature.draft(for: row)
+        draft.name = "beta"
+        #expect(feature.save(draft))
+
+        let claude = try fixture.claudeText()
+        #expect(claude.contains("\"beta\""))
+        #expect(claude.contains("\"alpha\"") == false)
+        #expect(claude.contains("keep"))
+        let renamed = try #require(feature.rows.first { $0.name == "beta" })
+        #expect(renamed.ownedGlobalAgents == [.claudeCode])
+    }
+
+    @Test
+    func enablingAnAgentIgnoresEntriesTheTransportDoesNotWrite() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        // The Claude entry carries an env map even though HTTP servers do not
+        // use one. Codex writes only the URL, so the identity hash must ignore
+        // env or the fresh Codex entry would immediately lose ownership.
+        try fixture.seedClaude("""
+        {"mcpServers": {"remote": {"type": "http", "url": "https://example.test/mcp", "env": {"STRAY": "1"}}}}
+        """)
+        let feature = fixture.feature()
+        feature.refresh()
+        let row = try #require(feature.rows.first { $0.name == "remote" })
+        #expect(feature.setAgent(.codex, enabled: true, for: row))
+
+        let merged = try #require(feature.rows.first { $0.name == "remote" })
+        #expect(merged.ownedGlobalAgents == [.codex])
+        #expect(feature.setAgent(.codex, enabled: false, for: merged))
+        let codex = try fixture.codexText()
+        #expect(codex.contains("remote") == false)
+    }
+
+    @Test
     func externallyModifiedProjectEntryIsKeptAndReported() throws {        let fixture = try Fixture(workspace: true)
         defer { fixture.cleanUp() }
         let feature = fixture.feature()
@@ -503,6 +552,9 @@ struct McpServerLibraryTests {
         } else {
             Issue.record("Expected a registration conflict")
         }
+        // The project section hides its registration line when the grant is
+        // off, so the library error banner is the only visible warning.
+        #expect(feature.error?.contains("outside Lithe") == true)
         let kept = try fixture.text(at: fixture.workspace.appendingPathComponent(".codex/config.toml"))
         #expect(kept.contains("/usr/local/bin/other"))
     }

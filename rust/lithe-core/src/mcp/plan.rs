@@ -98,7 +98,12 @@ fn plan_set(
     // Configuration maps and tables can hold only one value per key, while the
     // host sends entries as a list. Reject duplicates instead of hashing one
     // shape and writing another, which would lose ownership after a refresh.
-    if has_duplicate_keys(&server.env) || has_duplicate_keys(&server.headers) {
+    // Only the active transport's entries are written, so only they can collide.
+    let entries = match server.transport {
+        super::McpTransport::Stdio => &server.env,
+        super::McpTransport::Http | super::McpTransport::Sse => &server.headers,
+    };
+    if has_duplicate_keys(entries) {
         return Err(invalid_request());
     }
     let existing = existing_servers(request, content, project_path)?;

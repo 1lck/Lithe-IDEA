@@ -50,9 +50,15 @@ pub(crate) fn set_server(
     let servers = document
         .entry("mcp_servers")
         .or_insert_with(|| Item::Table(Table::new()));
-    let Some(servers) = servers.as_table_mut() else {
-        return Err(edit_error());
-    };
+    match servers {
+        Item::Table(servers) => set_table_server(servers, server, previous),
+        Item::Value(Value::InlineTable(servers)) => set_inline_server(servers, server, previous),
+        _ => Err(edit_error()),
+    }
+}
+
+/// Applies a server to the usual `[mcp_servers.<name>]` table layout.
+fn set_table_server(servers: &mut Table, server: &McpServer, previous: Option<&str>) -> Result<()> {
     // When a target with the new name already exists, keep that table: the
     // user is merging into it, and its own unmodeled fields take precedence.
     if let Some(previous) = previous.filter(|name| *name != server.name) {
@@ -76,6 +82,34 @@ pub(crate) fn set_server(
             Ok(())
         }
         Item::Value(Value::InlineTable(table)) => {
+            apply_inline_table(table, server);
+            Ok(())
+        }
+        _ => Err(edit_error()),
+    }
+}
+
+/// Applies a server when `mcp_servers` itself is an inline table.
+///
+/// Inline tables cannot hold comments, so a rename simply moves the existing
+/// value to the new key before modeled fields are applied.
+fn set_inline_server(
+    servers: &mut InlineTable,
+    server: &McpServer,
+    previous: Option<&str>,
+) -> Result<()> {
+    if let Some(previous) = previous.filter(|name| *name != server.name) {
+        if servers.get(server.name.as_str()).is_none() {
+            if let Some(item) = servers.remove(previous) {
+                servers.insert(server.name.as_str(), item);
+            }
+        }
+    }
+    if servers.get(server.name.as_str()).is_none() {
+        servers.insert(server.name.as_str(), Value::InlineTable(InlineTable::new()));
+    }
+    match servers.get_mut(server.name.as_str()) {
+        Some(Value::InlineTable(table)) => {
             apply_inline_table(table, server);
             Ok(())
         }
@@ -148,6 +182,11 @@ fn set_string(table: &mut Table, key: &str, text: Option<&str>) {
 }
 
 fn set_args(table: &mut Table, args: &[String]) {
+    // Rebuilding an identical array would discard comments between its
+    // elements. When only another field changed, leave the array untouched.
+    if array_matches(table.get("args").and_then(Item::as_value), args) {
+        return;
+    }
     if args.is_empty() {
         table.remove("args");
         return;
@@ -157,6 +196,17 @@ fn set_args(table: &mut Table, args: &[String]) {
         array.push(argument.as_str());
     }
     set_table_value(table, "args", Value::Array(array));
+}
+
+fn array_matches(existing: Option<&Value>, args: &[String]) -> bool {
+    let Some(array) = existing.and_then(Value::as_array) else {
+        return false;
+    };
+    array.len() == args.len()
+        && array
+            .iter()
+            .zip(args)
+            .all(|(value, argument)| value.as_str() == Some(argument.as_str()))
 }
 
 /// Replaces a value while keeping the decor attached to it.
@@ -252,6 +302,9 @@ fn set_inline_string(table: &mut InlineTable, key: &str, text: Option<&str>) {
 }
 
 fn set_inline_args(table: &mut InlineTable, args: &[String]) {
+    if array_matches(table.get("args"), args) {
+        return;
+    }
     if args.is_empty() {
         table.remove("args");
         return;

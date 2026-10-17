@@ -484,6 +484,143 @@ TOKEN = "old" # value note
 }
 
 #[test]
+fn transport_identity_ignores_entries_the_transport_does_not_write() {
+    let http_with_env = parse(
+        "claude",
+        "global",
+        r#"{"mcpServers": {"remote": {"type": "http", "url": "https://example.test/mcp", "env": {"STRAY": "1"}}}}"#,
+        None,
+    );
+    let http_plain = parse(
+        "claude",
+        "global",
+        r#"{"mcpServers": {"remote": {"type": "http", "url": "https://example.test/mcp"}}}"#,
+        None,
+    );
+    assert_eq!(
+        server_hash(&http_with_env, "remote"),
+        server_hash(&http_plain, "remote")
+    );
+
+    let stdio_with_headers = parse(
+        "claude",
+        "global",
+        r#"{"mcpServers": {"local": {"command": "/bin/echo", "headers": {"STRAY": "1"}}}}"#,
+        None,
+    );
+    let stdio_plain = parse(
+        "claude",
+        "global",
+        r#"{"mcpServers": {"local": {"command": "/bin/echo"}}}"#,
+        None,
+    );
+    assert_eq!(
+        server_hash(&stdio_with_headers, "local"),
+        server_hash(&stdio_plain, "local")
+    );
+
+    // The write path drops env from an HTTP entry, so the planned hash must
+    // equal the hash of the file it writes.
+    let result = plan(json!({
+        "source": "codex",
+        "scope": "global",
+        "content": "",
+        "operation": "set",
+        "server": {
+            "name": "remote",
+            "transport": "http",
+            "args": [],
+            "env": [{"key": "STRAY", "value": "1"}],
+            "url": "https://example.test/mcp",
+            "headers": []
+        },
+        "owned": []
+    }));
+    let written = parse("codex", "global", result["content"].as_str().unwrap(), None);
+    assert_eq!(
+        result["definitionHash"].as_str().unwrap(),
+        server_hash(&written, "remote")
+    );
+}
+
+#[test]
+fn refuses_to_edit_a_json_object_with_duplicate_keys() {
+    // serde_json keeps the last duplicate while the offset editor finds the
+    // first; accepting the edit would update a definition the Agent ignores.
+    let content = r#"{"mcpServers": {"a": {"command": "first"}, "a": {"command": "second"}}}"#;
+    let parsed = parse("claude", "global", content, None);
+    let hash = server_hash(&parsed, "a");
+    let error = plan_write(json!({
+        "source": "claude",
+        "scope": "global",
+        "content": content,
+        "operation": "remove",
+        "name": "a",
+        "owned": [{"name": "a", "definitionHash": hash}]
+    }))
+    .unwrap_err();
+    assert!(matches!(error.code, ErrorCode::InvalidRequest));
+    assert!(error.message.contains("duplicate"));
+}
+
+#[test]
+fn codex_updates_entries_in_an_inline_mcp_servers_table() {
+    let content = r#"mcp_servers = { local = { command = "old" } }"#;
+    let parsed = parse("codex", "global", content, None);
+    let hash = server_hash(&parsed, "local");
+    let result = plan(json!({
+        "source": "codex",
+        "scope": "global",
+        "content": content,
+        "operation": "set",
+        "server": {
+            "name": "local",
+            "transport": "stdio",
+            "command": "new",
+            "args": [],
+            "env": [],
+            "headers": []
+        },
+        "owned": [{"name": "local", "definitionHash": hash}]
+    }));
+    assert_eq!(result["action"], "updated");
+    let next = result["content"].as_str().unwrap();
+    let parsed: toml::Value = toml::from_str(next).unwrap();
+    assert_eq!(
+        parsed["mcp_servers"]["local"]["command"].as_str(),
+        Some("new")
+    );
+}
+
+#[test]
+fn toml_updates_leave_an_unchanged_args_array_untouched() {
+    let content = r#"
+[mcp_servers.local]
+command = "old"
+args = [
+  # connection file
+  "--connection",
+  "/tmp/c.json",
+]
+"#;
+    let next = update_codex(
+        content,
+        json!({
+            "name": "local",
+            "transport": "stdio",
+            "command": "new",
+            "args": ["--connection", "/tmp/c.json"],
+            "env": [],
+            "headers": []
+        }),
+    );
+    assert!(next.contains("command = \"new\""));
+    // Editing another field must not rebuild an identical array, which would
+    // drop comments between its elements.
+    assert!(next.contains("# connection file"));
+}
+
+#[test]
 fn codex_removes_entries_from_an_inline_mcp_servers_table() {
     let content = r#"mcp_servers = { lithe = { command = "old" }, other = { command = "keep" } }"#;
     let parsed = parse("codex", "global", content, None);

@@ -343,7 +343,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             // new name, so only disabled Agents are removed up front.
             for source in original.globalSources
             where !draft.enabledAgents.contains(source.file.agent) {
-                operations[source.file, default: []].append(.remove(original.name))
+                operations[source.file, default: []].append(
+                    .remove(original.name, expectedHash: nil)
+                )
             }
         }
         for file in targetFiles {
@@ -364,8 +366,13 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             ))
             // Removing the old name after the set lets Core copy the old table
             // (including Codex-specific fields) before the entry disappears.
+            // The rename remove carries the displayed hash too: without it an
+            // explicit rename of an entry Lithe did not create could update
+            // the new name but never delete the old one.
             if let previousName {
-                operations[file, default: []].append(.remove(previousName))
+                operations[file, default: []].append(
+                    .remove(previousName, expectedHash: expected)
+                )
             }
         }
 
@@ -395,7 +402,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         error = nil
         let operation: Operation = enabled
             ? .set(row.definition, expectedHash: nil, previousName: nil)
-            : .remove(row.name)
+            : .remove(row.name, expectedHash: nil)
         do {
             try commit([file: [operation]], store: store)
         } catch {
@@ -421,7 +428,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         }
         var operations: [McpConfigurationFile: [Operation]] = [:]
         for source in row.globalSources {
-            operations[source.file, default: []].append(.remove(row.name))
+            operations[source.file, default: []].append(
+                .remove(row.name, expectedHash: nil)
+            )
         }
         do {
             try commit(operations, store: store)
@@ -601,7 +610,15 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
         litheRegisteredAgents = []
         litheRegistrationWorkspaces.removeAll()
-        litheRegistration = messages.first.map { .needsAttention($0) } ?? .inactive
+        if let message = messages.first {
+            // The project section hides its registration line once MCP is off,
+            // so a cleanup conflict must also reach the library's error banner
+            // or the user would never learn that an entry was left behind.
+            error = message
+            litheRegistration = .needsAttention(message)
+        } else {
+            litheRegistration = .inactive
+        }
         refresh()
     }
 
@@ -613,7 +630,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         /// `previousName` is set when the edit renames the entry, so Core can
         /// carry unmodeled configuration over to the new name.
         case set(McpServerDefinition, expectedHash: String?, previousName: String?)
-        case remove(String)
+        /// `expectedHash` authorizes removing the displayed definition during
+        /// a rename of an entry Lithe did not create.
+        case remove(String, expectedHash: String?)
     }
 
     private func request(
@@ -662,8 +681,11 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                 case .set(let server, let expectedHash, let previousName):
                     var planningEntries = entries
                     if let expectedHash {
+                        // The displayed hash belongs to the entry the user
+                        // edited, which still lives under the old name while a
+                        // rename is being planned.
                         planningEntries.append(McpOwnedEntry(
-                            name: server.name, definitionHash: expectedHash
+                            name: previousName ?? server.name, definitionHash: expectedHash
                         ))
                     }
                     plan = try store.planWrite(
@@ -687,7 +709,13 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                         entries.removeAll { $0.name == server.name }
                         entries.append(McpOwnedEntry(name: server.name, definitionHash: hash))
                     }
-                case .remove(let name):
+                case .remove(let name, let expectedHash):
+                    var planningEntries = entries
+                    if let expectedHash {
+                        planningEntries.append(McpOwnedEntry(
+                            name: name, definitionHash: expectedHash
+                        ))
+                    }
                     plan = try store.planWrite(
                         request(
                             for: file,
@@ -695,7 +723,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                             operation: "remove",
                             server: nil,
                             name: name,
-                            owned: entries
+                            owned: planningEntries
                         ),
                         for: file
                     )

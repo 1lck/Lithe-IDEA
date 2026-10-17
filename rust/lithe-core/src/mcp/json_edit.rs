@@ -18,6 +18,16 @@ fn edit_error() -> CoreError {
     )
 }
 
+/// JSON parsers keep the last of repeated keys, while an offset editor sees the
+/// first. Refusing the edit is safer than guessing which definition the Agent
+/// actually uses.
+fn duplicate_key_error() -> CoreError {
+    CoreError::new(
+        ErrorCode::InvalidRequest,
+        "MCP configuration contains duplicate keys",
+    )
+}
+
 struct Member {
     key: String,
     key_start: usize,
@@ -187,6 +197,9 @@ impl JsonDocument {
                     let key_end = string_end(bytes, index)?;
                     let key: String = serde_json::from_str(&self.text[key_start..key_end])
                         .map_err(|_| edit_error())?;
+                    if members.iter().any(|member| member.key == key) {
+                        return Err(duplicate_key_error());
+                    }
                     index = skip_ws(bytes, key_end);
                     if bytes.get(index) != Some(&b':') {
                         return Err(edit_error());
