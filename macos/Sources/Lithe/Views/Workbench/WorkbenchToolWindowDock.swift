@@ -185,9 +185,21 @@ final class WorkbenchToolContentStore: ObservableObject {
 
     final class Surface: NSView {
         weak var store: WorkbenchToolContentStore?
+        private var testingUnderlyingContent = false
         override func hitTest(_ point: NSPoint) -> NSView? {
+            guard !testingUnderlyingContent else { return nil }
             let hit = super.hitTest(point)
-            return hit === self ? nil : hit
+            guard let hit, hit !== self else { return nil }
+            // Ask the native layout below this overlay first: its divider's
+            // 10pt target extends beyond the 5pt gap into the retained panes.
+            testingUnderlyingContent = true
+            defer { testingUnderlyingContent = false }
+            if let root = window?.contentView,
+               let handle = root.hitTest(root.superview?.convert(point, from: superview) ?? point)
+                    as? SplitHandleInteractionView {
+                return handle
+            }
+            return hit
         }
         override func accessibilityChildren() -> [Any]? {
             NSAccessibility.unignoredChildren(from: subviews.filter { !$0.isHidden })

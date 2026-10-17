@@ -41,6 +41,58 @@ struct GitLogReferenceResizeTests {
         #expect(terminal == nil, "Closing the workbench must release retained terminal controls")
     }
 
+    @Test(arguments: [true, false])
+    func retainedHostsPreserveOuterDividerHitArea(horizontal: Bool) async throws {
+        let store = WorkbenchToolContentStore()
+        var committed: [CGFloat] = []
+        let host = NSHostingView(rootView: LitheSplitPaneView(
+            axis: horizontal ? .horizontal : .vertical, placement: .leading,
+            defaultSize: 240, minimum: 100, maximum: 400, onCommit: { committed.append($0) },
+            sized: { RetainedWorkbenchToolContent(store: store, tool: .gitLog, content: Color.red) },
+            flexible: { RetainedWorkbenchToolContent(store: store, tool: .terminal, content: Color.blue) })
+            .overlay { WorkbenchToolContentSurface(store: store) }
+            .padding(.leading, 20).padding(.top, 30))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        host.layoutSubtreeIfNeeded()
+        await Task.yield()
+        host.layoutSubtreeIfNeeded()
+        let handle = try #require(descendants(host).compactMap { $0 as? SplitHandleInteractionView }.first)
+        let hosts = store.entries.mapValues { ObjectIdentifier($0.host) }
+        for offset: CGFloat in [0, -4, 4] {
+            let center = NSPoint(x: handle.bounds.midX, y: handle.bounds.midY)
+            let origin = handle.convert(NSPoint(x: center.x + (horizontal ? offset : 0),
+                                               y: center.y + (horizontal ? 0 : offset)), to: nil)
+            // hitTest takes the parent's coordinates, not the flipped host's.
+            #expect(host.hitTest(host.superview?.convert(origin, from: nil) ?? origin) === handle,
+                    "Both extensions of the 10pt hit surface must beat the retained hosts")
+            let previousCount = committed.count
+            let previousSize = committed.last ?? 240
+            for (type, delta) in [(NSEvent.EventType.leftMouseDown, CGFloat(0)), (.leftMouseDragged, 20), (.leftMouseUp, 20)] {
+                window.sendEvent(try #require(NSEvent.mouseEvent(with: type,
+                    location: NSPoint(x: origin.x + (horizontal ? delta : 0), y: origin.y - (horizontal ? 0 : delta)),
+                    modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)))
+            }
+            await Task.yield()
+            host.layoutSubtreeIfNeeded()
+            #expect(committed.count == previousCount + 1, "Window-dispatched drag must commit exactly once")
+            #expect(committed.last == previousSize + 20)
+            #expect(store.entries.mapValues { ObjectIdentifier($0.host) } == hosts)
+        }
+        for entry in store.entries.values {
+            let point = entry.host.convert(NSPoint(x: entry.host.bounds.midX, y: entry.host.bounds.midY), to: host.superview)
+            #expect(host.hitTest(point)?.isDescendant(of: entry.host) == true,
+                    "Panel interiors must remain interactive")
+        }
+    }
+
     @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
     func loadedBranchesRemainLazyDuringHeightChanges() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-reference-resize-\(UUID())")
@@ -94,6 +146,7 @@ struct GitLogReferenceResizeTests {
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
+        window.orderFront(nil)
         defer { window.contentView = nil; window.close() }
         func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
         func menus() -> [NSView] {
@@ -126,13 +179,13 @@ struct GitLogReferenceResizeTests {
                 modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
                 eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
         }
-        handle.mouseDown(with: try event(.leftMouseDown))
+        window.sendEvent(try event(.leftMouseDown))
         await Task.yield()
         host.layoutSubtreeIfNeeded()
         var durations: [Duration] = []
         for offset: CGFloat in [150, -150, 100, -50, 200, 0] {
             let start = clock.now
-            handle.mouseDragged(with: try event(.leftMouseDragged, offset: offset))
+            window.sendEvent(try event(.leftMouseDragged, offset: offset))
             await Task.yield()
             host.layoutSubtreeIfNeeded()
             durations.append(start.duration(to: clock.now))
@@ -143,7 +196,7 @@ struct GitLogReferenceResizeTests {
             #expect(entry.host.frame == slot.convert(slot.bounds, to: contentStore.surface),
                     "Native content must follow the actual dock bounds during resizing")
         }
-        handle.mouseUp(with: try event(.leftMouseUp))
+        window.sendEvent(try event(.leftMouseUp))
         host.layoutSubtreeIfNeeded()
         print("GIT_LOG_RESIZE refs=\(count) mounted=\(before)->\(menus().count) layouts=\(durations)")
         #expect(menus().count < 100, "Offscreen branches must not mount their native row controls")

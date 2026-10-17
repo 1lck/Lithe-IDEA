@@ -328,6 +328,70 @@ struct TerminalPlacementFeatureModelTests {
         await model.shutdownProjectSession()
     }
 
+    @Test
+    func hiddenToolSessionRemountCannotTakeFocusFromEditorTerminal() async throws {
+        let context = makeTerminalCloseContext(), state = RetainedTerminalReviewState()
+        let model = context.model
+        model.terminalPlacementFeature.moveToTool(context.session.id)
+        do {
+            let feature = try #require(model.terminalFeature)
+            let b = feature.createSession(in: URL(fileURLWithPath: "/workspace/focus"), shellPath: "/bin/zsh")
+            let c = feature.createSession(in: URL(fileURLWithPath: "/workspace/focus"), shellPath: "/bin/zsh")
+            model.terminalPlacementFeature.registerSession(b.id)
+            model.terminalPlacementFeature.registerSession(c.id)
+            model.terminalPlacementFeature.moveToEditor(c.id)
+            model.selectTerminalSession(b)
+            let store = WorkbenchToolContentStore()
+            let host = NSHostingView(rootView: VStack(spacing: 0) {
+                TerminalSurfaceView(session: c).environmentObject(model).frame(height: 160)
+                RetainedTerminalReviewHost(state: state, store: store, model: model, feature: feature)
+            })
+            host.sizingOptions = []
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 440),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            let aView = try #require(context.session.nativeView as? NSView)
+            let bView = try #require(b.nativeView as? NSView)
+            let cView = try #require(c.nativeView as? NSView)
+            let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(3))
+            while (bView.window !== window || cView.window !== window) && clock.now < deadline {
+                host.layoutSubtreeIfNeeded()
+                await Task.yield()
+            }
+            try #require(bView.window === window && cView.window === window)
+            state.visible = false
+            host.layoutSubtreeIfNeeded()
+            try #require(bView.isHiddenOrHasHiddenAncestor)
+            #expect(window.makeFirstResponder(cView))
+            let requests = context.transport.focusCount
+            // Selecting C changes the hidden tool canvas from B back to A.
+            model.selectEditorTerminalSession(c)
+            let mountDeadline = clock.now.advanced(by: .seconds(3))
+            while aView.window !== window && clock.now < mountDeadline {
+                host.layoutSubtreeIfNeeded()
+                await Task.yield()
+            }
+            try #require(aView.window === window)
+            try #require(aView.isHiddenOrHasHiddenAncestor)
+            // Observe the native update callback and SwiftUI appearance task.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+            await Task.yield()
+            #expect(context.transport.focusCount == requests, "Hidden appearance must not request session focus")
+            #expect(window.firstResponder === cView, "Hidden native callbacks must not steal the editor terminal's focus")
+            state.visible = true
+            host.layoutSubtreeIfNeeded()
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+            #expect(window.firstResponder === aView, "Reopening must explicitly activate the current tool session")
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
     private func makeTerminalCloseContext() -> (
         model: AppModel,
         session: TerminalSession,
@@ -424,7 +488,11 @@ private final class PlacementTestTerminalTransport: TerminalTransport {
     var sentInputs: [String] = []
     func send(_ input: Data) throws { sentInputs.append(String(decoding: input, as: UTF8.self)) }
     func interrupt() throws {}
-    func focus() { (nativeView as? NSView)?.window?.makeFirstResponder(nativeView as? NSView) }
+    var focusCount = 0
+    func focus() {
+        focusCount += 1
+        (nativeView as? NSView)?.window?.makeFirstResponder(nativeView as? NSView)
+    }
     func clear() {}
 
     func stop() {

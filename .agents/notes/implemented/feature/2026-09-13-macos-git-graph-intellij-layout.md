@@ -310,6 +310,20 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 终端标题栏和正文必须跟随恢复，不能仅将外层面板设透明。宿主从隐藏变为可见时通过 `onActivate`
 在本轮布局结束后请求一次当前工具终端会话的输入焦点；连续 frame/环境更新不触发激活。
 隐藏或解绑会取消尚未交付的激活请求，避免迟到回调抢回编辑器焦点。Git Log 不安装焦点回调。
+保留树在隐藏期间仍会响应会话选择，不能只取消 `onActivate`：当工具会话从 B 回退到 A 时，
+`TerminalSurfaceView` 会重新挂载。它的出现任务和原生异步焦点回调都必须在交付时检查原生视图
+仍挂在窗口中且自身和祖先均未隐藏；异步入口还须确认原生视图仍属于原宿主。
+重开沿用显式激活回调，不靠重复挂载恢复焦点。
+`hiddenToolSessionRemountCannotTakeFocusFromEditorTerminal` 使用两个工具会话 A/B 和编辑器会话 C，
+验证隐藏后选择 C 即使重挂 A 也不请求会话焦点、不改变 first responder，重开后才激活 A。
+
+固定表面的命中不能覆盖外层分隔条伸入面板的区域。`Surface.hitTest` 在同一次同步查询内跳过自己，
+复用下层原生命中结果；如果下层命中 `SplitHandleInteractionView`，优先将事件交给它，
+否则沿用保留宿主的正常命中。不要临时隐藏宿主、缩小内容或另算一份分隔条矩形。
+`retainedHostsPreserveOuterDividerHitArea` 覆盖横纵方向，实际通过窗口发送中央和两侧偏移 4pt
+的按下、拖动和松开事件，检查每次提交尺寸、面板中央命中及两个宿主身份；直接调用 handle
+方法绕过了窗口命中分发，不能证明这条边界。
+
 `TerminalPlacementFeatureModelTests.retainedTerminalRestoresFocusAndWallpaperWithoutRecreatingItsSurface`
 使用真实 `TerminalView`/`TerminalSurfaceView` 和无进程测试 transport，在明暗主题检查标题栏/正文像素、
 相同原生输入控件的 first responder、隐藏/重开、连续尺寸更新及隐藏后的取消；不以空白占位内容替代终端界面。
