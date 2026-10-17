@@ -83,7 +83,7 @@ const TabBar = ({
       const visibleBuffers = paneBufferIdSet
         ? state.buffers.filter((buffer) => paneBufferIdSet.has(buffer.id))
         : state.buffers;
-      return visibleBuffers.filter((buffer) => buffer.type !== "newTab").map(toTabChromeBuffer);
+      return visibleBuffers.map(toTabChromeBuffer);
     },
     tabChromeBuffersEqual,
   );
