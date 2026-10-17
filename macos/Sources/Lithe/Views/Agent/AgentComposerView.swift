@@ -288,7 +288,7 @@ struct AgentComposerView: View {
     /// Debounced so a fast typist searches once per pause, not per keystroke.
     private func loadFileMentions(for query: String?) async {
         guard let query, !query.isEmpty, let findFiles else {
-            completion.fileMentions = []
+            completion.setFileMentions([], for: nil)
             return
         }
         try? await Task.sleep(for: .milliseconds(150))
@@ -296,7 +296,7 @@ struct AgentComposerView: View {
         let files = await findFiles(query)
         guard !Task.isCancelled else { return }
         mentionURLs = Dictionary(files.map { ("@" + $0.path, $0.url) }, uniquingKeysWith: { first, _ in first })
-        completion.fileMentions = files.map(AgentCommand.fileMention)
+        completion.setFileMentions(files.map(AgentCommand.fileMention), for: query)
     }
 
     private func handleCommandKey(_ key: AgentCommandCompletion.Key) -> AgentCommandCompletion.Result {

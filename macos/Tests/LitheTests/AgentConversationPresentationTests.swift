@@ -484,6 +484,9 @@ struct AgentConversationPresentationTests {
         #expect(AgentSubscriptionQuotaPresentation.duration(snapshot.windows[0].limitSeconds) == "7d")
         #expect(AgentSubscriptionQuotaPresentation.duration(snapshot.windows[1].limitSeconds) == "5h")
         #expect(snapshot.mostUsedWindow?.id == "weekly")
+        #expect(AgentSubscriptionQuotaPresentation.ringWindow(snapshot)?.id == "weekly",
+                "The compact ring follows the most used window, not the 5h one listed first")
+        #expect(AgentSubscriptionQuotaPresentation.ringWindow(nil) == nil)
         #expect(snapshot.windows[1].usedPercent == nil)
         #expect(!snapshot.isStale(at: Date(timeIntervalSince1970: 1800000100)))
         #expect(snapshot.isStale(at: Date(timeIntervalSince1970: 1800000121)))
@@ -988,11 +991,33 @@ extension AgentConversationPresentationTests {
         var completion = AgentCommandCompletion()
         completion.draft = "fix @App"
         #expect(completion.suggestions(in: []) == nil, "No rows until the file search returns")
-        completion.fileMentions = [file]
+        completion.setFileMentions([file], for: "App")
         #expect(completion.suggestions(in: [])?.map(\.name) == ["@Sources/App.swift"])
         #expect(completion.handle(.submit, commands: [], isResponding: false) == .attach(file))
         #expect(completion.draft == "fix ")
         #expect(completion.fileMentions.isEmpty)
+    }
+
+    @Test
+    func fileMentionsForAnEarlierQueryCannotBeSelected() throws {
+        let file = AgentCommand.fileMention(AgentFileMention(path: "App.swift", url: URL(fileURLWithPath: "/w/App.swift")))
+        var completion = AgentCommandCompletion()
+        completion.draft = "@App"
+        completion.setFileMentions([file], for: "App")
+        completion.draft = "@Read"
+        #expect(completion.suggestions(in: []) == nil)
+        #expect(completion.handle(.tab, commands: [], isResponding: false) == .ignored)
+        #expect(completion.draft == "@Read")
+    }
+
+    @Test
+    func returnOnAFullyTypedFileNameAttachesInsteadOfSending() throws {
+        let readme = AgentCommand.fileMention(AgentFileMention(path: "README.md", url: URL(fileURLWithPath: "/w/README.md")))
+        var completion = AgentCommandCompletion()
+        completion.draft = "@README.md"
+        completion.setFileMentions([readme], for: "README.md")
+        #expect(completion.handle(.submit, commands: [], isResponding: false) == .attach(readme))
+        #expect(completion.draft.isEmpty)
     }
 
     @Test
@@ -1029,6 +1054,9 @@ extension AgentConversationPresentationTests {
             return
         }
         #expect(reply == "Done.")
+        #expect(AgentTranscriptItem.repliesCopiedFromFooter([turn], searchText: "") == ["agent-1"])
+        #expect(AgentTranscriptItem.repliesCopiedFromFooter([turn], searchText: "Done").isEmpty,
+                "Search hides the footer, so the reply keeps its own copy button")
     }
 
     @Test

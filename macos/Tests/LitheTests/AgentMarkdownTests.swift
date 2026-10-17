@@ -190,6 +190,9 @@ extension AgentMarkdownTests {
         #expect(plain(code) == "Use a**b**c and ok")
         let unpaired = try paragraph("2 ** 3 is power")
         #expect(plain(unpaired) == "2 ** 3 is power")
+        let escaped = try paragraph(#"Show \*\*literal\*\* markers"#)
+        #expect(plain(escaped) == "Show **literal** markers")
+        #expect(try !isBold(escaped, "literal"))
     }
 
     @Test
@@ -204,6 +207,9 @@ extension AgentMarkdownTests {
         #expect(try link("docs/My%20Notes.md#L7") == .file(.init(path: "docs/My Notes.md", line: 7), isDocument: true))
         #expect(try link("file:///tmp/a.rs:3:9") == .file(.init(path: "/tmp/a.rs", line: 3), isDocument: false))
         #expect(try link("Makefile") == .file(.init(path: "Makefile", line: nil), isDocument: true))
+        #expect(try link("Makefile:12") == .file(.init(path: "Makefile", line: 12), isDocument: true))
+        #expect(try link("Dockerfile:3:1") == .file(.init(path: "Dockerfile", line: 3), isDocument: true))
+        #expect(try link("tel:10086") == .web)
     }
 
     @Test

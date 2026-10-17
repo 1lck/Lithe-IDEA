@@ -26,6 +26,12 @@ enum AgentTranscriptItem: Identifiable {
         }
     }
 
+    /// Replies whose copy button lives in the turn footer. Search filters the
+    /// footers out, so while searching every reply keeps its own button.
+    static func repliesCopiedFromFooter(_ turns: [AgentTurnStatistics], searchText: String) -> Set<String> {
+        searchText.isEmpty ? Set(turns.compactMap(\.endingMessageID)) : []
+    }
+
     func matches(_ searchText: String) -> Bool {
         guard !searchText.isEmpty else { return true }
         switch self {
@@ -279,7 +285,7 @@ private struct AgentTranscriptRows: View, Equatable {
 
     var body: some View {
         let transcript = AgentTranscriptItem.grouped(messages, turns: completedTurns).filter { $0.matches(searchText) }
-        let turnEndingIDs = Set(completedTurns.compactMap(\.endingMessageID))
+        let turnEndingIDs = AgentTranscriptItem.repliesCopiedFromFooter(completedTurns, searchText: searchText)
         if !searchText.isEmpty && transcript.isEmpty {
             Text("No matching messages")
                 .foregroundStyle(AgentPanelStyle.secondary)

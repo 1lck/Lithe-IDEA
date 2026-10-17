@@ -11,6 +11,7 @@ enum AgentMarkdownLink: Equatable {
     case web
 
     private static let webSchemes: Set<String> = ["http", "https", "mailto"]
+    private static let numberSchemes: Set<String> = ["tel", "sms", "fax", "facetime"]
     private static let documentExtensions: Set<String> = ["md", "markdown", "mdx", "txt", "rst", "adoc", "pdf", "doc", "docx"]
 
     init(_ url: URL) {
@@ -20,8 +21,11 @@ enum AgentMarkdownLink: Equatable {
             self = host == "github.com" || host.hasSuffix(".github.com") ? .github : .web
             return
         }
-        // `README.md:12` parses with `README.md` as its scheme; a real scheme has no dot.
+        // `README.md:12` and `Makefile:12` parse with the file name as their scheme.
+        // A real scheme has no dot, and only number schemes are followed by digits alone.
         let isPath = scheme == nil || scheme == "file" || scheme?.contains(".") == true
+            || (scheme.map { !Self.numberSchemes.contains($0) } == true
+                && url.absoluteString.range(of: #"^[^/:]+:\d+(:\d+)?$"#, options: .regularExpression) != nil)
         guard isPath, let location = Self.location(url) else {
             self = .web
             return

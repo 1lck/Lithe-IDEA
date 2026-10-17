@@ -145,7 +145,9 @@ enum AgentMarkdownBlock: Equatable {
         let source = String(text)
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         let parsed = (try? AttributedString(markdown: source, options: options)) ?? AttributedString(source)
-        return pairingLeftoverStrongMarkers(parsed)
+        // Foundation unescapes `\*`, so the parsed text no longer tells escaped
+        // literals from unclosed markers; leave a block that escapes `*` as parsed.
+        return source.contains("\\*") ? parsed : pairingLeftoverStrongMarkers(parsed)
     }
 
     /// CommonMark closes `**` only when it is right-flanking, so `**状态：**仍开放`
