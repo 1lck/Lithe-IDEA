@@ -814,6 +814,7 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
         workspaceFingerprint: args.workspaceFingerprint ?? null,
         mavenContext: args.mavenContext ?? null,
         javaRuntimes: args.javaRuntimes ?? [],
+        javaGradle: args.javaGradle ?? null,
         initializeTimeoutMilliseconds: INITIALIZE_TIMEOUT_MS,
         requestTimeoutMilliseconds: LSP_REQUEST_TIMEOUT_MS,
         javaBuildTimeoutMilliseconds: JAVA_BUILD_TIMEOUT_MS,
