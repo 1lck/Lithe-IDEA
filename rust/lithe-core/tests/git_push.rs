@@ -101,6 +101,7 @@ fn push_expectation(preview: &Value) -> Value {
         "localHead": preview["data"]["localHead"],
         "remote": preview["data"]["remote"],
         "remoteBranch": preview["data"]["remoteBranch"],
+        "targetKind": preview["data"]["targetKind"],
         "remoteTrackingOid": preview["data"]["remoteTrackingOid"],
         "tags": preview["data"]["tags"],
     })
@@ -455,3 +456,348 @@ fn typed_remote_deletion_preserves_remote_names_with_slashes() {
     .status
     .success());
 }
+
+/// Regression for issue #1272: the fixed branch-creation path must not turn
+/// "check out a remote branch" into a tracking-less checkout. Those are two
+/// distinct semantics and the guard here keeps a future refactor from merging
+/// them and silently dropping upstream tracking.
+#[test]
+fn checkout_of_remote_branch_still_creates_tracking_branch() {
+    let fixture = GitFixture::new();
+    let (repository, _) = initialize_repository(&fixture);
+    require_git(&repository, &["switch", "-q", "-c", "topic"]);
+    fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "topic.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "topic work"]);
+    require_git(&repository, &["push", "-q", "-u", "origin", "topic"]);
+    require_git(&repository, &["switch", "-q", "main"]);
+    require_git(&repository, &["branch", "-D", "topic"]);
+
+    let checked_out = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "checkout",
+            "gitReference": {
+                "fullName": "refs/remotes/origin/topic",
+                "shortName": "origin/topic",
+                "kind": "remote"
+            }
+        }),
+    );
+    assert_eq!(checked_out["ok"], true, "response: {checked_out}");
+    assert_eq!(checked_out["data"]["exitCode"], 0, "response: {checked_out}");
+    assert_eq!(
+        String::from_utf8_lossy(
+            &git(&repository, &["rev-parse", "--abbrev-ref", "@{upstream}"]).stdout
+        )
+        .trim(),
+        "origin/topic",
+        "checking out a remote branch must still establish tracking"
+    );
+}
+
+/// Issue #1272: a branch started at a local branch or an explicit commit never
+/// had a remote upstream to inherit, and the fix must not introduce one.
+#[test]
+fn branch_created_from_local_start_has_no_upstream() {
+    let fixture = GitFixture::new();
+    let (repository, _) = initialize_repository(&fixture);
+    require_git(&repository, &["switch", "-q", "-c", "topic"]);
+    fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "topic.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "topic work"]);
+    require_git(&repository, &["switch", "-q", "main"]);
+
+    let from_local = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "createBranch",
+            "name": "feature/from-local",
+            "reference": "refs/heads/topic",
+            "checkout": false
+        }),
+    );
+    assert_eq!(from_local["ok"], true, "response: {from_local}");
+    assert_eq!(from_local["data"]["exitCode"], 0, "response: {from_local}");
+    assert_no_upstream(&repository, "feature/from-local");
+
+    let head_oid = String::from_utf8_lossy(&git(&repository, &["rev-parse", "HEAD"]).stdout)
+        .trim()
+        .to_string();
+    let from_commit = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "createBranch",
+            "name": "feature/from-commit",
+            "reference": head_oid,
+            "checkout": false
+        }),
+    );
+    assert_eq!(from_commit["ok"], true, "response: {from_commit}");
+    assert_eq!(from_commit["data"]["exitCode"], 0, "response: {from_commit}");
+    assert_no_upstream(&repository, "feature/from-commit");
+}
+
+/// Issue #1272: branches created from a remote no longer carry an upstream, so
+/// the push preview falls back to excluding commits reachable from the selected
+/// remote. That fallback must still list the branch's own new commits instead of
+/// collapsing to an empty preview.
+#[test]
+fn preview_of_untracked_branch_still_lists_its_commits() {
+    let fixture = GitFixture::new();
+    let (repository, _) = initialize_repository(&fixture);
+
+    let created = create_branch_from_remote(&repository, "feature/topic", "main");
+    assert_eq!(created["ok"], true, "response: {created}");
+    fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "topic.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "topic work"]);
+
+    let preview = core("git.pushPreview", &repository, json!({}));
+    assert_eq!(preview["ok"], true, "response: {preview}");
+    assert_eq!(preview["data"]["upstream"], Value::Null);
+    assert_eq!(
+        preview["data"]["commits"].as_array().map(Vec::len),
+        Some(1),
+        "the branch's own commit must appear in the preview: {preview}"
+    );
+    assert_eq!(preview["data"]["commits"][0]["subject"], "topic work");
+}
+
+/// Asserts the branch has no configured upstream. Issue #1272: creating a
+/// feature branch from `origin/main` must not inherit `main` as its upstream.
+fn assert_no_upstream(repository: &Path, branch: &str) {
+    let lookup = git(
+        repository,
+        &["rev-parse", "--abbrev-ref", &format!("{branch}@{{upstream}}")],
+    );
+    assert!(
+        !lookup.status.success(),
+        "{branch} unexpectedly tracks {:?}",
+        String::from_utf8_lossy(&lookup.stdout).trim()
+    );
+}
+
+/// Issues the same Core request shape the Windows client sends when the user
+/// picks "new branch from <reference>" on a remote reference.
+fn create_branch_from_remote(repository: &Path, name: &str, remote_branch: &str) -> Value {
+    core(
+        "git.write",
+        repository,
+        json!({
+            "operation": "createBranch",
+            "name": name,
+            "gitReference": {
+                "fullName": format!("refs/remotes/origin/{remote_branch}"),
+                "shortName": format!("origin/{remote_branch}"),
+                "kind": "remote"
+            },
+            "checkout": true
+        }),
+    )
+}
+
+/// Regression for issue #1272: the first push of a branch created from
+/// `origin/main` must never update the remote `main`.
+#[test]
+fn branch_created_from_remote_main_does_not_track_main() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = initialize_repository(&fixture);
+    let main_oid_before =
+        String::from_utf8_lossy(&git(&remote, &["rev-parse", "refs/heads/main"]).stdout)
+            .trim()
+            .to_string();
+
+    let created = create_branch_from_remote(&repository, "feature/topic", "main");
+    assert_eq!(created["ok"], true, "response: {created}");
+    assert_eq!(created["data"]["exitCode"], 0, "response: {created}");
+    assert_no_upstream(&repository, "feature/topic");
+
+    fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "topic.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "topic work"]);
+
+    let preview = core("git.pushPreview", &repository, json!({}));
+    assert_eq!(preview["ok"], true, "response: {preview}");
+    assert_eq!(preview["data"]["remote"], "origin");
+    assert_eq!(preview["data"]["remoteBranch"], "feature/topic");
+    assert_eq!(preview["data"]["upstream"], Value::Null);
+
+    let pushed = core("git.write", &repository, json!({ "operation": "push" }));
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
+
+    assert!(
+        git(&remote, &["show-ref", "--verify", "refs/heads/feature/topic"])
+            .status
+            .success(),
+        "the feature branch should be published to its own remote branch"
+    );
+    let main_oid_after =
+        String::from_utf8_lossy(&git(&remote, &["rev-parse", "refs/heads/main"]).stdout)
+            .trim()
+            .to_string();
+    assert_eq!(
+        main_oid_after, main_oid_before,
+        "push from the feature branch must not move remote main"
+    );
+}
+
+/// Regression for issue #1272: an already divergent upstream
+/// (`feature/topic` tracking `origin/main`) must not be pushed to silently.
+#[test]
+fn divergent_upstream_requires_an_explicit_choice() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = initialize_repository(&fixture);
+    let main_oid_before =
+        String::from_utf8_lossy(&git(&remote, &["rev-parse", "refs/heads/main"]).stdout)
+            .trim()
+            .to_string();
+
+    // Reproduce the state Git itself leaves behind with autoSetupMerge enabled.
+    require_git(
+        &repository,
+        &["switch", "-q", "-c", "feature/topic", "refs/remotes/origin/main"],
+    );
+    require_git(
+        &repository,
+        &["branch", "-q", "--set-upstream-to=origin/main", "feature/topic"],
+    );
+    fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "topic.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "topic work"]);
+
+    let preview = core("git.pushPreview", &repository, json!({}));
+    assert_eq!(preview["ok"], true, "response: {preview}");
+    assert_eq!(preview["data"]["upstream"], "origin/main");
+    assert_eq!(preview["data"]["targetKind"], "divergent");
+    assert_eq!(preview["data"]["remoteBranch"], "feature/topic");
+    assert_eq!(preview["data"]["createsRemoteBranch"], true);
+
+    let refused = core("git.write", &repository, json!({ "operation": "push" }));
+    assert!(
+        refused["data"]["operationError"]["code"] == "invalid_request",
+        "an unconfirmed divergent push must be refused: {refused}"
+    );
+    assert!(
+        !git(&remote, &["show-ref", "--verify", "refs/heads/feature/topic"])
+            .status
+            .success(),
+        "a refused push must not publish the branch"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(
+            &git(&repository, &["config", "--get", "branch.feature/topic.merge"]).stdout
+        )
+        .trim(),
+        "refs/heads/main",
+        "a refused push must not rewrite the user's upstream configuration"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&git(&remote, &["rev-parse", "refs/heads/main"]).stdout).trim(),
+        main_oid_before,
+        "a refused push must not move remote main"
+    );
+}
+
+/// Issue #1272: after confirming "publish to the same-named branch", a divergent
+/// branch lands on its own remote branch and points its upstream there, while the
+/// branch it used to track stays untouched.
+#[test]
+fn confirmed_publish_redirects_a_divergent_branch() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = initialize_repository(&fixture);
+    let main_oid_before =
+        String::from_utf8_lossy(&git(&remote, &["rev-parse", "refs/heads/main"]).stdout)
+            .trim()
+            .to_string();
+    require_git(
+        &repository,
+        &["switch", "-q", "-c", "feature/topic", "refs/remotes/origin/main"],
+    );
+    require_git(
+        &repository,
+        &["branch", "-q", "--set-upstream-to=origin/main", "feature/topic"],
+    );
+    fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "topic.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "topic work"]);
+
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({ "operation": "push", "pushTarget": "publish" }),
+    );
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
+
+    assert!(
+        git(&remote, &["show-ref", "--verify", "refs/heads/feature/topic"])
+            .status
+            .success(),
+        "the confirmed publish must create the same-named remote branch"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&git(&remote, &["rev-parse", "refs/heads/main"]).stdout).trim(),
+        main_oid_before,
+        "publishing must not move remote main"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(
+            &git(&repository, &["rev-parse", "--abbrev-ref", "@{upstream}"]).stdout
+        )
+        .trim(),
+        "origin/feature/topic",
+        "a successful publish repoints the upstream at the same-named branch"
+    );
+}
+
+/// Issue #1272: confirming "keep the existing upstream" must still be possible,
+/// because some users intentionally publish a branch under another name.
+#[test]
+fn confirmed_upstream_push_keeps_the_divergent_destination() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = initialize_repository(&fixture);
+    require_git(
+        &repository,
+        &["switch", "-q", "-c", "feature/topic", "refs/remotes/origin/main"],
+    );
+    require_git(
+        &repository,
+        &["branch", "-q", "--set-upstream-to=origin/main", "feature/topic"],
+    );
+    fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "topic.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "topic work"]);
+
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({ "operation": "push", "pushTarget": "upstream" }),
+    );
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
+    let remote_main =
+        String::from_utf8_lossy(&git(&remote, &["rev-parse", "refs/heads/main"]).stdout)
+            .trim()
+            .to_string();
+    let local_head = String::from_utf8_lossy(&git(&repository, &["rev-parse", "HEAD"]).stdout)
+        .trim()
+        .to_string();
+    assert_eq!(
+        remote_main, local_head,
+        "an explicitly confirmed upstream push is the one path allowed to update a foreign branch: {pushed}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(
+            &git(&repository, &["config", "--get", "branch.feature/topic.merge"]).stdout
+        )
+        .trim(),
+        "refs/heads/main",
+        "an intentional divergent upstream is preserved"
+    );
+}
+
