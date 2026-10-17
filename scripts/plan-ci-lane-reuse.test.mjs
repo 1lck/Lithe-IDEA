@@ -54,7 +54,8 @@ function fakeGitHub({ runs = [], jobs = {}, baseTips = [], failListing = false }
 }
 
 const job = (id, name, status, conclusion) => ({ id, name, status, conclusion, html_url: `https://example.invalid/job/${id}` });
-const run = (id, headSha, status, createdAt) => ({ id, head_sha: headSha, status, created_at: createdAt, head_repository: { full_name: 'owner/repo' } });
+// Fixture run ids double as run numbers; the planned run is number 50.
+const run = (id, headSha, status, createdAt) => ({ id, run_number: id, head_sha: headSha, status, created_at: createdAt, head_repository: { full_name: 'owner/repo' } });
 const fullMacJobs = (offset, conclusion = 'success', status = 'completed') => [
   job(offset + 1, 'Swift tests', status, status === 'completed' ? conclusion : null),
   job(offset + 2, 'Rust Core tests', status, status === 'completed' ? conclusion : null),
@@ -71,7 +72,7 @@ async function plan(fixture, { head, base = fixture.base, github, event = 'pull_
   return planLaneReuse({
     env: {
       LITHE_CI_WORKFLOW: 'macos', LITHE_CI_WORKFLOW_FILE: 'ci-macos.yml', GITHUB_EVENT_NAME: event, GITHUB_TOKEN: 't',
-      GITHUB_REPOSITORY: 'owner/repo', GITHUB_API_URL: 'https://api.invalid', GITHUB_RUN_ID: '999',
+      GITHUB_REPOSITORY: 'owner/repo', GITHUB_API_URL: 'https://api.invalid', GITHUB_RUN_ID: '999', GITHUB_RUN_NUMBER: '50',
       PR_BASE_SHA: base, PR_BASE_REF: 'preview', PR_HEAD_SHA: head, PR_HEAD_REF: 'feature', PR_HEAD_REPOSITORY: 'owner/repo',
     },
     outputs: classify(fixture, base, head),
@@ -134,6 +135,64 @@ test('an earlier run no lane reuses is cancelled', async (t) => {
   const result = await plan(f, { head: second, github });
   assert.equal(result.run.swift, true);
   assert.deepEqual(github.cancelled, [10]);
+});
+
+test('a run created after this one is neither cancelled nor reused', async (t) => {
+  const f = fixtureRepository(t);
+  f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
+  const first = f.commit('swift');
+  f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 2 }');
+  const second = f.commit('swift again');
+  f.write('README.md', '# Docs');
+  const third = f.commit('docs');
+  // Run 60 belongs to a newer push and has no test job yet; this planner for
+  // the older revision starts late and sees it in the listing.
+  const github = fakeGitHub({
+    runs: [run(60, third, 'in_progress', '2026-10-17T03:00:00Z'), run(10, first, 'in_progress', '2026-10-17T01:00:00Z')],
+    jobs: { 60: [], 10: [job(101, 'Swift tests', 'in_progress', null)] },
+    baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }],
+  });
+  const result = await plan(f, { head: second, github });
+  assert.equal(result.run.swift, true);
+  assert.deepEqual(github.cancelled, [10]);
+});
+
+test('a change to a file with a Chinese name is not mistaken for no change', async (t) => {
+  const f = fixtureRepository(t);
+  f.write('macos/Sources/Lithe/示例 "quoted".swift', 'struct Example {}');
+  const first = f.commit('add chinese file');
+  f.write('macos/Sources/Lithe/示例 "quoted".swift', 'struct Example { let changed = true }');
+  const second = f.commit('change chinese file');
+  const github = fakeGitHub({ runs: [run(10, first, 'completed', '2026-10-17T01:00:00Z')], jobs: { 10: [job(101, 'Swift tests', 'completed', 'success')] }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }] });
+  const result = await plan(f, { head: second, github });
+  assert.equal(result.run.swift, true);
+  assert.deepEqual(result.reuse, {});
+});
+
+test('an executable bit change alone reruns the lanes the file affects', async (t) => {
+  const f = fixtureRepository(t);
+  f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
+  const first = f.commit('swift');
+  f.git('update-index', '--chmod=+x', 'macos/Sources/Lithe/App.swift');
+  f.git('-c', 'user.email=ci@example.invalid', '-c', 'user.name=CI', 'commit', '-q', '-m', 'mode only');
+  const second = f.git('rev-parse', 'HEAD');
+  const github = fakeGitHub({ runs: [run(10, first, 'completed', '2026-10-17T01:00:00Z')], jobs: { 10: [job(101, 'Swift tests', 'completed', 'success')] }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }] });
+  const result = await plan(f, { head: second, github });
+  assert.equal(result.run.swift, true);
+});
+
+test('a base change to a member crate manifest reruns every lane', async (t) => {
+  const f = fixtureRepository(t);
+  f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
+  const first = f.commit('swift');
+  f.git('checkout', '-q', 'preview');
+  f.write('rust/lithe-core/Cargo.toml', '[package]\nname = "lithe-core"\n[features]\nextra = []');
+  const newBase = f.commit('crate features');
+  f.git('checkout', '-q', 'feature');
+  const github = fakeGitHub({ runs: [run(10, first, 'completed', '2026-10-17T01:00:00Z')], jobs: { 10: [job(101, 'Swift tests', 'completed', 'success')] }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }, { at: '2026-10-17T02:00:00Z', sha: newBase }] });
+  const result = await plan(f, { head: first, base: newBase, github });
+  assert.equal(result.run.swift, true);
+  assert.deepEqual(result.reuse, {});
 });
 
 test('merging an ordinary base change keeps every result', async (t) => {
@@ -203,13 +262,15 @@ test('planning failures and non pull request events run every selected lane', as
   const broken = await plan(f, { head: first, github: fakeGitHub({ failListing: true }) });
   assert.equal(broken.run.swift, true);
   assert.match(broken.reason, /planning failed/);
+  const firstRun = await plan(f, { head: first, github: fakeGitHub({}) });
+  assert.match(firstRun.reason, /no earlier run of this pull request executed them/);
   const push = await plan(f, { head: first, github: fakeGitHub({}), event: 'push' });
   assert.equal(push.run.swift, true);
   assert.deepEqual(push.reuse, {});
 });
 
 test('CI infrastructure paths are recognised', () => {
-  for (const path of ['.github/workflows/ci-macos.yml', 'scripts/classify-ci-changes.sh', 'scripts/test-macos.sh', 'Package.resolved', 'rust/Cargo.lock', '.agents/skills/write-stable-tests/scripts/x.sh']) {
+  for (const path of ['.github/workflows/ci-macos.yml', 'scripts/classify-ci-changes.sh', 'scripts/test-macos.sh', 'Package.resolved', 'rust/Cargo.lock', 'rust/lithe-core/Cargo.toml', 'windows/tauri/crates/project/Cargo.toml', 'windows/tauri/rust-toolchain.toml', '.agents/skills/write-stable-tests/scripts/x.sh']) {
     assert.equal(isCiInfrastructure(path), true, path);
   }
   for (const path of ['macos/Sources/Lithe/App.swift', 'README.md', 'rust/lithe-core/src/lib.rs']) {

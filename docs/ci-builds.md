@@ -56,11 +56,18 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
   base branch, whether merged in or picked up by GitHub's merge commit, do not
   count, unless they touch CI infrastructure (workflows, actions, the
   classifier and runner scripts, test infrastructure, `Package.swift`,
-  `Package.resolved`, Cargo manifests and lock files); then every lane runs.
+  `Package.resolved`, every Cargo manifest and lock file including member
+  crates, Rust toolchain files); then every lane runs.
+- A file counts as changed when its content or its mode differs, so an
+  executable bit change alone reruns the lanes the file affects. Paths are read
+  raw (NUL-separated), so Chinese and other escaped file names are compared
+  and classified correctly.
 - A failed or cancelled earlier result is never reused.
 - Pull request runs are no longer cancelled per branch. The planner cancels the
   earlier runs that no lane reuses; an earlier run with a reused lane still in
-  progress keeps running, because GitHub cannot cancel a single job.
+  progress keeps running, because GitHub cannot cancel a single job. Only runs
+  with a smaller run number than the current one are considered, so a planner
+  that starts late never cancels or reuses a run for a newer push.
 - The gate accepts a reused lane only after confirming that the earlier job
   passed, waiting up to 90 minutes for one still running. It also fails if a
   selected lane neither ran nor has a reused result.
@@ -200,8 +207,8 @@ signal. Keep macOS jobs per push low:
 - Open pull requests that are still being iterated on as drafts. Draft pull
   requests run only the Linux lanes; marking one ready for review reruns the
   classifier and the selected macOS and Windows lanes.
-- Each new push cancels the previous run for the same branch, so batch review
-  fixes into fewer pushes when possible.
+- Each new push cancels earlier runs of the same pull request whose results it
+  does not reuse, so batch review fixes into fewer pushes when possible.
 - Merging or closing a pull request cancels its pull request runs that are
   still queued or running (**Cancel CI of closed pull requests**), including
   admin merges that skip the checks. The post-merge `preview` push run is not

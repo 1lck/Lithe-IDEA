@@ -33,7 +33,7 @@ rust_diff_is_comment_only() {
                 return 1
             fi
         fi
-    done < <(git diff --no-color --unified=0 "$BASE_REVISION" "$HEAD_REVISION" -- "$path")
+    done < <(git diff --no-color --unified=0 "$BASE_REVISION" "$HEAD_REVISION" -- ":(literal)$path")
 
     [[ "$saw_change" == true ]]
 }
@@ -444,7 +444,15 @@ path_selected() {
     grep -Fxq -- "$1" "$only_paths_file"
 }
 
-while IFS=$'\t' read -r status first_path second_path; do
+# NUL-separated output keeps every path raw: the default text output quotes
+# and escapes non-ASCII paths such as Chinese file names, which would then
+# miss both the path patterns below and the LITHE_CI_ONLY_PATHS filter.
+while IFS= read -r -d '' status; do
+    IFS= read -r -d '' first_path
+    second_path=""
+    if [[ "$status" == R* || "$status" == C* ]]; then
+        IFS= read -r -d '' second_path
+    fi
     if [[ -n "$only_paths_file" ]] && ! path_selected "$first_path" && ! { [[ -n "$second_path" ]] && path_selected "$second_path"; }; then
         continue
     fi
@@ -456,7 +464,7 @@ while IFS=$'\t' read -r status first_path second_path; do
     else
         classify_path "$status" "$first_path"
     fi
-done < <(git diff --name-status --find-renames "$BASE_REVISION" "$HEAD_REVISION")
+done < <(git diff -z --name-status --find-renames "$BASE_REVISION" "$HEAD_REVISION")
 
 if [[ "${LITHE_CI_DRAFT_PULL_REQUEST:-false}" == "true" ]]; then
     # Draft pull requests keep the Linux-only lanes but defer every macOS and

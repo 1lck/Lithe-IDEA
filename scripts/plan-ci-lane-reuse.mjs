@@ -47,8 +47,12 @@ export const CI_INFRA_PATTERNS = Object.freeze([
   /^scripts\/[^/]*windows[^/]*\.(ps1|mjs|ts)$/i,
   /^\.agents\/skills\/write-stable-tests\/scripts\//,
   /^(Package\.swift|Package\.resolved|\.swift-version|package\.json|bun\.lock|bunfig\.toml)$/,
-  /^rust\/(Cargo\.toml|Cargo\.lock|\.cargo\/)/,
-  /^windows\/tauri\/(package\.json|src-tauri\/Cargo\.(toml|lock))$/,
+  // Every Cargo manifest, not only the workspace roots: a member crate's
+  // features or dependencies change the build without touching the lock file.
+  /(^|\/)Cargo\.(toml|lock)$/,
+  /(^|\/)rust-toolchain(\.toml)?$/,
+  /^rust\/\.cargo\//,
+  /^windows\/tauri\/package\.json$/,
   /^frontend\/editor\/package\.json$/,
 ]);
 
@@ -85,15 +89,28 @@ function makeGit(cwd) {
   };
 }
 
+// Raw diff entries between two revisions as [path, "mode object"] pairs.
+// NUL-separated output keeps paths unquoted (Chinese names included), and the
+// mode is part of a file's identity because an executable bit change alone can
+// break a lane. Paths are later handed to the classifier one per line, so a
+// path containing a newline aborts planning, which runs every lane.
+export function diffEntries(git, from, to) {
+  const fields = git.run(['diff', '-z', '--raw', '--no-abbrev', '--no-renames', from, to]).split('\0');
+  const entries = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    const [, mode, , object] = fields[index].split(' ');
+    const path = fields[index + 1];
+    if (!mode || !object || !path) throw new Error(`unexpected git diff entry: ${JSON.stringify(fields[index])}`);
+    if (path.includes('\n')) throw new Error(`path contains a newline: ${JSON.stringify(path)}`);
+    entries.push([path, `${mode} ${object}`]);
+  }
+  return entries;
+}
+
 // The pull request's own version of each file it changes relative to the base.
 function ownChanges(git, base, revision) {
   const mergeBase = git.run(['merge-base', base, revision]);
-  const files = new Map();
-  const names = git.run(['diff', '--name-only', '--no-renames', mergeBase, revision]);
-  for (const path of names ? names.split('\n') : []) {
-    files.set(path, git.attempt(['rev-parse', `${revision}:${path}`]) ?? 'deleted');
-  }
-  return { mergeBase, files };
+  return { mergeBase, files: new Map(diffEntries(git, mergeBase, revision)) };
 }
 
 // Files whose pull-request version differs between two revisions, and the CI
@@ -110,8 +127,7 @@ export function compareRevisions(git, base, previous, current, previousBase = nu
   const infrastructure = new Set();
   const collect = (from, to) => {
     if (!from || from === to) return;
-    const names = git.run(['diff', '--name-only', from, to]);
-    for (const path of names ? names.split('\n') : []) if (isCiInfrastructure(path)) infrastructure.add(path);
+    for (const [path] of diffEntries(git, from, to)) if (isCiInfrastructure(path)) infrastructure.add(path);
   };
   collect(before.mergeBase, after.mergeBase);
   collect(previousBase, base);
@@ -169,10 +185,16 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
     if (!git.ensureCommit(base) || !git.ensureCommit(current)) throw new Error('pull request base or head is unavailable');
 
     const listing = await api(`/repos/${env.GITHUB_REPOSITORY}/actions/workflows/${env.LITHE_CI_WORKFLOW_FILE}/runs?event=pull_request&branch=${encodeURIComponent(env.PR_HEAD_REF)}&per_page=30`);
+    // Only runs strictly older than this one: a planner that starts late must
+    // neither cancel nor reuse a run created for a newer revision. Run numbers
+    // increase per workflow in creation order and survive re-run attempts.
+    const runNumber = Number(env.GITHUB_RUN_NUMBER);
+    if (!Number.isInteger(runNumber) || runNumber <= 0) throw new Error('GITHUB_RUN_NUMBER is unavailable');
     const runs = (listing.workflow_runs ?? [])
-      .filter((run) => String(run.id) !== String(env.GITHUB_RUN_ID) && run.head_repository?.full_name === env.PR_HEAD_REPOSITORY)
+      .filter((run) => Number(run.run_number) < runNumber && run.head_repository?.full_name === env.PR_HEAD_REPOSITORY)
       .sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
 
+    let executed = false;
     const jobsByRun = new Map();
     const jobsOf = async (run) => {
       if (!jobsByRun.has(run.id)) jobsByRun.set(run.id, (await api(`/repos/${env.GITHUB_REPOSITORY}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`)).jobs ?? []);
@@ -209,6 +231,7 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
         // A lane skipped in a run was itself reused or not selected there; keep
         // looking for the run that actually executed it.
         if (!job || job.conclusion === 'skipped') continue;
+        executed = true;
         const usable = job.status !== 'completed' || job.conclusion === 'success';
         if (usable) {
           const affected = await affectedSince(run);
@@ -231,7 +254,9 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
         log.warn?.(`Could not cancel obsolete run ${run.id}: ${error.message}`);
       }
     }
-    plan.reason = Object.keys(plan.reuse).length ? 'unaffected lanes reuse earlier results' : 'every selected lane is affected by new changes';
+    if (Object.keys(plan.reuse).length) plan.reason = 'unaffected lanes reuse earlier results';
+    else if (executed) plan.reason = 'every selected lane runs (earlier results failed, were cancelled, or are affected by new changes)';
+    else plan.reason = 'every selected lane runs (no earlier run of this pull request executed them)';
   } catch (error) {
     plan.run = Object.fromEntries(lanes.map((lane) => [lane, true]));
     plan.reuse = {};
