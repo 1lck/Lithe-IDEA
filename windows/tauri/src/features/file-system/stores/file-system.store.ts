@@ -308,7 +308,12 @@ const recordLocalFileAccess = (
   workspaceRootPath: string | undefined,
   workspaceFolderPaths: string[] = [],
 ) => {
-  if (path.startsWith("remote://") || path.startsWith("wsl://") || path.startsWith("diff://")) {
+  if (
+    path.startsWith("remote://") ||
+    path.startsWith("wsl://") ||
+    path.startsWith("diff://") ||
+    path.startsWith("agent-conversation://")
+  ) {
     return;
   }
 

@@ -52,6 +52,11 @@ const AgentTab = lazy(() =>
     default: m.AgentTab,
   })),
 );
+const AgentConversationTab = lazy(() =>
+  import("@/features/agent/components/agent-conversation-tab").then((m) => ({
+    default: m.AgentConversationTab,
+  })),
+);
 const CodeEditor = lazy(() => import("@/features/editor/components/code-editor"));
 
 const databaseViewerCache = new Map<
@@ -632,6 +637,9 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         case "agent":
           return <AgentTab buffer={buffer} isActive={isActivePane} />;
 
+        case "agentConversation":
+          return <AgentConversationTab buffer={buffer} isActive={isActivePane} />;
+
         case "diff":
           return <DiffViewer onStageHunk={handleStageHunk} onUnstageHunk={handleUnstageHunk} />;
 
@@ -793,16 +801,19 @@ export function PaneContainer({ pane }: PaneContainerProps) {
 
         <Suspense fallback={null}>
           <>
-            {/* Keep terminal and webviewer buffers always mounted to preserve
-                PTY sessions and embedded webview state. */}
+            {/* Keep terminal, Agent conversation and webviewer buffers always
+                mounted to preserve PTY sessions, drafts and embedded webview state. */}
             {paneBuffers
               .filter(
                 (
                   b,
                 ): b is
                   | import("../types/pane-content.types").TerminalContent
+                  | import("../types/pane-content.types").AgentConversationContent
                   | import("../types/pane-content.types").WebViewerContent =>
-                  b.type === "terminal" || (webViewerEnabled && b.type === "webViewer"),
+                  b.type === "terminal" ||
+                  b.type === "agentConversation" ||
+                  (webViewerEnabled && b.type === "webViewer"),
               )
               .map((b) => {
                 const isActive = b.id === activeBuffer?.id;
@@ -824,6 +835,8 @@ export function PaneContainer({ pane }: PaneContainerProps) {
                         isActive={isActive && isActivePane}
                         isVisible={isActive}
                       />
+                    ) : b.type === "agentConversation" ? (
+                      <AgentConversationTab buffer={b} isActive={isActive && isActivePane} />
                     ) : (
                       <WebViewer
                         url={b.url}
@@ -857,6 +870,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
             })}
             {activeBuffer &&
               activeBuffer.type !== "terminal" &&
+              activeBuffer.type !== "agentConversation" &&
               (activeBuffer.type !== "webViewer" || !webViewerEnabled) &&
               !isStandardEditorBuffer(activeBuffer) &&
               renderActiveBuffer(activeBuffer)}

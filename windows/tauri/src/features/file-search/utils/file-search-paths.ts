@@ -2,7 +2,8 @@ export const canUseNativeFileSearch = (rootPath: string | null | undefined): roo
   Boolean(rootPath) &&
   !rootPath?.startsWith("remote://") &&
   !rootPath?.startsWith("wsl://") &&
-  !rootPath?.startsWith("diff://");
+  !rootPath?.startsWith("diff://") &&
+  !rootPath?.startsWith("agent-conversation://");
 
 export const getNativeWorkspaceRootPaths = (
   rootFolderPath: string | null | undefined,

@@ -24,7 +24,7 @@ Windows Agent 面板的一次启动只对应一个 ACP 进程，进程身份由�
 - 连接身份用 `launchKey(workspace, agentId, authentication, command, arguments)` 表示。工作区或身份变化时先 `stop()`、再 `reset()`、再重连；失败启动不写入身份，下次设置变化仍会重试。
 - 切走前用 `captureSnapshot()` 保存当前可见状态，切回时 `restoreSnapshot()` 放回。恢复会清掉全部进程相关标记，`prepareConversation()` 因此走 `loadSession` 重新附着，用户看到的仍是原会话；工作区切换清空全部保留状态，避免跨项目串台。
 - 发送条件包含 `pendingConfigToken == null`：会话设置还在确认时不接受新消息，界面沿用「准备中」提示。
-- `draft` 与 `files` 提升到 `AgentPanel`，`AgentComposer` 改为受控组件；切换会话时仍清空附件，与 macOS 一致。
+- `draft` 与 `files` 由 `AgentPanel` 持有并提升到 `agent-surface.store`，`AgentComposer` 改为受控组件；第 11 期起工具窗口与编辑区标签共享同一份按会话保存的草稿。
 - 附件校验在事件处理阶段先算出结果，成功后再写入状态；上限错误只显示提示，不改动原有草稿与附件。
 
 ## 考虑过的备选方案
@@ -38,8 +38,8 @@ Windows Agent 面板的一次启动只对应一个 ACP 进程，进程身份由�
 
 - 切换 Agent 或认证方式仍会重启进程，但各 Agent 的可见会话以连接身份为键保留，切回后重新加载；工作区切换会清空全部保留状态。
 - `stop()` 可能比过去多等一次启动完成的耗时，换取“停止返回即无存活进程”。
-- 面板持有输入状态后，面板自身的卸载（关闭侧栏）仍会清空草稿；这是与对话框生命周期一致的边界。
-- 跨 Agent 模型同步与编辑区放置仍缺，继续由功能矩阵跟踪。
+- 输入状态提升到窗口级放置状态后，关闭侧栏或把对话移动到编辑区都不会清空未发送草稿；工作区切换才清空。
+- 跨 Agent 模型同步仍缺，继续由功能矩阵跟踪；编辑区放置由 `2026-10-18-windows-agent-conversation-editor-placement.md` 承接。
 
 ## 验证
 

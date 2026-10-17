@@ -13,6 +13,7 @@ const getShareableSplitBufferId = (bufferId: string | null | undefined) => {
   if (
     activeBuffer?.type === "terminal" ||
     activeBuffer?.type === "agent" ||
+    activeBuffer?.type === "agentConversation" ||
     activeBuffer?.type === "webViewer"
   ) {
     return undefined;
