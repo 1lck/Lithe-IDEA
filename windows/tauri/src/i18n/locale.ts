@@ -4308,6 +4308,11 @@ const catalogs = {
     "git.pushDialog.noChangedFiles": "This commit has no changed files.",
     "git.pushDialog.moreCommits": "More commits are not shown in this bounded preview.",
     "git.pushDialog.newUpstream": "New upstream",
+    "git.pushDialog.createsRemoteBranch": "New remote branch",
+    "git.pushDialog.divergentWarning":
+      '"{branch}" tracks "{upstream}", a different branch. Choose where this push should go.',
+    "git.pushDialog.publishSameName": "Publish to {remote}/{branch}",
+    "git.pushDialog.pushToUpstream": "Push to {branch}",
     "git.pushDialog.upstreamConfigurationFailed":
       "Push succeeded, but the branch upstream could not be configured.",
     "git.pushDialog.pushTags": "Push tags:",
@@ -8729,6 +8734,11 @@ const catalogs = {
     "git.pushDialog.noChangedFiles": "此提交没有变更文件。",
     "git.pushDialog.moreCommits": "有更多提交未显示在当前有界预览中。",
     "git.pushDialog.newUpstream": "新建上游",
+    "git.pushDialog.createsRemoteBranch": "新建远端分支",
+    "git.pushDialog.divergentWarning":
+      "「{branch}」跟踪的是另一个分支「{upstream}」。请选择这次推送的目标。",
+    "git.pushDialog.publishSameName": "发布到 {remote}/{branch}",
+    "git.pushDialog.pushToUpstream": "推送到 {branch}",
     "git.pushDialog.upstreamConfigurationFailed": "推送已成功，但无法配置分支上游。",
     "git.pushDialog.pushTags": "推送标签：",
     "git.pushDialog.tagsAll": "所有",

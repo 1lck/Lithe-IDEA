@@ -6,6 +6,7 @@ import type {
   GitPushExpectation,
   GitPushPreview,
   GitPushTagScope,
+  GitPushTargetChoice,
 } from "../types/git.types";
 import { resolveRepositoryPathOrThrow } from "./git-repo-api";
 import { referencePayload, type GitReferenceInput } from "./git-reference-payload";
@@ -30,6 +31,8 @@ export interface GitPushOptions {
   expectedPush?: GitPushExpectation;
   force?: boolean;
   pushTags?: GitPushTagScope;
+  /** Confirmed destination for a divergent branch; omitted for routine pushes. */
+  pushTarget?: GitPushTargetChoice;
 }
 
 const localReference = (branch: string): string =>
@@ -78,6 +81,7 @@ export const executeGitPush = async (
     operation: "push",
     ...pushReferencePayload(options.reference),
     ...(options.expectedPush ? { expectedPush: options.expectedPush } : {}),
+    ...(options.pushTarget ? { pushTarget: options.pushTarget } : {}),
     force: options.force ?? false,
     pushTags: options.pushTags ?? "none",
   });
