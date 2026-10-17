@@ -40,6 +40,34 @@ extension AppModel {
         }
     }
 
+    /// Workspace files for an `@` mention in the Agent composer, as relative paths.
+    func agentFileMentions(matching query: String) async -> [AgentFileMention] {
+        guard let root = workspaceURL?.standardizedFileURL else { return [] }
+        let rootComponents = root.pathComponents
+        return await searchWorkflow.findFiles(query: query).prefix(20).compactMap { url in
+            let components = url.standardizedFileURL.pathComponents
+            guard components.starts(with: rootComponents), components.count > rootComponents.count else { return nil }
+            return AgentFileMention(path: components.dropFirst(rootComponents.count).joined(separator: "/"), url: url)
+        }
+    }
+
+    /// Stores a pasted image so it can be attached like any local file. Agents
+    /// read attachments as ACP resource links, so the image must outlive the
+    /// paste; it lives in Caches (never the app bundle) and is pruned after a week.
+    func saveAgentPastedImage(_ png: Data) throws -> URL {
+        let storage = services.fileStorage
+        let directory = storage.cacheDirectory().appendingPathComponent("AgentPastedImages", isDirectory: true)
+        try storage.createDirectory(at: directory, withIntermediateDirectories: true)
+        let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
+        for file in storage.listDirectory(at: directory)
+        where (storage.metadata(for: file)?.modificationDate ?? .distantFuture) < cutoff {
+            try? storage.removeItem(at: file)
+        }
+        let url = directory.appendingPathComponent(AgentPastedImage.fileName(), isDirectory: false)
+        try storage.writeData(png, to: url, options: .atomic)
+        return url
+    }
+
     var isAgentConversationEnabled: Bool {
         guard let snapshot = try? services.moduleRuntime.snapshot(for: .agentConversation) else { return false }
         return snapshot.state != .disabled
