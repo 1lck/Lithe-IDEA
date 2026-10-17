@@ -2,7 +2,7 @@
   "id": "agent-context-usage",
   "area": "AI",
   "group": "Agent 对话",
-  "capability": "Agent 上下文用量：发送旁紧凑圆环、单行悬停已用/容量、点击参考式用量明细（大号百分比、多色容量条、四类分项与工具数量，估算说明按需悬停）；区分未知与真实零，按确认模型恢复真实报告且不展示来源后缀，会话隔离与压缩更新；Codex旧历史通过当前原生连接恢复真实用量，无需再次调用模型；Codex订阅连接支持HTTP/SSE与WebSocket模型调用采集、增量上下文构成和原生用量校准",
+  "capability": "Agent 上下文用量：发送旁紧凑圆环（Agent 首条上报前隐藏，出现后区分未知与真实零）、单行悬停已用/容量、点击参考式用量明细（大号百分比、多色容量条、四类分项与工具数量，估算说明按需悬停；明细面板在无数据时保留未知说明，不显示成零用量）、按确认模型恢复真实报告且不展示来源后缀，会话隔离与压缩更新；Codex旧历史通过当前原生连接恢复真实用量，无需再次调用模型；Codex订阅连接支持HTTP/SSE与WebSocket模型调用采集、增量上下文构成和原生用量校准",
   "macos": {
     "evidence": [
       "macos/Sources/LitheAgentConversationModule/Application/AgentContextUsage.swift",
