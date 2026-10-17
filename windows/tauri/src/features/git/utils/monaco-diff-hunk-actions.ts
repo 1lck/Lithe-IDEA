@@ -28,13 +28,16 @@ export function workingTreeStagingContext(
 
 type HunkOperation = (repoPath: string, hunk: GitHunk) => Promise<boolean>;
 export type HunkActionID = "stage" | "unstage" | "discard";
-type ActionResult = "applied" | "failed" | "ignored";
+type ActionResult = "applied" | "failed" | "ignored" | "cancelled";
 
 export interface MonacoDiffHunkOperations {
   stage: HunkOperation;
   unstage: HunkOperation;
   /** Reverse-applies the block to the working tree. */
   discard?: HunkOperation;
+  /** Asks the user to confirm a discard when the setting is enabled; the
+   * component supplies the dialog and pending gate. */
+  confirmDiscard?: (path: string) => Promise<boolean>;
 }
 
 /** Discard rewrites working-tree content. New and deleted files have no
@@ -71,10 +74,18 @@ export function createMonacoDiffHunkActions(
       const hunk = monacoDiffHunk(diff, hunkID);
       if (!hunk) return "ignored";
       const requested = requestedAction as HunkActionID;
-      // Block arrows are direct actions, separate from file/repository discard
-      // confirmation. Keep duplicate clicks locked until the write completes.
+      // Duplicate clicks stay locked from here until the write completes.
       pending = true;
       try {
+        if (requested === "discard" && operations.confirmDiscard) {
+          const confirmed = await operations.confirmDiscard(
+            diff.new_path || diff.file_path || "",
+          );
+          // The diff may have been replaced while the dialog was open; the
+          // owning effect disposes this instance, so never apply afterwards.
+          if (disposed) return "ignored";
+          if (!confirmed) return "cancelled";
+        }
         const operation = requested === "discard" ? operations.discard! : operations[requested];
         const success = await operation(context.repoPath, hunk);
         if (disposed) return "ignored";

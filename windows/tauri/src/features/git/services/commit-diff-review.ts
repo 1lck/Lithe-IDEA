@@ -118,5 +118,13 @@ export function createCommitDiffReview(dependencies: Dependencies) {
       }
     }
   }
-  return { refresh, apply, dispose() { closed = true; generation++; dirty = false; } };
+  return {
+    refresh,
+    apply,
+    // Model-level view of the newest snapshot: publish() updates it before
+    // any React rerender, so confirmation identity checks read this instead
+    // of a render-phase ref.
+    currentState: () => state,
+    dispose() { closed = true; generation++; dirty = false; },
+  };
 }

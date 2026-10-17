@@ -179,7 +179,42 @@ describe("Windows Monaco diff hunk actions", () => {
     owner.dispose();
   });
 
-  test("rollback starts its write immediately without a confirmation dependency", async () => {
+  test("rollback asks the confirmation gate before writing", async () => {
+    const api = rollbackOperations();
+    const confirm = mock(async () => false);
+    const owner = createMonacoDiffHunkActions(diff, discardContext, { ...api, confirmDiscard: confirm });
+    expect(await owner.apply("hunk-0", "discard")).toBe("cancelled");
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(api.discard).not.toHaveBeenCalled();
+    owner.dispose();
+  });
+
+  test("a confirmed rollback writes through the gate", async () => {
+    const api = rollbackOperations();
+    const confirm = mock(async () => true);
+    const owner = createMonacoDiffHunkActions(diff, discardContext, { ...api, confirmDiscard: confirm });
+    expect(await owner.apply("hunk-0", "discard")).toBe("applied");
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(api.discard).toHaveBeenCalledTimes(1);
+    owner.dispose();
+  });
+
+  test("a diff replaced while the confirmation is open never writes", async () => {
+    const api = rollbackOperations();
+    let release: ((value: boolean) => void) | undefined;
+    const confirm = mock(() => new Promise<boolean>((resolve) => { release = resolve; }));
+    const owner = createMonacoDiffHunkActions(diff, discardContext, { ...api, confirmDiscard: confirm });
+    const pending = owner.apply("hunk-0", "discard");
+    await Promise.resolve();
+    // The owning effect replaced the diff and disposed this instance while
+    // the dialog was still open.
+    owner.dispose();
+    release?.(true);
+    expect(await pending).toBe("ignored");
+    expect(api.discard).not.toHaveBeenCalled();
+  });
+
+  test("callers without a confirmation gate keep applying directly", async () => {
     const api = rollbackOperations();
     const owner = createMonacoDiffHunkActions(diff, discardContext, api);
     const result = owner.apply("hunk-0", "discard");

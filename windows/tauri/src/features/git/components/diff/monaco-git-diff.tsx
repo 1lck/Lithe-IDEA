@@ -16,6 +16,7 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { useTranslation } from "@/i18n/locale-provider";
 import { joinPath } from "@/utils/path-helpers";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { showConfirmDialog } from "@/ui/dialog";
 import { discardHunk, stageHunk, unstageHunk } from "../../api/git-status-api";
 import {
   createMonacoDiffHunkActions,
@@ -84,6 +85,22 @@ export default function MonacoGitDiff({
   const container = useRef<HTMLDivElement>(null);
   const review = useRef<ReturnType<typeof mountDiffReview> | null>(null);
   const hunkActions = useRef<ReturnType<typeof createMonacoDiffHunkActions> | null>(null);
+  // Stable across the diff effect: one dialog at a time for block discards on
+  // this surface, honoring the shared Confirm Before Discard setting.
+  const confirmDiscardRef = useRef(async (path: string) => {
+    if (!useSettingsStore.getState().settings.confirmBeforeDiscard) return true;
+    if (discardDialogPendingRef.current) return false;
+    discardDialogPendingRef.current = true;
+    try {
+      return await showConfirmDialog(
+        t("git.diff.rollbackHunkConfirm", { path }),
+        { title: t("git.rollback"), confirmLabel: t("git.rollback") },
+      );
+    } finally {
+      discardDialogPendingRef.current = false;
+    }
+  });
+  const discardDialogPendingRef = useRef(false);
   const [error, setError] = useState<string>();
   const [actionFailed, setActionFailed] = useState(false);
   const [height, setHeight] = useState(MIN_REVIEW_HEIGHT);
@@ -300,7 +317,7 @@ export default function MonacoGitDiff({
 
   useEffect(() => {
     const owner = createMonacoDiffHunkActions(diff, repoPath ? { repoPath, isStaged, canDiscard } : undefined,
-      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk });
+      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk, confirmDiscard: confirmDiscardRef.current });
     hunkActions.current = owner;
     setActionFailed(false);
     return () => {

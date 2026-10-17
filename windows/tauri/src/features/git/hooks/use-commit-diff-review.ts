@@ -24,11 +24,6 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
   const batch = useSyncExternalStore(workflow.subscribe, workflow.getState, workflow.getState);
   const [state, setState] = useState<CommitDiffReviewState>({ snapshot: null, blocks: [], busy: false });
   const { t } = useTranslation();
-  // Latest snapshot reference for post-confirmation identity checks; a null or
-  // changed reference after the dialog means the target was refreshed or
-  // switched and the confirmed rollback must not run.
-  const stateRef = useRef(state);
-  stateRef.current = state;
   const rollbackConfirmPendingRef = useRef<string | null>(null);
   const navigationRequests = useRef(createRequestGeneration());
   const [fileNavigationBusy, setFileNavigationBusy] = useState(false);
@@ -197,7 +192,11 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
       // One pending confirmation at a time; repeat clicks while the dialog is
       // open are ignored instead of stacking a second dialog.
       if (rollbackConfirmPendingRef.current !== null) return "ignored";
-      const snapshotAtConfirm = stateRef.current.snapshot;
+      // Bind to the model-level owner and snapshot: publish() refreshes the
+      // service state before React rerenders, so a render-phase ref could
+      // still hold the pre-refresh snapshot and let unconfirmed content pass.
+      const ownerAtConfirm = owner.current;
+      const snapshotAtConfirm = ownerAtConfirm?.currentState().snapshot ?? null;
       rollbackConfirmPendingRef.current = id;
       let confirmed = false;
       try {
@@ -209,10 +208,11 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
         rollbackConfirmPendingRef.current = null;
       }
       if (!confirmed) return "cancelled";
-      // The confirmed rollback only applies to the snapshot it was opened
-      // against; a refreshed or switched target (new snapshot reference, file,
-      // or repository) requires operating again on what is now shown.
-      if (stateRef.current.snapshot !== snapshotAtConfirm) return "stale";
+      // The confirmed rollback only applies to the owner and snapshot it was
+      // opened against; a refreshed or switched target (new owner, snapshot,
+      // file, or repository) requires operating again on what is now shown.
+      if (owner.current !== ownerAtConfirm) return "stale";
+      if ((owner.current?.currentState().snapshot ?? null) !== snapshotAtConfirm) return "stale";
       return owner.current?.apply(id, "rollback");
     } };
 }
