@@ -1,0 +1,26 @@
+{
+  "id": "agent-reply-markdown",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Agent 回复的 Markdown 渲染：中文标点紧邻 ** 的加粗正确显示；表格悬停可单独复制为 Markdown 与 HTML；文件路径（含 :行号 / #L行号）、GitHub 与普通网页链接按类型显示图标，文件链接在编辑器中打开并定位到行，其余交给系统打开",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentMarkdownView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentMarkdownLink.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
+      "macos/Resources/IDEAIcons/vcs/vendors/github.svg",
+      "macos/Tests/LitheTests/AgentMarkdownTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "pending"
+  },
+  "owner": "Agent",
+  "verification": "macOS：让 Agent 回复包含 `**状态：**仍开放`、代码内 `**`、多列表格以及 `[App.swift](macos/Sources/App.swift:42)`、`[README](README.md#L3)`、GitHub issue 与普通网页链接。确认加粗正确且代码保持原文；悬停表格出现复制按钮，粘贴到文本编辑器得到 Markdown 表格、粘贴到 Numbers/表格得到单元格；文件链接显示文档/代码图标并在编辑器中打开到对应行，GitHub 链接显示 GitHub 图标并用浏览器打开。检查深浅主题。Windows 前端尚未接入同等渲染。"
+}

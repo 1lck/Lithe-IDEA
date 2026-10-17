@@ -31,6 +31,10 @@ struct AgentComposerView: View {
     var quotaFailure: String?
     var onSetConfig: (String, String) -> Void = { _, _ in }
     var commands: [AgentCommand] = []
+    /// Workspace files matching an `@` query; nil where no workspace is open.
+    var findFiles: ((String) async -> [AgentFileMention])? = nil
+    /// Saves a pasted image to platform storage and returns the file to attach.
+    var savePastedImage: ((Data) throws -> URL)? = nil
     var showsToolbar = true
     var draftText: Binding<String>? = nil
     var draftFiles: Binding<[AgentFileReference]>? = nil
@@ -39,6 +43,7 @@ struct AgentComposerView: View {
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
     @State private var showsFilePicker = false
+    @State private var mentionURLs: [String: URL] = [:]
     @State private var showsDetails = false
     @State private var showsContext = false
     @FocusState private var isFocused: Bool
@@ -83,9 +88,13 @@ struct AgentComposerView: View {
         .onChange(of: draftText?.wrappedValue) { value in
             if let value, value != completion.draft { completion.draft = value }
         }
+        .task(id: AgentCommand.mentionQuery(in: currentDraft)) {
+            await loadFileMentions(for: AgentCommand.mentionQuery(in: currentDraft))
+        }
         .padding(.horizontal, AgentComposerMetrics.horizontalInset)
         .padding(.bottom, AgentComposerMetrics.bottomInset)
         .onExitCommand { _ = handleCommandKey(.escape) }
+        .modifier(AgentPasteAttachments(isActive: isFocused, onPaste: attachPasted))
     }
 
     private var composerContent: some View {
@@ -96,7 +105,7 @@ struct AgentComposerView: View {
             if showsToolbar { contextBar }
             else { Color.clear.frame(height: AgentComposerMetrics.contextHeight - 1).accessibilityHidden(true) }
         } editor: {
-            LitheSearchTextField("Type your task or / for commands", text: textBinding, axis: .vertical)
+            LitheSearchTextField(findFiles == nil ? "Type your task or / for commands" : "Type your task, / for commands or @ for files", text: textBinding, axis: .vertical)
                 .lineLimit(1...)
                 .focused($isFocused)
                 .onSubmit { _ = handleCommandKey(.submit) }
@@ -249,10 +258,45 @@ struct AgentComposerView: View {
         }
     }
 
+    private func attachPasted(_ attachment: AgentPasteboardAttachment) -> Bool {
+        switch attachment {
+        case .files(let urls):
+            return addFiles(urls)
+        case .image(let png):
+            guard let savePastedImage else { return false }
+            do {
+                return addFiles([try savePastedImage(png)])
+            } catch {
+                onError(error.localizedDescription)
+                return true
+            }
+        }
+    }
+
     private func complete(_ command: AgentCommand) {
         completion.complete(command)
         draftText?.wrappedValue = completion.draft
+        if command.isFileMention { attachMention(command) }
         isFocused = true
+    }
+
+    private func attachMention(_ command: AgentCommand) {
+        guard let url = mentionURLs[command.id] else { return }
+        _ = addFiles([url])
+    }
+
+    /// Debounced so a fast typist searches once per pause, not per keystroke.
+    private func loadFileMentions(for query: String?) async {
+        guard let query, !query.isEmpty, let findFiles else {
+            completion.fileMentions = []
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(150))
+        guard !Task.isCancelled else { return }
+        let files = await findFiles(query)
+        guard !Task.isCancelled else { return }
+        mentionURLs = Dictionary(files.map { ("@" + $0.path, $0.url) }, uniquingKeysWith: { first, _ in first })
+        completion.fileMentions = files.map(AgentCommand.fileMention)
     }
 
     private func handleCommandKey(_ key: AgentCommandCompletion.Key) -> AgentCommandCompletion.Result {
@@ -263,6 +307,9 @@ struct AgentComposerView: View {
         case .send: send()
         case .cancel: onCancel()
         case .handled: isFocused = true
+        case .attach(let command):
+            draftText?.wrappedValue = completion.draft
+            attachMention(command)
         case .ignored: break
         }
         return result

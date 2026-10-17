@@ -50,6 +50,8 @@ struct AgentConversationView: View {
                     onCopySessionID: { model.copyAgentSessionID($0) },
                     onOpenFile: { model.openAgentFile($0) },
                     onRestoreFile: { try await model.restoreAgentFile($0) },
+                    onFindFiles: { await model.agentFileMentions(matching: $0) },
+                    onSavePastedImage: { try model.saveAgentPastedImage($0) },
                     availableAgents: selectableAgents,
                     historyOnly: !isEditor && model.agentChatsInEditor,
                     showsChatActions: !isEditor,
@@ -239,6 +241,8 @@ struct AgentConfiguredConversationView: View {
     let onCopySessionID: (String) -> Void
     let onOpenFile: (AgentToolDetails.Location) -> Void
     var onRestoreFile: (AgentFileChange) async throws -> Void = { _ in throw AgentEditRestoreError.unavailable }
+    var onFindFiles: ((String) async -> [AgentFileMention])? = nil
+    var onSavePastedImage: ((Data) throws -> URL)? = nil
     var availableAgents: [AgentOption]? = nil
     var historyOnly = false
     var showsChatActions = true
@@ -262,6 +266,8 @@ struct AgentConfiguredConversationView: View {
                 onCopySessionID: onCopySessionID,
                 onOpenFile: onOpenFile,
                 onRestoreFile: onRestoreFile,
+                onFindFiles: onFindFiles,
+                onSavePastedImage: onSavePastedImage,
                 historyOnly: historyOnly, showsChatActions: showsChatActions, chatsInEditor: chatsInEditor,
                 onToggleLocation: onToggleLocation, onFocusEditor: onFocusEditor,
                 isEditorLayout: isEditorLayout, workspaceSummary: workspaceSummary
@@ -362,6 +368,8 @@ private struct AgentConnectionView: View {
     let onCopySessionID: (String) -> Void
     let onOpenFile: (AgentToolDetails.Location) -> Void
     let onRestoreFile: (AgentFileChange) async throws -> Void
+    var onFindFiles: ((String) async -> [AgentFileMention])? = nil
+    var onSavePastedImage: ((Data) throws -> URL)? = nil
     var historyOnly = false
     var showsChatActions = true
     var chatsInEditor = false
@@ -645,6 +653,8 @@ private struct AgentConnectionView: View {
             quotaFailure: feature.quotaFailure,
             onSetConfig: { feature.setConfigOption($0, value: $1) },
             commands: feature.selectedConversation?.availableCommands ?? [],
+            findFiles: onFindFiles,
+            savePastedImage: onSavePastedImage,
             showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles,
             detailsContent: { AnyView(detailsPanel.frame(height: AgentEditorConversationMetrics.detailsPopupHeight)) }
         )

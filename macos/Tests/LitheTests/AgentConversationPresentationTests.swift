@@ -959,3 +959,107 @@ private struct AgentDraftFrameProbe: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
+
+extension AgentConversationPresentationTests {
+    @Test
+    func chineseInputTriggersOpenCommandsAndSkills() {
+        let commands = [AgentCommand(name: "review", description: "Review"),
+                        AgentCommand(name: "$pdf", description: "Read PDFs")]
+        for draft in ["¥", "￥", "$"] {
+            #expect(AgentCommand.suggestions(for: draft, in: commands)?.map(\.name) == ["$pdf"])
+        }
+        #expect(AgentCommand.suggestions(for: "、re", in: commands)?.map(\.name) == ["review"])
+        var completion = AgentCommandCompletion()
+        completion.draft = "¥p"
+        #expect(completion.handle(.tab, commands: commands, isResponding: false) == .handled)
+        #expect(completion.draft == "$pdf ")
+    }
+
+    @Test
+    func fileMentionsCompleteByRemovingTheQueryAndAttachingTheFile() throws {
+        #expect(AgentCommand.mentionQuery(in: "look at @App") == "App")
+        #expect(AgentCommand.mentionQuery(in: "＠") == "")
+        #expect(AgentCommand.mentionQuery(in: "look at @App ") == nil)
+        #expect(AgentCommand.mentionQuery(in: "mail user@host") == nil)
+
+        let file = AgentCommand.fileMention(AgentFileMention(path: "Sources/App.swift",
+                                                             url: URL(fileURLWithPath: "/w/Sources/App.swift")))
+        #expect(file.isFileMention && file.invocation == "@Sources/App.swift" && file.description == "Sources")
+        var completion = AgentCommandCompletion()
+        completion.draft = "fix @App"
+        #expect(completion.suggestions(in: []) == nil, "No rows until the file search returns")
+        completion.fileMentions = [file]
+        #expect(completion.suggestions(in: [])?.map(\.name) == ["@Sources/App.swift"])
+        #expect(completion.handle(.submit, commands: [], isResponding: false) == .attach(file))
+        #expect(completion.draft == "fix ")
+        #expect(completion.fileMentions.isEmpty)
+    }
+
+    @Test
+    func turnFooterShowsCompletionTimeAndCompactUsage() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 16, hour: 15, minute: 30)))
+        let earlier = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 16, hour: 9, minute: 5)))
+        let yesterday = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 15, hour: 23, minute: 59)))
+        #expect(AgentTurnStatisticsPresentation.completionTime(earlier, now: now, calendar: calendar, locale: Locale(identifier: "en_US")) == "09:05")
+        #expect(AgentTurnStatisticsPresentation.completionTime(yesterday, now: now, calendar: calendar, locale: Locale(identifier: "en_US")) == "2026-10-15 23:59")
+
+        let start = ContinuousClock.Instant.now
+        var turn = AgentTurnStatistics(id: "turn", startedAt: start)
+        turn.finish(at: start.advanced(by: .seconds(62)), endingMessageID: "reply", usage: nil, completedAt: earlier)
+        #expect(turn.completedAt == earlier)
+        #expect(AgentTurnStatisticsPresentation.pill(turn, locale: Locale(identifier: "en_US")) == "1m 2s")
+        let usage = try #require(AgentTurnUsage.parse(["totalTokens": 25400, "inputTokens": 24000, "outputTokens": 1400]))
+        turn.finish(at: start.advanced(by: .seconds(62)), endingMessageID: "reply", usage: usage, completedAt: earlier)
+        #expect(AgentTurnStatisticsPresentation.pill(turn, locale: Locale(identifier: "en_US")) == "1m 2s · 25.4K tok")
+    }
+
+    @Test
+    func turnSummaryCarriesTheEndingReplyForItsCopyButton() {
+        let start = ContinuousClock.Instant.now
+        var turn = AgentTurnStatistics(id: "user-1", startedAt: start)
+        turn.finish(at: start, endingMessageID: "agent-1", usage: nil)
+        let items = AgentTranscriptItem.grouped([
+            AgentConversationMessage(id: "user-1", role: .user, text: "Hi"),
+            AgentConversationMessage(id: "agent-1", role: .agent, text: "Done.")
+        ], turns: [turn])
+        guard case .turnSummary(_, let reply) = items.last else {
+            Issue.record("expected a turn summary: \(items.map(\.id))")
+            return
+        }
+        #expect(reply == "Done.")
+    }
+
+    @Test
+    func pasteboardFilesAndImagesBecomeAttachmentsButTextPastes() throws {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("lithe-agent-paste-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+
+        let file = URL(fileURLWithPath: "/tmp/report.pdf")
+        pasteboard.clearContents()
+        pasteboard.writeObjects([file as NSURL])
+        #expect(AgentPasteboardAttachment.read(from: pasteboard) == .files([file]))
+
+        let image = NSImage(size: NSSize(width: 4, height: 4))
+        image.lockFocus()
+        NSColor.red.setFill()
+        NSRect(x: 0, y: 0, width: 4, height: 4).fill()
+        image.unlockFocus()
+        pasteboard.clearContents()
+        pasteboard.writeObjects([image])
+        guard case .image(let png) = AgentPasteboardAttachment.read(from: pasteboard) else {
+            Issue.record("expected a pasted image")
+            return
+        }
+        #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+
+        pasteboard.clearContents()
+        pasteboard.setString("plain text", forType: .string)
+        #expect(AgentPasteboardAttachment.read(from: pasteboard) == nil)
+
+        let date = try #require(ISO8601DateFormatter().date(from: "2026-10-16T06:03:21Z"))
+        let name = AgentPastedImage.fileName(date: date, suffix: "ab12")
+        #expect(name.hasPrefix("Pasted image 2026-10-16 ") && name.hasSuffix(" ab12.png"))
+    }
+}

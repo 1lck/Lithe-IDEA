@@ -160,3 +160,72 @@ struct AgentToolEvidencePresentationTests {
         #expect(sections.last?.text == "plain result")
     }
 }
+
+extension AgentMarkdownTests {
+    private func paragraph(_ source: String) throws -> AttributedString {
+        let blocks = AgentMarkdownBlock.parse(source)
+        guard case .paragraph(let text) = try #require(blocks.first) else {
+            Issue.record("expected paragraph: \(blocks)")
+            return AttributedString()
+        }
+        return text
+    }
+
+    private func isBold(_ text: AttributedString, _ word: String) throws -> Bool {
+        let range = try #require(text.range(of: word))
+        return text[range].runs.allSatisfy { $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true }
+    }
+
+    @Test
+    func boldClosedByCJKPunctuationBeforeCJKTextStillRenders() throws {
+        // CommonMark leaves `**` literal when a closing delimiter follows
+        // punctuation and precedes a letter, which is common in Chinese replies.
+        let text = try paragraph("**状态：**仍开放，**结论。**继续")
+        #expect(plain(text) == "状态：仍开放，结论。继续")
+        #expect(try isBold(text, "状态："))
+        #expect(try isBold(text, "结论。"))
+        #expect(try !isBold(text, "仍开放"))
+
+        let code = try paragraph("Use `a**b**c` and **ok**")
+        #expect(plain(code) == "Use a**b**c and ok")
+        let unpaired = try paragraph("2 ** 3 is power")
+        #expect(plain(unpaired) == "2 ** 3 is power")
+    }
+
+    @Test
+    func linksAreClassifiedByDestination() throws {
+        func link(_ string: String) throws -> AgentMarkdownLink { AgentMarkdownLink(try #require(URL(string: string))) }
+        #expect(try link("https://github.com/1lck/Lithe-IDEA/issues/1249") == .github)
+        #expect(try link("https://gist.github.com/x") == .github)
+        #expect(try link("https://example.com/a") == .web)
+        #expect(try link("mailto:a@example.com") == .web)
+        #expect(try link("macos/Sources/App.swift:42") == .file(.init(path: "macos/Sources/App.swift", line: 42), isDocument: false))
+        #expect(try link("README.md:12") == .file(.init(path: "README.md", line: 12), isDocument: true))
+        #expect(try link("docs/My%20Notes.md#L7") == .file(.init(path: "docs/My Notes.md", line: 7), isDocument: true))
+        #expect(try link("file:///tmp/a.rs:3:9") == .file(.init(path: "/tmp/a.rs", line: 3), isDocument: false))
+        #expect(try link("Makefile") == .file(.init(path: "Makefile", line: nil), isDocument: true))
+    }
+
+    @Test
+    func tableExportsAsMarkdownAndHTML() throws {
+        let blocks = AgentMarkdownBlock.parse("""
+        | Name | Note |
+        | --- | --- |
+        | a\\|b | <x> & y |
+        | short |
+        """)
+        guard case .table(let header, let rows) = try #require(blocks.first) else {
+            Issue.record("expected table: \(blocks)")
+            return
+        }
+        #expect(AgentMarkdownTableExport.markdown(header: header, rows: rows) == """
+        | Name | Note |
+        | --- | --- |
+        | a\\|b | <x> & y |
+        | short |  |
+        """)
+        #expect(AgentMarkdownTableExport.html(header: header, rows: rows)
+                == "<table><thead><tr><th>Name</th><th>Note</th></tr></thead><tbody>"
+                + "<tr><td>a|b</td><td>&lt;x&gt; &amp; y</td></tr><tr><td>short</td><td></td></tr></tbody></table>")
+    }
+}

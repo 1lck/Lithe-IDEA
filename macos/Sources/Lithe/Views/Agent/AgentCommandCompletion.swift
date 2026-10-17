@@ -2,9 +2,10 @@ import LitheAgentConversationModule
 
 /// View-local command interaction shared by Return, Esc, arrow keys and Tab.
 /// Completing a command edits the draft; only a send result starts a prompt.
+/// Completing a file mention removes the `@query` and reports the file to attach.
 struct AgentCommandCompletion {
     enum Key { case submit, escape, up, down, tab }
-    enum Result { case ignored, handled, send, cancel }
+    enum Result: Equatable { case ignored, handled, send, cancel, attach(AgentCommand) }
 
     var draft = "" {
         didSet {
@@ -16,13 +17,23 @@ struct AgentCommandCompletion {
     }
     private(set) var highlightedIndex = 0
     private var dismissedDraft: String?
+    /// Files found for the draft's current `@` query; filled asynchronously.
+    var fileMentions: [AgentCommand] = []
 
     func suggestions(in commands: [AgentCommand]) -> [AgentCommand]? {
-        dismissedDraft == draft ? nil : AgentCommand.suggestions(for: draft, in: commands)
+        guard dismissedDraft != draft else { return nil }
+        if let commands = AgentCommand.suggestions(for: draft, in: commands) { return commands }
+        guard AgentCommand.mentionQuery(in: draft) != nil, !fileMentions.isEmpty else { return nil }
+        return fileMentions
     }
 
     mutating func complete(_ command: AgentCommand) {
-        draft = command.invocation + " "
+        if command.isFileMention, let query = AgentCommand.mentionQuery(in: draft) {
+            draft.removeLast(query.count + 1)
+            fileMentions = []
+        } else {
+            draft = command.invocation + " "
+        }
         dismissedDraft = nil
     }
 
@@ -38,17 +49,22 @@ struct AgentCommandCompletion {
         case .submit:
             guard let suggestions, !suggestions.isEmpty,
                   !suggestions.contains(where: { $0.invocation == draft }) else { return .send }
-            complete(suggestions[min(highlightedIndex, suggestions.count - 1)])
-            return .handled
+            return completeHighlighted(in: suggestions)
         case .up, .down, .tab:
             guard let suggestions, !suggestions.isEmpty else { return .ignored }
             if key == .tab {
-                complete(suggestions[min(highlightedIndex, suggestions.count - 1)])
+                return completeHighlighted(in: suggestions)
             } else {
                 let offset = key == .up ? -1 : 1
                 highlightedIndex = (min(highlightedIndex, suggestions.count - 1) + offset + suggestions.count) % suggestions.count
             }
             return .handled
         }
+    }
+
+    private mutating func completeHighlighted(in suggestions: [AgentCommand]) -> Result {
+        let command = suggestions[min(highlightedIndex, suggestions.count - 1)]
+        complete(command)
+        return command.isFileMention ? .attach(command) : .handled
     }
 }

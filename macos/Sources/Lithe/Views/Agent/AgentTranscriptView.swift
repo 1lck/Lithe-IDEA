@@ -7,13 +7,14 @@ import LitheAgentConversationModule
 enum AgentTranscriptItem: Identifiable {
     case message(AgentConversationMessage)
     case toolGroup([AgentConversationMessage])
-    case turnSummary(AgentTurnStatistics)
+    /// `reply` is the ending Agent message, copied from the footer.
+    case turnSummary(AgentTurnStatistics, reply: String?)
 
     var id: String {
         switch self {
         case .message(let message): message.id
         case .toolGroup(let tools): "tools:\(tools[0].id)"
-        case .turnSummary(let turn): "turn:\(turn.id)"
+        case .turnSummary(let turn, _): "turn:\(turn.id)"
         }
     }
 
@@ -21,7 +22,7 @@ enum AgentTranscriptItem: Identifiable {
         switch self {
         case .message(let message): message.id
         case .toolGroup(let tools): tools.first?.id
-        case .turnSummary(let turn): turn.endingMessageID
+        case .turnSummary(let turn, _): turn.endingMessageID
         }
     }
 
@@ -65,7 +66,7 @@ enum AgentTranscriptItem: Identifiable {
                     items.append(.toolGroup(tools))
                     tools.removeAll(keepingCapacity: true)
                 }
-                items.append(.turnSummary(summary))
+                items.append(.turnSummary(summary, reply: message.role == .agent ? message.text : nil))
             }
         }
         if !tools.isEmpty { items.append(.toolGroup(tools)) }
@@ -278,6 +279,7 @@ private struct AgentTranscriptRows: View, Equatable {
 
     var body: some View {
         let transcript = AgentTranscriptItem.grouped(messages, turns: completedTurns).filter { $0.matches(searchText) }
+        let turnEndingIDs = Set(completedTurns.compactMap(\.endingMessageID))
         if !searchText.isEmpty && transcript.isEmpty {
             Text("No matching messages")
                 .foregroundStyle(AgentPanelStyle.secondary)
@@ -290,6 +292,7 @@ private struct AgentTranscriptRows: View, Equatable {
                         message: message,
                         isStreamingThought: liveThoughtID == message.id,
                         isSearching: !searchText.isEmpty,
+                        endsTurn: turnEndingIDs.contains(message.id),
                         thoughtExpansion: Binding(
                             get: { thoughtExpansions[message.id] ?? AgentThoughtExpansion() },
                             set: { setThoughtExpansion(message.id, $0) }
@@ -298,13 +301,14 @@ private struct AgentTranscriptRows: View, Equatable {
                     )
                 case .toolGroup(let tools):
                     AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile)
-                case .turnSummary(let turn):
-                    AgentTurnStatisticsView(statistics: turn)
+                case .turnSummary(let turn, let reply):
+                    AgentTurnStatisticsView(statistics: turn, reply: reply)
                 }
             }
             .background(AgentTranscriptNavigationAnchor(state: navigation, turnID: turnByMessageID[item.navigationMessageID ?? ""]))
             .id(item.id)
         }
+        .environment(\.openURL, AgentMarkdownLink.openAction(onOpenFile: onOpenFile))
     }
 }
 
@@ -394,6 +398,8 @@ private struct AgentMessageRow: View {
     let message: AgentConversationMessage
     var isStreamingThought = false
     var isSearching = false
+    /// The turn footer below carries this reply's copy button.
+    var endsTurn = false
     var thoughtExpansion: Binding<AgentThoughtExpansion> = .constant(AgentThoughtExpansion())
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     @State private var isHovered = false
@@ -432,9 +438,11 @@ private struct AgentMessageRow: View {
                 AgentMarkdownMessage(text: message.text)
                     .equatable()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                AgentCopyButton(text: message.text, help: "Copy message")
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
+                if !endsTurn {
+                    AgentCopyButton(text: message.text, help: "Copy message")
+                        .opacity(isHovered ? 1 : 0)
+                        .allowsHitTesting(isHovered)
+                }
             }
             .onHover { isHovered = $0 }
         case .thought:

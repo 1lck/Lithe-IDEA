@@ -144,7 +144,39 @@ enum AgentMarkdownBlock: Equatable {
     private static func inline<S: StringProtocol>(_ text: S) -> AttributedString {
         let source = String(text)
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: source, options: options)) ?? AttributedString(source)
+        let parsed = (try? AttributedString(markdown: source, options: options)) ?? AttributedString(source)
+        return pairingLeftoverStrongMarkers(parsed)
+    }
+
+    /// CommonMark closes `**` only when it is right-flanking, so `**状态：**仍开放`
+    /// (CJK punctuation before the marker, a CJK letter after it) stays literal.
+    /// Agents write this form constantly in Chinese replies. Markers Foundation
+    /// left as text are paired in order within the block; code spans are skipped
+    /// and an unpaired trailing marker stays literal.
+    static func pairingLeftoverStrongMarkers(_ text: AttributedString) -> AttributedString {
+        var offsets: [Int] = []
+        var searchStart = text.startIndex
+        while searchStart < text.endIndex, let range = text[searchStart...].range(of: "**") {
+            let isCode = text[range].runs.contains { $0.inlinePresentationIntent?.contains(.code) == true }
+            if !isCode { offsets.append(text.characters.distance(from: text.startIndex, to: range.lowerBound)) }
+            searchStart = range.upperBound
+        }
+        guard offsets.count >= 2 else { return text }
+        var result = text
+        for pair in stride(from: offsets.count / 2 * 2 - 2, through: 0, by: -2) {
+            let open = offsets[pair], close = offsets[pair + 1]
+            guard close > open + 2 else { continue }
+            let start = result.index(result.startIndex, offsetByCharacters: open)
+            let closeStart = result.index(result.startIndex, offsetByCharacters: close)
+            let content = result.index(start, offsetByCharacters: 2)..<closeStart
+            let runs = result[content].runs.map { ($0.range, $0.inlinePresentationIntent ?? []) }
+            for (range, intent) in runs {
+                result[range].inlinePresentationIntent = intent.union(.stronglyEmphasized)
+            }
+            result.removeSubrange(closeStart..<result.index(closeStart, offsetByCharacters: 2))
+            result.removeSubrange(start..<result.index(start, offsetByCharacters: 2))
+        }
+        return result
     }
 
     private static func heading(_ line: Substring) -> AgentMarkdownBlock? {
@@ -180,9 +212,27 @@ enum AgentMarkdownBlock: Equatable {
     private static func cells(_ line: Substring) -> [Substring] {
         var row = line.trimmingCharacters(in: .whitespaces)[...]
         if row.hasPrefix("|") { row = row.dropFirst() }
-        if row.hasSuffix("|") { row = row.dropLast() }
-        return row.split(separator: "|", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces)[...] }
+        if row.hasSuffix("|") && !row.hasSuffix("\\|") { row = row.dropLast() }
+        // GFM: `\|` is a literal pipe inside a cell, including in code spans.
+        var result: [Substring] = []
+        var cell = ""
+        var previous: Character?
+        for character in row {
+            if character == "|" {
+                if previous == "\\" {
+                    cell.removeLast()
+                    cell.append("|")
+                } else {
+                    result.append(cell.trimmingCharacters(in: .whitespaces)[...])
+                    cell = ""
+                }
+            } else {
+                cell.append(character)
+            }
+            previous = character
+        }
+        result.append(cell.trimmingCharacters(in: .whitespaces)[...])
+        return result
     }
 
     private static func isTableSeparator(_ line: Substring) -> Bool {
@@ -211,9 +261,31 @@ enum AgentMarkdownInline {
                                                   italic: intent.contains(.emphasized))
             }
             if intent.contains(.strikethrough) { result[range].swiftUI.strikethroughStyle = .single }
+            if run.link != nil { result[range].swiftUI.foregroundColor = LitheTheme.accent }
             result[range].inlinePresentationIntent = nil
         }
         return result
+    }
+
+    /// Text for styled runs, with a kind icon before each file or GitHub link.
+    /// Plain web links keep only the link color.
+    @MainActor
+    static func text(_ styled: AttributedString, size: CGFloat) -> Text {
+        var text: Text?
+        var pending = AttributedString()
+        var previousLink: URL?
+        func append(_ segment: Text) { text = text.map { $0 + segment } ?? segment }
+        for run in styled.runs {
+            if let link = run.link, link != previousLink,
+               let icon = AgentMarkdownLink(link).icon(size: size) {
+                if !pending.characters.isEmpty { append(Text(pending)); pending = AttributedString() }
+                append(icon + Text(verbatim: "\u{2009}"))
+            }
+            pending.append(styled[run.range])
+            previousLink = run.link
+        }
+        guard let text else { return Text(pending) }
+        return pending.characters.isEmpty ? text : text + Text(pending)
     }
 
     private static func font(size: CGFloat, weight: Font.Weight, italic: Bool) -> Font {
@@ -254,11 +326,11 @@ private struct AgentMarkdownBlockView: View {
     var body: some View {
         switch block {
         case .paragraph(let text):
-            Text(AgentMarkdownInline.styled(text, size: size))
+            AgentMarkdownInline.text(AgentMarkdownInline.styled(text, size: size), size: size)
                 .lineSpacing(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .heading(let level, let text):
-            Text(AgentMarkdownInline.styled(text, size: size + (level == 1 ? 4 : level == 2 ? 2 : 0.5), weight: .semibold))
+            AgentMarkdownInline.text(AgentMarkdownInline.styled(text, size: headingSize(level), weight: .semibold), size: headingSize(level))
                 .padding(.top, level <= 2 ? 6 : 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .list(let items):
@@ -269,7 +341,7 @@ private struct AgentMarkdownBlockView: View {
                             .foregroundStyle(LitheTheme.secondaryText)
                             .monospacedDigit()
                             .frame(minWidth: 12, alignment: .trailing)
-                        Text(AgentMarkdownInline.styled(item.text, size: size))
+                        AgentMarkdownInline.text(AgentMarkdownInline.styled(item.text, size: size), size: size)
                             .lineSpacing(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -279,7 +351,7 @@ private struct AgentMarkdownBlockView: View {
         case .quote(let text):
             HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 1).fill(LitheTheme.panelBorder).frame(width: 3)
-                Text(AgentMarkdownInline.styled(text, size: size))
+                AgentMarkdownInline.text(AgentMarkdownInline.styled(text, size: size), size: size)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -309,14 +381,21 @@ private struct AgentMarkdownBlockView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
             .litheScrollViewChrome()
+            .modifier(AgentHoverCopy(text: AgentMarkdownTableExport.markdown(header: header, rows: rows),
+                                     html: AgentMarkdownTableExport.html(header: header, rows: rows),
+                                     help: "Copy table"))
         case .rule:
             Divider().overlay(LitheTheme.panelBorder).padding(.vertical, 4)
         }
     }
 
+    private func headingSize(_ level: Int) -> CGFloat {
+        size + (level == 1 ? 4 : level == 2 ? 2 : 0.5)
+    }
+
     private func tableCell(_ text: AttributedString) -> some View {
         AgentMarkdownTableCellLayout {
-            Text(text)
+            AgentMarkdownInline.text(text, size: size - 0.5)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 10)
@@ -375,12 +454,14 @@ struct AgentCodeBlock: View {
 /// Copies text to the general pasteboard and briefly confirms with a checkmark.
 struct AgentCopyButton: View {
     let text: String
+    /// Rich form for editors and spreadsheets that paste HTML tables.
+    var html: String?
     var help: LocalizedStringKey = "Copy"
     @State private var didCopy = false
 
     var body: some View {
         Button {
-            AgentPasteboard.copy(text)
+            AgentPasteboard.copy(text, html: html)
             didCopy = true
             Task { try? await Task.sleep(for: .seconds(1.5)); didCopy = false }
         } label: {
@@ -398,9 +479,63 @@ struct AgentCopyButton: View {
 }
 
 enum AgentPasteboard {
-    static func copy(_ text: String) {
+    static func copy(_ text: String, html: String? = nil) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        if let html { NSPasteboard.general.setString(html, forType: .html) }
+    }
+}
+
+/// A copy button in the top-trailing corner that appears while the block is hovered.
+private struct AgentHoverCopy: ViewModifier {
+    let text: String
+    let html: String?
+    let help: LocalizedStringKey
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .topTrailing) {
+                AgentCopyButton(text: text, html: html, help: help)
+                    .background(LitheTheme.raised, in: RoundedRectangle(cornerRadius: 4))
+                    .padding(4)
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+            }
+            .onHover { isHovered = $0 }
+    }
+}
+
+/// A single table as Markdown for plain-text targets and HTML for spreadsheets.
+/// Inline formatting is dropped; cell text is kept verbatim.
+enum AgentMarkdownTableExport {
+    static func markdown(header: [AttributedString], rows: [[AttributedString]]) -> String {
+        func line(_ cells: [String]) -> String {
+            "| " + cells.map { $0.replacingOccurrences(of: "|", with: "\\|") }.joined(separator: " | ") + " |"
+        }
+        let width = header.count
+        var lines = [line(header.map(plain)), line(Array(repeating: "---", count: width))]
+        lines += rows.map { line(cells($0, width: width)) }
+        return lines.joined(separator: "\n")
+    }
+
+    static func html(header: [AttributedString], rows: [[AttributedString]]) -> String {
+        func row(_ cells: [String], tag: String) -> String {
+            "<tr>" + cells.map { "<\(tag)>\(escape($0))</\(tag)>" }.joined() + "</tr>"
+        }
+        let body = rows.map { row(cells($0, width: header.count), tag: "td") }.joined()
+        return "<table><thead>\(row(header.map(plain), tag: "th"))</thead><tbody>\(body)</tbody></table>"
+    }
+
+    private static func plain(_ text: AttributedString) -> String { String(text.characters) }
+
+    private static func cells(_ row: [AttributedString], width: Int) -> [String] {
+        (0..<width).map { $0 < row.count ? plain(row[$0]) : "" }
+    }
+
+    private static func escape(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 }
 

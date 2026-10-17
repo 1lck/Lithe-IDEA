@@ -2944,6 +2944,7 @@
 "Chat History" = "对话历史";
 "New Chat" = "新对话";
 "Type your task or / for commands" = "输入任务，或用 / 选择命令";
+"Type your task, / for commands or @ for files" = "输入任务，用 / 选择命令，用 @ 添加文件";
 
 "Conversation history is unavailable" = "当前无法读取对话历史";
 
@@ -3247,3 +3248,8 @@
 "Use a model ID supported by your provider." = "填写该服务商支持的模型 ID。";
 "Enter a model ID supported by your provider." = "请填写该服务商支持的模型 ID。";
 "The API key is stored separately from settings. Your local CLI configuration is not changed." = "密钥与设置分开存储，不会修改本机 CLI 配置。";
+"Elapsed" = "耗时";
+"This turn" = "本轮";
+"Turn usage" = "本轮用量";
+"Copy reply" = "复制回复";
+"Copy table" = "复制表格";
