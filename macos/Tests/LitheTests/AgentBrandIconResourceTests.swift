@@ -22,14 +22,13 @@ struct AgentBrandIconResourceTests {
         window.contentView = host
         host.layoutSubtreeIfNeeded()
 
-        // Crop the real native Menu label, excluding neighboring controls and
-        // the text-field caret. No visible window or image baseline is required.
-        let region = NSRect(x: AgentComposerMetrics.horizontalInset,
-                            y: host.isFlipped ? host.bounds.height - AgentComposerMetrics.bottomInset - AgentComposerMetrics.contextHeight
-                                : AgentComposerMetrics.bottomInset,
-                            width: 24, height: AgentComposerMetrics.contextHeight)
-        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: region))
-        host.cacheDisplay(in: region, to: bitmap)
+        // Find the real native Menu label by scanning the composer's leading
+        // column instead of cropping a fixed strip: the toolbar no longer sits
+        // flush with the window bottom since the adaptive writing area landed.
+        let leading = NSRect(x: 0, y: 0, width: AgentComposerMetrics.horizontalInset + 24,
+                             height: host.bounds.height)
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: leading))
+        host.cacheDisplay(in: leading, to: bitmap)
         var markPixels = 0
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide {
