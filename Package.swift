@@ -130,6 +130,7 @@ let package = Package(
                 .swiftLanguageMode(.v5)
             ],
             linkerSettings: [
+                .linkedFramework("JavaRuntimeSupport"),
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
             ]
         ),

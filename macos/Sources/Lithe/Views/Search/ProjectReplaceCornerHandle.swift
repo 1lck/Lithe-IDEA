@@ -24,7 +24,7 @@ struct ProjectReplaceCornerHandle: NSViewRepresentable {
 }
 
 /// Owns the hit target and cursor for the whole drag, even outside the moving corner.
-final class ProjectReplaceCornerHandleView: NSView {
+class ProjectReplaceCornerHandleView: NSView {
     var corner = ProjectReplacePanelGeometry.Corner.topLeading {
         didSet { if corner != oldValue { window?.invalidateCursorRects(for: self) } }
     }

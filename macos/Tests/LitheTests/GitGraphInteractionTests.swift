@@ -37,6 +37,109 @@ struct GitGraphInteractionTests {
         #expect(long.tooltip == "origin/codex/frontend-preview-with-long-name")
     }
 
+    @Test("Thousands of colocated references retain upstream precedence and every label")
+    func manyReferenceGroups() {
+        let count = 1_500
+        let references = (0..<count).map {
+            GitReference(fullName: "refs/heads/branch-\($0)", shortName: "branch-\($0)", kind: .local,
+                         isCurrent: false, upstreamShortName: $0 == 0 ? "upstream/release" : nil)
+        }
+        let labels = references.map { GitGraphLabel(title: $0.shortName, kind: .branch) }
+            + references.map { GitGraphLabel(title: "origin/\($0.shortName)", kind: .remote) }
+            + [GitGraphLabel(title: "upstream/release", kind: .remote)]
+        let clock = ContinuousClock()
+        let start = clock.now
+        let group = GitGraphReferenceGroup(labels: labels, index: .init(references))
+        print("GIT_REFERENCE_GROUP refs=\(labels.count) preparation=\(start.duration(to: clock.now))")
+        #expect(group.title == "upstream & branch-0")
+        #expect(group.labels.count == count * 2 + 1)
+        #expect(group.iconKinds == [.branch, .branch, .remote, .remote])
+        #expect(group.tooltip.split(separator: "\n").count == labels.count)
+        // An absent configured upstream still falls back to the first naturally sorted same-name remote.
+        let fallback = GitGraphReferenceGroup(labels: [
+            .init(title: "branch-0", kind: .branch),
+            .init(title: "remote10/branch-0", kind: .remote),
+            .init(title: "remote2/branch-0", kind: .remote)
+        ], references: references)
+        #expect(fallback.title == "remote2 & branch-0")
+        let duplicate = GitGraphReferenceGroup(labels: labels + [labels[0]], references: references + [references[0]])
+        #expect(duplicate.title == group.title)
+        #expect(duplicate.labels.count == labels.count + 1)
+    }
+
+    @Test("Project presentation cache reuses only the latest matching data and display versions")
+    func presentationCache() {
+        let cache = GitLogPresentationCache()
+        let identity = GitLogPresentationCache.Identity(historyVersion: 1, repositoryVersion: 2,
+            referencesVersion: 3, filterVersion: 4, filtering: true, showLongEdges: false,
+            highlightsCurrentBranch: true)
+        #expect(cache.value(for: identity) == nil)
+        var presentation = GitGraphPresentation.empty
+        presentation.currentBranchHashes = ["cached-commit"]
+        cache.store(presentation, for: identity)
+        #expect(cache.value(for: identity)?.currentBranchHashes == ["cached-commit"])
+        let changes: [(inout GitLogPresentationCache.Identity) -> Void] = [
+            { $0.historyVersion += 1 }, { $0.repositoryVersion += 1 }, { $0.referencesVersion += 1 },
+            { $0.filterVersion += 1 }, { $0.filtering.toggle() }, { $0.showLongEdges.toggle() },
+            { $0.highlightsCurrentBranch.toggle() }
+        ]
+        for change in changes {
+            var changed = identity
+            change(&changed)
+            #expect(cache.value(for: changed) == nil)
+        }
+        var next = identity
+        next.historyVersion += 1
+        cache.store(.empty, for: next)
+        #expect(cache.value(for: identity) == nil)
+        #expect(cache.value(for: next)?.currentBranchHashes.isEmpty == true)
+    }
+
+    @Test("Reference row cache rejects changed tree inputs and remains independent of graph data")
+    func referenceRowsCache() {
+        let cache = GitLogPresentationCache()
+        let root = URL(fileURLWithPath: "/fixture/repo")
+        let reference = GitReference(fullName: "refs/heads/feature/a", shortName: "feature/a", kind: .local,
+                                     isCurrent: true, upstreamShortName: nil)
+        let identity = GitReferenceRowsIdentity(references: [reference], repositoryReferences: [],
+            availableRepositoryRoots: [root], activeRepositoryRoot: root,
+            showWorktreeRepositories: true, collapsedGroups: [])
+        let rows = GitReferenceRowsBuilder.rows(from: [reference], kind: .local, collapsedGroups: [])
+        #expect(cache.referenceRows(for: identity) == nil)
+        cache.store(.init(identity: identity, local: rows, remote: [], tags: [], repositories: []))
+        #expect(cache.referenceRows(for: identity)?.local == rows)
+        let changes: [(inout GitReferenceRowsIdentity) -> Void] = [
+            { $0.references = [] },
+            { $0.repositoryReferences = [.init(repositoryRoot: root, references: [reference])] },
+            { $0.availableRepositoryRoots = [] }, { $0.activeRepositoryRoot = nil },
+            { $0.showWorktreeRepositories.toggle() }, { $0.collapsedGroups = ["local:feature"] }
+        ]
+        for change in changes {
+            var changed = identity
+            change(&changed)
+            #expect(cache.referenceRows(for: changed) == nil)
+        }
+        let graphIdentity = GitLogPresentationCache.Identity(historyVersion: 1, repositoryVersion: 2,
+            referencesVersion: 3, filterVersion: 0, filtering: false, showLongEdges: false,
+            highlightsCurrentBranch: false)
+        cache.store(.empty, for: graphIdentity)
+        #expect(cache.referenceRows(for: identity)?.local == rows)
+    }
+
+    @Test("Native rows share cached date text across drawing and accessibility locale changes")
+    func nativeDateCache() {
+        let view = GitGraphCommitRowsNSView()
+        let raw = "2023-11-15T08:12:00+00:00"
+        for language in ["en", "zh-Hans", "en"] {
+            let locale = Locale(identifier: language)
+            view.updateActions(actions { _ in }, locale: locale)
+            let expected = GitLogDatePresentation.string(raw, locale: locale)
+            #expect(view.dateString(raw) == expected)
+            #expect(view.dateString(raw) == expected)
+        }
+        #expect(view.dateString("unknown date") == "unknown date")
+    }
+
     @Test("Native reference hover survives truncation and branch background yields to selection", arguments: [false, true])
     func referenceHoverAndCurrentBranchColor(_ dark: Bool) throws {
         let commit = GitCommit(hash: "tip", shortHash: "tip", parentHashes: [], authorName: "Test", authorEmail: "",
