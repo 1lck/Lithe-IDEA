@@ -200,6 +200,34 @@ extension AgentMarkdownTests {
         #expect(try !isBold(escaped, "literal"))
     }
 
+    @Test(arguments: ["tests/foo.swift", "src/foo.swift"])
+    func strongRepairKeepsIndependentLinkLabelsLiteral(_ destination: String) throws {
+        let text = try paragraph("[src/**/foo.swift](src/foo.swift) 和 [tests/**/foo.swift](\(destination))")
+        #expect(plain(text) == "src/**/foo.swift 和 tests/**/foo.swift")
+        #expect(try !isBold(text, " 和 "))
+        let first = try #require(text.range(of: "src/**/foo.swift"))
+        let second = try #require(text.range(of: "tests/**/foo.swift"))
+        #expect(text[first].link == URL(string: "src/foo.swift"))
+        #expect(text[second].link == URL(string: destination))
+    }
+
+    @Test
+    func strongRepairAroundALinkPreservesItsDestination() throws {
+        let text = try paragraph("**参考 [源码](src/foo.swift)：**继续")
+        #expect(plain(text) == "参考 源码：继续")
+        #expect(try isBold(text, "参考 源码："))
+        #expect(try !isBold(text, "继续"))
+        let link = try #require(text.range(of: "源码"))
+        #expect(text[link].link == URL(string: "src/foo.swift"))
+    }
+
+    @Test(arguments: ["&#42;", "&#00042;", "&#x2a;", "&#X002A;", "&ast;", "&midast;"])
+    func entityAsterisksRemainLiteral(_ entity: String) throws {
+        let text = try paragraph("Show \(entity)\(entity)literal\(entity)\(entity) markers")
+        #expect(plain(text) == "Show **literal** markers")
+        #expect(try !isBold(text, "literal"))
+    }
+
     @Test
     func linksAreClassifiedByDestination() throws {
         func link(_ string: String) throws -> AgentMarkdownLink { AgentMarkdownLink(try #require(URL(string: string))) }
@@ -211,10 +239,41 @@ extension AgentMarkdownTests {
         #expect(try link("README.md:12") == .file(.init(path: "README.md", line: 12), isDocument: true))
         #expect(try link("docs/My%20Notes.md#L7") == .file(.init(path: "docs/My Notes.md", line: 7), isDocument: true))
         #expect(try link("file:///tmp/a.rs:3:9") == .file(.init(path: "/tmp/a.rs", line: 3), isDocument: false))
+        #expect(try link("file:///tmp/a%2520b.swift#L7") == .file(.init(path: "/tmp/a%20b.swift", line: 7), isDocument: false))
+        #expect(try link("file:///tmp/a%252Fb.swift") == .file(.init(path: "/tmp/a%2Fb.swift", line: nil), isDocument: false))
+        #expect(try link("file:///tmp/a%23b.swift#L7") == .file(.init(path: "/tmp/a#b.swift", line: 7), isDocument: false))
+        #expect(try link("docs/a%2520b.swift#L7") == .file(.init(path: "docs/a%20b.swift", line: 7), isDocument: false))
         #expect(try link("Makefile") == .file(.init(path: "Makefile", line: nil), isDocument: true))
         #expect(try link("Makefile:12") == .file(.init(path: "Makefile", line: 12), isDocument: true))
         #expect(try link("Dockerfile:3:1") == .file(.init(path: "Dockerfile", line: 3), isDocument: true))
         #expect(try link("tel:10086") == .web)
+    }
+
+    @Test
+    func exportedTableKeepsLiteralInlineSyntaxWhenParsedAgain() throws {
+        let source = #"""
+        | `**Name**` | `[link](file.swift)` |
+        | --- | --- |
+        | `**literal** _word_ ~~strike~~` | `[text](https://example.com) ![image](x)` |
+        | `a\b \\| **尾巴：**` | `&copy; &#42; <b>tag</b>` |
+        | a&#10;b&#13;c&#13;&#10;d | &#32; padded &#32; |
+        | `https://example.com` | `www.example.com` |
+        """#
+        guard case .table(let header, let rows) = try #require(AgentMarkdownBlock.parse(source).first) else {
+            Issue.record("expected original table")
+            return
+        }
+        let exported = AgentMarkdownTableExport.markdown(header: header, rows: rows)
+        guard case .table(let copiedHeader, let copiedRows) = try #require(AgentMarkdownBlock.parse(exported).first) else {
+            Issue.record("expected exported table: \(exported)")
+            return
+        }
+        #expect(copiedHeader.map(plain) == header.map(plain))
+        #expect(copiedRows.map { $0.map(plain) } == rows.map { $0.map(plain) })
+        for cell in copiedHeader + copiedRows.flatMap({ $0 }) {
+            #expect(cell.runs.allSatisfy { ($0.inlinePresentationIntent ?? []).isEmpty && $0.link == nil },
+                    "Unexpected inline formatting: \(cell)")
+        }
     }
 
     @Test
@@ -229,12 +288,12 @@ extension AgentMarkdownTests {
             Issue.record("expected table: \(blocks)")
             return
         }
-        #expect(AgentMarkdownTableExport.markdown(header: header, rows: rows) == """
+        #expect(AgentMarkdownTableExport.markdown(header: header, rows: rows) == #"""
         | Name | Note |
         | --- | --- |
-        | a\\|b | <x> & y |
+        | a\|b | \<x\> \& y |
         | short |  |
-        """)
+        """#)
         #expect(AgentMarkdownTableExport.html(header: header, rows: rows)
                 == "<table><thead><tr><th>Name</th><th>Note</th></tr></thead><tbody>"
                 + "<tr><td>a|b</td><td>&lt;x&gt; &amp; y</td></tr><tr><td>short</td><td></td></tr></tbody></table>")

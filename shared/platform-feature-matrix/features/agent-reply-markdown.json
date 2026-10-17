@@ -22,5 +22,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：让 Agent 回复包含 `**状态：**仍开放`、代码内 `**`、多列表格以及 `[App.swift](macos/Sources/App.swift:42)`、`[README](README.md#L3)`、GitHub issue 与普通网页链接。确认加粗正确且代码保持原文；悬停表格出现复制按钮，粘贴到文本编辑器得到 Markdown 表格、粘贴到 Numbers/表格得到单元格；文件链接显示文档/代码图标并在编辑器中打开到对应行，GitHub 链接显示 GitHub 图标并用浏览器打开。检查深浅主题。Windows 前端尚未接入同等渲染。"
+  "verification": "macOS：让 Agent 回复包含 `**状态：**仍开放`、代码内 `**`、多列表格以及 `[App.swift](macos/Sources/App.swift:42)`、`[README](README.md#L3)`、GitHub issue 与普通网页链接。确认加粗正确且代码、转义星号和实体生成的星号保持原文，两个独立路径链接标签中的字面 ** 不能跨链接配对或被删除；悬停表格出现复制按钮，粘贴到文本编辑器得到 Markdown 表格，重新渲染后字面星号、反斜杠、链接语法、HTML 实体、单元格内换行与边缘空白仍保留原字符，粘贴到 Numbers/表格得到单元格；文件链接显示文档/代码图标并在编辑器中打开到对应行，文件名包含字面 %20、%2F、# 时仍打开原文件，GitHub 链接显示 GitHub 图标并用浏览器打开。检查深浅主题。Windows 前端尚未接入同等渲染。"
 }

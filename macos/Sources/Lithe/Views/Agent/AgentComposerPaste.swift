@@ -40,43 +40,61 @@ enum AgentPasteboardAttachment: Equatable {
     }
 }
 
-/// Intercepts ⌘V while the composer is focused. The text field's field editor
-/// handles `paste:` before SwiftUI sees it, so a key monitor is the only hook.
-struct AgentPasteAttachments: ViewModifier {
+/// Mounted behind the writing field so each monitor can verify its native owner.
+struct AgentPasteAttachments: NSViewRepresentable {
     let isActive: Bool
     /// Returns true when the pasteboard was attached and the key is consumed.
     let onPaste: (AgentPasteboardAttachment) -> Bool
-    @State private var monitor = AgentPasteMonitor()
 
-    func body(content: Content) -> some View {
-        content
-            .onAppear { monitor.onPaste = isActive ? onPaste : nil; monitor.install() }
-            .onChange(of: isActive) { active in monitor.onPaste = active ? onPaste : nil }
-            .onDisappear { monitor.remove() }
+    func makeNSView(context: Context) -> AgentPasteAttachmentView {
+        let view = AgentPasteAttachmentView()
+        view.onPaste = isActive ? onPaste : nil
+        return view
+    }
+
+    func updateNSView(_ view: AgentPasteAttachmentView, context: Context) {
+        view.onPaste = isActive ? onPaste : nil
+    }
+
+    static func dismantleNSView(_ view: AgentPasteAttachmentView, coordinator: ()) {
+        view.onPaste = nil
+        view.removeMonitor()
     }
 }
 
 @MainActor
-private final class AgentPasteMonitor {
+final class AgentPasteAttachmentView: NSView {
     var onPaste: ((AgentPasteboardAttachment) -> Bool)?
     private var token: Any?
 
-    func install() {
-        guard token == nil else { return }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        removeMonitor()
+        guard window != nil else { return }
         token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             // Local monitors run on the main thread.
-            MainActor.assumeIsolated {
-                guard let onPaste = self?.onPaste,
-                      event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                      event.charactersIgnoringModifiers?.lowercased() == "v",
-                      let attachment = AgentPasteboardAttachment.read(from: .general),
-                      onPaste(attachment) else { return event }
-                return nil
+            let consumed = MainActor.assumeIsolated {
+                guard let self else { return false }
+                return self.handle(event) == nil
             }
+            return consumed ? nil : event
         }
     }
 
-    func remove() {
+    func handle(_ event: NSEvent, pasteboard: NSPasteboard = .general) -> NSEvent? {
+        guard let onPaste, let window, event.window === window,
+              let editor = window.firstResponder as? NSTextView, editor.isEditable,
+              editor.convert(editor.bounds, to: self).contains(NSPoint(x: bounds.midX, y: bounds.midY)),
+              event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command,
+              event.charactersIgnoringModifiers?.lowercased() == "v",
+              let attachment = AgentPasteboardAttachment.read(from: pasteboard),
+              onPaste(attachment) else { return event }
+        return nil
+    }
+
+    func removeMonitor() {
         if let token { NSEvent.removeMonitor(token) }
         token = nil
     }

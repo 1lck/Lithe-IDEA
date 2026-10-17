@@ -145,9 +145,11 @@ enum AgentMarkdownBlock: Equatable {
         let source = String(text)
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         let parsed = (try? AttributedString(markdown: source, options: options)) ?? AttributedString(source)
-        // Foundation unescapes `\*`, so the parsed text no longer tells escaped
-        // literals from unclosed markers; leave a block that escapes `*` as parsed.
-        return source.contains("\\*") ? parsed : pairingLeftoverStrongMarkers(parsed)
+        // Parsing loses the identity of escaped/entity asterisks. Leave such
+        // blocks as parsed rather than turning their literal markers into bold.
+        let hasLiteralAsterisk = source.contains("\\*") || source.range(
+            of: #"&(?:ast|midast|#0*42|#[xX]0*2[aA]);"#, options: .regularExpression) != nil
+        return hasLiteralAsterisk ? parsed : pairingLeftoverStrongMarkers(parsed)
     }
 
     /// CommonMark closes `**` only when it is right-flanking, so `**状态：**仍开放`
@@ -156,7 +158,8 @@ enum AgentMarkdownBlock: Equatable {
     /// left as text are paired again with only the whitespace part of the
     /// flanking rule: an opener is not followed by whitespace and a closer is not
     /// preceded by it, so `2 ** 3` stays literal. Code spans are skipped and an
-    /// unpaired marker stays literal.
+    /// unpaired marker stays literal. Code spans and link labels retain their
+    /// Foundation parsing so independent link labels cannot form a marker pair.
     static func pairingLeftoverStrongMarkers(_ text: AttributedString) -> AttributedString {
         let characters = Array(text.characters)
         func isSpace(_ offset: Int) -> Bool {
@@ -167,7 +170,9 @@ enum AgentMarkdownBlock: Equatable {
         var searchStart = text.startIndex
         while searchStart < text.endIndex, let range = text[searchStart...].range(of: "**") {
             searchStart = range.upperBound
-            guard !text[range].runs.contains(where: { $0.inlinePresentationIntent?.contains(.code) == true }) else { continue }
+            guard !text[range].runs.contains(where: {
+                $0.inlinePresentationIntent?.contains(.code) == true || $0.link != nil
+            }) else { continue }
             let offset = text.characters.distance(from: text.startIndex, to: range.lowerBound)
             let canOpen = !isSpace(offset + 2), canClose = !isSpace(offset - 1)
             if let open = opener, canClose, offset > open + 2 {
@@ -524,11 +529,11 @@ private struct AgentHoverCopy: ViewModifier {
 enum AgentMarkdownTableExport {
     static func markdown(header: [AttributedString], rows: [[AttributedString]]) -> String {
         func line(_ cells: [String]) -> String {
-            "| " + cells.map { $0.replacingOccurrences(of: "|", with: "\\|") }.joined(separator: " | ") + " |"
+            "| " + cells.joined(separator: " | ") + " |"
         }
         let width = header.count
-        var lines = [line(header.map(plain)), line(Array(repeating: "---", count: width))]
-        lines += rows.map { line(cells($0, width: width)) }
+        var lines = [line(header.map { markdownCell(plain($0)) }), line(Array(repeating: "---", count: width))]
+        lines += rows.map { line(cells($0, width: width).map(markdownCell)) }
         return lines.joined(separator: "\n")
     }
 
@@ -538,6 +543,21 @@ enum AgentMarkdownTableExport {
         }
         let body = rows.map { row(cells($0, width: header.count), tag: "td") }.joined()
         return "<table><thead>\(row(header.map(plain), tag: "th"))</thead><tbody>\(body)</tbody></table>"
+    }
+
+    private static func markdownCell(_ text: String) -> String {
+        // The source formatting has already been removed. Escape inline syntax
+        // and HTML/entity introducers so it cannot be interpreted a second time.
+        let syntax: Set<Character> = ["\\", "`", "*", "_", "[", "]", "!", "<", ">", "&", "~", "|", ":", "."]
+        let last = text.count - 1
+        return text.enumerated().map { offset, character in
+            // Literal line breaks split table rows; edge whitespace is trimmed
+            // by table parsers. Character references retain the visible text.
+            if character.isNewline || (character.isWhitespace && (offset == 0 || offset == last)) {
+                return character.unicodeScalars.map { "&#\($0.value);" }.joined()
+            }
+            return syntax.contains(character) ? "\\" + String(character) : String(character)
+        }.joined()
     }
 
     private static func plain(_ text: AttributedString) -> String { String(text.characters) }

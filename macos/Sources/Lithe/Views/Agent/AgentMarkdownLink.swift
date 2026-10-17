@@ -35,13 +35,14 @@ enum AgentMarkdownLink: Equatable {
     }
 
     private static func location(_ url: URL) -> AgentToolDetails.Location? {
-        var raw = url.scheme == "file" ? url.path : url.absoluteString
+        var raw = url.isFileURL ? url.path : url.absoluteString
         var line: Int?
         if let fragment = url.fragment, let range = fragment.range(of: #"^L(\d+)"#, options: .regularExpression) {
             line = Int(fragment[range].dropFirst())
-            if let hash = raw.firstIndex(of: "#") { raw = String(raw[..<hash]) }
+            // URL.path already excludes the fragment and decodes the file name.
+            if !url.isFileURL, let hash = raw.firstIndex(of: "#") { raw = String(raw[..<hash]) }
         }
-        raw = raw.removingPercentEncoding ?? raw
+        if !url.isFileURL { raw = raw.removingPercentEncoding ?? raw }
         if let suffix = raw.range(of: #":(\d+)(:\d+)?$"#, options: .regularExpression) {
             line = line ?? Int(raw[suffix].dropFirst().prefix { $0.isNumber })
             raw = String(raw[..<suffix.lowerBound])

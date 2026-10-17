@@ -94,7 +94,6 @@ struct AgentComposerView: View {
         .padding(.horizontal, AgentComposerMetrics.horizontalInset)
         .padding(.bottom, AgentComposerMetrics.bottomInset)
         .onExitCommand { _ = handleCommandKey(.escape) }
-        .modifier(AgentPasteAttachments(isActive: isFocused, onPaste: attachPasted))
     }
 
     private var composerContent: some View {
@@ -108,6 +107,7 @@ struct AgentComposerView: View {
             LitheSearchTextField(findFiles == nil ? "Type your task or / for commands" : "Type your task, / for commands or @ for files", text: textBinding, axis: .vertical)
                 .lineLimit(1...)
                 .focused($isFocused)
+                .background(AgentPasteAttachments(isActive: isFocused, onPaste: attachPasted))
                 .onSubmit { _ = handleCommandKey(.submit) }
                 .modifier(AgentCommandKeyNavigation(onKey: handleCommandKey))
                 .padding(.horizontal, 8)
