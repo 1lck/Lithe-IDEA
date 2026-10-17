@@ -64,14 +64,35 @@ fn candidates(candidates: &[ExecutableCandidate], root: &str, platform: Platform
         .collect()
 }
 
+/// Arguments that make a host-managed runtime print its version and exit.
+/// Core owns them so a host probes every runtime the same way; `go` has no
+/// `--version` flag, and `java` accepts `--version` from Java 9 on, so an
+/// older JVM fails the probe and counts as too old.
+fn host_runtime_version_arguments(id: &str) -> Option<&'static [&'static str]> {
+    match id {
+        "go" => Some(&["version"]),
+        "java" | "node" => Some(&["--version"]),
+        _ => None,
+    }
+}
+
 fn runtime(runtime: &RuntimeDependency, root: &str, platform: Platform) -> Value {
+    let version = if runtime.is_host_managed() {
+        host_runtime_version_arguments(&runtime.id)
+            .map(|arguments| json!({ "arguments": arguments }))
+    } else {
+        runtime
+            .version
+            .as_ref()
+            .map(|probe| json!({ "arguments": probe.arguments }))
+    };
     json!({
         "id": runtime.id,
         "displayName": runtime.display_name,
         "hostManaged": runtime.is_host_managed(),
         "minimumVersion": runtime.minimum_version,
         "executables": candidates(&runtime.executables, root, platform),
-        "version": runtime.version.as_ref().map(|probe| json!({ "arguments": probe.arguments })),
+        "version": version,
     })
 }
 

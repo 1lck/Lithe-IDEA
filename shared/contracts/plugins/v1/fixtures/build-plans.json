@@ -489,7 +489,11 @@
               "hostManaged": true,
               "minimumVersion": "1.21",
               "executables": [],
-              "version": null
+              "version": {
+                "arguments": [
+                  "version"
+                ]
+              }
             }
           ],
           "version": null,
@@ -852,7 +856,11 @@
               "hostManaged": true,
               "minimumVersion": "17",
               "executables": [],
-              "version": null
+              "version": {
+                "arguments": [
+                  "--version"
+                ]
+              }
             }
           ],
           "version": {
@@ -907,7 +915,11 @@
               "hostManaged": true,
               "minimumVersion": "17",
               "executables": [],
-              "version": null
+              "version": {
+                "arguments": [
+                  "--version"
+                ]
+              }
             }
           ],
           "version": {
