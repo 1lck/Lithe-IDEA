@@ -3,7 +3,7 @@ import SwiftUI
 /// A circled “i” that explains the setting next to it.
 ///
 /// The explanation opens after the pointer rests on the icon briefly, so
-/// moving across the page does not flash popovers; a click or the keyboard
+/// moving across the page does not flash the dropdown; a click or the keyboard
 /// (Space/Return when focused) opens it too, for users who do not hover. The
 /// text is also the accessibility hint, so VoiceOver reads it without opening.
 struct LitheInfoTip: View {
@@ -43,7 +43,7 @@ struct LitheInfoTip: View {
                 isPresented = false
             }
         }
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+        .litheDropdown(isPresented: $isPresented) {
             Text(text)
                 .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.primaryText)
