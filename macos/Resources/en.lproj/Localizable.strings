@@ -1549,6 +1549,7 @@
 "Chat History" = "Chat History";
 "New Chat" = "New Chat";
 "Type your task or / for commands" = "Type your task or / for commands";
+"Type your task, / for commands or @ for files" = "Type your task, / for commands or @ for files";
 
 "Conversation history is unavailable" = "Conversation history is unavailable";
 
@@ -1819,3 +1820,8 @@
 "Use a model ID supported by your provider." = "Use a model ID supported by your provider.";
 "Enter a model ID supported by your provider." = "Enter a model ID supported by your provider.";
 "The API key is stored separately from settings. Your local CLI configuration is not changed." = "The API key is stored separately from settings. Your local CLI configuration is not changed.";
+"Elapsed" = "Elapsed";
+"This turn" = "This turn";
+"Turn usage" = "Turn usage";
+"Copy reply" = "Copy reply";
+"Copy table" = "Copy table";

@@ -40,6 +40,23 @@ enum AgentTurnStatisticsPresentation {
         return parts.joined(separator: " · ")
     }
 
+    /// `1m 2s · 25K tok`; tokens are omitted when the Agent reported none.
+    static func pill(_ statistics: AgentTurnStatistics, locale: Locale) -> String {
+        let elapsed = duration(statistics.duration ?? 0, locale: locale)
+        guard let usage = statistics.usage else { return elapsed }
+        return elapsed + " · " + AgentSessionStatusPresentation.compactTokens(usage.totalTokens, locale: locale) + " tok"
+    }
+
+    /// `14:03` for a turn that ended today, `2026-10-15 14:03` otherwise.
+    static func completionTime(_ date: Date, now: Date = Date(), calendar: Calendar = .current, locale: Locale) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = calendar.isDate(date, inSameDayAs: now) ? "HH:mm" : "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
+    }
+
     static func details(_ usage: AgentTurnUsage, locale: Locale) -> String {
         var lines = [AgentLocalization.string("Token counts reported by the Agent. Accounting scope depends on the Agent.", locale: locale),
                      input(usage, locale: locale), output(usage, locale: locale),
@@ -126,59 +143,92 @@ struct AgentResponseStatusRow: View {
     }
 }
 
-/// One frozen footer per locally observed turn, including failed or cancelled turns.
+/// One frozen footer per locally observed turn, including failed or cancelled
+/// turns. Copy, a compact usage pill and the completion time stay visible; the
+/// full breakdown (TTFT, speed, cache) appears only in the pill's hover card.
 struct AgentTurnStatisticsView: View {
     let statistics: AgentTurnStatistics
+    /// The turn's final Agent reply, copied by the footer's copy button.
+    var reply: String?
     @Environment(\.locale) private var locale
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                elapsed
-                if let usage = statistics.usage { tokens(usage) }
-                modelCalls
-            }
-            VStack(alignment: .leading, spacing: 5) {
-                elapsed
-                if let usage = statistics.usage { tokens(usage) }
-                modelCalls
+        HStack(spacing: 8) {
+            if let reply, !reply.isEmpty { AgentCopyButton(text: reply, help: "Copy reply") }
+            usage
+            if let completedAt = statistics.completedAt {
+                Text(AgentTurnStatisticsPresentation.completionTime(completedAt, locale: locale))
+                    .help(completedAt.formatted(date: .complete, time: .standard))
             }
         }
         .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(AgentPanelStyle.secondary)
         .monospacedDigit()
+        .lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-turn-statistics")
     }
 
-    private var elapsed: some View {
-        Label(String(format: AgentLocalization.string("Elapsed: %@", locale: locale),
-                     AgentTurnStatisticsPresentation.duration(statistics.duration ?? 0, locale: locale)), systemImage: "clock")
+    private var usage: some View {
+        Label(AgentTurnStatisticsPresentation.pill(statistics, locale: locale), systemImage: "chart.bar")
             .fixedSize()
-            .help("Elapsed since sending, including tools and permission waits.")
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(AgentPanelStyle.context, in: Capsule())
+            .workbenchHoverCard(placement: .above, maximumWidth: AgentStatusCardMetrics.width) {
+                AgentTurnStatisticsCard(statistics: statistics)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Turn usage")
+            .accessibilityValue(AgentTurnStatisticsPresentation.pill(statistics, locale: locale))
     }
+}
 
-    @ViewBuilder
-    private var modelCalls: some View {
-        if let text = AgentTurnStatisticsPresentation.modelCalls(statistics.modelCalls, locale: locale) {
-            Label(text, systemImage: "bolt.horizontal")
-                .fixedSize()
-                .help("Model calls observed by the local proxy during this turn. TTFT is the average time to the first generated token.")
-        }
-    }
+struct AgentTurnStatisticsCard: View {
+    let statistics: AgentTurnStatistics
+    @Environment(\.locale) private var locale
 
-    private func tokens(_ usage: AgentTurnUsage) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
-                Text(AgentTurnStatisticsPresentation.input(usage, locale: locale))
-                Text(AgentTurnStatisticsPresentation.output(usage, locale: locale))
-            }.fixedSize()
-            VStack(alignment: .leading, spacing: 5) {
-                Text(AgentTurnStatisticsPresentation.input(usage, locale: locale))
-                Text(AgentTurnStatisticsPresentation.output(usage, locale: locale))
+    var body: some View {
+        let calls = statistics.modelCalls
+        AgentStatusCard(title: "This turn", systemImage: "chart.bar",
+                        trailing: statistics.usage.map { AgentSessionStatusPresentation.tokens($0.totalTokens, locale: locale) }) {
+            AgentStatusRow("Elapsed", value: AgentTurnStatisticsPresentation.duration(statistics.duration ?? 0, locale: locale))
+            if statistics.toolDuration > 0 {
+                AgentStatusRow("Tool and permission time", value: AgentSessionStatusPresentation.latency(statistics.toolDuration, locale: locale))
+            }
+            if statistics.toolCallCount > 0 {
+                AgentStatusRow("Tool calls", value: statistics.toolCallCount.formatted(.number.locale(locale)))
+            }
+            if let usage = statistics.usage {
+                AgentStatusRow("Input", value: AgentSessionStatusPresentation.tokens(usage.inputTokens, locale: locale))
+                AgentStatusRow("Output", value: AgentSessionStatusPresentation.tokens(usage.outputTokens, locale: locale))
+                if let reasoning = usage.thoughtTokens {
+                    AgentStatusRow("Reasoning", value: AgentSessionStatusPresentation.tokens(reasoning, locale: locale))
+                }
+                if let read = usage.cachedReadTokens {
+                    AgentStatusRow("Cache read", value: AgentSessionStatusPresentation.tokens(read, locale: locale))
+                }
+                if let write = usage.cachedWriteTokens {
+                    AgentStatusRow("Cache write", value: AgentSessionStatusPresentation.tokens(write, locale: locale))
+                }
+            }
+            if calls.callCount > 0 {
+                AgentStatusRow("Model calls (steps)", value: calls.callCount.formatted(.number.locale(locale)))
+                if let firstToken = calls.averageFirstToken {
+                    AgentStatusRow("Average time to first token (TTFT)", value: AgentSessionStatusPresentation.latency(firstToken, locale: locale))
+                }
+                if let rate = calls.outputTokensPerSecond {
+                    AgentStatusRow("Output speed (TPS)", value: AgentSessionStatusPresentation.rate(rate, locale: locale))
+                }
+                if calls.nonStreamingCount > 0 {
+                    AgentStatusRow("Non-streaming responses", value: calls.nonStreamingCount.formatted(.number.locale(locale)))
+                }
+            }
+        } footnote: {
+            if statistics.usage != nil {
+                Text("Token counts reported by the Agent. Accounting scope depends on the Agent.")
             }
         }
-        .help(AgentTurnStatisticsPresentation.details(usage, locale: locale))
     }
 }

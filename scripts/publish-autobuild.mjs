@@ -119,7 +119,9 @@ export function publishAutoBuild(config, { run = runCommand } = {}) {
       const names = [...xml.matchAll(/<enclosure\b[^>]*\burl=(["'])(.*?)\1/g)].map(match => {
         if (!match[2].startsWith(prefix)) throw new Error('Appcast must reference AutoBuild');
         const name = match[2].slice(prefix.length);
-        if (!safeName.test(name) || !(name === `Lithe-preview-${build}-${architecture}.zip` || (name.startsWith(`Lithe${build}-`) && name.endsWith(`-${architecture}.delta`)))) throw new Error(`Unexpected appcast asset ${name}`);
+        // Sparkle derives delta names from CFBundleName; preview bundles use Lithe-Dev.
+        const isCurrentDelta = ['Lithe', 'Lithe-Dev'].some(appName => name.startsWith(`${appName}${build}-`)) && name.endsWith(`-${architecture}.delta`);
+        if (!safeName.test(name) || !(name === `Lithe-preview-${build}-${architecture}.zip` || isCurrentDelta)) throw new Error(`Unexpected appcast asset ${name}`);
         return name;
       });
       if (!names.includes(`Lithe-preview-${build}-${architecture}.zip`)) throw new Error('Appcast is missing current full archive');
