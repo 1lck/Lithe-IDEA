@@ -50,6 +50,9 @@ jobs:
 
       - uses: actions/checkout@v7
         if: steps.config.outputs.enabled == 'true'
+        with:
+          # Pushing a missing tag to AtomGit needs the tag object and its history locally.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         if: steps.config.outputs.enabled == 'true'
@@ -63,5 +66,6 @@ jobs:
           ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
           ATOMGIT_OWNER: ${{ vars.ATOMGIT_OWNER || 'lithe_IDEA' }}
           ATOMGIT_REPO: ${{ vars.ATOMGIT_REPO || 'Lithe-IDEA' }}
+          ATOMGIT_USER: ${{ vars.ATOMGIT_USER }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: node scripts/sync-atomgit-release.mjs
