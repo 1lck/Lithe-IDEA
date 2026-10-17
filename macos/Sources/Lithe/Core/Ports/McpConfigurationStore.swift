@@ -177,7 +177,14 @@ protocol McpConfigurationStore {
     /// Returns `nil` when the file does not exist yet.
     func read(_ file: McpConfigurationFile) throws -> String?
     /// Backs up existing bytes and replaces the file atomically.
-    func write(_ content: String, to file: McpConfigurationFile) throws -> McpWriteReceipt
+    ///
+    /// `expected` is the exact text the write was planned from; `nil` means the
+    /// file must not exist yet. When the file changed after planning (another
+    /// Agent, editor or Lithe instance saved it), the write is refused with
+    /// `changedOnDisk` instead of overwriting the newer configuration.
+    func write(
+        _ content: String, to file: McpConfigurationFile, replacing expected: String?
+    ) throws -> McpWriteReceipt
     /// Parses one file into normalized definitions, without echoing secrets.
     func parse(_ file: McpConfigurationFile, content: String) throws -> [McpServerDefinition]
     /// Plans a set or remove operation, enforcing the ownership ledger.
@@ -192,7 +199,9 @@ protocol McpConfigurationStore {
 struct UnavailableMcpConfigurationStore: McpConfigurationStore {
     func configurationFiles(workspace: URL?) -> [McpConfigurationFile] { [] }
     func read(_ file: McpConfigurationFile) throws -> String? { throw McpConfigurationError.unavailable }
-    func write(_ content: String, to file: McpConfigurationFile) throws -> McpWriteReceipt {
+    func write(
+        _ content: String, to file: McpConfigurationFile, replacing expected: String?
+    ) throws -> McpWriteReceipt {
         throw McpConfigurationError.unavailable
     }
 

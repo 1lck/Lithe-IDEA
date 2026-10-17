@@ -35,17 +35,18 @@
 
 ### 保格式编辑
 
-- Claude JSON 使用基于字节偏移的插入/删除，只改动 `mcpServers.<name>` 或 `projects.<path>.mcpServers.<name>`，其余内容逐字节保留。带注释或非严格 JSON 的文件拒绝写入，而不是冒险整体重排。
-- Codex TOML 使用 `toml_edit`，保留注释、表顺序和未知键。新增本地依赖 `toml_edit = "0.25"` 就是为此；原有的 `toml` 只能解析。
-- 一次保存会先把每个目标文件的计划全部算完，再统一写盘。第二个 Agent 的冲突不会让第一个 Agent 留下半套修改。每个被改写的文件都会先备份到 `Application Support/MCP Backups/<时间戳>/`，备份失败则中止写入。
+- Claude JSON 使用基于字节偏移的插入/删除，只改动 `mcpServers.<name>` 或 `projects.<path>.mcpServers.<name>`，其余内容逐字节保留。删除最后一个条目时同时删除前导逗号，并在返回计划前重新解析结果，避免写出丢失条目的半截配置。带注释或非严格 JSON 的文件拒绝写入，而不是冒险整体重排。
+- Codex TOML 使用 `toml_edit`，保留注释、表顺序和未知键。新增本地依赖 `toml_edit = "0.25"` 就是为此；原有的 `toml` 只能解析。更新已有服务器时只修改 Lithe 建模的 `command`、`args`、`env`、`url`、`http_headers`，`bearer_token_env_var`、`startup_timeout_sec`、`tool_timeout_sec` 等 Codex 专属字段和注释原样保留；`env`/`http_headers` 中无法在本库表示的非字符串值也不会因为一次编辑被删掉。
+- 一次保存会先把每个目标文件的计划全部算完，再统一写盘。第二个 Agent 的冲突不会让第一个 Agent 留下半套修改。写盘前会携带计划所依据的磁盘快照重新读取并比对；其他 Agent、编辑器或另一 Lithe 实例在此期间保存过配置时，整个提交以 `changedOnDisk` 拒绝，而不是用旧计划覆盖新内容。
+- 每个被改写的文件都会先备份到 `Application Support/MCP Backups/<时间戳>/`，备份失败则中止写入。
 
 ### Lithe 自己的项目级注册
 
 - 开启“Lithe IDE 访问”时，`IdeCapabilitiesFeatureModel` 把 host 返回的 `lithe` 服务器命令和参数转交给资源库。资源库写入：
   - Claude Code：`~/.claude.json` 的 `projects.<项目绝对路径>.mcpServers.lithe`；
   - Codex：`<项目>/.codex/config.toml` 的 `[mcp_servers.lithe]`。
-- 只写项目级，不写全局。项目关闭或授权关闭时，按账本删除 Lithe 写入且哈希未变的条目。
-- 如果 Codex 项目配置文件是 Lithe 新建的，会把 `.codex/config.toml` 追加到 `.git/info/exclude`，不修改被版本控制的 `.gitignore`；用户自己创建过该文件时不加排除规则。
+- 只写项目级，不写全局。项目关闭或授权关闭时，按账本删除 Lithe 写入且哈希未变的条目。`WorkspaceSessionCoordinator` 会在关闭回调前清空会话 URL，因此资源库在注册时记住工作区，并在注销时使用该身份，避免项目已关闭却找不到要清理的配置。
+- 如果 Codex 项目配置文件是 Lithe 新建的，会把 `.codex/config.toml` 追加到 `.git/info/exclude`，不修改被版本控制的 `.gitignore`；用户自己创建过该文件时不加排除规则。linked worktree 的排除文件位于公共 Git 目录，资源库读取 `commondir` 后写入那里，而不是写入 `worktrees/<name>/info/exclude`。
 - 外部改过的项目条目不会被删除，页面显示“需要处理”的原因，账本保留，以便下次仍能识别。
 
 ### 密钥与健康检查
@@ -88,8 +89,8 @@ Windows 的 Agent 配置路径和 Tauri 侧文件访问模型不同，同步实�
 
 ## 验证
 
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::`
-- `./scripts/test-macos.sh --filter McpServerLibraryTests`
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::`（覆盖删除首项/中间项/末项及单行、混合换行布局，JSON 输出重新解析；Codex 更新保留 `bearer_token_env_var`、`startup_timeout_sec`、未知键、注释和非字符串 env 值）
+- `./scripts/test-macos.sh --filter McpServerLibraryTests`（覆盖计划后磁盘变化拒绝写入、文件在计划后出现拒绝创建、linked worktree 公共排除文件、关闭会话后仍能清理项目注册）
 - `./scripts/test-macos.sh --filter IdeCapabilitiesTests`
 - `./scripts/verify-service-boundaries.sh`
 - `./scripts/verify-agent-notes.sh`

@@ -208,7 +208,7 @@ fn write_claude(
     let object = document.ensure_object(&path)?;
     let value = serde_json::to_string(value).map_err(|_| invalid_request())?;
     document.set_member(object, name, &value)?;
-    Ok(document.into_string())
+    document.into_string()
 }
 
 fn remove_claude(
@@ -227,7 +227,7 @@ fn remove_claude(
         return Ok(content.to_string());
     };
     document.remove_member(object, name)?;
-    Ok(document.into_string())
+    document.into_string()
 }
 
 fn write_codex(content: &str, server: &McpServer) -> Result<String, CoreError> {

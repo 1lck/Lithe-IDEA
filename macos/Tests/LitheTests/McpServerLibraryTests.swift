@@ -206,8 +206,95 @@ struct McpServerLibraryTests {
     }
 
     @Test
-    func externallyModifiedProjectEntryIsKeptAndReported() throws {
+    func projectCloseFindsTheRegistrationWorkspaceAfterTheSessionClearsIt() throws {
         let fixture = try Fixture(workspace: true)
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        feature.registerLitheServer(McpServerDefinition(
+            name: "lithe",
+            transport: .stdio,
+            command: "/Applications/Lithe.app/Contents/Helpers/lithe-mcp",
+            args: ["--connection", "fixture"]
+        ))
+        #expect(feature.litheRegistration == .registered)
+
+        // WorkspaceSessionCoordinator clears the session before the close
+        // callback reaches the MCP grant, so the current URL is already nil.
+        fixture.clearWorkspace()
+        feature.unregisterLitheServer()
+
+        #expect(feature.litheRegistration == .inactive)
+        let claude = try fixture.claudeText()
+        #expect(claude.contains("\"lithe\"") == false)
+        let codexURL = fixture.workspace.appendingPathComponent(".codex/config.toml")
+        let codex = try fixture.text(at: codexURL)
+        #expect(codex.contains("[mcp_servers.lithe]") == false)
+    }
+
+    @Test
+    func linkedWorktreeRegistrationUsesTheSharedExcludeFile() throws {
+        let fixture = try Fixture(workspace: true, linkedWorktree: true)
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        feature.registerLitheServer(McpServerDefinition(
+            name: "lithe",
+            transport: .stdio,
+            command: "/Applications/Lithe.app/Contents/Helpers/lithe-mcp",
+            args: ["--connection", "fixture"]
+        ))
+        #expect(feature.litheRegistration == .registered)
+
+        // Git reads excludes from the common directory, not from the linked
+        // worktree's `.git/worktrees/<name>/info/exclude`.
+        let exclude = try fixture.text(
+            at: fixture.commonGitDirectory.appendingPathComponent("info/exclude")
+        )
+        #expect(exclude.contains(".codex/config.toml"))
+    }
+
+    @Test
+    func refusesToOverwriteBytesThatChangedAfterPlanning() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedClaude("{\"mcpServers\": {}}")
+        let file = try #require(fixture.store.configurationFiles(workspace: nil)
+            .first { $0.agent == .claudeCode && $0.scope == .global })
+        let plannedFrom = try #require(try fixture.store.read(file))
+
+        // Another Agent saves between planning and the write.
+        try fixture.write(
+            "{\"mcpServers\": {\"external\": {\"command\": \"/bin/false\"}}}",
+            to: fixture.claudeURL
+        )
+        #expect(throws: McpConfigurationError.changedOnDisk) {
+            _ = try fixture.store.write(
+                "{\"mcpServers\": {\"a\": {\"command\": \"/bin/true\"}}}",
+                to: file,
+                replacing: plannedFrom
+            )
+        }
+        let untouched = try fixture.claudeText()
+        #expect(untouched.contains("external"))
+        #expect(untouched.contains("/bin/true") == false)
+    }
+
+    @Test
+    func refusesToCreateAFileThatAppearedAfterPlanning() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let file = try #require(fixture.store.configurationFiles(workspace: nil)
+            .first { $0.agent == .claudeCode && $0.scope == .global })
+        #expect(try fixture.store.read(file) == nil)
+
+        try fixture.seedClaude("{\"mcpServers\": {\"external\": {\"command\": \"/bin/false\"}}}")
+        #expect(throws: McpConfigurationError.changedOnDisk) {
+            _ = try fixture.store.write("{\"mcpServers\": {}}", to: file, replacing: nil)
+        }
+        #expect(try fixture.claudeText().contains("external"))
+    }
+
+    @Test
+    func externallyModifiedProjectEntryIsKeptAndReported() throws {        let fixture = try Fixture(workspace: true)
         defer { fixture.cleanUp() }
         let feature = fixture.feature()
         feature.registerLitheServer(McpServerDefinition(
@@ -335,9 +422,11 @@ private final class Fixture {
     let workspace: URL
     let claudeHome: URL
     let codexHome: URL
+    /// Git common directory, used for the shared `info/exclude`.
+    let commonGitDirectory: URL
     private let actions: LibraryActionsFixture
 
-    init(workspace: Bool = false) throws {
+    init(workspace: Bool = false, linkedWorktree: Bool = false) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("mcp-library-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -346,9 +435,33 @@ private final class Fixture {
         self.workspace = root.appendingPathComponent("project", isDirectory: true)
         if workspace {
             try FileManager.default.createDirectory(
-                at: self.workspace.appendingPathComponent(".git/info", isDirectory: true),
-                withIntermediateDirectories: true
+                at: self.workspace, withIntermediateDirectories: true
             )
+            if linkedWorktree {
+                let common = root.appendingPathComponent("repository/.git", isDirectory: true)
+                commonGitDirectory = common
+                let worktreeGit = common.appendingPathComponent("worktrees/linked", isDirectory: true)
+                try FileManager.default.createDirectory(
+                    at: worktreeGit, withIntermediateDirectories: true
+                )
+                try FileManager.default.createDirectory(
+                    at: common.appendingPathComponent("info"), withIntermediateDirectories: true
+                )
+                try Data("gitdir: \(worktreeGit.path)\n".utf8).write(
+                    to: self.workspace.appendingPathComponent(".git")
+                )
+                try Data("../..\n".utf8).write(
+                    to: worktreeGit.appendingPathComponent("commondir")
+                )
+            } else {
+                commonGitDirectory = self.workspace.appendingPathComponent(".git", isDirectory: true)
+                try FileManager.default.createDirectory(
+                    at: self.workspace.appendingPathComponent(".git/info", isDirectory: true),
+                    withIntermediateDirectories: true
+                )
+            }
+        } else {
+            commonGitDirectory = root.appendingPathComponent("repository/.git", isDirectory: true)
         }
         let storage = LibraryTestFileStorage(root: root)
         actions = LibraryActionsFixture(
@@ -366,6 +479,13 @@ private final class Fixture {
 
     func feature() -> McpServerLibraryFeatureModel {
         McpServerLibraryFeatureModel(model: actions)
+    }
+
+    var store: MacAgentMcpConfigurationStore { actions.store }
+
+    /// Simulates the session URL being cleared before the close callback.
+    func clearWorkspace() {
+        actions.mcpWorkspaceURL = nil
     }
 
     func cleanUp() {

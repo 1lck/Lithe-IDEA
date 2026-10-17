@@ -48,9 +48,14 @@ impl JsonDocument {
         })
     }
 
-    /// Returns the finished document text.
-    pub(crate) fn into_string(self) -> String {
-        self.text
+    /// Returns the finished document text after re-validating it.
+    ///
+    /// Every splice is local, but a wrong comma or offset would still produce
+    /// a file Claude Code can no longer parse. Refusing the plan is safer than
+    /// writing broken configuration.
+    pub(crate) fn into_string(self) -> Result<String> {
+        serde_json::from_str::<serde_json::Value>(&self.text).map_err(|_| edit_error())?;
+        Ok(self.text)
     }
 
     /// Ensures every object in `path` exists, creating empty objects as needed,
@@ -117,18 +122,11 @@ impl JsonDocument {
             };
             self.text.replace_range(start..end, "");
         } else if let Some(previous) = index.checked_sub(1).map(|index| &members[index]) {
-            let previous_line = line_start(&self.text, previous.key_start);
-            let member_line = line_start(&self.text, member.key_start);
-            let (start, end) = if previous_line < member_line {
-                (
-                    member_line,
-                    line_end_including_newline(&self.text, member.value_end)
-                        .unwrap_or(member.value_end),
-                )
-            } else {
-                (previous.value_end, member.value_end)
-            };
-            self.text.replace_range(start..end, "");
+            // Removing the last member must also remove the comma that
+            // separates it from the previous member. Deleting only the last
+            // member's line would leave `previous,` and therefore invalid JSON.
+            self.text
+                .replace_range(previous.value_end..member.value_end, "");
         } else {
             self.text
                 .replace_range(member.key_start..member.value_end, "");
@@ -305,13 +303,4 @@ fn line_indent(text: &str, offset: usize) -> Option<&str> {
         .chars()
         .all(|character| character == ' ' || character == '\t')
         .then_some(indent)
-}
-
-fn line_end_including_newline(text: &str, offset: usize) -> Option<usize> {
-    let rest = &text[offset..];
-    let line_end = rest.find('\n')?;
-    rest[..line_end]
-        .chars()
-        .all(|character| character == ' ' || character == '\t' || character == '\r')
-        .then_some(offset + line_end + 1)
 }

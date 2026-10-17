@@ -163,6 +163,10 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     private weak var model: (any McpServerLibraryActions)?
     private var ledger: [String: [McpOwnedEntry]] = [:]
     private var hasLoaded = false
+    /// Workspace whose project-level Lithe entry is registered. Kept because
+    /// the coordinator clears the workspace URL before the close callback runs,
+    /// so cleanup can no longer rely on the current session.
+    private var litheRegistrationWorkspace: URL?
     private static let ledgerKey = "settings.mcpServerRegistrations"
 
     init(model: any McpServerLibraryActions) {
@@ -419,6 +423,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     func registerLitheServer(_ server: McpServerDefinition) {
         guard let store = model?.mcpConfigurationStore,
               let workspace = model?.mcpWorkspaceURL else { return }
+        litheRegistrationWorkspace = workspace
         let files = store.configurationFiles(workspace: workspace)
             .filter { $0.scope == .project }
         var registered: Set<McpAgent> = []
@@ -445,7 +450,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                     continue
                 }
                 if plan.changed {
-                    lastBackupURL = try store.write(plan.content, to: file).backupURL
+                    lastBackupURL = try store.write(
+                        plan.content, to: file, replacing: existing
+                    ).backupURL
                     // Lithe created the project Codex file; keep it out of the
                     // repository without editing the tracked .gitignore.
                     if file.agent == .codex, existing == nil {
@@ -479,9 +486,18 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     /// Removes the project-level Lithe entry when the grant is disabled or the
     /// project closes. Entries edited outside Lithe are kept and reported.
+    ///
+    /// The close flow clears the session URL before this runs, so the workspace
+    /// recorded at registration time is the fallback that keeps cleanup
+    /// pointed at the project Lithe actually wrote to.
     func unregisterLitheServer() {
-        guard let store = model?.mcpConfigurationStore,
-              let workspace = model?.mcpWorkspaceURL else {
+        guard let store = model?.mcpConfigurationStore else {
+            litheRegisteredAgents = []
+            litheRegistration = .inactive
+            litheRegistrationWorkspace = nil
+            return
+        }
+        guard let workspace = model?.mcpWorkspaceURL ?? litheRegistrationWorkspace else {
             litheRegisteredAgents = []
             litheRegistration = .inactive
             return
@@ -494,7 +510,8 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             let entries = ledgerEntries(for: file)
             guard entries.contains(where: { $0.name == "lithe" }) else { continue }
             do {
-                let content = try store.read(file) ?? ""
+                let existing = try store.read(file)
+                let content = existing ?? ""
                 let plan = try store.planWrite(
                     request(
                         for: file,
@@ -511,7 +528,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                     continue
                 }
                 if plan.changed {
-                    lastBackupURL = try store.write(plan.content, to: file).backupURL
+                    lastBackupURL = try store.write(
+                        plan.content, to: file, replacing: existing
+                    ).backupURL
                 }
                 var updated = entries
                 updated.removeAll { $0.name == "lithe" }
@@ -526,6 +545,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         }
 
         litheRegisteredAgents = []
+        litheRegistrationWorkspace = nil
         litheRegistration = messages.first.map { .needsAttention($0) } ?? .inactive
         refresh()
     }
@@ -565,9 +585,16 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         _ operations: [McpConfigurationFile: [Operation]],
         store: any McpConfigurationStore
     ) throws {
-        var planned: [(file: McpConfigurationFile, content: String, entries: [McpOwnedEntry], changed: Bool)] = []
+        var planned: [(
+            file: McpConfigurationFile,
+            source: String?,
+            content: String,
+            entries: [McpOwnedEntry],
+            changed: Bool
+        )] = []
         for (file, fileOperations) in operations {
-            var content = try store.read(file) ?? ""
+            let source = try store.read(file)
+            var content = source ?? ""
             var entries = ledgerEntries(for: file)
             var changed = false
             for operation in fileOperations {
@@ -620,11 +647,22 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                     entries.removeAll { $0.name == name }
                 }
             }
-            planned.append((file, content, entries, changed))
+            planned.append((file, source, content, entries, changed))
+        }
+
+        // Re-check every target before the first write so a concurrent save
+        // aborts the whole commit instead of leaving one Agent updated and the
+        // other still holding the old definition.
+        for entry in planned where entry.changed {
+            guard try store.read(entry.file) == entry.source else {
+                throw McpConfigurationError.changedOnDisk
+            }
         }
 
         for entry in planned where entry.changed {
-            lastBackupURL = try store.write(entry.content, to: entry.file).backupURL
+            lastBackupURL = try store.write(
+                entry.content, to: entry.file, replacing: entry.source
+            ).backupURL
             setLedger(entry.entries, for: entry.file)
         }
     }

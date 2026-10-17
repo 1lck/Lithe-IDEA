@@ -66,33 +66,53 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
     }
 
     func read(_ file: McpConfigurationFile) throws -> String? {
-        guard storage.fileExists(at: file.url) else { return nil }
-        guard let metadata = storage.metadata(for: file.url), metadata.isRegularFile else {
-            throw McpConfigurationError.unreadable(file.url.path)
+        try readText(at: file.url, reportedAs: file.url.path)
+    }
+
+    /// Reads one configuration file with the same bounds `write` validates.
+    private func readText(at url: URL, reportedAs path: String) throws -> String? {
+        guard storage.fileExists(at: url) else { return nil }
+        guard let metadata = storage.metadata(for: url), metadata.isRegularFile else {
+            throw McpConfigurationError.unreadable(path)
         }
         if let byteCount = metadata.byteCount, byteCount > Self.maximumBytes {
             throw McpConfigurationError.tooLarge
         }
         let data: Data
         do {
-            data = try storage.readData(from: file.url, options: [])
+            data = try storage.readData(from: url, options: [])
         } catch {
-            throw McpConfigurationError.unreadable(file.url.path)
+            throw McpConfigurationError.unreadable(path)
         }
         guard data.count <= Self.maximumBytes, let content = String(data: data, encoding: .utf8) else {
             throw data.count > Self.maximumBytes
                 ? McpConfigurationError.tooLarge
-                : McpConfigurationError.unreadable(file.url.path)
+                : McpConfigurationError.unreadable(path)
         }
         return content
     }
 
-    func write(_ content: String, to file: McpConfigurationFile) throws -> McpWriteReceipt {
+    func write(
+        _ content: String, to file: McpConfigurationFile, replacing expected: String?
+    ) throws -> McpWriteReceipt {
         let data = Data(content.utf8)
         guard data.count <= Self.maximumBytes else { throw McpConfigurationError.tooLarge }
         // Atomic replacement renames over the path, which would replace a
         // dotfile symlink with a regular file; write through to its target.
         let target = resolvedWriteTarget(file.url)
+        // Re-read immediately before replacing. Atomic rename prevents a
+        // half-written file, but not losing a save another Agent, editor or
+        // Lithe instance made after this plan was computed.
+        if let expected {
+            guard let current = try readText(at: target, reportedAs: file.url.path),
+                  current == expected else {
+                throw McpConfigurationError.changedOnDisk
+            }
+        } else if storage.fileExists(at: target) {
+            // The plan assumed a new file; creating it now would discard the
+            // entry another process just added.
+            throw McpConfigurationError.changedOnDisk
+        }
         let exists = storage.fileExists(at: target)
         let permissions = exists ? posixPermissions(of: target) : 0o600
         let backupURL = try backup(target)
@@ -191,11 +211,30 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
             guard !path.isEmpty else { return nil }
             gitDirectory = path.hasPrefix("/")
                 ? URL(fileURLWithPath: path)
-                : URL(fileURLWithPath: path, relativeTo: dotGit.deletingLastPathComponent()).absoluteURL
+                : dotGit.deletingLastPathComponent().appendingPathComponent(path)
         } else {
             return nil
         }
-        return gitDirectory.standardizedFileURL.appendingPathComponent("info/exclude")
+        // Linked worktrees keep the exclude list in the repository's common
+        // directory, not under `.git/worktrees/<name>`.
+        return commonGitDirectory(gitDirectory)
+            .appendingPathComponent("info/exclude")
+    }
+
+    /// Resolves `commondir` for linked worktrees; Git records the shared
+    /// repository directory there as a path relative to the worktree's gitdir.
+    private func commonGitDirectory(_ gitDirectory: URL) -> URL {
+        let commonFile = gitDirectory.appendingPathComponent("commondir")
+        guard let data = try? storage.readPrefix(from: commonFile, byteCount: 4096),
+              let text = String(data: data, encoding: .utf8) else {
+            return gitDirectory.standardizedFileURL
+        }
+        let path = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return gitDirectory.standardizedFileURL }
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path).standardizedFileURL
+        }
+        return gitDirectory.appendingPathComponent(path).standardizedFileURL
     }
 
     private func resolvedWriteTarget(_ url: URL) -> URL {

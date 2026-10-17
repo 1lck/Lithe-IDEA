@@ -196,6 +196,62 @@ fn removes_only_the_requested_json_entry() {
     assert_eq!(parsed["mcpServers"]["b"]["command"], "b");
 }
 
+fn remove_entry(content: &str, name: &str) -> String {
+    let parsed = parse("claude", "global", content, None);
+    let hash = server_hash(&parsed, name);
+    let result = plan(json!({
+        "source": "claude",
+        "scope": "global",
+        "content": content,
+        "operation": "remove",
+        "name": name,
+        "owned": [{"name": name, "definitionHash": hash}]
+    }));
+    let next = result["content"].as_str().unwrap().to_string();
+    // Every plan must stay valid for Claude Code to read.
+    serde_json::from_str::<Value>(&next).expect("removal must keep valid JSON");
+    next
+}
+
+#[test]
+fn removing_the_last_json_entry_also_removes_its_comma() {
+    let content = "{\n  \"mcpServers\": {\n    \"a\": {\"command\": \"a\"},\n    \"b\": {\"command\": \"b\"}\n  }\n}";
+    let next = remove_entry(content, "b");
+    let parsed: Value = serde_json::from_str(&next).unwrap();
+    assert_eq!(parsed["mcpServers"]["a"]["command"], "a");
+    assert!(parsed["mcpServers"].get("b").is_none());
+    assert!(!next.contains(",\n  }"));
+}
+
+#[test]
+fn removing_a_middle_json_entry_keeps_neighbours_valid() {
+    let content = "{\n  \"mcpServers\": {\n    \"a\": {\"command\": \"a\"},\n    \"b\": {\"command\": \"b\"},\n    \"c\": {\"command\": \"c\"}\n  }\n}";
+    let next = remove_entry(content, "b");
+    let parsed: Value = serde_json::from_str(&next).unwrap();
+    assert_eq!(parsed["mcpServers"]["a"]["command"], "a");
+    assert_eq!(parsed["mcpServers"]["c"]["command"], "c");
+    assert!(parsed["mcpServers"].get("b").is_none());
+}
+
+#[test]
+fn removing_entries_handles_single_line_and_mixed_layouts() {
+    let single_line =
+        "{\"mcpServers\": {\"a\": {\"command\": \"a\"}, \"b\": {\"command\": \"b\"}}}";
+    let parsed: Value = serde_json::from_str(&remove_entry(single_line, "b")).unwrap();
+    assert_eq!(parsed["mcpServers"]["a"]["command"], "a");
+    assert!(parsed["mcpServers"].get("b").is_none());
+
+    let mixed = "{\n  \"mcpServers\": {\n    \"a\": {\"command\": \"a\"}, \"b\": {\"command\": \"b\"}\n  }\n}";
+    let parsed: Value = serde_json::from_str(&remove_entry(mixed, "b")).unwrap();
+    assert_eq!(parsed["mcpServers"]["a"]["command"], "a");
+    assert!(parsed["mcpServers"].get("b").is_none());
+
+    let multiline_value = "{\n  \"mcpServers\": {\n    \"a\": {\"command\": \"a\"},\n    \"b\": {\n      \"command\": \"b\"\n    }\n  }\n}";
+    let parsed: Value = serde_json::from_str(&remove_entry(multiline_value, "b")).unwrap();
+    assert_eq!(parsed["mcpServers"]["a"]["command"], "a");
+    assert!(parsed["mcpServers"].get("b").is_none());
+}
+
 #[test]
 fn toml_edits_preserve_comments_and_unrelated_tables() {
     let content =
@@ -224,6 +280,117 @@ fn toml_edits_preserve_comments_and_unrelated_tables() {
         parsed["mcp_servers"]["lithe"]["command"].as_str(),
         Some("/Applications/Lithe.app/Contents/Helpers/lithe-mcp")
     );
+}
+
+/// Plans an update of an existing Codex entry, using the ledger hash of the
+/// parsed definition as the host would.
+fn update_codex(content: &str, server: Value) -> String {
+    let name = server["name"].as_str().expect("server name").to_string();
+    let parsed = parse("codex", "global", content, None);
+    let hash = server_hash(&parsed, &name);
+    let result = plan(json!({
+        "source": "codex",
+        "scope": "global",
+        "content": content,
+        "operation": "set",
+        "server": server,
+        "owned": [{"name": name, "definitionHash": hash}]
+    }));
+    result["content"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn toml_http_updates_keep_codex_specific_fields() {
+    let content = r#"
+[mcp_servers.remote]
+url = "https://old.example/mcp"
+bearer_token_env_var = "REMOTE_TOKEN"
+startup_timeout_sec = 20
+http_headers = { X-Client = "lithe" }
+"#;
+    let next = update_codex(
+        content,
+        json!({
+            "name": "remote",
+            "transport": "http",
+            "args": [],
+            "env": [],
+            "url": "https://new.example/mcp",
+            "headers": [{"key": "X-Client", "value": "lithe"}]
+        }),
+    );
+    assert!(next.contains("bearer_token_env_var = \"REMOTE_TOKEN\""));
+    assert!(next.contains("startup_timeout_sec = 20"));
+    assert!(next.contains("https://new.example/mcp"));
+    let parsed: toml::Value = toml::from_str(&next).unwrap();
+    assert_eq!(
+        parsed["mcp_servers"]["remote"]["bearer_token_env_var"].as_str(),
+        Some("REMOTE_TOKEN")
+    );
+}
+
+#[test]
+fn toml_stdio_updates_keep_unknown_keys_comments_and_unmodelled_entries() {
+    let content = r#"
+[mcp_servers.local]
+command = "old"
+# Codex throttles startup with this.
+startup_timeout_sec = 30
+API_ENV = "LOCAL_TOKEN"
+
+[mcp_servers.local.env]
+TOKEN = "old"
+COUNT = 3
+"#;
+    let next = update_codex(
+        content,
+        json!({
+            "name": "local",
+            "transport": "stdio",
+            "command": "new",
+            "args": ["--flag"],
+            "env": [{"key": "TOKEN", "value": "new"}],
+            "headers": []
+        }),
+    );
+    assert!(next.contains("command = \"new\""));
+    assert!(next.contains("# Codex throttles startup with this."));
+    assert!(next.contains("API_ENV = \"LOCAL_TOKEN\""));
+    let parsed: toml::Value = toml::from_str(&next).unwrap();
+    let table = &parsed["mcp_servers"]["local"];
+    assert_eq!(table["startup_timeout_sec"].as_integer(), Some(30));
+    assert_eq!(table["env"]["TOKEN"].as_str(), Some("new"));
+    // Non-string entries are not part of the normalized model and survive.
+    assert_eq!(table["env"]["COUNT"].as_integer(), Some(3));
+}
+
+#[test]
+fn toml_transport_change_removes_only_the_keys_lithe_models() {
+    let content = r#"
+[mcp_servers.switch]
+command = "old"
+args = ["--stdio"]
+env = { TOKEN = "x" }
+startup_timeout_sec = 5
+"#;
+    let next = update_codex(
+        content,
+        json!({
+            "name": "switch",
+            "transport": "http",
+            "args": [],
+            "env": [],
+            "url": "https://example.test/mcp",
+            "headers": []
+        }),
+    );
+    let parsed: toml::Value = toml::from_str(&next).unwrap();
+    let table = parsed["mcp_servers"]["switch"].as_table().unwrap();
+    assert!(!table.contains_key("command"));
+    assert!(!table.contains_key("args"));
+    assert!(!table.contains_key("env"));
+    assert_eq!(table["startup_timeout_sec"].as_integer(), Some(5));
+    assert_eq!(table["url"].as_str(), Some("https://example.test/mcp"));
 }
 
 #[test]
