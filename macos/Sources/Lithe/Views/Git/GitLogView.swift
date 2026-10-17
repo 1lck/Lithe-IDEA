@@ -1035,8 +1035,8 @@ struct GitLogView: View {
             checkout: { reference in
                 Task { await feature.checkoutReference(reference) }
             },
-            updateCurrentBranch: { reference in
-                Task { await feature.updateCurrentBranch(reference) }
+            updateBranch: { reference in
+                Task { await feature.updateBranch(reference) }
             },
             push: { reference in
                 pendingPushReference = reference
@@ -1157,8 +1157,9 @@ struct GitLogView: View {
             if reference.kind == .local {
                 items.append(.separator)
 
-                items.append(.action("Update", isEnabled: !(!reference.isCurrent || feature.isPerformingBranchOperation), action: {
-                    Task { await feature.updateCurrentBranch(reference) }
+                items.append(.action("Update", isEnabled: (reference.isCurrent || reference.upstreamShortName != nil)
+                                         && !feature.isPerformingBranchOperation, action: {
+                    Task { await feature.updateBranch(reference) }
                 }))
 
                 items.append(.action("Push…", isEnabled: !(feature.isPerformingBranchOperation), action: {
@@ -2813,7 +2814,7 @@ private struct GitReferenceRowActions {
     let selectForCompare: (GitReference) -> Void
     let comparisonSourceName: String?
     let checkout: (GitReference) -> Void
-    let updateCurrentBranch: (GitReference) -> Void
+    let updateBranch: (GitReference) -> Void
     let push: (GitReference) -> Void
     let copyBranchName: (GitReference) -> Void
     /// Sets the local branch's tracking branch. A `nil` upstream clears it.
@@ -2925,6 +2926,7 @@ private struct GitReferenceRowView: View, Equatable {
         GitReferenceRowMenu.entries(
             kind: reference.kind,
             isCurrent: reference.isCurrent,
+            hasUpstream: reference.upstreamShortName != nil,
             showsCompareWithCurrent: currentReferenceID != nil
                 && currentReferenceID != reference.id,
             showsCompareWithSource: comparisonSourceID != nil
@@ -3006,7 +3008,7 @@ private struct GitReferenceRowView: View, Equatable {
             }
         case .update:
             return .action("Update", role: role, isEnabled: isEnabled) {
-                actions.updateCurrentBranch(reference)
+                actions.updateBranch(reference)
             }
         case .push:
             return .action("Push…", role: role, isEnabled: isEnabled) {
