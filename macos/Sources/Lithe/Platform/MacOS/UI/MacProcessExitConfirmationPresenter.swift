@@ -1,5 +1,6 @@
 import AppKit
 import LitheTerminalModule
+import SwiftUI
 
 // Note: 统一子进程生命周期见 .agents/notes/proposed/architecture/2026-10-16-unified-child-process-lifecycle.md
 
@@ -45,35 +46,64 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
         count: Int,
         purpose: ProcessConfirmationPurpose
     ) async -> AgentTaskExitAnswer {
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = purpose == .startupSweep
-            ? String(format: String(localized: "A task %@ started before Lithe last closed unexpectedly is still running"), task.agentName)
-            : String(format: String(localized: "%@ started a task that is still running"), task.agentName)
-        var lines = [Self.progress(position, count), "", task.commandLine]
-        lines.append(String(format: String(localized: "Workspace: %@"), task.workspace))
-        if let directory = task.workingDirectory, directory != task.workspace {
-            lines.append(String(format: String(localized: "Directory: %@"), directory))
+        // Only quitting can be cancelled; dismissing any other confirmation keeps the task.
+        let dismissal: AgentTaskExitAnswer = purpose == .quit ? .cancel : .keep
+        var answer = dismissal
+        let panel = AgentTaskConfirmationPanel(
+            contentRect: NSRect(x: 0, y: 0, width: AgentTaskExitConfirmationView.width, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let finish = { (result: AgentTaskExitAnswer) in
+            answer = result
+            NSApp.stopModal()
         }
-        if let startedAt = task.startedAt {
-            lines.append(String(format: String(localized: "Running for %@"), Self.duration(since: startedAt)))
+        let content = AgentTaskExitConfirmationView(
+            task: task,
+            position: position,
+            count: count,
+            purpose: purpose,
+            presentedAt: Date(),
+            onCopyCommand: {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(task.commandLine, forType: .string)
+            },
+            onAnswer: finish
+        )
+        panel.title = content.title
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
+        panel.isReleasedWhenClosed = false
+        panel.level = .modalPanel
+        panel.animationBehavior = .alertPanel
+        let owner = NSApp.keyWindow ?? NSApp.mainWindow
+        // Follow the workbench theme; without a window the system appearance applies.
+        panel.appearance = owner?.effectiveAppearance
+        panel.backgroundColor = NSColor(name: nil) { appearance in
+            LitheTheme.nsColor(.popupBackground, isDark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
         }
-        if task.processCount > 1 {
-            lines.append(String(format: String(localized: "Includes %lld processes"), task.processCount))
+        panel.onDismiss = { finish(dismissal) }
+        let host = NSHostingView(rootView: content)
+        panel.contentView = host
+        // Let the command box measure itself before the window takes its size.
+        host.layoutSubtreeIfNeeded()
+        panel.setContentSize(host.fittingSize)
+        if let owner {
+            panel.setFrameOrigin(NSPoint(
+                x: owner.frame.midX - panel.frame.width / 2,
+                y: owner.frame.midY - panel.frame.height / 2
+            ))
+        } else {
+            panel.center()
         }
-        lines.append("")
-        lines.append(String(localized: "Agents may run deployments, migrations or long builds. Ending one halfway can leave data or services inconsistent. Keep it if you are not sure what it does."))
-        alert.informativeText = lines.joined(separator: "\n")
-        alert.addButton(withTitle: String(localized: "Keep Running"))
-        alert.addButton(withTitle: String(localized: "End This Task"))
-        if purpose == .quit {
-            alert.addButton(withTitle: String(localized: "Cancel Quit"))
-        }
-        switch alert.runModal() {
-        case .alertFirstButtonReturn: return .keep
-        case .alertSecondButtonReturn: return .terminate
-        default: return .cancel
-        }
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.runModal(for: panel)
+        panel.orderOut(nil)
+        panel.contentView = nil
+        return answer
     }
 
     func chooseBackgroundResources(
@@ -173,10 +203,22 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
     }
 
     private static func duration(since date: Date) -> String {
-        let formatter = DateComponentsFormatter()
-        formatter.unitsStyle = .abbreviated
-        formatter.allowedUnits = [.day, .hour, .minute, .second]
-        formatter.maximumUnitCount = 2
-        return formatter.string(from: max(0, Date().timeIntervalSince(date))) ?? ""
+        ProcessRunningTimeFormatter.string(from: date, to: Date())
+    }
+}
+
+/// Window of the Agent task confirmation. Escape and the close button
+/// dismiss it, which the presenter maps to the purpose's safe answer.
+private final class AgentTaskConfirmationPanel: NSPanel {
+    var onDismiss: (() -> Void)?
+
+    override var canBecomeKey: Bool { true }
+
+    override func cancelOperation(_ sender: Any?) {
+        onDismiss?()
+    }
+
+    override func performClose(_ sender: Any?) {
+        onDismiss?()
     }
 }
