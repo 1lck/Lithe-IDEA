@@ -17,6 +17,10 @@ struct LanguageTestLocalization {
         String(format: text("%@ %lld"), text(label), Int64(count))
     }
 
+    func number(_ format: String, _ count: Int) -> String {
+        String(format: text(format), Int64(count))
+    }
+
     func error(_ message: String) -> String {
         for framework in ["Maven", "JUnit"] {
             let prefix = framework + " test run timed out after "

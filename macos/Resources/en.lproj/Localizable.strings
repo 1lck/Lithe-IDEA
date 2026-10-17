@@ -1701,6 +1701,40 @@
 "5 hours" = "5 hours";
 "7 days" = "7 days";
 
+// Test process performance
+"Resident Memory" = "Resident Memory";
+"Test process tree · Resident memory" = "Test process tree · Resident memory";
+"Run tests to view process performance." = "Run tests to view process performance.";
+"Waiting for process performance data…" = "Waiting for process performance data…";
+
+"Start Recording" = "Start Recording";
+
+"Stop Recording" = "Stop Recording";
+
+"Show Results" = "Show Results";
+
+"Select test JVM" = "Select test JVM";
+
+"Waiting for a local test JVM…" = "Waiting for a local test JVM…";
+
+"Performance Results" = "Performance Results";
+
+"No profiling events were recorded." = "No profiling events were recorded.";
+
+"Process Terminated" = "Process Terminated";
+
+"%lld test failed" = "%lld test failed";
+"%lld tests failed" = "%lld tests failed";
+"%lld test passed" = "%lld test passed";
+"%lld tests passed" = "%lld tests passed";
+"%lld test ignored" = "%lld test ignored";
+"%lld tests ignored" = "%lld tests ignored";
+"%lld passed" = "%lld passed";
+"%lld ignored" = "%lld ignored";
+"%lld test total" = "%lld test total";
+"%lld tests total" = "%lld tests total";
+", " = ", ";
+
 // Agent provider form
 "Use form" = "Use form";
 "Edit configuration text" = "Edit configuration text";

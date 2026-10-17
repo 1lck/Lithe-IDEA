@@ -50,7 +50,7 @@ struct JVMPerformanceIntegrationTests {
         #expect(await received.waitUntilOpen(timeout: .seconds(10)))
         #expect(failure == nil, "Collector failure: \(failure ?? "")")
         #expect(samples.count >= 3)
-        #expect(samples.allSatisfy { $0.heapUsedBytes > 16 * 1024 * 1024 && $0.heapUsedBytes <= $0.heapCommittedBytes })
+        #expect(samples.allSatisfy { $0.memoryUsedBytes > 16 * 1024 * 1024 && $0.memoryUsedBytes <= $0.memoryCapacityBytes })
         #expect(samples.compactMap(\.cpuPercent).contains { $0.isFinite && $0 > 0 && $0 <= 100 })
         let collectorPIDs = registry.processIDs(for: ManagedProcessCategory.service)
         #expect(collectorPIDs.count == 1)

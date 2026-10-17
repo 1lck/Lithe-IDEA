@@ -13,7 +13,7 @@ struct ConsoleInlineInputTests {
         var submitted: [String] = []
         var acceptsInput = true
         let content = OutputTextView(output: "ready> ", searchRoots: [], fileExists: { _ in false }, emptyMessage: "",
-            fontSize: 13, usesIDEAConsoleStyle: true, consolePresentation: presentation,
+            fontSize: 13, consolePresentation: presentation,
             standardInputSessionID: UUID(), onSubmitStandardInput: { submitted.append($0); return acceptsInput },
             onOpenLocation: { _, _, _ in })
         let host = NSHostingView(rootView: content.environment(\.colorScheme, dark ? .dark : .light))
@@ -53,7 +53,7 @@ struct ConsoleInlineInputTests {
         let sessionID = UUID()
         func content(_ output: String, session: UUID = sessionID, acceptsInput: Bool = true) -> OutputTextView {
             OutputTextView(output: output, searchRoots: [], fileExists: { _ in false }, emptyMessage: "",
-                fontSize: 13, usesIDEAConsoleStyle: true, consolePresentation: presentation,
+                fontSize: 13, consolePresentation: presentation,
                 standardInputSessionID: session, onSubmitStandardInput: acceptsInput ? { _ in true } : nil,
                 onOpenLocation: { _, _, _ in })
         }
@@ -95,8 +95,7 @@ struct ConsoleInlineInputTests {
         let presentation = ConsoleFoldPresentation()
         var openedLine: Int?
         let content = OutputTextView(output: output, searchRoots: [URL(fileURLWithPath: "/workspace")],
-            fileExists: { _ in true }, emptyMessage: "", fontSize: 13, usesIDEAConsoleStyle: true,
-            consolePresentation: presentation, standardInputSessionID: UUID(), onSubmitStandardInput: { _ in true },
+            fileExists: { _ in true }, emptyMessage: "", fontSize: 13,             consolePresentation: presentation, standardInputSessionID: UUID(), onSubmitStandardInput: { _ in true },
             onOpenLocation: { _, line, _ in openedLine = line })
         let host = NSHostingView(rootView: content)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -128,14 +127,14 @@ struct ConsoleInlineInputTests {
         #expect(openedLine == 1)
     }
 
-    @Test(arguments: [false, true])
-    func wallpaperChangesUpdateEveryConsoleLayerWithoutReplacingInput(dark: Bool) throws {
+    @Test(arguments: [false, true], [HorizontalEdge.leading, .trailing])
+    func wallpaperChangesUpdateEveryConsoleLayerWithoutReplacingInput(dark: Bool, toolbarEdge: HorizontalEdge) throws {
         let presentation = ConsoleFoldPresentation()
         let sessionID = UUID()
         func content(_ wallpaper: Bool) -> some View {
             OutputTextView(output: "ready> ", searchRoots: [], fileExists: { _ in false }, emptyMessage: "",
-                showsConsoleToolbar: true, fontSize: 13, usesIDEAConsoleStyle: true,
-                consolePresentation: presentation, standardInputSessionID: sessionID,
+                showsConsoleToolbar: true, consoleToolbarPlacement: toolbarEdge,
+                fontSize: 13,                 consolePresentation: presentation, standardInputSessionID: sessionID,
                 onSubmitStandardInput: { _ in true }, onOpenLocation: { _, _, _ in })
                 .environment(\.colorScheme, dark ? .dark : .light)
                 .environment(\.workbenchHasBackgroundImage, wallpaper)
@@ -151,6 +150,9 @@ struct ConsoleInlineInputTests {
         host.layoutSubtreeIfNeeded()
         let view = try #require(findTextView(host))
         let scroll = try #require(view.enclosingScrollView)
+        let outputFrame = scroll.convert(scroll.bounds, to: host)
+        #expect(abs(outputFrame.width - (600 - LitheTheme.ActionStripe.width - 1)) < 1)
+        #expect(abs(outputFrame.minX - (toolbarEdge == .leading ? LitheTheme.ActionStripe.width + 1 : 0)) < 1)
         view.setSelectedRange(NSRange(location: view.string.utf16.count, length: 0))
         view.insertText("draft", replacementRange: view.selectedRange())
         for wallpaper in [false, true, false] {
@@ -165,7 +167,7 @@ struct ConsoleInlineInputTests {
             host.cacheDisplay(in: host.bounds, to: bitmap)
             // Both the action stripe and native output must expose the same
             // wallpaper, then restore the theme surface when it is removed.
-            for logicalX in [18, 500] {
+            for logicalX in [18, 582] {
                 let pixel = try #require(bitmap.colorAt(x: logicalX * bitmap.pixelsWide / 600,
                     y: bitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB))
                 #expect((pixel.redComponent - pixel.greenComponent > 0.4) == wallpaper)
@@ -181,7 +183,7 @@ struct ConsoleInlineInputTests {
         let presentation = ConsoleFoldPresentation()
         func content(_ output: String) -> some View {
             OutputTextView(output: output, searchRoots: [], fileExists: { _ in false }, emptyMessage: "",
-                fontSize: 13, usesIDEAConsoleStyle: true, consolePresentation: presentation,
+                fontSize: 13, consolePresentation: presentation,
                 onOpenLocation: { _, _, _ in })
                 .environment(\.colorScheme, dark ? .dark : .light)
         }
@@ -232,7 +234,7 @@ struct ConsoleInlineInputTests {
         func content(_ source: String) -> OutputTextView {
             OutputTextView(output: source,
                 searchRoots: [URL(fileURLWithPath: "/fixture")], fileExists: { _ in true }, emptyMessage: "",
-                fontSize: 13, usesIDEAConsoleStyle: true, onOpenLocation: { _, _, _ in opened += 1 })
+                fontSize: 13, onOpenLocation: { _, _, _ in opened += 1 })
         }
         let host = NSHostingView(rootView: content(output))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
@@ -278,7 +280,7 @@ struct ConsoleInlineInputTests {
         func content(_ output: String) -> AnyView {
             AnyView(OutputTextView(output: output, searchRoots: [URL(fileURLWithPath: "/fixture")],
                 fileExists: { _ in true }, emptyMessage: "", showsConsoleToolbar: true,
-                usesIDEAConsoleStyle: true, onOpenLocation: { _, _, _ in })
+                onOpenLocation: { _, _, _ in })
                 .environment(\.locale, Locale(identifier: "en")))
         }
         let host = NSHostingView(rootView: content("plain output"))

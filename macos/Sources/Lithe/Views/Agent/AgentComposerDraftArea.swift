@@ -1,7 +1,7 @@
 import SwiftUI
 import LitheAgentConversationModule
 
-/// Reserves a writing line before allocating space to command suggestions.
+/// Anchors floating command suggestions without consuming the draft's writing height.
 struct AgentComposerDraftArea<Editor: View>: View {
     let commands: [AgentCommand]?
     let highlightedIndex: Int
@@ -9,23 +9,13 @@ struct AgentComposerDraftArea<Editor: View>: View {
     @ViewBuilder let editor: () -> Editor
 
     var body: some View {
-        GeometryReader { geometry in
-            let listHeight = max(0, geometry.size.height - AgentComposerMetrics.writingLineHeight)
-            let showsInline = listHeight >= AgentCommandSuggestionList.minimumHeight
-            VStack(spacing: 0) {
-                if let commands, showsInline {
-                    suggestions(commands, maximumHeight: min(AgentCommandSuggestionList.defaultMaximumHeight, listHeight - 2))
-                }
-                editor()
-                    .frame(minHeight: AgentComposerMetrics.writingLineHeight, maxHeight: .infinity, alignment: .topLeading)
-            }
+        editor()
             .anchorPreference(key: AgentFloatingCommandsKey.self, value: .bounds) { bounds in
-                guard let commands, !showsInline else { return nil }
+                guard let commands else { return nil }
                 return AgentFloatingCommands(bounds: bounds,
                     list: suggestions(commands, maximumHeight: AgentCommandSuggestionList.defaultMaximumHeight))
             }
-        }
-        .zIndex(1)
+            .zIndex(1)
     }
 
     private func suggestions(_ commands: [AgentCommand], maximumHeight: CGFloat) -> AgentCommandSuggestionList {

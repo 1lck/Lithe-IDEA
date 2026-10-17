@@ -3130,6 +3130,40 @@
 "5 hours" = "5 小时";
 "7 days" = "7 天";
 
+// Test process performance
+"Resident Memory" = "驻留内存";
+"Test process tree · Resident memory" = "测试进程树 · 驻留内存";
+"Run tests to view process performance." = "运行测试以查看进程性能。";
+"Waiting for process performance data…" = "正在等待进程性能数据…";
+
+"Start Recording" = "开始录制";
+
+"Stop Recording" = "停止录制";
+
+"Show Results" = "显示结果";
+
+"Select test JVM" = "选择测试 JVM";
+
+"Waiting for a local test JVM…" = "正在等待本地测试 JVM…";
+
+"Performance Results" = "性能分析结果";
+
+"No profiling events were recorded." = "没有录制到性能事件。";
+
+"Process Terminated" = "进程已终止";
+
+"%lld test failed" = "%lld 个测试失败";
+"%lld tests failed" = "%lld 个测试失败";
+"%lld test passed" = "%lld 个测试通过";
+"%lld tests passed" = "%lld 个测试通过";
+"%lld test ignored" = "%lld 个测试已忽略";
+"%lld tests ignored" = "%lld 个测试已忽略";
+"%lld passed" = "%lld 个通过";
+"%lld ignored" = "%lld 个已忽略";
+"%lld test total" = "共 %lld 个测试";
+"%lld tests total" = "共 %lld 个测试";
+", " = "，";
+
 // Agent provider form
 "Use form" = "使用表单";
 "Edit configuration text" = "编辑配置文本";

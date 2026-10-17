@@ -72,6 +72,33 @@ struct LitheScrollWheelRoutingTests {
         )
     }
 
+    @Test(arguments: [CGFloat(32), CGFloat(280)])
+    func independentOverlayKeepsEventsEvenAtItsBoundary(width: CGFloat) throws {
+        let hierarchy = makeScrollHierarchy(nestedOriginY: 100, outerScrollY: 100)
+        let container = FlippedTestView(frame: hierarchy.outer.frame)
+        container.addSubview(hierarchy.outer)
+        // Both the narrow turn rail and the command list overlap the transcript,
+        // but belong to a sibling responder chain rather than its document.
+        let overlay = NSScrollView(frame: NSRect(x: 0, y: 0, width: width, height: 100))
+        let document = FlippedTestView(frame: NSRect(x: 0, y: 0, width: width, height: 800))
+        overlay.documentView = document
+        container.addSubview(overlay)
+        let hitView = try #require(container.hitTest(NSPoint(x: 10, y: 30)))
+        #expect(hitView === document)
+        for origin in [CGFloat(0), CGFloat(100), CGFloat(700)] {
+            overlay.contentView.scroll(to: NSPoint(x: 0, y: origin))
+            for delta in [CGFloat(-10), CGFloat(10)] {
+                #expect(LitheScrollWheelRouting.canScroll(hierarchy.outer, deltaX: 0, deltaY: delta))
+                #expect(LitheScrollWheelRouting.destination(hitView: hitView, within: hierarchy.outer,
+                    deltaX: 0, deltaY: delta) == .unchanged)
+            }
+        }
+        #expect(LitheScrollWheelRouting.destination(hitView: nil, within: hierarchy.outer,
+            deltaX: 0, deltaY: -10) == .unchanged)
+        #expect(LitheScrollWheelRouting.destination(hitView: hierarchy.outer.documentView, within: hierarchy.outer,
+            deltaX: 0, deltaY: -10) == .outer)
+    }
+
     private func makeScrollHierarchy(
         nestedOriginY: CGFloat,
         outerScrollY: CGFloat

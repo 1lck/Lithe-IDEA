@@ -729,7 +729,34 @@ enum LitheTheme {
     static var linkColor: Color { link }
 
     /// Shared by Git Log branch actions and Console actions.
+    enum TestResult {
+        static var summaryFont: Font { LitheTheme.uiFont(size: 13, weight: .regular) }
+        // TestStatusLine's 2pt wrapper + SimpleColoredComponent's 2pt icon inset.
+        static let summaryLeadingInset: CGFloat = 4
+        static let summaryIconTextGap: CGFloat = 3 // 2pt icon gap + 1pt text border.
+        static let summaryDescriptionGap: CGFloat = 12 // 3pt trailing + 6pt gap + 3pt leading.
+        static var failedText: Color { controlColor(light: 0xC54E58, dark: 0xF57E84) }
+        static var ignoredText: Color { controlColor(light: 0xA56906, dark: 0xD59637) }
+        static var descriptionText: Color { controlColor(light: 0x73767C, dark: 0x73767C) }
+        // Community TestStatusLine stripeWidth + DarculaProgressBarUI determinate capsule.
+        static let stripeHeight: CGFloat = 3
+        // Exact ProgressBar.passedColor/failedColor: Islands Light; ExperimentalDark parent.
+        static var passed: Color { controlColor(light: 0x4E9D6C, dark: 0x57965C) }
+        static var failed: Color { controlColor(light: 0xE4656E, dark: 0xBD5757) }
+    }
+
     enum ActionStripe {
+        // Community UIUtil.SMALL + Islands text-default; compact pane titles.
+        static var titleFont: Font { LitheTheme.uiFont(size: 11) }
+        static var titleColor: Color { controlColor(light: 0x000000, dark: 0xD1D3D9) }
+        // Community c7f91397 TabbedPane + ManyIslands: flat content tabs, not HeaderTab pills.
+        static let tabHorizontalInset: CGFloat = 12
+        static let tabUnderlineHeight: CGFloat = 3
+        static let tabUnderlineRadius: CGFloat = 2 // tabSelectionArc is a diameter of 4.
+        static var tabUnderline: Color { controlColor(light: 0x3871E1, dark: 0x3871E1) }
+        static var tabHover: Color {
+            controlColor(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 18/255, darkAlpha: 23/255)
+        }
         static let width: CGFloat = 36
         static let iconSize: CGFloat = 16
         static let buttonSize: CGFloat = 22
