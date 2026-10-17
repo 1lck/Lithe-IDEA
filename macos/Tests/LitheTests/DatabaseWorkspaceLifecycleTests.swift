@@ -292,6 +292,107 @@ struct DatabaseWorkspaceLifecycleTests {
     }
 
     @Test(arguments: [false, true])
+    func queryCommentFontsKeepTheSuppliedFamilyAndSize(dark: Bool) throws {
+        try #require(MacEditorFontCatalog.resolvedFamily("Menlo") == "Menlo")
+        let font = MacEditorFontCatalog.font(family: "Menlo", size: 17)
+        let source = "SELECT 1 /* block comment */; -- line comment"
+        let storage = NSTextStorage(string: source)
+        SQLSyntaxHighlighter.apply(to: storage, font: font, isDark: dark)
+        for text in ["SELECT", "/* block comment */", "-- line comment"] {
+            let offset = (source as NSString).range(of: text).location
+            let actual = try #require(storage.attribute(.font, at: offset, effectiveRange: nil) as? NSFont)
+            #expect(actual.familyName == font.familyName)
+            #expect(actual.pointSize == 17)
+            #expect(actual.fontDescriptor.symbolicTraits.contains(.italic) == (!dark && text != "SELECT"))
+        }
+    }
+
+    @Test
+    func queryCommentsKeepTheOriginalFontWhenItHasNoItalicFace() throws {
+        // macOS ships Monaco with a regular face only.
+        let font = try #require(NSFont(name: "Monaco", size: 17))
+        let storage = NSTextStorage(string: "/* comment */")
+        SQLSyntaxHighlighter.apply(to: storage, font: font, isDark: false)
+        let actual = try #require(storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        #expect(actual.fontName == font.fontName)
+        #expect(actual.familyName == font.familyName)
+        #expect(actual.pointSize == 17)
+    }
+
+    @Test(arguments: [false, true])
+    func databaseOutputKeepsZoomWhenTheFontFamilyChanges(dark: Bool) async throws {
+        let preferences = DatabaseLifecyclePreferences()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseLifecycleSecrets())
+        let profile = DatabaseProfile(name: "Console font fixture", kind: .sqlite, database: "fixture")
+        try store.save([profile])
+        let settings = AppSettings(store: preferences)
+        let model = AppModel(settings: settings,
+            services: MacServiceContainer(store: preferences, settings: settings, moduleLaunchMode: .safeMode).services)
+        let feature = DatabaseFeatureModel(operations: DatabaseSidecarService(processRunner: QueryOutputRunner(fails: false),
+            executableURL: URL(fileURLWithPath: "/fixture/database")), connectionStore: store)
+        defer { feature.prepareForModuleRelease() }
+        do {
+            feature.activateProfile(profile)
+            let id = try #require(feature.selectedSQLTabID)
+            feature.updateSQL("SELECT 1 /* comment */;", in: id)
+            await feature.runSQL(in: id)
+            try #require(feature.selectedSQLTab?.statementExecutions.isEmpty == false)
+            func content(_ family: String) -> some View {
+                DatabaseServicesView().environmentObject(feature).environmentObject(model).environmentObject(settings)
+                    .environment(\.consoleFontFamily, family).environment(\.colorScheme, dark ? .dark : .light)
+            }
+            let host = NSHostingView(rootView: content(EditorFontDefaults.monospacedFamily))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 740, height: 550),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            defer { LitheContextMenuPresenter.shared.dismiss(); window.contentView = nil; window.close() }
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            func console(in view: NSView) -> OutputNativeTextView? {
+                if let text = view as? OutputNativeTextView { return text }
+                return view.subviews.lazy.compactMap { console(in: $0) }.first
+            }
+            let text = try #require(console(in: host))
+            let retainedOutput = text.string
+            try #require(retainedOutput.contains("/* comment */"))
+            text.setSelectedRange(NSRange(location: 0, length: 0))
+            // Exercise the real Console action so the SQL decorator runs after an actual zoom.
+            for _ in 0..<4 {
+                let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
+                    timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0))
+                _ = text.delegate?.textView?(text, menu: NSMenu(), for: event, at: 0)
+                let panel = try #require(window.childWindows?.first)
+                for code: UInt16 in [125, 36] { // Copy is disabled; Down selects Increase Font Size.
+                    panel.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                        timestamp: 0, windowNumber: panel.windowNumber, context: nil, characters: "",
+                        charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
+                }
+            }
+            for family in ["Menlo", EditorFontDefaults.monospacedFamily, "Menlo"] {
+                host.rootView = content(family)
+                host.layoutSubtreeIfNeeded()
+                #expect(console(in: host) === text)
+                #expect(text.string == retainedOutput)
+                let storage = try #require(text.textStorage)
+                let expected = MacEditorFontCatalog.font(family: family, size: 17)
+                storage.enumerateAttribute(.font, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+                    let font = value as? NSFont
+                    #expect(font?.familyName == expected.familyName)
+                    #expect(font?.pointSize == 17) // Timestamp, SQL, comments and result text must agree.
+                }
+                let comment = (text.string as NSString).range(of: "/* comment */")
+                let font = try #require(storage.attribute(.font, at: comment.location, effectiveRange: nil) as? NSFont)
+                #expect(font.fontDescriptor.symbolicTraits.contains(.italic) == !dark)
+            }
+        } catch {
+            await model.shutdownProjectSession()
+            throw error
+        }
+        await model.shutdownProjectSession()
+    }
+
+    @Test(arguments: [false, true])
     func querySyntaxColorsProtectQuotedIdentifiersAndLiterals(dark: Bool) throws {
         let source = #"select * from "from" where n>=1.25e-2 and value=E'it\'s SELECT -- text' and body=$tag$WHERE 12$tag$ -- SELECT 9"#
         let storage = NSTextStorage(string: source)

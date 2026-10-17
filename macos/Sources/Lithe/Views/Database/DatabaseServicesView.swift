@@ -4,7 +4,6 @@ import LitheDatabaseModule
 
 /// Uses the workbench's bottom tool-window and split-pane owners.
 struct DatabaseServicesView: View {
-    @Environment(\.consoleFontFamily) private var consoleFontFamily
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var feature: DatabaseFeatureModel
     @Environment(\.locale) private var locale
@@ -157,8 +156,10 @@ struct DatabaseServicesView: View {
             let prefix = "[\(formatter.string(from: record.startedAt))] "
             let range = source.range(of: prefix + record.sql, range: NSRange(location: cursor, length: source.length - cursor))
             guard range.location != NSNotFound else { continue }
+            // The shared Console renderer owns both the selected family and the current zoom.
+            guard let font = output.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont else { continue }
             let sql = NSTextStorage(string: record.sql)
-            SQLSyntaxHighlighter.apply(to: sql, font: MacEditorFontCatalog.font(family: consoleFontFamily, size: 13), isDark: isDark)
+            SQLSyntaxHighlighter.apply(to: sql, font: font, isDark: isDark)
             sql.enumerateAttributes(in: NSRange(location: 0, length: sql.length)) { attributes, local, _ in
                 let colors = attributes.filter { $0.key == .foregroundColor || $0.key == .font }
                 output.addAttributes(colors, range: NSRange(location: range.location + prefix.utf16.count + local.location, length: local.length))

@@ -1583,7 +1583,13 @@ enum SQLSyntaxHighlighter {
             let color: Color
             if token.range(withName: "comment").location != NSNotFound {
                 color = LitheTheme.DatabaseConsole.comment
-                if !isDark { storage.addAttribute(.font, value: LitheTheme.editorFont(size: font.pointSize, italic: true), range: token.range) }
+                if !isDark {
+                    let italic = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+                    // A missing italic face must not switch the user's selected family.
+                    if italic.familyName == font.familyName {
+                        storage.addAttribute(.font, value: italic, range: token.range)
+                    }
+                }
             } else if token.range(withName: "string").location != NSNotFound { color = LitheTheme.DatabaseConsole.string }
             else if token.range(withName: "identifier").location != NSNotFound { color = LitheTheme.DatabaseGrid.text }
             else if token.range(withName: "number").location != NSNotFound { color = LitheTheme.DatabaseConsole.number }
