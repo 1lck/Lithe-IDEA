@@ -24,8 +24,8 @@ use crate::lsp::languages::jdt::{
     maven_profile_fingerprint, maven_profile_update_requests, normalize_location,
     project_update_notification, readiness_signal, settings_notification, virtual_source_content,
     virtual_source_resolve_params, waits_for_service_ready, workspace_configuration,
-    JdtDirectLaunchResources, JdtJavaRuntime, JdtMavenConfiguration, JdtReadinessSignal,
-    JdtSettings, JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
+    JdtDirectLaunchResources, JdtGradleConfiguration, JdtJavaRuntime, JdtMavenConfiguration,
+    JdtReadinessSignal, JdtSettings, JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
 };
 use crate::lsp::languages::jdt::{MavenProfileProjectResult, MavenProfileTaskStatus};
 use crate::lsp::languages::jdt_build::{
@@ -116,6 +116,11 @@ pub struct StartServerRequest {
     /// can only compile for the JDK it runs on.
     #[serde(default)]
     pub java_runtimes: Vec<JavaRuntimeCandidate>,
+    /// Gradle import context the platform adapter detected at the workspace
+    /// root. `None` for workspaces that are not Gradle projects, so Maven-only
+    /// workspaces never receive `java.import` settings.
+    #[serde(default)]
+    pub java_gradle: Option<JdtGradleConfiguration>,
     #[serde(default = "default_initialize_timeout")]
     pub initialize_timeout_milliseconds: u64,
     /// Quiet-progress warning threshold while waiting for provider readiness.
@@ -598,6 +603,9 @@ struct RuntimeSession {
     maven_update_order: Mutex<()>,
     /// JDKs JDT LS may bind projects to, one per execution environment.
     jdt_java_runtimes: Vec<JdtJavaRuntime>,
+    /// Gradle import settings JDT LS holds. Fixed for the session's lifetime
+    /// because the wrapper is a property of the workspace root at startup.
+    jdt_gradle_configuration: Option<JdtGradleConfiguration>,
     /// Workspace URI the server was initialized with; scopes workspace-wide
     /// queries such as Java entry-point discovery.
     root_uri: String,
@@ -717,6 +725,7 @@ impl RuntimeSession {
     fn jdt_settings<'a>(&'a self, maven: Option<&'a JdtMavenConfiguration>) -> JdtSettings<'a> {
         JdtSettings {
             maven,
+            gradle: self.jdt_gradle_configuration.as_ref(),
             java_runtimes: &self.jdt_java_runtimes,
         }
     }
@@ -1277,6 +1286,7 @@ impl LspEngine {
                 &java_extension_bundle_paths,
                 JdtSettings {
                     maven: jdt_maven_configuration.as_deref(),
+                    gradle: request.java_gradle.as_ref(),
                     java_runtimes: &jdt_java_runtimes,
                 },
             ),
@@ -1302,6 +1312,7 @@ impl LspEngine {
             maven_inputs,
             maven_update_order: Mutex::new(()),
             jdt_java_runtimes,
+            jdt_gradle_configuration: request.java_gradle,
             root_uri: request.root_uri,
             outbound_order: Mutex::new(()),
             state: Mutex::new(SessionState {
