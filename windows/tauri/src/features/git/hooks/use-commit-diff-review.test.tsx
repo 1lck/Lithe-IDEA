@@ -87,9 +87,9 @@ test("Commit preview uses the owning repository, writes one block, retains other
   expect(commitDiffWritePending()).toBe(false);
 });
 
-test("block rollback is immediate even with discard confirmation enabled and retains included changes", async () => {
+test("block rollback confirms once when discard confirmation is enabled and retains included changes", async () => {
   const settings = useSettingsStore.getState();
-  const confirm = spyOn(dialog, "showConfirmDialog").mockResolvedValue(false);
+  const confirm = spyOn(dialog, "showConfirmDialog").mockResolvedValue(true);
   const rollback = spyOn(statusApi, "discardHunk").mockImplementation(async () => {
     workingDiff.mockResolvedValue(fullDiff(head, indexed));
     return true;
@@ -103,13 +103,96 @@ test("block rollback is immediate even with discard confirmation enabled and ret
   let result: unknown;
   await act(async () => { result = await review.rollback(unselected); });
   expect(result).toBe("applied");
-  expect(confirm).not.toHaveBeenCalled();
+  expect(confirm).toHaveBeenCalledTimes(1);
   expect(rollback).toHaveBeenCalledTimes(1);
   expect(rollback.mock.calls[0][0]).toBe(target.repoPath);
   expect(rollback.mock.calls[0][1].file_path).toBe(target.filePath);
   expect(review.blocks.map(block => block.checked)).toEqual([true]);
   expect(indexed).toEqual(["a", "B", "c", "d"]);
   expect(commitDiffWritePending()).toBe(false);
+});
+
+test("block rollback cancellation skips the discard entirely", async () => {
+  const settings = useSettingsStore.getState();
+  const confirm = spyOn(dialog, "showConfirmDialog").mockResolvedValue(false);
+  const rollback = spyOn(statusApi, "discardHunk");
+  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+    ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
+  }));
+  await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
+  let result: unknown;
+  await act(async () => { result = await review.rollback(review.blocks[0].id); });
+  expect(result).toBe("cancelled");
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(rollback).not.toHaveBeenCalled();
+});
+
+test("block rollback applies immediately when discard confirmation is disabled", async () => {
+  const settings = useSettingsStore.getState();
+  const confirm = spyOn(dialog, "showConfirmDialog");
+  const rollback = spyOn(statusApi, "discardHunk").mockImplementation(async () => {
+    workingDiff.mockResolvedValue(fullDiff(head, indexed));
+    return true;
+  });
+  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+    ...settings, settings: { ...settings.settings, confirmBeforeDiscard: false },
+  }));
+  await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
+  let result: unknown;
+  await act(async () => { result = await review.rollback(review.blocks[0].id); });
+  expect(result).toBe("applied");
+  expect(confirm).not.toHaveBeenCalled();
+  expect(rollback).toHaveBeenCalledTimes(1);
+});
+
+test("a confirmed rollback does not survive a snapshot refresh during the dialog", async () => {
+  const settings = useSettingsStore.getState();
+  let releaseDialog: ((value: boolean) => void) | undefined;
+  const confirm = spyOn(dialog, "showConfirmDialog").mockImplementation(
+    () => new Promise<boolean>((resolve) => { releaseDialog = resolve; }),
+  );
+  const rollback = spyOn(statusApi, "discardHunk");
+  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+    ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
+  }));
+  await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
+  const pending = review.rollback(review.blocks[0].id);
+  await act(async () => { await Promise.resolve(); });
+  // A Git event refreshes the snapshot while the dialog is still open.
+  await act(async () => { emitGitChanged({ repoPath: target.repoPath, filePath: target.filePath }); });
+  releaseDialog?.(true);
+  let result: unknown;
+  await act(async () => { result = await pending; });
+  expect(result).toBe("stale");
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(rollback).not.toHaveBeenCalled();
+});
+
+test("repeat clicks while the confirmation is open stay on one dialog", async () => {
+  const settings = useSettingsStore.getState();
+  let releaseDialog: ((value: boolean) => void) | undefined;
+  const confirm = spyOn(dialog, "showConfirmDialog").mockImplementation(
+    () => new Promise<boolean>((resolve) => { releaseDialog = resolve; }),
+  );
+  const rollback = spyOn(statusApi, "discardHunk").mockImplementation(async () => {
+    workingDiff.mockResolvedValue(fullDiff(head, indexed));
+    return true;
+  });
+  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+    ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
+  }));
+  await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
+  const first = review.rollback(review.blocks[0].id);
+  await act(async () => { await Promise.resolve(); });
+  let second: unknown;
+  await act(async () => { second = await review.rollback(review.blocks[0].id); });
+  expect(second).toBe("ignored");
+  releaseDialog?.(true);
+  let result: unknown;
+  await act(async () => { result = await first; });
+  expect(result).toBe("applied");
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(rollback).toHaveBeenCalledTimes(1);
 });
 
 test("automatic refresh ignores events belonging to a different repository", async () => {
