@@ -30,7 +30,11 @@ import {
   openAgentConnection,
 } from "../stores/agent-connection-service";
 import { CODEX_AGENT_ID, CLAUDE_AGENT_ID } from "../types/agent-settings.types";
-import { currentPermission, type AgentToolLocation } from "../types/agent.types";
+import {
+  currentPermission,
+  type AgentFileReference,
+  type AgentToolLocation,
+} from "../types/agent.types";
 import { AgentComposer } from "./agent-composer";
 import { AgentConversationTabs } from "./agent-conversation-tabs";
 import { AgentHistoryList } from "./agent-history-list";
@@ -81,6 +85,10 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const [searchText, setSearchText] = useState("");
   const [showsTabs, setShowsTabs] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  // The composer unmounts on the settings and history pages, so the draft
+  // and its attachments live here to survive that round trip.
+  const [draft, setDraft] = useState("");
+  const [files, setFiles] = useState<AgentFileReference[]>([]);
 
   const status = snapshot.connectionState.status;
   const selected = snapshot.selectedSessionID;
@@ -524,6 +532,10 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
           <AgentComposer
             conversation={isConfigured ? conversation : null}
             agentName={agentName}
+            draft={draft}
+            onDraftChange={setDraft}
+            files={files}
+            onFilesChange={setFiles}
             canSend={canSend}
             onOpenSettings={openSettings}
             onError={setLocalError}

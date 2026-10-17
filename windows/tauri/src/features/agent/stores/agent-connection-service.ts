@@ -53,20 +53,41 @@ const LAUNCH_FAILURE_KEYS: Record<AgentLaunchFailure, string> = {
 };
 
 /**
+ * The process serves one project, Agent and authentication mode; another
+ * combination must not keep routing messages through the old connection.
+ */
+function launchKey(workspace: string, settings: AgentPanelSettings): string {
+  return [
+    workspace,
+    settings.agentId,
+    settings.authentication,
+    settings.command,
+    settings.arguments,
+  ].join("\u0000");
+}
+
+let activeLaunchKey: string | null = null;
+
+/**
  * Start the agent for `nextWorkspacePath`, or report why it cannot start. A
- * second call while connected to the same project is a no-op.
+ * second call with the same project, Agent and authentication is a no-op.
  */
 export async function openAgentConnection(
   nextWorkspacePath: string,
   settings: AgentPanelSettings,
 ): Promise<void> {
   const connection = agentConnection();
-  if (workspacePath !== nextWorkspacePath) {
+  const key = launchKey(nextWorkspacePath, settings);
+  if (
+    workspacePath !== nextWorkspacePath ||
+    (activeLaunchKey !== null && activeLaunchKey !== key)
+  ) {
     await connection.stop();
     connection.reset();
     workspacePath = nextWorkspacePath;
+    activeLaunchKey = null;
   }
-  if (connection.hasActiveConnection) return;
+  if (activeLaunchKey === key && connection.hasActiveConnection) return;
   try {
     const launch = await loadAgentLaunch({
       workspacePath: nextWorkspacePath,
@@ -74,6 +95,7 @@ export async function openAgentConnection(
       settings,
     });
     await connection.connect(launch);
+    activeLaunchKey = key;
   } catch (error) {
     if (error instanceof AgentLaunchError) {
       connection.reportConnectionFailure(translator()(LAUNCH_FAILURE_KEYS[error.failure]));
@@ -86,5 +108,6 @@ export async function openAgentConnection(
 /** Stop the agent and wait for its process tree to exit. */
 export async function closeAgentConnection(): Promise<void> {
   if (model === null) return;
+  activeLaunchKey = null;
   await model.stop();
 }

@@ -424,3 +424,88 @@ describe("Agent transcript export", () => {
     expect(await model.historyTranscript("session-1")).toBeNull();
   });
 });
+
+
+/** A transport whose `open` the test resolves explicitly, to observe starts in flight. */
+class DeferredTransport implements AgentTransport {
+  opens = 0;
+  closes = 0;
+  private readonly pending: ((connection: AgentTransportConnection) => void)[] = [];
+
+  open(): Promise<AgentTransportConnection> {
+    this.opens += 1;
+    return new Promise((resolve) => {
+      this.pending.push(resolve);
+    });
+  }
+
+  resolveOpen(): void {
+    const resolve = this.pending.shift();
+    resolve?.({
+      send: () => Promise.resolve(),
+      close: () => {
+        this.closes += 1;
+        return Promise.resolve();
+      },
+    });
+  }
+}
+
+describe("Agent connection ownership", () => {
+  test("a second start joins the one in flight", async () => {
+    const deferred = new DeferredTransport();
+    const owned = new AgentConnectionModel(deferred, manualScheduler());
+
+    const first = owned.connect(launch());
+    const second = owned.connect(launch());
+    expect(deferred.opens).toBe(1);
+
+    deferred.resolveOpen();
+    await Promise.all([first, second]);
+    expect(owned.hasActiveConnection).toBe(true);
+  });
+
+  test("stopping during a start waits for the process that start opened", async () => {
+    const deferred = new DeferredTransport();
+    const owned = new AgentConnectionModel(deferred, manualScheduler());
+
+    const starting = owned.connect(launch());
+    const stopping = owned.stop();
+    deferred.resolveOpen();
+    await starting;
+    await stopping;
+
+    expect(deferred.closes).toBe(1);
+    expect(owned.getSnapshot().connectionState).toEqual({ status: "idle" });
+  });
+});
+
+describe("Agent disconnect cleanup", () => {
+  test("a disconnect clears attachment, busy flags and pending confirmations", async () => {
+    const transport = new ScriptedTransport();
+    const model = new AgentConnectionModel(transport, manualScheduler());
+    await model.connect(launch());
+    transport.emit(fixture.events.ready);
+    model.startNewConversation();
+    transport.emit({
+      ...fixture.events.sessionCreated,
+      token: transport.command("newSession")?.token,
+    });
+    model.send("Continue");
+    transport.emit(fixture.events.permission);
+
+    const live = model.getSnapshot().conversations["session-1"];
+    expect(live.isAttached).toBe(true);
+    expect(live.isResponding).toBe(true);
+    expect(live.pendingPermissions).toHaveLength(1);
+
+    transport.emit({ kind: "stopped", message: "The Agent exited." });
+    const stopped = model.getSnapshot().conversations["session-1"];
+    expect(stopped.isAttached).toBe(false);
+    expect(stopped.isResponding).toBe(false);
+    expect(stopped.isCancelling).toBe(false);
+    expect(stopped.isLoading).toBe(false);
+    expect(stopped.pendingConfigToken).toBeNull();
+    expect(stopped.pendingPermissions).toEqual([]);
+  });
+});

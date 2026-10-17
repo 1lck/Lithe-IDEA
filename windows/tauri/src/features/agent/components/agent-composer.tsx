@@ -84,6 +84,10 @@ interface AgentComposerProps {
   canSend: boolean;
   /** Why sending is refused, shown when the user tries anyway. */
   blockedReason: string;
+  draft: string;
+  onDraftChange: (draft: string) => void;
+  files: AgentFileReference[];
+  onFilesChange: (files: AgentFileReference[]) => void;
   onOpenSettings: () => void;
   onError: (message: string | null) => void;
 }
@@ -98,6 +102,10 @@ export function AgentComposer({
   agentName,
   canSend,
   blockedReason,
+  draft,
+  onDraftChange,
+  files,
+  onFilesChange,
   onOpenSettings,
   onError,
 }: AgentComposerProps) {
@@ -110,8 +118,6 @@ export function AgentComposer({
     const active = state.buffers.find((buffer) => buffer.isActive);
     return typeof active?.path === "string" ? active.path : null;
   });
-  const [draft, setDraft] = useState("");
-  const [files, setFiles] = useState<AgentFileReference[]>([]);
   const [isFocused, setIsFocused] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
   const [isDropTargeted, setIsDropTargeted] = useState(false);
@@ -128,8 +134,8 @@ export function AgentComposer({
 
   // A different conversation starts with no attachments, as on macOS.
   useEffect(() => {
-    if (sessionID !== null) setFiles([]);
-  }, [sessionID]);
+    if (sessionID !== null) onFilesChange([]);
+  }, [sessionID, onFilesChange]);
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -139,7 +145,10 @@ export function AgentComposer({
     (paths: string[]) => {
       if (paths.length === 0) return;
       try {
-        setFiles((current) => addFileReferences(current, paths.map(agentFileUri)));
+        // Validate outside the state updater: React may replay an updater while
+        // rendering, where a thrown limit error would break the panel instead of
+        // reporting the limit.
+        onFilesChange(addFileReferences(files, paths.map(agentFileUri)));
         onError(null);
         textareaRef.current?.focus();
       } catch (error) {
@@ -152,7 +161,7 @@ export function AgentComposer({
         onError(error instanceof AgentFileReferenceError ? error.message : String(error));
       }
     },
-    [onError, t],
+    [files, onError, onFilesChange, t],
   );
 
   // OS drops in WebView2 and project-tree drags arrive as this event instead.
@@ -192,11 +201,11 @@ export function AgentComposer({
     (path: string) => {
       attach([path]);
       // The `@query` text that opened the picker is replaced by the reference.
-      if (mention !== null) setDraft((current) => removeAgentMention(current, mention));
+      if (mention !== null) onDraftChange(removeAgentMention(draft, mention));
       setMention(null);
       setFileQuery("");
     },
-    [attach, mention],
+    [attach, draft, mention, onDraftChange],
   );
 
   const send = useCallback(() => {
@@ -210,14 +219,24 @@ export function AgentComposer({
         draft,
         files.map((file) => file.uri),
       );
-      setDraft("");
-      setFiles([]);
+      onDraftChange("");
+      onFilesChange([]);
       setMention(null);
       onError(null);
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     }
-  }, [blockedReason, canSend, draft, files, hasContent, isResponding, onError]);
+  }, [
+    blockedReason,
+    canSend,
+    draft,
+    files,
+    hasContent,
+    isResponding,
+    onError,
+    onDraftChange,
+    onFilesChange,
+  ]);
 
   const matches = useMemo(() => {
     if (mention === null) return [];
@@ -307,9 +326,7 @@ export function AgentComposer({
                   type="button"
                   aria-label={t("agent.composer.removeAttachment", { name: file.name })}
                   className="text-subtle-foreground hover:text-foreground"
-                  onClick={() =>
-                    setFiles((current) => current.filter((entry) => entry.uri !== file.uri))
-                  }
+                  onClick={() => onFilesChange(files.filter((entry) => entry.uri !== file.uri))}
                 >
                   <XIcon className="size-2.5" />
                 </button>
@@ -349,7 +366,7 @@ export function AgentComposer({
           onBlur={() => setIsFocused(false)}
           onChange={(event) => {
             const value = event.target.value;
-            setDraft(value);
+            onDraftChange(value);
             // Typing `@` opens the picker on the unfinished reference at the caret.
             const caret = event.target.selectionStart ?? value.length;
             const opened = agentMentionQuery(value.slice(0, caret));

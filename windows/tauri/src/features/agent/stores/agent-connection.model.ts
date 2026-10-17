@@ -140,6 +140,7 @@ export class AgentConnectionModel {
 
   private connection: AgentTransportConnection | null = null;
   private closePromise: Promise<void> | null = null;
+  private connectPromise: Promise<void> | null = null;
   private canListSessions = false;
   private nextToken = 0;
   /** Prompts waiting for a session: keyed by new-session token or session id. */
@@ -245,9 +246,19 @@ export class AgentConnectionModel {
   /** Start the agent for this project. A second call while connected is a no-op. */
   async connect(configuration: AgentLaunchConfiguration): Promise<void> {
     if (this.connection !== null) return;
+    // A second start joins the one in flight instead of opening a second process.
+    if (this.connectPromise !== null) return this.connectPromise;
     if (this.closePromise !== null) {
       throw new AgentConnectionBusyError("The Agent session is still stopping.");
     }
+    const pending = this.openConnection(configuration).finally(() => {
+      if (this.connectPromise === pending) this.connectPromise = null;
+    });
+    this.connectPromise = pending;
+    return pending;
+  }
+
+  private async openConnection(configuration: AgentLaunchConfiguration): Promise<void> {
     this.stale = false;
     const connectionID = crypto.randomUUID();
     this.update({
@@ -285,9 +296,18 @@ export class AgentConnectionModel {
   /** Stop the agent and wait for its process tree to exit. */
   async stop(): Promise<void> {
     const previous = this.closePromise;
+    const starting = this.connectPromise;
     const old = this.detachConnection(null);
-    await old?.close().catch(() => undefined);
-    await previous?.catch(() => undefined);
+    // A start that is still opening sees `stale` and closes its own process;
+    // waiting here keeps `stop()` from returning while it is still alive.
+    const closing = (async () => {
+      await old?.close().catch(() => undefined);
+      await starting?.catch(() => undefined);
+      await previous?.catch(() => undefined);
+    })();
+    this.closePromise = closing;
+    await closing;
+    if (this.closePromise === closing) this.closePromise = null;
   }
 
   authenticate(): void {
@@ -1031,7 +1051,18 @@ export class AgentConnectionModel {
     this.unpromptedSessionIDs.clear();
     const now = this.now();
     for (const id of Object.keys(conversations)) {
-      conversations[id] = { ...finishActiveTurn(conversations[id], now), contextUsage: null };
+      // The next process must attach the session again, and nothing may keep
+      // looking busy or wait for a confirmation that died with the old one.
+      conversations[id] = {
+        ...interruptPendingTools(finishActiveTurn(conversations[id], now)),
+        contextUsage: null,
+        isAttached: false,
+        isLoading: false,
+        isResponding: false,
+        isCancelling: false,
+        pendingConfigToken: null,
+        pendingPermissions: [],
+      };
     }
     this.createToken = null;
     this.update({
