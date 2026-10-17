@@ -525,6 +525,39 @@ struct McpServerLibraryTests {
     }
 
     @Test
+    func changingTransportDropsFieldsTheNewTransportDoesNotWrite() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedClaude("{\"mcpServers\": {}}")
+        let feature = fixture.feature()
+        feature.refresh()
+        var draft = feature.makeDraft()
+        draft.name = "switched"
+        draft.command = "/bin/echo"
+        draft.argumentsText = "--old"
+        draft.env = [McpKeyValue(key: "TOKEN", value: "secret")]
+        draft.enabledAgents = [.claudeCode]
+        #expect(feature.save(draft))
+
+        // The editor hides stdio arguments after switching to HTTP but does
+        // not erase them. They must not be hashed or written for the HTTP
+        // entry, or the saved row immediately loses ownership.
+        let saved = try #require(feature.rows.first { $0.name == "switched" })
+        var edited = feature.draft(for: saved)
+        edited.transport = .http
+        edited.url = "https://example.test/mcp"
+        #expect(feature.save(edited))
+
+        let claude = try fixture.claudeText()
+        #expect(claude.contains("--old") == false)
+        #expect(claude.contains("\"TOKEN\"") == false)
+        let switched = try #require(feature.rows.first { $0.name == "switched" })
+        #expect(switched.definition.transport == .http)
+        #expect(switched.ownedGlobalAgents == [.claudeCode])
+        #expect(feature.setAgent(.claudeCode, enabled: false, for: switched))
+    }
+
+    @Test
     func externallyModifiedProjectEntryIsKeptAndReported() throws {        let fixture = try Fixture(workspace: true)
         defer { fixture.cleanUp() }
         let feature = fixture.feature()

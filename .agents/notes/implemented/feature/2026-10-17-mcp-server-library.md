@@ -22,7 +22,7 @@
 
 ### 身份与合并
 
-- 一个条目的身份是 `名称 + 规范化定义哈希`。同名但定义不同的条目会显示为两行并标记“Conflict”，编辑其中一行不会顺带改写另一行。哈希在计算时对 env/header 按键和值排序，因此写入路径与重新解析路径得到同一个哈希，不受 UI 排序方式影响；同时只包含当前传输方式实际会写入的条目（stdio 的 env、HTTP/SSE 的 headers），解析器能看到但写盘会丢弃的多余字段不参与哈希，否则刚写入的条目在刷新后就会失去所有权。
+- 一个条目的身份是 `名称 + 规范化定义哈希`。同名但定义不同的条目会显示为两行并标记“Conflict”，编辑其中一行不会顺带改写另一行。哈希在计算时对 env/header 按键和值排序，因此写入路径与重新解析路径得到同一个哈希，不受 UI 排序方式影响；同时只包含当前传输方式实际会写入的字段（stdio 的 command/args/env、HTTP/SSE 的 url/headers），解析器能看到但写盘会丢弃的多余字段不参与哈希，否则刚写入的条目在刷新后就会失去所有权。页面保存时也按传输方式清空非活动字段，避免把编辑器里隐藏的旧参数带进新定义。
 - 同一个定义同时出现在 Codex 和 Claude Code 中时合并成一行，两个 Agent 胶囊分别显示开关状态。
 - 项目级条目只读展示。它们由“Lithe IDE 访问”生命周期管理，不在资源库里直接编辑，避免用户以为改的是全局配置。
 
@@ -36,7 +36,7 @@
 ### 保格式编辑
 
 - Claude JSON 使用基于字节偏移的插入/删除，只改动 `mcpServers.<name>` 或 `projects.<path>.mcpServers.<name>`，其余内容逐字节保留。删除条目时只删除该键到下一个键之间的字节，不扩展到行首，因此同一行有相邻条目、或条目的值跨多行且下一个键紧跟闭合括号时，都不会连带删除其他条目；删除最后一个条目时同时删除前导逗号，并在返回计划前重新解析结果，避免写出丢失条目的半截配置。带注释或非严格 JSON 的文件拒绝写入，而不是冒险整体重排；对象里出现重复键时同样拒绝编辑，因为 `serde_json` 取最后一个值而按偏移编辑会命中第一个，二者对“实际生效的定义”判断不一致。
-- Codex TOML 使用 `toml_edit`，保留注释、表顺序和未知键。新增本地依赖 `toml_edit = "0.25"` 就是为此；原有的 `toml` 只能解析。更新已有服务器时只修改 Lithe 建模的 `command`、`args`、`env`、`url`、`http_headers`，替换值时不重建键值项，因此键上方注释、行尾注释和值装饰都保留；`args` 未变化时不重建数组，数组元素之间的注释也不会因为保存其他字段而丢失。`bearer_token_env_var`、`startup_timeout_sec`、`tool_timeout_sec` 等 Codex 专属字段原样保留。`env`/`http_headers` 中无法在本库表示的非字符串值不会因为一次编辑被删掉：即使 UI 里该 Agent 的变量列表为空，也只移除字符串键，保留非字符串值，避免删除用户从未看到的内容。`mcp_servers` 写成内联表时同样可以新增、编辑和删除条目；如果文本编辑实际没有改变内容，计划返回 `absent` 而不是 `removed`，防止账本忘记仍然存在的条目。重命名时先把原表整体迁移到新名称再应用建模字段，专属字段随条目一起移动；Claude JSON 重命名同样以旧条目为底稿覆盖建模键。
+- Codex TOML 使用 `toml_edit`，保留注释、表顺序和未知键。新增本地依赖 `toml_edit = "0.25"` 就是为此；原有的 `toml` 只能解析。更新已有服务器时只修改 Lithe 建模的 `command`、`args`、`env`、`url`、`http_headers`，替换值时不重建键值项，因此键上方注释、行尾注释和值装饰都保留；`args` 未变化时不重建数组，数组元素之间的注释也不会因为保存其他字段而丢失。`bearer_token_env_var`、`startup_timeout_sec`、`tool_timeout_sec` 等 Codex 专属字段原样保留。`env`/`http_headers` 中无法在本库表示的非字符串值不会因为一次编辑被删掉：即使 UI 里该 Agent 的变量列表为空，也只移除字符串键，保留非字符串值，避免删除用户从未看到的内容；只有整个容器不是对象/表（例如手写成数组）时，用户新增条目才会用新表替换该字段，因为这种形态对 Agent 本身无效，无法合并。`mcp_servers` 写成内联表时同样可以新增、编辑和删除条目；如果文本编辑实际没有改变内容，计划返回 `absent` 而不是 `removed`，防止账本忘记仍然存在的条目。重命名时先把原表整体迁移到新名称再应用建模字段，专属字段随条目一起移动；Claude JSON 重命名同样以旧条目为底稿覆盖建模键。
 - 保存前会拒绝环境变量或 Header 的重复键：配置对象/表无法表示同名两项，先写一份哈希再写成另一份会导致刷新后失去所有权，因此在 Core 和页面校验两处都直接拒绝。
 - 一次保存会先把每个目标文件的计划全部算完，再统一写盘。第二个 Agent 的冲突不会让第一个 Agent 留下半套修改。写盘前会携带计划所依据的磁盘快照重新读取并比对；其他 Agent、编辑器或另一 Lithe 实例在此期间保存过配置时，整个提交以 `changedOnDisk` 拒绝，而不是用旧计划覆盖新内容。
 - 每个被改写的文件都会先备份到 `Application Support/MCP Backups/<时间戳>/`，备份失败则中止写入。
@@ -90,8 +90,8 @@ Windows 的 Agent 配置路径和 Tauri 侧文件访问模型不同，同步实�
 
 ## 验证
 
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::`（覆盖删除首项/中间项/末项、同行相邻项、值跨多行且下一个键同行的布局、单行与混合换行布局，JSON 输出重新解析，重复 JSON 键拒绝编辑；Codex 更新保留 `bearer_token_env_var`、`startup_timeout_sec`、未知键、建模键与值的注释、未变化的 args 数组内注释和非字符串 env 值，变量列表清空时也保留非字符串值；内联 `mcp_servers` 表可删除、可编辑；拒绝重复变量键；哈希忽略当前传输不写入的 env/headers 且与重解析一致；重命名保留专属字段）
-- `./scripts/test-macos.sh --filter McpServerLibraryTests`（覆盖计划后磁盘变化拒绝写入、文件在计划后出现拒绝创建、linked worktree 公共排除文件、关闭会话后仍能清理项目注册、项目切换后清理两个项目的注册、Git 排除失败不回滚账本、注销冲突写入错误横幅、重复变量键校验、重命名外部条目、按 Agent 开启时忽略传输不写入的字段、重命名保留 Codex 字段、自然排序条目的所有权、两个窗口合并账本）
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::`（覆盖删除首项/中间项/末项、同行相邻项、值跨多行且下一个键同行的布局、单行与混合换行布局，JSON 输出重新解析，重复 JSON 键拒绝编辑；Codex 更新保留 `bearer_token_env_var`、`startup_timeout_sec`、未知键、建模键与值的注释、未变化的 args 数组内注释和非字符串 env 值，变量列表清空时也保留非字符串值；内联 `mcp_servers` 表可删除、可编辑；拒绝重复变量键；哈希忽略当前传输不写入的 command/args/env/url/headers 且与重解析一致；重命名保留专属字段）
+- `./scripts/test-macos.sh --filter McpServerLibraryTests`（覆盖计划后磁盘变化拒绝写入、文件在计划后出现拒绝创建、linked worktree 公共排除文件、关闭会话后仍能清理项目注册、项目切换后清理两个项目的注册、Git 排除失败不回滚账本、注销冲突写入错误横幅、重复变量键校验、重命名外部条目、按 Agent 开启时忽略传输不写入的字段、切换传输方式丢弃隐藏字段后仍保持所有权、重命名保留 Codex 字段、自然排序条目的所有权、两个窗口合并账本）
 - `./scripts/test-macos.sh --filter IdeCapabilitiesTests`
 - `./scripts/verify-service-boundaries.sh`
 - `./scripts/verify-agent-notes.sh`

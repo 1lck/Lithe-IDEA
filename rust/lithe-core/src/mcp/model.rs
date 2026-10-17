@@ -104,50 +104,52 @@ impl McpServer {
     /// match what the parser computes from the written configuration no matter
     /// what order the UI sent the entries in.
     ///
-    /// Only entries the active transport actually uses are hashed. Parsers can
-    /// see stray fields on an entry (an HTTP server with `env`, a stdio server
-    /// with `headers`), but the write path drops them, so hashing them would
-    /// make the ledger disagree with the file immediately after a write.
+    /// Only fields the active transport actually uses are hashed. Parsers can
+    /// see stray fields on an entry (an HTTP server with `command`, `args` or
+    /// `env`, a stdio server with `url` or `headers`), but the write path drops
+    /// them, so hashing them would make the ledger disagree with the file
+    /// immediately after a write.
     fn compute_hash(&self) -> String {
         let mut canonical = String::new();
         canonical.push_str(&self.name);
         canonical.push('\n');
         canonical.push_str(self.transport.as_str());
         canonical.push('\n');
-        canonical.push_str(self.command.as_deref().unwrap_or(""));
-        canonical.push('\n');
-        for arg in &self.args {
-            canonical.push_str(arg);
-            canonical.push('\u{1f}');
-        }
-        canonical.push('\n');
-        if self.transport == McpTransport::Stdio {
-            let mut env: Vec<&McpKeyValue> = self.env.iter().collect();
-            env.sort_by(|left, right| {
-                (left.key.as_str(), left.value.as_str())
-                    .cmp(&(right.key.as_str(), right.value.as_str()))
-            });
-            for entry in env {
-                canonical.push_str(&entry.key);
-                canonical.push('=');
-                canonical.push_str(&entry.value);
-                canonical.push('\u{1f}');
+        match self.transport {
+            McpTransport::Stdio => {
+                canonical.push_str(self.command.as_deref().unwrap_or(""));
+                canonical.push('\n');
+                for arg in &self.args {
+                    canonical.push_str(arg);
+                    canonical.push('\u{1f}');
+                }
+                canonical.push('\n');
+                let mut env: Vec<&McpKeyValue> = self.env.iter().collect();
+                env.sort_by(|left, right| {
+                    (left.key.as_str(), left.value.as_str())
+                        .cmp(&(right.key.as_str(), right.value.as_str()))
+                });
+                for entry in env {
+                    canonical.push_str(&entry.key);
+                    canonical.push('=');
+                    canonical.push_str(&entry.value);
+                    canonical.push('\u{1f}');
+                }
             }
-        }
-        canonical.push('\n');
-        canonical.push_str(self.url.as_deref().unwrap_or(""));
-        canonical.push('\n');
-        if self.transport != McpTransport::Stdio {
-            let mut headers: Vec<&McpKeyValue> = self.headers.iter().collect();
-            headers.sort_by(|left, right| {
-                (left.key.as_str(), left.value.as_str())
-                    .cmp(&(right.key.as_str(), right.value.as_str()))
-            });
-            for entry in headers {
-                canonical.push_str(&entry.key);
-                canonical.push(':');
-                canonical.push_str(&entry.value);
-                canonical.push('\u{1f}');
+            McpTransport::Http | McpTransport::Sse => {
+                canonical.push_str(self.url.as_deref().unwrap_or(""));
+                canonical.push('\n');
+                let mut headers: Vec<&McpKeyValue> = self.headers.iter().collect();
+                headers.sort_by(|left, right| {
+                    (left.key.as_str(), left.value.as_str())
+                        .cmp(&(right.key.as_str(), right.value.as_str()))
+                });
+                for entry in headers {
+                    canonical.push_str(&entry.key);
+                    canonical.push(':');
+                    canonical.push_str(&entry.value);
+                    canonical.push('\u{1f}');
+                }
             }
         }
         hex(&Sha256::digest(canonical.as_bytes()))

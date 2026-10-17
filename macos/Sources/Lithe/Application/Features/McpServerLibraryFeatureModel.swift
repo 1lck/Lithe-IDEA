@@ -317,18 +317,19 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
             transport: draft.transport,
             command: nil,
-            args: draft.arguments,
+            args: [],
             env: [],
             url: nil,
             headers: []
         )
-        // Entries belong to exactly one transport. Carrying leftover env into
-        // an HTTP definition (or headers into stdio) would hash fields the
-        // written file never contains, so the fresh entry would immediately
-        // look externally modified on refresh.
+        // Fields belong to exactly one transport. The editor keeps hidden
+        // values when the transport changes (arguments for stdio, URL for
+        // HTTP), and the write path drops the inactive ones; hashing them
+        // would make the fresh entry look externally modified on refresh.
         switch draft.transport {
         case .stdio:
             definition.command = draft.command.trimmingCharacters(in: .whitespacesAndNewlines)
+            definition.args = draft.arguments
             definition.env = sorted(draft.env)
         case .http, .sse:
             definition.url = draft.url.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -617,6 +618,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             error = message
             litheRegistration = .needsAttention(message)
         } else {
+            // A later successful cleanup also dismisses an older conflict
+            // banner left by a previous unregister.
+            error = nil
             litheRegistration = .inactive
         }
         refresh()

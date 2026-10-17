@@ -519,8 +519,30 @@ fn transport_identity_ignores_entries_the_transport_does_not_write() {
         server_hash(&stdio_plain, "local")
     );
 
-    // The write path drops env from an HTTP entry, so the planned hash must
-    // equal the hash of the file it writes.
+    let http_with_command = parse(
+        "claude",
+        "global",
+        r#"{"mcpServers": {"remote": {"type": "http", "url": "https://example.test/mcp", "command": "/bin/echo", "args": ["--stray"]}}}"#,
+        None,
+    );
+    assert_eq!(
+        server_hash(&http_with_command, "remote"),
+        server_hash(&http_plain, "remote")
+    );
+
+    let stdio_with_url = parse(
+        "claude",
+        "global",
+        r#"{"mcpServers": {"local": {"type": "stdio", "command": "/bin/echo", "url": "https://example.test/stray"}}}"#,
+        None,
+    );
+    assert_eq!(
+        server_hash(&stdio_with_url, "local"),
+        server_hash(&stdio_plain, "local")
+    );
+
+    // The write path drops env, command and args from an HTTP entry, so the
+    // planned hash must equal the hash of the file it writes.
     let result = plan(json!({
         "source": "codex",
         "scope": "global",
@@ -529,7 +551,8 @@ fn transport_identity_ignores_entries_the_transport_does_not_write() {
         "server": {
             "name": "remote",
             "transport": "http",
-            "args": [],
+            "command": "stray",
+            "args": ["--stray"],
             "env": [{"key": "STRAY", "value": "1"}],
             "url": "https://example.test/mcp",
             "headers": []
