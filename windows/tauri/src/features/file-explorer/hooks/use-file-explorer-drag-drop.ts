@@ -6,13 +6,11 @@ import {
   isTerminalDropTarget,
 } from "@/features/file-system/utils/file-system-drop-controller";
 import type { FileEntry } from "@/features/file-system/types/app.types";
-import { clipboardEntryPaths } from "@/features/file-explorer/lib/clipboard-entry-paths";
 import { dispatchSidebarResourceDropOnAI } from "@/features/sidebar/utils/sidebar-resource-drag";
 import {
   setInternalTabDragHover,
   setInternalTabDragHoverTarget,
 } from "@/features/tabs/utils/internal-tab-drag";
-import { formatPathsForTerminal } from "@/features/terminal/utils/terminal-file-drop";
 import { getDirName, getPathSeparator, joinPath } from "@/utils/path-helpers";
 
 interface DragState {
@@ -206,14 +204,15 @@ export function useFileExplorerDragDrop(
 
       // A terminal lives inside a pane container, so it must be resolved before
       // the pane branch below or the drop would just open the file.
-      if (isTerminalDropTarget(elementUnder) && dragState.draggedItem) {
-        const paths = clipboardEntryPaths([dragState.draggedItem], rootFolderPath);
-        if (dispatchTerminalPathInsert(elementUnder, formatPathsForTerminal(paths, { trailingSpace: true }))) {
-          setDragState(initialDragState);
-          clearAutoExpand();
-          clearEditorDropHover();
-          return;
-        }
+      if (
+        isTerminalDropTarget(elementUnder) &&
+        dragState.draggedItem &&
+        dispatchTerminalPathInsert(elementUnder, [dragState.draggedItem.path])
+      ) {
+        setDragState(initialDragState);
+        clearAutoExpand();
+        clearEditorDropHover();
+        return;
       }
 
       if (isOverAIContextDropTarget && dragState.draggedItem) {

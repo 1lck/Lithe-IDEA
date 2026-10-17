@@ -1,4 +1,3 @@
-import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import {
   clipboardEntryPaths,
   shouldPasteFileClipboardPaths,
@@ -14,8 +13,11 @@ import { quoteTerminalPaths } from "./terminal-file-drop";
  * Copying files in the explorer only fills the in-app clipboard, which no other
  * application can read. Translating it here means pasting keeps working for the
  * user without the copy having to overwrite the system clipboard.
+ *
+ * `currentDirectory` is the target shell's directory, which decides what a
+ * relative path resolves to. When it is unknown the paths stay absolute.
  */
-async function fileClipboardPasteText(): Promise<string | null> {
+async function fileClipboardPasteText(currentDirectory: string | null): Promise<string | null> {
   const { clipboard, sourceClipboardText } = useFileClipboardStore.getState();
   const entries = clipboard?.entries ?? [];
   if (entries.length === 0) return null;
@@ -36,7 +38,7 @@ async function fileClipboardPasteText(): Promise<string | null> {
   });
   if (!prefersFilePaths) return null;
 
-  const paths = clipboardEntryPaths(entries, useFileSystemStore.getState().rootFolderPath);
+  const paths = clipboardEntryPaths(entries, currentDirectory);
   if (paths.length === 0) return null;
   return quoteTerminalPaths(paths);
 }
@@ -45,8 +47,10 @@ async function fileClipboardPasteText(): Promise<string | null> {
  * Resolve what a terminal paste should insert: the copied explorer paths when
  * that copy is still the user's latest action, otherwise the clipboard text.
  */
-export async function readTerminalPasteText(): Promise<string> {
-  const filePaths = await fileClipboardPasteText();
+export async function readTerminalPasteText(
+  currentDirectory?: string | null,
+): Promise<string> {
+  const filePaths = await fileClipboardPasteText(currentDirectory ?? null);
   if (filePaths !== null) return filePaths;
   return readClipboardText();
 }

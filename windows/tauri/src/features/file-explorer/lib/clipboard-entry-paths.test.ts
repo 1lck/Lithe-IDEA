@@ -5,22 +5,33 @@ import {
 } from "./clipboard-entry-paths";
 
 describe("clipboardEntryPaths", () => {
-  test("uses workspace-relative paths with forward slashes", () => {
-    expect(clipboardEntryPaths([{ path: "C:\\work\\proj\\src\\Main.java" }], "C:\\work\\proj")).toEqual([
-      "src/Main.java",
-    ]);
+  test("relativizes against the directory the shell is in", () => {
+    expect(
+      clipboardEntryPaths([{ path: "C:\\work\\proj\\src\\Main.java" }], "C:\\work\\proj"),
+    ).toEqual(["src/Main.java"]);
   });
 
-  test("keeps the full path for entries outside the workspace", () => {
-    expect(clipboardEntryPaths([{ path: "D:\\other\\Notes.txt" }], "C:\\work\\proj")).toEqual([
-      "D:\\other\\Notes.txt",
-    ]);
+  // Regression: a terminal opened on a subdirectory used to relativize against
+  // the workspace root, producing `src/Main.java` where the shell resolved
+  // `C:\work\proj\src\src\Main.java`.
+  test("relativizes against a subdirectory shell", () => {
+    expect(
+      clipboardEntryPaths([{ path: "C:\\work\\proj\\src\\Main.java" }], "C:\\work\\proj\\src"),
+    ).toEqual(["Main.java"]);
   });
 
-  test("keeps the full path when no workspace root is open", () => {
-    expect(clipboardEntryPaths([{ path: "C:\\work\\proj\\a.ts" }], undefined)).toEqual([
+  // When the target directory is unknown, a relative path could resolve to the
+  // wrong file, so the full path is the only safe answer.
+  test("keeps the full path when the shell directory is unknown", () => {
+    expect(clipboardEntryPaths([{ path: "C:\\work\\proj\\a.ts" }], null)).toEqual([
       "C:\\work\\proj\\a.ts",
     ]);
+  });
+
+  test("keeps the full path for entries outside the shell directory", () => {
+    expect(
+      clipboardEntryPaths([{ path: "D:\\other\\Notes.txt" }], "C:\\work\\proj"),
+    ).toEqual(["D:\\other\\Notes.txt"]);
   });
 
   test("keeps every entry separately so the terminal can quote each one", () => {
@@ -32,7 +43,7 @@ describe("clipboardEntryPaths", () => {
     ).toEqual(["my folder/a.ts", "pkg"]);
   });
 
-  test("omits the workspace root because it has no relative path", () => {
+  test("omits the shell directory itself because it has no relative path", () => {
     expect(clipboardEntryPaths([{ path: "C:\\work\\proj" }], "C:\\work\\proj")).toEqual([]);
   });
 });

@@ -41,22 +41,24 @@ describe("isTerminalDropTarget", () => {
 });
 
 describe("dispatchTerminalPathInsert", () => {
-  test("forwards the formatted text to the terminal", () => {
+  test("forwards the absolute paths to the terminal", () => {
     const target = fakeTarget(["terminal"]);
-    expect(dispatchTerminalPathInsert(target.element, "a.ts ")).toBe(true);
+    expect(dispatchTerminalPathInsert(target.element, ["C:\\work\\proj\\a.ts"])).toBe(true);
     expect(target.dispatched).toHaveLength(1);
-    expect((target.dispatched[0] as CustomEvent<{ text: string }>).detail.text).toBe("a.ts ");
+    expect((target.dispatched[0] as CustomEvent<{ paths: string[] }>).detail.paths).toEqual([
+      "C:\\work\\proj\\a.ts",
+    ]);
   });
 
   test("does nothing outside a terminal", () => {
     const target = fakeTarget(["pane"]);
-    expect(dispatchTerminalPathInsert(target.element, "a.ts")).toBe(false);
+    expect(dispatchTerminalPathInsert(target.element, ["C:\\work\\proj\\a.ts"])).toBe(false);
     expect(target.dispatched).toHaveLength(0);
   });
 
-  test("does not dispatch empty text", () => {
+  test("does not dispatch an empty path list", () => {
     const target = fakeTarget(["terminal"]);
-    expect(dispatchTerminalPathInsert(target.element, "")).toBe(false);
+    expect(dispatchTerminalPathInsert(target.element, [])).toBe(false);
     expect(target.dispatched).toHaveLength(0);
   });
 });
