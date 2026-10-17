@@ -101,6 +101,9 @@ final class BranchPopupRowControl: NSControl {
     private var parentCloseObserver: NSObjectProtocol?
     private var hoverTracking: NSTrackingArea?
     private var renderedState: RenderState?
+    /// The state and fitted width the open expansion was built from. Tracking
+    /// rebuilds only move it; re-hosting unchanged content wastes a SwiftUI pass.
+    private var expansionContent: (state: RenderState, width: CGFloat)?
     /// Set while hover or expansion is stale; cleared by every refresh.
     private var needsDeferredRefresh = false
     private var pendingRefresh: DispatchWorkItem?
@@ -238,6 +241,7 @@ final class BranchPopupRowControl: NSControl {
     private func closeExpansion() {
         if let parentCloseObserver { NotificationCenter.default.removeObserver(parentCloseObserver) }
         parentCloseObserver = nil
+        expansionContent = nil
         guard let closing = expansion else { return }
         expansion = nil
         closing.parent?.removeChildWindow(closing)
@@ -247,11 +251,21 @@ final class BranchPopupRowControl: NSControl {
     private func updateExpansion() {
         guard isHovered, isEnabled, !isPresented, visibleRect.contains(bounds),
               let window, let renderExpansion else { closeExpansion(); return }
+        if let expansion, let renderedState, let built = expansionContent, built.state == renderedState {
+            var frame = window.convertToScreen(convert(bounds, to: nil))
+            let availableWidth = (window.screen?.visibleFrame.maxX ?? frame.maxX) - frame.minX
+            frame.size.width = min(built.width, availableWidth)
+            guard frame.width > bounds.width else { closeExpansion(); return }
+            expansion.setFrame(frame, display: false)
+            expansion.orderFrontRegardless()
+            return
+        }
         let content = NSHostingView(rootView: renderExpansion())
         content.appearance = effectiveAppearance
         var frame = window.convertToScreen(convert(bounds, to: nil))
         let availableWidth = (window.screen?.visibleFrame.maxX ?? frame.maxX) - frame.minX
-        frame.size.width = min(ceil(content.fittingSize.width), availableWidth)
+        let fittedWidth = ceil(content.fittingSize.width)
+        frame.size.width = min(fittedWidth, availableWidth)
         guard frame.width > bounds.width else { closeExpansion(); return }
         let panel = expansion ?? NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
                                         backing: .buffered, defer: false)
@@ -287,6 +301,7 @@ final class BranchPopupRowControl: NSControl {
             ) { [weak self] _ in MainActor.assumeIsolated { self?.closeExpansion() } }
         }
         expansion = panel
+        expansionContent = renderedState.map { ($0, fittedWidth) }
         panel.orderFrontRegardless()
     }
 }

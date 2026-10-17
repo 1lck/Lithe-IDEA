@@ -484,6 +484,9 @@ struct BranchSwitcherPopoverBehaviorTests {
         await Self.drainMainQueue()
         #expect(titles == ["first", "second"], "Joining a window refreshes the latest state once")
         update("second")
+        // AppKit rebuilds tracking areas whenever it likes after a window change;
+        // that only repositions the open expansion.
+        row.updateTrackingAreas()
         await Self.drainMainQueue()
         #expect(titles == ["first", "second"], "Unchanged state does not re-render")
         // Selection or current-branch changes keep the title but alter the label.
