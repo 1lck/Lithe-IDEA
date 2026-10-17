@@ -324,8 +324,11 @@ struct BranchSwitcherPopoverBehaviorTests {
         host.frame = container.bounds
         host.autoresizingMask = [.width, .height]
         container.addSubview(host)
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 375, height: 24),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        // Tracking areas are rebuilt inside layout and reconcile hover against the
+        // pointer, so pin it inside the row instead of reading the machine's mouse.
+        let window = BranchHoverTestWindow(contentRect: NSRect(x: 100, y: 100, width: 375, height: 24),
+                                           styleMask: [.borderless], backing: .buffered, defer: false)
+        window.pointer = NSPoint(x: 20, y: 12)
         window.isReleasedWhenClosed = false
         window.contentView = container
         window.orderFrontRegardless()
@@ -440,8 +443,11 @@ struct BranchSwitcherPopoverBehaviorTests {
     @MainActor
     func pendingRefreshFollowsTheRowAcrossWindows() async throws {
         func makeWindow() -> NSWindow {
-            let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 120, height: 24),
-                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            // Joining a window rebuilds tracking areas, which reconcile hover against
+            // the pointer; keep it on the row so the real mouse cannot clear the hover.
+            let window = BranchHoverTestWindow(contentRect: NSRect(x: 100, y: 100, width: 120, height: 24),
+                                               styleMask: [.borderless], backing: .buffered, defer: false)
+            window.pointer = NSPoint(x: 20, y: 12)
             window.isReleasedWhenClosed = false
             window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
             return window
