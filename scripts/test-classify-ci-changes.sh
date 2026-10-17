@@ -391,6 +391,21 @@ assert_classification desktop-isolation-runtime-runs-on-hosted \
 assert_classification ordinary-swift-test-may-use-mac-mini \
     "$(classification true false false false false false false false false false)" \
     modify_swift_test
+modify_swift_and_rust() {
+    modify_swift_source
+    modify_rust_code
+}
+# Path lists live outside the fixture repository, which each case cleans.
+ONLY_PATHS_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_ROOT" "$ONLY_PATHS_DIR"' EXIT
+printf '%s\n' 'macos/Sources/Lithe/App.swift' > "$ONLY_PATHS_DIR/only-swift.txt"
+LITHE_CI_ONLY_PATHS="$ONLY_PATHS_DIR/only-swift.txt" assert_classification only-paths-limits-classification \
+    "$(classification true false false false false false false false false false)" \
+    modify_swift_and_rust
+: > "$ONLY_PATHS_DIR/only-none.txt"
+LITHE_CI_ONLY_PATHS="$ONLY_PATHS_DIR/only-none.txt" assert_classification only-paths-empty-selects-nothing \
+    "$(classification false false false false false false false false false false)" \
+    modify_swift_and_rust
 LITHE_CI_SCOPE=post_merge assert_classification post-merge-builds-only-the-package \
     "$(classification false false false false false true false false false false false false post_merge)" \
     modify_swift_source

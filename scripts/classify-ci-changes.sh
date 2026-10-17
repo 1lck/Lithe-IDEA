@@ -86,7 +86,7 @@ classify_path() {
         casks/*|scripts/update-homebrew-cask.rb)
             metadata=true
             ;;
-        scripts/classify-ci-changes.sh|scripts/test-classify-ci-changes.sh)
+        scripts/classify-ci-changes.sh|scripts/test-classify-ci-changes.sh|scripts/plan-ci-lane-reuse.mjs|scripts/plan-ci-lane-reuse.test.mjs|scripts/verify-reused-ci-jobs.mjs|scripts/verify-reused-ci-jobs.test.mjs)
             # A classifier change must exercise every lane that it can select.
             enable_all_validation
             ;;
@@ -430,7 +430,24 @@ classify_path() {
     esac
 }
 
+# LITHE_CI_ONLY_PATHS names a file with one repository path per line. When set,
+# only diff entries touching one of those paths are classified; the lane-reuse
+# planner uses it to classify a pull request's own new changes between two of
+# its revisions while ignoring changes that arrived from the base branch.
+only_paths_file="${LITHE_CI_ONLY_PATHS:-}"
+if [[ -n "$only_paths_file" && ! -f "$only_paths_file" ]]; then
+    printf 'LITHE_CI_ONLY_PATHS does not name a file: %s\n' "$only_paths_file" >&2
+    exit 2
+fi
+path_selected() {
+    [[ -z "$only_paths_file" ]] && return 0
+    grep -Fxq -- "$1" "$only_paths_file"
+}
+
 while IFS=$'\t' read -r status first_path second_path; do
+    if [[ -n "$only_paths_file" ]] && ! path_selected "$first_path" && ! { [[ -n "$second_path" ]] && path_selected "$second_path"; }; then
+        continue
+    fi
     if [[ "$status" == R* || "$status" == C* ]]; then
         # Renames and copies can cross ownership boundaries, so both endpoints
         # select their own lanes. Neither side is a comment-only modification.

@@ -42,6 +42,34 @@ for a branch, manually run **Release AutoBuild** and provide that branch as
 `source_branch`; the Windows workflow is reusable and only builds an artifact
 for that caller.
 
+### Reusing lane results within a pull request
+
+A new push to a pull request does not rerun every lane. In **macOS CI**,
+**macOS Plugin CI** and **Windows CI**, the classify job runs
+`scripts/plan-ci-lane-reuse.mjs`, which decides per lane (Swift tests, Rust Core
+tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
+
+- It finds the latest earlier run of the same pull request that actually ran
+  the lane. If that job passed or is still running, and none of the pull
+  request's **own** changes since then affect the lane (by the same classifier
+  rules), the lane is reused instead of run. Changes that only arrived from the
+  base branch, whether merged in or picked up by GitHub's merge commit, do not
+  count, unless they touch CI infrastructure (workflows, actions, the
+  classifier and runner scripts, test infrastructure, `Package.swift`,
+  `Package.resolved`, Cargo manifests and lock files); then every lane runs.
+- A failed or cancelled earlier result is never reused.
+- Pull request runs are no longer cancelled per branch. The planner cancels the
+  earlier runs that no lane reuses; an earlier run with a reused lane still in
+  progress keeps running, because GitHub cannot cancel a single job.
+- The gate accepts a reused lane only after confirming that the earlier job
+  passed, waiting up to 90 minutes for one still running. It also fails if a
+  selected lane neither ran nor has a reused result.
+- Any planner error runs every selected lane. Pushes and manual runs never
+  reuse results.
+
+The **Lane reuse** section of the classify job summary lists each lane's
+decision and links to a reused job.
+
 ### What runs after a pull request merges
 
 A pull request into `preview` carries the full verification, and merging it

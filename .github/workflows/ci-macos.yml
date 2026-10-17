@@ -15,14 +15,21 @@ permissions:
   # The classify job reads active jobs to choose a macOS runner pool.
   actions: read
 
+# Pull request runs are not cancelled per branch: the lane-reuse step keeps an
+# earlier run whose lanes it reuses and cancels the others. Pushes and manual
+# runs still cancel the previous run on the same ref.
 concurrency:
-  group: macos-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: macos-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('run-{0}', github.run_id) || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
 
 jobs:
   changes:
     name: Classify changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Cancels earlier runs of the same pull request that no lane reuses.
+      actions: write
     outputs:
       swift: ${{ steps.classify.outputs.swift }}
       swift_database: ${{ steps.classify.outputs.swift_database }}
@@ -32,6 +39,10 @@ jobs:
       metadata: ${{ steps.classify.outputs.metadata }}
       git_validation: ${{ steps.classify.outputs.git_validation }}
       macos_runners: ${{ steps.runners.outputs.runners }}
+      run_swift: ${{ steps.reuse.outputs.run_swift }}
+      run_rust: ${{ steps.reuse.outputs.run_rust }}
+      run_release: ${{ steps.reuse.outputs.run_release }}
+      reuse: ${{ steps.reuse.outputs.reuse }}
 
     steps:
       - name: Check out source
@@ -51,7 +62,7 @@ jobs:
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
             scripts/test-download-sparkle-baseline.mjs scripts/test-publish-autobuild.mjs scripts/test-reuse-worktree-resources.mjs scripts/test-markdown-preview.mjs \
             scripts/test-codex-config-relay.mjs scripts/verify-release-signature.test.mjs \
-            scripts/select-macos-ci-runners.test.mjs
+            scripts/select-macos-ci-runners.test.mjs scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs
 
       - name: Generate Sparkle download timing report
         if: always()
@@ -150,14 +161,36 @@ jobs:
 
       # runs-on is fixed when a job is created, so each selected lane picks the
       # Mac mini or hosted pool here from the jobs already running or queued.
+      # A lane already passed (or still running) on an earlier revision of this
+      # pull request is reused when none of the pull request's own new changes
+      # affect it; base-branch changes only count when they touch CI.
+      - name: Reuse unaffected lane results
+        id: reuse
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LITHE_CI_WORKFLOW: macos
+          LITHE_CI_WORKFLOW_FILE: ci-macos.yml
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          LITHE_CI_CLASSIFICATION: |
+            ci_scope=${{ steps.classify.outputs.ci_scope }}
+            swift=${{ steps.classify.outputs.swift }}
+            swift_database=${{ steps.classify.outputs.swift_database }}
+            rust_core=${{ steps.classify.outputs.rust_core }}
+            macos_release=${{ steps.classify.outputs.macos_release }}
+        shell: bash
+        run: node scripts/plan-ci-lane-reuse.mjs
+
       - name: Choose macOS runners
         id: runners
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          # Swift tests also host the Rust Core bridge checks; see swift-tests.
-          SWIFT: ${{ steps.classify.outputs.swift == 'true' || steps.classify.outputs.swift_database == 'true' || steps.classify.outputs.rust_core == 'true' }}
-          RUST_CORE: ${{ steps.classify.outputs.rust_core }}
-          MACOS_RELEASE: ${{ steps.classify.outputs.macos_release }}
+          SWIFT: ${{ steps.reuse.outputs.run_swift }}
+          RUST_CORE: ${{ steps.reuse.outputs.run_rust }}
+          MACOS_RELEASE: ${{ steps.reuse.outputs.run_release }}
           # Test isolation changes need the WindowServer alpha check, which
           # the Mac minis' macOS 27 skips (#1278).
           LITHE_HOSTED_ONLY_LANES: ${{ steps.classify.outputs.swift_hosted == 'true' && 'swift' || '' }}
@@ -237,7 +270,7 @@ jobs:
   swift-tests:
     name: Swift tests
     needs: changes
-    if: needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_core == 'true'
+    if: needs.changes.outputs.run_swift == 'true'
     runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).swift }}
     timeout-minutes: 80
 
@@ -353,7 +386,7 @@ jobs:
   rust-core-tests:
     name: Rust Core tests
     needs: changes
-    if: needs.changes.outputs.rust_core == 'true'
+    if: needs.changes.outputs.run_rust == 'true'
     runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).rust }}
     # A cold Rust build without a compilation cache can take 20 minutes.
     # Individual test harness deadlines still bound the integration suites.
@@ -401,7 +434,7 @@ jobs:
   release-build:
     name: Release package verification (${{ matrix.architecture }})
     needs: changes
-    if: needs.changes.outputs.macos_release == 'true'
+    if: needs.changes.outputs.run_release == 'true'
     runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).release }}
     # A universal build without a Cargo compilation cache takes about 45
     # minutes: Rust and Swift compile once per slice before packaging twice.
@@ -585,22 +618,56 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           SWIFT_RESULT: ${{ needs.swift-tests.result }}
           RUST_CORE_RESULT: ${{ needs.rust-core-tests.result }}
+          RELEASE_RESULT: ${{ needs.release-build.result }}
+          RUN_SWIFT: ${{ needs.changes.outputs.run_swift }}
+          RUN_RUST: ${{ needs.changes.outputs.run_rust }}
+          RUN_RELEASE: ${{ needs.changes.outputs.run_release }}
           SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_core == 'true' }}
           RUST_CORE_SELECTED: ${{ needs.changes.outputs.rust_core }}
           RELEASE_SELECTED: ${{ needs.changes.outputs.macos_release }}
-          RELEASE_RESULT: ${{ needs.release-build.result }}
+          REUSE: ${{ needs.changes.outputs.reuse }}
         shell: bash
         run: |
           [[ "$CHANGES_RESULT" == "success" ]]
-          require_selected_job() {
-            local selected="$1"
+          # Every selected lane either ran here or has a reused result, so a
+          # missing plan can never turn into a gate that passes without tests.
+          require_covered() {
+            local selected="$1" ran="$2" lane="$3"
+            [[ "$selected" != "true" || "$ran" == "true" ]] && return 0
+            jq -e --arg lane "$lane" 'has($lane)' <<< "${REUSE:-{\}}" > /dev/null || {
+              echo "::error::Lane $lane is selected but neither ran nor reused an earlier result"
+              return 1
+            }
+          }
+          require_covered "$SWIFT_SELECTED" "$RUN_SWIFT" swift
+          require_covered "$RUST_CORE_SELECTED" "$RUN_RUST" rust
+          require_covered "$RELEASE_SELECTED" "$RUN_RELEASE" release
+          # A lane that ran must pass; a lane that did not run is either not
+          # selected or reused, and reused results are checked below.
+          require_job() {
+            local ran="$1"
             local result="$2"
-            if [[ "$selected" == "true" ]]; then
+            if [[ "$ran" == "true" ]]; then
               [[ "$result" == "success" ]]
             else
               [[ "$result" == "skipped" ]]
             fi
           }
-          require_selected_job "$SWIFT_SELECTED" "$SWIFT_RESULT"
-          require_selected_job "$RUST_CORE_SELECTED" "$RUST_CORE_RESULT"
-          require_selected_job "$RELEASE_SELECTED" "$RELEASE_RESULT"
+          require_job "$RUN_SWIFT" "$SWIFT_RESULT"
+          require_job "$RUN_RUST" "$RUST_CORE_RESULT"
+          require_job "$RUN_RELEASE" "$RELEASE_RESULT"
+
+      - name: Check out the reused-result verifier
+        if: needs.changes.result == 'success' && needs.changes.outputs.reuse != '{}' && needs.changes.outputs.reuse != ''
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/verify-reused-ci-jobs.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Verify reused lane results
+        if: needs.changes.result == 'success' && needs.changes.outputs.reuse != '{}' && needs.changes.outputs.reuse != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LITHE_CI_REUSE: ${{ needs.changes.outputs.reuse }}
+        timeout-minutes: 95
+        run: node scripts/verify-reused-ci-jobs.mjs

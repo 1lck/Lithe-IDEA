@@ -9,20 +9,32 @@ on:
 
 permissions:
   contents: read
+  # The gate reads reused jobs from earlier runs of the same pull request.
+  actions: read
 
+# Pull request runs are not cancelled per branch: the lane-reuse step keeps an
+# earlier run whose lanes it reuses and cancels the others.
 concurrency:
-  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: windows-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('run-{0}', github.run_id) || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
 
 jobs:
   changes:
     name: Classify changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Cancels earlier runs of the same pull request that no lane reuses.
+      actions: write
     outputs:
       windows: ${{ steps.classify.outputs.windows }}
       rust_core: ${{ steps.classify.outputs.rust_core }}
       windows_rust: ${{ steps.classify.outputs.windows_rust }}
       java_jdt: ${{ steps.classify.outputs.java_jdt }}
+      run_frontend: ${{ steps.reuse.outputs.run_frontend }}
+      run_rust: ${{ steps.reuse.outputs.run_rust }}
+      run_jdt: ${{ steps.reuse.outputs.run_jdt }}
+      reuse: ${{ steps.reuse.outputs.reuse }}
 
     steps:
       - name: Check out source
@@ -87,6 +99,28 @@ jobs:
           fi
           ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
+      # Reuse lanes that passed (or are running) on an earlier revision of this
+      # pull request when its own new changes cannot affect them.
+      - name: Reuse unaffected lane results
+        id: reuse
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LITHE_CI_WORKFLOW: windows
+          LITHE_CI_WORKFLOW_FILE: ci-windows.yml
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          LITHE_CI_CLASSIFICATION: |
+            ci_scope=${{ steps.classify.outputs.ci_scope }}
+            windows=${{ steps.classify.outputs.windows }}
+            rust_core=${{ steps.classify.outputs.rust_core }}
+            windows_rust=${{ steps.classify.outputs.windows_rust }}
+            java_jdt=${{ steps.classify.outputs.java_jdt }}
+        shell: bash
+        run: node scripts/plan-ci-lane-reuse.mjs
+
       - name: Reject newly added Windows blocking test patterns
         if: steps.base.outputs.manual == 'false'
         env:
@@ -120,7 +154,7 @@ jobs:
   frontend:
     name: Test Windows frontend
     needs: changes
-    if: needs.changes.outputs.windows == 'true'
+    if: needs.changes.outputs.run_frontend == 'true'
     runs-on: windows-latest
     timeout-minutes: 20
 
@@ -514,7 +548,7 @@ jobs:
   rust-tests:
     name: Test Windows Rust implementation
     needs: changes
-    if: needs.changes.outputs.rust_core == 'true' || needs.changes.outputs.windows_rust == 'true'
+    if: needs.changes.outputs.run_rust == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -610,7 +644,7 @@ jobs:
   real-jdt:
     name: Test real JDT on Windows
     needs: changes
-    if: needs.changes.outputs.java_jdt == 'true'
+    if: needs.changes.outputs.run_jdt == 'true'
     runs-on: windows-latest
     timeout-minutes: 35
 
@@ -715,21 +749,43 @@ jobs:
           RUST_TESTS_RESULT: ${{ needs.rust-tests.result }}
           JAVA_JDT_SELECTED: ${{ needs.changes.outputs.java_jdt }}
           REAL_JDT_RESULT: ${{ needs.real-jdt.result }}
+          RUST_SELECTED: ${{ needs.changes.outputs.rust_core == 'true' || needs.changes.outputs.windows_rust == 'true' }}
+          RUN_FRONTEND: ${{ needs.changes.outputs.run_frontend }}
+          RUN_RUST: ${{ needs.changes.outputs.run_rust }}
+          RUN_JDT: ${{ needs.changes.outputs.run_jdt }}
+          REUSE: ${{ needs.changes.outputs.reuse }}
         shell: bash
         run: |
           [[ "$CHANGES_RESULT" == "success" ]]
-          if [[ "$WINDOWS_SELECTED" == "true" ]]; then
-            [[ "$FRONTEND_RESULT" == "success" ]]
-          else
-            [[ "$FRONTEND_RESULT" == "skipped" ]]
-          fi
-          if [[ "$JAVA_JDT_SELECTED" == "true" ]]; then
-            [[ "$REAL_JDT_RESULT" == "success" ]]
-          else
-            [[ "$REAL_JDT_RESULT" == "skipped" ]]
-          fi
-          if [[ "$RUST_CORE_SELECTED" == "true" || "$WINDOWS_RUST_SELECTED" == "true" ]]; then
-            [[ "$RUST_TESTS_RESULT" == "success" ]]
-          else
-            [[ "$RUST_TESTS_RESULT" == "skipped" ]]
-          fi
+          require_covered() {
+            local selected="$1" ran="$2" lane="$3"
+            [[ "$selected" != "true" || "$ran" == "true" ]] && return 0
+            jq -e --arg lane "$lane" 'has($lane)' <<< "${REUSE:-{\}}" > /dev/null || {
+              echo "::error::Lane $lane is selected but neither ran nor reused an earlier result"
+              return 1
+            }
+          }
+          require_job() {
+            local ran="$1" result="$2"
+            if [[ "$ran" == "true" ]]; then [[ "$result" == "success" ]]; else [[ "$result" == "skipped" ]]; fi
+          }
+          require_covered "$WINDOWS_SELECTED" "$RUN_FRONTEND" frontend
+          require_covered "$RUST_SELECTED" "$RUN_RUST" rust
+          require_covered "$JAVA_JDT_SELECTED" "$RUN_JDT" jdt
+          require_job "$RUN_FRONTEND" "$FRONTEND_RESULT"
+          require_job "$RUN_RUST" "$RUST_TESTS_RESULT"
+          require_job "$RUN_JDT" "$REAL_JDT_RESULT"
+      - name: Check out the reused-result verifier
+        if: needs.changes.result == 'success' && needs.changes.outputs.reuse != '{}' && needs.changes.outputs.reuse != ''
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/verify-reused-ci-jobs.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Verify reused lane results
+        if: needs.changes.result == 'success' && needs.changes.outputs.reuse != '{}' && needs.changes.outputs.reuse != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LITHE_CI_REUSE: ${{ needs.changes.outputs.reuse }}
+        timeout-minutes: 95
+        run: node scripts/verify-reused-ci-jobs.mjs
