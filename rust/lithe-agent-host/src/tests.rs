@@ -3647,12 +3647,17 @@ fn model_call_events_use_the_fixture_shape() {
 /// A fake agent that starts one background task, records its PID, and exits
 /// once the test opens `gate` for writing. The agent never answers ACP, so its
 /// own exit is what ends the connection.
+///
+/// Dropping it ends the task and removes the temporary directory and FIFO, so
+/// an assertion or timeout panic cannot leave a 300-second task behind.
 #[cfg(unix)]
 struct AgentWithTask {
-    handle: AgentHandle,
+    handle: Option<AgentHandle>,
     directory: PathBuf,
     gate: PathBuf,
     task: u32,
+    /// Cleared once the test observed the task gone; its PID may then be reused.
+    task_may_run: bool,
 }
 
 #[cfg(unix)]
@@ -3687,15 +3692,21 @@ impl AgentWithTask {
                 .and_then(|text| text.trim().parse::<u32>().ok())
         });
         Self {
-            handle,
+            handle: Some(handle),
             directory,
             gate,
             task,
+            task_may_run: true,
         }
     }
 
-    /// Lets the agent exit, then closes the connection.
-    fn finish(self) -> u32 {
+    fn handle(&self) -> &AgentHandle {
+        self.handle.as_ref().expect("the connection is still open")
+    }
+
+    /// Lets the agent exit, then closes the connection. The task stays owned
+    /// by this value until it is dropped.
+    fn finish(&mut self) {
         use std::os::unix::fs::OpenOptionsExt;
         let gate = self.gate.clone();
         wait_for("the fake agent to read its gate", || {
@@ -3706,9 +3717,20 @@ impl AgentWithTask {
                 .ok()
                 .and_then(|mut fifo| std::io::Write::write_all(&mut fifo, b"\n").ok())
         });
-        self.handle.close();
+        if let Some(handle) = self.handle.take() {
+            handle.close();
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for AgentWithTask {
+    fn drop(&mut self) {
+        if self.task_may_run && process_is_alive(self.task) {
+            kill_test_process(self.task);
+        }
+        drop(self.handle.take());
         let _ = std::fs::remove_dir_all(&self.directory);
-        self.task
     }
 }
 
@@ -3748,31 +3770,31 @@ fn kill_test_process(pid: u32) {
 #[cfg(unix)]
 #[test]
 fn preserved_agent_task_survives_closing_the_connection() {
-    let agent = AgentWithTask::start("preserve");
+    let mut agent = AgentWithTask::start("preserve");
     agent
-        .handle
+        .handle()
         .send(AgentCommand::PreserveProcesses {
             process_ids: vec![agent.task],
         })
         .expect("preserve is accepted");
-    let task = agent.finish();
-    let survived = process_is_alive(task);
-    kill_test_process(task);
-    assert!(survived, "preserved task was ended with the agent");
+    agent.finish();
+    assert!(
+        process_is_alive(agent.task),
+        "preserved task was ended with the agent"
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn closing_without_preserved_tasks_still_ends_the_agent_tree() {
-    let task = AgentWithTask::start("tree").finish();
+    let mut agent = AgentWithTask::start("tree");
+    agent.finish();
     let ended = std::time::Instant::now() + WAIT;
-    while process_is_alive(task) && std::time::Instant::now() < ended {
+    while process_is_alive(agent.task) && std::time::Instant::now() < ended {
         // test-stability: allow(rust-real-sleep) reason: the killed task is reaped by launchd, which offers no notification channel to the test.
         std::thread::sleep(Duration::from_millis(10));
     }
-    let gone = !process_is_alive(task);
-    if !gone {
-        kill_test_process(task);
-    }
+    let gone = !process_is_alive(agent.task);
+    agent.task_may_run = !gone;
     assert!(gone, "agent task outlived the connection");
 }

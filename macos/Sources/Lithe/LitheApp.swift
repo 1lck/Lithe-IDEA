@@ -67,6 +67,9 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     /// Background services the user kept in the quit confirmation; recorded
     /// only once quitting can no longer be cancelled.
     private var keptBackgroundProcesses: [MacProcessIdentity] = []
+    /// Background services the user chose to end. The final sweep ends only
+    /// these exact identities; a successor spawned later waits for startup.
+    private var endedBackgroundProcesses: [MacProcessIdentity] = []
     private var finalSweepGracePeriod: TimeInterval = 5
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -209,6 +212,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             // resources before the first module stops or an update timer fires.
             MacAgentProcessRegistry.application.commitQuitRetention()
             MacProcessInstance.current?.retain(self.keptBackgroundProcesses)
+            MacProcessInstance.current?.approveTermination(self.endedBackgroundProcesses)
             if self.isUpdateInstallTermination { self.boundUpdateTermination() }
             transferred = true
             _ = self.beginTerminationCleanup(
@@ -376,6 +380,10 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             keptBackgroundProcesses = services.filter { kept.contains($0.candidate.id) }
                 .flatMap(\.item.processes)
                 .map(MacProcessIdentity.init)
+            let ended = Set(approval.terminateResources)
+            endedBackgroundProcesses = services.filter { ended.contains($0.candidate.id) }
+                .flatMap(\.item.processes)
+                .map(MacProcessIdentity.init)
             finalSweepGracePeriod = TimeInterval(approval.gracefulStopMilliseconds) / 1_000
             return true
         }
@@ -384,6 +392,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     private func cancelProcessExit() {
         MacAgentProcessRegistry.application.cancelQuit()
         keptBackgroundProcesses = []
+        endedBackgroundProcesses = []
     }
 
     /// Ends whatever of this instance is still alive, except what the user kept.

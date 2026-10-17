@@ -118,3 +118,59 @@ struct MacTerminalBusyProcessTests {
         )
     }
 }
+
+struct MacTerminalSessionOwnershipTests {
+    private let leader = MacProcessIdentity(processID: 10, startTime: 1_000_000)
+
+    @Test func liveLeaderProvesEverySessionMember() {
+        let session = MacTerminalSessionOwnership(leader: leader)
+        let snapshot = [member(10, start: 1_000_000), member(11, parent: 10), member(12, parent: 1), other(13)]
+        #expect(session.members(in: snapshot).map(\.processID) == [10, 11, 12])
+    }
+
+    @Test func jobsOutlivingTheShellRemainStoppableByIdentity() {
+        var session = MacTerminalSessionOwnership(leader: leader)
+        // Event order: the shell exits, its nohup job survives and forks a child.
+        let hasSurvivors = session.pinMembers(snapshot: [member(11, parent: 1)])
+        #expect(hasSurvivors)
+        let later = [member(11, parent: 1), member(14, parent: 11, start: 3_000_000)]
+        #expect(session.members(in: later).map(\.processID) == [11, 14])
+    }
+
+    @Test func reusedSessionIDIsNotOwnedAfterTheOriginalSessionEnded() {
+        var session = MacTerminalSessionOwnership(leader: leader)
+        // The shell and every job exit; the tab stays open.
+        let hasMembersAfterExit = session.pinMembers(snapshot: [])
+        #expect(!hasMembersAfterExit)
+        // An unrelated session later reuses the leader's PID as its session ID.
+        let foreign = [member(10, start: 5_000_000), member(20, parent: 10, start: 5_000_100)]
+        #expect(session.members(in: foreign).isEmpty)
+        let hasForeignMembers = session.pinMembers(snapshot: foreign)
+        #expect(!hasForeignMembers, "Later pins keep the first evidence")
+    }
+
+    @Test func reusedLeaderPIDIsNeverPinnedAsEvidence() {
+        var session = MacTerminalSessionOwnership(leader: leader)
+        // The exit is reported late: a newer session already holds the PID.
+        let foreign = [member(10, start: 5_000_000), member(20, parent: 10, start: 5_000_100)]
+        let hasForeignMembers = session.pinMembers(snapshot: foreign)
+        #expect(!hasForeignMembers)
+        #expect(session.members(in: foreign).isEmpty)
+    }
+
+    private func member(_ processID: Int32, parent: Int32 = 1, start: UInt64 = 2_000_000) -> MacProcessInfo {
+        MacProcessInfo(
+            identity: MacProcessIdentity(processID: processID, startTime: start),
+            parentProcessID: parent, processGroupID: processID, sessionID: leader.processID,
+            hasControllingTerminal: true, name: "worker"
+        )
+    }
+
+    private func other(_ processID: Int32) -> MacProcessInfo {
+        MacProcessInfo(
+            identity: MacProcessIdentity(processID: processID, startTime: 2_000_000),
+            parentProcessID: 1, processGroupID: processID, sessionID: processID,
+            hasControllingTerminal: false, name: "elsewhere"
+        )
+    }
+}

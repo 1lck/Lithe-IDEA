@@ -202,6 +202,47 @@
           {"id": "orphan", "kind": "oneShot", "policy": "askOnExit", "action": "ask", "reason": "startupSweepSetting"}
         ]
       }
+    },
+    {
+      "name": "final sweep ends only approved identities and defers unseen background successors",
+      "request": {
+        "context": "finalSweep",
+        "records": [
+          {"id": "unseen-successor", "kind": "daemon", "ownership": "scopeToken", "detached": true},
+          {"id": "approved-service", "kind": "daemon", "ownership": "scopeToken", "detached": true, "terminationApproved": true},
+          {"id": "kept-service", "kind": "daemon", "ownership": "scopeToken", "detached": true, "retained": true},
+          {"id": "unseen-task", "kind": "agentTask", "ownership": "scopeToken"},
+          {"id": "run", "kind": "run", "ownership": "launched"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "unseen-successor", "kind": "daemon", "policy": "askOnExit", "action": "defer", "reason": "backgroundResourceRequiresStartupConfirmation"},
+          {"id": "approved-service", "kind": "daemon", "policy": "askOnExit", "action": "terminate", "reason": "finalSweepApproved"},
+          {"id": "kept-service", "kind": "daemon", "policy": "askOnExit", "action": "retain", "reason": "retainedByUser"},
+          {"id": "unseen-task", "kind": "agentTask", "policy": "confirmEach", "action": "defer", "reason": "agentTaskRequiresStartupConfirmation"},
+          {"id": "run", "kind": "run", "policy": "terminate", "action": "terminate", "reason": "finalSweepApproved"}
+        ]
+      }
+    },
+    {
+      "name": "final sweep applies choices made in advance to unseen background services",
+      "request": {
+        "context": "finalSweep",
+        "settings": {"backgroundResources": "terminate", "rememberedChoices": {"example.keep": "keep"}},
+        "records": [
+          {"id": "unseen-service", "kind": "daemon", "ownership": "scopeToken", "detached": true},
+          {"id": "remembered-service", "kind": "daemon", "ownership": "scopeToken", "recognizerId": "example.keep", "recognizedPolicy": "askOnExit"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "unseen-service", "kind": "daemon", "policy": "askOnExit", "action": "terminate", "reason": "backgroundSetting"},
+          {"id": "remembered-service", "kind": "daemon", "policy": "askOnExit", "action": "retain", "reason": "rememberedChoice"}
+        ]
+      }
     }
   ]
 }

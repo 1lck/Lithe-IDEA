@@ -2826,7 +2826,13 @@ ordinary processes get five seconds to stop (clamped to 1–60).
 `finalSweep` runs after confirmation and without dialogs. Owned Agent tasks need
 `terminationApproved: true` to terminate; otherwise their action is `defer` and
 the host must preserve a recoverable record for individual startup confirmation.
-Other owned records terminate. Unproven ownership and explicit retention still
+Owned records with policy `askOnExit` (daemons, containers, detached processes)
+without approval follow a remembered choice or `backgroundResources: keep` /
+`terminate`; with the default `ask` they `defer` with reason
+`backgroundResourceRequiresStartupConfirmation`, so a successor spawned after the
+quit dialog is never ended unseen. Hosts approve the services the user chose to
+end once quitting can no longer be cancelled. Other owned records terminate.
+Unproven ownership and explicit retention still
 win. Approval applies to exact PID/start-time identities; hosts may expand it
 only through ancestry proved in the same snapshot.
 

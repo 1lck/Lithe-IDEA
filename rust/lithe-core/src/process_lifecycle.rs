@@ -31,8 +31,9 @@ pub enum LifecycleContext {
     CrashRecovery,
     /// Lithe starts and finds processes of an earlier instance.
     StartupSweep,
-    /// The UI has finished shutdown. Newly observed Agent processes must wait
-    /// for startup confirmation unless their exact identities were approved.
+    /// The UI has finished shutdown. Newly observed Agent processes and
+    /// background services must wait for startup confirmation unless their
+    /// exact identities, or a setting, already approved ending them.
     FinalSweep,
 }
 
@@ -302,14 +303,7 @@ fn decide(
     } else if record.retained {
         (LifecycleAction::Retain, "retainedByUser")
     } else if context == LifecycleContext::FinalSweep {
-        if record.kind == RecordKind::AgentTask && !record.termination_approved {
-            (
-                LifecycleAction::Defer,
-                "agentTaskRequiresStartupConfirmation",
-            )
-        } else {
-            (LifecycleAction::Terminate, "finalSweepApproved")
-        }
+        final_sweep(settings, record, policy)
     } else {
         apply_settings(context, settings, record, policy, source)
     };
@@ -319,6 +313,41 @@ fn decide(
         policy,
         action,
         reason,
+    }
+}
+
+/// The unattended sweep after UI shutdown. Only exact identities approved
+/// before shutdown, and categories the user pre-approved in settings, may end
+/// here; anything that would have needed an answer waits for the next startup.
+/// This covers a successor a kept service spawned after the quit dialog's
+/// snapshot: its identity was never shown, so it was neither kept nor approved.
+fn final_sweep(
+    settings: &TerminationSettings,
+    record: &LifecycleRecord,
+    policy: ExitPolicy,
+) -> (LifecycleAction, &'static str) {
+    use LifecycleAction::{Defer, Retain, Terminate};
+    if record.termination_approved {
+        return (Terminate, "finalSweepApproved");
+    }
+    if record.kind == RecordKind::AgentTask {
+        return (Defer, "agentTaskRequiresStartupConfirmation");
+    }
+    if policy != ExitPolicy::AskOnExit {
+        return (Terminate, "finalSweepApproved");
+    }
+    let remembered = record
+        .recognizer_id
+        .as_ref()
+        .and_then(|id| settings.remembered_choices.get(id));
+    match (remembered, settings.background_resources) {
+        (Some(RememberedChoice::Keep), _) => (Retain, "rememberedChoice"),
+        (Some(RememberedChoice::Terminate), _) => (Terminate, "rememberedChoice"),
+        (None, BackgroundResourcePolicy::Keep) => (Retain, "backgroundSetting"),
+        (None, BackgroundResourcePolicy::Terminate) => (Terminate, "backgroundSetting"),
+        (None, BackgroundResourcePolicy::Ask) => {
+            (Defer, "backgroundResourceRequiresStartupConfirmation")
+        }
     }
 }
 

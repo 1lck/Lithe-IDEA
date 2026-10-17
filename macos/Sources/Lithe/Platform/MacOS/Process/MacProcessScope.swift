@@ -198,6 +198,7 @@ struct MacProcessInstanceRecordStore: Sendable {
 
     init(fileStorage: MacFileStorage = MacFileStorage()) {
         self.init(directory: fileStorage.applicationSupportDirectory()
+            .appendingPathComponent("Lithe", isDirectory: true)
             .appendingPathComponent("ProcessLifecycle", isDirectory: true))
     }
 
