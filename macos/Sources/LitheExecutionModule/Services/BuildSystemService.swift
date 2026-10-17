@@ -1,0 +1,844 @@
+import Combine
+import Foundation
+import LitheCoreContracts
+
+// Note: 构建系统插件契约见 .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
+
+package enum BuildModelState: Equatable, Sendable {
+    case notLoaded
+    case loading
+    case loaded
+    case failed(String)
+}
+
+package enum BuildDependencyState: Equatable, Sendable {
+    case loading
+    case loaded(BuildDependencyTree)
+    case failed(String)
+}
+
+package enum BuildRunState: Equatable, Sendable {
+    case idle
+    case running
+    case succeeded
+    case failed(String)
+    case cancelled
+}
+
+/// One detected instance with what the host has loaded for it.
+package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
+    package let instance: BuildSystemInstance
+    package let declaration: DeclarativeBuildSystem
+    package let source: BuildSystemPluginSource
+    package var model: BuildModel?
+    package var modelState: BuildModelState
+    package var options: [BuildResolvedOption]
+    package var sync: BuildSyncState?
+    /// A file the model depends on changed after a command model was loaded.
+    package var isReloadRequired: Bool
+    /// By the workspace-relative project directory; the instance root for
+    /// the whole instance.
+    package var dependencies: [String: BuildDependencyState]
+
+    package var id: String { instance.id }
+    package var target: BuildSystemTarget {
+        BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID)
+    }
+
+    package init(
+        instance: BuildSystemInstance,
+        declaration: DeclarativeBuildSystem,
+        source: BuildSystemPluginSource,
+        model: BuildModel? = nil,
+        modelState: BuildModelState = .notLoaded,
+        options: [BuildResolvedOption] = [],
+        sync: BuildSyncState? = nil,
+        isReloadRequired: Bool = false,
+        dependencies: [String: BuildDependencyState] = [:]
+    ) {
+        self.instance = instance; self.declaration = declaration; self.source = source
+        self.model = model; self.modelState = modelState; self.options = options; self.sync = sync
+        self.isReloadRequired = isReloadRequired; self.dependencies = dependencies
+    }
+}
+
+/// Runs plugin build systems: detection, model loading, tasks, tests, and
+/// dependency trees. Rust Core decides every command and decodes every
+/// output; this service only sequences the steps and owns the processes.
+///
+/// One task or test run owns the output at a time. Model and dependency
+/// commands run beside it and append their output under a header, so a long
+/// first sync still shows its progress.
+@MainActor
+package final class BuildSystemService: ObservableObject {
+    package static let modelTimeout: Duration = .seconds(15 * 60)
+    private static let visibleOutputLimit = 1_000_000
+    /// Rust Core refuses larger output.
+    private static let decodedOutputLimit = 32 * 1024 * 1024
+
+    @Published package private(set) var entries: [BuildSystemEntry] = []
+    @Published package private(set) var isDetecting = false
+    /// Manifests Core refused and build systems another plugin answers for.
+    @Published package private(set) var issues: [String] = []
+    @Published package private(set) var runState: BuildRunState = .idle {
+        didSet { refreshActivity() }
+    }
+    /// True while a task, test, model, or dependency command runs.
+    @Published package private(set) var hasActiveWork = false
+    @Published package private(set) var runningTitle: String?
+    @Published package private(set) var output = ""
+    @Published package private(set) var diagnostics: [BuildDiagnostic] = []
+    @Published package private(set) var testResults: BuildTestResults?
+    package private(set) var workspaceURL: URL?
+
+    private let planner: any BuildSystemPlanning
+    private let tools: any BuildToolResolving
+    private let optionsStore: any BuildOptionsStoring
+    private let stateLocator: any BuildSystemStateLocating
+    private let runner: any BuildCommandRunning
+    private let sources: @MainActor () -> [BuildSystemPluginSource]
+
+    /// Bumped whenever the workspace changes, so late results are dropped.
+    private var generation = 0
+    private var detectionTask: Task<Void, Never>?
+    private var redetectTask: Task<Void, Never>?
+    private var runTask: Task<Void, Never>?
+    private var runID: UUID?
+    private var runEntryID: String?
+    private var modelTasks: [String: Task<Void, Never>] = [:] {
+        didSet { refreshActivity() }
+    }
+    private var dependencyTasks: [String: Task<Void, Never>] = [:] {
+        didSet { refreshActivity() }
+    }
+    private var outputByteCount = 0
+
+    package init(
+        planner: any BuildSystemPlanning,
+        tools: any BuildToolResolving,
+        optionsStore: any BuildOptionsStoring,
+        stateLocator: any BuildSystemStateLocating,
+        runner: any BuildCommandRunning,
+        sources: @escaping @MainActor () -> [BuildSystemPluginSource]
+    ) {
+        self.planner = planner
+        self.tools = tools
+        self.optionsStore = optionsStore
+        self.stateLocator = stateLocator
+        self.runner = runner
+        self.sources = sources
+    }
+
+    package var isRunning: Bool { runState == .running }
+    package var isLoadingModel: Bool { !modelTasks.isEmpty }
+    package var isLoadingDependencies: Bool { !dependencyTasks.isEmpty }
+    /// True when an enabled plugin declares a build system, detected or not.
+    package var hasBuildSystemPlugins: Bool { !sources().isEmpty }
+
+    package func entry(_ id: String) -> BuildSystemEntry? {
+        entries.first { $0.id == id }
+    }
+
+    // MARK: Workspace
+
+    /// Forgets the previous workspace and detects the new one.
+    package func reset(workspaceURL: URL?) {
+        stop()
+        generation += 1
+        detectionTask?.cancel(); detectionTask = nil
+        redetectTask?.cancel(); redetectTask = nil
+        self.workspaceURL = workspaceURL?.standardizedFileURL
+        entries = []
+        issues = []
+        isDetecting = false
+        runState = .idle
+        runningTitle = nil
+        clearOutput()
+        detect()
+    }
+
+    /// Detects the instances again. Static and host-integration models are
+    /// read again with them; a loaded command model is kept and marked
+    /// stale when the files it depends on changed.
+    package func detect() {
+        guard let workspaceURL else { return }
+        detectionTask?.cancel()
+        let sources = sources()
+        guard !sources.isEmpty else {
+            entries = []
+            issues = []
+            isDetecting = false
+            return
+        }
+        isDetecting = true
+        let storedOptions = Dictionary(
+            sources.flatMap(\.buildSystems).map {
+                ($0.id, optionsStore.options(workspaceURL: workspaceURL, buildSystemID: $0.id))
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let previous = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        let planner = planner
+        let generation = generation
+        detectionTask = Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                Result {
+                    try Self.detectEntries(
+                        planner: planner,
+                        workspaceURL: workspaceURL,
+                        sources: sources,
+                        storedOptions: storedOptions,
+                        previous: previous
+                    )
+                }
+            }.value
+            guard let self, self.generation == generation, !Task.isCancelled else { return }
+            self.isDetecting = false
+            switch result {
+            case .success(let detected):
+                self.entries = detected.entries
+                self.issues = detected.issues
+            case .failure(let error):
+                self.entries = []
+                self.issues = [error.localizedDescription]
+            }
+        }
+    }
+
+    /// Ends what a now disabled plugin started and detects again with the
+    /// plugins enabled now, so its instances leave the tool window.
+    package func pluginsChanged() {
+        let enabled = Set(sources().map(\.pluginID))
+        let removed = Set(entries.filter { !enabled.contains($0.instance.pluginID) }.map(\.id))
+        if let runEntryID, removed.contains(runEntryID) { stopRun() }
+        for key in Array(modelTasks.keys) where removed.contains(key) {
+            modelTasks.removeValue(forKey: key)?.cancel()
+        }
+        for key in Array(dependencyTasks.keys) where removed.contains(Self.entryID(ofDependencyTask: key)) {
+            dependencyTasks.removeValue(forKey: key)?.cancel()
+        }
+        detect()
+    }
+
+    /// Detects again shortly after a file the models depend on changed.
+    /// Several saves in a row cost one detection.
+    package func workspaceFilesChanged(_ urls: [URL]) {
+        guard let workspaceURL, !entries.isEmpty else { return }
+        let root = workspaceURL.path.hasSuffix("/") ? workspaceURL.path : workspaceURL.path + "/"
+        let changed = Set(urls.compactMap { url -> String? in
+            let path = url.standardizedFileURL.path
+            return path.hasPrefix(root) ? String(path.dropFirst(root.count)) : nil
+        })
+        let affected = entries.contains { entry in
+            entry.sync?.watch.contains(where: changed.contains) == true
+        }
+        guard affected else { return }
+        redetectTask?.cancel()
+        redetectTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            self?.detect()
+        }
+    }
+
+    // MARK: Model
+
+    /// Runs the model command of a command-sourced instance. Other sources
+    /// are read again by detection.
+    package func loadModel(_ entryID: String) {
+        guard let workspaceURL, let entry = entry(entryID) else { return }
+        switch entry.instance.modelSource {
+        case .static?, .hostIntegration?:
+            detect()
+            return
+        case .provider?:
+            update(entryID) {
+                $0.modelState = .failed(Self.providerUnsupportedMessage)
+            }
+            return
+        case nil:
+            return
+        case .command?:
+            break
+        }
+        modelTasks[entryID]?.cancel()
+        update(entryID) { $0.modelState = .loading }
+        let generation = generation
+        modelTasks[entryID] = Task { [weak self] in
+            guard let self else { return }
+            let result = await self.performModelLoad(entry, workspaceURL: workspaceURL)
+            guard self.generation == generation else { return }
+            self.modelTasks[entryID] = nil
+            switch result {
+            case .success(let loaded):
+                self.update(entryID) {
+                    $0.model = loaded.model
+                    $0.modelState = .loaded
+                    $0.options = loaded.options ?? $0.options
+                    $0.sync = loaded.sync ?? $0.sync
+                    $0.isReloadRequired = false
+                    $0.dependencies = [:]
+                }
+            case .failure(let error) where error is CancellationError:
+                self.update(entryID) {
+                    $0.modelState = $0.model == nil ? .notLoaded : .loaded
+                }
+            case .failure(let error):
+                self.update(entryID) { $0.modelState = .failed(error.localizedDescription) }
+            }
+        }
+    }
+
+    private struct LoadedModel: Sendable {
+        let model: BuildModel
+        let options: [BuildResolvedOption]?
+        let sync: BuildSyncState?
+    }
+
+    private func performModelLoad(_ entry: BuildSystemEntry, workspaceURL: URL) async -> Result<LoadedModel, Error> {
+        do {
+            let context = try planContext(entry, workspaceURL: workspaceURL)
+            let outputFile = try context.workspaceStateDirectory.map { try stateLocator.allocateOutputFile(in: $0) }
+            defer { if let outputFile { stateLocator.removeOutputFile(outputFile) } }
+            let plan = try planner.modelPlan(entry.target, context: context, outputFile: outputFile)
+            guard case .process(let process) = plan else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            let title = String(localized: "Loading \(entry.instance.displayName) model")
+            let output = try await runCapturedCommand(
+                process,
+                entry: entry,
+                workspaceURL: workspaceURL,
+                outputFile: outputFile,
+                title: title,
+                timeout: Self.modelTimeout
+            )
+            let planner = planner
+            let target = entry.target
+            let root = entry.instance.root
+            return .success(try await Task.detached(priority: .userInitiated) {
+                let model = try planner.decodeModel(
+                    target, workspaceURL: workspaceURL, root: root, output: output, options: context.options
+                )
+                return LoadedModel(
+                    model: model,
+                    options: try? planner.resolveOptions(
+                        target, options: context.options, modelValues: model.optionValues
+                    ).options,
+                    sync: try? planner.syncFingerprint(
+                        target, workspaceURL: workspaceURL, root: root,
+                        projects: model.projects.map(\.path), options: context.options
+                    )
+                )
+            }.value)
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    // MARK: Tasks and tests
+
+    /// Runs a declared task, or a model task through its template.
+    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) {
+        guard let workspaceURL, let entry = entry(entryID) else { return }
+        startRun(entryID, title: title) { service in
+            let context = try service.planContext(entry, workspaceURL: workspaceURL)
+            let plan = try service.planner.taskPlan(entry.target, context: context, request: request)
+            let collected = try await service.runStreamedCommand(plan, entry: entry, workspaceURL: workspaceURL)
+            service.diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
+            return collected.exitCode
+        }
+    }
+
+    package func runTests(_ entryID: String, request: BuildTestRequest, title: String) {
+        guard let workspaceURL, let entry = entry(entryID) else { return }
+        startRun(entryID, title: title) { service in
+            let context = try service.planContext(entry, workspaceURL: workspaceURL)
+            let plan = try service.planner.testPlan(entry.target, context: context, request: request)
+            let started = Date()
+            let collected = try await service.runStreamedCommand(plan.process, entry: entry, workspaceURL: workspaceURL)
+            service.diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
+            if plan.results != nil {
+                let resultsRequest = BuildTestResultsRequest(
+                    workspaceURL: workspaceURL,
+                    root: entry.instance.root,
+                    project: request.project?.path,
+                    projects: request.projects,
+                    output: collected.text,
+                    notBefore: started,
+                    suite: request.suite
+                )
+                let planner = service.planner
+                let target = entry.target
+                do {
+                    service.testResults = try await Task.detached(priority: .userInitiated) {
+                        try planner.decodeTestResults(target, request: resultsRequest)
+                    }.value
+                } catch {
+                    service.appendOutput("\n" + error.localizedDescription + "\n")
+                }
+            }
+            return collected.exitCode
+        }
+    }
+
+    /// Ends the task or test run. Model and dependency commands keep running.
+    package func stopRun() {
+        guard runTask != nil else { return }
+        runTask?.cancel()
+        runTask = nil
+        runID = nil
+        runEntryID = nil
+        if runState == .running {
+            runState = .cancelled
+        }
+    }
+
+    /// Ends every process this service started.
+    package func stop() {
+        stopRun()
+        for task in modelTasks.values { task.cancel() }
+        for task in dependencyTasks.values { task.cancel() }
+        modelTasks = [:]
+        dependencyTasks = [:]
+        for index in entries.indices {
+            if entries[index].modelState == .loading {
+                entries[index].modelState = entries[index].model == nil ? .notLoaded : .loaded
+            }
+            entries[index].dependencies = entries[index].dependencies.filter { $0.value != .loading }
+        }
+    }
+
+    package func clearOutput() {
+        output = ""
+        outputByteCount = 0
+        diagnostics = []
+        testResults = nil
+    }
+
+    private func startRun(
+        _ entryID: String,
+        title: String,
+        _ work: @escaping @MainActor (BuildSystemService) async throws -> Int32?
+    ) {
+        stopRun()
+        clearOutput()
+        let id = UUID()
+        runID = id
+        runEntryID = entryID
+        runState = .running
+        runningTitle = title
+        runTask = Task { [weak self] in
+            guard let self else { return }
+            let state: BuildRunState
+            do {
+                if let exitCode = try await work(self) {
+                    state = exitCode == 0
+                        ? .succeeded
+                        : .failed(String(localized: "The build tool exited with code \(Int(exitCode))."))
+                } else {
+                    state = .failed(String(localized: "The build tool timed out."))
+                }
+            } catch is CancellationError {
+                state = .cancelled
+            } catch {
+                self.appendOutput(error.localizedDescription + "\n")
+                state = .failed(error.localizedDescription)
+            }
+            guard self.runID == id else { return }
+            self.runState = state
+            self.runTask = nil
+            self.runID = nil
+            self.runEntryID = nil
+        }
+    }
+
+    private func decodeDiagnostics(
+        _ entry: BuildSystemEntry,
+        workspaceURL: URL,
+        output: String
+    ) async -> [BuildDiagnostic] {
+        let planner = planner
+        let target = entry.target
+        let root = entry.instance.root
+        // A build system without a diagnostics declaration is refused with
+        // `plugin.build.unavailable`; it simply reports nothing.
+        return await Task.detached(priority: .utility) {
+            (try? planner.decodeDiagnostics(target, workspaceURL: workspaceURL, root: root, output: output)) ?? []
+        }.value
+    }
+
+    // MARK: Dependencies
+
+    /// Lists the dependencies of one project, or of the instance.
+    package func loadDependencies(_ entryID: String, project: BuildModel.Project?) {
+        guard let workspaceURL, let entry = entry(entryID) else { return }
+        let key = project?.path ?? entry.instance.root
+        let taskKey = entryID + Self.dependencyTaskSeparator + key
+        dependencyTasks[taskKey]?.cancel()
+        update(entryID) { $0.dependencies[key] = .loading }
+        let generation = generation
+        dependencyTasks[taskKey] = Task { [weak self] in
+            guard let self else { return }
+            let result = await self.performDependencyLoad(entry, project: project, workspaceURL: workspaceURL)
+            guard self.generation == generation else { return }
+            self.dependencyTasks[taskKey] = nil
+            self.update(entryID) {
+                switch result {
+                case .success(let tree): $0.dependencies[key] = .loaded(tree)
+                case .failure(let error) where error is CancellationError: $0.dependencies[key] = nil
+                case .failure(let error): $0.dependencies[key] = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func performDependencyLoad(
+        _ entry: BuildSystemEntry,
+        project: BuildModel.Project?,
+        workspaceURL: URL
+    ) async -> Result<BuildDependencyTree, Error> {
+        do {
+            let context = try planContext(entry, workspaceURL: workspaceURL)
+            let outputFile = try context.workspaceStateDirectory.map { try stateLocator.allocateOutputFile(in: $0) }
+            defer { if let outputFile { stateLocator.removeOutputFile(outputFile) } }
+            let plan = try planner.dependencyPlan(
+                entry.target,
+                context: context,
+                project: project.map(BuildSelection.init(project:)),
+                outputFile: outputFile
+            )
+            guard case .process(let process) = plan else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            let name = project?.displayName ?? project?.name ?? entry.instance.displayName
+            let output = try await runCapturedCommand(
+                process,
+                entry: entry,
+                workspaceURL: workspaceURL,
+                outputFile: outputFile,
+                title: String(localized: "Loading dependencies of \(name)"),
+                timeout: Self.modelTimeout
+            )
+            let planner = planner
+            let target = entry.target
+            let root = entry.instance.root
+            return .success(try await Task.detached(priority: .userInitiated) {
+                try planner.decodeDependencies(
+                    target, workspaceURL: workspaceURL, root: root, project: project?.path, output: output
+                )
+            }.value)
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    // MARK: Options
+
+    /// Stores one option value, or removes it with nil, for every instance
+    /// of the build system in this workspace.
+    package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
+        guard let workspaceURL, let entry = entry(entryID) else { return }
+        let buildSystemID = entry.instance.buildSystemID
+        var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        stored[optionID] = value
+        optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        refreshOptions(buildSystemID: buildSystemID)
+        // The options take part in the sync fingerprint, so a changed value
+        // marks a loaded command model stale.
+        detect()
+    }
+
+    private func refreshOptions(buildSystemID: String) {
+        guard let workspaceURL else { return }
+        var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        for index in entries.indices where entries[index].instance.buildSystemID == buildSystemID {
+            guard let resolution = try? planner.resolveOptions(
+                entries[index].target,
+                options: stored,
+                modelValues: entries[index].model?.optionValues
+            ) else { continue }
+            entries[index].options = resolution.options
+            // Core dropped values it no longer accepts; store what is in
+            // effect so the user's other choices survive.
+            if !resolution.dropped.isEmpty {
+                for id in resolution.dropped {
+                    if let option = resolution.options.first(where: { $0.id == id }), option.source == "user" {
+                        stored[id] = option.value
+                    } else {
+                        stored.removeValue(forKey: id)
+                    }
+                }
+                optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            }
+        }
+    }
+
+    // MARK: Commands
+
+    private func planContext(_ entry: BuildSystemEntry, workspaceURL: URL) throws -> BuildPlanContext {
+        BuildPlanContext(
+            root: entry.instance.root,
+            options: optionsStore.options(workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID),
+            pluginDirectory: entry.source.packageURL,
+            workspaceStateDirectory: try stateLocator.workspaceStateDirectory(
+                pluginID: entry.instance.pluginID,
+                buildSystemID: entry.instance.buildSystemID,
+                workspaceURL: workspaceURL
+            )
+        )
+    }
+
+    private func commandRequest(
+        _ plan: BuildProcessPlan,
+        entry: BuildSystemEntry,
+        workspaceURL: URL,
+        capturesStandardOutput: Bool,
+        timeout: Duration?
+    ) async throws -> BuildCommandRequest {
+        let planner = planner
+        let target = entry.target
+        let invocation = try planner.invocationPlan(target, root: entry.instance.root)
+        let tool = try await tools.resolve(
+            invocation,
+            displayName: entry.instance.displayName,
+            workspaceURL: workspaceURL
+        ) { runtime, output in
+            try planner.checkToolVersion(target, runtime: runtime, output: output)
+        }
+        try Task.checkCancellation()
+        return BuildCommandRequest(
+            executableURL: tool.executableURL,
+            arguments: plan.arguments,
+            workingDirectory: workspaceURL.appendingPathComponent(plan.workingDirectory).standardizedFileURL,
+            environment: tool.environment.merging(plan.environment) { _, contribution in contribution },
+            capturesStandardOutput: capturesStandardOutput,
+            timeout: timeout
+        )
+    }
+
+    private struct CollectedOutput {
+        let text: String
+        /// Nil when the command timed out.
+        let exitCode: Int32?
+    }
+
+    /// Runs a task or test command; its output is the run's output.
+    private func runStreamedCommand(
+        _ plan: BuildProcessPlan,
+        entry: BuildSystemEntry,
+        workspaceURL: URL
+    ) async throws -> CollectedOutput {
+        let request = try await commandRequest(
+            plan, entry: entry, workspaceURL: workspaceURL, capturesStandardOutput: false, timeout: nil
+        )
+        appendOutput(Self.commandLine(request))
+        let collector = OutputCollector(limit: Self.decodedOutputLimit)
+        let result = try await run(request) { [weak self] chunk in
+            collector.append(chunk)
+            self?.appendOutput(chunk)
+        }
+        let exitCode: Int32? = switch result.termination {
+        case .exited(let code): code
+        case .timedOut: nil
+        }
+        return CollectedOutput(text: collector.text, exitCode: exitCode)
+    }
+
+    /// Runs a model or dependency command and returns what Core decodes.
+    private func runCapturedCommand(
+        _ plan: BuildProcessPlan,
+        entry: BuildSystemEntry,
+        workspaceURL: URL,
+        outputFile: URL?,
+        title: String,
+        timeout: Duration
+    ) async throws -> BuildCommandOutput {
+        let capturesStandardOutput = plan.output != .outputFile
+        let request = try await commandRequest(
+            plan, entry: entry, workspaceURL: workspaceURL,
+            capturesStandardOutput: capturesStandardOutput, timeout: timeout
+        )
+        appendOutput("\n▶ " + title + "\n" + Self.commandLine(request))
+        let tail = OutputCollector(limit: 64 * 1024, keepsTail: true)
+        let result = try await run(request) { [weak self] chunk in
+            tail.append(chunk)
+            self?.appendOutput(chunk)
+        }
+        switch result.termination {
+        case .timedOut:
+            throw BuildSystemServiceError(String(localized: "\(title) timed out."))
+        case .exited(let code) where code != 0:
+            let detail = tail.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let summary = String(localized: "The build tool exited with code \(Int(code)).")
+            throw BuildSystemServiceError(detail.isEmpty ? summary : summary + "\n" + Self.lastLines(detail))
+        case .exited:
+            break
+        }
+        if capturesStandardOutput {
+            guard let text = result.standardOutput else {
+                throw BuildSystemServiceError(String(localized: "The build tool output is too large or not UTF-8."))
+            }
+            return .stdout(text)
+        }
+        guard let outputFile else {
+            throw BuildSystemServiceError(String(localized: "The build tool output is too large or not UTF-8."))
+        }
+        return .outputFile(outputFile)
+    }
+
+    /// Runs one command, delivering its output on the main actor in order.
+    private func run(
+        _ request: BuildCommandRequest,
+        sink: @escaping @MainActor (String) -> Void
+    ) async throws -> BuildCommandResult {
+        let (stream, continuation) = AsyncStream.makeStream(of: String.self)
+        let consumer = Task { @MainActor in
+            for await chunk in stream { sink(chunk) }
+        }
+        do {
+            let result = try await runner.run(request) { continuation.yield($0) }
+            continuation.finish()
+            await consumer.value
+            return result
+        } catch {
+            continuation.finish()
+            await consumer.value
+            throw error
+        }
+    }
+
+    private func appendOutput(_ chunk: String) {
+        guard !chunk.isEmpty else { return }
+        output += chunk
+        outputByteCount += chunk.utf8.count
+        if outputByteCount > Self.visibleOutputLimit {
+            output = String(output.suffix(Self.visibleOutputLimit / 2))
+            outputByteCount = output.utf8.count
+        }
+    }
+
+    private func refreshActivity() {
+        let active = isRunning || isLoadingModel || isLoadingDependencies
+        if hasActiveWork != active { hasActiveWork = active }
+    }
+
+    private func update(_ entryID: String, _ change: (inout BuildSystemEntry) -> Void) {
+        guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
+        change(&entries[index])
+    }
+
+    private static let dependencyTaskSeparator = "\u{1F}"
+
+    private static func entryID(ofDependencyTask key: String) -> String {
+        key.components(separatedBy: dependencyTaskSeparator).first ?? key
+    }
+
+    private static func commandLine(_ request: BuildCommandRequest) -> String {
+        "$ " + ([request.executableURL.path] + request.arguments).map(Self.shellQuoted).joined(separator: " ") + "\n"
+    }
+
+    private static func shellQuoted(_ argument: String) -> String {
+        let plain = argument.allSatisfy { $0.isLetter || $0.isNumber || "-_./:=@%+,".contains($0) }
+        return plain && !argument.isEmpty ? argument : "'" + argument.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func lastLines(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false).suffix(20).joined(separator: "\n")
+    }
+
+    private static var providerUnsupportedMessage: String {
+        String(localized: "This build system answers through a provider process, which Lithe for macOS does not run yet.")
+    }
+
+    // MARK: Detection
+
+    private struct Detected: Sendable {
+        let entries: [BuildSystemEntry]
+        let issues: [String]
+    }
+
+    nonisolated private static func detectEntries(
+        planner: any BuildSystemPlanning,
+        workspaceURL: URL,
+        sources: [BuildSystemPluginSource],
+        storedOptions: [String: [String: ToolingJSONValue]],
+        previous: [String: BuildSystemEntry]
+    ) throws -> Detected {
+        let detection = try planner.detect(workspaceURL: workspaceURL, sources: sources, options: storedOptions)
+        var issues = detection.rejected.map { rejected in
+            let pluginID = sources.indices.contains(rejected.index) ? sources[rejected.index].pluginID : "?"
+            return "\(pluginID): \(rejected.error.message)"
+        }
+        issues += detection.shadowed.map {
+            String(localized: "\($0.buildSystemID) of \($0.pluginID) is handled by \($0.by).")
+        }
+        let entries = detection.instances.compactMap { instance -> BuildSystemEntry? in
+            guard let source = sources.first(where: { $0.pluginID == instance.pluginID }),
+                  let declaration = source.buildSystems.first(where: { $0.id == instance.buildSystemID })
+            else { return nil }
+            let options = storedOptions[instance.buildSystemID] ?? [:]
+            let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID)
+            let earlier = previous[instance.id]
+            // A command model only changes when the user loads it again.
+            let kept = instance.model == nil && instance.modelSource == .command ? earlier?.model : nil
+            let model = instance.model ?? kept
+            let sync = try? planner.syncFingerprint(
+                target, workspaceURL: workspaceURL, root: instance.root,
+                projects: model?.projects.map(\.path) ?? [], options: options
+            )
+            let stale = kept != nil && (earlier?.isReloadRequired == true || earlier?.sync?.fingerprint != sync?.fingerprint)
+            let modelState: BuildModelState = if model != nil {
+                .loaded
+            } else if let error = instance.modelError {
+                .failed(error.message)
+            } else {
+                .notLoaded
+            }
+            return BuildSystemEntry(
+                instance: instance,
+                declaration: declaration,
+                source: source,
+                model: model,
+                modelState: modelState,
+                options: (try? planner.resolveOptions(target, options: options, modelValues: model?.optionValues).options)
+                    ?? [],
+                sync: sync,
+                isReloadRequired: stale,
+                dependencies: kept != nil ? earlier?.dependencies.filter { $0.value != .loading } ?? [:] : [:]
+            )
+        }
+        return Detected(entries: entries, issues: issues)
+    }
+}
+
+package struct BuildSystemServiceError: LocalizedError, Equatable {
+    package let message: String
+    package init(_ message: String) { self.message = message }
+    package var errorDescription: String? { message }
+}
+
+/// Output kept for Core's decoders, bounded as Core bounds it.
+@MainActor
+private final class OutputCollector {
+    private let limit: Int
+    private let keepsTail: Bool
+    private(set) var text = ""
+    private var byteCount = 0
+
+    init(limit: Int, keepsTail: Bool = false) {
+        self.limit = limit
+        self.keepsTail = keepsTail
+    }
+
+    func append(_ chunk: String) {
+        let size = chunk.utf8.count
+        if keepsTail {
+            text += chunk
+            byteCount += size
+            if byteCount > limit {
+                text = String(text.suffix(limit / 2))
+                byteCount = text.utf8.count
+            }
+        } else if byteCount + size <= limit {
+            text += chunk
+            byteCount += size
+        }
+    }
+}

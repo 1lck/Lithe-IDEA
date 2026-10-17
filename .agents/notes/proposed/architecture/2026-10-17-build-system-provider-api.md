@@ -18,7 +18,7 @@ Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运�
 | --- | --- | --- |
 | `rust/lithe-core/src/execution/detectors/` | npm、Cargo、Go、Gradle、Python、Make、just、Compose、Procfile 等探测器，在一次共享目录遍历中产出运行配置 | 生态知识写死在 Core 里。Gradle 只能匹配一张固定的插件 ID 表（Spring Boot、Quarkus、Micronaut、`application`），表外插件注入的任务完全看不到，这就是 Issue #10 |
 | `rust/lithe-core/src/project/maven*.rs` + `MavenService` / `MavenView`（macOS）+ `windows/tauri/src/features/maven/`（Windows） | Reactor（Maven 的多模块聚合工程）扫描、Profile、生命周期、依赖树、诊断解析、Surefire 测试报告、工具窗口 | 质量很高，但类型全是 `Maven*`，其他构建工具无法复用；工具窗口的“生命周期 / 依赖 / Profile / 执行目标”结构也没有通用版本 |
-| `shared/contracts/plugins/v1/` | API 1/2 只有 `languages`、`languageServers`、`executionProviders`（按语言运行/测试单个文件）；API 3 已加入 `buildSystems` | 契约和 Core 已就绪，但两端宿主都还没有使用 `build.*` 命令。插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，目前没有宿主声明 |
+| `shared/contracts/plugins/v1/` | API 1/2 只有 `languages`、`languageServers`、`executionProviders`（按语言运行/测试单个文件）；API 3 已加入 `buildSystems` | 契约和 Core 已就绪。macOS 宿主已经通过通用 Build 工具窗口使用 `build.*` 命令，并声明 `buildSystems: [1]`；Windows 宿主还没有接入，也不声明能力，所以只有 macOS 列出 API 3 的版本 |
 
 [公共扩展契约提案](2026-10-13-public-extension-contract-and-provider-api.md) 已把 BuildSystem/Task 列为领域扩展点，但没有展开字段和边界。
 
@@ -114,7 +114,7 @@ Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运�
 另外两项不属于工具窗口，但要一起完成：
 
 - **运行配置接入构建模型**：`runConfig.generate` 增加“构建模型”这个输入来源，生成、覆盖和 ID 仍走原流程，不另起一套运行配置。Cargo fixture 已经证明运行入口与现有探测器逐字一致，可以作为第一个迁移对象。
-- **插件市场放开 API 3**：宿主具备 Build 工具窗口后，让宿主接受级别 3，并在宿主自己的能力表里加上 `buildSystems: [1]`，通过 `hostCapabilities` 发给 Core。不需要再改 `plugins/marketplace.rs`：只用语言服务器的级别 3 插件，在宿主声明对应能力后就能先上架，不必等 Build 工具窗口。规则见[声明式插件按能力分版本](../../implemented/architecture/2026-10-17-plugin-capability-versions.md)。
+- **插件市场放开 API 3**：宿主具备 Build 工具窗口后，让宿主接受级别 3，并在宿主自己的能力表里加上 `buildSystems: [1]`，通过 `hostCapabilities` 发给 Core。macOS 已完成这一步，Windows 待做。不需要再改 `plugins/marketplace.rs`：只用语言服务器的级别 3 插件，在宿主声明对应能力后就能先上架，不必等 Build 工具窗口。规则见[声明式插件按能力分版本](../../implemented/architecture/2026-10-17-plugin-capability-versions.md)。
 
 ### 3. 执行仓库代码的信任边界
 

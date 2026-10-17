@@ -10,7 +10,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 声明和规范格式表达不了的工具（Gradle Tooling API 等），由插件自带的 Provider 进程回答。Provider 就是语言服务器那种进程：共用启动字段、校验和启动计划，只多回答 `lithe/build/model`、`lithe/build/dependencies`，回复仍由 Core 解码（第 9 节）。
 
-目前落地的是 Core 和共享契约。两端宿主还没有通用 Build 工具窗口，也还不会向 Provider 发请求。API 3 的清单按能力分版本，构建系统是其中的 `buildSystems` 能力；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，目前没有宿主声明，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
+目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 有了通用 Build 工具窗口，并向 Core 声明 `buildSystems: [1]`；Windows 宿主还没有接入，两端都还不会向 Provider 发请求。API 3 的清单按能力分版本，构建系统是其中的 `buildSystems` 能力；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
 
 ## 问题
 
@@ -149,10 +149,37 @@ Lithe 的插件逻辑跑在插件自己的进程里。声明和规范格式解�
 
 还没有实现：`lithe/build/execute`（Provider 自己执行任务并流式汇报进度和测试事件）、宿主一侧的 `capabilities.experimental.litheBuild` 协商（规则已写进契约 README），以及宿主 LSP 客户端发送 `lithe/build/*`，见提案第 4 节。测试结果目前仍来自声明的报告解码器或 `hostIntegration`，没有 `provider` 来源。
 
-### 10. 还没有开放给用户的部分
+### 10. macOS 宿主适配层
 
-- 插件市场的 `availability` 只在宿主的 `hostCapabilities` 含 `buildSystems` 时才列出构建插件的版本。目前没有宿主发送 `hostCapabilities`，等宿主有了 Build 工具窗口再声明。
-- 两端宿主都还不会启动 Provider、发送 `lithe/build/*` 请求，`provider` 来源目前只由 Core 测试和标准答案验证。
+macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 `buildSystems: [1]`，插件市场因此在 macOS 列出构建插件。启用的插件声明了构建系统时，右侧出现 Build 工具窗口（实例 → 工程 → 任务、测试、目标、依赖，加上选项），任务和测试的输出、诊断和测试结果显示在 Build Output 里。
+
+代码按“谁负责什么”分四层，任何一层都不认识具体的构建系统：
+
+| 层 | 位置 | 负责 |
+| --- | --- | --- |
+| Core 调用 | `macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift` | 把 13 个 `build.*` 命令包成 `BuildSystemPlanning`；契约类型在 `LitheCoreContracts/Execution/BuildSystemContracts.swift` |
+| 平台适配器（Platform Adapter，封装 macOS 系统调用的类） | `macos/Sources/Lithe/Platform/MacOS/Build/` | `MacBuildToolResolver` 按 Core 的候选顺序找可执行文件、探测版本、给宿主管理的运行时设置环境；`MacBuildCommandRunner` 在独立进程组里启动命令，登记进程账本，负责取消、期限和输出上限；`MacBuildOptionsStore` 保存选项；`MacBuildSystemStateLocator` 在插件状态目录下分配 `${workspaceStateDir}` 和 `${outputFile}` |
+| 编排 | `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift` | 识别、加载模型、任务、测试、依赖、选项和过期提示，只负责按顺序调用上面两层 |
+| 界面 | `macos/Sources/Lithe/Views/Run/BuildSystemsView.swift`、`BuildOutputView.swift` | 工具窗口和输出区 |
+
+几条宿主规则和它们的原因：
+
+- **什么时候启动进程。** 打开工作区时只跑 `build.detect`，`static` 和 `hostIntegration` 来源的模型随识别一起读出，不启动进程。macOS 目前没有工作区信任机制，所以 `command` 来源的模型和工程里的 Wrapper 只在用户点击“加载模型”或运行任务后启动。项目内的可执行文件（`projectFile` 候选）不做版本探测，因为探测本身就是在执行仓库代码。
+- **什么时候重新识别。** 只有 `sync.watch` 里的文件变化才会重新识别，连续保存在 500 毫秒内合并成一次。已加载的 `command` 模型不会被自动重跑：指纹变了只标记“需要重新加载”，等用户决定。
+- **输出怎么交给 Core。** 模型和依赖命令的 stdout 单独捕获后交给 Core 解码（计划写 `outputFile` 时读文件），stderr 照常进入 Build Output，所以工具打印的警告不会破坏要解码的文档。任务和测试的完整输出交给诊断解码。
+- **选项存在哪里。** 按“工作区 + 构建系统 ID”保存，与 `build.detect` 的 `options` 形状一致。Core 在 `dropped` 里报出的选项改存它的生效值，用户的其他选择因此保留。按实例根分开保存，等有真实插件需要时再加。
+- **可写文件放在哪里。** 输出文件和状态目录都在插件状态目录下，读完就删；不写 app bundle、不写插件包，符合运行时只读规则。
+- **插件变化。** 启用、停用或卸载插件后，`pluginsChanged()` 先停止该插件已经启动的命令，再重新识别，它的实例随即从工具窗口消失。可用插件列表在启动时确定，新安装的插件和其他声明式插件一样，重启后才出现。
+
+正确做法：Gradle 插件想在工程节点上多一个菜单项，就在清单里声明一个作用范围包含 `project` 的任务。宿主按作用范围生成菜单，不需要改 Swift 代码。
+
+不要这样做：在 `BuildSystemService` 或视图里写 `if entry.instance.buildSystemID == "maven"`；在宿主里给 argv 补参数、自己解析工具输出；从 `Bundle.main.resourceURL` 推导输出文件的位置。
+
+### 11. 还没有开放给用户的部分
+
+- Windows 宿主还不发送 `hostCapabilities`，不会列出级别 3 的版本，也没有 Build 工具窗口。
+- 两端宿主都还不会启动 Provider、发送 `lithe/build/*` 请求，`provider` 来源目前只由 Core 测试和标准答案验证。macOS 已经声明 `buildSystems: [1]`，而 `requires` 不区分构建系统是否使用 Provider，所以 Provider 形态的插件在 macOS 能装上，但它的模型和依赖只显示“macOS 还不支持”。API 3 发布前，要么在 macOS 接入 Provider，要么让 `requires` 能表达这一差别。
+- 构建模型里的运行入口（`run`）还没有接入 macOS 的运行配置。
 - `runConfig.generate` 还没有接入构建模型。Cargo fixture 只证明了它产出的运行入口与内置探测器逐字一致，包括 `cargo.binary:<路径>` 这类 ID，迁移时用户的覆盖配置不会脱钩。
 
 ### 正确做法
@@ -212,7 +239,7 @@ Lithe 的插件逻辑跑在插件自己的进程里。声明和规范格式解�
 - Maven 仍保留一块 Core 专用的集成代码，要等进程型 Provider 落地、两端宿主迁移完成后才能删除。
 - 标准答案固定了配置指纹。改动选项的序列化方式会让所有涉及指纹的标准答案一起变化，需要逐条确认。
 - `ServerProcess` 由语言服务器和 Provider 共用：改动其中任何字段或校验，两者会一起变化，需要同时检查两边的 fixture。
-- 宿主还没有接入，这些能力目前对用户不可见。
+- Windows 宿主还没有接入；macOS 上 Provider 和运行入口还不可用。
 
 ## 验证
 
@@ -221,6 +248,7 @@ Lithe 的插件逻辑跑在插件自己的进程里。声明和规范格式解�
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib declarative_plugins`：`invalid-manifests.json` 里的非法清单，包括社区插件声明 `hostIntegration`、未声明权限、路径越界、未保护的模板变量和选项重复放置，以及 Provider 的十种错误写法（没有来源使用、混写、缺少标志、缺少权限、入口越界、不支持的运行时、未声明的设置等）；`command-plans.json` 里按 `buildSystemID` 选中的启动计划。
 - `./scripts/verify-shared-contracts.sh`：schema 与 fixture 一致；`build-plans.json` 的用例名唯一、操作合法、拒绝码都有文档、不含机器路径；`command-plans.json` 的每个用例只给出 `languageID`、`buildSystemID` 之一。
 - `./scripts/verify-rust-core-comments.sh`：`build/` 模块的注释规范。
+- `./scripts/test-macos.sh --filter 'RustBuildSystemOperationsTests|BuildSystemServiceTests'`：Swift 一侧对真实 Rust Core 调用 `build.*`（cargo、go、maven fixture 的识别、选项 `dropped`、调用计划、版本探测、任务和测试 argv、命令模型解码、诊断与同步指纹）；`BuildSystemService` 用假的 Core、运行器和存储验证识别问题列表、stdout 捕获与输出文件清理、失败退出码、输出顺序与诊断、停止、选项改存生效值、指纹变化后的重新加载提示，以及停用插件后停止命令并移除实例。
 - `build_systems` 回归覆盖默认参数变化后的安装重新确认、动态 feature 删除后的检测与运行指纹一致，以及静态模型、Maven POM、JUnit 报告和同步文件的符号链接边界；工作区内部链接仍可读取。
 
 ## 适用范围
@@ -228,6 +256,12 @@ Lithe 的插件逻辑跑在插件自己的进程里。声明和规范格式解�
 - `rust/lithe-core/src/build/`
 - `rust/lithe-core/src/plugins/declarative.rs`
 - `rust/lithe-core/src/plugins/marketplace.rs`
+- `macos/Sources/LitheCoreContracts/Execution/BuildSystemContracts.swift`
+- `macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Build/`
+- `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
+- `macos/Sources/Lithe/Views/Run/BuildSystemsView.swift`
+- `macos/Sources/Lithe/Views/Run/BuildOutputView.swift`
 - `rust/lithe-core/src/runtime/dispatcher.rs`
 - `rust/lithe-core/src/tests/build_systems.rs`
 - `shared/contracts/plugins/v1/`

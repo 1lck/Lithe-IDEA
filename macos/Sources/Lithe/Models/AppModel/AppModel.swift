@@ -894,7 +894,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         executionModuleCoordinator.resetFeatures(
             maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
-            tests: languageTestServiceIfActive
+            tests: languageTestServiceIfActive,
+            buildSystems: buildSystemsFeatureIfActive
         )
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
@@ -959,7 +960,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         executionModuleCoordinator.resetFeatures(
             maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
-            tests: languageTestServiceIfActive
+            tests: languageTestServiceIfActive,
+            buildSystems: buildSystemsFeatureIfActive
         )
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)

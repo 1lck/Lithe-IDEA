@@ -54,7 +54,7 @@ Core 能校验一个能力，不代表宿主能运行它。宿主在 `plugins.de
 
 能力表放在宿主代码里，写在能力实现的旁边，Core 不再按平台去猜。原来按 `darwin-` 前缀和级别写死的判断，就是 Core 替宿主猜、又容易和宿主实现漂移的例子。
 
-目前没有宿主发送 `hostCapabilities`：macOS 宿主只接受级别 1、2（`supportedDeclarativeAPIVersions = [1, 2]`），Windows 还没有声明式插件宿主。所以级别 3 的插件仍然不会上架，和之前的行为一致。宿主接入某个能力时，要做两件事：让宿主接受级别 3，并在宿主自己的能力表里加上这个能力的版本。
+macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`），能力表是 `PluginManifest.hostCapabilities`，在校验、索引和安装审查时都发给 Core；其中的 `buildSystems: [1]` 随 macOS 的 Build 工具窗口一起加入。Windows 还没有声明式插件宿主，不发送能力表，所以 Windows 不列出级别 3 的插件。宿主接入某个能力时，要做两件事：让宿主接受级别 3，并在宿主自己的能力表里加上这个能力的版本，而且只在宿主真正能运行它时才加。
 
 ### 3. 市场索引带上能力版本
 

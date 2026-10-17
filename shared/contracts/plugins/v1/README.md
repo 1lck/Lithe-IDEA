@@ -353,9 +353,11 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
   therefore offered on a host that cannot run them.
 - `hostCapabilities` has no effect on levels 1 and 2.
 
-No host sends `hostCapabilities` yet: the macOS host runs levels 1 and 2, and
-Windows has no declarative plugin host, so no level 3 version is offered
-today.
+The macOS host runs levels 1 to 3 and sends its capability table, including
+`buildSystems: [1]`, with all three commands. It does not start build
+providers yet: a `provider` model or dependency source reports that it is
+unsupported there. Windows has no declarative plugin host and sends no
+`hostCapabilities`, so it offers no level 3 version.
 
 Rules for publishing across levels and capability versions:
 
@@ -553,7 +555,7 @@ declaration are relative, use `/`, and stay inside their base directory
 | --- | --- |
 | `detection` | `markers` are file names; a directory holding one is a candidate root. `nesting: "outermost"` folds deeper candidates into the outer instance (Gradle builds, Maven reactors); `"separate"` (default) keeps each (Cargo packages). `priority` (0–100, default 50) decides between plugins declaring the same ID; ties go to the smaller plugin ID. |
 | `invocation` | `executables` in preference order: `projectFile` (a wrapper inside the root, with `requires` files; always runs project code), `environment` (a path below a variable listed in `environmentInputs`), `command` (a bare name found on `PATH`), `runtime` (a declared runtime dependency itself). `platforms` limits a candidate. `globalArguments` precede every command. `version` probes the executable with literal `arguments` and a `pattern` whose first group is the version; `minimumVersion` needs a probe. |
-| `runtimeDependencies` | `java`, `node`, and `go` are host-managed: only `id` and `minimumVersion`, discovered with the user's runtime settings. Any other ID describes its own `executables` and `version` probe, so the runtime list is open. |
+| `runtimeDependencies` | `java`, `node`, and `go` are host-managed: only `id` and `minimumVersion`, discovered with the user's runtime settings; `build.invocationPlan` returns the probe arguments Core reads their version with, so hosts keep no per-runtime probe. Any other ID describes its own `executables` and `version` probe, so the runtime list is open. |
 | `options` | Build dimensions the user chooses: `boolean`, `singleSelect`, `multiSelect`, `text`, `file`, `directory`. Each contributes `arguments` and `environment` (with `${value}`) when it has a value. Choices are declared, come from the model (`choicesFromModel`), or are free (`allowCustom`). |
 | `provider` | The process that answers model and dependency requests when no command prints them; see [Build providers](#build-providers). |
 | `model` | `static` (a `json`, `toml`, or `yaml` file read during detection, no process), `command` (a command whose output Core decodes; it states `executesProjectCode` and `mayUseNetwork`), `provider`, or `hostIntegration`. |
