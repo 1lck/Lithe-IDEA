@@ -644,12 +644,12 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
         CoreCommand::ProcessLifecycleResolve => {
-            match serde_json::from_value::<crate::process_lifecycle::LifecycleRequest>(
+            match serde_json::from_value::<crate::process::lifecycle::LifecycleRequest>(
                 parsed.payload,
             ) {
                 Ok(request) => CoreResponse::success(
                     id,
-                    serde_json::to_value(crate::process_lifecycle::resolve(&request))
+                    serde_json::to_value(crate::process::lifecycle::resolve(&request))
                         .expect("process lifecycle plan should encode"),
                 ),
                 Err(error) => CoreResponse::failure(
@@ -663,12 +663,12 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
         CoreCommand::ProcessLifecycleInventory => {
-            match serde_json::from_value::<crate::process_inventory::InventoryRequest>(
+            match serde_json::from_value::<crate::process::inventory::InventoryRequest>(
                 parsed.payload,
             ) {
                 Ok(request) => CoreResponse::success(
                     id,
-                    serde_json::to_value(crate::process_inventory::classify(&request))
+                    serde_json::to_value(crate::process::inventory::classify(&request))
                         .expect("process inventory should encode"),
                 ),
                 Err(error) => CoreResponse::failure(
@@ -682,11 +682,11 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
         CoreCommand::ProcessLifecycleSettle => {
-            match serde_json::from_value::<crate::process_lifecycle::SettleRequest>(parsed.payload)
+            match serde_json::from_value::<crate::process::lifecycle::SettleRequest>(parsed.payload)
             {
                 Ok(request) => CoreResponse::success(
                     id,
-                    serde_json::to_value(crate::process_lifecycle::settle(&request))
+                    serde_json::to_value(crate::process::lifecycle::settle(&request))
                         .expect("process lifecycle settlement should encode"),
                 ),
                 Err(error) => CoreResponse::failure(

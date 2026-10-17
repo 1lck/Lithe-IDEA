@@ -11,7 +11,7 @@
       "macos/Sources/Lithe/Platform/MacOS/Process/MacProcessLifecycle.swift",
       "macos/Sources/Lithe/Platform/MacOS/Process/MacProcessInventoryReader.swift",
       "macos/Sources/Lithe/LitheApp.swift",
-      "rust/lithe-core/src/process_inventory.rs",
+      "rust/lithe-core/src/process/inventory.rs",
       "shared/fixtures/process-lifecycle/inventory-v1.json",
       "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
       "macos/Tests/LitheTests/MacProcessRunnerTests.swift",

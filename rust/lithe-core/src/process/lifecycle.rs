@@ -585,7 +585,7 @@ mod tests {
     #[test]
     fn shared_fixture_decisions_match() {
         let fixture: Fixture = serde_json::from_str(include_str!(
-            "../../../shared/fixtures/process-lifecycle/exit-plan-v1.json"
+            "../../../../shared/fixtures/process-lifecycle/exit-plan-v1.json"
         ))
         .expect("fixture should parse");
         assert_eq!(fixture.schema_version, 1);
@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn shared_fixture_settlements_match() {
         let fixture: Fixture = serde_json::from_str(include_str!(
-            "../../../shared/fixtures/process-lifecycle/settle-v1.json"
+            "../../../../shared/fixtures/process-lifecycle/settle-v1.json"
         ))
         .expect("fixture should parse");
         assert_eq!(fixture.schema_version, 1);
