@@ -107,6 +107,80 @@ fn push_expectation(preview: &Value) -> Value {
     })
 }
 
+/// The same payload without `targetKind`, shaped like a caller that predates it.
+fn legacy_push_expectation(preview: &Value) -> Value {
+    json!({
+        "localBranch": preview["data"]["localBranch"],
+        "localHead": preview["data"]["localHead"],
+        "remote": preview["data"]["remote"],
+        "remoteBranch": preview["data"]["remoteBranch"],
+        "remoteTrackingOid": preview["data"]["remoteTrackingOid"],
+        "tags": preview["data"]["tags"],
+    })
+}
+
+/// Issue #1272: `targetKind` is an additive review field. A caller that omits it
+/// must keep pushing exactly as before — treating the omission as a mismatch would
+/// turn every reviewed push from an un-upgraded client into a stale-preview error.
+#[test]
+fn reviewed_push_without_target_kind_keeps_working() {
+    let fixture = GitFixture::new();
+    let (repository, _) = initialize_repository(&fixture);
+    fs::write(repository.join("tracked.txt"), "initial\nsecond\n")
+        .expect("fixture should be writable");
+    require_git(&repository, &["commit", "-q", "-am", "second"]);
+
+    let preview = core("git.pushPreview", &repository, json!({}));
+    assert_eq!(preview["ok"], true, "response: {preview}");
+
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "push",
+            "expectedPush": legacy_push_expectation(&preview)
+        }),
+    );
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert!(
+        pushed["data"]["operationError"].is_null(),
+        "omitting targetKind must not mark the preview stale: {pushed}"
+    );
+    assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
+}
+
+/// Issue #1272: an explicit but wrong `targetKind` is still a real mismatch, so the
+/// compatibility allowance above must not weaken the review check.
+#[test]
+fn reviewed_push_with_a_wrong_target_kind_is_rejected() {
+    let fixture = GitFixture::new();
+    let (repository, _) = initialize_repository(&fixture);
+    fs::write(repository.join("tracked.txt"), "initial\nsecond\n")
+        .expect("fixture should be writable");
+    require_git(&repository, &["commit", "-q", "-am", "second"]);
+
+    let preview = core("git.pushPreview", &repository, json!({}));
+    assert_eq!(preview["data"]["targetKind"], "tracking");
+    let mut expectation = push_expectation(&preview);
+    expectation["targetKind"] = json!("divergent");
+
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({ "operation": "push", "expectedPush": expectation }),
+    );
+    assert_eq!(
+        pushed["data"]["operationError"]["code"], "invalid_request",
+        "a wrong targetKind must be rejected: {pushed}"
+    );
+    assert!(
+        pushed["data"]["operationError"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("stale")),
+        "the rejection must report a stale preview: {pushed}"
+    );
+}
+
 #[test]
 fn push_preview_and_write_share_destination_and_safe_options() {
     let fixture = GitFixture::new();
@@ -486,7 +560,10 @@ fn checkout_of_remote_branch_still_creates_tracking_branch() {
         }),
     );
     assert_eq!(checked_out["ok"], true, "response: {checked_out}");
-    assert_eq!(checked_out["data"]["exitCode"], 0, "response: {checked_out}");
+    assert_eq!(
+        checked_out["data"]["exitCode"], 0,
+        "response: {checked_out}"
+    );
     assert_eq!(
         String::from_utf8_lossy(
             &git(&repository, &["rev-parse", "--abbrev-ref", "@{upstream}"]).stdout
@@ -537,7 +614,10 @@ fn branch_created_from_local_start_has_no_upstream() {
         }),
     );
     assert_eq!(from_commit["ok"], true, "response: {from_commit}");
-    assert_eq!(from_commit["data"]["exitCode"], 0, "response: {from_commit}");
+    assert_eq!(
+        from_commit["data"]["exitCode"], 0,
+        "response: {from_commit}"
+    );
     assert_no_upstream(&repository, "feature/from-commit");
 }
 
@@ -572,7 +652,11 @@ fn preview_of_untracked_branch_still_lists_its_commits() {
 fn assert_no_upstream(repository: &Path, branch: &str) {
     let lookup = git(
         repository,
-        &["rev-parse", "--abbrev-ref", &format!("{branch}@{{upstream}}")],
+        &[
+            "rev-parse",
+            "--abbrev-ref",
+            &format!("{branch}@{{upstream}}"),
+        ],
     );
     assert!(
         !lookup.status.success(),
@@ -631,9 +715,12 @@ fn branch_created_from_remote_main_does_not_track_main() {
     assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
 
     assert!(
-        git(&remote, &["show-ref", "--verify", "refs/heads/feature/topic"])
-            .status
-            .success(),
+        git(
+            &remote,
+            &["show-ref", "--verify", "refs/heads/feature/topic"]
+        )
+        .status
+        .success(),
         "the feature branch should be published to its own remote branch"
     );
     let main_oid_after =
@@ -660,11 +747,22 @@ fn divergent_upstream_requires_an_explicit_choice() {
     // Reproduce the state Git itself leaves behind with autoSetupMerge enabled.
     require_git(
         &repository,
-        &["switch", "-q", "-c", "feature/topic", "refs/remotes/origin/main"],
+        &[
+            "switch",
+            "-q",
+            "-c",
+            "feature/topic",
+            "refs/remotes/origin/main",
+        ],
     );
     require_git(
         &repository,
-        &["branch", "-q", "--set-upstream-to=origin/main", "feature/topic"],
+        &[
+            "branch",
+            "-q",
+            "--set-upstream-to=origin/main",
+            "feature/topic",
+        ],
     );
     fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
     require_git(&repository, &["add", "topic.txt"]);
@@ -683,14 +781,21 @@ fn divergent_upstream_requires_an_explicit_choice() {
         "an unconfirmed divergent push must be refused: {refused}"
     );
     assert!(
-        !git(&remote, &["show-ref", "--verify", "refs/heads/feature/topic"])
-            .status
-            .success(),
+        !git(
+            &remote,
+            &["show-ref", "--verify", "refs/heads/feature/topic"]
+        )
+        .status
+        .success(),
         "a refused push must not publish the branch"
     );
     assert_eq!(
         String::from_utf8_lossy(
-            &git(&repository, &["config", "--get", "branch.feature/topic.merge"]).stdout
+            &git(
+                &repository,
+                &["config", "--get", "branch.feature/topic.merge"]
+            )
+            .stdout
         )
         .trim(),
         "refs/heads/main",
@@ -716,11 +821,22 @@ fn confirmed_publish_redirects_a_divergent_branch() {
             .to_string();
     require_git(
         &repository,
-        &["switch", "-q", "-c", "feature/topic", "refs/remotes/origin/main"],
+        &[
+            "switch",
+            "-q",
+            "-c",
+            "feature/topic",
+            "refs/remotes/origin/main",
+        ],
     );
     require_git(
         &repository,
-        &["branch", "-q", "--set-upstream-to=origin/main", "feature/topic"],
+        &[
+            "branch",
+            "-q",
+            "--set-upstream-to=origin/main",
+            "feature/topic",
+        ],
     );
     fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
     require_git(&repository, &["add", "topic.txt"]);
@@ -735,9 +851,12 @@ fn confirmed_publish_redirects_a_divergent_branch() {
     assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
 
     assert!(
-        git(&remote, &["show-ref", "--verify", "refs/heads/feature/topic"])
-            .status
-            .success(),
+        git(
+            &remote,
+            &["show-ref", "--verify", "refs/heads/feature/topic"]
+        )
+        .status
+        .success(),
         "the confirmed publish must create the same-named remote branch"
     );
     assert_eq!(
@@ -763,11 +882,22 @@ fn confirmed_upstream_push_keeps_the_divergent_destination() {
     let (repository, remote) = initialize_repository(&fixture);
     require_git(
         &repository,
-        &["switch", "-q", "-c", "feature/topic", "refs/remotes/origin/main"],
+        &[
+            "switch",
+            "-q",
+            "-c",
+            "feature/topic",
+            "refs/remotes/origin/main",
+        ],
     );
     require_git(
         &repository,
-        &["branch", "-q", "--set-upstream-to=origin/main", "feature/topic"],
+        &[
+            "branch",
+            "-q",
+            "--set-upstream-to=origin/main",
+            "feature/topic",
+        ],
     );
     fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
     require_git(&repository, &["add", "topic.txt"]);
@@ -793,7 +923,11 @@ fn confirmed_upstream_push_keeps_the_divergent_destination() {
     );
     assert_eq!(
         String::from_utf8_lossy(
-            &git(&repository, &["config", "--get", "branch.feature/topic.merge"]).stdout
+            &git(
+                &repository,
+                &["config", "--get", "branch.feature/topic.merge"]
+            )
+            .stdout
         )
         .trim(),
         "refs/heads/main",
@@ -801,3 +935,80 @@ fn confirmed_upstream_push_keeps_the_divergent_destination() {
     );
 }
 
+/// Issue #1272 asks whether new worktrees carry the same implicit-tracking risk.
+/// The worktree path already freezes tracking explicitly: a remote start tracks
+/// that remote branch, and an explicit commit start does not track anything.
+#[test]
+fn new_worktree_freezes_tracking_semantics() {
+    let fixture = GitFixture::new();
+    let (repository, _) = initialize_repository(&fixture);
+    require_git(&repository, &["switch", "-q", "-c", "topic"]);
+    fs::write(repository.join("topic.txt"), "topic\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "topic.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "topic work"]);
+    require_git(&repository, &["push", "-q", "-u", "origin", "topic"]);
+    require_git(&repository, &["switch", "-q", "main"]);
+
+    let remote_worktree = fixture.root.join("worktree-remote");
+    let from_remote = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "createWorktree",
+            "destination": remote_worktree.to_string_lossy(),
+            "name": "feature/from-remote",
+            "gitReference": {
+                "fullName": "refs/remotes/origin/topic",
+                "shortName": "origin/topic",
+                "kind": "remote"
+            }
+        }),
+    );
+    assert_eq!(from_remote["ok"], true, "response: {from_remote}");
+    assert_eq!(
+        from_remote["data"]["exitCode"], 0,
+        "response: {from_remote}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(
+            &git(
+                &repository,
+                &[
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "feature/from-remote@{upstream}"
+                ]
+            )
+            .stdout
+        )
+        .trim(),
+        "origin/topic",
+        "a remote-started worktree branch keeps tracking that remote branch"
+    );
+
+    let head_oid = String::from_utf8_lossy(&git(&repository, &["rev-parse", "HEAD"]).stdout)
+        .trim()
+        .to_string();
+    let pinned_worktree = fixture.root.join("worktree-pinned");
+    let from_commit = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "createWorktree",
+            "destination": pinned_worktree.to_string_lossy(),
+            "name": "feature/from-commit",
+            "gitReference": {
+                "fullName": "refs/heads/main",
+                "shortName": "main",
+                "kind": "local"
+            },
+            "revision": head_oid
+        }),
+    );
+    assert_eq!(from_commit["ok"], true, "response: {from_commit}");
+    assert_eq!(
+        from_commit["data"]["exitCode"], 0,
+        "response: {from_commit}"
+    );
+    assert_no_upstream(&repository, "feature/from-commit");
+}

@@ -6486,12 +6486,19 @@ fn validate_push_expectation(
         .collect::<Vec<_>>();
     // A reviewed push records the destination relationship too, so a branch that
     // started tracking `main` after the preview cannot slip through the check.
+    // `targetKind` is compared only when the caller supplied it: a caller that
+    // predates target kinds keeps its previous behaviour instead of being rejected
+    // as stale.
+    let target_kind_changed = expected
+        .target_kind
+        .as_ref()
+        .is_some_and(|kind| *kind != target.target_kind.as_contract());
     if expected.local_branch != target.local_branch
         || expected.local_head != local_head
         || expected.remote != target.remote
         || expected.remote_branch != target.remote_branch
         || expected.remote_tracking_oid != remote_tracking_oid
-        || expected.target_kind != Some(target.target_kind.as_contract())
+        || target_kind_changed
         || expected_tags != actual_tags
     {
         return Err(CoreError::new(
