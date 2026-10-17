@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Windows Agent 面板的一次启动只对应一个 ACP 进程，进程身份由「工作区 + Agent + 认证方式 + 自定义命令与参数」共同决定；任一项变化都必须先停掉旧进程再重连，不能继续把消息交给旧 Agent。同一时刻只允许一个启动承诺，停止操作会等待这次启动落地。断连时除了结束计时，还要清掉附着、忙碌、取消、配置等待和权限队列，否则重连会跳过会话恢复、发送被旧状态挡住。输入框草稿和附件归面板所有，设置页或历史页往返不再丢失。
+Windows Agent 面板的一次启动只对应一个 ACP 进程，进程身份由「工作区 + Agent + 认证方式 + 自定义命令与参数」共同决定；任一项变化都必须先停掉旧进程再重连，不能继续把消息交给旧 Agent。同一时刻只允许一个启动承诺，停止操作会等待这次启动落地。断连时除了结束计时，还要清掉附着、忙碌、取消、配置等待和权限队列，否则重连会跳过会话恢复、发送被旧状态挡住。输入框草稿和附件归面板所有，设置页或历史页往返不再丢失；切换 Agent 时各自的可见会话按连接身份保留，切回后重新加载。
 
 ## 问题
 
@@ -22,6 +22,8 @@ Windows Agent 面板的一次启动只对应一个 ACP 进程，进程身份由�
 - `stop()` 同时等待 `connection !== null` 的旧连接和进行中的启动承诺，并在等待期间占据 `closePromise`，使并发 `connect()` 得到“仍在停止”的明确错误。
 - 断连清理统一在 `detachConnection()` 完成：结束计时、把未完成工具标为 `interrupted`，并把附着、加载、响应、取消、配置等待和权限队列全部清空；消息、轮次统计和 `hasCompleteHistory` 保留，因为它们属于用户可见的历史，而不是进程状态。
 - 连接身份用 `launchKey(workspace, agentId, authentication, command, arguments)` 表示。工作区或身份变化时先 `stop()`、再 `reset()`、再重连；失败启动不写入身份，下次设置变化仍会重试。
+- 切走前用 `captureSnapshot()` 保存当前可见状态，切回时 `restoreSnapshot()` 放回。恢复会清掉全部进程相关标记，`prepareConversation()` 因此走 `loadSession` 重新附着，用户看到的仍是原会话；工作区切换清空全部保留状态，避免跨项目串台。
+- 发送条件包含 `pendingConfigToken == null`：会话设置还在确认时不接受新消息，界面沿用「准备中」提示。
 - `draft` 与 `files` 提升到 `AgentPanel`，`AgentComposer` 改为受控组件；切换会话时仍清空附件，与 macOS 一致。
 - 附件校验在事件处理阶段先算出结果，成功后再写入状态；上限错误只显示提示，不改动原有草稿与附件。
 
@@ -34,15 +36,15 @@ Windows Agent 面板的一次启动只对应一个 ACP 进程，进程身份由�
 
 ## 后果
 
-- 切换 Agent 或认证方式会清空当前显示的会话并重启进程；这是有意的身份隔离，不是数据丢失，历史仍在 Agent 侧。
+- 切换 Agent 或认证方式仍会重启进程，但各 Agent 的可见会话以连接身份为键保留，切回后重新加载；工作区切换会清空全部保留状态。
 - `stop()` 可能比过去多等一次启动完成的耗时，换取“停止返回即无存活进程”。
 - 面板持有输入状态后，面板自身的卸载（关闭侧栏）仍会清空草稿；这是与对话框生命周期一致的边界。
-- 多 Agent 会话记忆、跨 Agent 模型同步仍缺，继续由功能矩阵的 `agent-connection-model-switching` 跟踪。
+- 跨 Agent 模型同步与编辑区放置仍缺，继续由功能矩阵跟踪。
 
 ## 验证
 
 - `windows/tauri`: `bun run typecheck`。
-- `src/features/agent/stores/agent-connection.model.test.ts` 新增三条确定性测试：并发启动只开一个进程、启动中停止会关闭该进程并回到 `idle`、断连清空附着/忙碌/权限状态。
+- `src/features/agent/stores/agent-connection.model.test.ts` 新增五条确定性测试：并发启动只开一个进程、启动中停止会关闭该进程并回到 `idle`、断连清空附着/忙碌/权限状态、快照恢复保留消息但清空进程状态、恢复后的会话先 `loadSession` 而不是直接 prompt。
 - CI 同款 Agent 套件（`src/features/agent`、`src/config/backend-capabilities.test.ts`、`src/i18n`、拖放路由与图标测试）通过。
 - `bun run build` 成功，PHP 隔离正则 `intelephense|vendor/bin/phpunit|composer:` 在 `dist` 中零命中。
 

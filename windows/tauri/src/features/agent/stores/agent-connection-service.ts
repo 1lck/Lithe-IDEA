@@ -17,7 +17,10 @@ import { createTranslator } from "@/i18n/locale";
 import { AgentLaunchError, loadAgentLaunch, type AgentLaunchFailure } from "../services/agent-launch";
 import { createTauriAgentTransport } from "../services/agent-transport";
 import type { AgentPanelSettings } from "../types/agent-settings.types";
-import { AgentConnectionModel } from "./agent-connection.model";
+import {
+  AgentConnectionModel,
+  type AgentConnectionSnapshot,
+} from "./agent-connection.model";
 
 let model: AgentConnectionModel | null = null;
 let workspacePath: string | null = null;
@@ -68,6 +71,9 @@ function launchKey(workspace: string, settings: AgentPanelSettings): string {
 
 let activeLaunchKey: string | null = null;
 
+/** Sessions kept per Agent, so switching back shows the same conversation. */
+const keptSnapshots = new Map<string, AgentConnectionSnapshot>();
+
 /**
  * Start the agent for `nextWorkspacePath`, or report why it cannot start. A
  * second call with the same project, Agent and authentication is a no-op.
@@ -78,13 +84,20 @@ export async function openAgentConnection(
 ): Promise<void> {
   const connection = agentConnection();
   const key = launchKey(nextWorkspacePath, settings);
-  if (
-    workspacePath !== nextWorkspacePath ||
-    (activeLaunchKey !== null && activeLaunchKey !== key)
-  ) {
+  if (workspacePath !== nextWorkspacePath) {
+    // A different project starts from nothing; kept Agent sessions belong to
+    // the previous workspace and must not leak into this one.
     await connection.stop();
     connection.reset();
+    keptSnapshots.clear();
     workspacePath = nextWorkspacePath;
+    activeLaunchKey = null;
+  } else if (activeLaunchKey !== null && activeLaunchKey !== key) {
+    keptSnapshots.set(activeLaunchKey, connection.captureSnapshot());
+    await connection.stop();
+    connection.reset();
+    const kept = keptSnapshots.get(key);
+    if (kept !== undefined) connection.restoreSnapshot(kept);
     activeLaunchKey = null;
   }
   if (activeLaunchKey === key && connection.hasActiveConnection) return;

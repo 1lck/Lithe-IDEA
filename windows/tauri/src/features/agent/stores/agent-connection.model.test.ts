@@ -509,3 +509,55 @@ describe("Agent disconnect cleanup", () => {
     expect(stopped.pendingPermissions).toEqual([]);
   });
 });
+
+
+describe("Agent session snapshots", () => {
+  async function conversationWithPrompt() {
+    const transport = new ScriptedTransport();
+    const model = new AgentConnectionModel(transport, manualScheduler());
+    await model.connect(launch());
+    transport.emit(fixture.events.ready);
+    model.startNewConversation();
+    transport.emit({
+      ...fixture.events.sessionCreated,
+      token: transport.command("newSession")?.token,
+    });
+    model.send("Keep this conversation");
+    return { transport, model };
+  }
+
+  test("a kept snapshot keeps the transcript but not the dead process state", async () => {
+    const { model } = await conversationWithPrompt();
+    const kept = model.captureSnapshot();
+    await model.stop();
+
+    const restored = new AgentConnectionModel(new ScriptedTransport(), manualScheduler());
+    restored.restoreSnapshot(kept);
+    const snapshot = restored.getSnapshot();
+    const conversation = snapshot.conversations["session-1"];
+
+    expect(snapshot.selectedSessionID).toBe("session-1");
+    expect(conversation.messages.map((message) => message.role)).toEqual(["user"]);
+    expect(conversation.isAttached).toBe(false);
+    expect(conversation.isResponding).toBe(false);
+    expect(conversation.pendingPermissions).toEqual([]);
+    expect(snapshot.connectionState).toEqual({ status: "idle" });
+    expect(snapshot.canLoadSessions).toBe(false);
+  });
+
+  test("a restored conversation is reloaded instead of prompted blindly", async () => {
+    const { model } = await conversationWithPrompt();
+    const kept = model.captureSnapshot();
+    await model.stop();
+
+    const transport = new ScriptedTransport();
+    const restored = new AgentConnectionModel(transport, manualScheduler());
+    restored.restoreSnapshot(kept);
+    await restored.connect(launch());
+    transport.emit(fixture.events.ready);
+    restored.prepareConversation();
+
+    expect(transport.command("loadSession")?.sessionId).toBe("session-1");
+    expect(transport.command("prompt")).toBeUndefined();
+  });
+});

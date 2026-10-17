@@ -423,11 +423,14 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
     conversation?.errorMessage ??
     snapshot.errorMessage ??
     exportError;
+  // Waiting for the Agent to confirm session settings must block sending,
+  // otherwise the first prompt would use a configuration nobody confirmed.
   const canSend =
     isConfigured &&
     status === "ready" &&
     !snapshot.isCreatingSession &&
-    conversation?.isLoading !== true;
+    conversation?.isLoading !== true &&
+    conversation?.pendingConfigToken == null;
 
   return (
     <PanelFrame>

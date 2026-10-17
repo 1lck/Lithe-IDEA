@@ -207,6 +207,50 @@ export class AgentConnectionModel {
 
   getSnapshot = (): AgentConnectionSnapshot => this.snapshot;
 
+  /**
+   * Keep the visible state while another Agent owns the connection, so
+   * switching back shows the same sessions instead of an empty panel.
+   */
+  captureSnapshot(): AgentConnectionSnapshot {
+    return this.snapshot;
+  }
+
+  /**
+   * Put a kept snapshot back. Every process-bound flag is cleared: the next
+   * `ready` must reattach the selected session instead of trusting a dead
+   * process, and a stale confirmation must not look answered.
+   */
+  restoreSnapshot(snapshot: AgentConnectionSnapshot): void {
+    if (this.connection !== null) {
+      throw new AgentConnectionBusyError(
+        "Close the Agent connection before restoring a snapshot.",
+      );
+    }
+    const conversations: Record<string, AgentConversation> = {};
+    for (const [id, conversation] of Object.entries(snapshot.conversations)) {
+      conversations[id] = {
+        ...interruptPendingTools(conversation),
+        isAttached: false,
+        isLoading: false,
+        isResponding: false,
+        isCancelling: false,
+        pendingConfigToken: null,
+        pendingPermissions: [],
+      };
+    }
+    this.update({
+      ...snapshot,
+      conversations,
+      connectionState: { status: "idle" },
+      errorMessage: null,
+      canLoadSessions: false,
+      isRefreshingSessions: false,
+      isCreatingSession: false,
+      pendingNewConversationPrompt: null,
+      pendingNewConversationStartedAt: null,
+    });
+  }
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
