@@ -3612,7 +3612,11 @@ fn line_history_merge_ranges(
             lines = line_history_translate_lines(&lines, &hunks);
             if let Some(old_name) = rename_target {
                 path = old_name;
-                renamed_at = Some(base_revision.clone());
+                // Advance the walk past the rename itself, or a back-and-forth
+                // rename (a -> b -> a) would rescan the same commits forever
+                // and run the query into its timeout.
+                walk_end = base_revision.clone();
+                renamed_at = Some(base_revision);
                 break;
             }
         }

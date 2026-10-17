@@ -63,6 +63,38 @@ describe("getGitLineHistory", () => {
     expect(result?.filePath).toBe("src/main.ts");
   });
 
+  test("skips the core query when cancellation covers the discovery phase", async () => {
+    let releaseDiscovery: (() => void) | undefined;
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") {
+        await new Promise<void>((resolve) => {
+          releaseDiscovery = resolve;
+        });
+        return "C:/repo";
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const promise = getGitLineHistory({
+      rootPath: "C:/repo",
+      filePath: "src/main.ts",
+      content: "one\n",
+      startLine: 1,
+      endLine: 1,
+      operationId: "line-history-cancelled",
+      isCancelled: () => true,
+    });
+    // A settled microtask drain lets the discovery resolve; the promise
+    // chain contains no timers.
+    await Promise.resolve();
+    await Promise.resolve();
+    releaseDiscovery?.();
+    const result = await promise;
+
+    expect(result).toBeNull();
+    expect(invoke.mock.calls.some((call) => call[0] === "git.lineHistory")).toBe(false);
+  });
+
   test("returns null when the file is not inside a repository", async () => {
     invoke.mockImplementation(async (command: string) => {
       if (command === "git_discover_repo") {

@@ -11,6 +11,9 @@ export interface GitLineHistoryQuery {
   endLine: number;
   limit?: number;
   operationId: string;
+  /** Abort check that also covers repository discovery, before the core
+   * operation id exists for cancelCoreOperation. */
+  isCancelled?: () => boolean;
 }
 
 export interface ResolvedGitLineHistory {
@@ -25,6 +28,9 @@ export const getGitLineHistory = async (
   try {
     const resolved = await resolveRepositoryForFile(query.rootPath, query.filePath);
     if (!resolved) {
+      return null;
+    }
+    if (query.isCancelled?.()) {
       return null;
     }
 

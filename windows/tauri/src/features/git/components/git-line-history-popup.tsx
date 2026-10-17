@@ -58,6 +58,7 @@ export default function GitLineHistoryPopup({
       startLine: range.startLine,
       endLine: range.endLine,
       operationId,
+      isCancelled: () => generationRef.current !== generation,
     }).then((result) => {
       // Drop results that landed after closing or re-opening the popup.
       if (generationRef.current !== generation) return;
@@ -96,7 +97,11 @@ export default function GitLineHistoryPopup({
       message: entry.subject,
       author: entry.authorName,
       date: new Date(entry.authorTime * 1000).toLocaleString(),
-      pathspecs: [entry.pathAtCommit],
+      // Rename-with-edit commits need both path sides or the pathspec clips
+      // the pairing into a synthetic whole-file addition.
+      pathspecs: entry.previousPath
+        ? [entry.previousPath, entry.pathAtCommit]
+        : [entry.pathAtCommit],
       compareReference:
         entry.kind === "merge-first-parent"
           ? `${entry.compareBase}..${entry.hash}`

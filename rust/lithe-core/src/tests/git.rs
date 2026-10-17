@@ -5808,3 +5808,51 @@ E
 
     fs::remove_dir_all(&root).expect("line-history repository should be removable");
 }
+
+#[test]
+fn git_line_history_merge_ranges_survive_back_and_forth_renames() {
+    let root = line_history_repository("line-history-rename-roundtrip");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    // A merge rewords a line; the file then bounces a -> b -> a through two
+    // pure renames. The replay must advance past each rename instead of
+    // rescanning the same commits until the query times out.
+    write_numbered_lines(&root.join("a.txt"), 1, 5);
+    line_history_commit(&root, "initial");
+    assert!(run(&["checkout", "-qb", "side"]).status.success());
+    replace_whole_line(&root, "a.txt", 3, "line 03 side");
+    line_history_commit(&root, "side reword3");
+    assert!(run(&["checkout", "-q", "master"]).status.success());
+    assert!(run(&["merge", "-q", "--no-ff", "side", "-m", "merge side"])
+        .status
+        .success());
+    assert!(run(&["mv", "a.txt", "b.txt"]).status.success());
+    line_history_commit(&root, "rename to b");
+    assert!(run(&["mv", "b.txt", "a.txt"]).status.success());
+    line_history_commit(&root, "rename back to a");
+
+    let content = fs::read_to_string(root.join("a.txt")).expect("doc readable");
+    let response = line_history_query(&root, "a.txt", &content, 3, 3);
+    assert_eq!(response["ok"], true, "{response:?}");
+    let merge = response["data"]["commits"]
+        .as_array()
+        .expect("commits")
+        .iter()
+        .find(|entry| entry["kind"] == "merge-first-parent")
+        .unwrap_or_else(|| panic!("merge entry missing: {response:?}"));
+    assert!(
+        !merge["relevantRanges"]
+            .as_array()
+            .expect("ranges")
+            .is_empty(),
+        "{response:?}"
+    );
+    assert_eq!(merge["pathAtCommit"], "a.txt");
+
+    fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
