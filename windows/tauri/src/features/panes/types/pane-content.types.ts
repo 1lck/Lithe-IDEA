@@ -35,6 +35,7 @@ export type PaneContentType =
   | "editor"
   | "terminal"
   | "agent"
+  | "agentConversation"
   | "webViewer"
   | "diff"
   | "image"
@@ -130,6 +131,11 @@ export interface TerminalContent extends PaneContentBase {
 
 export interface AgentContent extends PaneContentBase {
   type: "agent";
+  sessionId: string;
+}
+
+export interface AgentConversationContent extends PaneContentBase {
+  type: "agentConversation";
   sessionId: string;
 }
 
@@ -257,6 +263,7 @@ export type PaneContent =
   | EditorContent
   | TerminalContent
   | AgentContent
+  | AgentConversationContent
   | WebViewerContent
   | DiffContent
   | ImageContent
@@ -294,6 +301,7 @@ export function isWebViewerContent(c: PaneContent): c is WebViewerContent {
 const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   "terminal",
   "agent",
+  "agentConversation",
   "webViewer",
   "pullRequest",
   "githubIssue",
@@ -373,6 +381,7 @@ export type OpenContentSpec =
       path?: string;
     }
   | { type: "agent"; sessionId?: string }
+  | { type: "agentConversation"; sessionId: string }
   | {
       type: "webViewer";
       url: string;

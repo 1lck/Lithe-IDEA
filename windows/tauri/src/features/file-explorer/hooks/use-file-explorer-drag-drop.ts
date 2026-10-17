@@ -2,6 +2,11 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { moveFile } from "@/features/file-system/controllers/platform";
 import type { FileEntry } from "@/features/file-system/types/app.types";
+import {
+  AGENT_DROP_TARGET_SELECTOR,
+  dispatchAgentDropHover,
+  dispatchDroppedPathsToAgent,
+} from "@/features/file-system/utils/file-system-drop-controller";
 import { dispatchSidebarResourceDropOnAI } from "@/features/sidebar/utils/sidebar-resource-drag";
 import {
   setInternalTabDragHover,
@@ -46,6 +51,14 @@ export function useFileExplorerDragDrop(
 
   const clearEditorDropHover = useCallback(() => {
     setInternalTabDragHoverTarget({ paneId: null, zone: null });
+  }, []);
+
+  const agentDropHoverTargetRef = useRef<Element | null>(null);
+  const clearAgentDropHover = useCallback(() => {
+    const previous = agentDropHoverTargetRef.current;
+    if (previous === null) return;
+    agentDropHoverTargetRef.current = null;
+    dispatchAgentDropHover(previous, false);
   }, []);
 
   const scheduleAutoExpand = useCallback(
@@ -118,6 +131,15 @@ export function useFileExplorerDragDrop(
       }));
 
       const elementUnder = document.elementFromPoint(e.clientX, e.clientY);
+
+      // The tree drag is mouse-driven, so the Agent composer only learns that it
+      // is the drop point from here.
+      const agentDropTarget = elementUnder?.closest(AGENT_DROP_TARGET_SELECTOR) ?? null;
+      if (agentDropTarget !== agentDropHoverTargetRef.current) {
+        agentDropHoverTargetRef.current = agentDropTarget;
+        dispatchAgentDropHover(agentDropTarget, agentDropTarget !== null);
+      }
+
       const fileTreeItem = elementUnder?.closest("[data-file-path]");
       const fileTreeContainer = elementUnder?.closest(".file-tree-container");
       const aiContextDropTarget = elementUnder?.closest("[data-ai-context-drop-target]");
@@ -191,12 +213,25 @@ export function useFileExplorerDragDrop(
     };
 
     const handleMouseUp = async (e: MouseEvent) => {
+      clearAgentDropHover();
       // Check if dropping on a pane container (outside file tree)
       const elementUnder = document.elementFromPoint(e.clientX, e.clientY);
       const isOverPane = elementUnder?.closest("[data-pane-container]") !== null;
       const isOverFileTree = elementUnder?.closest(".file-tree-container") !== null;
       const isOverAIContextDropTarget =
         elementUnder?.closest("[data-ai-context-drop-target]") !== null;
+
+      // A file released over the Agent composer becomes a file reference; it
+      // never falls through to a move inside the tree.
+      if (elementUnder?.closest(AGENT_DROP_TARGET_SELECTOR) && dragState.draggedItem) {
+        // A folder is referenced like any other dropped path, the same way the
+        // macOS composer and an OS drop treat it.
+        dispatchDroppedPathsToAgent(elementUnder, [dragState.draggedItem.path]);
+        setDragState(initialDragState);
+        clearAutoExpand();
+        clearEditorDropHover();
+        return;
+      }
 
       if (isOverAIContextDropTarget && dragState.draggedItem) {
         dispatchSidebarResourceDropOnAI({
@@ -274,8 +309,10 @@ export function useFileExplorerDragDrop(
       document.removeEventListener("mouseleave", handleMouseUp);
       clearAutoExpand();
       clearEditorDropHover();
+      clearAgentDropHover();
     };
   }, [
+    clearAgentDropHover,
     clearAutoExpand,
     clearEditorDropHover,
     dragState,

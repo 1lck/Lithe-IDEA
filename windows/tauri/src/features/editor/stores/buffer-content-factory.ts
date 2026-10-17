@@ -1,3 +1,4 @@
+import { agentConversationPath } from "@/features/agent/utils/agent-conversation-path";
 import { detectLanguageFromFileName } from "@/features/editor/utils/language-detection";
 import { SINGLETON_TOOL_BUFFER_METADATA } from "@/features/panes/constants/tool-buffers";
 import type {
@@ -57,6 +58,15 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         name: "Agent",
         isPreview: false,
         sessionId: spec.sessionId ?? id.replace("buffer_", ""),
+      };
+    case "agentConversation":
+      return {
+        ...base,
+        type: "agentConversation",
+        path: agentConversationPath(spec.sessionId),
+        name: "Agent",
+        isPreview: false,
+        sessionId: spec.sessionId,
       };
     case "webViewer":
       return {
