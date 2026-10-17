@@ -162,10 +162,12 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     private weak var model: (any McpServerLibraryActions)?
     private var hasLoaded = false
-    /// Workspace whose project-level Lithe entry is registered. Kept because
+    /// Workspaces whose project-level Lithe entry is registered. Kept because
     /// the coordinator clears the workspace URL before the close callback runs,
-    /// so cleanup can no longer rely on the current session.
-    private var litheRegistrationWorkspace: URL?
+    /// so cleanup can no longer rely on the current session. A project switch
+    /// can register the new workspace before the old one is cleaned up, so
+    /// every registration is tracked until an unregistration pass removes it.
+    private var litheRegistrationWorkspaces: Set<URL> = []
     private static let ledgerKey = "settings.mcpServerRegistrations"
 
     init(model: any McpServerLibraryActions) {
@@ -268,6 +270,16 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         if draft.enabledAgents.isEmpty {
             return String(localized: "Choose at least one Agent.")
         }
+        // Core writes the active transport's entries into an object or table,
+        // which cannot repeat a key. Rejecting duplicates here gives the user a
+        // fixable message instead of a generic invalid-request error.
+        let duplicateEntries = switch draft.transport {
+        case .stdio: hasDuplicateEntryNames(draft.env)
+        case .http, .sse: hasDuplicateEntryNames(draft.headers)
+        }
+        if duplicateEntries {
+            return String(localized: "Environment variable and header names must be unique.")
+        }
         switch draft.transport {
         case .stdio:
             if draft.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -306,13 +318,18 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             transport: draft.transport,
             command: nil,
             args: draft.arguments,
-            env: sorted(draft.env),
+            env: [],
             url: nil,
             headers: []
         )
+        // Entries belong to exactly one transport. Carrying leftover env into
+        // an HTTP definition (or headers into stdio) would hash fields the
+        // written file never contains, so the fresh entry would immediately
+        // look externally modified on refresh.
         switch draft.transport {
         case .stdio:
             definition.command = draft.command.trimmingCharacters(in: .whitespacesAndNewlines)
+            definition.env = sorted(draft.env)
         case .http, .sse:
             definition.url = draft.url.trimmingCharacters(in: .whitespacesAndNewlines)
             definition.headers = sorted(draft.headers)
@@ -437,7 +454,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     func registerLitheServer(_ server: McpServerDefinition) {
         guard let store = model?.mcpConfigurationStore,
               let workspace = model?.mcpWorkspaceURL else { return }
-        litheRegistrationWorkspace = workspace
+        litheRegistrationWorkspaces.insert(workspace)
         let files = store.configurationFiles(workspace: workspace)
             .filter { $0.scope == .project }
         var registered: Set<McpAgent> = []
@@ -467,11 +484,6 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                     lastBackupURL = try store.write(
                         plan.content, to: file, replacing: existing
                     ).backupURL
-                    // Lithe created the project Codex file; keep it out of the
-                    // repository without editing the tracked .gitignore.
-                    if file.agent == .codex, existing == nil {
-                        try store.excludeFromVersionControl(".codex/config.toml", workspace: workspace)
-                    }
                 }
                 if let hash = plan.definitionHash {
                     var updated = entries
@@ -480,6 +492,25 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                     setLedger(updated, for: file)
                 }
                 registered.insert(file.agent)
+                // Lithe created the project Codex file; keep it out of the
+                // repository without editing the tracked .gitignore. The write
+                // and ledger update have already succeeded, so a failed exclude
+                // only needs a warning — forgetting the registration here would
+                // leave an orphaned entry the close flow can never clean up.
+                if file.agent == .codex, existing == nil, plan.changed {
+                    do {
+                        try store.excludeFromVersionControl(
+                            ".codex/config.toml", workspace: workspace
+                        )
+                    } catch {
+                        messages.append(String(
+                            format: String(
+                                localized: "Lithe MCP was registered, but .codex/config.toml could not be added to Git’s local exclude list: %@"
+                            ),
+                            error.localizedDescription
+                        ))
+                    }
+                }
             } catch {
                 messages.append(String(
                     format: String(localized: "Could not register Lithe MCP in %@: %@"),
@@ -508,16 +539,26 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         guard let store = model?.mcpConfigurationStore else {
             litheRegisteredAgents = []
             litheRegistration = .inactive
-            litheRegistrationWorkspace = nil
+            litheRegistrationWorkspaces.removeAll()
             return
         }
-        guard let workspace = model?.mcpWorkspaceURL ?? litheRegistrationWorkspace else {
+        // Clean every workspace this model registered, plus the current one in
+        // case a switch already cleared the tracked identity. Using only one
+        // URL would strand the previous project's entry after an A→B switch.
+        var workspaces = litheRegistrationWorkspaces
+        if let current = model?.mcpWorkspaceURL { workspaces.insert(current) }
+        guard !workspaces.isEmpty else {
             litheRegisteredAgents = []
             litheRegistration = .inactive
             return
         }
-        let files = store.configurationFiles(workspace: workspace)
-            .filter { $0.scope == .project }
+        var files: [McpConfigurationFile] = []
+        for workspace in workspaces {
+            for file in store.configurationFiles(workspace: workspace)
+            where file.scope == .project && !files.contains(file) {
+                files.append(file)
+            }
+        }
         var messages: [String] = []
 
         for file in files {
@@ -559,7 +600,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         }
 
         litheRegisteredAgents = []
-        litheRegistrationWorkspace = nil
+        litheRegistrationWorkspaces.removeAll()
         litheRegistration = messages.first.map { .needsAttention($0) } ?? .inactive
         refresh()
     }
@@ -739,5 +780,15 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         entries
             .filter { !$0.key.trimmingCharacters(in: .whitespaces).isEmpty }
             .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
+    }
+
+    /// Empty rows are dropped on save, so only written names can collide.
+    private func hasDuplicateEntryNames(_ entries: [McpKeyValue]) -> Bool {
+        var names = Set<String>()
+        for entry in entries
+        where !entry.key.trimmingCharacters(in: .whitespaces).isEmpty {
+            if !names.insert(entry.key).inserted { return true }
+        }
+        return false
     }
 }

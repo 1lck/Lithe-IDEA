@@ -84,12 +84,15 @@ pub(crate) fn set_server(
 }
 
 /// Removes `[mcp_servers.<name>]`, returning whether it existed.
+///
+/// Codex accepts both a table section and an inline table for `mcp_servers`;
+/// both parse into the library, so both must be removable.
 pub(crate) fn remove_server(document: &mut DocumentMut, name: &str) -> bool {
-    document
-        .get_mut("mcp_servers")
-        .and_then(Item::as_table_mut)
-        .and_then(|servers| servers.remove(name))
-        .is_some()
+    match document.get_mut("mcp_servers") {
+        Some(Item::Table(servers)) => servers.remove(name).is_some(),
+        Some(Item::Value(Value::InlineTable(servers))) => servers.remove(name).is_some(),
+        _ => false,
+    }
 }
 
 /// Updates only the keys Lithe models; Codex-specific settings survive.
@@ -136,7 +139,7 @@ fn apply_inline_table(table: &mut InlineTable, server: &McpServer) {
 fn set_string(table: &mut Table, key: &str, text: Option<&str>) {
     match text {
         Some(text) => {
-            table.insert(key, value(text));
+            set_table_value(table, key, Value::from(text.to_string()));
         }
         None => {
             table.remove(key);
@@ -153,7 +156,28 @@ fn set_args(table: &mut Table, args: &[String]) {
     for argument in args {
         array.push(argument.as_str());
     }
-    table.insert("args", value(array));
+    set_table_value(table, "args", Value::Array(array));
+}
+
+/// Replaces a value while keeping the decor attached to it.
+///
+/// Decor carries the comment before a key and the inline comment after a
+/// value. Replacing the whole entry would drop both, so only the value itself
+/// is swapped when the key already exists.
+fn set_table_value(table: &mut Table, key: &str, new_value: Value) {
+    match table.get_mut(key) {
+        Some(item) => {
+            let decor = item.as_value().map(|value| value.decor().clone());
+            let mut new_value = new_value;
+            if let Some(decor) = decor {
+                *new_value.decor_mut() = decor;
+            }
+            *item = Item::Value(new_value);
+        }
+        None => {
+            table.insert(key, Item::Value(new_value));
+        }
+    }
 }
 
 /// Writes `env` or `http_headers`, preserving entries Lithe cannot represent.
@@ -162,10 +186,6 @@ fn set_args(table: &mut Table, args: &[String]) {
 /// the UI removes it here. Non-string values are not part of the normalized
 /// model and stay untouched instead of being silently deleted.
 fn set_entries(table: &mut Table, key: &str, entries: &[McpKeyValue]) {
-    if entries.is_empty() {
-        table.remove(key);
-        return;
-    }
     match table.get_mut(key) {
         Some(Item::Table(child)) => {
             let removable: Vec<String> = child
@@ -180,7 +200,10 @@ fn set_entries(table: &mut Table, key: &str, entries: &[McpKeyValue]) {
                 child.remove(&stale);
             }
             for entry in entries {
-                child.insert(entry.key.as_str(), value(entry.value.as_str()));
+                set_table_value(child, entry.key.as_str(), Value::from(entry.value.clone()));
+            }
+            if child.is_empty() {
+                table.remove(key);
             }
         }
         Some(Item::Value(Value::InlineTable(child))) => {
@@ -197,9 +220,14 @@ fn set_entries(table: &mut Table, key: &str, entries: &[McpKeyValue]) {
             for entry in entries {
                 child.insert(entry.key.as_str(), Value::from(entry.value.clone()));
             }
+            if child.is_empty() {
+                table.remove(key);
+            }
         }
         _ => {
-            table.insert(key, Item::Table(entries_table(entries)));
+            if !entries.is_empty() {
+                table.insert(key, Item::Table(entries_table(entries)));
+            }
         }
     }
 }
@@ -235,11 +263,10 @@ fn set_inline_args(table: &mut InlineTable, args: &[String]) {
     table.insert("args", Value::Array(array));
 }
 
+/// Inline-table counterpart of [`set_entries`]. Inline tables cannot hold
+/// comments, but they can still hold non-string values that Lithe does not
+/// model, so those are preserved the same way.
 fn set_inline_entries(table: &mut InlineTable, key: &str, entries: &[McpKeyValue]) {
-    if entries.is_empty() {
-        table.remove(key);
-        return;
-    }
     match table.get_mut(key) {
         Some(Value::InlineTable(child)) => {
             let removable: Vec<String> = child
@@ -255,13 +282,18 @@ fn set_inline_entries(table: &mut InlineTable, key: &str, entries: &[McpKeyValue
             for entry in entries {
                 child.insert(entry.key.as_str(), Value::from(entry.value.clone()));
             }
+            if child.is_empty() {
+                table.remove(key);
+            }
         }
         _ => {
-            let mut child = InlineTable::new();
-            for entry in entries {
-                child.insert(entry.key.as_str(), Value::from(entry.value.clone()));
+            if !entries.is_empty() {
+                let mut child = InlineTable::new();
+                for entry in entries {
+                    child.insert(entry.key.as_str(), Value::from(entry.value.clone()));
+                }
+                table.insert(key, Value::InlineTable(child));
             }
-            table.insert(key, Value::InlineTable(child));
         }
     }
 }

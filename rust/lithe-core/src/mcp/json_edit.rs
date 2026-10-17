@@ -120,18 +120,12 @@ impl JsonDocument {
         };
         let member = &members[index];
         if let Some(next) = members.get(index + 1) {
-            let member_line = line_start(&self.text, member.key_start);
-            let next_line = line_start(&self.text, next.key_start);
-            // Extend to the whole line only when this member starts its own
-            // line. If a previous member shares the line, deleting from the
-            // line start would remove that neighbouring entry as well.
-            let (start, end) =
-                if member_line < next_line && line_indent(&self.text, member.key_start).is_some() {
-                    (member_line, next_line)
-                } else {
-                    (member.key_start, next.key_start)
-                };
-            self.text.replace_range(start..end, "");
+            // Delete exactly the member and the separator up to the next key.
+            // Extending to the line start would remove a neighbouring entry
+            // that shares the line, and a previous entry's comma must stay to
+            // separate it from the next member.
+            self.text
+                .replace_range(member.key_start..next.key_start, "");
         } else if let Some(previous) = index.checked_sub(1).map(|index| &members[index]) {
             // Removing the last member must also remove the comma that
             // separates it from the previous member. Deleting only the last

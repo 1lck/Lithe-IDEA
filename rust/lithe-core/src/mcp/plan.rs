@@ -10,7 +10,7 @@ use super::parse::{
     find_server, parse_claude_servers, parse_codex_servers, MAX_CONFIGURATION_BYTES,
 };
 use super::toml_edit;
-use super::McpServer;
+use super::{McpKeyValue, McpServer};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -95,6 +95,12 @@ fn plan_set(
     content: &str,
     project_path: Option<&str>,
 ) -> Result<Value, CoreError> {
+    // Configuration maps and tables can hold only one value per key, while the
+    // host sends entries as a list. Reject duplicates instead of hashing one
+    // shape and writing another, which would lose ownership after a refresh.
+    if has_duplicate_keys(&server.env) || has_duplicate_keys(&server.headers) {
+        return Err(invalid_request());
+    }
     let existing = existing_servers(request, content, project_path)?;
     if let Some(current) = find_server(&existing, &server.name) {
         if current.definition_hash == server.definition_hash {
@@ -166,9 +172,21 @@ fn plan_remove(
         "codex" => remove_codex(content, name)?,
         _ => return Err(invalid_request()),
     };
+    // The parsed entry must also be removable from the document text. An
+    // inline-table root or an unsupported layout can parse but not delete;
+    // reporting `removed` while returning identical content would make the
+    // ledger forget an entry that still exists.
+    if next == content {
+        return Ok(json!({
+            "content": content,
+            "changed": false,
+            "action": "absent",
+            "conflict": Value::Null,
+        }));
+    }
     Ok(json!({
         "content": next,
-        "changed": next != content,
+        "changed": true,
         "action": "removed",
         "conflict": Value::Null,
     }))
@@ -190,6 +208,13 @@ fn is_owned(owned: &[OwnedEntry], current: &McpServer) -> bool {
     owned
         .iter()
         .any(|entry| entry.name == current.name && entry.definition_hash == current.definition_hash)
+}
+
+/// Entries become a JSON object or TOML table, which cannot repeat a key.
+fn has_duplicate_keys(entries: &[McpKeyValue]) -> bool {
+    let mut keys: Vec<&str> = entries.iter().map(|entry| entry.key.as_str()).collect();
+    keys.sort_unstable();
+    keys.windows(2).any(|pair| pair[0] == pair[1])
 }
 
 /// Returns why `current` cannot be replaced, or `None` when Lithe owns it.
@@ -328,11 +353,7 @@ fn apply_claude_value(object: &mut Map<String, Value>, server: &McpServer) {
             } else {
                 object.insert("args".into(), json!(server.args));
             }
-            if server.env.is_empty() {
-                object.remove("env");
-            } else {
-                object.insert("env".into(), entries_value(&server.env));
-            }
+            apply_entries_value(object, "env", &server.env);
         }
         super::McpTransport::Http | super::McpTransport::Sse => {
             object.remove("command");
@@ -350,10 +371,32 @@ fn apply_claude_value(object: &mut Map<String, Value>, server: &McpServer) {
                     object.remove("url");
                 }
             }
-            if server.headers.is_empty() {
-                object.remove("headers");
+            apply_entries_value(object, "headers", &server.headers);
+        }
+    }
+}
+
+/// Applies modeled env or header entries while keeping values Lithe could not
+/// represent. Parsing filters non-string values out of the library model, so
+/// replacing the whole object would delete configuration the user never saw.
+fn apply_entries_value(object: &mut Map<String, Value>, key: &str, entries: &[McpKeyValue]) {
+    match object.get(key).and_then(Value::as_object).cloned() {
+        Some(mut existing) => {
+            existing.retain(|name, value| {
+                !value.is_string() || entries.iter().any(|entry| entry.key == *name)
+            });
+            for entry in entries {
+                existing.insert(entry.key.clone(), Value::String(entry.value.clone()));
+            }
+            if existing.is_empty() {
+                object.remove(key);
             } else {
-                object.insert("headers".into(), entries_value(&server.headers));
+                object.insert(key.to_string(), Value::Object(existing));
+            }
+        }
+        None => {
+            if !entries.is_empty() {
+                object.insert(key.to_string(), entries_value(entries));
             }
         }
     }

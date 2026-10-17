@@ -380,6 +380,102 @@ struct McpServerLibraryTests {
     }
 
     @Test
+    func unregisteringAfterAProjectSwitchCleansBothProjects() throws {
+        let fixture = try Fixture(workspace: true)
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        let definition = McpServerDefinition(
+            name: "lithe",
+            transport: .stdio,
+            command: "/Applications/Lithe.app/Contents/Helpers/lithe-mcp",
+            args: ["--connection", "fixture"]
+        )
+        feature.registerLitheServer(definition)
+        #expect(feature.litheRegistration == .registered)
+
+        // The next project registers before the previous registration is
+        // cleaned up, so a single stored workspace would strand the first one.
+        let second = fixture.root.appendingPathComponent("project-two", isDirectory: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        fixture.setWorkspace(second)
+        feature.registerLitheServer(definition)
+        #expect(feature.litheRegistration == .registered)
+
+        feature.unregisterLitheServer()
+
+        let firstCodex = try fixture.text(
+            at: fixture.workspace.appendingPathComponent(".codex/config.toml")
+        )
+        let secondCodex = try fixture.text(
+            at: second.appendingPathComponent(".codex/config.toml")
+        )
+        #expect(firstCodex.contains("[mcp_servers.lithe]") == false)
+        #expect(secondCodex.contains("[mcp_servers.lithe]") == false)
+        let claude = try fixture.claudeText()
+        #expect(claude.contains("\"lithe\"") == false)
+    }
+
+    @Test
+    func excludeFailureKeepsAProjectRegistrationThatCanStillBeCleanedUp() throws {
+        let fixture = try Fixture(workspace: true)
+        defer { fixture.cleanUp() }
+        // A directory at the exclude path makes the append fail without
+        // depending on file permissions or the user running the test.
+        try FileManager.default.createDirectory(
+            at: fixture.workspace.appendingPathComponent(".git/info/exclude"),
+            withIntermediateDirectories: true
+        )
+        let feature = fixture.feature()
+        feature.registerLitheServer(McpServerDefinition(
+            name: "lithe",
+            transport: .stdio,
+            command: "/Applications/Lithe.app/Contents/Helpers/lithe-mcp",
+            args: ["--connection", "fixture"]
+        ))
+
+        guard case .needsAttention(let message) = feature.litheRegistration else {
+            Issue.record("Expected a Git exclude warning")
+            return
+        }
+        #expect(message.contains("could not be added"))
+        #expect(feature.litheRegisteredAgents == Set(McpAgent.allCases))
+        let codexURL = fixture.workspace.appendingPathComponent(".codex/config.toml")
+        #expect(try fixture.text(at: codexURL).contains("[mcp_servers.lithe]"))
+
+        // The ledger must still find the entry, otherwise the grant can never
+        // remove the project configuration it successfully wrote.
+        feature.unregisterLitheServer()
+        #expect(try fixture.text(at: codexURL).contains("[mcp_servers.lithe]") == false)
+    }
+
+    @Test
+    func rejectsDuplicateEnvironmentVariableNames() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedClaude("{\"mcpServers\": {}}")
+        let feature = fixture.feature()
+        feature.refresh()
+        var draft = feature.makeDraft()
+        draft.name = "duplicates"
+        draft.command = "/bin/echo"
+        draft.env = [
+            McpKeyValue(key: "TOKEN", value: "first"),
+            McpKeyValue(key: "TOKEN", value: "second")
+        ]
+        draft.enabledAgents = [.claudeCode]
+
+        #expect(feature.save(draft) == false)
+        #expect(feature.error?.contains("unique") == true)
+        #expect(try fixture.claudeText().contains("duplicates") == false)
+
+        // The inactive transport's entries are not written, so they cannot
+        // collide and must not block the save.
+        draft.transport = .http
+        draft.url = "https://example.test/mcp"
+        #expect(feature.save(draft))
+    }
+
+    @Test
     func externallyModifiedProjectEntryIsKeptAndReported() throws {        let fixture = try Fixture(workspace: true)
         defer { fixture.cleanUp() }
         let feature = fixture.feature()
@@ -572,6 +668,11 @@ private final class Fixture {
     /// Simulates the session URL being cleared before the close callback.
     func clearWorkspace() {
         actions.mcpWorkspaceURL = nil
+    }
+
+    /// Switches the open project without going through the grant lifecycle.
+    func setWorkspace(_ url: URL) {
+        actions.mcpWorkspaceURL = url
     }
 
     func cleanUp() {

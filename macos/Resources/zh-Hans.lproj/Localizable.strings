@@ -2709,9 +2709,11 @@
 "Enter a server name." = "请输入服务器名称。";
 "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit." = "只能使用字母、数字、点、短横线或下划线，且必须以字母或数字开头。";
 "Choose at least one Agent." = "请至少选择一个 Agent。";
+"Environment variable and header names must be unique." = "环境变量名和 Header 名不能重复。";
 "Enter the command that starts this server." = "请输入启动该服务器的命令。";
 "Enter a complete server URL." = "请输入完整的服务器 URL。";
 "Could not register Lithe MCP in %@: %@" = "无法在 %@ 中注册 Lithe MCP：%@";
+"Lithe MCP was registered, but .codex/config.toml could not be added to Git’s local exclude list: %@" = "Lithe MCP 已注册，但无法把 .codex/config.toml 加入 Git 的本地排除列表：%@";
 "Could not remove Lithe MCP from %@: %@" = "无法从 %@ 中移除 Lithe MCP：%@";
 
 "%lld more notifications" = "还有 %lld 条通知";

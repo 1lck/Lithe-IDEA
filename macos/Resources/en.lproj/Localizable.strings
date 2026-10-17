@@ -1430,9 +1430,11 @@
 "Enter a server name." = "Enter a server name.";
 "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit." = "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.";
 "Choose at least one Agent." = "Choose at least one Agent.";
+"Environment variable and header names must be unique." = "Environment variable and header names must be unique.";
 "Enter the command that starts this server." = "Enter the command that starts this server.";
 "Enter a complete server URL." = "Enter a complete server URL.";
 "Could not register Lithe MCP in %@: %@" = "Could not register Lithe MCP in %@: %@";
+"Lithe MCP was registered, but .codex/config.toml could not be added to Git’s local exclude list: %@" = "Lithe MCP was registered, but .codex/config.toml could not be added to Git’s local exclude list: %@";
 "Could not remove Lithe MCP from %@: %@" = "Could not remove Lithe MCP from %@: %@";
 
 "%lld more notifications" = "%lld more notifications";

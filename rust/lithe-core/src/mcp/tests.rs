@@ -1,6 +1,7 @@
 //! Regression tests for MCP parsing, format preservation and ownership rules.
 
 use super::{parse_configuration, plan_write};
+use crate::protocol::ErrorCode;
 use serde_json::{json, Value};
 
 fn parse(source: &str, scope: &str, content: &str, project: Option<&str>) -> Value {
@@ -267,6 +268,19 @@ fn removing_entries_handles_single_line_and_mixed_layouts() {
 }
 
 #[test]
+fn removing_a_multiline_entry_keeps_the_next_entry_on_its_closing_line() {
+    // `b` spans several lines and `c` starts right after b's closing brace on
+    // the same line. Trimming to a line boundary would cut into `c`.
+    let content = "{\n  \"mcpServers\": {\n    \"a\": {\"command\": \"a\"},\n    \"b\": {\n      \"command\": \"b\"\n    }, \"c\": {\"command\": \"c\"}\n  }\n}";
+    let next = remove_entry(content, "b");
+    let parsed: Value = serde_json::from_str(&next).unwrap();
+    assert_eq!(parsed["mcpServers"]["a"]["command"], "a");
+    assert_eq!(parsed["mcpServers"]["c"]["command"], "c");
+    assert!(parsed["mcpServers"].get("b").is_none());
+    assert_eq!(parsed["mcpServers"].as_object().unwrap().len(), 2);
+}
+
+#[test]
 fn toml_edits_preserve_comments_and_unrelated_tables() {
     let content =
         "# keep this comment\nmodel = \"gpt\"\n\n[mcp_servers.dbx]\ncommand = \"dbx-mcp\"\n";
@@ -379,6 +393,145 @@ COUNT = 3
 }
 
 #[test]
+fn toml_clearing_modeled_entries_keeps_non_string_env_values() {
+    let content = r#"
+[mcp_servers.local]
+command = "old"
+
+[mcp_servers.local.env]
+TOKEN = "x"
+COUNT = 3
+"#;
+    let next = update_codex(
+        content,
+        json!({
+            "name": "local",
+            "transport": "stdio",
+            "command": "new",
+            "args": [],
+            "env": [],
+            "headers": []
+        }),
+    );
+    let parsed: toml::Value = toml::from_str(&next).unwrap();
+    let env = parsed["mcp_servers"]["local"]["env"].as_table().unwrap();
+    // The string entry the UI showed is removed; the value Lithe cannot
+    // represent is not silently deleted along with it.
+    assert!(!env.contains_key("TOKEN"));
+    assert_eq!(env["COUNT"].as_integer(), Some(3));
+}
+
+#[test]
+fn toml_clearing_modeled_entries_keeps_non_string_inline_env_values() {
+    let content = r#"
+[mcp_servers.local]
+command = "old"
+env = { TOKEN = "x", COUNT = 3 }
+"#;
+    let next = update_codex(
+        content,
+        json!({
+            "name": "local",
+            "transport": "stdio",
+            "command": "new",
+            "args": [],
+            "env": [],
+            "headers": []
+        }),
+    );
+    let parsed: toml::Value = toml::from_str(&next).unwrap();
+    let env = parsed["mcp_servers"]["local"]["env"].as_table().unwrap();
+    assert!(!env.contains_key("TOKEN"));
+    assert_eq!(env["COUNT"].as_integer(), Some(3));
+}
+
+#[test]
+fn toml_updates_keep_comments_on_modeled_keys_and_values() {
+    let content = r#"
+[mcp_servers.local]
+# Starts the local helper.
+command = "old" # trailing command note
+args = ["--old"] # args note
+
+[mcp_servers.local.env]
+# Token note
+TOKEN = "old" # value note
+"#;
+    let next = update_codex(
+        content,
+        json!({
+            "name": "local",
+            "transport": "stdio",
+            "command": "new",
+            "args": ["--new"],
+            "env": [{"key": "TOKEN", "value": "new"}],
+            "headers": []
+        }),
+    );
+    for comment in [
+        "# Starts the local helper.",
+        "# trailing command note",
+        "# args note",
+        "# Token note",
+        "# value note",
+    ] {
+        assert!(next.contains(comment), "missing {comment} in {next}");
+    }
+    let parsed: toml::Value = toml::from_str(&next).unwrap();
+    let table = &parsed["mcp_servers"]["local"];
+    assert_eq!(table["command"].as_str(), Some("new"));
+    assert_eq!(table["env"]["TOKEN"].as_str(), Some("new"));
+}
+
+#[test]
+fn codex_removes_entries_from_an_inline_mcp_servers_table() {
+    let content = r#"mcp_servers = { lithe = { command = "old" }, other = { command = "keep" } }"#;
+    let parsed = parse("codex", "global", content, None);
+    let hash = server_hash(&parsed, "lithe");
+    let result = plan(json!({
+        "source": "codex",
+        "scope": "global",
+        "content": content,
+        "operation": "remove",
+        "name": "lithe",
+        "owned": [{"name": "lithe", "definitionHash": hash}]
+    }));
+    assert_eq!(result["action"], "removed");
+    assert_eq!(result["changed"], true);
+    let next = result["content"].as_str().unwrap();
+    let parsed: toml::Value = toml::from_str(next).unwrap();
+    assert!(parsed["mcp_servers"].get("lithe").is_none());
+    assert_eq!(
+        parsed["mcp_servers"]["other"]["command"].as_str(),
+        Some("keep")
+    );
+}
+
+#[test]
+fn rejects_duplicate_entry_names_that_a_map_cannot_hold() {
+    let error = plan_write(json!({
+        "source": "claude",
+        "scope": "global",
+        "content": "{\"mcpServers\": {}}",
+        "operation": "set",
+        "server": {
+            "name": "duplicates",
+            "transport": "stdio",
+            "command": "/bin/echo",
+            "args": [],
+            "env": [
+                {"key": "TOKEN", "value": "first"},
+                {"key": "TOKEN", "value": "second"}
+            ],
+            "headers": []
+        },
+        "owned": []
+    }))
+    .unwrap_err();
+    assert!(matches!(error.code, ErrorCode::InvalidRequest));
+}
+
+#[test]
 fn toml_transport_change_removes_only_the_keys_lithe_models() {
     let content = r#"
 [mcp_servers.switch]
@@ -480,6 +633,34 @@ fn claude_rename_preserves_unmodelled_fields() {
     );
     // Claude's edit leaves the old name in place; the host removes it next.
     assert!(parsed["mcpServers"].get("remote").is_some());
+}
+
+#[test]
+fn claude_clearing_modeled_entries_keeps_non_string_env_values() {
+    let content =
+        r#"{"mcpServers": {"local": {"command": "old", "env": {"TOKEN": "x", "COUNT": 3}}}}"#;
+    let parsed = parse("claude", "global", content, None);
+    let hash = server_hash(&parsed, "local");
+    let result = plan(json!({
+        "source": "claude",
+        "scope": "global",
+        "content": content,
+        "operation": "set",
+        "server": {
+            "name": "local",
+            "transport": "stdio",
+            "command": "new",
+            "args": [],
+            "env": [],
+            "headers": []
+        },
+        "owned": [{"name": "local", "definitionHash": hash}]
+    }));
+    let next = result["content"].as_str().unwrap();
+    let parsed: Value = serde_json::from_str(next).unwrap();
+    let env = &parsed["mcpServers"]["local"]["env"];
+    assert!(env.get("TOKEN").is_none());
+    assert_eq!(env["COUNT"], 3);
 }
 
 #[test]
