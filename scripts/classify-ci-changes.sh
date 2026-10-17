@@ -33,7 +33,7 @@ rust_diff_is_comment_only() {
                 return 1
             fi
         fi
-    done < <(git diff --no-color --unified=0 "$BASE_REVISION" "$HEAD_REVISION" -- "$path")
+    done < <(git diff --no-color --unified=0 "$BASE_REVISION" "$HEAD_REVISION" -- ":(literal)$path")
 
     [[ "$saw_change" == true ]]
 }
@@ -86,7 +86,7 @@ classify_path() {
         casks/*|scripts/update-homebrew-cask.rb)
             metadata=true
             ;;
-        scripts/classify-ci-changes.sh|scripts/test-classify-ci-changes.sh)
+        scripts/classify-ci-changes.sh|scripts/test-classify-ci-changes.sh|scripts/plan-ci-lane-reuse.mjs|scripts/plan-ci-lane-reuse.test.mjs|scripts/verify-reused-ci-jobs.mjs|scripts/verify-reused-ci-jobs.test.mjs)
             # A classifier change must exercise every lane that it can select.
             enable_all_validation
             ;;
@@ -430,7 +430,32 @@ classify_path() {
     esac
 }
 
-while IFS=$'\t' read -r status first_path second_path; do
+# LITHE_CI_ONLY_PATHS names a file with one repository path per line. When set,
+# only diff entries touching one of those paths are classified; the lane-reuse
+# planner uses it to classify a pull request's own new changes between two of
+# its revisions while ignoring changes that arrived from the base branch.
+only_paths_file="${LITHE_CI_ONLY_PATHS:-}"
+if [[ -n "$only_paths_file" && ! -f "$only_paths_file" ]]; then
+    printf 'LITHE_CI_ONLY_PATHS does not name a file: %s\n' "$only_paths_file" >&2
+    exit 2
+fi
+path_selected() {
+    [[ -z "$only_paths_file" ]] && return 0
+    grep -Fxq -- "$1" "$only_paths_file"
+}
+
+# NUL-separated output keeps every path raw: the default text output quotes
+# and escapes non-ASCII paths such as Chinese file names, which would then
+# miss both the path patterns below and the LITHE_CI_ONLY_PATHS filter.
+while IFS= read -r -d '' status; do
+    IFS= read -r -d '' first_path
+    second_path=""
+    if [[ "$status" == R* || "$status" == C* ]]; then
+        IFS= read -r -d '' second_path
+    fi
+    if [[ -n "$only_paths_file" ]] && ! path_selected "$first_path" && ! { [[ -n "$second_path" ]] && path_selected "$second_path"; }; then
+        continue
+    fi
     if [[ "$status" == R* || "$status" == C* ]]; then
         # Renames and copies can cross ownership boundaries, so both endpoints
         # select their own lanes. Neither side is a comment-only modification.
@@ -439,7 +464,7 @@ while IFS=$'\t' read -r status first_path second_path; do
     else
         classify_path "$status" "$first_path"
     fi
-done < <(git diff --name-status --find-renames "$BASE_REVISION" "$HEAD_REVISION")
+done < <(git diff -z --name-status --find-renames "$BASE_REVISION" "$HEAD_REVISION")
 
 if [[ "${LITHE_CI_DRAFT_PULL_REQUEST:-false}" == "true" ]]; then
     # Draft pull requests keep the Linux-only lanes but defer every macOS and
