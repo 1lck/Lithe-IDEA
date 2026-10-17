@@ -58,6 +58,32 @@ pub enum CoreCommand {
     PluginsDeclarativeLanguageServerLaunchPlan,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
     PluginsDeclarativeCheckRuntimeVersion,
+    /// Finds the build-system instances of a workspace (`build.detect`).
+    BuildDetect,
+    /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
+    BuildInvocationPlan,
+    /// Compares a build tool's or runtime's version output with its minimum (`build.checkToolVersion`).
+    BuildCheckToolVersion,
+    /// Resolves stored build options against the declaration (`build.resolveOptions`).
+    BuildResolveOptions,
+    /// Expands the command that prints a build model (`build.modelPlan`).
+    BuildModelPlan,
+    /// Expands one build task into an argv plan (`build.taskPlan`).
+    BuildTaskPlan,
+    /// Expands a build test run and its result location (`build.testPlan`).
+    BuildTestPlan,
+    /// Expands the command that prints a project's dependencies (`build.dependencyPlan`).
+    BuildDependencyPlan,
+    /// Normalizes a build model and derives its run entries (`build.decodeModel`).
+    BuildDecodeModel,
+    /// Normalizes build test results (`build.decodeTestResults`).
+    BuildDecodeTestResults,
+    /// Normalizes build diagnostics from process output (`build.decodeDiagnostics`).
+    BuildDecodeDiagnostics,
+    /// Normalizes a project's dependency tree (`build.decodeDependencies`).
+    BuildDecodeDependencies,
+    /// Digests the files a build model depends on (`build.syncFingerprint`).
+    BuildSyncFingerprint,
     /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
     PluginsMarketplaceValidateIndex,
     /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
@@ -379,6 +405,19 @@ impl CoreCommand {
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)
             }
+            "build.detect" => Some(Self::BuildDetect),
+            "build.invocationPlan" => Some(Self::BuildInvocationPlan),
+            "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),
+            "build.resolveOptions" => Some(Self::BuildResolveOptions),
+            "build.modelPlan" => Some(Self::BuildModelPlan),
+            "build.taskPlan" => Some(Self::BuildTaskPlan),
+            "build.testPlan" => Some(Self::BuildTestPlan),
+            "build.dependencyPlan" => Some(Self::BuildDependencyPlan),
+            "build.decodeModel" => Some(Self::BuildDecodeModel),
+            "build.decodeTestResults" => Some(Self::BuildDecodeTestResults),
+            "build.decodeDiagnostics" => Some(Self::BuildDecodeDiagnostics),
+            "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
+            "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
             "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
             "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
             "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),

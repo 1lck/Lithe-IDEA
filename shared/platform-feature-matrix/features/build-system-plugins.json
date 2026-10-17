@@ -1,0 +1,26 @@
+{
+  "id": "build-system-plugins",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "构建系统插件（API 3 buildSystems）：插件用 JSON 声明构建工具的识别、可执行文件、选项、任务、运行入口、测试和输出格式，或由插件自带、与语言服务器同类的 Provider 进程回答模型和依赖，Rust Core 统一校验、生成命令行或 Provider 请求并解码结果，宿主在通用 Build 工具窗口中运行",
+  "macos": {
+    "evidence": [
+      "rust/lithe-core/src/build",
+      "shared/contracts/plugins/v1/fixtures/build-plans.json",
+      "shared/contracts/plugins/v1/fixtures/gradle-provider.plugin.json"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-core/src/build",
+      "shared/contracts/plugins/v1/fixtures/build-plans.json",
+      "shared/contracts/plugins/v1/fixtures/gradle-provider.plugin.json"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Extensions",
+  "verification": "当前只有 Rust Core 与共享契约（cargo test -p lithe-core --lib build_systems、cargo test -p lithe-core --lib declarative_plugins、scripts/verify-shared-contracts.sh），两端宿主尚未调用 build.* 命令、也不会向 Provider 发送 lithe/build/* 请求，插件市场不列出 API 3 版本。宿主接入后：双端安装 fixtures 中 cargo-build、gradle-build 形态的插件包，确认 Build 工具窗口列出实例、工程、任务和选项；执行任务与测试的 argv 与 build-plans.json 一致，取消与输出上限生效；JUnit 报告与 lineMatcher 诊断可跳转到源码；未信任工作区打开时不启动任何模型命令或 Wrapper；gradle-provider 形态的自有 Provider 只在用户操作或工作区信任后启动、停用插件时停止，mix-provider 形态的共享写法复用语言服务器会话而不启动第二个进程，Provider 回复经 build.decodeModel 解码后显示；禁用插件后实例消失；运行前后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。"
+}

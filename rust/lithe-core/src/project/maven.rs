@@ -1128,7 +1128,7 @@ pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, Core
         return Ok(None);
     };
     let pom = root.join("pom.xml");
-    let Some(root_descriptor) = descriptor(&pom)? else {
+    let Some(root_descriptor) = contained_descriptor(&workspace_root, &pom)? else {
         return Ok(None);
     };
 
@@ -1956,6 +1956,17 @@ fn workspace_relative_path(root: &Path, path: &Path) -> Option<String> {
     Some(relative.to_string_lossy().replace('\\', "/"))
 }
 
+/// Reads a scanned POM only when links still resolve inside its reactor.
+fn contained_descriptor(root: &Path, path: &Path) -> Result<Option<Descriptor>, CoreError> {
+    let (Ok(root), Ok(path)) = (root.canonicalize(), path.canonicalize()) else {
+        return Ok(None);
+    };
+    if !path.starts_with(root) {
+        return Ok(None);
+    }
+    descriptor(&path)
+}
+
 fn module(
     root: &Path,
     base: &Path,
@@ -1968,7 +1979,9 @@ fn module(
         return None;
     }
     visited.push(module_path.clone());
-    let descriptor = descriptor(&module_path.join("pom.xml")).ok().flatten();
+    let descriptor = contained_descriptor(root, &module_path.join("pom.xml"))
+        .ok()
+        .flatten();
     let child_modules = descriptor
         .as_ref()
         .map(|value| {

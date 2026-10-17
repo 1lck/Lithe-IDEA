@@ -4,6 +4,7 @@ use std::path::Path;
 
 mod agent;
 pub mod ai;
+mod build;
 mod community;
 mod debug;
 mod diagnostics;

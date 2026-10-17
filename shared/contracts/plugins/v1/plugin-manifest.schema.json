@@ -6,12 +6,30 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "id", "displayName", "version", "pluginAPIVersion", "vendor"],
+  "if": { "required": ["pluginAPIVersion"], "properties": { "pluginAPIVersion": { "minimum": 3 } } },
+  "then": { "required": ["requires"] },
+  "else": { "not": { "required": ["requires"] } },
   "properties": {
     "schemaVersion": { "const": 2 },
     "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
     "displayName": { "type": "string", "minLength": 1 },
     "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
     "pluginAPIVersion": { "type": "integer", "minimum": 1 },
+    "requires": {
+      "description": "API level 3: every capability the manifest uses, each with the version of that capability's contract it was written against. Required at level 3 and refused below it. Listing a capability the manifest does not use, or leaving out one it uses, is refused.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "buildSystems": { "enum": [1] },
+        "executionProviders": { "enum": [1] },
+        "languageServers": { "enum": [1] },
+        "languages": { "enum": [1] },
+        "serverProcess": { "description": "The launch fields of language servers and of build providers that start their own process.", "enum": [1] },
+        "settings": { "enum": [1] },
+        "ui": { "enum": [1] }
+      }
+    },
     "vendor": {
       "type": "object",
       "additionalProperties": false,
@@ -24,11 +42,11 @@
     },
     "permissions": {
       "type": "array",
-      "items": { "enum": ["languageServer.launch", "process.run", "process.test", "ui.contribute"] }
+      "items": { "enum": ["languageServer.launch", "process.build", "process.run", "process.test", "ui.contribute"] }
     },
     "activationEvents": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^(onLanguage|onRun|onTest|onView|onCommand):[a-z0-9.+_-]+$" }
+      "items": { "type": "string", "pattern": "^(onLanguage|onRun|onTest|onView|onCommand|onBuildSystem):[a-z0-9.+_-]+$" }
     },
     "languages": {
       "type": "array",
@@ -42,6 +60,12 @@
     "executionProviders": {
       "type": "array",
       "items": { "$ref": "#/$defs/executionProvider" }
+    },
+    "buildSystems": {
+      "description": "pluginAPIVersion 3: build systems Core detects, models, and plans commands for. Requires process.build and one onBuildSystem:<id> activation event per build system.",
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/buildSystem" }
     },
     "ui": {
       "type": "object",
@@ -286,11 +310,43 @@
     },
     "languageServer": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["languageID", "launch"],
+      "$ref": "#/$defs/serverProcess",
+      "unevaluatedProperties": false,
+      "required": ["languageID"],
       "properties": {
         "languageID": { "type": "string" },
         "languageIdentifier": { "type": "string", "minLength": 1 },
+        "hostIntegration": {
+          "description": "pluginAPIVersion 2, official plugins only: a named host integration and the package resources it reads.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id"],
+          "properties": {
+            "id": { "enum": ["jdt"] },
+            "capabilities": {
+              "description": "Process-backed features of the language that the host's own implementation provides through the integration.",
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["debug", "run", "testing"] }
+            },
+            "resources": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  { "type": "string", "minLength": 1 },
+                  { "type": "array", "items": { "type": "string", "minLength": 1 } }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "serverProcess": {
+      "description": "The launch fields a language server and a pluginAPIVersion 3 build provider share; both are LSP base-protocol processes and pass the same validation.",
+      "type": "object",
+      "required": ["launch"],
+      "properties": {
         "launch": {
           "oneOf": [
             {
@@ -345,32 +401,37 @@
         "initializationOptions": {
           "description": "pluginAPIVersion 2: LSP initializationOptions; string values are launch templates.",
           "type": "object"
-        },
-        "hostIntegration": {
-          "description": "pluginAPIVersion 2, official plugins only: a named host integration and the package resources it reads.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["id"],
-          "properties": {
-            "id": { "enum": ["jdt"] },
-            "capabilities": {
-              "description": "Process-backed features of the language that the host's own implementation provides through the integration.",
-              "type": "array",
-              "uniqueItems": true,
-              "items": { "enum": ["debug", "run", "testing"] }
-            },
-            "resources": {
-              "type": "object",
-              "additionalProperties": {
-                "oneOf": [
-                  { "type": "string", "minLength": 1 },
-                  { "type": "array", "items": { "type": "string", "minLength": 1 } }
-                ]
-              }
-            }
-          }
         }
       }
+    },
+    "buildProvider": {
+      "description": "pluginAPIVersion 3: the LSP base-protocol process that answers lithe/build/model and lithe/build/dependencies. It either names a language server of the same plugin or declares its own server process.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["languageServer", "executesProjectCode", "mayUseNetwork"],
+          "properties": {
+            "languageServer": {
+              "description": "The languageID of a language server the same plugin declares; the host reuses that session.",
+              "type": "string",
+              "minLength": 1
+            },
+            "executesProjectCode": { "type": "boolean" },
+            "mayUseNetwork": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "$ref": "#/$defs/serverProcess",
+          "unevaluatedProperties": false,
+          "required": ["executesProjectCode", "mayUseNetwork"],
+          "properties": {
+            "executesProjectCode": { "type": "boolean" },
+            "mayUseNetwork": { "type": "boolean" }
+          }
+        }
+      ]
     },
     "minimumVersion": {
       "description": "pluginAPIVersion 2: one to three dot-separated numbers, for example 21 or 18.17.",
@@ -444,6 +505,1418 @@
             "workspaceArguments": { "$ref": "#/$defs/argumentList" },
             "fileArguments": { "$ref": "#/$defs/argumentList" },
             "testCaseArguments": { "$ref": "#/$defs/argumentList" }
+          }
+        }
+      }
+    },
+    "buildArgument": {
+      "description": "A template string, or one emitted only when every condition holds. See README.md for variables and guards.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "when"
+          ],
+          "properties": {
+            "value": {
+              "type": "string"
+            },
+            "when": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/buildCondition"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/buildCondition"
+                  },
+                  "minItems": 1
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "buildCondition": {
+      "enum": [
+        "projectSelected",
+        "noProjectSelected",
+        "nestedProjectSelected",
+        "noNestedProjectSelected",
+        "targetSelected",
+        "noTargetSelected",
+        "suiteSelected",
+        "noSuiteSelected",
+        "caseSelected",
+        "noCaseSelected"
+      ]
+    },
+    "buildArgumentList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/buildArgument"
+      },
+      "maxItems": 64
+    },
+    "buildExecutable": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "const": "projectFile"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^/\\\\]"
+            },
+            "requires": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^/\\\\]"
+              }
+            },
+            "platforms": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "macos",
+                  "linux",
+                  "windows"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "variable",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "const": "environment"
+            },
+            "variable": {
+              "type": "string",
+              "pattern": "^[A-Z_][A-Z0-9_]*$",
+              "maxLength": 64
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^/\\\\]"
+            },
+            "platforms": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "macos",
+                  "linux",
+                  "windows"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "command"
+          ],
+          "properties": {
+            "kind": {
+              "const": "command"
+            },
+            "command": {
+              "type": "string",
+              "pattern": "^[^/\\\\\\s]+$"
+            },
+            "platforms": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "macos",
+                  "linux",
+                  "windows"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "runtime"
+          ],
+          "properties": {
+            "kind": {
+              "const": "runtime"
+            },
+            "runtime": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$",
+              "maxLength": 64
+            },
+            "platforms": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "macos",
+                  "linux",
+                  "windows"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "buildVersionProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arguments",
+        "pattern"
+      ],
+      "properties": {
+        "arguments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "buildFieldSpec": {
+      "description": "A selector (\"\", @key, /a/b, or $/a/b), a selector with a transform, or a literal value.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "from",
+            "transform"
+          ],
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "transform": {
+              "enum": [
+                "lastSegment",
+                "parentDirectory"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value"
+          ],
+          "properties": {
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        }
+      ]
+    },
+    "buildPredicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pointer"
+      ],
+      "properties": {
+        "pointer": {
+          "type": "string"
+        },
+        "equals": {},
+        "exists": {
+          "type": "boolean"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "equals"
+          ],
+          "not": {
+            "required": [
+              "exists"
+            ]
+          }
+        },
+        {
+          "required": [
+            "exists"
+          ],
+          "not": {
+            "required": [
+              "equals"
+            ]
+          }
+        }
+      ]
+    },
+    "buildFieldMap": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/buildFieldSpec"
+      }
+    },
+    "buildExecution": {
+      "enum": [
+        "application",
+        "service",
+        "task"
+      ]
+    },
+    "buildScopes": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "workspace",
+          "project",
+          "target"
+        ]
+      },
+      "minItems": 1
+    },
+    "buildTargetRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "tags"
+      ],
+      "properties": {
+        "each": {
+          "type": "string"
+        },
+        "where": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/buildPredicate"
+          }
+        },
+        "fallback": {
+          "type": "boolean"
+        },
+        "whenFile": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/\\\\]"
+        },
+        "name": {
+          "$ref": "#/$defs/buildFieldSpec"
+        },
+        "path": {
+          "$ref": "#/$defs/buildFieldSpec"
+        },
+        "tags": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$",
+                "maxLength": 64
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "from",
+                "map"
+              ],
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "map": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9-]+$",
+                      "maxLength": 64
+                    }
+                  }
+                },
+                "default": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9-]+$",
+                    "maxLength": 64
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "properties": {
+          "$ref": "#/$defs/buildFieldMap"
+        }
+      }
+    },
+    "buildTaskRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "template"
+      ],
+      "properties": {
+        "each": {
+          "type": "string"
+        },
+        "where": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/buildPredicate"
+          }
+        },
+        "fallback": {
+          "type": "boolean"
+        },
+        "whenFile": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/\\\\]"
+        },
+        "name": {
+          "$ref": "#/$defs/buildFieldSpec"
+        },
+        "path": {
+          "$ref": "#/$defs/buildFieldSpec"
+        },
+        "template": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "maxLength": 64
+        },
+        "displayName": {
+          "$ref": "#/$defs/buildFieldSpec"
+        },
+        "description": {
+          "$ref": "#/$defs/buildFieldSpec"
+        },
+        "execution": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/buildExecution"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "from",
+                "map"
+              ],
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "map": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/$defs/buildExecution"
+                  }
+                },
+                "default": {
+                  "$ref": "#/$defs/buildExecution"
+                }
+              }
+            }
+          ]
+        },
+        "properties": {
+          "$ref": "#/$defs/buildFieldMap"
+        }
+      }
+    },
+    "buildModelMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "each": {
+                "type": "string"
+              },
+              "where": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/buildPredicate"
+                }
+              },
+              "fallback": {
+                "type": "boolean"
+              },
+              "whenFile": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^/\\\\]"
+              },
+              "name": {
+                "$ref": "#/$defs/buildFieldSpec"
+              },
+              "displayName": {
+                "$ref": "#/$defs/buildFieldSpec"
+              },
+              "path": {
+                "$ref": "#/$defs/buildFieldSpec"
+              },
+              "parent": {
+                "$ref": "#/$defs/buildFieldSpec"
+              },
+              "properties": {
+                "$ref": "#/$defs/buildFieldMap"
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/buildTargetRule"
+                }
+              },
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/buildTaskRule"
+                }
+              },
+              "contentRoots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "kind"
+                  ],
+                  "properties": {
+                    "each": {
+                      "type": "string"
+                    },
+                    "where": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/buildPredicate"
+                      }
+                    },
+                    "fallback": {
+                      "type": "boolean"
+                    },
+                    "whenFile": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[^/\\\\]"
+                    },
+                    "path": {
+                      "$ref": "#/$defs/buildFieldSpec"
+                    },
+                    "kind": {
+                      "enum": [
+                        "source",
+                        "resource",
+                        "testSource",
+                        "testResource",
+                        "generatedSource",
+                        "generatedTestSource",
+                        "excluded"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/buildTargetRule"
+          }
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/buildTaskRule"
+          }
+        },
+        "optionValues": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "each",
+              "value"
+            ],
+            "properties": {
+              "each": {
+                "type": "string"
+              },
+              "where": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/buildPredicate"
+                }
+              },
+              "value": {
+                "$ref": "#/$defs/buildFieldSpec"
+              }
+            }
+          }
+        }
+      }
+    },
+    "buildDependencyRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "each",
+        "name"
+      ],
+      "properties": {
+        "each": {
+          "type": "string"
+        },
+        "where": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/buildPredicate"
+          }
+        },
+        "name": {
+          "$ref": "#/$defs/buildFieldSpec"
+        },
+        "group": {
+          "$ref": "#/$defs/buildFieldSpec"
+        },
+        "version": {
+          "$ref": "#/$defs/buildFieldSpec"
+        },
+        "scope": {
+          "$ref": "#/$defs/buildFieldSpec"
+        },
+        "properties": {
+          "$ref": "#/$defs/buildFieldMap"
+        },
+        "children": {
+          "type": "string"
+        }
+      }
+    },
+    "buildSystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayName",
+        "detection",
+        "invocation"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "maxLength": 64
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "detection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "markers"
+          ],
+          "properties": {
+            "markers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[^/\\\\]+$"
+              },
+              "minItems": 1,
+              "maxItems": 32
+            },
+            "nesting": {
+              "enum": [
+                "separate",
+                "outermost"
+              ]
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        },
+        "invocation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executables"
+          ],
+          "properties": {
+            "executables": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/buildExecutable"
+              },
+              "minItems": 1,
+              "maxItems": 32
+            },
+            "globalArguments": {
+              "$ref": "#/$defs/buildArgumentList"
+            },
+            "environmentInputs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Z_][A-Z0-9_]*$",
+                "maxLength": 64
+              }
+            },
+            "runtimeDependencies": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$",
+                    "maxLength": 64
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "minimumVersion": {
+                    "$ref": "#/$defs/minimumVersion"
+                  },
+                  "executables": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/buildExecutable"
+                    },
+                    "maxItems": 32
+                  },
+                  "version": {
+                    "$ref": "#/$defs/buildVersionProbe"
+                  }
+                },
+                "description": "java, node, and go are host-managed and take only id and minimumVersion; any other runtime declares its executables and version probe."
+              }
+            },
+            "version": {
+              "$ref": "#/$defs/buildVersionProbe"
+            },
+            "minimumVersion": {
+              "$ref": "#/$defs/minimumVersion"
+            }
+          }
+        },
+        "hostIntegration": {
+          "description": "Official plugins only; the host must provide the named integration.",
+          "enum": [
+            "maven"
+          ]
+        },
+        "provider": {
+          "$ref": "#/$defs/buildProvider"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "displayName",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$"
+              },
+              "displayName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "kind": {
+                "enum": [
+                  "boolean",
+                  "singleSelect",
+                  "multiSelect",
+                  "text",
+                  "file",
+                  "directory"
+                ]
+              },
+              "default": {},
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    }
+                  }
+                },
+                "maxItems": 64
+              },
+              "choicesFromModel": {
+                "type": "boolean"
+              },
+              "allowCustom": {
+                "type": "boolean"
+              },
+              "separator": {
+                "type": "string",
+                "minLength": 1
+              },
+              "arguments": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "environment": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[A-Z_][A-Z0-9_]*$",
+                  "maxLength": 64
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "maxItems": 32
+        },
+        "model": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "file",
+                "decoder",
+                "map"
+              ],
+              "properties": {
+                "source": {
+                  "const": "static"
+                },
+                "file": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^/\\\\]"
+                },
+                "decoder": {
+                  "enum": [
+                    "json",
+                    "toml",
+                    "yaml"
+                  ]
+                },
+                "map": {
+                  "$ref": "#/$defs/buildModelMap"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "arguments",
+                "decoder",
+                "executesProjectCode",
+                "mayUseNetwork"
+              ],
+              "properties": {
+                "source": {
+                  "const": "command"
+                },
+                "arguments": {
+                  "$ref": "#/$defs/buildArgumentList"
+                },
+                "output": {
+                  "enum": [
+                    "stdout",
+                    "outputFile"
+                  ]
+                },
+                "decoder": {
+                  "enum": [
+                    "json",
+                    "jsonStream",
+                    "toml",
+                    "yaml",
+                    "litheBuildModel"
+                  ]
+                },
+                "map": {
+                  "$ref": "#/$defs/buildModelMap"
+                },
+                "executesProjectCode": {
+                  "type": "boolean"
+                },
+                "mayUseNetwork": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source"
+              ],
+              "properties": {
+                "source": {
+                  "const": "hostIntegration"
+                }
+              }
+            },
+            {
+              "description": "pluginAPIVersion 3: the build provider answers lithe/build/model with a litheBuildModel document.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source"
+              ],
+              "properties": {
+                "source": {
+                  "const": "provider"
+                }
+              }
+            }
+          ]
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "displayName",
+              "group",
+              "arguments"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$",
+                "maxLength": 64
+              },
+              "displayName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "group": {
+                "enum": [
+                  "lifecycle",
+                  "build",
+                  "test",
+                  "run",
+                  "verification",
+                  "documentation",
+                  "other"
+                ]
+              },
+              "execution": {
+                "$ref": "#/$defs/buildExecution"
+              },
+              "scopes": {
+                "$ref": "#/$defs/buildScopes"
+              },
+              "fromModel": {
+                "type": "boolean"
+              },
+              "targetTags": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9-]+$",
+                  "maxLength": 64
+                }
+              },
+              "requiresUserArguments": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 1024
+              },
+              "arguments": {
+                "$ref": "#/$defs/buildArgumentList"
+              }
+            }
+          },
+          "maxItems": 128
+        },
+        "run": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$",
+                "maxLength": 64
+              },
+              "fromTargets": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "tags"
+                ],
+                "properties": {
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9-]+$",
+                      "maxLength": 64
+                    },
+                    "minItems": 1
+                  }
+                }
+              },
+              "fromTasks": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "templates": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$",
+                      "maxLength": 64
+                    }
+                  },
+                  "executions": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/buildExecution"
+                    }
+                  }
+                }
+              },
+              "execution": {
+                "$ref": "#/$defs/buildExecution"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "arguments": {
+                "$ref": "#/$defs/buildArgumentList"
+              },
+              "workingDirectory": {
+                "enum": [
+                  "project",
+                  "root"
+                ]
+              },
+              "extension": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "fromTargets"
+                ],
+                "not": {
+                  "required": [
+                    "fromTasks"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "fromTasks"
+                ],
+                "not": {
+                  "required": [
+                    "fromTargets"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "test": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scopes",
+            "arguments"
+          ],
+          "properties": {
+            "scopes": {
+              "$ref": "#/$defs/buildScopes"
+            },
+            "targetTags": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$",
+                "maxLength": 64
+              }
+            },
+            "filters": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "suite",
+                  "case"
+                ]
+              }
+            },
+            "arguments": {
+              "$ref": "#/$defs/buildArgumentList"
+            },
+            "results": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "decoder",
+                    "reports"
+                  ],
+                  "properties": {
+                    "decoder": {
+                      "enum": [
+                        "junitXml",
+                        "litheTestResults"
+                      ]
+                    },
+                    "reports": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[^/\\\\]"
+                      },
+                      "minItems": 1
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "decoder"
+                  ],
+                  "properties": {
+                    "decoder": {
+                      "const": "hostIntegration"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "diagnostics": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "decoder",
+                "patterns"
+              ],
+              "properties": {
+                "decoder": {
+                  "const": "lineMatcher"
+                },
+                "patterns": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "regex",
+                      "file",
+                      "line",
+                      "message"
+                    ],
+                    "properties": {
+                      "regex": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      "file": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "line": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "column": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "message": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "severity": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "severities": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "enum": [
+                            "error",
+                            "warning",
+                            "information",
+                            "hint"
+                          ]
+                        }
+                      },
+                      "defaultSeverity": {
+                        "enum": [
+                          "error",
+                          "warning",
+                          "information",
+                          "hint"
+                        ]
+                      }
+                    }
+                  },
+                  "minItems": 1,
+                  "maxItems": 32
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "decoder"
+              ],
+              "properties": {
+                "decoder": {
+                  "const": "litheDiagnostics"
+                }
+              }
+            }
+          ]
+        },
+        "dependencies": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "scopes",
+                "arguments",
+                "decoder",
+                "executesProjectCode",
+                "mayUseNetwork"
+              ],
+              "properties": {
+                "source": {
+                  "const": "command"
+                },
+                "scopes": {
+                  "$ref": "#/$defs/buildScopes"
+                },
+                "arguments": {
+                  "$ref": "#/$defs/buildArgumentList"
+                },
+                "output": {
+                  "enum": [
+                    "stdout",
+                    "outputFile"
+                  ]
+                },
+                "decoder": {
+                  "enum": [
+                    "json",
+                    "jsonStream",
+                    "toml",
+                    "yaml",
+                    "litheDependencies"
+                  ]
+                },
+                "map": {
+                  "$ref": "#/$defs/buildDependencyRule"
+                },
+                "executesProjectCode": {
+                  "type": "boolean"
+                },
+                "mayUseNetwork": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source"
+              ],
+              "properties": {
+                "source": {
+                  "const": "hostIntegration"
+                }
+              }
+            },
+            {
+              "description": "pluginAPIVersion 3: the build provider answers lithe/build/dependencies with a litheDependencies document.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "scopes"
+              ],
+              "properties": {
+                "source": {
+                  "const": "provider"
+                },
+                "scopes": {
+                  "$ref": "#/$defs/buildScopes"
+                }
+              }
+            }
+          ]
+        },
+        "sync": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "watch"
+          ],
+          "properties": {
+            "watch": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^/\\\\]"
+              },
+              "minItems": 1,
+              "maxItems": 32
+            }
+          }
+        },
+        "layout": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "excluded": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^/\\\\]"
+              },
+              "maxItems": 32
+            },
+            "generated": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^/\\\\]"
+              },
+              "maxItems": 32
+            }
           }
         }
       }
