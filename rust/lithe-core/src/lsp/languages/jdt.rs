@@ -459,6 +459,34 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
         return;
     };
     for (key, value) in provider_java {
+        // `java.import.gradle` is the only `import` leaf Lithe owns. The options
+        // Lithe deliberately never guesses (`java.home`, `version`,
+        // `offline.enabled`, ...) have to survive, so the owned leaves merge
+        // into the declared `import` object instead of replacing it.
+        if key == "import" {
+            if let Some(gradle) = value.get("gradle").and_then(Value::as_object) {
+                let import = java.entry("import".to_string()).or_insert_with(|| json!({}));
+                if !import.is_object() {
+                    *import = json!({});
+                }
+                let import = import
+                    .as_object_mut()
+                    .expect("the import value was normalized to an object");
+                let declared_gradle = import
+                    .entry("gradle".to_string())
+                    .or_insert_with(|| json!({}));
+                if !declared_gradle.is_object() {
+                    *declared_gradle = json!({});
+                }
+                let declared_gradle = declared_gradle
+                    .as_object_mut()
+                    .expect("the gradle value was normalized to an object");
+                for (gradle_key, gradle_value) in gradle {
+                    declared_gradle.insert(gradle_key.clone(), gradle_value.clone());
+                }
+                continue;
+            }
+        }
         java.insert(key, value);
     }
 }
@@ -1974,6 +2002,42 @@ mod tests {
         // Pointing Buildship at a wrapper the workspace does not ship would be
         // worse than leaving its own default in place.
         assert!(gradle.get("wrapper").is_none());
+    }
+
+    #[test]
+    fn gradle_import_settings_keep_the_gradle_options_lithe_never_sends() {
+        // Lithe only states `enabled` and, when a wrapper is shipped,
+        // `wrapper.enabled`. Options that require reading the build script are
+        // never sent, so a declared `import.gradle` subtree has to survive the
+        // overlay instead of being replaced by those two leaves.
+        let configuration = JdtGradleConfiguration {
+            wrapper_present: true,
+        };
+
+        let options = adapt_initialization_options(
+            "java",
+            Some(json!({
+                "settings": {
+                    "java": {
+                        "import": {
+                            "gradle": {
+                                "offline": { "enabled": true },
+                                "version": "8.10"
+                            }
+                        }
+                    }
+                }
+            })),
+            &[],
+            gradle_settings(&configuration),
+        )
+        .unwrap();
+
+        let gradle = &options["settings"]["java"]["import"]["gradle"];
+        assert_eq!(gradle["enabled"], true);
+        assert_eq!(gradle["wrapper"]["enabled"], true);
+        assert_eq!(gradle["offline"]["enabled"], true);
+        assert_eq!(gradle["version"], "8.10");
     }
 
     #[test]
