@@ -51,6 +51,7 @@ struct AgentConversationView: View {
                     onOpenFile: { model.openAgentFile($0) },
                     onRestoreFile: { try await model.restoreAgentFile($0) },
                     onFindFiles: { await model.agentFileMentions(matching: $0) },
+                    fileMentionRevision: model.workspaceSnapshotID,
                     onSavePastedImage: { try model.saveAgentPastedImage($0) },
                     availableAgents: selectableAgents,
                     historyOnly: !isEditor && model.agentChatsInEditor,
@@ -242,6 +243,7 @@ struct AgentConfiguredConversationView: View {
     let onOpenFile: (AgentToolDetails.Location) -> Void
     var onRestoreFile: (AgentFileChange) async throws -> Void = { _ in throw AgentEditRestoreError.unavailable }
     var onFindFiles: ((String) async -> [AgentFileMention])? = nil
+    var fileMentionRevision: UUID? = nil
     var onSavePastedImage: ((Data) throws -> URL)? = nil
     var availableAgents: [AgentOption]? = nil
     var historyOnly = false
@@ -267,6 +269,7 @@ struct AgentConfiguredConversationView: View {
                 onOpenFile: onOpenFile,
                 onRestoreFile: onRestoreFile,
                 onFindFiles: onFindFiles,
+                fileMentionRevision: fileMentionRevision,
                 onSavePastedImage: onSavePastedImage,
                 historyOnly: historyOnly, showsChatActions: showsChatActions, chatsInEditor: chatsInEditor,
                 onToggleLocation: onToggleLocation, onFocusEditor: onFocusEditor,
@@ -369,6 +372,7 @@ private struct AgentConnectionView: View {
     let onOpenFile: (AgentToolDetails.Location) -> Void
     let onRestoreFile: (AgentFileChange) async throws -> Void
     var onFindFiles: ((String) async -> [AgentFileMention])? = nil
+    var fileMentionRevision: UUID? = nil
     var onSavePastedImage: ((Data) throws -> URL)? = nil
     var historyOnly = false
     var showsChatActions = true
@@ -654,6 +658,7 @@ private struct AgentConnectionView: View {
             onSetConfig: { feature.setConfigOption($0, value: $1) },
             commands: feature.selectedConversation?.availableCommands ?? [],
             findFiles: onFindFiles,
+            fileMentionRevision: fileMentionRevision,
             savePastedImage: onSavePastedImage,
             showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles,
             detailsContent: { AnyView(detailsPanel.frame(height: AgentEditorConversationMetrics.detailsPopupHeight)) }
