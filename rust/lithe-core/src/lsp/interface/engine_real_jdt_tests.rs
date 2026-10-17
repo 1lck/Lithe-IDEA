@@ -359,6 +359,7 @@ fn real_start_request(
             home_path: toolchain.project_jdk.to_string_lossy().into_owned(),
             version: "25".to_string(),
         }],
+        java_gradle: None,
         initialize_timeout_milliseconds: 90_000,
         service_ready_idle_timeout_milliseconds: 45_000,
         service_ready_absolute_timeout_milliseconds: 600_000,
