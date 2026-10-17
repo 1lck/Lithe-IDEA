@@ -46,8 +46,11 @@ package final class GitRepositorySetupFeatureModel: ObservableObject {
         guard self.generation == generation else { return }
         isBusy = false
         receive(result)
-        name = state?.configuredName ?? ""
-        email = state?.configuredEmail ?? ""
+        // The fields show what Git is using right now, including an inherited
+        // value. Saving still compares against `configuredName`/`configuredEmail`,
+        // so showing the inherited value does not create an override by itself.
+        name = state?.configuredName ?? state?.effectiveName ?? ""
+        email = state?.configuredEmail ?? state?.effectiveEmail ?? ""
     }
 
     package func initialize() async -> Bool {
@@ -86,8 +89,8 @@ package final class GitRepositorySetupFeatureModel: ObservableObject {
         receive(result)
         if errorMessage == nil {
             // Keep an unsaved draft in the other field intact.
-            if field == .name { name = state?.configuredName ?? "" }
-            else { email = state?.configuredEmail ?? "" }
+            if field == .name { name = state?.configuredName ?? state?.effectiveName ?? "" }
+            else { email = state?.configuredEmail ?? state?.effectiveEmail ?? "" }
             savedField = field
         }
     }

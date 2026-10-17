@@ -25,22 +25,24 @@ private struct GitIdentitySettingsPane: View {
     @State private var scope = GitIdentityScope.local
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Commit identity").font(LitheTheme.uiFont(size: 15, weight: .semibold))
-            Text("Git records this name and email in new commits. These settings do not change existing commits.")
-                .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-            LitheSettingsSegmentedControl(
-                selection: $scope,
-                options: GitIdentityScope.allCases,
-                width: 340,
-                title: { $0 == .local ? "Current repository" : "Global Git configuration" }
-            )
-            .accessibilityLabel("Configuration scope")
-            .disabled(editor.isBusy)
-            Text(scope == .global
-                 ? LocalizedStringKey("Global identity applies to other repositories unless they override it.")
-                 : LocalizedStringKey("Repository identity overrides inherited global values. Clear an override to use inherited settings."))
-                .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 4) {
+                Text("Commit identity").font(LitheTheme.uiFont(size: 15, weight: .semibold))
+                LitheInfoTip("Git records this name and email in new commits. These settings do not change existing commits.")
+            }
+            HStack(spacing: 4) {
+                LitheSettingsSegmentedControl(
+                    selection: $scope,
+                    options: GitIdentityScope.allCases,
+                    width: 340,
+                    title: { $0 == .local ? "Current repository" : "Global Git configuration" }
+                )
+                .accessibilityLabel("Configuration scope")
+                .disabled(editor.isBusy)
+                LitheInfoTip(scope == .global
+                     ? LocalizedStringKey("Global identity applies to other repositories unless they override it.")
+                     : LocalizedStringKey("Repository identity overrides inherited global values. Clear an override to use inherited settings."))
+            }
             if let root = feature.repositorySetupRoot {
                 Text(root.path).font(LitheTheme.uiFont(size: 11, design: .monospaced)).textSelection(.enabled)
                 if editor.state?.isRepository == false && scope == .local {
@@ -70,12 +72,14 @@ private struct GitIdentitySettingsPane: View {
 
     private func identityField(_ field: GitIdentityField, title: LocalizedStringKey,
                                draft: Binding<String>, configured: String?, effective: String?) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
+        let shownValue = configured ?? effective ?? ""
+        return VStack(alignment: .leading, spacing: 7) {
             Text(title).font(LitheTheme.uiFont(size: 12, weight: .medium))
             HStack {
                 TextField(title, text: draft).litheSettingsTextField()
                 Button("Save") { save(field) }
-                    .disabled(draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.wrappedValue == configured)
+                    .disabled(draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                              || draft.wrappedValue == shownValue)
                     .lithePointer()
                 Button("Clear Override") { save(field, clear: true) }.disabled(configured == nil).lithePointer()
             }

@@ -13,6 +13,7 @@ mod git;
 mod github;
 mod languages;
 mod lsp;
+mod mcp;
 pub mod plugins;
 pub mod process;
 mod project;

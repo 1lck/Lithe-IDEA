@@ -166,21 +166,23 @@ struct ProjectRuntimeSettingsView: View {
     }
 
     private var projectDefaultsDetail: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            group("Java SDK") {
+        VStack(alignment: .leading, spacing: 10) {
+            group("Java SDK", info: "Maven, Run, and Debug use this JDK unless a subproject or run configuration overrides it.") {
                 row("Project JDK") {
-                    runtimePicker(
-                        selection: javaHomeBinding,
-                        options: javaHomeOptions(current: feature.settings.javaHomePath),
-                        accessibilityLabel: "Project JDK",
-                        title: { feature.javaRuntimeTitle(for: $0, automaticTitle: "Detected JDK") }
-                    )
+                    HStack(spacing: 6) {
+                        runtimePicker(
+                            selection: javaHomeBinding,
+                            options: javaHomeOptions(current: feature.settings.javaHomePath),
+                            accessibilityLabel: "Project JDK",
+                            title: { feature.javaRuntimeTitle(for: $0, automaticTitle: "Detected JDK") }
+                        )
+                        chooseDirectoryButton(
+                            value: javaHomeBinding,
+                            title: "Choose a JDK directory",
+                            help: "Choose JDK directory"
+                        )
+                    }
                 }
-                pathChooserRow(
-                    value: javaHomeBinding,
-                    title: "Choose a JDK directory",
-                    help: "Choose JDK directory"
-                )
                 EffectiveRuntimeLabel(
                     feature: feature,
                     choice: { feature.javaChoice(overridePath: nil) },
@@ -188,12 +190,9 @@ struct ProjectRuntimeSettingsView: View {
                     mode: feature.settings.javaHomePath.isEmpty ? .automatic : .configured,
                     requirements: requirementMessages(for: "project-jdk")
                 )
-                Text("Maven, Run, and Debug use this JDK unless a subproject or run configuration overrides it.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
             }
 
-            group("Maven") {
+            group("Maven", info: "Automatic uses a project mvnw first, then detected Maven, then mvnd.") {
                 row("Maven source") {
                     LitheSettingsSelect(
                         selection: mavenHomeSelectionBinding,
@@ -212,9 +211,6 @@ struct ProjectRuntimeSettingsView: View {
                         fileOrDirectory: true
                     )
                 }
-                Text("Automatic uses a project mvnw first, then detected Maven, then mvnd.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
                 if let workspaceURL = model.workspaceURL {
                     EffectiveRuntimeLabel(
                         feature: feature,
@@ -231,18 +227,20 @@ struct ProjectRuntimeSettingsView: View {
                     )
                 }
                 row("Maven JDK") {
-                    runtimePicker(
-                        selection: mavenJavaHomeBinding,
-                        options: javaHomeOptions(current: feature.settings.mavenJavaHomePath, includeAutomatic: true),
-                        accessibilityLabel: "Maven JDK",
-                        title: { feature.javaRuntimeTitle(for: $0, automaticTitle: "Use Project JDK") }
-                    )
+                    HStack(spacing: 6) {
+                        runtimePicker(
+                            selection: mavenJavaHomeBinding,
+                            options: javaHomeOptions(current: feature.settings.mavenJavaHomePath, includeAutomatic: true),
+                            accessibilityLabel: "Maven JDK",
+                            title: { feature.javaRuntimeTitle(for: $0, automaticTitle: "Use Project JDK") }
+                        )
+                        chooseDirectoryButton(
+                            value: mavenJavaHomeBinding,
+                            title: "Choose a JDK directory",
+                            help: "Choose Maven JDK"
+                        )
+                    }
                 }
-                pathChooserRow(
-                    value: mavenJavaHomeBinding,
-                    title: "Choose a JDK directory",
-                    help: "Choose Maven JDK"
-                )
                 EffectiveRuntimeLabel(
                     feature: feature,
                     choice: { feature.mavenJavaChoice(overridePath: nil) },
@@ -252,14 +250,14 @@ struct ProjectRuntimeSettingsView: View {
                 pathField(
                     title: "settings.xml",
                     value: mavenSettingsPathBinding,
-                    placeholder: "Automatic",
+                    placeholder: effectiveMavenSettingsPath ?? String(localized: "Not found"),
                     chooseTitle: "Choose Maven settings.xml",
                     fileOrDirectory: false
                 )
                 pathField(
                     title: "Local Repository",
                     value: mavenLocalRepositoryBinding,
-                    placeholder: "Automatic",
+                    placeholder: effectiveMavenLocalRepositoryPath ?? String(localized: "Not found"),
                     chooseTitle: "Choose Maven Local Repository",
                     fileOrDirectory: true,
                     directoryOnly: true
@@ -280,30 +278,29 @@ struct ProjectRuntimeSettingsView: View {
     private func javaSubprojectDetail(_ subproject: ProjectRuntimeSubproject) -> some View {
         let override = feature.settings.exactOverride(for: subproject.relativePath)
         let effectiveJavaHome = feature.effectiveJavaHome(for: subproject)
-        return VStack(alignment: .leading, spacing: 18) {
-            group("Java SDK") {
+        return VStack(alignment: .leading, spacing: 10) {
+            group("Java SDK", info: "This subproject can use a different JDK from other backends in the same workspace.") {
                 row("Project JDK") {
-                    runtimePicker(
-                        selection: moduleJavaHomeBinding(for: subproject),
-                        options: javaHomeOptions(current: override?.javaHomePath ?? "", includeAutomatic: true),
-                        accessibilityLabel: "Project JDK",
-                        title: { feature.javaRuntimeTitle(for: $0, automaticTitle: "Inherit project JDK") }
-                    )
+                    HStack(spacing: 6) {
+                        runtimePicker(
+                            selection: moduleJavaHomeBinding(for: subproject),
+                            options: javaHomeOptions(current: override?.javaHomePath ?? "", includeAutomatic: true),
+                            accessibilityLabel: "Project JDK",
+                            title: { feature.javaRuntimeTitle(for: $0, automaticTitle: "Inherit project JDK") }
+                        )
+                        chooseDirectoryButton(
+                            value: moduleJavaHomeBinding(for: subproject),
+                            title: "Choose a JDK directory",
+                            help: "Choose JDK directory"
+                        )
+                    }
                 }
-                pathChooserRow(
-                    value: moduleJavaHomeBinding(for: subproject),
-                    title: "Choose a JDK directory",
-                    help: "Choose JDK directory"
-                )
                 EffectiveRuntimeLabel(
                     feature: feature,
                     choice: { feature.javaChoice(overridePath: effectiveJavaHome.isEmpty ? nil : effectiveJavaHome) },
                     kind: .java,
                     mode: (override?.javaHomePath ?? "").isEmpty ? .inherited : .configured
                 )
-                Text("This subproject can use a different JDK from other backends in the same workspace.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
             }
 
             group("Maven") {
@@ -346,6 +343,39 @@ struct ProjectRuntimeSettingsView: View {
         model.runFeatureIfActive?.configurationDiagnostics.toolchainRequirementMessages(for: toolchain) ?? []
     }
 
+    /// The configured override, otherwise the file Maven would read by default
+    /// or the installation's `conf/settings.xml`. Showing the resolved path is
+    /// more useful than “Automatic”; when nothing exists, the field says so.
+    private var effectiveMavenSettingsPath: String? {
+        if let path = model.mavenFeatureIfActive?.settingsPath, !path.isEmpty { return path }
+        let configured = feature.settings.mavenSettingsPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configured.isEmpty { return configured }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let userSettings = home.appendingPathComponent(".m2/settings.xml")
+        if FileManager.default.fileExists(atPath: userSettings.path) { return userSettings.path }
+        guard let workspaceURL = model.workspaceURL,
+              let executable = feature.mavenChoice(
+                  at: workspaceURL,
+                  overridePath: feature.settings.mavenExecutableOverride
+              ).url else { return nil }
+        let installationSettings = executable
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("conf/settings.xml")
+        return FileManager.default.fileExists(atPath: installationSettings.path)
+            ? installationSettings.path
+            : nil
+    }
+
+    private var effectiveMavenLocalRepositoryPath: String? {
+        if let path = model.mavenFeatureIfActive?.localRepositoryPath, !path.isEmpty { return path }
+        let configured = feature.settings.mavenLocalRepositoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configured.isEmpty { return configured }
+        let repository = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".m2/repository")
+        return FileManager.default.fileExists(atPath: repository.path) ? repository.path : nil
+    }
+
     private func labeledValue(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(LocalizedStringKey(title))
@@ -375,23 +405,20 @@ struct ProjectRuntimeSettingsView: View {
         )
     }
 
-    private func pathChooserRow(
+    private func chooseDirectoryButton(
         value: Binding<String>,
         title: String,
         help: String
     ) -> some View {
-        HStack {
-            Spacer()
-            Button {
-                if let url = model.platformUI.chooseDirectory(title: title, prompt: "Choose") {
-                    value.wrappedValue = url.standardizedFileURL.path
-                }
-            } label: {
-                Image(systemName: "folder")
+        Button {
+            if let url = model.platformUI.chooseDirectory(title: title, prompt: "Choose") {
+                value.wrappedValue = url.standardizedFileURL.path
             }
-            .litheIconButton()
-            .help(help)
+        } label: {
+            Image(systemName: "folder")
         }
+        .litheIconButton()
+        .help(help)
     }
 
     private func pathField(
@@ -408,6 +435,7 @@ struct ProjectRuntimeSettingsView: View {
             HStack(spacing: 6) {
                 TextField(LocalizedStringKey(placeholder), text: value)
                     .litheSettingsTextField()
+                    .help(Text(verbatim: placeholder))
                 Button {
                     value.wrappedValue = ""
                 } label: {
@@ -437,29 +465,38 @@ struct ProjectRuntimeSettingsView: View {
         }
     }
 
-    private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func group<Content: View>(
+        _ title: String,
+        info: LocalizedStringKey? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text(LocalizedStringKey(title))
-                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize()
+                HStack(spacing: 4) {
+                    Text(LocalizedStringKey(title))
+                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .fixedSize()
+                    if let info {
+                        LitheInfoTip(info)
+                    }
+                }
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
             content()
         }
         .font(LitheTheme.uiFont(size: 12.5))
         .foregroundStyle(LitheTheme.primaryText)
-        .padding(.top, 16)
+        .padding(.top, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
-            Text(LocalizedStringKey(title))
+            LitheSettingsLabel(LocalizedStringKey(title))
                 .fixedSize(horizontal: true, vertical: false)
+            Spacer(minLength: 16)
             content()
-            Spacer(minLength: 0)
         }
         .frame(minHeight: 28)
     }
