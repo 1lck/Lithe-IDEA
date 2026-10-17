@@ -268,18 +268,17 @@ struct GitSavedChangesRow<Label: View>: NSViewRepresentable {
 
     func makeNSView(context: Context) -> BranchPopupRowControl { BranchPopupRowControl() }
     func updateNSView(_ view: BranchPopupRowControl, context: Context) {
-        view.isEnabled = environment.isEnabled && !resizing
-        view.isPresented = false
         view.onPress = onPress
         view.onSecondaryPress = { [weak view] point in
             LitheContextMenuPresenter.shared.show(items: menu, at: point,
                 appearance: view?.effectiveAppearance, locale: environment.locale, parentWindow: view?.window)
         }
-        view.setAccessibilityLabel(accessibilityTitle)
         view.render = { expanded, highlighted in
             AnyView(label(expanded, highlighted).environment(\.self, environment))
         }
-        view.refresh()
+        view.update(BranchPopupRowControl.RenderState(title: accessibilityTitle, isPresented: false,
+                                                      isEnabled: environment.isEnabled && !resizing,
+                                                      colorScheme: environment.colorScheme))
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: BranchPopupRowControl, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? LitheDropdownMetrics.branchMinimumWidth, height: LitheTheme.Tree.rowHeight)

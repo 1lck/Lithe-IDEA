@@ -13,10 +13,7 @@ struct BranchPopupRowView<Label: View>: NSViewRepresentable {
     func makeNSView(context: Context) -> BranchPopupRowControl { BranchPopupRowControl() }
 
     func updateNSView(_ view: BranchPopupRowControl, context: Context) {
-        view.isEnabled = environment.isEnabled
-        view.isPresented = isPresented
         view.onPress = onPress
-        view.setAccessibilityLabel(accessibilityTitle)
         view.render = { expanded, highlighted in
             AnyView(Button {} label: { label(expanded, highlighted) }
                 .buttonStyle(LitheDropdownRowStyle(isSelected: highlighted, tracksHover: false))
@@ -24,7 +21,9 @@ struct BranchPopupRowView<Label: View>: NSViewRepresentable {
                 .environment(\.self, environment)
                 .fontWeight(.regular))
         }
-        view.refresh()
+        view.update(BranchPopupRowControl.RenderState(title: accessibilityTitle, isPresented: isPresented,
+                                                      isEnabled: environment.isEnabled,
+                                                      colorScheme: environment.colorScheme))
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: BranchPopupRowControl, context: Context) -> CGSize? {
@@ -33,6 +32,16 @@ struct BranchPopupRowView<Label: View>: NSViewRepresentable {
 }
 
 final class BranchPopupRowControl: NSControl {
+    /// Representable inputs that change the drawn row. Label closures are rebuilt
+    /// on every SwiftUI update and cannot be compared, so the title stands in for
+    /// the label content; hover highlight is owned by the control itself.
+    struct RenderState: Equatable {
+        var title: String
+        var isPresented: Bool
+        var isEnabled: Bool
+        var colorScheme: ColorScheme
+    }
+
     var render: ((Bool, Bool) -> AnyView)?
     var onPress: (() -> Void)?
     var onSecondaryPress: ((NSPoint) -> Void)?
@@ -42,6 +51,10 @@ final class BranchPopupRowControl: NSControl {
     private var expansion: NSPanel?
     private var parentCloseObserver: NSObjectProtocol?
     private var hoverTracking: NSTrackingArea?
+    private var renderedState: RenderState?
+    private var needsDeferredRefresh = false
+    private var isDeferredRefreshScheduled = false
+    private var deferredRefreshGeneration = 0
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { isEnabled }
@@ -59,7 +72,42 @@ final class BranchPopupRowControl: NSControl {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    /// SwiftUI also calls updateNSView from inside a window layout pass, e.g. when
+    /// FocusBridge rebuilds the key view loop as the app activates or resigns.
+    /// Replacing the hosted root view or resizing the expansion there marks the
+    /// window for another constraint pass, and AppKit aborts with
+    /// NSGenericException (issue 1277). Unchanged state is ignored; a changed row
+    /// in a window renders once on the next run loop turn, after layout finishes.
+    func update(_ state: RenderState) {
+        if isEnabled != state.isEnabled { isEnabled = state.isEnabled }
+        isPresented = state.isPresented
+        if accessibilityLabel() != state.title { setAccessibilityLabel(state.title) }
+        guard state != renderedState else { return }
+        renderedState = state
+        // A detached row cannot be part of a window layout pass; rendering it now
+        // avoids showing an empty row for a frame when a lazy list inserts it.
+        guard window != nil else { refresh(); return }
+        needsDeferredRefresh = true
+        scheduleDeferredRefresh()
+    }
+
+    private func scheduleDeferredRefresh() {
+        guard needsDeferredRefresh, window != nil, !isDeferredRefreshScheduled else { return }
+        isDeferredRefreshScheduled = true
+        let generation = deferredRefreshGeneration
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, generation == self.deferredRefreshGeneration else { return }
+                self.isDeferredRefreshScheduled = false
+                guard self.needsDeferredRefresh, self.window != nil else { return }
+                self.refresh()
+            }
+        }
+    }
+
     func refresh() {
+        // Event-driven refreshes already render the latest state.
+        needsDeferredRefresh = false
         hosting.rootView = render?(false, isHovered || isPresented) ?? AnyView(EmptyView())
         hosting.frame = bounds
         updateExpansion()
@@ -117,8 +165,18 @@ final class BranchPopupRowControl: NSControl {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow !== window { closeExpansion() }
+        if newWindow !== window {
+            closeExpansion()
+            // A pending render targets the old window; reschedule after the move.
+            deferredRefreshGeneration &+= 1
+            isDeferredRefreshScheduled = false
+        }
         super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        scheduleDeferredRefresh()
     }
 
     private func closeExpansion() {
