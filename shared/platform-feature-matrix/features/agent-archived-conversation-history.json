@@ -1,0 +1,26 @@
+{
+  "id": "agent-archived-conversation-history",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "当前工作区的 Codex 归档历史：历史页“已归档（N）”分组默认折叠，搜索覆盖归档会话并自动展开命中项，分页不缺不重且空结果/折叠/无搜索命中时仍明示截断；活跃转归档不受响应先后或本地加载影响；已移除归档可独立恢复本地可见性；浏览只读，打开前确认后才通过官方 App Server 取消归档；不支持归档的 Agent（如 Claude）明确提示",
+  "macos": {
+    "evidence": [
+      "rust/lithe-agent-host/src/codex_history.rs",
+      "rust/lithe-agent-host/src/codex_history/tests.rs",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentHistoryView.swift",
+      "macos/Tests/LitheTests/AgentHistoryTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-agent-host/src/codex_history.rs"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Agent",
+  "verification": "macOS：Codex（订阅与 API Key 两种模式）打开历史页，确认“已归档（N）”默认折叠、只含当前工作区（路径大小写/尾斜杠按 codex-acp 规则）的归档会话且带“已归档”标记，与 Lithe 本地“已移除”互不影响；搜索标题或 ID 能命中归档会话并自动展开，清空搜索后恢复折叠；超过 Host 分页上限时，即使当前工作区结果为空、分组折叠或搜索无命中也显示“仅显示最近的归档会话”，不误报没有历史/没有匹配；让归档和活跃响应分别先返回，已加载与未打开的活跃转归档会话都在本轮刷新后仅出现在归档分组；在“已移除”中恢复归档会话只清除本地隐藏标记，保留标题与收藏，不取消归档或加载；浏览、刷新、搜索不改变 ~/.codex 下的归档状态。点击归档会话先弹出确认，取消不发送任何请求，确认后会话移回活跃历史并打开，失败时保留在归档分组并显示错误。恢复成功先于此前活跃与归档列表响应时，两个旧响应均失效，重新查询双列表；旧响应无论何种先后顺序、紧接成功事件或异步等待返回后到达，都不能把已恢复会话重新放回归档、结束新刷新或覆盖完整性状态。切换工作区、切换 Agent 或断开连接后归档列表清空，不混入旧结果。Claude 连接显示“Claude 不支持归档会话”且不请求归档列表。Windows 共享 Host 已提供协议，页面待实现。"
+}
