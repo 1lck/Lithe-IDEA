@@ -1,6 +1,20 @@
 # Agent 笔记：正式 Release 的 AtomGit 镜像
 
 状态：已实现
+归档日期：2026-10-17
+
+## 归档原因
+
+2026-10-17 起停用 AtomGit Release 同步，删除了同步工作流、脚本、测试和配置文档，正式发布不再向 AtomGit 上传任何内容。AtomGit 上的代码镜像由 AtomGit 自己从 GitHub 拉取，不受影响。
+
+停用前的最后一次验证（#1303 合并后手动同步 v0.6.1）：
+
+- Tag 核对和 Release 创建都正常；
+- 但从 GitHub 托管 runner 上传 336 MB 的 dmg，4 次都在 5 分钟时超时；同一个文件在国内的 Mac mini 上 55 秒就能传完（6.1 MB/s）。
+
+改到自托管机器上跑，会把 `ATOMGIT_TOKEN` 放到会执行外部 fork PR 代码的常驻机器上，或者放到网络不稳定、还跑着其他服务的服务器上，安全隔离和维护成本都不划算。因此决定先停用，等 AtomGit 改善海外上传后再评估。
+
+恢复时，从 #805 和 #1303 的提交中找回 `.github/workflows/sync-atomgit-release.yml`、`scripts/sync-atomgit-release.mjs`、`scripts/test-sync-atomgit-release.mjs` 和 `docs/releases/atomgit-sync.md`，重新在两个发布工作流末尾加上 `sync-atomgit` 任务，并先确认 GitHub 托管 runner 到 AtomGit 的上传速度。下文是停用前的决策记录，“适用范围”中的路径已不存在。
 
 ## 先说结论
 
