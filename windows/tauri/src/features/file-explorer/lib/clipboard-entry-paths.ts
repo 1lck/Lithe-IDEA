@@ -1,23 +1,22 @@
 import { getRelativePath } from "@/utils/path-helpers";
 
 /**
- * Render copied explorer entries as the path tokens a terminal can accept.
+ * Render copied explorer entries as path tokens a terminal can accept.
  *
- * Paths inside the workspace become workspace-relative with `/` separators,
- * because the Windows shell starts in the workspace root and no shell emits OSC
- * 7 here, so the terminal's tracked directory stays at that root. Entries
- * outside the workspace, and every entry when no workspace root is open, keep
- * their full path instead of a broken relative one.
+ * `baseDirectory` must be the directory the target shell is in, not the workspace
+ * root: a terminal opened on a subdirectory, or one the user changed directory
+ * in, resolves a workspace-relative path to the wrong file. Callers that cannot
+ * determine that directory pass `null` and get full paths.
  *
  * Tokens are returned separately rather than pre-joined: the terminal has to
  * quote each one before joining so a path containing spaces stays one argument.
  */
 export function clipboardEntryPaths(
   entries: readonly { path: string }[],
-  rootFolderPath?: string | null,
+  baseDirectory?: string | null,
 ): string[] {
   return entries
-    .map((entry) => getRelativePath(entry.path, rootFolderPath))
+    .map((entry) => getRelativePath(entry.path, baseDirectory))
     .filter((path) => path.length > 0);
 }
 

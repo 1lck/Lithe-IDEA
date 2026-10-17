@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { formatPathsForTerminal, quoteTerminalPaths } from "./terminal-file-drop";
 
 describe("quoteTerminalPaths", () => {
-  test("leaves a path without special characters bare", () => {
+  test("leaves a plain relative path bare", () => {
     expect(quoteTerminalPaths(["src/Main.java"])).toBe("src/Main.java");
+  });
+
+  test("leaves a plain absolute path bare", () => {
+    expect(quoteTerminalPaths(["C:\\work\\proj\\a.txt"])).toBe("C:\\work\\proj\\a.txt");
   });
 
   // A path with spaces must stay one shell argument, which is the whole reason
@@ -12,8 +16,23 @@ describe("quoteTerminalPaths", () => {
     expect(quoteTerminalPaths(["my folder/a.ts"])).toBe('"my folder/a.ts"');
   });
 
-  test("escapes quotes and backslashes inside the quoted form", () => {
-    expect(quoteTerminalPaths(['C:\\work\\my "dir"'])).toBe('"C:\\\\work\\\\my \\"dir\\""');
+  test("escapes an embedded quote by doubling it inside the quoted form", () => {
+    expect(quoteTerminalPaths(['C:\\work\\my "dir"'])).toBe('"C:\\work\\my ""dir"""');
+  });
+
+  // Regression: workspace-relative paths dropped the backslash that used to make
+  // an absolute Windows path match the quoting rule, so a file named
+  // `README&whoami` reached cmd unquoted and `&` started a second command.
+  // Every shell operator below must keep the path quoted and inert.
+  for (const metacharacter of ["&", "|", "<", ">", ";", "^", "(", ")", "*", "?"]) {
+    test(`quotes a path containing the shell operator ${metacharacter}`, () => {
+      const path = `README${metacharacter}whoami`;
+      expect(quoteTerminalPaths([path])).toBe(`"${path}"`);
+    });
+  }
+
+  test("quotes a path containing PowerShell variable syntax", () => {
+    expect(quoteTerminalPaths(["$(whoami).txt"])).toBe('"$(whoami).txt"');
   });
 
   test("joins multiple paths with a single space", () => {

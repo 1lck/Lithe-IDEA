@@ -24,6 +24,8 @@ import {
   type TerminalFileDropDetail,
   type TerminalPathInsertDetail,
 } from "@/features/file-system/utils/file-system-drop-controller";
+import { clipboardEntryPaths } from "@/features/file-explorer/lib/clipboard-entry-paths";
+import { formatPathsForTerminal } from "@/features/terminal/utils/terminal-file-drop";
 import { showConfirmDialog } from "@/ui/dialog";
 import {
   ContextMenu,
@@ -207,12 +209,18 @@ export const XtermTerminal = ({
       insertDroppedPaths(detail?.paths ?? []);
     };
 
-    // In-app drops arrive pre-formatted because the explorer owns path
-    // relativization; re-parsing them would drop relative paths.
+    // In-app drops carry absolute explorer paths: this terminal is the only side
+    // that knows the directory its shell is in, so it relativizes them itself.
     const handlePathInsert = (event: Event) => {
       const detail = (event as CustomEvent<TerminalPathInsertDetail>).detail;
-      if (!detail?.text) return;
-      writeBuffered(detail.text);
+      const paths = clipboardEntryPaths(
+        (detail?.paths ?? []).map((path) => ({ path })),
+        getSession(sessionId)?.currentDirectory ?? null,
+      );
+      const text = formatPathsForTerminal(paths, { trailingSpace: true });
+      if (!text) return;
+
+      writeBuffered(text);
       requestAnimationFrame(() => xtermRef.current?.focus());
     };
 
@@ -222,7 +230,7 @@ export const XtermTerminal = ({
       container.removeEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
       container.removeEventListener(TERMINAL_PATH_INSERT_EVENT, handlePathInsert);
     };
-  }, [insertDroppedPaths, writeBuffered]);
+  }, [getSession, insertDroppedPaths, sessionId, writeBuffered]);
 
   const handleTerminalDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!Array.from(event.dataTransfer.types).includes("Files")) return;
@@ -256,11 +264,11 @@ export const XtermTerminal = ({
     (terminal: Terminal) => {
       if (!currentConnectionIdRef.current) return;
 
-      void readTerminalPasteText()
+      void readTerminalPasteText(getSession(sessionId)?.currentDirectory ?? null)
         .then((text) => pasteIntoTerminal(terminal, text))
         .catch((error) => console.error("Failed to paste into terminal:", error));
     },
-    [currentConnectionIdRef, pasteIntoTerminal],
+    [currentConnectionIdRef, getSession, pasteIntoTerminal, sessionId],
   );
 
   const initializeTerminal = useCallback(async () => {
