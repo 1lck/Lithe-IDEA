@@ -114,7 +114,8 @@ describe("Git push API", () => {
       },
     });
 
-    const payload = invoke.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    const calls = invoke.mock.calls as unknown as [string, Record<string, unknown>][];
+    const payload = calls[calls.length - 1][1];
     expect(payload).not.toHaveProperty("pushTarget");
     expect(payload.operation).toBe("push");
   });

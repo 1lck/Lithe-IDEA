@@ -5897,7 +5897,7 @@ pub fn push_preview(request: GitPushPreviewRequest) -> Result<GitPushPreviewResp
     })
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Destination the user explicitly confirmed for a push.
 ///

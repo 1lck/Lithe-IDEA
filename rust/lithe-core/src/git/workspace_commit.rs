@@ -39,6 +39,10 @@ pub struct Plan {
     pub message: String,
     pub amend: bool,
     pub push: bool,
+    /// Destination the user confirmed for a divergent upstream, carried into the
+    /// push step so a commit-and-push never lands on an unrelated branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub push_target: Option<super::PushTargetChoiceRequest>,
     pub include_parent_references: bool,
     /// Optional local selection guard; omitted by clients without changelists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -92,6 +96,9 @@ pub struct PrepareRequest {
     pub amend: bool,
     #[serde(default)]
     pub push: bool,
+    /// Destination the user confirmed before committing; omitted for routine pushes.
+    #[serde(default)]
+    pub push_target: Option<super::PushTargetChoiceRequest>,
     pub include_parent_references: bool,
     /// Restricts commits without rewriting the user's index.
     #[serde(default)]
@@ -318,6 +325,7 @@ fn build_plan(
         message,
         amend: request.amend,
         push: request.push,
+        push_target: request.push_target,
         include_parent_references: request.include_parent_references,
         path_scope,
         is_retry: previous.is_some(),
@@ -643,6 +651,7 @@ fn prepare_step(
             invalid("Committed; branch changed or detached. Review and retry push.")
         })?);
         request.check_submodules = true;
+        request.push_target = session.plan.push_target;
     } else {
         return Ok(None);
     }

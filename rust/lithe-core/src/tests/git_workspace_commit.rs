@@ -588,3 +588,64 @@ fn git_workspace_changelist_guard_catches_a_rename_after_the_ui_snapshot() {
     assert_eq!(result["ok"], false, "{result}");
     assert_eq!(state(&repo.0), before);
 }
+
+/// Issue #1272: commit-and-push runs its push step without a reviewed preview, so
+/// the plan has to carry the destination the user already confirmed. Without it a
+/// divergent branch would update an unrelated remote branch.
+#[test]
+fn git_workspace_commit_push_carries_the_confirmed_target() {
+    let repo = repository("workspace-commit-divergent-push");
+    let remote = Repository(temporary_root("workspace-commit-divergent-remote"));
+    fs::create_dir_all(&remote.0).unwrap();
+    git(&remote.0, &["init", "--bare", "-q"]);
+    fs::write(repo.0.join("base.txt"), "base").unwrap();
+    git(&repo.0, &["add", "."]);
+    git(&repo.0, &["commit", "-qm", "base"]);
+    git(&repo.0, &["branch", "-M", "main"]);
+    git(
+        &repo.0,
+        &["remote", "add", "origin", remote.0.to_str().unwrap()],
+    );
+    git(&repo.0, &["push", "-qu", "origin", "main"]);
+    let main_before = git(&remote.0, &["rev-parse", "refs/heads/main"]);
+
+    // A feature branch that Git would have pointed at origin/main.
+    git(&repo.0, &["switch", "-q", "-c", "feature/topic", "main"]);
+    git(
+        &repo.0,
+        &["branch", "-q", "--set-upstream-to=origin/main", "feature/topic"],
+    );
+    staged_file(&repo.0, "topic.txt", "topic");
+
+    let repositories = json!([{"id":".","root":repo.0}]);
+    let prepared = request(
+        &repo.0,
+        "git.workspaceCommitPrepare",
+        json!({
+            "repositories":repositories, "message":"topic work", "push":true,
+            "includeParentReferences":false, "pushTarget":"publish"
+        }),
+    );
+    assert_eq!(prepared["ok"], true, "{prepared}");
+    assert_eq!(prepared["data"]["session"]["plan"]["pushTarget"], "publish");
+
+    let mut session = prepared["data"]["session"].clone();
+    for _ in 0..4 {
+        if session["finished"] == true {
+            break;
+        }
+        session = next_workspace(&repo.0, session);
+    }
+    assert_eq!(session["succeeded"], true, "{session}");
+
+    assert_eq!(
+        git(&remote.0, &["rev-parse", "refs/heads/main"]),
+        main_before,
+        "a committed push must not move the branch the local branch diverges from"
+    );
+    assert_eq!(
+        git(&remote.0, &["rev-parse", "refs/heads/feature/topic"]).trim(),
+        git(&repo.0, &["rev-parse", "HEAD"]).trim(),
+        "the confirmed publish destination receives the new commit"
+    );
+}

@@ -31,12 +31,14 @@ import {
 import { generateCommitDraft } from "../services/ai-commit-workflow";
 import { showConfirmDialog } from "@/ui/dialog";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { getGitPushPreview } from "../api/git-push-api";
+import { GitPushTargetPrompt } from "./git-push-target-prompt";
 import {
   useActiveWorkspaceId,
   useWorkspaceReady,
   useWorkspaceStoreScopeId,
 } from "@/features/workspace/stores/create-workspace-scoped-store";
-import type { GitFile } from "../types/git.types";
+import type { GitFile, GitPushPreview, GitPushTargetChoice } from "../types/git.types";
 import { COMMIT_MESSAGE_MAX_VIEWPORT_RATIO } from "../hooks/use-git-commit-area-resize";
 import { COMMIT_MESSAGE_DEFAULT_HEIGHT } from "../stores/git-commit-panel-preferences.store";
 
@@ -121,6 +123,12 @@ const GitCommitPanel = ({
   const { t } = useTranslation();
   const [amend, setAmend] = useState(false);
   useEffect(() => setAmend(false), [repoPath, currentBranch]);
+  const [includeParentReferences, setIncludeParentReferences] = useState(true);
+  // Pending destination question for commit-and-push on a divergent branch.
+  const [pushTargetPrompt, setPushTargetPrompt] = useState<{
+    preview: GitPushPreview;
+    resolve: (choice: GitPushTargetChoice | null) => void;
+  } | null>(null);
   const aiSettings = useSettingsStore((state) => state.settings.aiCommit);
   const openSettings = useUIState((state) => state.openSettingsDialog);
   const generationRef = useRef<AbortController | null>(null);
@@ -215,14 +223,51 @@ const GitCommitPanel = ({
     setCommitHint(null);
     setDraftOwner(repoPath);
     setError(null);
+    // Commit-and-push has no review dialog of its own, so the destination must be
+    // settled before the commit is written. Otherwise a divergent upstream would
+    // commit first and only then fail the push.
+    let pushTarget: GitPushTargetChoice | undefined;
+    if (pushAfterCommit) {
+      const destination = await resolveCommitPushTarget(repoPath);
+      if (!destination) return;
+      pushTarget = destination;
+    }
     await workflow.prepare({
       repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
       message: commitMessage.trim(),
       amend,
       push: pushAfterCommit,
+      ...(pushTarget ? { pushTarget } : {}),
       includeParentReferences,
       pathScope,
     });
+  };
+
+  /**
+   * Resolves the destination for a commit-and-push. Returns `undefined` for routine
+   * pushes that need no confirmation and `null` when the user cancelled.
+   */
+  const resolveCommitPushTarget = async (
+    repo: string,
+  ): Promise<GitPushTargetChoice | undefined | null> => {
+    let preview: GitPushPreview;
+    try {
+      preview = await getGitPushPreview(repo);
+    } catch (error) {
+      // A preview failure must not block committing; the push step reports it.
+      console.error("Failed to resolve the commit push destination:", error);
+      return undefined;
+    }
+    if (preview.targetKind !== "divergent") return undefined;
+    return new Promise<GitPushTargetChoice | null>((resolve) => {
+      setPushTargetPrompt({ preview, resolve });
+    });
+  };
+
+  const settlePushTarget = (choice: GitPushTargetChoice | null) => {
+    const pending = pushTargetPrompt;
+    setPushTargetPrompt(null);
+    pending?.resolve(choice);
   };
 
   const handleRetry = () => {
@@ -405,6 +450,13 @@ const GitCommitPanel = ({
           <Button size="xs" onClick={workflow.cancel}>
             {t("git.workspaceCommit.stop")}
           </Button>
+        )}
+        {pushTargetPrompt && (
+          <GitPushTargetPrompt
+            preview={pushTargetPrompt.preview}
+            onChoose={(choice) => settlePushTarget(choice)}
+            onCancel={() => settlePushTarget(null)}
+          />
         )}
         {batch.review && isCurrentWorkspace && (
           <GitWorkspaceCommitReview

@@ -1,4 +1,6 @@
 /** Wire DTOs owned by Rust git::workspace_commit; clients return continuations unchanged. */
+import type { GitPushTargetChoice } from "./git.types";
+
 export interface WorkspaceRepositoryBinding {
   id: string;
   root: string;
@@ -26,6 +28,7 @@ export interface WorkspaceCommitPlan {
   message: string;
   amend: boolean;
   push: boolean;
+  pushTarget?: GitPushTargetChoice;
   includeParentReferences: boolean;
   isRetry: boolean;
   orderedIds: string[];
@@ -52,6 +55,8 @@ export interface WorkspaceCommitRequest {
   message: string;
   amend: boolean;
   push: boolean;
+  /** Destination confirmed before committing; omitted for routine pushes. */
+  pushTarget?: GitPushTargetChoice;
   includeParentReferences: boolean;
   previous?: WorkspaceCommitSession;
   reviewed?: WorkspaceCommitPlan;
