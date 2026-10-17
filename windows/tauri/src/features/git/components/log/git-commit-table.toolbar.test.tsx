@@ -15,6 +15,12 @@ let viewportSpy: ReturnType<typeof spyOn>;
 let previousPreferences: ReturnType<typeof useGitLogPreferencesStore.getState>;
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousActEnvironment: boolean | undefined;
+// happy-dom's requestAnimationFrame runs on a real timer; hold frames so the menu's
+// deferred wheel binding can be advanced deterministically instead of sleeping.
+const frames = new Map<number, FrameRequestCallback>();
+let frameId = 0;
+let previousFrame: PropertyDescriptor | undefined;
+let previousCancelFrame: PropertyDescriptor | undefined;
 
 const commits: GitCommit[] = ["a", "b"].map((hash, row) => ({
   hash,
@@ -35,6 +41,19 @@ beforeEach(() => {
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver = StubResizeObserver;
   previousActEnvironment = environment.IS_REACT_ACT_ENVIRONMENT;
   environment.IS_REACT_ACT_ENVIRONMENT = true;
+  previousFrame = Object.getOwnPropertyDescriptor(globalThis, "requestAnimationFrame");
+  previousCancelFrame = Object.getOwnPropertyDescriptor(globalThis, "cancelAnimationFrame");
+  Object.defineProperty(globalThis, "requestAnimationFrame", {
+    configurable: true,
+    value: (callback: FrameRequestCallback) => {
+      frames.set(++frameId, callback);
+      return frameId;
+    },
+  });
+  Object.defineProperty(globalThis, "cancelAnimationFrame", {
+    configurable: true,
+    value: (id: number) => frames.delete(id),
+  });
   previousPreferences = useGitLogPreferencesStore.getState();
   useGitLogPreferencesStore.setState({ filterQuery: "", filterScope: "text" });
   // Control the viewport only; the real table computes matches and graph rows.
@@ -64,8 +83,23 @@ afterEach(async () => {
   delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
   useGitLogPreferencesStore.setState(previousPreferences, true);
   environment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  frames.clear();
+  for (const [key, descriptor] of [
+    ["requestAnimationFrame", previousFrame],
+    ["cancelAnimationFrame", previousCancelFrame],
+  ] as const) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+    else Reflect.deleteProperty(globalThis, key);
+  }
   restoreDom();
 });
+
+// Advance every pending animation frame exactly once, in scheduling order.
+async function flushFrames() {
+  const callbacks = [...frames.values()];
+  frames.clear();
+  await act(async () => callbacks.forEach((callback) => callback(0)));
+}
 
 // The Dropdown observes its own size; happy-dom has no ResizeObserver.
 class StubResizeObserver {
@@ -193,7 +227,7 @@ test("the open Branch menu applies wheel deltas to its own scroller", async () =
     container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click(),
   );
   // The menu binds its wheel handler once its scroller has mounted, at most a frame later.
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  await flushFrames();
   const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
   const scroller = menu.parentElement!;
   // happy-dom loads no CSS and does no layout: declare the scroller and its overflowing content,
