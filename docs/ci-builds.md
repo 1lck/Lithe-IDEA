@@ -69,6 +69,8 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
 
 The **Lane reuse** section of the classify job summary lists each lane's
 decision and links to a reused job.
+A reused lane appears as skipped in the new run; its result is the linked
+job, which the gate checks.
 
 ### What runs after a pull request merges
 
