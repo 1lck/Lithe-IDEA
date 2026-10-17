@@ -1,4 +1,5 @@
 mod agent;
+mod build_systems;
 mod declarative_plugins;
 mod detectors;
 mod git;

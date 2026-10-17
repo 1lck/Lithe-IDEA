@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "plugins.marketplace.installReview golden outcomes. `approvedPrograms` absent means a first installation. Edits apply to the base manifest before review.",
+  "description": "plugins.marketplace.installReview golden outcomes. `approvedPrograms` absent means a first installation. Edits apply to the base manifest before review. `hostCapabilities`, when present, is sent with the request.",
   "cases": [
     {
       "name": "first installation lists every program",
@@ -267,6 +267,22 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "name": "host without build systems refuses a build plugin",
+      "base": "mix-provider.plugin.json",
+      "hostCapabilities": { "languages": [1], "languageServers": [1], "serverProcess": [1] },
+      "expectedCode": "plugin.api.unsupported"
+    },
+    {
+      "name": "host with every required capability reviews a build plugin",
+      "base": "mix-provider.plugin.json",
+      "hostCapabilities": { "buildSystems": [1], "languages": [1], "languageServers": [1], "serverProcess": [1] },
+      "expected": {
+        "id": "dev.lithe.fixture.mix-provider",
+        "permissions": ["languageServer.launch", "process.build"],
+        "newProgramCount": 2
       }
     }
   ]

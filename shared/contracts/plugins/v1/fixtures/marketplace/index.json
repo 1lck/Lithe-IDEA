@@ -102,6 +102,55 @@
       ]
     },
     {
+      "id": "io.example.elixir-tools",
+      "name": "Elixir Tools",
+      "author": "Example Developer",
+      "repository": "https://github.com/example/lithe-elixir",
+      "description": "Each version needs more capabilities: 1.0.0 a language server, 2.0.0 also the Mix build system, 3.0.0 a capability no host knows yet.",
+      "license": "MIT",
+      "versions": [
+        {
+          "version": "3.0.0",
+          "pluginAPIVersion": 3,
+          "requires": { "debuggers": 1, "languages": 1 },
+          "releaseDate": "2026-10-15",
+          "downloads": [
+            {
+              "platforms": ["darwin-arm64", "windows-x64"],
+              "downloadURL": "https://github.com/example/lithe-elixir/releases/download/v3.0.0/elixir-tools-3.0.0.zip",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ]
+        },
+        {
+          "version": "2.0.0",
+          "pluginAPIVersion": 3,
+          "requires": { "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 },
+          "releaseDate": "2026-10-12",
+          "downloads": [
+            {
+              "platforms": ["darwin-arm64", "windows-x64"],
+              "downloadURL": "https://github.com/example/lithe-elixir/releases/download/v2.0.0/elixir-tools-2.0.0.zip",
+              "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+            }
+          ]
+        },
+        {
+          "version": "1.0.0",
+          "pluginAPIVersion": 3,
+          "requires": { "languageServers": 1, "languages": 1, "serverProcess": 1 },
+          "releaseDate": "2026-10-02",
+          "downloads": [
+            {
+              "platforms": ["darwin-arm64", "windows-x64"],
+              "downloadURL": "https://github.com/example/lithe-elixir/releases/download/v1.0.0/elixir-tools-1.0.0.zip",
+              "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "io.example.zig-support",
       "name": "Zig Support (copy)",
       "author": "Someone Else",

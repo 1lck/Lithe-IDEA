@@ -19,6 +19,12 @@ const HELLO_FIXTURE: &str = contract_file!("fixtures/hello-lithe.plugin.json");
 const GO_FIXTURE: &str = contract_file!("fixtures/go-support.plugin.json");
 const JAVA_FIXTURE: &str = contract_file!("fixtures/java-support.plugin.json");
 const NODE_RUNTIME_FIXTURE: &str = contract_file!("fixtures/node-runtime.plugin.json");
+const CARGO_BUILD_FIXTURE: &str = contract_file!("fixtures/cargo-build.plugin.json");
+const GO_BUILD_FIXTURE: &str = contract_file!("fixtures/go-build.plugin.json");
+const GRADLE_BUILD_FIXTURE: &str = contract_file!("fixtures/gradle-build.plugin.json");
+const MAVEN_BUILD_FIXTURE: &str = contract_file!("fixtures/maven-build.plugin.json");
+const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/gradle-provider.plugin.json");
+const MIX_PROVIDER_FIXTURE: &str = contract_file!("fixtures/mix-provider.plugin.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/runtime-versions.json");
@@ -42,6 +48,12 @@ fn fixture(name: &str) -> Value {
         "hello-lithe.plugin.json" => HELLO_FIXTURE,
         "java-support.plugin.json" => JAVA_FIXTURE,
         "node-runtime.plugin.json" => NODE_RUNTIME_FIXTURE,
+        "cargo-build.plugin.json" => CARGO_BUILD_FIXTURE,
+        "go-build.plugin.json" => GO_BUILD_FIXTURE,
+        "gradle-build.plugin.json" => GRADLE_BUILD_FIXTURE,
+        "maven-build.plugin.json" => MAVEN_BUILD_FIXTURE,
+        "gradle-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
+        "mix-provider.plugin.json" => MIX_PROVIDER_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -203,11 +215,16 @@ fn host_integration_capabilities_are_normalized_and_checked_against_the_integrat
 fn command_plan_fixtures_match_golden_expansions() {
     let fixtures: Value = serde_json::from_str(COMMAND_PLANS).unwrap();
     for case in fixtures["cases"].as_array().unwrap() {
-        let payload = json!({
+        let mut payload = json!({
             "manifest": fixture(case["plugin"].as_str().unwrap()),
-            "languageID": case["languageID"],
             "request": case["request"],
         });
+        // A launch plan selects its process by language or by build system.
+        for key in ["languageID", "buildSystemID"] {
+            if let Some(value) = case.get(key) {
+                payload[key] = value.clone();
+            }
+        }
         let outcome = match case["operation"].as_str().unwrap() {
             "runPlan" => run_plan_command(payload),
             "discoverTests" => discover_tests_command(payload),
@@ -343,6 +360,85 @@ fn settings_are_normalized_in_identifier_order() {
         .map(|setting| setting["id"].as_str().unwrap())
         .collect();
     assert_eq!(ids, ["heapMB", "logLevel", "telemetry"]);
+}
+
+/// API level 3 versions each section on its own: a manifest lists exactly
+/// the capabilities it uses, a missing one is named precisely, and a host
+/// that sends its capabilities refuses only plugins that need one it lacks.
+#[test]
+fn level_3_manifests_list_exactly_the_capabilities_they_use() {
+    let rejected = |outcome: Value| {
+        assert_eq!(outcome["status"], "rejected", "{outcome}");
+        (
+            outcome["error"]["code"].as_str().unwrap().to_string(),
+            outcome["error"]["field"].as_str().unwrap().to_string(),
+        )
+    };
+    let mix = fixture("mix-provider.plugin.json");
+    let outcome = validate(mix.clone());
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(
+        outcome["plugin"]["requires"],
+        json!({ "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 })
+    );
+    let legacy = validate(fixture("php-support.plugin.json"));
+    assert!(legacy["plugin"].get("requires").is_none(), "{legacy}");
+
+    let mut future = mix.clone();
+    future["requires"]["debuggers"] = json!(1);
+    future["debuggers"] = json!([{ "id": "lldb" }]);
+    assert_eq!(
+        rejected(validate(future)),
+        ("plugin.api.unsupported".into(), "requires.debuggers".into())
+    );
+    let mut missing = mix.clone();
+    missing["requires"]
+        .as_object_mut()
+        .unwrap()
+        .remove("serverProcess");
+    assert_eq!(
+        rejected(validate(missing)),
+        ("plugin.manifest.invalid".into(), "requires".into())
+    );
+    let mut unused = mix.clone();
+    unused["requires"]["settings"] = json!(1);
+    assert_eq!(
+        rejected(validate(unused)),
+        ("plugin.manifest.invalid".into(), "requires.settings".into())
+    );
+
+    // A level 3 plugin without build systems never depends on them.
+    let mut language_only = fixture("php-support.plugin.json");
+    language_only["pluginAPIVersion"] = json!(3);
+    language_only["requires"] = json!({
+        "executionProviders": 1, "languageServers": 1, "languages": 1, "serverProcess": 1
+    });
+    let host_without_builds = json!({
+        "executionProviders": [1], "languageServers": [1], "languages": [1], "serverProcess": [1]
+    });
+    let validate_on = |manifest: &Value, host: &Value| {
+        validate_command(json!({ "manifest": manifest, "hostCapabilities": host }))
+            .expect("payload is well formed")
+    };
+    assert_eq!(
+        validate_on(&language_only, &host_without_builds)["status"],
+        "ok"
+    );
+    assert_eq!(
+        rejected(validate_on(&mix, &host_without_builds)),
+        (
+            "plugin.api.unsupported".into(),
+            "requires.buildSystems".into()
+        )
+    );
+    let mut host_with_builds = host_without_builds.clone();
+    host_with_builds["buildSystems"] = json!([1]);
+    assert_eq!(validate_on(&mix, &host_with_builds)["status"], "ok");
+    // Capability versions do not apply below level 3.
+    assert_eq!(
+        validate_on(&fixture("php-support.plugin.json"), &json!({}))["status"],
+        "ok"
+    );
 }
 
 #[test]

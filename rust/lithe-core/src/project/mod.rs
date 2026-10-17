@@ -14,4 +14,7 @@ pub(crate) use files::*;
 pub(crate) use history::*;
 pub(crate) use markdown::*;
 pub(crate) use maven::*;
-pub(crate) use maven_dependency_tree::{dependencies, MavenDependenciesRequest};
+pub(crate) use maven_dependency_tree::{
+    dependencies, dependency_tree_arguments, validated_output_file, MavenDependenciesRequest,
+};
+pub(crate) use maven_test_reports::MavenTestReportsRequest;

@@ -796,8 +796,21 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
-| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server launch with host directories and architecture |
+| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server or build-provider launch with host directories and architecture |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
+| `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
+| `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
+| `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
+| `build.resolveOptions` | Check stored build options against the declaration and return effective values, choices, and the fingerprint |
+| `build.modelPlan` | Expand the command that prints a command-sourced build model, or the request a build provider answers |
+| `build.taskPlan` | Expand one declared or model task for a workspace, project, or target |
+| `build.testPlan` | Expand a test run for a scope, suite, or case and say where its reports will be |
+| `build.dependencyPlan` | Expand the command that prints a project's dependency tree, or the request a build provider answers |
+| `build.decodeModel` | Decode model output or a provider result into projects, targets, tasks, content roots, option values, and run entries |
+| `build.decodeTestResults` | Decode a test run's reports and output into per-case results and a summary |
+| `build.decodeDiagnostics` | Decode build output into workspace file diagnostics |
+| `build.decodeDependencies` | Decode dependency output or a provider result into one project's bounded tree |
+| `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -2612,11 +2625,15 @@ The `plugins.declarative.*` commands implement
 package or the workspace, so hosts pass the parsed `plugin.json` and the
 relevant facts with every call.
 
-`plugins.declarative.validate` accepts `{ "manifest": object }` and returns
-`{ "status": "ok", "plugin": object }` with the normalized manifest (names
-lowercased and sorted, argument order preserved), or
+`plugins.declarative.validate` accepts
+`{ "manifest": object, "hostCapabilities"?: { "<capability>": [integer] } }`
+and returns `{ "status": "ok", "plugin": object }` with the normalized
+manifest (names lowercased and sorted, argument order preserved), or
 `{ "status": "rejected", "error": { "code", "message", "field"? } }` with a
-stable `plugin.*` code.
+stable `plugin.*` code. When the host sends the capability versions it runs,
+a level 3 manifest that requires another one is `plugin.api.unsupported`;
+levels 1 and 2 are unaffected. See Capability versions in
+[`plugins/v1`](plugins/v1/README.md).
 
 `plugins.declarative.runPlan`, `plugins.declarative.discoverTests`, and
 `plugins.declarative.testPlan` accept
@@ -2630,18 +2647,25 @@ Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 `rejected` shape. Only a malformed payload is an `invalid_request` failure.
 `shared/contracts/plugins/v1/fixtures/` holds the golden cases.
 
-`plugins.declarative.languageServerLaunchPlan` uses the same envelope with the
-request `{ pluginDirectory, stateDirectory, workspaceStateDirectory,
-architecture, settings? }`. The directories are absolute host paths used only
+`plugins.declarative.languageServerLaunchPlan` accepts
+`{ "manifest": object, "languageID"?: string, "buildSystemID"?: string,
+"request": object }` with exactly one of `languageID` (a language server) and
+`buildSystemID` (a build provider); naming neither or both is an
+`invalid_request` failure. The request is `{ pluginDirectory, stateDirectory,
+workspaceStateDirectory, architecture, settings? }`. The directories are absolute host paths used only
 as substitution text; the command does not read or create them. `settings` maps
 setting IDs to the values the user stored; a missing, unknown, or no longer
 acceptable value is ignored in favor of the declared default. Success returns
 `plan` with `launch`, `arguments`, `validationArguments`,
 `runtimeRequirements`, `requiredDirectories`, `requiredPackagePaths`, and
 `initializationOptions`, `hostIntegration`, and `settings` (the effective
-values) when the plugin declares them. An unknown
+values) when the plugin declares them. A `buildSystemID` plan adds
+`buildProvider: { buildSystemID, executesProjectCode, mayUseNetwork,
+languageServer? }`; with `languageServer` the plan is that language server's
+and the host reuses its session. An unknown
 architecture or an empty directory is refused with
-`plugin.launch.invalidRequest`, a language without a server with
+`plugin.launch.invalidRequest`; a language without a server, an undeclared
+build system, and a build system without a provider with
 `plugin.launch.unavailable`.
 
 `plugins.declarative.checkRuntimeVersion` accepts
@@ -2652,15 +2676,63 @@ for the plan's `launch.versionArguments`, and returns
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
 archives and pass the parsed JSON. `validateIndex` accepts
-`{ index, sourceKind: "official" | "thirdParty", platform }` and returns
-`{ status: "ok", index: { plugins, rejected } }` with per-entry
-`availability`; `resolveSource` accepts `{ url }` and returns
+`{ index, sourceKind: "official" | "thirdParty", platform, hostCapabilities? }`
+and returns `{ status: "ok", index: { plugins, rejected } }` with per-entry
+`availability`; a level 3 version is available only when every capability it
+requires is in `hostCapabilities`; `resolveSource` accepts `{ url }` and returns
 `{ status: "ok", source: { indexURL, repository, displayName } }`;
 `installReview` accepts `{ manifest, expectedID?, expectedVersion?,
-approvedPrograms? }` and returns `{ status: "ok", review: { id, version,
+approvedPrograms?, hostCapabilities? }` and returns `{ status: "ok", review: { id, version,
 permissions, programs, newPrograms } }`. Content problems use the same
 `rejected` shape; see the Marketplace section of
 [`plugins/v1`](plugins/v1/README.md) and `fixtures/marketplace/`.
+
+### Build systems
+
+The `build.*` commands implement API level 3 `buildSystems` of
+[`plugins/v1`](plugins/v1/README.md). Every build tool shares them, so a host
+has one build workflow and never branches on a build-system ID: Core plans
+each process, the host runs it with the discovered executable, and Core
+decodes what it printed or wrote.
+
+Except `build.detect`, every command accepts
+`{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
+`plugin.build.unavailable` for an undeclared build system or operation.
+Results use the `plugins.declarative.*` envelope under the key named below;
+selections the declaration does not allow are `plugin.build.invalidSelection`,
+output that does not fit its decoder is `plugin.build.invalidOutput`, and a
+malformed payload is an `invalid_request` failure.
+
+Paths in requests are workspace-relative with `/` unless named absolute.
+`root` is the instance root from detection. Selected entities are
+`{ name, path?, tags?, execution?, properties? }` as the decoded model
+returned them. Plan requests share `{ root, options?, pluginDirectory?,
+workspaceStateDirectory? }`; `options` are the stored values by option ID,
+and the directories are absolute host paths used only as substitution text.
+
+| Command | Request | Result |
+| --- | --- | --- |
+| `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither |
+| `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root` |
+| `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
+| `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, value, source, choices, allowCustom }], dropped, fingerprint }` |
+| `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies) and `outputFile?` | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project? }` |
+| `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint` |
+| `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?` | `plan` with the task-plan fields and `results`: `null`, `{ decoder, reports }` with workspace-relative globs, or `{ decoder: "hostIntegration" }` |
+| `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
+| `build.decodeTestResults` | `{ workspaceRoot, root, project?, output, notBeforeMillis?, suite? }` | `results`: `{ tests: [{ suite, case, status, message?, durationMillis?, path?, line?, invocations }], summary: { total, passed, failed, errors, skipped }, success }`; repeated invocations of one case merge into the most severe status |
+| `build.decodeDiagnostics` | `{ workspaceRoot, root, output }` | `diagnostics`: `[{ path, line, column?, severity, message }]`, deduplicated, inside the workspace only |
+| `build.decodeDependencies` | `{ workspaceRoot, root, project?, output?, outputFile?, result? }` | `dependencies`: `{ project, dependencies: [{ name, group?, version?, scope?, properties?, children }], truncated }` |
+| `build.syncFingerprint` | `{ workspaceRoot, root, projects, options? }` | `sync`: `{ fingerprint, watch }` |
+
+`outputFile` is an absolute host-allocated path the host creates fresh for
+each run and removes afterwards; a command whose declaration writes to a
+file refuses a plan without it. Unlike the `plugins.declarative.*` commands,
+`build.detect`, `build.decodeModel`, `build.decodeTestResults`,
+`build.decodeDependencies`, and `build.syncFingerprint` read bounded files
+inside `workspaceRoot` (and the given `outputFile`); none of the commands
+writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-plans.json`
+holds the golden plans and decoded outputs.
 
 ### Git patch discovery and rebase amendment preconditions
 
