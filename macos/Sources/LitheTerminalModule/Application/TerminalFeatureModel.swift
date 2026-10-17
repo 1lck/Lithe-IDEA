@@ -108,4 +108,16 @@ public final class TerminalFeatureModel: ObservableObject {
         terminalSessions.removeAll()
         activeTerminalSessionID = nil
     }
+
+    /// Stops every session and waits until their process sessions are gone.
+    public func stopAllSessionsAndWait() async {
+        let sessions = terminalSessions
+        terminalSessions.removeAll()
+        activeTerminalSessionID = nil
+        // Started together so the bounded grace periods overlap.
+        let stops = sessions.map { session in
+            Task { @MainActor in await session.stopAndWait() }
+        }
+        for stop in stops { await stop.value }
+    }
 }

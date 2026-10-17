@@ -20,6 +20,11 @@ final class MacLiveProcessGroups: @unchecked Sendable {
         lock.withLock { groups[processGroupID] = nil }
     }
 
+    /// Groups that are still registered; their members end with their owner.
+    var processGroupIDs: Set<pid_t> {
+        lock.withLock { Set(groups.keys) }
+    }
+
     /// Ends every registered subprocess and waits for them.
     ///
     /// Application exit calls this after the ordinary session shutdown: a

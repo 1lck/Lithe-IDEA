@@ -85,6 +85,10 @@ struct AgentTranscriptScrollAnchor: NSViewRepresentable {
                     probe.requestFollow()
                 }
             }
+            observe(.agentTranscriptNavigationRequested, object: enclosing) { probe in
+                probe.cancelFollow()
+                probe.followsLatest = false
+            }
             observe(NSScrollView.willStartLiveScrollNotification, object: enclosing) { probe in
                 probe.isUserScrolling = true
                 probe.cancelFollow()

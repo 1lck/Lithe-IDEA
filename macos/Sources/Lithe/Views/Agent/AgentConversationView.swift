@@ -72,9 +72,8 @@ struct AgentConversationView: View {
                     agents: selectableAgents,
                     onChooseAgent: { id in
                         model.selectAgentConversationAgent(id)
-                    }
+                    }, isEditorLayout: isEditor
                 )
-                .modifier(AgentEditorColumn(isEditor: isEditor))
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -105,9 +104,27 @@ struct AgentEditorColumn: ViewModifier {
     let isEditor: Bool
 
     func body(content: Content) -> some View {
-        content
-            .frame(maxWidth: isEditor ? AgentPanelStyle.editorContentMaximumWidth : .infinity)
-            .frame(maxWidth: .infinity, alignment: .center)
+        if isEditor {
+            AgentEditorColumnLayout { content }
+        } else {
+            content.frame(maxWidth: .infinity)
+        }
+    }
+}
+
+private struct AgentEditorColumnLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let width = proposal.width ?? content.sizeThatFits(.unspecified).width
+        let size = content.sizeThatFits(ProposedViewSize(
+            width: width * AgentPanelStyle.editorContentWidthFraction, height: proposal.height))
+        return CGSize(width: width, height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let width = bounds.width * AgentPanelStyle.editorContentWidthFraction
+        subviews.first?.place(at: CGPoint(x: bounds.midX - width / 2, y: bounds.minY), anchor: .topLeading,
+                              proposal: ProposedViewSize(width: width, height: bounds.height))
     }
 }
 
@@ -253,8 +270,7 @@ struct AgentConfiguredConversationView: View {
         } else {
             AgentUnconfiguredConversationView(setupError: setupError, onOpenSettings: onOpenSettings,
                                               onHide: onHide, agents: availableAgents ?? AgentWelcomeVisit.builtInAgents,
-                                              onChooseAgent: onSelectAgent)
-                .modifier(AgentEditorColumn(isEditor: isEditorLayout))
+                                              onChooseAgent: onSelectAgent, isEditorLayout: isEditorLayout)
         }
     }
 }
@@ -268,6 +284,7 @@ struct AgentUnconfiguredConversationView: View {
     var agentName: String? = nil
     var agents: [AgentOption] = AgentWelcomeVisit.builtInAgents
     var onChooseAgent: ((String) -> Void)? = nil
+    var isEditorLayout = false
     @State private var notice: String?
     @State private var showsHistory = false
 
@@ -314,6 +331,7 @@ struct AgentUnconfiguredConversationView: View {
                         AgentInlineNotice(text: notice)
                     }
                 }
+                .modifier(AgentEditorColumn(isEditor: isEditorLayout))
             } composer: {
                 AgentComposerView(
                     agents: agents, selectedAgent: nil, isResponding: false, isBlocked: false,
@@ -323,6 +341,7 @@ struct AgentUnconfiguredConversationView: View {
                     }, onOpenSettings: onOpenSettings,
                     onError: { notice = $0 }, fallbackAgentName: agentName
                 )
+                .modifier(AgentEditorColumn(isEditor: isEditorLayout))
             }
         }
         .onAppear { notice = setupError?.localizedDescription }
@@ -469,17 +488,20 @@ private struct AgentConnectionView: View {
             GeometryReader { geometry in
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
-                        if showsSearch { searchBar }
+                        if showsSearch {
+                            searchBar.modifier(AgentEditorColumn(isEditor: true))
+                        }
                         AgentConversationLayout {
                             VStack(spacing: 0) {
                                 transcript
-                                errorNotice
+                                errorNotice.modifier(AgentEditorColumn(isEditor: true))
                             }
                         } composer: {
                             conversationComposer
+                                .modifier(AgentEditorColumn(isEditor: true))
                         }
                     }
-                    .modifier(AgentEditorColumn(isEditor: true))
+                    .frame(maxWidth: .infinity)
                     if showsEditorDetails && geometry.size.width >= AgentEditorConversationMetrics.detailsMinimumTotalWidth {
                         detailsPanel
                     }
@@ -700,7 +722,7 @@ private struct AgentConnectionView: View {
                     feature: feature, agentName: selectedAgent?.name ?? feature.agentName,
                     agentVersion: feature.agentVersion, agents: agents,
                     onSelectAgent: onSelectAgent, searchText: searchText, onOpenFile: onOpenFile,
-                    onRestoreFile: onRestoreFile
+                    onRestoreFile: onRestoreFile, isEditorLayout: isEditorLayout
                 )
                 AgentInlineNotice(text: message, status: .error)
                 Button("Reconnect", action: onConnect).padding(.bottom, 8)
@@ -724,7 +746,7 @@ private struct AgentConnectionView: View {
                 onSelectAgent: onSelectAgent,
                 searchText: searchText,
                 onOpenFile: onOpenFile,
-                onRestoreFile: onRestoreFile
+                onRestoreFile: onRestoreFile, isEditorLayout: isEditorLayout
             )
         }
     }

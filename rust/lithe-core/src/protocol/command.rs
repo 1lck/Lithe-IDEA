@@ -120,6 +120,12 @@ pub enum CoreCommand {
     MavenLaunchPlan,
     /// Shortens an oversized Java launch using a JDK argument file when needed.
     ExecutionPlanLaunchCommand,
+    /// Decides how each Lithe-owned process ends (`processLifecycle.resolve`).
+    ProcessLifecycleResolve,
+    /// Classifies a process snapshot into lifecycle items (`processLifecycle.inventory`).
+    ProcessLifecycleInventory,
+    /// Turns a plan and the user's answers into what ends (`processLifecycle.settle`).
+    ProcessLifecycleSettle,
     /// Produces a bounded Maven dependency-tree invocation (`maven.dependencyPlan`).
     MavenDependencyPlan,
     /// Normalizes Maven dependency-tree output (`maven.dependencies`).
@@ -404,6 +410,9 @@ impl CoreCommand {
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
             "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
+            "processLifecycle.resolve" => Some(Self::ProcessLifecycleResolve),
+            "processLifecycle.inventory" => Some(Self::ProcessLifecycleInventory),
+            "processLifecycle.settle" => Some(Self::ProcessLifecycleSettle),
             "maven.dependencyPlan" => Some(Self::MavenDependencyPlan),
             "maven.dependencies" => Some(Self::MavenDependencies),
             "maven.diagnostics" => Some(Self::MavenDiagnostics),
@@ -570,6 +579,22 @@ mod tests {
         assert!(matches!(
             CoreCommand::parse("execution.planLaunchCommand"),
             Some(CoreCommand::ExecutionPlanLaunchCommand)
+        ));
+    }
+
+    #[test]
+    fn parses_process_lifecycle_command() {
+        assert!(matches!(
+            CoreCommand::parse("processLifecycle.resolve"),
+            Some(CoreCommand::ProcessLifecycleResolve)
+        ));
+        assert!(matches!(
+            CoreCommand::parse("processLifecycle.inventory"),
+            Some(CoreCommand::ProcessLifecycleInventory)
+        ));
+        assert!(matches!(
+            CoreCommand::parse("processLifecycle.settle"),
+            Some(CoreCommand::ProcessLifecycleSettle)
         ));
     }
 

@@ -58,6 +58,7 @@ enum AgentSessionStatusPresentation {
 }
 
 /// Session status entries shown before the context ring in the composer bar.
+/// The ring appears only after the Agent's first usage report.
 struct AgentSessionStatusView: View {
     @Environment(\.locale) private var locale
     let statistics: AgentSessionStatistics
@@ -66,7 +67,7 @@ struct AgentSessionStatusView: View {
 
     var body: some View {
         // Narrow panels first drop the speed (kept in the hover card), then the
-        // session summary, then token usage; context occupancy always stays.
+        // session summary, then token usage; context occupancy stays once reported.
         ViewThatFits(in: .horizontal) {
             entries(showsSession: true, showsRate: true, showsTokens: true)
             entries(showsSession: true, showsRate: false, showsTokens: true)
@@ -84,7 +85,8 @@ struct AgentSessionStatusView: View {
                 AgentTokenUsageView(tokens: tokens)
             }
             if showsContext {
-                AgentContextUsageView(usage: contextUsage, composition: statistics.modelCalls?.latestContext)
+                AgentContextUsageView(usage: contextUsage, composition: statistics.modelCalls?.latestContext,
+                                      isHiddenUntilReported: true)
             }
         }
         .fixedSize()

@@ -2,14 +2,15 @@ import Foundation
 
 struct DebugPerformanceTarget: Equatable, Sendable {
     let processID: Int32
-    let javaExecutable: URL
+    /// nil monitors the owned process tree using native CPU/RSS counters.
+    var javaExecutable: URL? = nil
 }
 
 struct DebugPerformanceSample: Equatable, Sendable, Identifiable {
     let timestamp: TimeInterval
     let cpuPercent: Double?
-    let heapUsedBytes: UInt64
-    let heapCommittedBytes: UInt64
+    let memoryUsedBytes: UInt64
+    let memoryCapacityBytes: UInt64
     var id: TimeInterval { timestamp }
 }
 

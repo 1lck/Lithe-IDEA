@@ -50,6 +50,7 @@ final class AppSettings: ObservableObject {
         static let customLogDirectory = "settings.customLogDirectory"
         static let workbenchBackground = "settings.workbenchBackground"
         static let javaBuildFailurePolicies = "settings.javaBuildFailurePolicies"
+        static let processTermination = "settings.processTermination"
     }
 
     private struct KeyboardShortcutOverridesPayload: Codable {
@@ -147,6 +148,16 @@ final class AppSettings: ObservableObject {
     }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
+    }
+    /// Read by the process supervisor, which runs without an `AppSettings`.
+    nonisolated static let processTerminationKey = Key.processTermination
+    /// Settings › Process Termination Policy. Decisions are made by Rust Core.
+    @Published var processTermination: ProcessTerminationSettings {
+        didSet {
+            if let data = try? JSONEncoder().encode(processTermination) {
+                defaults.set(data, forKey: Key.processTermination)
+            }
+        }
     }
     @Published var agentCommand: String { didSet { defaults.set(agentCommand, forKey: Key.agentCommand) } }
     /// One command argument per line, so paths with spaces need no shell parser.
@@ -253,6 +264,9 @@ final class AppSettings: ObservableObject {
         } else {
             commitMessageAI = .default
         }
+        processTermination = defaults.data(forKey: Key.processTermination)
+            .flatMap { try? JSONDecoder().decode(ProcessTerminationSettings.self, from: $0) }
+            ?? ProcessTerminationSettings()
         agentCommand = defaults.string(forKey: Key.agentCommand) ?? ""
         agentArguments = defaults.string(forKey: Key.agentArguments) ?? ""
         agentModelCallStatistics = defaults.object(forKey: Key.agentModelCallStatistics) as? Bool ?? true

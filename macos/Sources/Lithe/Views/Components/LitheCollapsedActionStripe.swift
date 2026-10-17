@@ -15,7 +15,8 @@ struct LitheCollapsedActionStripe: View {
                     ? "expui/general/chevronLeft.svg" : "expui/general/chevronRight.svg",
                     size: LitheTheme.ActionStripe.iconSize, preservesOriginalColors: true)
                 Text(LocalizedStringKey(title))
-                    .font(LitheTheme.uiFont(size: 11))
+                    .font(LitheTheme.ActionStripe.titleFont)
+                    .foregroundStyle(LitheTheme.ActionStripe.titleColor)
                     .fixedSize()
                     .rotationEffect(.degrees(expandsToward == .leading ? 90 : -90))
                     .frame(width: LitheTheme.ActionStripe.buttonSize,

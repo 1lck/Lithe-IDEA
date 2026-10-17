@@ -1070,7 +1070,7 @@ struct RunConfigurationIntegrationTests {
         let javaProvider = try #require(registry.provider(id: "java"))
         let javaPlan = try javaProvider.testPlan(scope: .file(files[0]), workspaceURL: root)
         #expect(javaPlan.launchPlan.toolchainID == "project-maven")
-        #expect(javaPlan.launchPlan.arguments == ["-Dtest=UserServiceTest", "test"])
+        #expect(javaPlan.launchPlan.arguments == ["-Dstyle.color=always", "-Dtest=UserServiceTest", "test"])
 
         let gradleMethodPlan = try javaProvider.testPlan(
             scope: .testCase(
@@ -1083,7 +1083,7 @@ struct RunConfigurationIntegrationTests {
             )
         )
         #expect(gradleMethodPlan.launchPlan.arguments == [
-            "test", "--tests", "example.UserServiceTest.logsIn",
+            "test", "--no-daemon", "--tests", "example.UserServiceTest.logsIn",
         ])
 
         let mavenMethodPlan = try javaProvider.testPlan(
@@ -1097,7 +1097,7 @@ struct RunConfigurationIntegrationTests {
             )
         )
         #expect(mavenMethodPlan.launchPlan.arguments == [
-            "-Dtest=example.UserServiceTest#logsIn", "test",
+            "-Dstyle.color=always", "-Dtest=example.UserServiceTest#logsIn", "test",
         ])
 
         let gradlePlan = try javaProvider.testPlan(
@@ -1108,7 +1108,7 @@ struct RunConfigurationIntegrationTests {
             )
         )
         #expect(gradlePlan.frameworkID == "gradle")
-        #expect(gradlePlan.launchPlan.arguments == ["test"])
+        #expect(gradlePlan.launchPlan.arguments == ["test", "--no-daemon"])
         if case .toolchain(let executable) = gradlePlan.launchPlan.executable {
             #expect(executable == "project-gradle")
         } else {
