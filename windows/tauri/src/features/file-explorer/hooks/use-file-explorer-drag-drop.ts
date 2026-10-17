@@ -1,6 +1,10 @@
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { moveFile } from "@/features/file-system/controllers/platform";
+import {
+  dispatchTerminalPathInsert,
+  isTerminalDropTarget,
+} from "@/features/file-system/utils/file-system-drop-controller";
 import type { FileEntry } from "@/features/file-system/types/app.types";
 import { dispatchSidebarResourceDropOnAI } from "@/features/sidebar/utils/sidebar-resource-drag";
 import {
@@ -197,6 +201,19 @@ export function useFileExplorerDragDrop(
       const isOverFileTree = elementUnder?.closest(".file-tree-container") !== null;
       const isOverAIContextDropTarget =
         elementUnder?.closest("[data-ai-context-drop-target]") !== null;
+
+      // A terminal lives inside a pane container, so it must be resolved before
+      // the pane branch below or the drop would just open the file.
+      if (
+        isTerminalDropTarget(elementUnder) &&
+        dragState.draggedItem &&
+        dispatchTerminalPathInsert(elementUnder, [dragState.draggedItem.path])
+      ) {
+        setDragState(initialDragState);
+        clearAutoExpand();
+        clearEditorDropHover();
+        return;
+      }
 
       if (isOverAIContextDropTarget && dragState.draggedItem) {
         dispatchSidebarResourceDropOnAI({

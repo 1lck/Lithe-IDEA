@@ -20,8 +20,12 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { extractDroppedFilePaths } from "@/features/file-system/utils/file-system-dropped-paths";
 import {
   TERMINAL_FILE_DROP_EVENT,
+  TERMINAL_PATH_INSERT_EVENT,
   type TerminalFileDropDetail,
+  type TerminalPathInsertDetail,
 } from "@/features/file-system/utils/file-system-drop-controller";
+import { clipboardEntryPaths } from "@/features/file-explorer/lib/clipboard-entry-paths";
+import { formatPathsForTerminal } from "@/features/terminal/utils/terminal-file-drop";
 import { showConfirmDialog } from "@/ui/dialog";
 import {
   ContextMenu,
@@ -31,8 +35,9 @@ import {
   ContextMenuTrigger,
 } from "@/ui/context-menu";
 import { ClipboardIcon, CopyIcon } from "@/ui/icons";
-import { readClipboardText, writeClipboardText } from "@/utils/clipboard";
+import { writeClipboardText } from "@/utils/clipboard";
 import { currentPlatform } from "@/utils/platform";
+import { readTerminalPasteText } from "@/features/terminal/utils/file-clipboard-paste";
 import {
   createTerminalAddons,
   injectLinkStyles,
@@ -204,9 +209,28 @@ export const XtermTerminal = ({
       insertDroppedPaths(detail?.paths ?? []);
     };
 
+    // In-app drops carry absolute explorer paths: this terminal is the only side
+    // that knows the directory its shell is in, so it relativizes them itself.
+    const handlePathInsert = (event: Event) => {
+      const detail = (event as CustomEvent<TerminalPathInsertDetail>).detail;
+      const paths = clipboardEntryPaths(
+        (detail?.paths ?? []).map((path) => ({ path })),
+        getSession(sessionId)?.currentDirectory ?? null,
+      );
+      const text = formatPathsForTerminal(paths, { trailingSpace: true });
+      if (!text) return;
+
+      writeBuffered(text);
+      requestAnimationFrame(() => xtermRef.current?.focus());
+    };
+
     container.addEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
-    return () => container.removeEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
-  }, [insertDroppedPaths]);
+    container.addEventListener(TERMINAL_PATH_INSERT_EVENT, handlePathInsert);
+    return () => {
+      container.removeEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
+      container.removeEventListener(TERMINAL_PATH_INSERT_EVENT, handlePathInsert);
+    };
+  }, [getSession, insertDroppedPaths, sessionId, writeBuffered]);
 
   const handleTerminalDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!Array.from(event.dataTransfer.types).includes("Files")) return;
@@ -240,11 +264,11 @@ export const XtermTerminal = ({
     (terminal: Terminal) => {
       if (!currentConnectionIdRef.current) return;
 
-      void readClipboardText()
+      void readTerminalPasteText(getSession(sessionId)?.currentDirectory ?? null)
         .then((text) => pasteIntoTerminal(terminal, text))
         .catch((error) => console.error("Failed to paste into terminal:", error));
     },
-    [currentConnectionIdRef, pasteIntoTerminal],
+    [currentConnectionIdRef, getSession, pasteIntoTerminal, sessionId],
   );
 
   const initializeTerminal = useCallback(async () => {
