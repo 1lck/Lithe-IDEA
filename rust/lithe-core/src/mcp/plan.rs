@@ -42,6 +42,10 @@ struct WriteRequest {
     server: Option<McpServer>,
     #[serde(default)]
     name: Option<String>,
+    /// Existing name this set renames from. The old entry is used as the base
+    /// for the new one so settings Lithe does not model survive the rename.
+    #[serde(default)]
+    previous_name: Option<String>,
     /// Entries the host recorded as written by Lithe.
     #[serde(default)]
     owned: Vec<OwnedEntry>,
@@ -96,26 +100,34 @@ fn plan_set(
         if current.definition_hash == server.definition_hash {
             return Ok(unchanged(content, "unchanged", None));
         }
-        if !is_owned(&request.owned, current) {
-            // A ledger entry with this name but a different hash means Lithe
-            // wrote an older definition that changed outside Lithe, which is a
-            // different situation from an entry Lithe never wrote.
-            let conflict = if request.owned.iter().any(|entry| entry.name == current.name) {
-                "externallyModified"
-            } else {
-                "ownedByUser"
-            };
+        if let Some(conflict) = ownership_conflict(&request.owned, current) {
             return Ok(unchanged(content, "conflict", Some(conflict)));
         }
     }
-    let action = if find_server(&existing, &server.name).is_some() {
+    // A rename may only move an entry Lithe is allowed to replace. The rename
+    // is planned as a separate remove, so the old entry must pass the same
+    // ownership check as an edit.
+    let previous = request
+        .previous_name
+        .as_deref()
+        .filter(|name| *name != server.name);
+    if let Some(previous_name) = previous {
+        if let Some(current) = find_server(&existing, previous_name) {
+            if let Some(conflict) = ownership_conflict(&request.owned, current) {
+                return Ok(unchanged(content, "conflict", Some(conflict)));
+            }
+        }
+    }
+    let action = if find_server(&existing, &server.name).is_some()
+        || previous.is_some_and(|name| find_server(&existing, name).is_some())
+    {
         "updated"
     } else {
         "inserted"
     };
     let next = match request.source.as_str() {
-        "claude" => write_claude(content, project_path, &server.name, &server_value(server))?,
-        "codex" => write_codex(content, server)?,
+        "claude" => write_claude(content, project_path, &server.name, server, previous)?,
+        "codex" => write_codex(content, server, previous)?,
         _ => return Err(invalid_request()),
     };
     Ok(json!({
@@ -180,6 +192,21 @@ fn is_owned(owned: &[OwnedEntry], current: &McpServer) -> bool {
         .any(|entry| entry.name == current.name && entry.definition_hash == current.definition_hash)
 }
 
+/// Returns why `current` cannot be replaced, or `None` when Lithe owns it.
+fn ownership_conflict(owned: &[OwnedEntry], current: &McpServer) -> Option<&'static str> {
+    if is_owned(owned, current) {
+        return None;
+    }
+    // A ledger entry with this name but a different hash means Lithe wrote an
+    // older definition that changed outside Lithe, which is a different
+    // situation from an entry Lithe never wrote.
+    if owned.iter().any(|entry| entry.name == current.name) {
+        Some("externallyModified")
+    } else {
+        Some("ownedByUser")
+    }
+}
+
 fn unchanged(content: &str, action: &str, conflict: Option<&str>) -> Value {
     json!({
         "content": content,
@@ -193,7 +220,8 @@ fn write_claude(
     content: &str,
     project_path: Option<&str>,
     name: &str,
-    value: &Value,
+    server: &McpServer,
+    previous: Option<&str>,
 ) -> Result<String, CoreError> {
     let base = if content.trim().is_empty() {
         "{}"
@@ -206,7 +234,16 @@ fn write_claude(
         None => vec!["mcpServers"],
     };
     let object = document.ensure_object(&path)?;
-    let value = serde_json::to_string(value).map_err(|_| invalid_request())?;
+    // A rename starts from the existing entry so Claude-specific fields Lithe
+    // does not model move with the server; modeled keys are overwritten.
+    let value = match previous {
+        Some(previous) => match document.member_value(object, previous)? {
+            Some(existing) => merge_claude_value(&existing, server)?,
+            None => server_value(server),
+        },
+        None => server_value(server),
+    };
+    let value = serde_json::to_string(&value).map_err(|_| invalid_request())?;
     document.set_member(object, name, &value)?;
     document.into_string()
 }
@@ -230,9 +267,13 @@ fn remove_claude(
     document.into_string()
 }
 
-fn write_codex(content: &str, server: &McpServer) -> Result<String, CoreError> {
+fn write_codex(
+    content: &str,
+    server: &McpServer,
+    previous: Option<&str>,
+) -> Result<String, CoreError> {
     let mut document = toml_edit::document(content)?;
-    toml_edit::set_server(&mut document, server)?;
+    toml_edit::set_server(&mut document, server, previous)?;
     Ok(document.to_string())
 }
 
@@ -246,32 +287,70 @@ fn remove_codex(content: &str, name: &str) -> Result<String, CoreError> {
 /// `definitionHash` is a Lithe bookkeeping value and is never written.
 fn server_value(server: &McpServer) -> Value {
     let mut object = Map::new();
+    apply_claude_value(&mut object, server);
+    Value::Object(object)
+}
+
+/// Copies modeled fields onto an existing entry, keeping keys Lithe does not
+/// understand so a rename does not erase Claude-specific options.
+fn merge_claude_value(existing: &str, server: &McpServer) -> Result<Value, CoreError> {
+    let mut object = serde_json::from_str::<Value>(existing)
+        .map_err(|_| invalid_request())?
+        .as_object()
+        .cloned()
+        .ok_or_else(invalid_request)?;
+    apply_claude_value(&mut object, server);
+    Ok(Value::Object(object))
+}
+
+fn apply_claude_value(object: &mut Map<String, Value>, server: &McpServer) {
     match server.transport {
         super::McpTransport::Stdio => {
-            if let Some(command) = &server.command {
-                object.insert("command".into(), Value::String(command.clone()));
+            object.remove("url");
+            object.remove("headers");
+            object.remove("type");
+            match &server.command {
+                Some(command) => {
+                    object.insert("command".into(), Value::String(command.clone()));
+                }
+                None => {
+                    object.remove("command");
+                }
             }
-            if !server.args.is_empty() {
+            if server.args.is_empty() {
+                object.remove("args");
+            } else {
                 object.insert("args".into(), json!(server.args));
             }
-            if !server.env.is_empty() {
+            if server.env.is_empty() {
+                object.remove("env");
+            } else {
                 object.insert("env".into(), entries_value(&server.env));
             }
         }
         super::McpTransport::Http | super::McpTransport::Sse => {
+            object.remove("command");
+            object.remove("args");
+            object.remove("env");
             object.insert(
                 "type".into(),
                 Value::String(server.transport.as_str().into()),
             );
-            if let Some(url) = &server.url {
-                object.insert("url".into(), Value::String(url.clone()));
+            match &server.url {
+                Some(url) => {
+                    object.insert("url".into(), Value::String(url.clone()));
+                }
+                None => {
+                    object.remove("url");
+                }
             }
-            if !server.headers.is_empty() {
+            if server.headers.is_empty() {
+                object.remove("headers");
+            } else {
                 object.insert("headers".into(), entries_value(&server.headers));
             }
         }
     }
-    Value::Object(object)
 }
 
 fn entries_value(entries: &[super::McpKeyValue]) -> Value {

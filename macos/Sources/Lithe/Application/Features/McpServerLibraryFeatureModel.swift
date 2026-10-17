@@ -161,7 +161,6 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     @Published var error: String?
 
     private weak var model: (any McpServerLibraryActions)?
-    private var ledger: [String: [McpOwnedEntry]] = [:]
     private var hasLoaded = false
     /// Workspace whose project-level Lithe entry is registered. Kept because
     /// the coordinator clears the workspace URL before the close callback runs,
@@ -171,7 +170,6 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     init(model: any McpServerLibraryActions) {
         self.model = model
-        loadLedger()
     }
 
     // MARK: - Discovery
@@ -321,12 +319,13 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         }
 
         var operations: [McpConfigurationFile: [Operation]] = [:]
+        let renaming = original.map { $0.name != definition.name } ?? false
         if let original {
-            // Renaming or turning an Agent off removes the entry Lithe wrote
-            // there; a same-name entry edited outside Lithe refuses the plan.
+            // Turning an Agent off removes the entry Lithe wrote there. A
+            // rename keeps the old entry until the set has copied it to the
+            // new name, so only disabled Agents are removed up front.
             for source in original.globalSources
-            where !draft.enabledAgents.contains(source.file.agent)
-                || original.name != definition.name {
+            where !draft.enabledAgents.contains(source.file.agent) {
                 operations[source.file, default: []].append(.remove(original.name))
             }
         }
@@ -335,7 +334,22 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             // definition Lithe did not write, but only while the on-disk hash
             // still matches the row that was shown. A stale row refuses.
             let expected = original?.globalSources.first { $0.file == file }?.definitionHash
-            operations[file, default: []].append(.set(definition, expectedHash: expected))
+            let previousName: String? = {
+                guard renaming,
+                      let original,
+                      original.globalSources.contains(where: { $0.file == file }) else {
+                    return nil
+                }
+                return original.name
+            }()
+            operations[file, default: []].append(.set(
+                definition, expectedHash: expected, previousName: previousName
+            ))
+            // Removing the old name after the set lets Core copy the old table
+            // (including Codex-specific fields) before the entry disappears.
+            if let previousName {
+                operations[file, default: []].append(.remove(previousName))
+            }
         }
 
         do {
@@ -363,7 +377,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         }
         error = nil
         let operation: Operation = enabled
-            ? .set(row.definition, expectedHash: nil)
+            ? .set(row.definition, expectedHash: nil, previousName: nil)
             : .remove(row.name)
         do {
             try commit([file: [operation]], store: store)
@@ -555,7 +569,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     private enum Operation {
         /// `expectedHash` is the definition the user was shown for an explicit
         /// edit; it authorizes replacing an entry Lithe did not write.
-        case set(McpServerDefinition, expectedHash: String?)
+        /// `previousName` is set when the edit renames the entry, so Core can
+        /// carry unmodeled configuration over to the new name.
+        case set(McpServerDefinition, expectedHash: String?, previousName: String?)
         case remove(String)
     }
 
@@ -565,6 +581,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         operation: String,
         server: McpServerDefinition?,
         name: String?,
+        previousName: String? = nil,
         owned: [McpOwnedEntry]
     ) -> McpWriteRequest {
         McpWriteRequest(
@@ -575,6 +592,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             operation: operation,
             server: server,
             name: name,
+            previousName: previousName,
             owned: owned
         )
     }
@@ -600,7 +618,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             for operation in fileOperations {
                 let plan: McpWritePlan
                 switch operation {
-                case .set(let server, let expectedHash):
+                case .set(let server, let expectedHash, let previousName):
                     var planningEntries = entries
                     if let expectedHash {
                         planningEntries.append(McpOwnedEntry(
@@ -614,6 +632,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                             operation: "set",
                             server: server,
                             name: nil,
+                            previousName: previousName,
                             owned: planningEntries
                         ),
                         for: file
@@ -693,26 +712,26 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     }
 
     private func ledgerEntries(for file: McpConfigurationFile) -> [McpOwnedEntry] {
-        ledger[Self.identity(of: file)] ?? []
+        ledgerSnapshot()[Self.identity(of: file)] ?? []
+    }
+
+    /// Reads the shared ledger every time instead of caching it per window.
+    /// Multiple windows share one store; a stale copy would rewrite the whole
+    /// map and silently drop entries another window just recorded.
+    private func ledgerSnapshot() -> [String: [McpOwnedEntry]] {
+        guard let data = model?.mcpLedgerStore.data(forKey: Self.ledgerKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: [McpOwnedEntry]].self, from: data)) ?? [:]
     }
 
     private func setLedger(_ entries: [McpOwnedEntry], for file: McpConfigurationFile) {
+        var snapshot = ledgerSnapshot()
         let key = Self.identity(of: file)
         if entries.isEmpty {
-            ledger[key] = nil
+            snapshot[key] = nil
         } else {
-            ledger[key] = entries
+            snapshot[key] = entries
         }
-        saveLedger()
-    }
-
-    private func loadLedger() {
-        guard let data = model?.mcpLedgerStore.data(forKey: Self.ledgerKey) else { return }
-        ledger = (try? JSONDecoder().decode([String: [McpOwnedEntry]].self, from: data)) ?? [:]
-    }
-
-    private func saveLedger() {
-        guard let data = try? JSONEncoder().encode(ledger) else { return }
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
         model?.mcpLedgerStore.set(data, forKey: Self.ledgerKey)
     }
 

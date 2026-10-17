@@ -294,6 +294,92 @@ struct McpServerLibraryTests {
     }
 
     @Test
+    func renamingARowKeepsCodexSpecificFields() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedCodex("""
+        model = "gpt-5"
+
+        [mcp_servers.remote]
+        url = "https://example.test/mcp"
+        bearer_token_env_var = "REMOTE_TOKEN"
+        startup_timeout_sec = 20
+        """)
+        let feature = fixture.feature()
+        feature.refresh()
+        let row = try #require(feature.rows.first { $0.name == "remote" })
+        feature.takeOwnership(of: row, agent: .codex)
+        let owned = try #require(feature.rows.first { $0.name == "remote" })
+
+        var draft = feature.draft(for: owned)
+        draft.name = "renamed"
+        #expect(feature.save(draft))
+
+        let codex = try fixture.codexText()
+        #expect(codex.contains("[mcp_servers.renamed]"))
+        #expect(codex.contains("[mcp_servers.remote]") == false)
+        #expect(codex.contains("bearer_token_env_var = \"REMOTE_TOKEN\""))
+        #expect(codex.contains("startup_timeout_sec = 20"))
+        let renamed = try #require(feature.rows.first { $0.name == "renamed" })
+        #expect(renamed.ownedGlobalAgents == [.codex])
+    }
+
+    @Test
+    func savingNaturallyOrderedEntriesKeepsOwnershipAfterRefresh() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        feature.refresh()
+        var draft = feature.makeDraft()
+        draft.name = "ordered"
+        draft.transport = .stdio
+        draft.command = "/bin/echo"
+        // Swift sorts TOKEN2 before TOKEN10; Rust parses in byte order. Both
+        // paths must produce the same identity hash.
+        draft.env = [
+            McpKeyValue(key: "TOKEN2", value: "b"),
+            McpKeyValue(key: "TOKEN10", value: "a")
+        ]
+        draft.enabledAgents = [.claudeCode]
+
+        #expect(feature.save(draft))
+        let row = try #require(feature.rows.first { $0.name == "ordered" })
+        #expect(row.ownedGlobalAgents == [.claudeCode])
+    }
+
+    @Test
+    func windowsMergeTheirOwnershipLedgers() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        // Both windows open the page before either saves, so each starts from
+        // the same (empty) ledger.
+        let first = fixture.feature()
+        let second = fixture.feature()
+        first.refresh()
+        second.refresh()
+
+        var alpha = first.makeDraft()
+        alpha.name = "alpha"
+        alpha.command = "/bin/echo"
+        alpha.enabledAgents = [.claudeCode]
+        #expect(first.save(alpha))
+
+        var beta = second.makeDraft()
+        beta.name = "beta"
+        beta.command = "/bin/echo"
+        beta.enabledAgents = [.claudeCode]
+        #expect(second.save(beta))
+
+        // A reopened window must still see both entries as Lithe-owned.
+        let reopened = fixture.feature()
+        reopened.refresh()
+        let alphaRow = try #require(reopened.rows.first { $0.name == "alpha" })
+        let betaRow = try #require(reopened.rows.first { $0.name == "beta" })
+        #expect(alphaRow.ownedGlobalAgents == [.claudeCode])
+        #expect(betaRow.ownedGlobalAgents == [.claudeCode])
+    }
+
+    @Test
     func externallyModifiedProjectEntryIsKeptAndReported() throws {        let fixture = try Fixture(workspace: true)
         defer { fixture.cleanUp() }
         let feature = fixture.feature()

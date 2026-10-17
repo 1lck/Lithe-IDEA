@@ -12,7 +12,7 @@
 
 use super::model::{McpKeyValue, McpServer, McpTransport};
 use crate::protocol::{CoreError, ErrorCode};
-use toml_edit::{value, Array, DocumentMut, InlineTable, Item, Table, Value};
+use toml_edit::{value, Array, DocumentMut, InlineTable, Item, Key, Table, Value};
 
 type Result<T> = std::result::Result<T, CoreError>;
 
@@ -32,7 +32,16 @@ pub(crate) fn document(content: &str) -> Result<DocumentMut> {
 }
 
 /// Sets or updates `[mcp_servers.<name>]` and returns the new file text.
-pub(crate) fn set_server(document: &mut DocumentMut, server: &McpServer) -> Result<()> {
+///
+/// `previous` is set when the host renames an entry: the old table is moved to
+/// the new name before modeled keys are applied, so Codex-specific fields and
+/// comments survive. The host still issues its remove step for the old name;
+/// it becomes a no-op once the rename has moved the table.
+pub(crate) fn set_server(
+    document: &mut DocumentMut,
+    server: &McpServer,
+    previous: Option<&str>,
+) -> Result<()> {
     if server.transport == McpTransport::Sse {
         // Codex has no server-sent-events transport; the host refuses to write
         // such servers instead of silently converting them to HTTP.
@@ -44,6 +53,20 @@ pub(crate) fn set_server(document: &mut DocumentMut, server: &McpServer) -> Resu
     let Some(servers) = servers.as_table_mut() else {
         return Err(edit_error());
     };
+    // When a target with the new name already exists, keep that table: the
+    // user is merging into it, and its own unmodeled fields take precedence.
+    if let Some(previous) = previous.filter(|name| *name != server.name) {
+        if servers.get(server.name.as_str()).is_none() {
+            if let Some((key, item)) = servers.remove_entry(previous) {
+                // Reuse the key decorations so comments attached to the old
+                // header move with the table.
+                let renamed = Key::new(server.name.as_str())
+                    .with_leaf_decor(key.leaf_decor().clone())
+                    .with_dotted_decor(key.dotted_decor().clone());
+                servers.insert_formatted(&renamed, item);
+            }
+        }
+    }
     let item = servers
         .entry(server.name.as_str())
         .or_insert_with(|| Item::Table(Table::new()));

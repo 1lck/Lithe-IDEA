@@ -93,6 +93,13 @@ impl JsonDocument {
         Ok(Some(open))
     }
 
+    /// Returns the raw text of `key`'s value in the object at `open`.
+    pub(crate) fn member_value(&self, open: usize, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .find_member(open, key)?
+            .map(|member| self.text[member.value_start..member.value_end].to_string()))
+    }
+
     /// Inserts or replaces the member `key` in the object at `open`.
     pub(crate) fn set_member(&mut self, open: usize, key: &str, value_json: &str) -> Result<()> {
         match self.find_member(open, key)? {
@@ -115,11 +122,15 @@ impl JsonDocument {
         if let Some(next) = members.get(index + 1) {
             let member_line = line_start(&self.text, member.key_start);
             let next_line = line_start(&self.text, next.key_start);
-            let (start, end) = if member_line < next_line {
-                (member_line, next_line)
-            } else {
-                (member.key_start, next.key_start)
-            };
+            // Extend to the whole line only when this member starts its own
+            // line. If a previous member shares the line, deleting from the
+            // line start would remove that neighbouring entry as well.
+            let (start, end) =
+                if member_line < next_line && line_indent(&self.text, member.key_start).is_some() {
+                    (member_line, next_line)
+                } else {
+                    (member.key_start, next.key_start)
+                };
             self.text.replace_range(start..end, "");
         } else if let Some(previous) = index.checked_sub(1).map(|index| &members[index]) {
             // Removing the last member must also remove the comma that

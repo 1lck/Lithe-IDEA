@@ -123,6 +123,9 @@ struct McpWriteRequest: Encodable, Sendable {
     let operation: String
     let server: McpServerDefinition?
     let name: String?
+    /// Existing name a `set` renames from; Core copies the old entry before
+    /// applying the new definition so unmodeled fields survive.
+    let previousName: String?
     let owned: [McpOwnedEntry]
 }
 

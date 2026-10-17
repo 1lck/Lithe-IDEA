@@ -234,6 +234,20 @@ fn removing_a_middle_json_entry_keeps_neighbours_valid() {
 }
 
 #[test]
+fn removing_a_shared_line_entry_keeps_the_previous_entry() {
+    // `a` and `b` share a line while `c` starts the next one. Deleting from
+    // the line start would silently drop `a`, which is still valid JSON and
+    // therefore invisible to output validation.
+    let content = "{\n  \"mcpServers\": {\n    \"a\": {\"command\": \"a\"}, \"b\": {\"command\": \"b\"},\n    \"c\": {\"command\": \"c\"}\n  }\n}";
+    let next = remove_entry(content, "b");
+    let parsed: Value = serde_json::from_str(&next).unwrap();
+    assert_eq!(parsed["mcpServers"]["a"]["command"], "a");
+    assert_eq!(parsed["mcpServers"]["c"]["command"], "c");
+    assert!(parsed["mcpServers"].get("b").is_none());
+    assert_eq!(parsed["mcpServers"].as_object().unwrap().len(), 2);
+}
+
+#[test]
 fn removing_entries_handles_single_line_and_mixed_layouts() {
     let single_line =
         "{\"mcpServers\": {\"a\": {\"command\": \"a\"}, \"b\": {\"command\": \"b\"}}}";
@@ -391,6 +405,81 @@ startup_timeout_sec = 5
     assert!(!table.contains_key("env"));
     assert_eq!(table["startup_timeout_sec"].as_integer(), Some(5));
     assert_eq!(table["url"].as_str(), Some("https://example.test/mcp"));
+}
+
+#[test]
+fn codex_rename_preserves_unmodelled_fields() {
+    let content = r#"
+# Remote MCP server.
+[mcp_servers.remote]
+url = "https://example.test/mcp"
+bearer_token_env_var = "REMOTE_TOKEN"
+startup_timeout_sec = 20
+"#;
+    let parsed = parse("codex", "global", content, None);
+    let hash = server_hash(&parsed, "remote");
+    let result = plan(json!({
+        "source": "codex",
+        "scope": "global",
+        "content": content,
+        "operation": "set",
+        "previousName": "remote",
+        "server": {
+            "name": "renamed",
+            "transport": "http",
+            "args": [],
+            "env": [],
+            "url": "https://example.test/mcp",
+            "headers": []
+        },
+        "owned": [{"name": "remote", "definitionHash": hash}]
+    }));
+    let next = result["content"].as_str().unwrap();
+    let parsed: toml::Value = toml::from_str(next).unwrap();
+    // The Codex edit moves the table to its new key, carrying unknown fields
+    // and comments with it.
+    assert!(parsed["mcp_servers"].get("remote").is_none());
+    assert!(next.contains("# Remote MCP server."));
+    assert_eq!(
+        parsed["mcp_servers"]["renamed"]["bearer_token_env_var"].as_str(),
+        Some("REMOTE_TOKEN")
+    );
+    assert_eq!(
+        parsed["mcp_servers"]["renamed"]["startup_timeout_sec"].as_integer(),
+        Some(20)
+    );
+}
+
+#[test]
+fn write_hash_matches_the_reparsed_definition_for_unsorted_entries() {
+    let result = plan(json!({
+        "source": "claude",
+        "scope": "global",
+        "content": "{\"mcpServers\": {}}",
+        "operation": "set",
+        "server": {
+            "name": "ordered",
+            "transport": "stdio",
+            "command": "/bin/echo",
+            "args": [],
+            "env": [
+                {"key": "TOKEN2", "value": "b"},
+                {"key": "TOKEN10", "value": "a"}
+            ],
+            "headers": []
+        },
+        "owned": []
+    }));
+    let hash = result["definitionHash"].as_str().unwrap();
+    let reparsed = parse(
+        "claude",
+        "global",
+        result["content"].as_str().unwrap(),
+        None,
+    );
+    // The host stores this hash in the ledger; discovery parses the written
+    // file and sorts entries, so both paths must agree.
+    assert_eq!(server_hash(&reparsed, "ordered"), hash);
 }
 
 #[test]

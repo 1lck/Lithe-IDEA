@@ -98,6 +98,11 @@ impl McpServer {
     }
 
     /// Canonical identity: name plus every value that affects how the server runs.
+    ///
+    /// Env and header entries are sorted here rather than only at construction:
+    /// the write path deserializes definitions from the host, and its hash must
+    /// match what the parser computes from the written configuration no matter
+    /// what order the UI sent the entries in.
     fn compute_hash(&self) -> String {
         let mut canonical = String::new();
         canonical.push_str(&self.name);
@@ -111,7 +116,12 @@ impl McpServer {
             canonical.push('\u{1f}');
         }
         canonical.push('\n');
-        for entry in &self.env {
+        let mut env: Vec<&McpKeyValue> = self.env.iter().collect();
+        env.sort_by(|left, right| {
+            (left.key.as_str(), left.value.as_str())
+                .cmp(&(right.key.as_str(), right.value.as_str()))
+        });
+        for entry in env {
             canonical.push_str(&entry.key);
             canonical.push('=');
             canonical.push_str(&entry.value);
@@ -120,7 +130,12 @@ impl McpServer {
         canonical.push('\n');
         canonical.push_str(self.url.as_deref().unwrap_or(""));
         canonical.push('\n');
-        for entry in &self.headers {
+        let mut headers: Vec<&McpKeyValue> = self.headers.iter().collect();
+        headers.sort_by(|left, right| {
+            (left.key.as_str(), left.value.as_str())
+                .cmp(&(right.key.as_str(), right.value.as_str()))
+        });
+        for entry in headers {
             canonical.push_str(&entry.key);
             canonical.push(':');
             canonical.push_str(&entry.value);
