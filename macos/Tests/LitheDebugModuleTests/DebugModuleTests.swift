@@ -98,13 +98,13 @@ struct DebugModuleTests {
     }
 
     @Test
-    func debuggeeOutputIsMirroredIntoConsoleWithoutTerminalControlSequences() {
+    func debuggeeOutputPreservesSGRButDiscardsTerminalControlSequences() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
         let feature = GenericDebugFeatureModel(sessions: manager)
 
-        feature.appendDebuggeeOutput("\u{001B}[31mready\u{001B}[0m\r\n")
+        feature.appendDebuggeeOutput("\u{001B}[2J\u{001B}[31mready\u{001B}[0m\u{001B}]0;title\u{0007}\r\n")
 
-        #expect(feature.output == "ready\n")
+        #expect(feature.output == "\u{001B}[31mready\u{001B}[0m\n")
     }
 
     @Test
@@ -116,7 +116,61 @@ struct DebugModuleTests {
         feature.appendDebuggeeOutput("[31mready\u{001B}[0m\r")
         feature.appendDebuggeeOutput("\nnext\n")
 
-        #expect(feature.output == "ready\nnext\n")
+        #expect(feature.output == "\u{001B}[31mready\u{001B}[0m\nnext\n")
+    }
+
+    @Test(arguments: [false, true], [8, 72])
+    func boundedConsoleOutputPreservesSGRAcrossChunksAndSessions(background: Bool, padding: Int) throws {
+        var adapters: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [
+            DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
+        ]) { _, _ in
+            let adapter = DeferredInspectionDebugSession()
+            adapters.append(adapter)
+            return adapter
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/workspace/bounded-output")
+        let source = root.appendingPathComponent("Main.java")
+        let configuration = DebugLaunchConfiguration(name: "Main", request: .launch, arguments: [:])
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        let first = try #require(feature.activeSessionID)
+        if background { #expect(feature.startAdditional(fileURL: source, rootURL: root, configuration: configuration)) }
+        func emit(_ text: String) { adapters[0].emit(.output(category: "stdout", output: text)) }
+        emit(String(repeating: "x", count: padding))
+        emit("\u{001B}[3")
+        emit("1m")
+        // Exercise both the old cut (10) and the reserved-prefix cut (74) inside SGR.
+        emit(String(repeating: "y", count: 400_010 - padding - "\u{001B}[31m".count))
+        if background { #expect(feature.selectSession(first)) }
+        #expect(feature.output.count <= 400_000)
+        #expect(feature.output.hasPrefix("\u{001B}[0;31m"))
+        #expect(feature.output.dropFirst("\u{001B}[0;31m".count).allSatisfy { $0 == "y" })
+    }
+
+    @Test(arguments: ["31", "38;5;196", "38;2;4;5;6"])
+    func boundedConsoleOutputRebuildsCombinedColorsAndHonorsResets(foreground: String) {
+        let feature = GenericDebugFeatureModel(sessions: DebugAdapterSessionManager(providers: []) { _, _ in nil })
+        defer { feature.reset() }
+        feature.appendDebuggeeOutput("\u{001B}[\(foreground)m\u{001B}[1m\u{001B}[48;2;1;2;3m" + String(repeating: "🙂", count: 400_000))
+        #expect(feature.output.count <= 400_000)
+        #expect(feature.output.hasPrefix("\u{001B}[0;1;\(foreground);48;2;1;2;3m"))
+        feature.appendDebuggeeOutput("\u{001B}[22;39;49m" + String(repeating: "z", count: 400_000))
+        #expect(feature.output.count <= 400_000)
+        #expect(feature.output.allSatisfy { $0 == "z" })
+        feature.clearOutput()
+        feature.appendDebuggeeOutput(String(repeating: "🙂", count: 400_010))
+        #expect(feature.output == String(repeating: "🙂", count: 400_000))
+    }
+
+    @Test
+    func debuggeeOutputRejectsOversizedOrPrivateCSIAndPreservesFollowingText() {
+        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        feature.appendDebuggeeOutput("\u{001B}[" + String(repeating: "1;", count: 100))
+        feature.appendDebuggeeOutput("mtext\u{001B}[?25mvisible\u{001B}[36mcyan\u{001B}[0m")
+        #expect(feature.output == "textvisible\u{001B}[36mcyan\u{001B}[0m")
     }
 
     @Test
@@ -1183,6 +1237,68 @@ struct DebugModuleTests {
 
         #expect(feature.javaSteppingFilters == core.defaultSteppingFilters)
         #expect(core.lastLaunchConfiguration?.steppingFilters == core.defaultSteppingFilters)
+    }
+
+    @Test
+    func emptyStateFollowsRetainedContentRatherThanRunningStateOrOutput() {
+        let session = DeferredInspectionDebugSession()
+        let manager = DebugAdapterSessionManager(providers: [
+            DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
+        ]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/workspace/debug-empty-state", isDirectory: true)
+        let source = root.appendingPathComponent("Main.java")
+        let configuration = DebugLaunchConfiguration(
+            name: "Main", request: .launch, arguments: ["mainClass": .string("Main")]
+        )
+
+        #expect(feature.showsEmptyState)
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        #expect(!feature.showsEmptyState)
+        session.transition(to: .terminated)
+        #expect(!feature.isSessionActive)
+        #expect(!feature.hasOutput)
+        #expect(!feature.showsEmptyState, "A silent terminated session still owns visible content")
+        feature.appendDebuggeeOutput("retained output")
+        feature.stop()
+        #expect(feature.hasOutput)
+        #expect(!feature.showsEmptyState, "Stopping the last session must preserve access to retained output")
+
+        session.failNextLaunch = true
+        #expect(!feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        #expect(feature.sessionSummaries.isEmpty)
+        #expect(feature.state == .failed)
+        #expect(feature.canRetry)
+        #expect(!feature.showsEmptyState, "Failed launch diagnostics must remain accessible")
+        feature.stop()
+        feature.clearOutput()
+        #expect(feature.state == .idle)
+        #expect(feature.errorMessage != nil)
+        #expect(!feature.showsEmptyState, "Retained errors remain accessible even without output or a session")
+        #expect(feature.retry())
+        #expect(!feature.showsEmptyState)
+        feature.reset()
+        #expect(feature.showsEmptyState)
+    }
+
+    @Test
+    func stoppingTheLastRunningSessionKeepsConsoleOutputUntilItIsCleared() {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/stop-console")
+        defer { feature.reset() }
+        session.transition(to: .running)
+        feature.appendDebuggeeOutput("retained console output\n")
+        let output = feature.output
+        feature.stop()
+        #expect(feature.sessionSummaries.isEmpty)
+        #expect(feature.state == .idle)
+        #expect(feature.hasOutput)
+        #expect(feature.output == output)
+        #expect(feature.outputPresentation.text == output)
+        #expect(!feature.showsEmptyState)
+        feature.clearOutput()
+        #expect(feature.showsEmptyState)
     }
 
     @Test

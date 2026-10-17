@@ -8,6 +8,8 @@
 
 如果任务会准备、验证或发布 Lithe 稳定版，修改发布说明、版本元数据、标签或发布工作流前，还要加载 `.agents/skills/release-lithe/SKILL.md`。
 
+如果任务会整理问题报告、提出功能建议、准备 Issue 草稿或提交 GitHub Issue，开始前还要加载 `.agents/skills/submit-lithe-issue/SKILL.md`。该 Skill 规定信息追问、诊断采集与脱敏、查重，以及严格遵循仓库 Issue 模板的提交流程；不得绕过 gh 模板或伪造表单来源标记。
+
 如果任务涉及通过 Parallels 虚拟机来构建、运行、诊断 Windows 产品，或向 Windows 产品传输文件，开始前还要加载 `.agents/skills/debug-windows-on-parallels/SKILL.md`。
 
 ## 测试进程生命周期与清理
@@ -37,11 +39,18 @@
 
 入口文件只保留这条提醒；具体决策原因、正确做法、反例和验证要求以 Agent Note 与 Skill 为准，避免三份规则长期漂移。
 
+## 设置页分类
+
+新增或移动 macOS 设置页前，先阅读
+`.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md`。
+它规定每个设置页归属哪个侧栏分组，以及插件带来的设置默认放在哪里；入口文件只保留这条提醒，规则以 Note 为准。
+
 ## 开发与协作
 1. 每次进行功能开发或者 bug 修复都单独从最新的 preview 分支创建新分支，如果有对应的 issue 分支名最好与 issue 编号相关
 2. 开发的时候如果涉及到 github 相关的操作麻烦使用 gh CLI 来进行操作而不是使用 Compute rUse 的 Skill。由于沙盒影响可能导致需要反复的 gh 授权，每次需要授权的时候麻烦先申请更高的权限去主环境中查看对应是否有 gh 的Token，如果有就直接复用，这个时候找不到才要求登录 gh
 3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么
 4. 如果让你修复有关 CI 的流程，记得使用 gh 或者 curl 之类的去查看(优先 gh)而不是使用 Computer Use
+5. 提交 PR 时默认创建 Draft PR（`gh pr create --draft`）。Draft PR 只运行 Linux 检查，不占用 macOS 和 Windows runner。开发完成、本地验证通过、可以评审时，再用 `gh pr ready` 标记为 ready，这时才会运行完整 CI。标记为 ready 之后，把修改攒在一起再 push：每次 push 都会重新运行完整 CI，并取消上一轮还没跑完的 CI。仓库曾因 Actions 用量过高被 GitHub 判定为滥用，所以不要为了看 CI 结果而反复 push；能在本地验证的先在本地验证。
 
 ## 工作树资源复用与文档维护
 

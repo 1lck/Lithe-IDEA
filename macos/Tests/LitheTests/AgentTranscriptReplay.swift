@@ -9,17 +9,25 @@ final class TranscriptReplay {
     private let panel: AgentConversationFeatureModel
     private let transport = ReplayTransport()
     private let phaseURL: URL
+    private let preferencesDomain: String
     private let host: NSHostingView<AnyView>
     private let window: NSWindow
     private var feature: AgentConnectionModel { panel.selectedConnection! }
 
-    init(phaseURL: URL) {
+    init(phaseURL: URL, editorLayout: Bool = false) {
         self.phaseURL = phaseURL
+        let preferencesDomain = "LitheTests.TranscriptReplay.\(UUID().uuidString)"
+        self.preferencesDomain = preferencesDomain
+        let preferences = UserDefaults(suiteName: preferencesDomain)!
+        preferences.set(false, forKey: "lithe.agent.editor.showsDetails")
         panel = AgentConversationFeatureModel(transport: transport)
         panel.setAgents([.init(id: "fixture", name: "Fixture")])
         host = NSHostingView(rootView: AnyView(AgentConfiguredConversationView(feature: panel, setupError: nil,
-            onSelectAgent: panel.selectAgent, onConnect: {}, onOpenSettings: {},
-            onCopySessionID: { _ in }, onOpenFile: { _ in }).environment(\.locale, Locale(identifier: "zh-Hans"))))
+            onSelectAgent: panel.selectAgent, onConnect: {}, onOpenSettings: {}, onHide: {},
+            onCopySessionID: { _ in }, onOpenFile: { _ in }, isEditorLayout: editorLayout)
+            .defaultAppStorage(preferences)
+            .litheWorkbenchSurface(AgentPanelStyle.canvas)
+            .environment(\.locale, Locale(identifier: "zh-Hans"))))
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 350, height: 600),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -27,13 +35,17 @@ final class TranscriptReplay {
         window.orderFront(nil)
     }
 
-    func perform(browsingHistory: Bool) async throws {
-        defer { window.contentView = nil; window.close() }
-        do { try await run(browsingHistory: browsingHistory); await panel.stop(); try phase("finished") }
+    func perform(browsingHistory: Bool, navigating: Bool = false) async throws {
+        defer {
+            window.contentView = nil
+            window.close()
+            UserDefaults.standard.removePersistentDomain(forName: preferencesDomain)
+        }
+        do { try await run(browsingHistory: browsingHistory, navigating: navigating); await panel.stop(); try phase("finished") }
         catch { await panel.stop(); throw error }
     }
 
-    private func run(browsingHistory: Bool) async throws {
+    private func run(browsingHistory: Bool, navigating: Bool) async throws {
         try feature.connect(configuration: .init(agentID: "fixture", command: "", arguments: [],
             workspaceURL: URL(fileURLWithPath: "/example/project"),
             dataDirectory: URL(fileURLWithPath: "/example/agents"), providerProtocol: "responses",
@@ -53,9 +65,38 @@ final class TranscriptReplay {
             try feature.send(String(repeating: "请阅读文件并修改，然后运行测试。", count: 20))
             try await layout("history-prompt-\(turn)")
         }
+        if navigating {
+            window.setContentSize(NSSize(width: 1100, height: 700))
+            try await layout("wide-navigation")
+        }
         let scroll = try requireTranscriptScrollView(in: host)
         let clip = scroll.contentView
-        if browsingHistory { userScroll(scroll, to: clip.documentRect.minY) }
+        if navigating {
+            let scrollRect = scroll.convert(scroll.bounds, to: host)
+            guard abs(scrollRect.maxX - host.bounds.maxX) <= 2 else { throw ReplayError.scrollbarWasNotAtEdge }
+            try capture("wide-before-jump")
+            let id = feature.selectedConversation!.messages.first(where: { $0.role == .user })!.id
+            let button = try requireNavigationButton(id: "agent-turn-navigation-\(id)", in: host)
+            guard button.accessibilityPerformPress?() == true else { throw ReplayError.navigationFailed(stage: "press-button") }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while clip.bounds.minY > 20 {
+                guard ContinuousClock.now < deadline else { throw ReplayError.navigationFailed(stage: "scroll-to-first-turn") }
+                try await layout("jumping-to-first-turn")
+            }
+            let anchors = navigationAnchors(in: host).filter { $0.turnID == id }
+            // SwiftUI lays out against the document width, which can differ from the native clip width.
+            guard let document = scroll.documentView, let first = anchors.first else {
+                throw ReplayError.navigationFailed(stage: "first-turn-anchor")
+            }
+            let row = first.convert(first.bounds, to: document)
+            let column = document.bounds.width * AgentPanelStyle.editorContentWidthFraction
+            guard abs(row.width - (column - 24)) < 1,
+                  abs(row.minX - ((document.bounds.width - column) / 2 + 12)) < 1,
+                  first.convert(first.bounds, to: clip).intersects(clip.bounds) else {
+                throw ReplayError.navigationFailed(stage: "first-turn-column: \(row), document \(document.bounds)")
+            }
+            try capture("wide-after-jump")
+        } else if browsingHistory { userScroll(scroll, to: clip.documentRect.minY) }
         let browsingY = clip.bounds.minY
 
         for tool in 0..<2 {
@@ -78,17 +119,30 @@ final class TranscriptReplay {
                     "status": "in_progress", "rawInput": ["command": title]],
                     "options": [["optionId": "allow_once", "name": "Yes, once", "kind": "allow_once"],
                                 ["optionId": "reject_once", "name": "No", "kind": "reject_once"]]]])
+            try update(["sessionUpdate": "notice", "severity": "warning", "title": "Tool advisory",
+                        "description": "The tool is waiting for your permission. Existing history must remain readable."])
+            guard let noticeID = feature.selectedConversation?.notice?.id else { throw ReplayError.missingNotice }
             try await layout("permission-\(id)")
             if !browsingHistory {
-                guard let document = scroll.documentView,
-                      clip.bounds.maxY - scroll.contentInsets.bottom >= document.frame.maxY - 1 else {
-                    throw ReplayError.permissionObscuredTheLatestReply
+                // Inset changes queue native bottom-following after the render.
+                // Await its visible result, rather than assuming one layout runs it.
+                let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+                while clip.bounds.maxY - scroll.contentInsets.bottom < (scroll.documentView?.frame.maxY ?? 0) - 1 {
+                    guard ContinuousClock.now < deadline else {
+                        throw ReplayError.latestReplyWasNotVisible(document: scroll.documentView?.frame.maxY ?? 0,
+                            viewport: clip.bounds.maxY, frame: clip.frame.maxY, inset: scroll.contentInsets.bottom)
+                    }
+                    try await layout("following-permission-\(id)")
                 }
             }
             guard feature.selectedConversation?.permission?.id == id else { throw ReplayError.missingPermission }
             feature.answerPermission(optionID: "allow_once")
             try await layout("permission-answer-\(id)")
             guard feature.selectedConversation?.permission == nil else { throw ReplayError.remainingPermission }
+            guard feature.selectedConversation?.notice?.id == noticeID else { throw ReplayError.missingNotice }
+            feature.dismissNotice(noticeID, in: "replay")
+            try await layout("notice-dismiss-\(id)")
+            guard feature.selectedConversation?.notice == nil else { throw ReplayError.remainingNotice }
             if browsingHistory {
                 guard abs(clip.bounds.minY - browsingY) < 1 else { throw ReplayError.historyPositionWasLost }
             }
@@ -114,7 +168,16 @@ final class TranscriptReplay {
             try await layout("resumed-following")
         }
         try await layout("settled-bottom")
-        guard clip.documentRect.maxY - clip.bounds.maxY < 2 else { throw ReplayError.latestReplyWasNotVisible }
+        // Native bottom following is queued after viewport changes; one render
+        // transaction does not guarantee that the final follow operation ran.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while clip.documentRect.maxY - clip.bounds.maxY >= 2 {
+            guard ContinuousClock.now < deadline else {
+                throw ReplayError.latestReplyWasNotVisible(document: clip.documentRect.maxY, viewport: clip.bounds.maxY,
+                    frame: scroll.documentView?.frame.maxY ?? 0, inset: scroll.contentInsets.bottom)
+            }
+            try await layout("settling-bottom")
+        }
     }
 
     private func userScroll(_ scroll: NSScrollView, to y: CGFloat) {
@@ -141,6 +204,20 @@ final class TranscriptReplay {
         }
     }
 
+    private func capture(_ name: String) throws {
+        guard let directory = ProcessInfo.processInfo.environment["LITHE_TRANSCRIPT_CAPTURE_DIR"] else { return }
+        let root = URL(fileURLWithPath: directory, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try png.write(to: root.appendingPathComponent("\(name).png"))
+    }
+
     private func requireTranscriptScrollView(in root: NSView) throws -> NSScrollView {
         if let scroll = root as? NSScrollView, scroll.contentView.documentRect.height > scroll.contentView.bounds.height,
            scroll.contentView.bounds.height > 200 { return scroll }
@@ -148,6 +225,24 @@ final class TranscriptReplay {
             if let scroll = try? requireTranscriptScrollView(in: child) { return scroll }
         }
         throw ReplayError.missingScrollView
+    }
+
+    private func requireNavigationButton(id: String, in root: Any) throws -> AnyObject {
+        // SwiftUI accessibility nodes expose selectors without adopting the
+        // entire AppKit protocol. Bound traversal and skip repeated nodes.
+        var pending: [AnyObject] = [root as AnyObject]
+        var visited: Set<ObjectIdentifier> = []
+        while let element = pending.popLast(), visited.count < 4096 {
+            guard visited.insert(ObjectIdentifier(element)).inserted else { continue }
+            if element.accessibilityIdentifier?() == id { return element }
+            pending.append(contentsOf: (element.accessibilityChildren?() ?? []).map { $0 as AnyObject })
+        }
+        throw ReplayError.navigationFailed(stage: "find-accessible-button")
+    }
+
+    private func navigationAnchors(in root: NSView) -> [AgentTranscriptNavigationAnchor.Probe] {
+        if let anchor = root as? AgentTranscriptNavigationAnchor.Probe { return [anchor] }
+        return root.subviews.flatMap { navigationAnchors(in: $0) }
     }
 
     private func phase(_ name: String) throws { try name.write(to: phaseURL, atomically: true, encoding: .utf8) }
@@ -176,5 +271,7 @@ private final class ReplayConnection: AgentConnection {
     func close() async {}
 }
 private enum ReplayError: Error {
-    case missingSession, missingPermission, remainingPermission, missingReply, invalidCommand, missingScrollView, historyPositionWasLost, latestReplyWasNotVisible, permissionObscuredTheLatestReply
+    case missingSession, missingPermission, remainingPermission, missingNotice, remainingNotice, missingReply, invalidCommand, missingScrollView, historyPositionWasLost
+    case scrollbarWasNotAtEdge, navigationFailed(stage: String)
+    case latestReplyWasNotVisible(document: CGFloat, viewport: CGFloat, frame: CGFloat, inset: CGFloat)
 }

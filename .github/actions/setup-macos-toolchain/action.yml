@@ -4,12 +4,39 @@ runs:
   using: composite
   steps:
     - name: Select Xcode 26.6
+      if: runner.environment != 'self-hosted'
       uses: maxim-lobanov/setup-xcode@v1
       with:
         xcode-version: "26.6"
+    - name: Use the configured self-hosted Xcode without changing other runners
+      if: runner.environment == 'self-hosted'
+      shell: bash
+      run: |
+        developer_dir=$(xcode-select --print-path)
+        if [[ ! -x "$developer_dir/usr/bin/xcodebuild" ]]; then
+          echo "::error::Select a complete Xcode 26.6 installation before starting the runner services"
+          exit 1
+        fi
+        # The Mac minis also carry Command Line Tools with a newer macOS SDK.
+        # A tool that resolves the SDK without DEVELOPER_DIR picks that SDK,
+        # whose libSystem stubs the Xcode 26.6 linker cannot read (seen when
+        # linking the x86_64 slice). Pin every compiler to Xcode's own SDK.
+        sdk_root=$(DEVELOPER_DIR="$developer_dir" xcrun --sdk macosx --show-sdk-path)
+        if [[ "$sdk_root" != "$developer_dir"/* ]]; then
+          echo "::error::The macOS SDK resolved outside the selected Xcode: $sdk_root"
+          exit 1
+        fi
+        {
+          echo "DEVELOPER_DIR=$developer_dir"
+          echo "SDKROOT=$sdk_root"
+        } >> "$GITHUB_ENV"
     - name: Verify Swift compiler
       shell: bash
       run: |
+        if [[ "$(xcodebuild -version | head -n 1)" != 'Xcode 26.6' ]]; then
+          echo '::error::Expected Xcode 26.6'
+          exit 1
+        fi
         expected=$(cat "$GITHUB_WORKSPACE/.swift-version")
         actual=$(swift --version | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
         if [[ "$actual" != "$expected" ]]; then

@@ -140,7 +140,7 @@ struct BranchSwitcherPopoverBehaviorTests {
 
     @Test
     @MainActor
-    func scrollingTransfersHoverToTheRowUnderTheStationaryPointer() throws {
+    func scrollingTransfersHoverToTheRowUnderTheStationaryPointer() async throws {
         let window = BranchHoverTestWindow(contentRect: NSRect(x: 100, y: 100, width: 375, height: 48),
                                            styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -153,10 +153,9 @@ struct BranchSwitcherPopoverBehaviorTests {
         let rows = (0..<4).map { index in
             let row = BranchPopupRowControl()
             row.frame = NSRect(x: 0, y: CGFloat(index) * 24, width: 375, height: 24)
-            row.render = { _, selected in
-                highlighted[index] = selected
-                return AnyView(Text("Branch \(index)"))
-            }
+            highlighted[index] = false
+            row.onHoverChange = { highlighted[index] = $0 }
+            row.renderExpansion = { AnyView(Text("Branch \(index)")) }
             document.addSubview(row)
             row.refresh()
             return row
@@ -172,18 +171,18 @@ struct BranchSwitcherPopoverBehaviorTests {
             // AppKit rebuilds tracking regions as the clip bounds move. No
             // mouseExited is guaranteed when the old region is removed.
             rows.forEach { $0.updateTrackingAreas() }
+            // Tracking areas are rebuilt during layout; hover renders after the pass.
+            await Self.drainMainQueue()
             for index in rows.indices {
                 let row = rows[index]
                 #expect(highlighted[index] == (index == Int(offset / 24)),
                         "row \(index) frame \(row.frame) visible \(row.visibleRect) pointer \(row.convert(window.pointer, from: nil))")
             }
         }
-        rows[1].isPresented = true
-        rows[1].refresh()
         window.pointer = NSPoint(x: -100, y: -100)
         rows.forEach { $0.updateTrackingAreas() }
-        #expect(highlighted[1] == true, "An open row action menu keeps its active highlight")
-        #expect(highlighted[2] == false, "Leaving the viewport clears the last hover")
+        await Self.drainMainQueue()
+        #expect(highlighted.values.allSatisfy { !$0 }, "Leaving the viewport clears the last hover")
     }
 
     @Test(arguments: [ColorScheme.light, .dark])
@@ -237,7 +236,9 @@ struct BranchSwitcherPopoverBehaviorTests {
         let color = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: 3)?.usingColorSpace(.sRGB))
         // Compare the actual selected row through the same AppKit drawing path;
         // the display's ICC profile must not be mistaken for a theme change.
-        let selected = try #require(row.subviews.first)
+        #expect(row.subviews.isEmpty, "Rows draw inline; the control must not host a view per row")
+        // The hover highlight reaches the inline SwiftUI row on its next update.
+        let selected = host
         selected.layoutSubtreeIfNeeded()
         let selectedBitmap = try #require(selected.bitmapImageRepForCachingDisplay(in: selected.bounds))
         selected.cacheDisplay(in: selected.bounds, to: selectedBitmap)
@@ -292,6 +293,247 @@ struct BranchSwitcherPopoverBehaviorTests {
         #expect(window.childWindows?.isEmpty != false, "Closing the popup must release its expanded row")
     }
 
+    /// Issue 1277: activating or deactivating the app while the popup is open lets
+    /// SwiftUI's FocusBridge re-enter updateNSView inside the window layout pass.
+    /// Touching the hosting view or the hover expansion there makes AppKit abort
+    /// the constraint pass, so the row must wait for layout to finish and then
+    /// render the coalesced state exactly once.
+    @Test
+    @MainActor
+    func layoutReentrantUpdatesDeferHoveredExpansionRendering() async throws {
+        let name = "codex/a-long-local-branch-name-that-needs-hover-expansion"
+        let upstream = "origin/codex/a-long-upstream-branch-name"
+        let container = BranchLayoutReentryContainer(frame: NSRect(x: 0, y: 0, width: 375, height: 24))
+        var renders: [(expanded: Bool, highlighted: Bool)] = []
+        var rendersDuringLayout = 0
+        func rowView(title: String) -> AnyView {
+            AnyView(BranchPopupRowView(isPresented: false, accessibilityTitle: title, onPress: {},
+                label: { expanded, highlighted in
+                    let _ = renders.append((expanded, highlighted))
+                    // The inline row is SwiftUI's own update; only the AppKit-hosted
+                    // expansion would re-mark the window for constraint updates.
+                    let _ = container.isInLayout && expanded ? rendersDuringLayout += 1 : ()
+                    HStack(spacing: 8) {
+                        Text(verbatim: name).lineLimit(1).fixedSize(horizontal: expanded, vertical: true)
+                        Spacer(minLength: 10)
+                        Text(verbatim: upstream).lineLimit(1).fixedSize(horizontal: expanded, vertical: true)
+                    }.frame(height: LitheDropdownMetrics.rowHeight)
+                }))
+        }
+        let host = NSHostingView(rootView: rowView(title: name))
+        host.frame = container.bounds
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host)
+        // Tracking areas are rebuilt inside layout and reconcile hover against the
+        // pointer, so pin it inside the row instead of reading the machine's mouse.
+        let window = BranchHoverTestWindow(contentRect: NSRect(x: 100, y: 100, width: 375, height: 24),
+                                           styleMask: [.borderless], backing: .buffered, defer: false)
+        window.pointer = NSPoint(x: 20, y: 12)
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        window.orderFrontRegardless()
+        defer { container.onLayout = nil; window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        func control(in view: NSView) -> BranchPopupRowControl? {
+            (view as? BranchPopupRowControl) ?? view.subviews.lazy.compactMap { control(in: $0) }.first
+        }
+        let row = try #require(control(in: host))
+        row.mouseEntered(with: try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, trackingNumber: 0, userData: nil)))
+        let expansion = try #require(window.childWindows?.first(where: { $0.isVisible }),
+                                     "The long hovered name must start expanded")
+        host.layoutSubtreeIfNeeded()
+        renders.removeAll()
+        rendersDuringLayout = 0
+
+        // Each pass changes the row title, as a fetch updating ahead/behind counts
+        // would, and synchronously drives SwiftUI into updateNSView mid-layout.
+        var passes = 0
+        container.onLayout = {
+            passes += 1
+            host.rootView = rowView(title: "\(name) ↑\(passes)")
+            host.layoutSubtreeIfNeeded()
+        }
+        for _ in 0..<3 {
+            container.needsLayout = true
+            window.layoutIfNeeded()
+        }
+        container.onLayout = nil
+        #expect(passes == 3)
+        #expect(row.accessibilityLabel() == "\(name) ↑3", "updateNSView must have run inside layout")
+        #expect(rendersDuringLayout == 0, "Hosting the expansion inside layout re-marks the window for constraint updates")
+        #expect(renders.filter(\.expanded).isEmpty)
+        #expect(renders.map(\.highlighted) == renders.map { _ in true }, "The hovered inline row stays highlighted")
+
+        await Self.drainMainQueue()
+        #expect(renders.filter(\.expanded).count == 1, "Three updates coalesce into one expansion render")
+        #expect(expansion.isVisible, "The hovered long name stays expanded after the deferred render")
+        #expect(window.childWindows?.filter { $0.isVisible }.count == 1)
+
+        // Presenting the action menu must not leave a clickable expansion for a turn.
+        row.update(BranchPopupRowControl.RenderState(title: name, content: 0, isPresented: true, isEnabled: true,
+                                                     environment: EnvironmentValues()))
+        #expect(!expansion.isVisible, "Presenting the row closes its expansion before the deferred render")
+    }
+
+    /// Scrolling moves rows under a stationary pointer, and AppKit rebuilds their
+    /// tracking areas inside the window layout pass. The hover transfer and the
+    /// expansion reposition must wait for that pass instead of re-hosting views.
+    @Test
+    @MainActor
+    func trackingAreaRebuildsDuringLayoutDeferHoverRendering() async throws {
+        let window = BranchHoverTestWindow(contentRect: NSRect(x: 100, y: 100, width: 120, height: 48),
+                                           styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let container = BranchLayoutReentryContainer(frame: NSRect(x: 0, y: 0, width: 120, height: 48))
+        window.contentView = container
+        window.orderFrontRegardless()
+        defer { container.onLayout = nil; window.contentView = nil; window.close() }
+        var hovers: [(row: Int, hovered: Bool)] = []
+        var expansions: [Int] = []
+        var rendersDuringLayout = 0
+        let rows = (0..<2).map { index in
+            let row = BranchPopupRowControl()
+            row.frame = NSRect(x: 0, y: CGFloat(index) * 24, width: 120, height: 24)
+            row.onHoverChange = { hovered in
+                hovers.append((index, hovered))
+                if container.isInLayout { rendersDuringLayout += 1 }
+            }
+            row.renderExpansion = {
+                expansions.append(index)
+                if container.isInLayout { rendersDuringLayout += 1 }
+                return AnyView(Text(verbatim: "codex/a-long-branch-name-\(index)-that-needs-expansion")
+                    .lineLimit(1).fixedSize()
+                    .frame(height: LitheDropdownMetrics.rowHeight))
+            }
+            container.addSubview(row)
+            row.refresh()
+            return row
+        }
+        window.pointer = rows[0].convert(NSPoint(x: 20, y: 12), to: nil)
+        rows[0].mouseEntered(with: try #require(NSEvent.enterExitEvent(with: .mouseEntered,
+            location: window.pointer, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)))
+        #expect(window.childWindows?.filter { $0.isVisible }.count == 1, "The long hovered name must start expanded")
+        hovers.removeAll()
+        expansions.removeAll()
+
+        // The pointer stays put while the rows move under it, as during scrolling.
+        window.pointer = rows[1].convert(NSPoint(x: 20, y: 12), to: nil)
+        container.onLayout = { rows.forEach { $0.updateTrackingAreas() } }
+        for _ in 0..<3 {
+            container.needsLayout = true
+            window.layoutIfNeeded()
+        }
+        container.onLayout = nil
+        #expect(rendersDuringLayout == 0, "Hover and expansion changes during layout re-mark the window")
+        #expect(hovers.isEmpty && expansions.isEmpty)
+
+        await Self.drainMainQueue()
+        #expect(hovers.filter { $0.row == 0 }.map(\.hovered) == [false], "The old row clears its hover once")
+        #expect(hovers.filter { $0.row == 1 }.map(\.hovered) == [true], "The new row takes the hover once")
+        #expect(expansions == [1], "Only the new row expands, once")
+        #expect(window.childWindows?.filter { $0.isVisible }.count == 1, "Only the hovered row stays expanded")
+    }
+
+    /// A pending refresh belongs to the window the row was in. Leaving it cancels
+    /// the refresh; joining another window refreshes the latest state there.
+    @Test
+    @MainActor
+    func pendingRefreshFollowsTheRowAcrossWindows() async throws {
+        func makeWindow() -> NSWindow {
+            // Joining a window rebuilds tracking areas, which reconcile hover against
+            // the pointer; keep it on the row so the real mouse cannot clear the hover.
+            let window = BranchHoverTestWindow(contentRect: NSRect(x: 100, y: 100, width: 120, height: 24),
+                                               styleMask: [.borderless], backing: .buffered, defer: false)
+            window.pointer = NSPoint(x: 20, y: 12)
+            window.isReleasedWhenClosed = false
+            window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+            return window
+        }
+        let first = makeWindow()
+        let second = makeWindow()
+        defer { first.close(); second.close() }
+        var titles: [String] = []
+        let row = BranchPopupRowControl()
+        row.frame = NSRect(x: 0, y: 0, width: 120, height: 24)
+        func update(_ title: String, content: AnyHashable = 0) {
+            row.renderExpansion = {
+                titles.append(title)
+                return AnyView(Text(verbatim: "\(title) codex/a-long-branch-name-that-needs-expansion").fixedSize())
+            }
+            row.update(BranchPopupRowControl.RenderState(title: title, content: content, isPresented: false,
+                                                         isEnabled: true, environment: EnvironmentValues()))
+        }
+        first.contentView?.addSubview(row)
+        update("first")
+        #expect(titles.isEmpty, "A row nobody hovers has no expansion to build")
+        row.mouseEntered(with: try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: first.windowNumber, context: nil,
+            eventNumber: 0, trackingNumber: 0, userData: nil)))
+        #expect(titles == ["first"])
+
+        update("second")
+        #expect(titles == ["first"])
+        row.removeFromSuperview()
+        await Self.drainMainQueue()
+        #expect(titles == ["first"], "A detached row drops the refresh queued for its old window")
+
+        second.contentView?.addSubview(row)
+        await Self.drainMainQueue()
+        #expect(titles == ["first", "second"], "Joining a window refreshes the latest state once")
+        update("second")
+        // AppKit rebuilds tracking areas whenever it likes after a window change;
+        // that only repositions the open expansion.
+        row.updateTrackingAreas()
+        await Self.drainMainQueue()
+        #expect(titles == ["first", "second"], "Unchanged state does not re-render")
+        // Selection or current-branch changes keep the title but alter the label.
+        update("second", content: ["current"])
+        await Self.drainMainQueue()
+        #expect(titles == ["first", "second", "second"], "A content key change re-renders the expansion")
+    }
+
+    /// A row that SwiftUI inserts into a window already on screen, as a lazy list
+    /// does while scrolling, must have content before the next display.
+    @Test
+    @MainActor
+    func rowInsertedIntoAVisibleWindowRendersImmediately() throws {
+        var renders = 0
+        func list(rows: Int) -> AnyView {
+            AnyView(VStack(spacing: 0) {
+                ForEach(0..<rows, id: \.self) { index in
+                    BranchPopupRowView(isPresented: false, accessibilityTitle: "branch-\(index)", onPress: {},
+                        label: { _, _ in
+                            let _ = renders += 1
+                            Text(verbatim: "branch-\(index)")
+                        })
+                        .frame(height: LitheDropdownMetrics.rowHeight)
+                }
+            })
+        }
+        let host = NSHostingView(rootView: list(rows: 1))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 200, height: 48),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        let initial = renders
+        #expect(initial >= 1)
+        host.rootView = list(rows: 2)
+        host.layoutSubtreeIfNeeded()
+        #expect(renders > initial, "The inserted row renders without waiting for another run loop turn")
+    }
+
+    @MainActor
+    private static func drainMainQueue() async {
+        // Deferred row renders are queued on the main queue before this hop resumes.
+        await withCheckedContinuation { gate in DispatchQueue.main.async { gate.resume() } }
+    }
+
     @Test
     func updateAndPushAreLimitedToSupportedLocalBranches() throws {
         let source = try Self.popoverSource()
@@ -303,9 +545,11 @@ struct BranchSwitcherPopoverBehaviorTests {
         let actions = source[localActions.lowerBound...]
         #expect(actions.contains("LitheContextMenuItem.action(\"Update\")"))
         #expect(
-            actions.contains(".disabled(!reference.isCurrent)"),
-            "Only the current local branch can be updated."
+            actions.contains(".disabled(!reference.isCurrent && reference.upstreamShortName == nil)"),
+            "The current branch pulls; another local branch needs an upstream to fast-forward from."
         )
+        #expect(actions.contains("feature.updateBranch(reference)"),
+                "Update routes through the dispatcher that handles non-current branches.")
         #expect(actions.contains("LitheContextMenuItem.action(\"Push…\")"))
     }
 
@@ -343,4 +587,18 @@ private final class BranchHoverTestWindow: NSWindow {
 @MainActor
 private final class BranchHoverTestDocument: NSView {
     override var isFlipped: Bool { true }
+}
+
+/// Runs a callback from inside AppKit's layout pass, where FocusBridge re-enters SwiftUI.
+@MainActor
+private final class BranchLayoutReentryContainer: NSView {
+    var onLayout: (() -> Void)?
+    private(set) var isInLayout = false
+
+    override func layout() {
+        super.layout()
+        isInLayout = true
+        defer { isInLayout = false }
+        onLayout?()
+    }
 }

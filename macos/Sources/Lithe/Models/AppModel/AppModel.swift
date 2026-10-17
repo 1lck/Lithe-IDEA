@@ -14,6 +14,9 @@ import LitheCoreContracts
 @MainActor
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
+    lazy var debugPerformanceFeature = DebugPerformanceFeatureModel(sampler: services.debugPerformanceSampler)
+    lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
+        sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
     lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
     @Published var isChangingAgentProvider = false
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
@@ -82,7 +85,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
     /// An Agent conversation in this project waits for a permission decision.
     @Published var agentConversationNeedsAttention = false
-    /// Agent panel settings state, created when the settings are first shown.
+    /// Shared UI selection for the settings dropdown and conversation selector.
+    @Published var selectedAgentConversationID: String? {
+        didSet { settings.preferredConversationAgentID = selectedAgentConversationID }
+    }
+    /// Agent management state, created when Settings first shows it.
     lazy var agentManagementFeature = AgentManagementFeatureModel(
         service: services.agentManagement,
         dataDirectory: agentDataDirectory
@@ -288,30 +295,41 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         return capability?.feature
     }
     var moduleSnapshots: [ModuleSnapshot] { services.moduleRuntime.snapshots() }
-    var availableSidebarDestinations: [SidebarDestination] {
-        SidebarDestination.allCases.filter { destination in
-            let moduleID: ModuleID?
-            switch destination {
-            case .project: moduleID = nil
-            case .changes: moduleID = .git
-            case .pullRequests: moduleID = nil
-            case .search: moduleID = .search
+    lazy var workbenchUIRegistry: WorkbenchModuleUIRegistry = {
+        do { return try WorkbenchModuleUIComposition.registry(for: services.pluginCatalog, iconResources: services.pluginUIIconResources) }
+        catch {
+            NSLog("Lithe workbench UI registration failed: %@", error.localizedDescription)
+            // External metadata cannot terminate the application shell.
+            do {
+                return try WorkbenchModuleUIRegistry(registrations: WorkbenchModuleUIComposition.registrations)
+            } catch {
+                preconditionFailure("Invalid built-in workbench bindings: \(error)")
             }
-            guard let moduleID else { return true }
-            return moduleSnapshots.first(where: { $0.manifest.id == moduleID })?.state != .disabled
         }
-    }
+    }()
+    var contributionActivationTokens: [String: UUID] = [:]
+    var contributionActivationTasks: [String: Task<Void, Never>] = [:]
+
     var activeModuleContributions: [ModuleContribution] {
         services.moduleRuntime.availableContributions().values.flatMap { $0 }.sorted {
             ($0.placement.rawValue, $0.order, $0.id)
                 < ($1.placement.rawValue, $1.order, $1.id)
         }
     }
+    /// The Agent configuration entry is host-owned and remains available
+    /// before enablement in every placement, not only in the right rail.
+    var workbenchContributions: [ModuleContribution] {
+        AgentConversationEntryPolicy.contributions(from: activeModuleContributions)
+            + WorkbenchFeatureModel.shellContributions
+    }
     var activityBarContributions: [ModuleContribution] {
-        activeModuleContributions.filter { $0.placement == .activityBar }
+        registeredContributions(at: .activityBar)
+    }
+    var leftSidebarContributions: [ModuleContribution] {
+        registeredContributions(at: .leftSidebar)
     }
     var rightSidebarContributions: [ModuleContribution] {
-        AgentConversationEntryPolicy.rightSidebarContributions(from: activeModuleContributions)
+        registeredContributions(at: .rightSidebar)
     }
     var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
     func fileExists(at url: URL) -> Bool { services.fileStorage.fileExists(at: url) }
@@ -349,6 +367,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func showSettings(category: SettingsCategory = .general) {
         workbenchFeature.presentSettings(category: category)
+    }
+
+    func showAgentSettings(agentID: String? = nil) {
+        if let agentID { selectAgentConversationAgent(agentID) }
+        showSettings(category: .agents)
     }
 
     private var springFeatureObservation: AnyCancellable?
@@ -440,6 +463,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         featureGraph: AppModelFeatureGraph
     ) {
         self.settings = settings
+        selectedAgentConversationID = settings.preferredConversationAgentID
         self.services = services
         platformUI = services.platformUI
         self.featureGraph = featureGraph
@@ -489,6 +513,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         featureGraph.debugLaunchPreparation.connect(actions: self)
         featureGraph.javaTestDebugWorkflow.connect(actions: self)
         featureGraph.debugSessionCleanup.connect(actions: self)
+        workbenchFeature.reconcileContributions(services.moduleRuntime.availableContributions())
         moduleSessionCoordinator = ModuleSessionCoordinator(
             runtime: services.moduleRuntime,
             capabilities: moduleCapabilityStore,
@@ -590,9 +615,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         }
     }
 
-    func activateDatabaseModule() async {
-        guard await databaseModuleCoordinator.activate() != nil else { return }
-        workbenchFeature.setVisibility(.database, isVisible: true)
+    func activateDatabaseModule(toolWindow: WorkbenchFeatureModel.ToolWindow = .database) async {
+        let workspace = workspaceURL
+        await awaitModuleRuntimeShutdown()
+        guard workspaceURL == workspace, await databaseModuleCoordinator.activate() != nil,
+              workspaceURL == workspace else { return }
+        workbenchFeature.setVisibility(toolWindow, isVisible: true)
     }
 
     func sleepDatabaseModule() async {
@@ -602,6 +630,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     deinit {
+        for task in contributionActivationTasks.values { task.cancel() }
         sidebarRefreshTask?.cancel()
     }
 
@@ -625,6 +654,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func shutdownProjectSession() async {
+        workbenchFeature.endLayoutSession()
         await ideCapabilities.shutdown()
         shortcutSessionCoordinator?.shutdown()
         documentLanguageCoordinator?.stop()
@@ -645,12 +675,14 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// on-demand activation that follows a project switch can join the same
     /// operation instead of racing a capability release.
     private func beginModuleRuntimeShutdown() {
+        cancelContributionActivations()
         moduleSessionCoordinator?.beginShutdown()
     }
 
     /// Shuts down this session's module graph once, even when multiple
     /// lifecycle paths request cleanup at the same time.
     private func shutdownModuleRuntime() async {
+        cancelContributionActivations()
         await moduleSessionCoordinator?.shutdown()
     }
 
@@ -1313,6 +1345,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             }
             if let provider = services.moduleRuntime.capability(capabilityID)
                     as? any LanguageServerExtensionProviding,
+               provider.lifecycle.isRetired {
+                // The module is being stopped; its capability is still
+                // published until the stop completes.
+                return false
+            }
+            if let provider = services.moduleRuntime.capability(capabilityID)
+                    as? any LanguageServerExtensionProviding,
                let sessions = languageToolingSessionsIfActive,
                !sessions.registerLanguageServerExtension(provider, support: support) {
                 languageToolingFeature.markActivationFailed(
@@ -1514,6 +1553,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         guard wasSelected else { return }
         let target = previous.flatMap { editorTabItems.contains($0) ? $0 : nil } ?? editorTabItems.last
         switch target {
+        case .agentConversation: showAgentChatsInEditor()
         case .document(let id):
             if let document = openDocuments.first(where: { $0.id == id }) { selectEditorDocument(document) }
         case .terminal(let id):

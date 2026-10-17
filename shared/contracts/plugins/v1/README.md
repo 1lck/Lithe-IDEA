@@ -1,6 +1,6 @@
 # Plugin contract v1: declarative plugins
 
-A declarative plugin describes language support as data. The host reads
+A declarative plugin currently describes language support or first-stage UI contributions as data. The host reads
 `plugin.json`, validates it, verifies the package signature, and launches the
 declared external processes itself. The host never loads plugin code into its
 own process, so a package does not depend on the host's binary layout and does
@@ -11,9 +11,10 @@ This directory is the cross-platform source of truth:
 | File | Purpose |
 | --- | --- |
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
-| `fixtures/*.plugin.json` | Valid example manifests (PHP and Go shapes) |
+| `fixtures/*.plugin.json` | Valid example manifests (PHP, Go, Java, and a discovered Node runtime) |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
-| `fixtures/command-plans.json` | Golden run/test command expansions |
+| `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
+| `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
 
@@ -43,7 +44,7 @@ symbolic links. A host treats an installed package as read-only.
 | `id` | Stable plugin ID: lowercase letters, digits, `.` and `-`. |
 | `displayName` | Name shown in plugin management. |
 | `version` | Plugin version, `major.minor.patch`. Independent of the Lithe version. |
-| `pluginAPIVersion` | Declarative plugin API level the package needs. Hosts list the levels they support; Lithe's own version is never used for compatibility. This contract defines level `1`. |
+| `pluginAPIVersion` | Declarative plugin API level the package needs. Hosts list the levels they support; Lithe's own version is never used for compatibility. This contract defines levels `1` and `2`; see API levels. |
 | `vendor` | `id`, `displayName`, and `signatureRequirement` (see Trust). |
 | `permissions` | Capabilities the plugin may ask the host to perform. |
 | `activationEvents` | When the host may start each provider. |
@@ -70,13 +71,162 @@ is part of the name, so `.toolrc` and `.env.example` stay hidden-file names. Opt
 | --- | --- |
 | `languageID` | A declared language. |
 | `languageIdentifier` | LSP `languageId` for documents; defaults to `languageID`. |
-| `launch` | `{"kind": "packaged", "path": …}` runs an executable inside the package. `{"kind": "systemCommand", "commands": [...]}` lists bare command names the host resolves with its tool discovery (PATH, project toolchains, user overrides). |
-| `arguments` | Arguments passed to the server. |
+| `launch` | `{"kind": "packaged", "path": …}` runs an executable inside the package. `{"kind": "systemCommand", "commands": [...]}` lists bare command names the host resolves with its tool discovery (PATH, project toolchains, user overrides). API 2 adds `{"kind": "runtime", …}`; see Runtime launch. |
+| `arguments` | Arguments passed to the server. Literal text at API 1; launch templates at API 2. |
 | `validationArguments` | Probe that must exit with status 0 before a candidate is used; empty means the host trusts the candidate and lets the LSP handshake decide. |
-| `runtimeDependencies` | Runtimes the host must discover and pass to the server. v1 tools are `node` and `go`. The host exports each path as `LITHE_<TOOL>_PATH` (`LITHE_NODE_PATH`, `LITHE_GO_PATH`; a user-set value takes precedence) and prepends its directory to the server's `PATH`, because servers such as gopls run the tool themselves and an app opened from the Dock does not inherit the shell `PATH`. A project-local copy is never chosen, since servers start automatically when a file opens. |
+| `runtimeDependencies` | Runtimes the host must discover and pass to the server. API 1 tools are `node` and `go`; API 2 adds `java`. The host exports each path as `LITHE_<TOOL>_PATH` (`LITHE_NODE_PATH`, `LITHE_GO_PATH`; a user-set value takes precedence) and prepends its directory to the server's `PATH`, because servers such as gopls run the tool themselves and an app opened from the Dock does not inherit the shell `PATH`. A project-local copy is never chosen, since servers start automatically when a file opens. |
+
+| `initializationOptions` | API 2. A JSON object sent as the LSP `initializationOptions`. Every string value inside it is a launch template. |
+| `hostIntegration` | API 2, official plugins only. A named integration implemented in the host, with the package resources it reads; see Host integrations. |
 
 The host owns the language-server process lifecycle, the LSP session, and
 stopping the process when the provider is disabled.
+
+#### Runtime launch (API 2)
+
+`{"kind": "runtime", "tool", "packagedRuntime"?, "minimumVersion"?,
+"runtimeArguments"?, "entry"}` starts a file inside the package with a
+runtime, so the package needs no launcher script. The runtime is either
+shipped by the plugin (`packagedRuntime`) or discovered by the host.
+
+| Field | Meaning |
+| --- | --- |
+| `tool` | `java` or `node`. It decides how the entry is passed to the runtime. |
+| `packagedRuntime` | Package-relative path of the runtime executable the plugin ships, for example `runtime/${arch}/bin/java`; `${arch}` is the only variable it may use. The host starts exactly this file: it never looks the tool up on the machine, and no user override or other plugin can replace it. A plugin that needs a specific runtime owns it this way, so the host carries no knowledge of where that runtime lives. It excludes `minimumVersion`. |
+| `minimumVersion` | Lowest acceptable runtime version: one to three dot-separated numbers such as `21` or `18.17`, for a runtime the host discovers. Only the components it names are compared, so `21` accepts every 21.x. A runtime whose version cannot be read does not qualify. |
+| `runtimeArguments` | Launch templates placed before the entry, such as JVM options. |
+| `entry` | Package-relative entry file. The command line is `<java> <runtimeArguments> -jar <entry> <arguments>` for `java` and `<node> <runtimeArguments> <entry> <arguments>` for `node`. |
+
+The launch tool is already a requirement and must not be repeated in
+`runtimeDependencies`. A runtime launch declares no `validationArguments`:
+the host's probe of the runtime is its version check. The launch plan carries
+the probe's `versionArguments`; the host runs the candidate with them and
+passes the output to `plugins.declarative.checkRuntimeVersion`, which returns
+`{satisfied, version?}`. A candidate that does not satisfy the requirement is
+not used, the same as a candidate that fails a validation probe. A `java`
+older than 9 does not accept the probe and is therefore treated as too old.
+The reported version is the first dotted number in the probe output, ignoring
+lines that start with `Picked up ` (a JVM announcing `JAVA_TOOL_OPTIONS`
+before its version); see `fixtures/runtime-versions.json`.
+
+#### Host integrations (API 2)
+
+Most of a language server is described by its launch. A few servers also need
+behavior that data cannot express: a project model computed from build files,
+virtual documents, test and debug wiring. That behavior is code in the host,
+called a host integration. A server opts into one by name and tells it where
+the files it needs are inside the plugin's own package:
+
+```json
+"hostIntegration": {
+  "id": "jdt",
+  "capabilities": ["debug", "run", "testing"],
+  "resources": { "configuration": "language-server/configuration/${arch}", "lombokAgent": "…" }
+}
+```
+
+The plugin owns the files; the host owns the behavior. The host enables an
+integration only for the server that declares it and never matches on a
+language ID or looks for the files anywhere else, so removing the plugin
+removes the integration's inputs with it. Because an integration runs trusted
+host code, only plugins in the `dev.lithe` namespace may declare one; any
+other package, or an ID the host does not implement, is refused with
+`plugin.integration.unsupported`.
+
+Each resource is a package-relative path, or a list of them, that may vary
+only by `${arch}`. An integration defines which names it reads; a missing
+required name, an unknown name, or the wrong shape is `plugin.manifest.invalid`.
+
+A plugin that declares a language owns its process-backed features: the host
+stops running its built-in tools for that language, so a missing or disabled
+plugin never falls back to them. `capabilities` is how the plugin hands a
+feature back. It lists the features of the server's language that the host's
+own implementation provides through the integration: `run`, `testing`, and
+`debug`. A feature that is neither listed here nor supplied by one of the
+plugin's `executionProviders` is unavailable for the language. Omitting the
+list claims nothing.
+
+Each integration defines the capabilities it provides and the resources each
+one reads. A capability the integration does not provide, a capability whose
+resource is not declared, and `run` or `testing` listed for a language whose
+execution provider already supplies it are all `plugin.manifest.invalid`. The
+normalized manifest lists capabilities sorted and without duplicates.
+
+| Integration | Requires | Capabilities | Resources |
+| --- | --- | --- | --- |
+| `jdt` | A `runtime` launch with the `java` tool | `run`. `debug`: needs `extensionBundleDirectories`, which must contain the Java Debug Server bundle. `testing`: needs `extensionBundleDirectories` with the Java Test bundles, and `testRunner`. | `configuration` (required): the Equinox configuration directory, of which the host gives each launch a writable copy. `lombokAgent` (required): the Lombok agent JAR. `extensionBundleDirectories` (list): directories whose JAR files are loaded as JDT LS extension bundles, in declared order and then by file name. `testRunner`: the standalone Java test runner JAR. |
+
+The launch plan returns `hostIntegration` as `{id, resources}` with every
+path expanded, and lists the paths in `requiredPackagePaths`.
+
+#### Launch templates (API 2)
+
+`arguments`, `validationArguments`, `runtimeArguments`, and the string values
+of `initializationOptions` may use these variables. A package therefore never
+contains a machine path, and the host decides where state lives.
+
+| Variable | Value |
+| --- | --- |
+| `${pluginDir}` | Root of the installed, read-only package. It must be used at most once per value and be followed by a `/`-rooted path inside the package; that path may vary only by `${arch}`. |
+| `${stateDir}` | Writable directory the host keeps for this plugin's server and removes when the plugin is uninstalled. Not available in `validationArguments`. |
+| `${workspaceStateDir}` | Writable directory for the server's state of the current workspace. Not available in `validationArguments`. |
+| `${arch}` | Host CPU architecture: `arm64` or `x86_64`. |
+| `${setting:<id>}` | Current value of a declared [plugin setting](#plugin-settings-api-2). Not available in `validationArguments`, and never inside a package path. |
+
+`plugins.declarative.languageServerLaunchPlan` expands a server's launch. The
+host passes `{pluginDirectory, stateDirectory, workspaceStateDirectory,
+architecture, settings?}` and receives:
+
+| Field | Meaning |
+| --- | --- |
+| `launch` | `{kind: "packaged", path}`, `{kind: "systemCommand", commands}`, or `{kind: "runtime", tool, entry, packagedRuntime?, minimumVersion?, versionArguments?}`: what the host resolves to an executable. `packagedRuntime` is the expanded package-relative path of a shipped runtime. `minimumVersion` and `versionArguments` appear together when a discovered runtime must meet a minimum version. |
+| `arguments` | Complete argument list after the executable, including `-jar` and the entry of a runtime launch. |
+| `validationArguments` | Expanded probe arguments. |
+| `runtimeRequirements` | `{tool, minimumVersion?}` for every runtime the host must discover, a discovered launch tool included, sorted by tool. A packaged runtime is not listed. Only the launch tool can carry a minimum version. |
+| `initializationOptions` | Expanded options; absent when the server declares none. |
+| `requiredDirectories` | `state` and/or `workspaceState`: the directories the host must create before starting the server. |
+| `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
+| `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
+
+Core never creates or reads any of these paths. The command also serves API 1
+manifests, whose arguments are returned unchanged.
+
+#### Plugin settings (API 2)
+
+A plugin may declare options the user can change, one set per plugin and
+shared by every workspace. The host shows them on the plugin's page, stores
+the values, and passes the stored values as `settings` (setting ID to JSON
+value) with each launch plan request. Hosts restart the plugin's language
+servers when a value changes.
+
+```json
+"settings": [
+  { "id": "heapMB", "type": "integer", "title": "Maximum memory",
+    "default": 2048, "minimum": 512, "maximum": 8192, "unit": "MB" },
+  { "id": "logLevel", "type": "enum", "title": "Log level", "default": "info",
+    "options": [{ "value": "info", "title": "Information" }, { "value": "debug", "title": "Debug" }] },
+  { "id": "telemetry", "type": "boolean", "title": "Send usage data", "default": false }
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Starts with a lowercase letter, then letters and digits. Unique within the plugin. |
+| `type` | `integer` (requires `minimum` and `maximum`, optional `unit`), `enum` (requires one to sixteen `options`, each `{value, title}`; values contain only letters, digits, `.`, `_`, `-`), or `boolean`. |
+| `title`, `description` | Text the host shows; the host localizes only its own chrome. |
+| `default` | Value used until the user changes it. Its JSON type follows `type`, and it must be accepted by the declaration. |
+
+Because every value is a number, a boolean, or one of the declared option
+values, a setting can never inject extra arguments or change which package
+file runs. A stored value the declaration no longer accepts (for example after
+an update narrowed a range) is replaced by the default; a launch never fails
+for it. Values for undeclared IDs are ignored. A template that is exactly one
+`${setting:<id>}` keeps the setting's JSON type, so an `initializationOptions`
+value can be a number or boolean; inside longer text the value is substituted
+as text. Declaring settings, or referring to an undeclared one, is refused
+with `plugin.manifest.invalid` or `plugin.template.invalid`. The settings
+declaration is not part of an install review's program list, because no value
+can change what runs beyond what the templates already show.
 
 ### Execution providers
 
@@ -114,6 +264,31 @@ test name.
 Discovery returns `{id: "<language>:workspace", kind: "workspace"}` followed by
 `{id: "<language>:file:<path>", kind: "file", relativeFilePath}` for matching
 files sorted by path, or an empty list when no project marker is present.
+
+## API levels
+
+| Level | Adds |
+| --- | --- |
+| `1` | Languages, `packaged` and `systemCommand` language servers, `node` and `go` runtime dependencies, run and test providers. |
+| `2` | `runtime` launches with a packaged or discovered runtime, host integrations, the `java` runtime, launch templates, `initializationOptions`, and plugin settings. |
+
+A level 2 feature in a level 1 manifest is refused with
+`plugin.manifest.invalid` (`plugin.runtime.unsupported` for the `java` tool),
+so a package cannot use a feature that hosts of its declared level would
+reject for a different reason. Level 1 language-server arguments stay literal
+at every host level.
+
+Rules for publishing across levels:
+
+- Levels only add features. The meaning of a released level never changes,
+  and hosts keep supporting older levels.
+- A plugin declares the lowest level it needs. Raising the level without
+  using a new feature only cuts off older hosts.
+- Raising a plugin's level requires a new plugin version, and its index entry
+  keeps the last version of the previous level so older hosts still have a
+  version to install. Published packages are signed and are never rewritten.
+- A host release that supports a level ships before any plugin version that
+  declares it.
 
 ## Permissions and activation
 
@@ -268,12 +443,15 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.permission.unknown` | Core | Unknown permission |
 | `plugin.permission.undeclared` | Core | A provider is declared without its permission |
 | `plugin.activation.invalid` | Core | Missing or orphan activation event |
-| `plugin.runtime.unsupported` | Core | Unknown runtime dependency |
+| `plugin.runtime.unsupported` | Core | Unknown runtime dependency, or a launch runtime that cannot start an entry file |
 | `plugin.template.invalid` | Core | Unknown, misplaced, or unguarded template variable |
 | `plugin.path.invalid` | Core | A request path leaves the workspace |
 | `plugin.test.invalidIdentifier` | Core | Empty or multi-line test identifier |
 | `plugin.test.unsupportedProject` | Core | No project marker in the workspace |
 | `plugin.execution.unavailable` | Core | The plugin has no run/test provider for the language |
+| `plugin.integration.unsupported` | Core | A host integration the host does not implement, or one requested by a plugin outside the official namespace |
+| `plugin.launch.unavailable` | Core | The plugin has no language server for the language |
+| `plugin.launch.invalidRequest` | Core | A launch plan request has an unusable directory or an unknown architecture |
 | `plugin.index.invalid` | Core | Malformed index root or entry, or an invalid URL, checksum, platform, version, or date |
 | `plugin.index.schemaUnsupported` | Core | The index `schemaVersion` is not `1` |
 | `plugin.index.officialNamespace` | Core | A third-party source lists a `dev.lithe` ID |
@@ -286,7 +464,7 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.download.failed` | Host | An index or archive could not be downloaded |
 | `plugin.signature.missing`, `plugin.signature.invalid`, `plugin.signature.untrusted` | Host | Package signature problems |
 | `plugin.launch.missing` | Host | The packaged language server is missing or not executable |
-| `plugin.runtime.missing` | Host | A declared runtime (for example Node.js) cannot be found when the server starts |
+| `plugin.runtime.missing` | Host | A declared runtime (for example Node.js) cannot be found, or is older than its `minimumVersion`, when the server starts |
 | `plugin.legacyNative.updateRequired` | Host | An installed schema-1 native package must be replaced by its declarative version |
 
 Host-facing plugin states are `notInstalled`, `installed` (enabled or
@@ -300,3 +478,170 @@ this contract. Its adapter maps `languages[].extensions` to
 `lsp.requiredExecutables: ["node"]` to `runtimeDependencies`, and
 `runActions.manifestFiles` to `test.projectMarkers`. Composer script discovery
 is Windows-only behavior outside v1.
+
+## API level 2: first-stage host-owned workbench UI
+
+`pluginAPIVersion: 2` adds optional `ui` contributions and the `ui.contribute`
+permission. API level 1 language packages continue to work. UI-only packages may
+omit `languages`; every package must still declare a language provider or a
+nonempty UI catalog. See `fixtures/hello-lithe.plugin.json` and the UI cases in
+`fixtures/invalid-manifests.json`.
+
+- `ui.toolWindows`: 1–64 entries with stable `id`, `title`, initial `placement`
+  (`left`, `bottom` or `right`), integer `order` (default 0), and plain `text`.
+- `ui.commands`: up to 128 entries with stable `id`, `title`, `toolWindowID`,
+  integer `order` (default 0), and nonempty `placements` (`commandPalette`,
+  `toolbar`, `menu`). A command opens one of the same plugin's tool windows.
+- IDs use the plugin ID followed by a dot and a suffix. Duplicate or foreign
+  identities, invalid references, unsupported placements and executable UI
+  fields are rejected with `plugin.manifest.invalid`.
+- Titles are at most 256 UTF-8 bytes and window text at most 65536 UTF-8 bytes.
+  Text is displayed literally; it is never evaluated as HTML or a script.
+- Declare `onView:<window-id>` and `onCommand:<command-id>` for every window and
+  command, plus `ui.contribute`. The existing permission and activation error
+  codes apply. IDs and presentation order are normalized deterministically.
+- The host exposes metadata without instantiating the module. Opening an
+  entry activates the plugin's UI module on demand; a disabled, quarantined
+  or safe-mode-suppressed module has no executable UI entries. Disabling it
+  removes the entries and closes its visible content.
+- The host owns header controls, widgets, menus, theme, ordering and layout.
+  Saved workspace preferences override a declaration's initial placement and
+  order. Moving or hiding content does not create a new module or session.
+  Unknown and temporarily absent contributions never execute an action;
+  placement/order preferences remain available if the plugin returns.
+
+API level 2 is the first UI Contribution infrastructure stage. Its static text
+windows and open-own-window commands are a supported subset, not the final public
+extension API. The required window/text/command-target fields and rejection of
+packages without language or UI contributions remain unchanged for v2 compatibility.
+The macOS host supports mouse docking through the existing shared dock state;
+that presentation behavior does not grant additional plugin execution capabilities.
+
+### Future public extension direction (not implemented in API level 2)
+
+- Third-party UI uses a separately versioned JSON component tree (Tree/List/Form/
+  Input/Button, data sources and events) rendered by native platform adapters.
+  Plugin UI does not use HTML, Webviews or third-party frontend frameworks.
+  Built-in or trusted native modules may register Native View/Renderer Factories
+  under the same host window management. This does not restore arbitrary dynamic
+  third-party Swift Bundle loading; ABI, signing and isolation need separate design.
+- Actions declare handlers and availability/context conditions independently of
+  Tool Windows. Commands, menus/context menus, toolbars, status bars and settings
+  contributions must not require dummy windows. Opening a window is one action kind.
+- A new, explicitly versioned Extension Contract will cover Language/LSP,
+  BuildSystem/Task, RunConfiguration/Test, DebugAdapter and ServiceProvider,
+  including pure Build/Debug/Services packages with no UI or language declaration.
+  Exact version numbers, handler transport and fields are not published here.
+- Built-in and plugin providers should use the same typed domain registries.
+  Providers supply behavior/processes/data; hosts own scheduling, permission,
+  presentation and lifecycle. Reuse existing language, build, run/test and DAP
+  backends instead of duplicating them or branching by plugin name in composition.
+- Services will accept general resources with provider/descriptor/instance/status/
+  actions/logs semantics. Disabling unregisters contributions and releases
+  plugin-owned resources; it must not implicitly stop independently running
+  external services. An explicit stop action requires its own authorization.
+- API level 2 remains supported unchanged. UI Schema evolves independently;
+  domain extension points need a new contract version and compatibility fixtures.
+  Windows implements its own host adapter over shared data, not SwiftUI types.
+
+Planned end-to-end samples are a native Tree with an independent refresh command,
+Build Task in existing Build, ServiceProvider in Services, and third-party DAP in
+existing Debug UI. Each must verify disable/re-enable, resource ownership and
+restoration; view-bearing samples also verify layout persistence. These samples
+are future acceptance criteria, not claims about current runtime support.
+
+The design source is the [proposed public Extension Contract and Provider API](../../../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md).
+Current runtime behavior is recorded in the [first-stage workbench UI Note](../../../../.agents/notes/implemented/architecture/2026-10-12-workbench-ui-contributions.md).
+
+### Current Windows availability
+Windows can validate API level 2 through Rust Core but its UI adapter has not
+implemented this contract yet. Its marketplace must filter unsupported API
+levels until that adapter is available.
+
+### Existing community store and Lua template
+
+The community index is [Lithe Store](https://github.com/Lithe-IDEA/Lithe-store).
+The [Lua plugin template](https://github.com/Lithe-IDEA/lithe-plugin-lua) uses
+schema 2 / API level 1 for language-server and run providers; those declarations
+remain valid. To add a host-rendered view to that template:
+
+1. Set `pluginAPIVersion` to 2. Keep the existing language and execution fields.
+2. Add `ui.contribute` to the existing permissions and the new `onView` /
+   `onCommand` events to the existing activation events.
+3. Add `ui.toolWindows` and `ui.commands`; prefix every ID with the plugin ID,
+   for example `io.github.lithe-idea.lua-support.tools`.
+4. Keep `vendor.signatureRequirement: "none"` for community packages. The
+   existing package checksum, user install review and content digest still
+   apply; UI does not bypass them.
+5. Set the new Store version entry's `pluginAPIVersion` to 2. The index schema,
+   release archive format and SHA-256 rules stay unchanged. Only list platforms
+   with an implemented API level 2 UI host (currently macOS).
+
+`fixtures/hello-lithe.plugin.json` is a contract fixture in the reserved test
+namespace, not a ready-to-publish community package. Change its ID and all
+references to your own namespace before using it in Lithe Store.
+
+### UI icons (macOS host)
+
+API level 2 tool windows and commands accept an optional `icon`. Prefer a stable
+host icon ID; it resolves through Lithe's existing icon library, not SF Symbols:
+
+```json
+"icon": { "host": "database" }
+```
+
+Supported host IDs: `tool-window`, `plugin`, `database`, `services`, `terminal`,
+`search`, `refresh`, `run`, `debug`, `settings`, `add`, `remove`, `git`, `problems`.
+These IDs are public; bundled SVG paths remain implementation details.
+
+Custom SVG and PNG icons are relative to the plugin package root:
+
+```json
+"icon": {
+  "path": "icons/database.svg",
+  "darkPath": "icons/database-dark.svg",
+  "mode": "template"
+}
+```
+
+`mode` defaults to `template`: the host tints the image using the containing
+control's theme and selected/hover state. `original` preserves brand colors;
+control backgrounds and disabled opacity still follow the host. `darkPath` is
+optional; without it the same resource is used in both themes. Brand authors
+must make that resource legible in both themes or provide a dark variant.
+`host` cannot be combined with resource paths or original-color mode.
+
+The host owns icon size: 20pt tool-window rail, 16pt actions/menus/palette, 13pt
+window header. Aspect ratio is preserved inside that slot. Plugin-specified
+size, color, stroke, arbitrary style, remote URLs and SF Symbol names are rejected.
+Stroke geometry belongs to the asset; authors should follow the host icon
+weight, rather than expecting the host to rewrite paths or PNG pixels.
+
+Window and toolbar management submenus reuse the same declared icons at the
+host menu size. Template icons in the command palette use the host selected-text token on the
+selected row; brand icons retain their theme variant when keyboard selection moves.
+
+Files must be regular files inside the verified package, without symbolic links
+in their path. Each resource is limited to 256 KiB and 1024×1024; unique icon
+bytes per package are limited to 8 MiB, with at most 4,194,304 total image pixels. PNG is decoded as a single image. SVG
+accepts static shapes, groups, gradients, clip paths and the standard SVG version attribute; scripts, event handlers,
+external references, embedded images, style elements/attributes, entities and
+DOCTYPEs are refused. Use explicit presentation attributes for SVG colors.
+Unknown fields and unsupported formats are rejected at installation and launch.
+
+Window entries without an icon use the shared generic tool-window icon. Commands
+without an icon remain text actions (palette retains its existing action marker).
+Missing/unreadable declared resources reject the package instead of silently
+using a different image. Assets are read-only and held in process memory; no
+runtime disk cache or app-bundle write is created. Installed icon bytes follow
+the existing package signature/digest, update and rollback lifecycle.
+
+macOS 宿主布局菜单允许把已注册工具窗口移到左侧、右侧或底部，并保存入口
+顺序与显隐；`ui.toolWindows[].placement` 仍只声明首次使用的 `bottom`/`right`
+位置，未新增插件契约值。项目、提交和搜索采用相同的工具窗口注册路径，
+原生业务内容保持宿主所有；左侧恢复插件窗口仍按 `onView` 激活所属模块。
+
+macOS 动作的可见、可用、勾选和激活中状态由宿主计算，不接受清单中的可执行
+条件脚本。窗口尚在激活时，其打开命令在工具栏、菜单和命令面板禁用；窗口入口
+仍可取消显示。多个窗口同时请求同一插件模块时只构造一次；禁用或关闭会取消
+并清理在途激活，旧的菜单或命令引用不能重新调用已禁用的贡献。

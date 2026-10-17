@@ -78,12 +78,12 @@ struct OutputCopyCursorTests {
         for width in [520.0, 360.0] {
             window.setContentSize(NSSize(width: width, height: 240)); host.layoutSubtreeIfNeeded()
             let rect = try #require(text.copyButtonRect)
-            try #require(rect.width > 40 && rect.height == LitheTheme.Metrics.toolbarIconButtonSize)
+            try #require(rect.width == LitheTheme.Metrics.toolbarIconButtonSize && rect.height == LitheTheme.Metrics.toolbarIconButtonSize)
             let cursorRects = text.textCursorRects(text.visibleRect)
             #expect(cursorRects.allSatisfy { !$0.intersects(rect) })
             #expect(abs(cursorRects.reduce(0) { $0 + $1.width * $1.height } + rect.intersection(text.visibleRect).width * rect.intersection(text.visibleRect).height
                 - text.visibleRect.width * text.visibleRect.height) < 0.01)
-            // Icon, label and padding all belong to Copy; a stale cursor-update event from NSTextView must also restore the arrow.
+            // Icon and padding belong to Copy; a stale cursor-update event from NSTextView must also restore the arrow.
             for x in [button.bounds.minX + 2, button.bounds.midX, button.bounds.maxX - 2] {
                 let point = NSPoint(x: x, y: button.bounds.midY)
                 let hit = try #require(output.hitTest(button.convert(point, to: output.superview)))
@@ -176,36 +176,6 @@ struct OutputTimestamperTests {
     @Test
     func reportsNoClockForAPlainLine() {
         #expect(OutputTimestamper.leadingTimeLength(of: "[INFO] hello") == nil)
-    }
-}
-
-@Suite("Output severity coloring")
-@MainActor
-struct OutputSeverityTests {
-    @Test
-    func recognizesBracketedMavenLevels() {
-        #expect(OutputTextView.severity(ofLine: "[ERROR] Failed to execute goal") == .error)
-        #expect(OutputTextView.severity(ofLine: "[WARNING] deprecated API") == .warning)
-        #expect(OutputTextView.severity(ofLine: "[INFO] Building") == .info)
-    }
-
-    @Test
-    func recognizesSpringBootSpacedLevels() {
-        let line = "2026-08-08T10:12:33.123  WARN 1 --- [main] Port 8081 was already in use"
-        #expect(OutputTextView.severity(ofLine: line) == .warning)
-    }
-
-    /// A path segment that merely contains the word must not paint the line red,
-    /// or every stack trace through an `Error.java` reads as a failure.
-    @Test
-    func ignoresLevelWordsEmbeddedInPaths() {
-        #expect(OutputTextView.severity(ofLine: "  at src/main/java/ErrorHandler.java:42") == nil)
-        #expect(OutputTextView.severity(ofLine: "Compiling Information.kt") == nil)
-    }
-
-    @Test
-    func reportsNoSeverityForOrdinaryOutput() {
-        #expect(OutputTextView.severity(ofLine: "Tomcat started on port 8081") == nil)
     }
 }
 

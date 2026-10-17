@@ -4,9 +4,9 @@
 
 ## 先说结论
 
-ACP（Agent Client Protocol，Lithe 与 Agent 进程之间的协议）只上报整轮用量和上下文占用，没有“每次模型调用”的信息，所以拿不到调用次数、首 token 延迟（TTFT）、输出速度（TPS）和系统提示词/工具定义的占比。Lithe 因此在 Rust Agent Host 里提供一个**可关闭的本机回环代理**：API Key 模式下，Host 把交给 Agent 的服务地址换成 `http://127.0.0.1:<端口>/lithe-<随机令牌>`，代理把请求原样转发到用户配置的真实地址，同时旁路解析请求结构和响应中的 usage，发出 `modelCall` 事件。
+ACP（Agent Client Protocol，Lithe 与 Agent 进程之间的协议）只上报整轮用量和上下文占用，没有“每次模型调用”的信息，所以拿不到调用次数、首 token 延迟（TTFT）、输出速度（TPS）和系统提示词/工具定义的占比。Lithe 因此在 Rust Agent Host 里提供一个**可关闭的本机回环代理**：API Key 或 Codex 订阅模式下，Host 把交给 Agent 的服务地址换成 `http://127.0.0.1:<端口>/lithe-<随机令牌>`，代理把请求原样转发到用户配置的真实地址，同时旁路解析请求结构和响应中的 usage，发出 `modelCall` 事件。
 
-对日常开发的直接影响：需要“每次模型调用”的数据时，从 `modelCall` 事件取，不要从 ACP 用量或本地计时去推算；代理只观察、不改写，解析失败只能让统计缺字段，绝不能让转发失败。设置关闭（`settings.agentModelCallStatistics`）或订阅登录时没有这些数据，界面直接不显示，而不是估算。
+对日常开发的直接影响：需要“每次模型调用”的数据时，从 `modelCall` 事件取，不要从 ACP 用量或本地计时去推算；代理只观察、不改写，解析失败只能让统计缺字段，绝不能让转发失败。设置关闭（`settings.agentModelCallStatistics`）时没有这些数据，界面直接不显示，而不是估算。
 
 ## 问题
 
@@ -26,7 +26,7 @@ Issue #22 要求像 Claude 客户端那样展示上下文构成（系统提示�
 - `rust/lithe-agent-host/src/model_proxy.rs`：在 `run_agent` 里、启动 Agent 进程之前，只绑定 `127.0.0.1` 的随机端口；路径前缀带每次启动随机生成的令牌，不带令牌的请求返回 404，避免本机其他进程把它当成开放转发。
 - 只替换 `GatewaySignIn.base_url`，因此 Claude（会话选项里的 `ANTHROPIC_BASE_URL`）、Codex 网关登录和自定义 Agent 都走同一条路径；API Key 仍由 Agent 自己放在请求头里，代理只透传，不保存、不记录、不出现在事件里。
 - 代理启动失败时保持原地址，Agent 正常启动；统计是可选能力，不能成为连接失败的新原因。
-- 订阅模式（Codex ChatGPT 登录）没有 Lithe 可替换的网关地址，不经过代理。
+- Codex 订阅模式只在进程级 `CODEX_CONFIG.openai_base_url` 中配置代理推理地址，仍使用原生 OpenAI provider。路径保留 `/backend-api/codex` 后缀，避免破坏原生模型发现和后台能力判断；登录、续期、额度查询及用户的配置文件保持原路由。既有原生中继先检查 account/read 的官方工作区发现结果：只有 https://chatgpt.com 且 NO_CONSTRAINT 才允许观察；地区路由、其他后台、旧版不提供证明或读取失败都清空本机覆盖并保持原生直连。账户或登录状态变更通知立即清除已确认路由和未完成查询，旧响应即使邮箱相同也不能重新授权观察；只有通知后的新查询能确认新工作区。已有观察连接同时关闭，避免旧会话绕过新路由约束。
 - 不写任何文件，不碰安装目录，满足运行时只读边界。
 
 ### 2. 转发保持透明，观察是旁路
@@ -63,12 +63,46 @@ HTTP 请求不带 ACP 会话 ID。请求开始时，如果恰好只有一个未�
 
 不要这样做：用整轮耗时除以 ACP 输出 token 得到 “TPS”；把工具调用次数叫作“步”；在没有代理数据时编造系统提示词占比。
 
+### 6. 会话合计跨连接保存，加载历史后继续累加
+
+`session/load` 只重放消息，没有耗时、工具用时和用量，以前重新打开历史会话时统计归零。现在每个会话保存一份累计记录（`AgentSessionStatisticsRecord`：轮次、工具调用数、工具用时、`AgentModelCallTotals` 聚合、最近一次 Agent 上报用量），加载时作为 `AgentConversation.statisticsBaseline`，界面显示“基线 + 本次连接的增量”。
+
+- 写入时机：轮次结束（正常完成、请求失败、断连收尾）以及轮次结束后才到达的迟到调用；运行中的轮次只在结束后计入，记录与上次相同时不重复写。
+- 不重复计数：`beginLoad` 本来就会丢弃内存里的轮次和调用重新开始，基线又已包含它们，所以同一会话反复加载不会叠加。保存失败或没有工作区时，退回只统计本次连接。
+- 所有权与位置：存储端口 `AgentSessionStatisticsPersisting`（LitheCoreContracts），格式由对话模块拥有；macOS 适配器 `MacAgentSessionStatisticsPersistence` 存进平台偏好 `lithe.agent-statistics.v1.<SHA256(工作区路径+Agent ID)>`，和历史元数据同一处。每个工作区+Agent 一份文档，最多保留最近更新的 200 个会话，最旧的先淘汰；文档损坏时当作空，下次写入覆盖。
+- 运行时只读边界：只写用户偏好，不写 app bundle、安装目录或 Agent 自己的文件，不影响代码签名和 Sparkle delta；它是用户状态，不是构建资源，不进 `scripts/worktree-resources.json`。
+- 上下文占用：保存最近一次真实 `usage_update` 及确认的模型选项，不把累计计费量当占用。加载完成后只恢复模型一致的报告，界面不加来源后缀，内部仍记录历史来源；回放新报告优先，包括无效/未知报告。运行中的更新随轮次结束保存，空闲时迟到的报告立即保存；模型切换单独清除已保存快照，不提前保存运行中计数。零使用量是有效报告，未上报是未知，旧版记录仍可读取但不能补出占用。
+- 不保存：每轮明细（逐轮耗时标签）只属于本次连接，历史回放不编造耗时。Lithe 之外创建、未曾收到并保存实际报告的会话没有本地上下文快照；固定 Codex 适配器可经原生恢复通知补齐，其他 Agent 仍等待自己的上报。该原生兼容路径不经过模型调用代理，也不依赖 API Key。
+- Agent 没有提供删除会话的接口，Lithe 只能隐藏，因此记录靠数量上限回收，而不是随删除清理。
+
+### 7. 统计按需展开，复用既有数据
+
+工具窗口和编辑页在输入框内顶部条保留“会话详情”按钮，点击后通过共享 `litheDropdown` 展示上下文、更改和会话明细；宽编辑页可另行显示右侧详情栏。主界面不再常驻轮次、步数、TPS、Token 和缓存命中长文本。上下文圆环位于发送旁，悬停显示简洁占用，点击查看构成；未上报时保留未知提示，已恢复报告只展示用量数字。`modelCall` 与本地计时的数据口径不变，上下文快照复用第 6 节的存储。
+
+上下文区复用同一个 `AgentContextPanel`：标题与大号一位小数使用率、真实已用/总容量、按窗口容量绘制的多色条，以及系统提示词、工具定义、对话消息、MCP 工具四行图例。工具数保留在对应图例，估算 Token 与估算口径说明可悬停查看；有分项数据后底部不再常驻估算说明和对应分隔线，比例前仍保留“~”。独立弹层的标题提供关闭按钮。MCP 信息并入分项，不再重复一整块启用说明，更改和会话统计继续保留。详情栏的左侧边界显式绘制为 1pt 竖向线；overlay 中的 Divider 没有堆栈方向，默认会画成横穿面板中间的横线，不能用 leading 对齐代替方向设置。会话与 Token 卡片正常的标题分隔继续保留。只有请求大小而没有窗口容量时，比例显示未知，不能把请求本身归一化为占满窗口；没有分项时显示破折号与一条说明。当前观测没有单独的技能或子智能体分类，不能照截图补造这些数值。
+
+### 8. Codex 订阅 WebSocket 只观察副本，连续请求按完整上下文计算
+
+官方 Codex CLI 0.160.0 的 App Server（原生应用协议服务）通过 `thread/tokenUsage/updated` 提供整轮用量，但没有系统提示词、工具和消息的分类。检查官方仓库 `rust-v0.160.0` 的 `core/src/client.rs`、`model-provider-info/src/lib.rs` 和 `codex-api/src/endpoint/responses_websocket.rs` 后，使用既有服务地址覆盖能力接入本机代理；不接管登录或重写 Codex 的请求和重试逻辑。
+
+原生请求可以通过 WebSocket（持久双向连接）传输，且使用压缩、消息分片和增量上下文。`model_proxy/websocket.rs` 原样转发升级头和后续字节，用成熟的 tungstenite 解析器和 flate2 解压器读取副本。双方的压缩字典生命周期各自遵守协商结果，不重组转发帧，不改变掩码、控制帧或关闭帧。单帧、合并消息和解压结果各限制 32 MiB，超限或协议不认识时仅停止统计，业务转发继续。
+
+`generate=false` 是连接预热，不是一次模型生成，不能计入调用次数。`previous_response_id` 指向当前连接已确认的前序结果时，保留的输入大小加上前序输出和新输入构成完整上下文；instructions 和 tools 按请求继承或替换，不能重复累加。只保存数字大小、最多 256 字节的一个结果 ID 和最多 1024 项输出大小，不保留原文；没有匹配前序 ID 就省略构成，真实 usage 仍照常采集。连接拥有全部升级 socket 和任务，关闭 Agent 连接时一并清理，无新增运行时目录或可复用资源。
+
+正确：连续第二轮只有工具结果增量时，按已确认的前序完整上下文计算四类大小，再用服务商实际输入 token 校准。
+
+不要这样做：把第二轮的工具结果当作全部上下文，或者为了看到分类而禁用原生压缩、改写协议和记录完整请求日志。旧订阅历史只有原生总量时继续显示未知分项，开启统计、重连并产生新请求后才补充真实观察。
+
 ## 考虑过的备选方案
 
 1. **只用 ACP 数据和本地计时估算**：改动最小，但调用次数、TTFT 和上下文分类都只能猜，与 issue 的诉求不符，也和“统计口径不清”的维护者意见冲突。保留为代理关闭时的降级展示（只显示 ACP 用量与本地计时的工具用时）。
 2. **读取 Claude Code 的会话日志 `~/.claude/projects/*.jsonl`**：能拿到每次调用的用量，但只支持 Claude Code，拿不到系统提示词/工具定义拆分，且依赖私有文件格式。
 3. **静默执行 `/context` 命令**：会写入对话历史，输出是给人看的文本，格式不稳定。
 4. **用 TLS 中间人或系统代理拦截**：需要安装证书或改系统网络设置，侵入性和安全风险远高于替换 Lithe 自己下发的 base URL，否决。
+
+5. **使用 Codex OpenTelemetry 指标或 rawResponse 通知**：可提供整体 token 和耗时，但没有完整请求结构，无法补齐四类分项。
+6. **开启 CODEX_ROLLOUT_TRACE_ROOT 诊断包**：原生可记录完整请求，但会把原始提示词、工具和响应长期写入磁盘，也没有适合常驻产品统计的有界生命周期，因此不采用。
+7. **终止并重新建立 WebSocket 或关闭压缩**：可简化观察代码，却改变原生传输和兼容性边界，选择原始字节透传与被动解析副本。
 
 ## 后果
 
@@ -81,19 +115,24 @@ HTTP 请求不带 ACP 会话 ID。请求开始时，如果恰好只有一个未�
 
 - 每次模型请求多一次本机转发；请求体需要先读完才转发（对生成请求影响可忽略，但大附件会有短暂内存占用）。
 - 服务商若改动 SSE 事件名或 usage 字段，统计会缺字段，需要更新解析；转发本身不受影响。
-- CLI 未来若不再遵守 base URL 或改走 WebSocket 等新传输，代理将看不到流量，界面退回“未开启”状态。
+- CLI 未来若不再遵守 base URL 或改走未支持的新传输，代理将看不到流量，界面退回“未开启”状态。
 - 上游 TLS 由 reqwest + rustls（webpki 根证书）建立，与 Agent 自带的 Node/Rust 网络栈不同：依赖企业自签根证书的网络环境可能需要关闭此开关。
-- 上下文构成是按字节比例分配的估算，界面必须标注“~”和估算说明。
+- 上下文构成是按字节比例分配的估算，界面保留“~”标记，估算说明放在分项悬停提示中，不常驻占用面板空间。
 
 ## 验证
 
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-agent-host model_`：三种协议的 SSE/非流式解析、格式漂移降级、上下文分配、代理透传（含 API Key 头与响应字节不变）、令牌路径隔离、上游不可达，以及会话归属与 `modelCall` 事件形状。
-- `./scripts/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|WorkbenchHoverTooltipTests"`：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、ACP 用量的缓存口径判断，以及悬停卡片布局。
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-agent-host model_`：压缩/分片与字节级透传、预热不计数、完整/增量上下文、未知前序降级、超限及连接清理；三种协议的 SSE/非流式解析、格式漂移降级、上下文分配、代理透传（含 API Key 头与响应字节不变）、令牌路径隔离、上游不可达，以及会话归属与 `modelCall` 事件形状。
+- `./scripts/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentSessionSelectorLayoutTests|WorkbenchHoverTooltipTests"`：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、重新加载后按已保存合计继续累加且不重复计数、损坏文档与 200 条上限、ACP 用量的缓存口径判断，以及悬停卡片布局。
+- `node --test scripts/test-codex-config-relay.mjs`：订阅路由证明、未知/受限/失败/迟到账户结果不得开启观察，账户变更关闭连接。
+- 原生订阅集成测试（显式设置 LITHE_CODEX_OBSERVATION_CLI 后运行忽略测试）：隔离 CODEX_HOME、假凭据、本地假账户与模型服务，经过真实原生中继完成两轮 WebSocket 请求，确认预热排除、用量与上下文构成；不调用真实模型。
 - `./scripts/verify-runtime-bundle-immutability.sh`：代理不向安装目录写入任何内容。
 
 ## 适用范围
 
 - `rust/lithe-agent-host/src/model_proxy.rs`
+- `rust/lithe-agent-host/src/model_proxy/websocket.rs`
+- `rust/lithe-agent-host/src/model_proxy/websocket/tests.rs`
+- `rust/lithe-agent-host/src/subscription.rs`
 - `rust/lithe-agent-host/src/model_calls.rs`
 - `rust/lithe-agent-host/src/lib.rs`
 - `shared/fixtures/agent/acp-events-v1.json`

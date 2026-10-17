@@ -91,6 +91,7 @@ extension AppModel {
         guard wasActive else { return }
 
         switch fallbackItem {
+        case .agentConversation: showAgentChatsInEditor()
         case .databaseOverview:
             openDatabaseWorkspace(overview: true)
         case .database(let profileID):

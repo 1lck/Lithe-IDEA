@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  mirroredAsset,
   releasePayload,
   synchronize,
   tagCommit,
@@ -22,11 +23,12 @@ function fixture({
   commit = "abc",
 } = {}) {
   const calls = [];
-  const asset = { name: "Lithe.exe", state: "uploaded" };
+  const asset = { name: "Lithe-1.2.3-windows-x64.exe", state: "uploaded" };
   return {
     calls,
     tag: release.tag_name,
     log() {},
+    wait: async (ms) => calls.push(["wait", ms]),
     source: {
       release: async () => release,
       latestTag: async () => release.tag_name,
@@ -43,6 +45,7 @@ function fixture({
     },
     target: {
       commit: async () => commit,
+      pushTag: async () => calls.push("push"),
       release: async () =>
         exists ? { assets: [{ name: asset.name, id: 7 }] } : null,
       create: async (body) => calls.push(["create", body]),
@@ -146,13 +149,15 @@ test("historical releases do not request latest status", () => {
 test("empty releases are retriable without target mutations", async () => {
   const f = fixture();
   f.source.assets = async () => [];
-  await assert.rejects(synchronize(f), /no assets yet/);
+  await assert.rejects(synchronize(f), /no installers yet/);
   assert.deepEqual(f.calls, []);
 });
 
 test("a missing target attachment ID never authorizes deletion", async () => {
   const f = fixture({ exists: true, previousDigest: "old" });
-  f.target.release = async () => ({ assets: [{ name: "Lithe.exe" }] });
+  f.target.release = async () => ({
+    assets: [{ name: "Lithe-1.2.3-windows-x64.exe" }],
+  });
   await assert.rejects(synchronize(f), /no deletion ID/);
   assert.deepEqual(f.calls.slice(1), ["download", "cleanup"]);
 });
@@ -312,4 +317,260 @@ test("upload uses signed PUT headers without API credentials and verifies return
   await api.target.upload("v1.2.3", "Lithe installer.exe", file);
   assert.equal(calls.length, 4);
   assert.equal(calls[1].search, "");
+});
+
+test("a tag the AtomGit mirror has not pulled yet is pushed before any release mutation", async () => {
+  const f = fixture();
+  const commits = [null, "abc"];
+  f.target.commit = async () => commits.shift();
+  await synchronize(f);
+  assert.deepEqual(
+    f.calls.map((entry) => (Array.isArray(entry) ? entry[0] : entry)),
+    ["push", "create", "download", "upload", "cleanup"],
+  );
+});
+
+test("a failed tag push is tolerated only when the mirror created the same tag concurrently", async () => {
+  const raced = fixture();
+  const commits = [null, "abc"];
+  raced.target.commit = async () => commits.shift();
+  raced.target.pushTag = async () => {
+    throw new Error(
+      "Could not push tag to AtomGit; check ATOMGIT_USER and token access",
+    );
+  };
+  await synchronize(raced);
+  assert.equal(raced.calls[0][0], "create");
+
+  const missing = fixture();
+  missing.target.commit = async () => null;
+  missing.target.pushTag = async () => {
+    throw new Error(
+      "Could not push tag to AtomGit; check ATOMGIT_USER and token access",
+    );
+  };
+  await assert.rejects(synchronize(missing), /Could not push tag/);
+  assert.deepEqual(missing.calls, []);
+
+  const diverged = fixture();
+  const divergedCommits = [null, "different"];
+  diverged.target.commit = async () => divergedCommits.shift();
+  diverged.target.pushTag = async () => {
+    throw new Error(
+      "Could not push tag to AtomGit; check ATOMGIT_USER and token access",
+    );
+  };
+  await assert.rejects(synchronize(diverged), /different commits/);
+  assert.deepEqual(diverged.calls, []);
+});
+
+test("only user-facing installers and their checksums are mirrored", async () => {
+  const names = [
+    "appcast-arm64.xml",
+    "latest.json",
+    "Lithe-1.2.3-arm64.dmg",
+    "Lithe-1.2.3-arm64.dmg.sha256",
+    "Lithe-1.2.3-arm64.dmg.edsig",
+    "Lithe-1.2.3-arm64.zip",
+    "Lithe-1.2.3-x86_64.dmg",
+    "Lithe-1.2.3-windows-x64.exe",
+    "Lithe-1.2.3-windows-x64.exe.sha256",
+    "Lithe-1.2.3-windows-x64-updater.exe",
+    "Lithe-1.2.3-windows-x64-updater.exe.sig",
+    "Lithe-1.2.2-x86_64.dmg",
+    "Lithe54-51-arm64.delta",
+    "Lithe-PHP-Support-1.2.3-arm64.zip",
+  ];
+  const f = fixture();
+  const uploaded = [];
+  f.source.assets = async () =>
+    names.map((name) => ({ name, state: "uploaded" }));
+  f.target.upload = async (_tag, name) => uploaded.push(name);
+  await synchronize(f);
+  assert.deepEqual(uploaded, [
+    "Lithe-1.2.3-arm64.dmg",
+    "Lithe-1.2.3-arm64.dmg.sha256",
+    "Lithe-1.2.3-x86_64.dmg",
+    "Lithe-1.2.3-windows-x64.exe",
+    "Lithe-1.2.3-windows-x64.exe.sha256",
+  ]);
+  assert.equal(mirroredAsset("Lithe-1.2.3-arm64.dmg", "v1.2.3"), true);
+  assert.equal(mirroredAsset("Lithe-1.2.3-arm64.dmg", "v1.2.4"), false);
+});
+
+test("a transient upload failure is retried with growing delays and re-reads the target first", async () => {
+  const f = fixture();
+  const name = "Lithe-1.2.3-windows-x64.exe";
+  let visible = false;
+  let uploads = 0;
+  f.target.release = async () => {
+    f.calls.push("read");
+    return visible ? { assets: [{ name, id: 9 }] } : null;
+  };
+  f.target.upload = async () => {
+    f.calls.push("upload");
+    uploads += 1;
+    if (uploads === 1) throw new Error("Release sync HTTP 502");
+    // The second PUT lands but its read-back stalls; the next attempt must not upload again.
+    visible = true;
+    throw new Error("Release sync request failed or timed out");
+  };
+  await synchronize(f);
+  assert.deepEqual(
+    f.calls.map((entry) =>
+      !Array.isArray(entry)
+        ? entry
+        : entry[0] === "wait"
+          ? `wait:${entry[1]}`
+          : entry[0],
+    ),
+    [
+      "read",
+      "create",
+      "download",
+      "read",
+      "upload",
+      "wait:30000",
+      "read",
+      "upload",
+      "wait:60000",
+      "read",
+      "cleanup",
+    ],
+  );
+});
+
+test("retries stop after the attempt limit and permanent failures are not retried", async () => {
+  const f = fixture();
+  let uploads = 0;
+  f.target.upload = async () => {
+    uploads += 1;
+    throw new Error("Release sync HTTP 502");
+  };
+  await assert.rejects(synchronize(f), /HTTP 502/);
+  assert.equal(uploads, 4);
+  assert.deepEqual(
+    f.calls.filter((entry) => Array.isArray(entry) && entry[0] === "wait"),
+    [
+      ["wait", 30_000],
+      ["wait", 60_000],
+      ["wait", 120_000],
+    ],
+  );
+  assert.equal(f.calls.at(-1), "cleanup");
+
+  const denied = fixture();
+  let deniedUploads = 0;
+  denied.target.upload = async () => {
+    deniedUploads += 1;
+    throw new Error("Release sync HTTP 403");
+  };
+  await assert.rejects(synchronize(denied), /HTTP 403/);
+  assert.equal(deniedUploads, 1);
+});
+
+test("tag push resolves the token login, sends the exact local tag and never overwrites a diverged AtomGit tag", async (t) => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "atomgit-push-test-"));
+  const previousDirectory = process.cwd();
+  const previousEnv = { ...process.env };
+  t.after(async () => {
+    process.chdir(previousDirectory);
+    for (const key of Object.keys(process.env))
+      if (!(key in previousEnv)) delete process.env[key];
+    Object.assign(process.env, previousEnv);
+    await rm(dir, { recursive: true, force: true });
+  });
+  const run = (cwd, ...args) =>
+    execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      timeout: 10_000,
+    }).trim();
+  const work = join(dir, "work");
+  const remote = join(dir, "remote.git");
+  run(dir, "init", "--quiet", "--bare", remote);
+  run(dir, "init", "--quiet", work);
+  run(
+    work,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "--quiet",
+    "--allow-empty",
+    "-m",
+    "release",
+  );
+  run(work, "tag", "v1.2.3");
+  const sha = run(work, "rev-parse", "HEAD");
+  // Route the AtomGit URL to the local bare repository so the real git push path runs offline.
+  Object.assign(process.env, {
+    GIT_CONFIG_COUNT: "2",
+    GIT_CONFIG_KEY_0: `url.${remote}.insteadOf`,
+    GIT_CONFIG_VALUE_0: "https://atomgit.com/example/app.git",
+    GIT_CONFIG_KEY_1: "protocol.file.allow",
+    GIT_CONFIG_VALUE_1: "always",
+  });
+  process.chdir(work);
+  const env = {
+    GITHUB_REPOSITORY: "example/app",
+    GH_TOKEN: "fake-gh",
+    ATOMGIT_TOKEN: "fake-atom",
+    ATOMGIT_OWNER: "example",
+    ATOMGIT_REPO: "app",
+  };
+  // Without ATOMGIT_USER the push login comes from the token's own profile.
+  const lookups = [];
+  let profile = {};
+  t.mock.method(globalThis, "fetch", async (url) => {
+    lookups.push(new URL(url));
+    return Response.json(profile);
+  });
+  const api = clients(env);
+  await assert.rejects(
+    api.target.pushTag("v1.2.3", "f".repeat(40)),
+    /fetch tags before pushing/,
+  );
+  assert.equal(lookups.length, 0);
+  await assert.rejects(api.target.pushTag("v1.2.3", sha), /no user login/);
+  assert.equal(api.target.commit("v1.2.3"), null);
+  profile = { login: "token-owner" };
+  await api.target.pushTag("v1.2.3", sha);
+  assert.equal(lookups.at(-1).pathname, "/api/v5/user");
+  assert.equal(lookups.at(-1).searchParams.get("access_token"), "fake-atom");
+  assert.equal(run(remote, "rev-parse", "refs/tags/v1.2.3"), sha);
+  assert.equal(api.target.commit("v1.2.3"), sha);
+  assert.equal(api.target.commit("v9.9.9"), null);
+
+  // A diverged tag on AtomGit must be rejected rather than overwritten.
+  run(
+    work,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "--quiet",
+    "--allow-empty",
+    "-m",
+    "other",
+  );
+  run(work, "tag", "-f", "v1.2.3");
+  const configured = clients({ ...env, ATOMGIT_USER: "fixture-user" });
+  const lookupCount = lookups.length;
+  await assert.rejects(
+    configured.target.pushTag("v1.2.3", run(work, "rev-parse", "HEAD")),
+    /Could not push tag/,
+  );
+  assert.equal(lookups.length, lookupCount);
+  assert.equal(run(remote, "rev-parse", "refs/tags/v1.2.3"), sha);
 });

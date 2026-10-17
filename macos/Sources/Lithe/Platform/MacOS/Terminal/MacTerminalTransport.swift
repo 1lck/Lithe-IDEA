@@ -306,6 +306,11 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     private var selectedShellPath: String?
     private var suppressNextTermination = false
     private let stoppedChildProcessReaper = MacStoppedChildProcessReaper()
+    /// The PTY child is a session leader (`forkpty` calls `setsid`), so every
+    /// job started in this terminal keeps its PID as session ID.
+    private var session: MacTerminalSessionOwnership?
+    private var launchedInteractiveShell = false
+    private var pendingSessionTermination: Task<Void, Never>?
 
     var isRunning: Bool {
         view.process.running
@@ -388,6 +393,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             ),
             environment: environment
         )
+        launchedInteractiveShell = true
     }
 
     func startProcess(
@@ -396,6 +402,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     ) throws -> Int32 {
         stop()
         suppressNextTermination = false
+        launchedInteractiveShell = false
         let executablePath = try resolveExecutablePath(
             launch.executablePath,
             workingDirectory: launch.workingDirectory,
@@ -430,6 +437,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         guard view.process.running, let processID else {
             throw terminalError("Unable to start \(executablePath)")
         }
+        session = MacProcessTable.info(processID: processID).map { MacTerminalSessionOwnership(leader: $0.identity) }
         return processID
     }
 
@@ -453,12 +461,80 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     func stop() {
+        if let session {
+            self.session = nil
+            let previous = pendingSessionTermination
+            // Closing the PTY only hangs up the foreground job; background and
+            // disowned jobs live in other process groups of the same session.
+            let gracePeriod = Self.terminationGracePeriod(settings: MacProcessSupervisor.storedSettings())
+            pendingSessionTermination = Task {
+                await previous?.value
+                await MacProcessSessionTerminator.terminate(session, gracePeriod: gracePeriod)
+            }
+        }
         guard let processID else { return }
         suppressNextTermination = true
         if view.process.running {
             view.terminate()
         }
         stoppedChildProcessReaper.reapWhenExited(processID)
+    }
+
+    static func terminationGracePeriod(settings: ProcessTerminationSettings) -> Duration {
+        .seconds(settings.gracefulStopSeconds)
+    }
+
+    func stopAndWait() async {
+        stop()
+        await pendingSessionTermination?.value
+    }
+
+    func runningPrograms() -> [TerminalRunningProgram] {
+        guard let session else { return [] }
+        return Self.runningPrograms(
+            in: session.members(),
+            sessionLeader: session.leader,
+            interactiveShellPath: launchedInteractiveShell ? selectedShellPath : nil,
+            arguments: MacProcessTable.arguments,
+            listeningTCPPorts: MacProcessTable.listeningTCPPorts
+        )
+    }
+
+    static func runningPrograms(
+        in members: [MacProcessInfo],
+        sessionLeader: MacProcessIdentity,
+        interactiveShellPath: String?,
+        arguments: (Int32) -> MacProcessArguments?,
+        listeningTCPPorts: (Int32) -> [Int]
+    ) -> [TerminalRunningProgram] {
+        let programs = members.filter { member in
+            guard member.identity == sessionLeader,
+                  let interactiveShellPath,
+                  let executablePath = arguments(member.processID)?.executablePath,
+                  !executablePath.isEmpty else { return true }
+            // exec keeps the PID and start time. Only omit the original shell
+            // while the live executable still matches; unreadable evidence is
+            // conservatively busy. Children without job control share its group
+            // and must remain visible in the close/quit confirmation.
+            return URL(fileURLWithPath: executablePath).resolvingSymlinksInPath().standardizedFileURL
+                != URL(fileURLWithPath: interactiveShellPath).resolvingSymlinksInPath().standardizedFileURL
+        }
+        return Dictionary(grouping: programs, by: \.processGroupID)
+            .values
+            .compactMap { group -> TerminalRunningProgram? in
+                guard let representative = group.first(where: { $0.processID == $0.processGroupID })
+                    ?? group.min(by: { $0.processID < $1.processID }) else { return nil }
+                let commandLine = arguments(representative.processID)?.commandLine
+                    ?? representative.name
+                let ports = Set(group.flatMap { listeningTCPPorts($0.processID) })
+                return TerminalRunningProgram(
+                    processID: representative.processID,
+                    commandLine: commandLine,
+                    listeningPorts: ports.sorted(),
+                    startedAt: Date(timeIntervalSince1970: Double(representative.identity.startTime) / 1_000_000)
+                )
+            }
+            .sorted { $0.processID < $1.processID }
     }
 
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
@@ -472,6 +548,9 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     func processTerminated(source: SwiftTerm.TerminalView, exitCode: Int32?) {
+        // Jobs that outlived the shell stay stoppable from this tab, but only by
+        // identity: the session ID is reusable once they are gone too.
+        if session?.pinMembers() == false { session = nil }
         if suppressNextTermination {
             suppressNextTermination = false
             return

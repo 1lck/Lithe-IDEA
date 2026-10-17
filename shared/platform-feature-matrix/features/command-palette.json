@@ -6,7 +6,9 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift",
-      "macos/Sources/Lithe/Views/Search/SearchEverywhereView.swift"
+      "macos/Sources/Lithe/Views/Search/SearchEverywhereView.swift",
+      "macos/Tests/LitheTests/WorkbenchContributionHostTests.swift",
+      "macos/Sources/LitheApplicationKernel/Lifecycle/ModuleRuntime.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -19,5 +21,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Workbench",
-  "verification": "搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。"
+  "verification": "搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。 macOS 动作状态：确认窗口入口、工具栏、菜单与命令面板共用可用和勾选状态，激活中命令禁用且 Enter/鼠标均不能触发，窗口入口允许取消；同时打开同一插件的两个窗口只构造一次模块，取消其中一个不影响另一个；激活中禁用再启用，确认无资源残留或晚到贡献，旧动作引用不绕过状态校验。 禁用执行、调试、搜索、终端等模块后，其原生命令和快捷键同样不可执行；界面入口隐藏不代表命令被禁用。 内置和插件命令面板入口共用贡献目录，可隐藏、排序及恢复；恢复入口不执行命令，内置快捷键与分组不变，插件标题原样展示。"
 }

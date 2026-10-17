@@ -23,7 +23,6 @@ import {
   type ExternalBufferChangeResult,
 } from "@/features/editor/services/document-external-change-workflow";
 import {
-  closeNewTabInActivePane as closeNewTabInActivePaneForWorkspace,
   getWritablePaneForBuffer as getWritablePaneForWorkspace,
   removeBufferFromPanes as removeBufferFromWorkspacePanes,
   syncAndFocusBufferInPane as syncAndFocusBufferInWorkspacePane,
@@ -359,6 +358,9 @@ function makeDocumentBufferOwner(
   };
 }
 
+const tracksUnsavedEdits = (buffer: EditorContent): boolean =>
+  !buffer.readOnly && (!buffer.isVirtual || buffer.path.startsWith("untitled:"));
+
 const applyWorkspaceAutoEviction = (
   buffers: PaneContent[],
   maxOpenTabs: number,
@@ -627,8 +629,6 @@ const createBufferStore = (workspaceId: string) => {
     maxOpenTabs: number,
     options?: { includePreviews?: boolean },
   ) => applyWorkspaceAutoEviction(buffers, maxOpenTabs, workspaceId, options);
-  const closeNewTabInActivePane = (buffers: PaneContent[]) =>
-    closeNewTabInActivePaneForWorkspace(buffers, workspaceId);
   const ensureBufferInPane = (paneId: string, bufferId: string, setActive = true) =>
     ensureBufferInWorkspacePane(paneId, bufferId, setActive, workspaceId);
   const getPaneReplacementBufferId = (closingBufferIds: string[], buffers: PaneContent[]) =>
@@ -678,7 +678,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               const previewTargetPane = shouldBePreview ? getWritablePaneForBuffer() : null;
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
 
               if (shouldBePreview) {
                 const existingPreview = previewTargetPane?.previewBufferId
@@ -733,7 +733,7 @@ const createBufferStore = (workspaceId: string) => {
                 return existing.id;
               }
 
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
 
               const id = generateBufferId(path);
@@ -778,7 +778,7 @@ const createBufferStore = (workspaceId: string) => {
               const path = `agent://${agentSessionId}`;
               const displayName = `Agent ${agentNumber}`;
 
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
 
               const id = generateBufferId(path);
@@ -822,7 +822,7 @@ const createBufferStore = (workspaceId: string) => {
                 return existing.id;
               }
 
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
 
               const id = generateBufferId(path);
@@ -839,23 +839,9 @@ const createBufferStore = (workspaceId: string) => {
               return newBuffer.id;
             }
 
-            case "newTab": {
-              const cleanedBuffers = closeNewTabInActivePane([...buffers]);
-              const id = generateBufferId(`newtab://${Date.now()}`);
-              const newBuffer = createPaneContent(id, spec);
-
-              set((state) => {
-                state.buffers = [...deactivateBuffers(cleanedBuffers), newBuffer];
-                state.activeBufferId = newBuffer.id;
-              });
-              syncBufferToPane(newBuffer.id);
-              saveWorkspaceSession(get().buffers, get().activeBufferId);
-              return newBuffer.id;
-            }
-
             case "markdownDocument": {
               const path = `markdown-document://${spec.documentId}`;
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
 
               const id = generateBufferId(path);
@@ -905,7 +891,7 @@ const createBufferStore = (workspaceId: string) => {
                 return existing.id;
               }
 
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
 
               const id = generateBufferId(path);
@@ -952,7 +938,7 @@ const createBufferStore = (workspaceId: string) => {
                 return existing.id;
               }
 
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
 
               const id = generateBufferId(path);
@@ -998,7 +984,7 @@ const createBufferStore = (workspaceId: string) => {
                 return existing.id;
               }
 
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
 
               const id = generateBufferId(path);
@@ -1026,7 +1012,7 @@ const createBufferStore = (workspaceId: string) => {
                 return existing.id;
               }
 
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, spec);
@@ -1050,7 +1036,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               const existingExternalEditor = buffers.find((b) => b.type === "externalEditor");
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               if (existingExternalEditor) {
                 if (existingExternalEditor.type === "externalEditor") {
                   invoke("close_terminal", {
@@ -1090,7 +1076,7 @@ const createBufferStore = (workspaceId: string) => {
                 return existing.id;
               }
 
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
 
               const id = generateBufferId(SINGLETON_TOOL_BUFFER_METADATA[spec.type].path);
@@ -1116,7 +1102,7 @@ const createBufferStore = (workspaceId: string) => {
                 return existing.id;
               }
 
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
 
               const id = generateBufferId(path);
@@ -1155,7 +1141,7 @@ const createBufferStore = (workspaceId: string) => {
                 return existing.id;
               }
 
-              let newBuffers = closeNewTabInActivePane([...buffers]);
+              let newBuffers = [...buffers];
               newBuffers = applyAutoEviction(newBuffers, maxOpenTabs, {
                 includePreviews: false,
               });
@@ -1560,7 +1546,16 @@ const createBufferStore = (workspaceId: string) => {
         },
 
         showNewTabView: () => {
-          get().actions.openContent({ type: "newTab" });
+          const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+          const usedPaths = new Set(get().buffers.map((buffer) => buffer.path));
+          let number = 1;
+          let name = t("files.untitled");
+          while (usedPaths.has(`untitled:${name}`)) {
+            number += 1;
+            name = t("files.untitledNumber", { number });
+          }
+          const path = `untitled:${name}`;
+          get().actions.openBuffer(path, name, "", false, undefined, false, true);
         },
 
         updateBufferContent: (
@@ -1587,7 +1582,7 @@ const createBufferStore = (workspaceId: string) => {
             if (diffData && buf.type === "diff") {
               buf.diffData = diffData;
             }
-            if (buf.type === "editor" && !buf.isVirtual) {
+            if (buf.type === "editor" && tracksUnsavedEdits(buf)) {
               if (!markDirty) {
                 buf.savedContent = content;
                 buf.isDirty = false;

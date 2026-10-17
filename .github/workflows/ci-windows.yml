@@ -5,27 +5,36 @@ on:
   pull_request:
     # ready_for_review reruns the deferred runner lanes after a draft is ready.
     types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches:
-      - preview
   workflow_dispatch:
 
 permissions:
   contents: read
+  # The gate reads reused jobs from earlier runs of the same pull request.
+  actions: read
 
+# Pull request runs are not cancelled per branch: the lane-reuse step keeps an
+# earlier run whose lanes it reuses and cancels the others.
 concurrency:
-  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: windows-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('run-{0}', github.run_id) || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
 
 jobs:
   changes:
     name: Classify changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Cancels earlier runs of the same pull request that no lane reuses.
+      actions: write
     outputs:
       windows: ${{ steps.classify.outputs.windows }}
       rust_core: ${{ steps.classify.outputs.rust_core }}
       windows_rust: ${{ steps.classify.outputs.windows_rust }}
       java_jdt: ${{ steps.classify.outputs.java_jdt }}
+      run_frontend: ${{ steps.reuse.outputs.run_frontend }}
+      run_rust: ${{ steps.reuse.outputs.run_rust }}
+      run_jdt: ${{ steps.reuse.outputs.run_jdt }}
+      reuse: ${{ steps.reuse.outputs.reuse }}
 
     steps:
       - name: Check out source
@@ -68,6 +77,9 @@ jobs:
           MANUAL: ${{ steps.base.outputs.manual }}
           BASE_SHA: ${{ steps.base.outputs.base_sha }}
           LITHE_CI_DRAFT_PULL_REQUEST: ${{ github.event.pull_request.draft == true }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         shell: bash
         run: |
           if [[ "$MANUAL" == "true" ]]; then
@@ -80,7 +92,34 @@ jobs:
             exit 0
           fi
 
+          # Promoting preview to main reruns no lane; macOS CI requires the
+          # preview verification of the same commit instead.
+          if [[ "$BASE_REF" == "main" && "$HEAD_REF" == "preview" && "$HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" ]]; then
+            export LITHE_CI_SCOPE=release_promotion
+          fi
           ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      # Reuse lanes that passed (or are running) on an earlier revision of this
+      # pull request when its own new changes cannot affect them.
+      - name: Reuse unaffected lane results
+        id: reuse
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LITHE_CI_WORKFLOW: windows
+          LITHE_CI_WORKFLOW_FILE: ci-windows.yml
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          LITHE_CI_CLASSIFICATION: |
+            ci_scope=${{ steps.classify.outputs.ci_scope }}
+            windows=${{ steps.classify.outputs.windows }}
+            rust_core=${{ steps.classify.outputs.rust_core }}
+            windows_rust=${{ steps.classify.outputs.windows_rust }}
+            java_jdt=${{ steps.classify.outputs.java_jdt }}
+        shell: bash
+        run: node scripts/plan-ci-lane-reuse.mjs
 
       - name: Reject newly added Windows blocking test patterns
         if: steps.base.outputs.manual == 'false'
@@ -115,7 +154,7 @@ jobs:
   frontend:
     name: Test Windows frontend
     needs: changes
-    if: needs.changes.outputs.windows == 'true'
+    if: needs.changes.outputs.run_frontend == 'true'
     runs-on: windows-latest
     timeout-minutes: 20
 
@@ -135,7 +174,9 @@ jobs:
 
       - name: Test Windows dependency install recovery
         shell: pwsh
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts
+        # Native PowerShell/Job Object startup and owned-process cleanup need
+        # headroom beyond the fixture's separate five second install deadlines.
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 60000 --suite-timeout-ms 180000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts
 
       - name: Configure isolated dependency caches
         shell: pwsh
@@ -307,11 +348,19 @@ jobs:
 
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tabs.json -- src/features/tabs
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tabs.json -- src/features/tabs src/features/editor/stores/buffer-new-tab.test.ts src/features/editor/stores/buffer-close-saved-tabs.test.ts
 
       - name: Test SVG editor preview modes and live updates
         shell: pwsh
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/editor/components/svg-editor.test.tsx
+
+      - name: Test platform command routing and host errors
+        shell: pwsh
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/platform/tauri-core.test.ts,src/platform/tauri-core.routing.test.ts
+
+      - name: Test Agent management service and install progress
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent-management.json -- src/features/agent/services/agent-management.test.ts
 
       - name: Test welcome clone and modal isolation
         shell: pwsh
@@ -399,12 +448,14 @@ jobs:
             "src/features/git/components/log/git-commit-table.presentation.test.tsx",
             "src/features/git/components/log/git-commit-table-keyboard-menu.test.tsx",
             "src/features/git/components/log/git-commit-table-tag.test.tsx",
+            "src/features/git/components/log/git-create-tag-dialog.test.tsx",
             "src/features/git/components/log/git-graph-row.test.ts",
             "src/features/git/components/log/git-graph-row.theme.test.tsx",
             "src/features/git/components/log/git-log-branch-actions.test.tsx",
             "src/features/git/hooks/use-git-graph-paint.test.tsx",
             "src/features/git/hooks/use-git-log-controller.integration.test.tsx",
             "src/features/git/stores/git-log-preferences.store.test.ts",
+            "src/features/git/utils/git-checkout-failure-presentation.test.ts",
             "src/features/git/utils/git-graph-colors.test.ts",
             "src/features/git/utils/git-graph-geometry.test.ts",
             "src/features/git/utils/git-graph-highlights.test.ts",
@@ -497,7 +548,7 @@ jobs:
   rust-tests:
     name: Test Windows Rust implementation
     needs: changes
-    if: needs.changes.outputs.rust_core == 'true' || needs.changes.outputs.windows_rust == 'true'
+    if: needs.changes.outputs.run_rust == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -593,7 +644,7 @@ jobs:
   real-jdt:
     name: Test real JDT on Windows
     needs: changes
-    if: needs.changes.outputs.java_jdt == 'true'
+    if: needs.changes.outputs.run_jdt == 'true'
     runs-on: windows-latest
     timeout-minutes: 35
 
@@ -656,6 +707,7 @@ jobs:
             --max-ms 15000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
+            --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `
             --test-budget tests::git_remote_checkout::=30000 `
             --test-budget tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote=30000 `
             --test-budget tests::git::git_write_squashes_=30000 `
@@ -697,21 +749,43 @@ jobs:
           RUST_TESTS_RESULT: ${{ needs.rust-tests.result }}
           JAVA_JDT_SELECTED: ${{ needs.changes.outputs.java_jdt }}
           REAL_JDT_RESULT: ${{ needs.real-jdt.result }}
+          RUST_SELECTED: ${{ needs.changes.outputs.rust_core == 'true' || needs.changes.outputs.windows_rust == 'true' }}
+          RUN_FRONTEND: ${{ needs.changes.outputs.run_frontend }}
+          RUN_RUST: ${{ needs.changes.outputs.run_rust }}
+          RUN_JDT: ${{ needs.changes.outputs.run_jdt }}
+          REUSE: ${{ needs.changes.outputs.reuse }}
         shell: bash
         run: |
           [[ "$CHANGES_RESULT" == "success" ]]
-          if [[ "$WINDOWS_SELECTED" == "true" ]]; then
-            [[ "$FRONTEND_RESULT" == "success" ]]
-          else
-            [[ "$FRONTEND_RESULT" == "skipped" ]]
-          fi
-          if [[ "$JAVA_JDT_SELECTED" == "true" ]]; then
-            [[ "$REAL_JDT_RESULT" == "success" ]]
-          else
-            [[ "$REAL_JDT_RESULT" == "skipped" ]]
-          fi
-          if [[ "$RUST_CORE_SELECTED" == "true" || "$WINDOWS_RUST_SELECTED" == "true" ]]; then
-            [[ "$RUST_TESTS_RESULT" == "success" ]]
-          else
-            [[ "$RUST_TESTS_RESULT" == "skipped" ]]
-          fi
+          require_covered() {
+            local selected="$1" ran="$2" lane="$3"
+            [[ "$selected" != "true" || "$ran" == "true" ]] && return 0
+            jq -e --arg lane "$lane" 'has($lane)' <<< "${REUSE:-{\}}" > /dev/null || {
+              echo "::error::Lane $lane is selected but neither ran nor reused an earlier result"
+              return 1
+            }
+          }
+          require_job() {
+            local ran="$1" result="$2"
+            if [[ "$ran" == "true" ]]; then [[ "$result" == "success" ]]; else [[ "$result" == "skipped" ]]; fi
+          }
+          require_covered "$WINDOWS_SELECTED" "$RUN_FRONTEND" frontend
+          require_covered "$RUST_SELECTED" "$RUN_RUST" rust
+          require_covered "$JAVA_JDT_SELECTED" "$RUN_JDT" jdt
+          require_job "$RUN_FRONTEND" "$FRONTEND_RESULT"
+          require_job "$RUN_RUST" "$RUST_TESTS_RESULT"
+          require_job "$RUN_JDT" "$REAL_JDT_RESULT"
+      - name: Check out the reused-result verifier
+        if: needs.changes.result == 'success' && needs.changes.outputs.reuse != '{}' && needs.changes.outputs.reuse != ''
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/verify-reused-ci-jobs.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Verify reused lane results
+        if: needs.changes.result == 'success' && needs.changes.outputs.reuse != '{}' && needs.changes.outputs.reuse != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LITHE_CI_REUSE: ${{ needs.changes.outputs.reuse }}
+        timeout-minutes: 95
+        run: node scripts/verify-reused-ci-jobs.mjs

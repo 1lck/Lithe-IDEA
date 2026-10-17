@@ -71,15 +71,23 @@ struct AgentTranscriptScrollAnchor: NSViewRepresentable {
             let clip = enclosing.contentView
             viewportSize = clip.bounds.size
             clip.postsBoundsChangedNotifications = true
+            clip.postsFrameChangedNotifications = true
             // safeAreaInset reserves permission space through native content
             // insets without changing the clip's bounds size.
             insetObservation = enclosing.observe(\.contentInsets, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.requestFollow() }
             }
-            observe(NSView.boundsDidChangeNotification, object: clip) { probe in
-                guard let clip = probe.scrollView?.contentView, probe.viewportSize != clip.bounds.size else { return }
-                probe.viewportSize = clip.bounds.size
-                probe.requestFollow()
+            // AppKit frame resizing can update bounds without a bounds notification.
+            for name in [NSView.boundsDidChangeNotification, NSView.frameDidChangeNotification] {
+                observe(name, object: clip) { probe in
+                    guard let clip = probe.scrollView?.contentView, probe.viewportSize != clip.bounds.size else { return }
+                    probe.viewportSize = clip.bounds.size
+                    probe.requestFollow()
+                }
+            }
+            observe(.agentTranscriptNavigationRequested, object: enclosing) { probe in
+                probe.cancelFollow()
+                probe.followsLatest = false
             }
             observe(NSScrollView.willStartLiveScrollNotification, object: enclosing) { probe in
                 probe.isUserScrolling = true

@@ -10,6 +10,12 @@ enum JavaBuildFailurePolicy: String, Codable {
 
 @MainActor
 final class AppSettings: ObservableObject {
+    nonisolated static let agentSelectionPreferenceKey = "lithe.agent.welcomeAgentChosen"
+    var preferredConversationAgentID: String? {
+        get { defaults.object(forKey: Self.agentSelectionPreferenceKey) as? String }
+        set { defaults.set(newValue, forKey: Self.agentSelectionPreferenceKey) }
+    }
+
     private enum Key {
         static let colorTheme = "settings.colorTheme"
         static let themePreference = "settings.themePreference"
@@ -44,6 +50,7 @@ final class AppSettings: ObservableObject {
         static let customLogDirectory = "settings.customLogDirectory"
         static let workbenchBackground = "settings.workbenchBackground"
         static let javaBuildFailurePolicies = "settings.javaBuildFailurePolicies"
+        static let processTermination = "settings.processTermination"
     }
 
     private struct KeyboardShortcutOverridesPayload: Codable {
@@ -141,6 +148,16 @@ final class AppSettings: ObservableObject {
     }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
+    }
+    /// Read by the process supervisor, which runs without an `AppSettings`.
+    nonisolated static let processTerminationKey = Key.processTermination
+    /// Settings › Process Termination Policy. Decisions are made by Rust Core.
+    @Published var processTermination: ProcessTerminationSettings {
+        didSet {
+            if let data = try? JSONEncoder().encode(processTermination) {
+                defaults.set(data, forKey: Key.processTermination)
+            }
+        }
     }
     @Published var agentCommand: String { didSet { defaults.set(agentCommand, forKey: Key.agentCommand) } }
     /// One command argument per line, so paths with spaces need no shell parser.
@@ -247,6 +264,9 @@ final class AppSettings: ObservableObject {
         } else {
             commitMessageAI = .default
         }
+        processTermination = defaults.data(forKey: Key.processTermination)
+            .flatMap { try? JSONDecoder().decode(ProcessTerminationSettings.self, from: $0) }
+            ?? ProcessTerminationSettings()
         agentCommand = defaults.string(forKey: Key.agentCommand) ?? ""
         agentArguments = defaults.string(forKey: Key.agentArguments) ?? ""
         agentModelCallStatistics = defaults.object(forKey: Key.agentModelCallStatistics) as? Bool ?? true
@@ -902,6 +922,11 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         case .english: "English"
         case .simplifiedChinese: "简体中文"
         }
+    }
+
+    func localizedString(_ key: String, bundle: Bundle = .main) -> String {
+        (bundle.url(forResource: rawValue, withExtension: "lproj").flatMap(Bundle.init(url:)) ?? bundle)
+            .localizedString(forKey: key, value: key, table: nil)
     }
 
     var locale: Locale {

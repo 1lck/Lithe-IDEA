@@ -44,6 +44,47 @@ struct MacProcessRunnerTests {
     }
 
     @Test
+    func applicationExitKillsEveryGroupItsOwnersLeftRunning() throws {
+        let shellURL = URL(fileURLWithPath: "/bin/sh")
+        guard FileManager.default.isExecutableFile(atPath: shellURL.path) else { return }
+        // A private table: the application-wide one also holds the
+        // subprocesses of tests running in parallel.
+        let liveGroups = MacLiveProcessGroups()
+        let sink = try #require(FileHandle(forWritingAtPath: "/dev/null"))
+        defer { try? sink.close() }
+        func launch(_ script: String) throws -> pid_t {
+            let process = MacManagedProcess(
+                executableURL: shellURL,
+                arguments: ["-c", script],
+                standardInput: .nullDevice,
+                standardOutput: sink,
+                standardError: sink,
+                liveGroups: liveGroups
+            )
+            try process.run()
+            // The owner drops its reference here, as a session does on stop.
+            return process.processIdentifier
+        }
+        let stubborn = try launch("trap '' TERM; while :; do sleep 1; done")
+        let withDescendant = try launch("(trap '' TERM; while :; do sleep 1; done) & wait")
+        defer {
+            _ = Darwin.kill(-stubborn, SIGKILL)
+            _ = Darwin.kill(-withDescendant, SIGKILL)
+        }
+
+        let start = ContinuousClock.now
+        #expect(liveGroups.terminateAllAndWait(gracePeriod: 0.1, forcedTerminationTimeout: 1))
+
+        #expect(ContinuousClock.now - start < .seconds(2))
+        for group in [stubborn, withDescendant] {
+            errno = 0
+            #expect(Darwin.kill(-group, 0) == -1 && errno == ESRCH)
+        }
+        // Nothing is left to signal once the groups are gone.
+        #expect(liveGroups.terminateAllAndWait(gracePeriod: 0, forcedTerminationTimeout: 0))
+    }
+
+    @Test
     func rawSessionTimeoutUnblocksInitialInputAndForceTerminates() async {
         let session = MacRawProcessSession()
         let terminated = TestGate()

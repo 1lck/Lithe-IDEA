@@ -1,6 +1,7 @@
 import Foundation
 import LitheApplicationKernel
 import LitheCoreContracts
+import LitheModuleAPI
 import LitheDebugModule
 
 /// Platform-neutral service graph consumed by application orchestration.
@@ -9,10 +10,13 @@ import LitheDebugModule
 final class AppServices {
     var ideCapabilityRegistry: IdeCapabilityRegistry?
     var ideHostTransport: (any IdeHostTransport)?
+    /// Confirms closing terminals with running programs; `nil` closes directly.
+    var processExitCoordinator: ProcessExitCoordinator?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing
     let pluginCatalog: ValidatedPluginCatalog
+    let pluginUIIconResources: [String: PluginUIIconResources]
     /// Unified language-pack composition. The derived catalog and focused
     /// registries remain exposed below for source compatibility with existing
     /// feature models while new composition should use this value.
@@ -26,6 +30,8 @@ final class AppServices {
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     let javaTestDebugLaunchService: JavaTestDebugLaunchService
+    let debugPerformanceSampler: (any DebugPerformanceSampling)?
+    let testJVMPerformance: (any TestJVMPerformanceProviding)?
     let debugBreakpointPersistence: (any DebugBreakpointPersisting)?
     let workspaceOperations: any WorkspaceOperations
     let documentLifecycleDecider: any DocumentLifecycleDeciding
@@ -66,6 +72,7 @@ final class AppServices {
         pluginManager: any PluginManaging,
         pluginMarketplace: any PluginMarketplaceServicing,
         pluginCatalog: ValidatedPluginCatalog,
+        pluginUIIconResources: [String: PluginUIIconResources] = [:],
         languageProviderCatalogSource: any LanguageProviderCatalogSource,
         workspaceLanguageServerPreferences: any WorkspaceLanguageServerPreferencesStoring,
         languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
@@ -101,12 +108,17 @@ final class AppServices {
         workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding,
         directoryWatcherFactory: any DirectoryWatcherFactory,
         platformUI: any PlatformUI,
-        shortcutDetectorFactory: any ShortcutDetectorFactory
+        shortcutDetectorFactory: any ShortcutDetectorFactory,
+        debugPerformanceSampler: (any DebugPerformanceSampling)? = nil,
+        testJVMPerformance: (any TestJVMPerformanceProviding)? = nil
     ) {
+        self.debugPerformanceSampler = debugPerformanceSampler
+        self.testJVMPerformance = testJVMPerformance
         self.moduleRuntime = moduleRuntime
         self.pluginManager = pluginManager
         self.pluginMarketplace = pluginMarketplace
         self.pluginCatalog = pluginCatalog
+        self.pluginUIIconResources = pluginUIIconResources
         self.languageProviderCatalogSource = languageProviderCatalogSource
         self.workspaceLanguageServerPreferences = workspaceLanguageServerPreferences
         let resolvedCatalogSnapshot = languageProviderCatalogSnapshot

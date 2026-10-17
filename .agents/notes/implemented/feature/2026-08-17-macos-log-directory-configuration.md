@@ -15,8 +15,10 @@
 
 ## 决策
 
-默认日志目录由 macOS 平台适配器通过系统用户 Library 目录解析为
-`~/Library/Logs/Lithe`，设置页面展示解析后的真实绝对路径，不嵌入开发机
+正式版的默认日志目录由 macOS 平台适配器通过系统用户 Library 目录解析为
+`~/Library/Logs/Lithe`；独立开发版使用
+`~/Library/Logs/app.lithe.desktop.dev/Lithe`，不继承正式版的自定义目录偏好。
+用户显式选择相同目录仍允许共享。设置页面展示解析后的真实绝对路径，不嵌入开发机
 路径。`LogDirectoryProviding` 统一提供目录和 `lithe.log` 文件路径，其他
 服务不重复拼接日志文件名。
 

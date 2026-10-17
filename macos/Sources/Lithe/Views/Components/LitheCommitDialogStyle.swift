@@ -18,7 +18,6 @@ enum LitheCommitDialogStyle {
 
 struct LitheCommitDialogInputStyle: ViewModifier {
     let focused: Bool
-    @Environment(\.isEnabled) private var enabled
 
     func body(content: Content) -> some View {
         content
@@ -26,10 +25,7 @@ struct LitheCommitDialogInputStyle: ViewModifier {
             .font(LitheTheme.uiFont(size: 13))
             .padding(.horizontal, 8)
             .frame(height: 28, alignment: .center)
-            .onContinuousHover { phase in
-                if case .active = phase, enabled { NSCursor.iBeam.set() }
-                else { NSCursor.arrow.set() }
-            }
+            .litheTextEditingCursor()
             .background(LitheCommitDialogStyle.editorBackground)
             .overlay {
                 Rectangle().strokeBorder(focused ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder,
@@ -60,5 +56,28 @@ struct LitheCommitDialogButtonStyle: ButtonStyle {
             }
             .opacity(enabled ? 1 : 0.5)
             .onHover { hovering = $0 }
+    }
+}
+
+/// IDEA DarculaButtonUI/Painter: 28pt visible control, 3pt border insets,
+/// 14pt label padding, 72pt minimum width, and regular UI font on macOS.
+struct LitheActionButtonStyle: ButtonStyle {
+    var isPrimary = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: LitheTheme.Commit.controlCornerRadius)
+        configuration.label
+            .font(LitheTheme.uiFont(size: 13, weight: .regular))
+            .foregroundStyle(isEnabled ? (isPrimary ? Color.white : LitheTheme.searchFieldText) : LitheTheme.Commit.disabledText)
+            .padding(.horizontal, LitheTheme.Commit.buttonHorizontalPadding)
+            .frame(minWidth: LitheTheme.Commit.buttonMinimumWidth, minHeight: LitheTheme.Commit.buttonHeight)
+            .background(shape.fill(isPrimary && isEnabled ? LitheTheme.searchFieldFocusBorder
+                                                          : isEnabled ? LitheTheme.Commit.buttonBackground(for: colorScheme) : .clear))
+            .overlay(shape.strokeBorder(isEnabled ? (isPrimary ? LitheTheme.searchFieldFocusBorder : LitheTheme.searchFieldBorder)
+                                                  : LitheTheme.Commit.disabledBorder, lineWidth: 1))
+            .padding(LitheTheme.Commit.buttonBorderInset)
+            .contentShape(Rectangle())
     }
 }

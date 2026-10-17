@@ -9,6 +9,452 @@ import Testing
 @MainActor
 struct AgentConversationFeatureModelTests {
     @Test
+    func delayedAutoFallbackNoticeAfterSelectingPlanDoesNotPolluteTheReply() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            feature.setConfigOption("mode", value: "plan")
+            var planOptions = options
+            planOptions[1]["currentValue"] = "plan"
+            try feature.receive(event("sessionConfigured", ["token": connection.commands.last?["token"] as Any,
+                                                            "configOptions": planOptions]))
+            try feature.send("Make a plan")
+            let turn = feature.selectedConversation?.activeTurn
+            let commands = connection.commands.count
+            // Claude defers the startup fallback warning until the first prompt.
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.messages.map(\.text) == ["Make a plan"])
+            #expect(feature.selectedConversation?.configOptions[1].currentValue == "plan")
+            #expect(feature.selectedConversation?.isResponding == true)
+            #expect(feature.selectedConversation?.activeTurn == turn)
+            #expect(feature.selectedConversation?.errorMessage == nil)
+            #expect(connection.commands.count == commands)
+            try feature.receive(event("agentMessageChunk"))
+            try feature.receive(event("turnFinished"))
+            #expect(feature.selectedConversation?.messages.last?.text == "This project **builds** an IDE.")
+        }
+    }
+
+    @Test
+    func fallbackNoticeSurvivesPendingAndFailedModeChangesThenClearsOnConfirmation() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.receive(event("claudeAutoModeNotice"))
+            let notice = try #require(feature.selectedConversation?.notice)
+            #expect(notice.severity == .warning)
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            feature.setConfigOption("mode", value: "plan")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("sessionConfigured", ["token": "stale", "configOptions": []]))
+            #expect(feature.selectedConversation?.notice == notice)
+            try feature.receive(event("requestFailed", ["token": token, "message": "Mode rejected"]))
+            #expect(feature.selectedConversation?.notice == notice)
+            feature.setConfigOption("mode", value: "plan")
+            var confirmed = options
+            confirmed[1]["currentValue"] = "plan"
+            try feature.receive(event("sessionConfigured", ["token": connection.commands.last?["token"] as Any,
+                                                            "configOptions": confirmed]))
+            #expect(feature.selectedConversation?.notice == nil)
+        }
+    }
+
+    @Test
+    func aNewFallbackWarningBeforeTheConfigResultUsesTheConfirmedMode() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "plan"]]))
+            feature.setConfigOption("mode", value: "auto")
+            let token = try #require(connection.commands.last?["token"])
+            // Selecting unsupported Auto emits a notice before confirming Accept edits.
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("sessionConfigured", ["token": "stale", "configOptions": options]))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("sessionConfigured", ["token": token, "configOptions": options]))
+            #expect(feature.selectedConversation?.notice?.isClaudeAutoModeFallback == true)
+            #expect(feature.selectedConversation?.pendingModeNotice == nil)
+            #expect(feature.selectedConversation?.configOptions[1].currentValue == "acceptEdits")
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+        }
+    }
+
+    @Test(arguments: [true, false])
+    func newerErrorSupersedesPendingFallbackAcrossConfigurationResult(configurationSucceeds: Bool) async throws {
+        try await withNoticeFeature { feature, connection, options in
+            feature.setConfigOption("mode", value: "auto")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "notice", "severity": "error", "title": "Tool connection failed"]]))
+            let error = try #require(feature.selectedConversation?.notice)
+            #expect(error.severity == .error)
+            if configurationSucceeds {
+                try feature.receive(event("sessionConfigured", ["token": token, "configOptions": options]))
+            } else {
+                try feature.receive(event("requestFailed", ["token": token, "message": "Mode rejected"]))
+            }
+            #expect(feature.selectedConversation?.notice == error, "Replaying an older fallback must not overwrite the newer error")
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            #expect(feature.selectedConversation?.pendingConfigToken == nil)
+        }
+    }
+
+    @Test(arguments: [true, false])
+    func newerPendingFallbackSupersedesErrorAfterConfigurationResult(configurationSucceeds: Bool) async throws {
+        try await withNoticeFeature { feature, connection, options in
+            feature.setConfigOption("mode", value: "auto")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "notice", "severity": "error", "title": "Tool connection failed"]]))
+            let error = try #require(feature.selectedConversation?.notice)
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == error, "The fallback still waits for the confirmed mode")
+            if configurationSucceeds {
+                try feature.receive(event("sessionConfigured", ["token": token, "configOptions": options]))
+            } else {
+                try feature.receive(event("requestFailed", ["token": token, "message": "Mode rejected"]))
+            }
+            #expect(feature.selectedConversation?.notice?.isClaudeAutoModeFallback == true)
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            #expect(feature.selectedConversation?.pendingConfigToken == nil)
+        }
+    }
+
+    @Test
+    func invalidAndOtherSessionNoticesDoNotSupersedePendingFallback() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            feature.setConfigOption("mode", value: "auto")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("claudeAutoModeNotice"))
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "notice", "severity": "unknown", "title": "Invalid notice"]]))
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "notice", "severity": "error", "title": " \n"]]))
+            try feature.receive(event("claudeAutoModeNotice", ["sessionId": "session-2", "update": ["sessionUpdate": "notice", "severity": "error", "title": "Other session error"]]))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("sessionConfigured", ["token": token, "configOptions": options]))
+            #expect(feature.selectedConversation?.notice?.isClaudeAutoModeFallback == true)
+            #expect(feature.conversations["session-2"]?.notice?.title == "Other session error")
+        }
+    }
+
+    @Test
+    func modelSwitchFallbackSurvivesItsFollowingConfigUpdateAndRejectedModeDoesNotShowIt() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "auto"]]))
+            feature.setConfigOption("model", value: "another-model")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "acceptEdits"]]))
+            try feature.receive(event("claudeAutoModeNotice"))
+            var changed = options
+            changed[0]["currentValue"] = "another-model"
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "config_option_update", "configOptions": changed]]))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("sessionConfigured", ["token": token, "configOptions": changed]))
+            #expect(feature.selectedConversation?.notice?.isClaudeAutoModeFallback == true)
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "plan"]]))
+            feature.setConfigOption("mode", value: "auto")
+            try feature.receive(event("claudeAutoModeNotice"))
+            try feature.receive(event("requestFailed", ["token": connection.commands.last?["token"] as Any, "message": "Mode rejected"]))
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.pendingModeNotice == nil)
+            #expect(feature.selectedConversation?.configurationError == "Mode rejected")
+        }
+    }
+
+    @Test
+    func nativeModelSwitchKeepsItsNewFallbackNoticeWithoutALocalConfigRequest() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "auto"]]))
+            let commands = connection.commands.count
+            #expect(feature.selectedConversation?.pendingConfigToken == nil)
+            // Native /model sends the downgrade and its warning before the full catalog.
+            // No local selector request exists to buffer this warning.
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "acceptEdits"]]))
+            try feature.receive(event("claudeAutoModeNotice"))
+            let notice = try #require(feature.selectedConversation?.notice)
+            var changedModel = options
+            changedModel[0]["currentValue"] = "another-model"
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "config_option_update", "configOptions": changedModel]]))
+            #expect(feature.selectedConversation?.notice == notice, "The new model's downgrade reason must survive its configuration snapshot")
+            #expect(feature.selectedConversation?.configOptions[0].currentValue == "another-model")
+            #expect(feature.selectedConversation?.configOptions[1].currentValue == "acceptEdits")
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            #expect(connection.commands.count == commands)
+
+            // The transition applies to one snapshot; a later model switch clears
+            // the warning that now belongs to the previous model.
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "config_option_update", "configOptions": changedModel]]))
+            #expect(feature.selectedConversation?.notice == notice)
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "config_option_update", "configOptions": options]]))
+            #expect(feature.selectedConversation?.notice == nil)
+        }
+    }
+
+    @Test
+    func nativeFallbackTransitionStaysWithItsSessionAndEndsAtTheNextPrompt() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.send("First session")
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "auto"]]))
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "acceptEdits"]]))
+            try feature.receive(event("claudeAutoModeNotice"))
+            let firstNotice = try #require(feature.selectedConversation?.notice)
+            feature.startNewConversation()
+            try feature.send("Second session")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                                                        "sessionId": "session-2", "configOptions": options]))
+            var changedModel = options
+            changedModel[0]["currentValue"] = "another-model"
+            try feature.receive(event("claudeAutoModeNotice", ["sessionId": "session-2", "update": ["sessionUpdate": "config_option_update", "configOptions": changedModel]]))
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "config_option_update", "configOptions": changedModel]]))
+            #expect(feature.conversations["session-1"]?.notice == firstNotice)
+            #expect(feature.selectedConversation?.notice == nil)
+            feature.selectSession("session-1")
+            try feature.receive(event("turnFinished"))
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "auto"]]))
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "acceptEdits"]]))
+            // An incomplete old transition must not bless a new turn's warning.
+            try feature.send("Next turn")
+            try feature.receive(event("claudeAutoModeNotice"))
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "config_option_update", "configOptions": options]]))
+            #expect(feature.selectedConversation?.notice == nil)
+        }
+    }
+
+    @Test
+    func upstreamModeAndModelChangesClearOnlyTheObsoleteFallbackNotice() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.receive(event("claudeAutoModeNotice"))
+            let commands = connection.commands.count
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "unknown"]]))
+            #expect(feature.selectedConversation?.notice != nil)
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "plan"]]))
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(connection.commands.count == commands)
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "acceptEdits"]]))
+            try feature.receive(event("claudeAutoModeNotice"))
+            var changedModel = options
+            changedModel[0]["currentValue"] = "another-model"
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "config_option_update", "configOptions": changedModel]]))
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("claudeAutoModeNotice", ["update": ["sessionUpdate": "notice", "severity": "error", "title": "Tool connection failed"]]))
+            try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update", "currentModeId": "plan"]]))
+            #expect(feature.selectedConversation?.notice?.title == "Tool connection failed")
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice?.title == "Tool connection failed", "An obsolete advisory must not replace an unrelated error")
+        }
+    }
+
+    @Test
+    func noticeBeforeSessionAcknowledgementIsReconciledWithConfirmedMode() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            // Another session's updates can precede its creation response.
+            feature.startNewConversation()
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("claudeAutoModeNotice", ["sessionId": "session-2"]))
+            var plan = options
+            plan[1]["currentValue"] = "plan"
+            try feature.receive(event("sessionCreated", ["token": token, "sessionId": "session-2", "configOptions": plan]))
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+        }
+    }
+
+    @Test
+    func historyCompletionKeepsReplayedUsageWhileReconcilingModeNotice() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            feature.selectSession("history-session")
+            let token = try #require(connection.commands.last?["token"])
+            // Replay precedes the final catalog: the confirmed Plan mode must
+            // clear the obsolete advisory without dropping actual context usage.
+            try feature.receive(event("claudeAutoModeNotice", ["sessionId": "history-session"]))
+            #expect(feature.selectedConversation?.notice != nil)
+            try feature.receive(event("usageUpdate", ["sessionId": "history-session", "update": [
+                "sessionUpdate": "usage_update", "used": 125300, "size": 300000,
+                "_meta": ["lithe": ["contextUsageSource": "history"]]]]))
+            var plan = options
+            plan[1]["currentValue"] = "plan"
+            try feature.receive(event("sessionLoaded", ["token": token, "sessionId": "history-session", "configOptions": plan]))
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 125300)
+            #expect(feature.selectedConversation?.contextUsageIsHistorical == true)
+            #expect(feature.selectedConversation?.isAttached == true)
+            #expect(feature.selectedConversation?.configOptions[1].currentValue == "plan")
+        }
+    }
+
+    @Test
+    func noticesAreSessionLocalDismissibleAndClearedByNextPromptAndDisconnect() async throws {
+        try await withNoticeFeature { feature, connection, options in
+            try feature.send("First task")
+            try feature.receive(event("turnFinished"))
+            feature.startNewConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                                                        "sessionId": "session-2", "configOptions": options]))
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == nil)
+            feature.selectSession("session-1")
+            let first = try #require(feature.selectedConversation?.notice)
+            feature.dismissNotice("stale", in: "session-1")
+            #expect(feature.selectedConversation?.notice == first)
+            feature.dismissNotice(first.id, in: "session-1")
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("claudeAutoModeNotice"))
+            try feature.send("Continue")
+            #expect(feature.selectedConversation?.notice == nil)
+            try feature.receive(event("claudeAutoModeNotice"))
+            let messages = feature.selectedConversation?.messages
+            await feature.stop()
+            #expect(feature.selectedConversation?.notice == nil)
+            #expect(feature.selectedConversation?.messages == messages)
+            try feature.receive(event("claudeAutoModeNotice"))
+            #expect(feature.selectedConversation?.notice == nil)
+        }
+    }
+
+    @Test
+    func noticeParsingIsBoundedAndNeverClassifiesAssistantText() async throws {
+        #expect(AgentSessionNotice.parse(["severity": "unknown", "title": "Warning"]) == nil)
+        #expect(AgentSessionNotice.parse(["severity": "warning", "title": " \n"]) == nil)
+        let bounded = try #require(AgentSessionNotice.parse(["severity": "info", "title": String(repeating: "x", count: 1000),
+                                                           "description": String(repeating: "y", count: 10000)]))
+        #expect(bounded.title.count == 256)
+        #expect(bounded.detail?.count == 4096)
+        try await withNoticeFeature { feature, _, _ in
+            let text = "**Auto mode unavailable:** the selected model does not support Auto mode; using Accept edits instead."
+            try feature.receive(event("agentMessageChunk", ["update": ["sessionUpdate": "agent_message_chunk", "content": ["type": "text", "text": text]]]))
+            try feature.receive(event("turnFinished"))
+            #expect(feature.selectedConversation?.messages.last?.text == text)
+            #expect(feature.selectedConversation?.notice == nil)
+        }
+    }
+
+    private func withNoticeFeature(_ run: @MainActor (AgentConnectionModel, TestAgentConnection, [[String: Any]]) async throws -> Void) async throws {
+        let transport = TestAgentTransport()
+        let feature = AgentConnectionModel(transport: transport)
+        let launch = AgentLaunchConfiguration(agentID: "claude-acp", command: "", arguments: [],
+            workspaceURL: configuration.workspaceURL, dataDirectory: configuration.dataDirectory,
+            providerProtocol: "anthropicMessages", providerEndpoint: "https://gateway.example.com/v1",
+            apiKey: "test-key", providerName: "Example", model: "", allowsInsecureHTTP: false)
+        do {
+            try feature.connect(configuration: launch)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            let connection = transport.connections[0]
+            let fixture = try #require(JSONSerialization.jsonObject(with: Data(event("sessionConfigured").utf8)) as? [String: Any])
+            var options = try #require(fixture["configOptions"] as? [[String: Any]])
+            options[0]["options"] = [["value": "example-model", "name": "Example Model"], ["value": "another-model", "name": "Another Model"]]
+            options[1]["currentValue"] = "acceptEdits"
+            options[1]["options"] = [["value": "acceptEdits", "name": "Accept edits"], ["value": "plan", "name": "Plan"], ["value": "auto", "name": "Auto"]]
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any, "configOptions": options]))
+            try await run(feature, connection, options)
+        } catch { await feature.stop(); throw error }
+        await feature.stop()
+    }
+
+    @Test
+    func steeringSendsDuringResponseAndAcknowledgesWithoutStartingAnotherTurn() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.receive(event("ready", ["canSteer": true]))
+            try feature.send("Inspect everything")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            let turn = feature.selectedConversation?.activeTurn
+            try feature.receive(event("agentMessageChunk"))
+            try feature.send("Focus on login")
+            #expect(connection.commands.last?["kind"] as? String == "steer")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            #expect(feature.selectedConversation?.messages.last?.delivery == .sending)
+            #expect(feature.selectedConversation?.activeTurn == turn)
+            #expect(throws: AgentConversationError.sessionBusy) { try feature.send("Duplicate") }
+            // An upstream live echo must not append the already visible input.
+            let count = feature.selectedConversation?.messages.count
+            try feature.receive(event("userMessageChunk"))
+            #expect(feature.selectedConversation?.messages.count == count)
+            try feature.receive(event("steeringResult", ["token": token]))
+            #expect(feature.selectedConversation?.messages.last?.delivery == .received)
+            #expect(feature.selectedConversation?.isResponding == true)
+            #expect(feature.selectedConversation?.pendingSteeringToken == nil)
+            #expect(feature.selectedConversation?.activeTurn == turn)
+            feature.cancel()
+            #expect(connection.commands.last?["kind"] as? String == "cancel")
+        }
+    }
+
+    @Test
+    func steeringFailureAndDisconnectPreserveInputAndTheOriginalTurn() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.receive(event("ready", ["canSteer": true]))
+            try feature.send("Inspect")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Supplement")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            try feature.receive(event("steeringResult", ["token": token, "outcome": "failed", "message": "Rejected"]))
+            #expect(feature.selectedConversation?.messages.last?.delivery == .failed("Rejected"))
+            #expect(feature.selectedConversation?.isResponding == true)
+            try feature.send("Another supplement")
+            let lateToken = try #require(connection.commands.last?["token"] as? String)
+            await feature.stop()
+            #expect(feature.canSteer == false)
+            #expect(feature.selectedConversation?.pendingSteeringToken == nil)
+            #expect(feature.selectedConversation?.messages.last?.text == "Another supplement")
+            try feature.receive(event("steeringResult", ["token": lateToken]))
+            #expect(feature.selectedConversation?.messages.last?.delivery != .received)
+        }
+    }
+
+    @Test
+    func steeringCompletionRaceResendsOnlyAnExplicitlyUnconsumedMessageOnce() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.receive(event("ready", ["canSteer": true]))
+            try feature.send("Inspect")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Supplement")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            let messageID = feature.selectedConversation?.messages.last?.id
+            let count = connection.commands.count
+            try feature.receive(event("steeringResult", ["token": token, "outcome": "promptRequired"]))
+            #expect(connection.commands.count == count)
+            try feature.receive(event("turnFinished"))
+            #expect(connection.commands.last?["kind"] as? String == "prompt")
+            #expect(connection.commands.last?["text"] as? String == "Supplement")
+            #expect(feature.selectedConversation?.activeTurn?.id == messageID)
+            #expect(feature.selectedConversation?.messages.filter { $0.text == "Supplement" }.count == 1)
+            try feature.receive(event("steeringResult", ["token": token, "outcome": "promptRequired"]))
+            #expect(connection.commands.count == count + 1)
+        }
+    }
+
+    @Test
+    func steeringStopPreventsAnUnconsumedSupplementFromStartingANewTurn() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.receive(event("ready", ["canSteer": true]))
+            try feature.send("Inspect")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Supplement")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            feature.cancel()
+            let count = connection.commands.count
+            try feature.receive(event("turnFinished", ["stopReason": "cancelled"]))
+            try feature.receive(event("steeringResult", ["token": token, "outcome": "promptRequired"]))
+            #expect(connection.commands.count == count)
+            #expect(feature.selectedConversation?.isResponding == false)
+            #expect(feature.selectedConversation?.messages.last?.delivery != .received)
+        }
+    }
+
+    @Test
+    func steeringStopAlsoRevokesAnAlreadyAcknowledgedFallback() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.receive(event("ready", ["canSteer": true]))
+            try feature.send("Inspect")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Supplement")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            try feature.receive(event("steeringResult", ["token": token, "outcome": "promptRequired"]))
+            feature.cancel()
+            let count = connection.commands.count
+            try feature.receive(event("turnFinished", ["stopReason": "cancelled"]))
+            #expect(connection.commands.count == count)
+            #expect(feature.selectedConversation?.isResponding == false)
+            #expect(feature.selectedConversation?.messages.last?.delivery != .received)
+        }
+    }
+
+    @Test
     func quietNoticeKeepsTheTurnBusyAndContinueWaitingDoesNotReplayIt() async throws {
         try await withStatisticsFeature { feature, connection, clock in
             try feature.send("Build the project")
@@ -616,6 +1062,8 @@ struct AgentConversationFeatureModelTests {
             #expect(feature.selectedConversation?.contextUsage == nil)
             feature.prepareConversation()
             try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Keep this session")
+            try feature.receive(event("turnFinished"))
             try feature.receive(event("usageUpdate"))
             #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
             #expect(feature.selectedConversation?.contextUsage?.capacityTokens == 258400)
@@ -630,7 +1078,7 @@ struct AgentConversationFeatureModelTests {
             try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 1000, "size": 258400]]))
             #expect(feature.selectedConversation?.contextUsage?.usedTokens == 1000)
             #expect(feature.conversations["session-2"]?.contextUsage?.usedTokens == 90000)
-            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            #expect(feature.selectedConversation?.messages.map(\.role) == [.user], "Usage updates do not append transcript messages")
             feature.closeConversation("session-1")
             #expect(feature.conversations["session-1"] == nil)
         }
@@ -697,6 +1145,102 @@ struct AgentConversationFeatureModelTests {
         do { try operation(feature, connection) }
         catch { await feature.stop(); throw error }
         await feature.stop()
+    }
+
+    @Test(arguments: ["matching", "different-model", "unknown-model", "live-zero", "invalid-report", "native-history"])
+    func historyContextRestoresOnlyMatchingReportsAndPrefersReplay(scenario: String) async throws {
+        let persistence = InMemoryStatisticsPersistence()
+        func store() -> AgentSessionStatisticsStore {
+            AgentSessionStatisticsStore(persistence: persistence, agentID: "codex",
+                workspaceURL: { URL(fileURLWithPath: "/tmp/lithe-context-workspace") })
+        }
+        func options(_ model: String) -> [[String: Any]] {
+            [["id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": model,
+              "options": [["value": "a", "name": "A"], ["value": "b", "name": "B"]]]]
+        }
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.statisticsStore = store()
+            try feature.send("Keep this report")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                "configOptions": options("a")]))
+            try feature.receive(event("usageUpdate"))
+            #expect(persistence.saves == 0, "Streaming usage does not write on every notification")
+            try feature.receive(event("turnFinished"))
+            await feature.stop()
+            await feature.stop()
+        }
+        #expect(store().record(for: "session-1")?.contextUsage?.usedTokens == 18700)
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.statisticsStore = store()
+            feature.selectSession("session-1")
+            let token = try #require(connection.commands.last?["token"])
+            #expect(feature.selectedConversation?.contextUsage == nil, "Unconfirmed history has no live capacity")
+            if scenario == "live-zero" || scenario == "invalid-report" {
+                try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 0,
+                    "size": scenario == "live-zero" ? 100000 : 0]]))
+            }
+            if scenario == "native-history" {
+                try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 125300,
+                    "size": 300000, "_meta": ["lithe": ["contextUsageSource": "history"]]]]))
+            }
+            let loadedOptions = scenario == "unknown-model" ? [] : options(scenario == "different-model" ? "b" : "a")
+            try feature.receive(event("sessionLoaded", ["token": token, "configOptions": loadedOptions]))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens ==
+                (scenario == "matching" ? 18700 : scenario == "live-zero" ? 0 : scenario == "native-history" ? 125300 : nil))
+            #expect(feature.selectedConversation?.contextUsageIsHistorical == (scenario == "matching" || scenario == "native-history"))
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 1000, "size": 100000]]))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 1000, "Compaction replaces the snapshot")
+            #expect(feature.selectedConversation?.contextUsageIsHistorical == false)
+            #expect(store().record(for: "session-1")?.contextUsage?.usedTokens == 1000, "Idle reports after turn completion are saved")
+            feature.selectSession("session-2")
+            try feature.receive(event("sessionLoaded", ["sessionId": "session-2", "token": connection.commands.last?["token"] as Any,
+                "configOptions": options("a")]))
+            #expect(feature.selectedConversation?.contextUsage == nil, "Snapshots are scoped to the session")
+        }
+    }
+
+    @Test
+    func modelChangesInvalidatePersistedContextWithoutSavingPartialCalls() async throws {
+        let persistence = InMemoryStatisticsPersistence()
+        let store = AgentSessionStatisticsStore(persistence: persistence, agentID: "codex",
+            workspaceURL: { URL(fileURLWithPath: "/tmp/lithe-context-workspace") })
+        func options(_ model: String) -> [[String: Any]] {
+            [["id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": model,
+              "options": [["value": "a", "name": "A"], ["value": "b", "name": "B"]]]]
+        }
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.statisticsStore = store
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                "configOptions": options("a")]))
+            try feature.receive(event("usageUpdate"))
+            #expect(store.record(for: "session-1")?.contextUsage != nil, "A usage-only record is retained")
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "config_option_update", "configOptions": options("b")]]))
+            #expect(store.record(for: "session-1") == nil, "An invalidated usage-only record is removed")
+            try feature.send("First")
+            try feature.receive(event("usageUpdate"))
+            try feature.receive(event("turnFinished"))
+            try feature.send("Second")
+            try feature.receive(event("modelCall"))
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "config_option_update", "configOptions": options("a")]]))
+            #expect(store.record(for: "session-1")?.contextUsage == nil)
+            #expect(store.record(for: "session-1")?.turnCount == 1)
+            #expect(store.record(for: "session-1")?.modelCalls.callCount == 0)
+        }
+    }
+
+    @Test
+    func storedContextValidatesCapacityAndOldStatisticsRemainReadable() throws {
+        let encoder = JSONEncoder()
+        let old = AgentSessionStatisticsRecord(turnCount: 2)
+        let data = try encoder.encode(old)
+        let decoded = try JSONDecoder().decode(AgentSessionStatisticsRecord.self, from: data)
+        #expect(decoded.turnCount == 2 && decoded.contextUsage == nil)
+        let zero = try #require(AgentContextUsage(usedTokens: 0, capacityTokens: 100))
+        #expect(try JSONDecoder().decode(AgentContextUsage.self, from: encoder.encode(zero)) == zero)
+        for payload in ["{\"usedTokens\":0,\"capacityTokens\":0}", "{\"usedTokens\":-1,\"capacityTokens\":100}"] {
+            #expect(throws: (any Error).self) { try JSONDecoder().decode(AgentContextUsage.self, from: Data(payload.utf8)) }
+        }
     }
 
     @Test
@@ -1097,6 +1641,9 @@ struct AgentConversationFeatureModelTests {
                 try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any,
                     "sessionId": id]))
             }
+            #expect(feature.conversations["empty-1"] == nil, "New Chat immediately drops the preceding unprompted session")
+            #expect(!feature.sessions.contains { $0.id == "empty-1" })
+            #expect(feature.openSessionIDs == ["session-2", "empty-2"])
             await feature.stop()
             #expect(feature.selectedSessionID == nil)
             #expect(feature.openSessionIDs == ["session-2"])
@@ -1684,6 +2231,86 @@ struct AgentConversationFeatureModelTests {
         #expect(included.cacheHitRate == 0.8)
     }
 
+    @Test
+    func reloadedSessionsContinueTheirPersistedStatisticsWithoutCountingTwice() async throws {
+        let persistence = InMemoryStatisticsPersistence()
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-statistics-workspace")
+        func store() -> AgentSessionStatisticsStore {
+            AgentSessionStatisticsStore(persistence: persistence, agentID: "codex", workspaceURL: { workspace },
+                                        currentDate: { Date(timeIntervalSince1970: 1_792_053_000) })
+        }
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.statisticsStore = store()
+            try feature.send("First")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("toolCall"))
+            try feature.receive(event("modelCall"))
+            try feature.receive(event("turnFinished"))
+        }
+        #expect(persistence.saves == 1)
+        // A new connection, as after relaunching, starts from the saved totals.
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.statisticsStore = store()
+            feature.selectSession("session-1")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("userMessageChunk"))
+            try feature.receive(event("agentMessageChunk"))
+            try feature.receive(event("sessionLoaded", ["token": token]))
+            let loaded = try #require(feature.selectedConversation?.sessionStatistics)
+            #expect(loaded.turnCount == 1)
+            #expect(loaded.toolCallCount == 1)
+            #expect(loaded.modelCalls?.callCount == 1)
+            #expect(loaded.modelCalls?.averageFirstToken == 0.82)
+            #expect(loaded.tokens?.source == .modelCalls)
+            #expect(feature.selectedConversation?.completedTurns.isEmpty == true)
+
+            try feature.send("Second")
+            #expect(feature.selectedConversation?.sessionStatistics.turnCount == 2)
+            try feature.receive(event("modelCall"))
+            try feature.receive(event("turnFinished"))
+            let continued = try #require(feature.selectedConversation?.sessionStatistics)
+            #expect(continued.turnCount == 2)
+            #expect(continued.modelCalls?.callCount == 2)
+            #expect(continued.tokens?.outputTokens == 1280)
+        }
+        // Disconnecting re-saves nothing new, and the record holds each turn once.
+        #expect(persistence.saves == 2)
+        let saved = try #require(store().record(for: "session-1"))
+        #expect(saved.turnCount == 2)
+        #expect(saved.toolCallCount == 1)
+        #expect(saved.modelCalls.callCount == 2)
+    }
+
+    @Test
+    func unreadableStatisticsStartFromZeroAndTheStoreKeepsTheNewestSessions() throws {
+        let persistence = InMemoryStatisticsPersistence()
+        persistence.data = Data("not json".utf8)
+        var date = Date(timeIntervalSince1970: 1_792_053_000)
+        let store = AgentSessionStatisticsStore(persistence: persistence, agentID: "codex",
+                                                workspaceURL: { URL(fileURLWithPath: "/tmp/lithe-statistics-workspace") },
+                                                currentDate: { date })
+        #expect(store.record(for: "session-0") == nil)
+        var conversation = AgentConversation()
+        store.save(conversation, sessionID: "empty")
+        #expect(persistence.saves == 0, "Sessions without turns or calls are not stored")
+        conversation.statisticsBaseline = AgentSessionStatisticsRecord(turnCount: 1)
+        for index in 0...AgentSessionStatisticsStore.maximumSessions {
+            date += 1
+            store.save(conversation, sessionID: "session-\(index)")
+        }
+        let reopened = AgentSessionStatisticsStore(persistence: persistence, agentID: "codex",
+                                                   workspaceURL: { URL(fileURLWithPath: "/tmp/lithe-statistics-workspace") })
+        #expect(reopened.record(for: "session-0") == nil)
+        #expect(reopened.record(for: "session-1")?.turnCount == 1)
+        #expect(reopened.record(for: "session-\(AgentSessionStatisticsStore.maximumSessions)") != nil)
+        // Without a bound workspace nothing is read or written.
+        let unbound = AgentSessionStatisticsStore(persistence: persistence, agentID: "codex", workspaceURL: { nil })
+        let saves = persistence.saves
+        unbound.save(conversation, sessionID: "session-x")
+        #expect(unbound.record(for: "session-1") == nil)
+        #expect(persistence.saves == saves)
+    }
+
     private func event(_ name: String, _ overrides: [String: Any] = [:]) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -1730,4 +2357,16 @@ private final class TestAgentConnection: AgentConnection {
     }
 
     func close() async { closeCount += 1 }
+}
+
+@MainActor
+private final class InMemoryStatisticsPersistence: AgentSessionStatisticsPersisting {
+    var data: Data?
+    private(set) var saves = 0
+
+    func loadStatistics(workspaceURL: URL, agentID: String) -> Data? { data }
+    func saveStatistics(_ data: Data, workspaceURL: URL, agentID: String) {
+        self.data = data
+        saves += 1
+    }
 }

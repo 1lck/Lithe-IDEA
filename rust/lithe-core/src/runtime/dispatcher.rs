@@ -164,6 +164,16 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::test_plan_command,
         ),
+        CoreCommand::PluginsDeclarativeLanguageServerLaunchPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::language_server_launch_plan_command,
+        ),
+        CoreCommand::PluginsDeclarativeCheckRuntimeVersion => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::check_runtime_version_command,
+        ),
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
             parsed.payload,
@@ -632,6 +642,62 @@ fn execute(request: &str) -> CoreResponse {
                     serde_json::to_value(data).expect("Java launch-command plan should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::ProcessLifecycleResolve => {
+            match serde_json::from_value::<crate::process::lifecycle::LifecycleRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::process::lifecycle::resolve(&request))
+                        .expect("process lifecycle plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid process lifecycle request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::ProcessLifecycleInventory => {
+            match serde_json::from_value::<crate::process::inventory::InventoryRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::process::inventory::classify(&request))
+                        .expect("process inventory should encode"),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid process inventory request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::ProcessLifecycleSettle => {
+            match serde_json::from_value::<crate::process::lifecycle::SettleRequest>(parsed.payload)
+            {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::process::lifecycle::settle(&request))
+                        .expect("process lifecycle settlement should encode"),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid process lifecycle settlement request",
+                    )
+                    .with_details(error.to_string()),
+                ),
             }
         }
         CoreCommand::MavenDependencyPlan => {

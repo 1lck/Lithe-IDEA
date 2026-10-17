@@ -44,20 +44,16 @@ private struct GitPatchDialog: View {
             if !editor.files.isEmpty { fileList }
             if !editor.patchText.isEmpty { rawPreview }
             if let check = editor.applyPreview {
-                Label(LocalizedStringKey(check.applicable ? "Patch can be applied to the selected destination." : "Patch cannot be applied."),
-                      systemImage: check.applicable ? "checkmark.circle" : "exclamationmark.triangle")
-                    .font(LitheTheme.uiFont(size: 12))
-                    .foregroundStyle(check.applicable ? LitheTheme.accent : LitheTheme.warning)
-                if !check.diagnostic.isEmpty {
-                    Text(LocalizedStringKey(check.diagnostic)).font(LitheTheme.uiFont(size: 11)).textSelection(.enabled)
-                        .foregroundStyle(LitheTheme.secondaryText)
+                LitheBanner(status: check.applicable ? .success : .warning) {
+                    Text(LocalizedStringKey(check.applicable ? "Patch can be applied to the selected destination." : "Patch cannot be applied."))
+                    if !check.diagnostic.isEmpty { Text(LocalizedStringKey(check.diagnostic)).textSelection(.enabled) }
                 }
             }
             if let message = editor.errorMessage {
-                Text(LocalizedStringKey(message)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
+                LitheBanner(status: .error) { Text(LocalizedStringKey(message)).textSelection(.enabled) }
             }
             if let notice = editor.notice {
-                Text(LocalizedStringKey(notice)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.accent).textSelection(.enabled)
+                LitheBanner(status: .info) { Text(LocalizedStringKey(notice)).textSelection(.enabled) }
             }
             footer
         }

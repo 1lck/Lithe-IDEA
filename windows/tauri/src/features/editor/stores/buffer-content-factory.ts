@@ -71,14 +71,6 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         history: spec.history,
         historyIndex: spec.historyIndex,
       };
-    case "newTab":
-      return {
-        ...base,
-        type: "newTab",
-        path: `newtab://${id}`,
-        name: "New Tab",
-        isPreview: false,
-      };
     case "diff":
       return {
         ...base,

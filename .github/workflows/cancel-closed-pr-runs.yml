@@ -1,0 +1,37 @@
+# Registered by the standalone preview repository.
+# A pull request merged or closed while its CI is still running keeps those
+# runs going to completion, including admin merges that skip the checks. They
+# can no longer affect anything, so stop them. Post-merge push runs are not
+# touched: they verify the merged result.
+name: Cancel CI of closed pull requests
+
+on:
+  # pull_request_target receives a write token for fork pull requests as well.
+  # This workflow checks out no code and reads only the event's head SHA.
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  actions: write
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Cancel runs still active for the closed pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          for status in queued in_progress waiting pending requested; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&status=$status&per_page=100" \
+              --jq '.workflow_runs[] | select(.event == "pull_request") | .id'
+          done | sort -u | while read -r run; do
+            if gh run cancel "$run" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+              echo "Cancelled run $run"
+            else
+              echo "Run $run finished before it could be cancelled"
+            fi
+          done

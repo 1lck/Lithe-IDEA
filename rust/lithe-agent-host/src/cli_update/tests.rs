@@ -61,6 +61,193 @@ fn claude() -> &'static AgentCli {
 }
 
 #[test]
+fn update_probe_accepts_homebrew_outdated_exit_but_not_other_failures() {
+    let fixture = Fixture::new();
+    for (source, output, exit, expected) in [
+        (
+            CliSource::Homebrew,
+            r#"{"casks":[{"name":"codex"}],"formulae":[]}"#,
+            1,
+            Some(true),
+        ),
+        (
+            CliSource::Homebrew,
+            r#"{"casks":[],"formulae":[]}"#,
+            0,
+            Some(false),
+        ),
+        (
+            CliSource::Homebrew,
+            r#"{"casks":[],"formulae":[]}"#,
+            1,
+            None,
+        ),
+        (CliSource::Homebrew, "unavailable", 1, None),
+        (CliSource::Npm, r#""0.160.0""#, 1, None),
+        (CliSource::Npm, r#""0.160.0""#, 0, Some(true)),
+        (CliSource::Npm, r#"["0.160.0"]"#, 0, Some(true)),
+    ] {
+        let executable = fixture.file(
+            "manager",
+            &format!("#!/bin/sh\nprintf '%s\\n' 'nonfatal warning' >&2\nprintf '%s\\n' '{output}'\nexit {exit}\n"),
+        );
+        let plan = UpdatePlan::automatic(
+            source,
+            String::new(),
+            &executable,
+            vec!["upgrade".into(), "--cask".into(), "codex".into()],
+            false,
+        );
+        assert_eq!(
+            update_available(&plan, "0.159.3", None, &|| false),
+            expected
+        );
+        assert_eq!(update_available(&plan, "0.159.3", None, &|| true), None);
+    }
+}
+
+#[test]
+fn update_probe_uses_the_same_latest_tag_as_the_updater() {
+    let fixture = Fixture::new();
+    let executable = fixture.npm_cli();
+    // Model an npm configuration whose default tag is beta. An unqualified
+    // query returns a prerelease even though latest has a stable update.
+    let npm = fixture.file(
+        "npm space/bin/npm",
+        r#"#!/bin/sh
+case "$1:$2" in
+  view:@openai/codex@latest) printf '"0.160.0"\n' ;;
+  view:@openai/codex) printf '"0.161.0-beta.1"\n' ;;
+  *) exit 2 ;;
+esac
+"#,
+    );
+    let plan = resolve(
+        codex(),
+        Some(&executable),
+        Some(&npm),
+        None,
+        None,
+        &|program, args| fixture.npm_probe(program, args),
+    )
+    .unwrap();
+    assert!(plan
+        .command
+        .as_ref()
+        .unwrap()
+        .arguments
+        .contains(&"@openai/codex@latest".to_string()));
+    assert_eq!(
+        update_available(&plan, "0.159.3", None, &|| false),
+        Some(true)
+    );
+    assert_eq!(
+        update_available(&plan, "0.160.0", None, &|| false),
+        Some(false)
+    );
+}
+
+#[test]
+fn every_catalog_package_uses_its_verified_update_target() {
+    let fixture = Fixture::new();
+    let future = AgentCli {
+        command: "future-agent",
+        name: "Future Agent",
+        minimum_version: "1.0.0",
+        path_env: "FUTURE_AGENT_PATH",
+        install_hint: "npm install -g @example/agent",
+        package: "@example/agent",
+        brew_packages: &["future-agent"],
+    };
+    for cli in [codex(), claude(), &future] {
+        for source in [CliSource::Npm, CliSource::Homebrew] {
+            let packages = if source == CliSource::Npm {
+                vec![format!("{}@latest", cli.package)]
+            } else {
+                cli.brew_packages
+                    .iter()
+                    .map(|package| (*package).to_owned())
+                    .collect()
+            };
+            for package in packages {
+                let (arguments, expected_args, output) = if source == CliSource::Npm {
+                    (
+                        vec!["install".into(), "-g".into(), package.clone()],
+                        format!(
+                            "view {package} version --json --fetch-retries=0 --fetch-timeout=2500"
+                        ),
+                        r#""3.0.0""#.to_owned(),
+                    )
+                } else {
+                    (
+                        vec!["upgrade".into(), "--cask".into(), package.clone()],
+                        format!("outdated --cask --json=v2 {package}"),
+                        format!(r#"{{"casks":[{{"name":"{package}"}}],"formulae":[]}}"#),
+                    )
+                };
+                let executable = fixture.file(
+                    "manager",
+                    &format!(
+                    "#!/bin/sh\n[ \"$*\" = '{expected_args}' ] || exit 2\nprintf '%s' '{output}'\n"
+                ),
+                );
+                let plan = UpdatePlan::automatic(
+                    source.clone(),
+                    String::new(),
+                    &executable,
+                    arguments,
+                    false,
+                );
+                assert_eq!(
+                    update_available(&plan, "2.0.0", None, &|| false),
+                    Some(true),
+                    "{} {package}",
+                    cli.command
+                );
+                if source == CliSource::Npm {
+                    for installed in ["3.0.0", "4.0.0"] {
+                        assert_eq!(
+                            update_available(&plan, installed, None, &|| false),
+                            Some(false),
+                            "{} {package}",
+                            cli.command
+                        );
+                    }
+                }
+                assert_eq!(
+                    parse_update_available(
+                        &CliSource::Homebrew,
+                        &package,
+                        "2.0.0",
+                        r#"{"casks":[{"name":"unrelated"}],"formulae":[]}"#
+                    ),
+                    Some(false)
+                );
+            }
+        }
+    }
+    // Even an updatable native installation must not execute its updater while
+    // checking status. Unknown is distinct from both current and outdated.
+    let marker = fixture.0.join("native-was-run");
+    let executable = fixture.file(
+        "native",
+        &format!("#!/bin/sh\nprintf mutated > '{}'\n", marker.display()),
+    );
+    let plan = UpdatePlan::automatic(
+        CliSource::Native,
+        String::new(),
+        &executable,
+        vec!["update".into()],
+        false,
+    );
+    assert_eq!(update_available(&plan, "2.0.0", None, &|| false), None);
+    assert!(
+        !marker.exists(),
+        "checking status must never execute the native updater"
+    );
+}
+
+#[test]
 fn homebrew_receipt_and_actual_target_win_over_an_unrelated_npm_install() {
     // Preserve cask/formula ownership and Claude's chosen release channel.
     for (kind, directory, package, cli) in [

@@ -44,17 +44,21 @@ package struct ProcessLifecycleEvent: Sendable {
     package let state: ProcessLifecycleState
     package let exitCode: Int32?
     package let message: String?
+    /// Exact launched root PID; absent when the host cannot provide it.
+    package let processID: Int32?
 
     package init(
         operationID: String?,
         state: ProcessLifecycleState,
         exitCode: Int32?,
-        message: String?
+        message: String?,
+        processID: Int32? = nil
     ) {
         self.operationID = operationID
         self.state = state
         self.exitCode = exitCode
         self.message = message
+        self.processID = processID
     }
 }
 

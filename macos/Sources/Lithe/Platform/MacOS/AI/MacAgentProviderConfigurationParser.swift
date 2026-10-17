@@ -8,6 +8,7 @@ struct MacAgentProviderConfigurationParser: AgentProviderConfigurationParsing {
     private struct Payload: Encodable {
         let source: String
         let configuration: String
+        let allowIncomplete: Bool
     }
     private struct Metadata: Decodable {
         let name: String
@@ -17,14 +18,14 @@ struct MacAgentProviderConfigurationParser: AgentProviderConfigurationParsing {
         let authentication: AIProviderAuthentication
     }
 
-    func parse(source: AIConfigurationSourceKind, configuration: String, authentication: String) throws -> AIConfigurationSnapshot {
+    func parse(source: AIConfigurationSourceKind, configuration: String, authentication: String, allowIncomplete: Bool) throws -> AIConfigurationSnapshot {
         guard configuration.utf8.count <= 64 * 1024, authentication.utf8.count <= 64 * 1024 else {
             throw AgentProviderConfigurationError.invalidConfiguration
         }
         let metadata: Metadata
         do {
             metadata = try core.executeResult(command: "agent.parseProviderConfiguration", payload: Payload(
-                source: source.rawValue, configuration: configuration
+                source: source.rawValue, configuration: configuration, allowIncomplete: allowIncomplete
             )).get()
         } catch {
             // Never present parser details, which could quote a pasted credential.
@@ -36,17 +37,23 @@ struct MacAgentProviderConfigurationParser: AgentProviderConfigurationParsing {
         let key: String?
         switch source {
         case .codex:
-            guard let object = try? JSONSerialization.jsonObject(with: Data(authentication.utf8)) as? [String: Any],
-                  let value = (object["OPENAI_API_KEY"] ?? object["api_key"]) as? String else {
+            let text = allowIncomplete && authentication.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "{}" : authentication
+            guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
                 throw AgentProviderConfigurationError.invalidAuthentication
             }
-            key = value
+            let value = object["OPENAI_API_KEY"] ?? object["api_key"]
+            guard value is String || (allowIncomplete && value == nil) else {
+                throw AgentProviderConfigurationError.invalidAuthentication
+            }
+            key = value as? String ?? ""
         case .claude:
             let snapshot = MacClaudeConfigurationParser.parse(settingsData: Data(configuration.utf8),
                 credentialsData: nil, rootConfigData: nil, environment: [:])
-            guard snapshot?.hasAPIKey == true else { throw AgentProviderConfigurationError.missingAPIKey }
-            guard snapshot?.authentication == .apiKey else { throw AgentProviderConfigurationError.unsupportedProtocol }
-            key = snapshot?.apiKey
+            if !allowIncomplete {
+                guard snapshot?.hasAPIKey == true else { throw AgentProviderConfigurationError.missingAPIKey }
+            }
+            guard metadata.authentication == .apiKey else { throw AgentProviderConfigurationError.unsupportedProtocol }
+            key = snapshot?.apiKey ?? ""
         }
         return AIConfigurationSnapshot(source: source, providerName: metadata.name, endpoint: metadata.endpoint,
             model: metadata.model, apiProtocol: metadata.apiProtocol, authentication: metadata.authentication,

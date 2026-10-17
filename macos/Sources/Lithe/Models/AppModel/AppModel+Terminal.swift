@@ -142,6 +142,10 @@ extension AppModel {
             debugTerminalSessionIDsByDebugSession[debugSessionID, default: []].insert(created.session.id)
             activeDebugTerminalSessionIDsByDebugSession[debugSessionID] = created.session.id
         }
+        if let id = debugSessionID, executablePath.hasSuffix("/java") {
+            debugPerformanceFeature.register(DebugPerformanceTarget(processID: created.processID,
+                javaExecutable: URL(fileURLWithPath: executablePath)), sessionID: id.rawValue)
+        }
         showToolWindow(.terminal)
         created.session.focus()
         return DebugRunInTerminalResponse(processID: Int(created.processID))
@@ -170,42 +174,26 @@ extension AppModel {
         }
     }
 
-    var isDebugStandardInputAvailable: Bool {
-        guard let terminalFeature else { return false }
-        let debugSessionID = genericDebugFeatureIfActive?.activeSessionID
-        let scopedIDs = debugSessionID.flatMap { debugTerminalSessionIDsByDebugSession[$0] } ?? []
-        let candidateIDs = [debugSessionID.flatMap { activeDebugTerminalSessionIDsByDebugSession[$0] }]
-            .compactMap { $0 }
-            + scopedIDs.sorted(by: { $0.uuidString < $1.uuidString })
-            + [activeDebugTerminalSessionID].compactMap { $0 }
-            + debugTerminalSessionIDs.sorted(by: { $0.uuidString < $1.uuidString })
-        return candidateIDs.contains { sessionID in
-            guard let session = terminalFeature.terminalSessions.first(where: { $0.id == sessionID }) else {
-                return false
-            }
-            return session.isRunning && session.isReady
+    private var debugStandardInputSessionID: UUID? {
+        guard let terminalFeature else { return nil }
+        let candidateIDs: [UUID]
+        if let debugSessionID = genericDebugFeatureIfActive?.activeSessionID {
+            candidateIDs = [activeDebugTerminalSessionIDsByDebugSession[debugSessionID]].compactMap { $0 }
+                + (debugTerminalSessionIDsByDebugSession[debugSessionID] ?? []).sorted { $0.uuidString < $1.uuidString }
+        } else {
+            candidateIDs = [activeDebugTerminalSessionID].compactMap { $0 }
+                + debugTerminalSessionIDs.sorted { $0.uuidString < $1.uuidString }
+        }
+        return candidateIDs.first { id in
+            terminalFeature.terminalSessions.contains { $0.id == id && $0.isRunning && $0.isReady }
         }
     }
 
+    var isDebugStandardInputAvailable: Bool { debugStandardInputSessionID != nil }
+
     @discardableResult
     func sendDebugStandardInput(_ input: String) -> Bool {
-        guard !input.isEmpty, let terminalFeature else {
-            showNotification("No running debug process accepts standard input")
-            return false
-        }
-        let debugSessionID = genericDebugFeatureIfActive?.activeSessionID
-        let scopedIDs = debugSessionID.flatMap { debugTerminalSessionIDsByDebugSession[$0] } ?? []
-        let candidateIDs = [debugSessionID.flatMap { activeDebugTerminalSessionIDsByDebugSession[$0] }]
-            .compactMap { $0 }
-            + scopedIDs.sorted(by: { $0.uuidString < $1.uuidString })
-            + [activeDebugTerminalSessionID].compactMap { $0 }
-            + debugTerminalSessionIDs.sorted(by: { $0.uuidString < $1.uuidString })
-        guard let sessionID = candidateIDs.first(where: { sessionID in
-            guard let session = terminalFeature.terminalSessions.first(where: { $0.id == sessionID }) else {
-                return false
-            }
-            return session.isRunning && session.isReady
-        }) else {
+        guard !input.isEmpty, let terminalFeature, let sessionID = debugStandardInputSessionID else {
             showNotification("No running debug process accepts standard input")
             return false
         }
@@ -303,7 +291,56 @@ extension AppModel {
         showToolWindow(.terminal)
     }
 
+    /// Closes a terminal tab, first asking when programs still run in it
+    /// (Settings › Process Termination Policy).
     func requestCloseTerminalSession(_ session: TerminalSession) {
+        guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
+        guard let coordinator = services.processExitCoordinator,
+              settings.processTermination.confirmTerminalTabClose else {
+            closeTerminalSession(session)
+            return
+        }
+        let candidate = terminalExitCandidate(for: session)
+        guard !candidate.programs.isEmpty else {
+            closeTerminalSession(session)
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard await coordinator.confirmTerminalClose(
+                settings: self?.settings.processTermination ?? ProcessTerminationSettings(),
+                terminal: candidate
+            ) else { return }
+            self?.closeTerminalSession(session)
+        }
+    }
+
+    /// Every terminal tab of this window, for the quit confirmation.
+    var terminalExitCandidates: [TerminalExitCandidate] {
+        terminalSessions.map(terminalExitCandidate)
+    }
+
+    func terminalExitCandidate(for session: TerminalSession) -> TerminalExitCandidate {
+        TerminalExitCandidate(
+            ownerID: id,
+            sessionID: session.id,
+            title: terminalTitle(for: session),
+            projectName: workspaceURL == nil ? "" : projectName,
+            workingDirectory: session.currentDirectory?.path ?? "",
+            programs: session.runningPrograms()
+        )
+    }
+
+    /// Shows a terminal tab, wherever it is placed.
+    func revealTerminalSession(_ sessionID: UUID) {
+        guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
+        if terminalPlacementFeature.editorSessionIDs.contains(sessionID) {
+            selectEditorTerminalSession(session)
+        } else {
+            selectTerminalSession(session)
+        }
+    }
+
+    private func closeTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
         debugTerminalSessionIDs.remove(session.id)
         for debugSessionID in debugTerminalSessionIDsByDebugSession.keys {

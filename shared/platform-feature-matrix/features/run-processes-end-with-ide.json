@@ -1,0 +1,34 @@
+{
+  "id": "run-processes-end-with-ide",
+  "area": "运行与调试",
+  "group": "运行",
+  "capability": "退出 IDE 时结束它启动的全部运行、终端、服务、测试、语言服务器和插件子进程，不留下孤儿进程；IDE 崩溃或被强制结束时由监护进程兜底",
+  "macos": {
+    "evidence": [
+      "macos/Sources/LitheExecutionModule/Module/ExecutionFeatureGraph.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Process/MacManagedProcess.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Process/MacProcessScope.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Process/MacProcessLifecycle.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Process/MacProcessInventoryReader.swift",
+      "macos/Sources/Lithe/LitheApp.swift",
+      "rust/lithe-core/src/process/inventory.rs",
+      "shared/fixtures/process-lifecycle/inventory-v1.json",
+      "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
+      "macos/Tests/LitheTests/MacProcessRunnerTests.swift",
+      "macos/Tests/LitheTests/ProcessLifecycleFixtureTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src-tauri/src/main.rs",
+      "windows/tauri/src-tauri/src/run.rs"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Run",
+  "verification": "运行一个长驻服务（如 Spring Boot）、一个 setsid 脱离的后台进程和一个忽略终止信号的程序，分别通过菜单退出、更新重启和对主进程 kill -9 关闭 IDE，确认除用户选择保留的项目外，带本实例 LITHE_PROCESS_SCOPE 的进程全部退出、端口已释放；主进程和监护进程同时被结束后再次启动，确认残留进程出现在启动清扫确认中。",
+  "notes": "macOS 用 LITHE_PROCESS_SCOPE 标记本实例启动的进程，退出时做最终清扫；崩溃由随应用启动的监护进程兜底（Agent 任务和后台服务留到下次启动再确认）。分类规则在 Rust Core（processLifecycle.inventory），Windows 可直接复用；Windows 的退出处理目前只关闭语言工具和调试会话，未停止运行会话，运行进程也未放入 Job Object。"
+}

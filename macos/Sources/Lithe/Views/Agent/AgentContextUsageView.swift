@@ -3,59 +3,99 @@ import LitheAgentConversationModule
 
 enum AgentContextUsagePresentation {
     static func percentage(_ usage: AgentContextUsage?, locale: Locale, precise: Bool = false) -> String {
-        let fraction = usage?.fraction ?? 0
-        return fraction.formatted(.percent.precision(.fractionLength(precise ? 1 : 0)).locale(locale))
+        guard let usage else { return "—" }
+        return usage.fraction.formatted(.percent.precision(.fractionLength(precise ? 1 : 0)).locale(locale))
     }
 
     static func details(_ usage: AgentContextUsage?, locale: Locale) -> String {
-        guard let usage, usage.usedTokens > 0 else {
-            return String(format: String(localized: "Context: %@"), percentage(usage, locale: locale, precise: true))
+        guard let usage else {
+            return AgentLocalization.string("The Agent has not reported context usage yet.", locale: locale)
         }
-        let format = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(0...1)).locale(locale)
-        let tokens = { (count: UInt64) in
-            count >= 1_000 ? (Double(count) / 1_000).formatted(format) + "k" : count.formatted(.number.locale(locale))
-        }
-        return String(format: String(localized: "%@ · %@ / %@ context tokens"),
-                      percentage(usage, locale: locale, precise: true), tokens(usage.usedTokens), tokens(usage.capacityTokens))
+        return String(format: AgentLocalization.string("%@ · %@ / %@ context used", locale: locale),
+                      percentage(usage, locale: locale, precise: true), tokens(usage.usedTokens, locale: locale),
+                      tokens(usage.capacityTokens, locale: locale))
+    }
+
+    static func tokens(_ count: UInt64, locale: Locale) -> String {
+        let format = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(1)).locale(locale)
+        return count >= 1_000 ? (Double(count) / 1_000).formatted(format) + "K" : count.formatted(.number.locale(locale))
     }
 }
 
-/// Compact context ring with a zero placeholder until the Agent reports usage.
+/// Compact context ring. It stays hidden until the Agent's first usage report so
+/// an empty indicator cannot be mistaken for zero occupancy; the inline detail
+/// panels keep rendering their own unknown state after a report disappears.
 struct AgentContextUsageView: View {
     let usage: AgentContextUsage?
     /// Estimated prompt composition from the optional model call proxy.
     var composition: AgentModelCall.Context?
+    var showsPercentage = true
+    /// Inline detail consumers can suppress the compact hover tooltip.
+    var showsHoverCard = true
+    /// Toolbar consumers hide the whole ring while no report exists; the status
+    /// row and inline cards render the unknown state explicitly.
+    var isHiddenUntilReported = false
     @Environment(\.locale) private var locale
+    private var ringStroke: CGFloat { showsPercentage ? 1.5 : 2 }
+    private var ringInset: CGFloat { showsPercentage ? 0 : ringStroke / 2 }
 
     private var color: Color {
-        guard let usage else { return AgentPanelStyle.muted }
+        guard let usage else { return LitheTheme.HoverTooltip.infoForeground }
         if usage.fraction >= 1 { return LitheTheme.error }
         if usage.fraction >= 0.9 { return LitheTheme.warning }
-        return AgentPanelStyle.secondary
+        return LitheTheme.HoverTooltip.infoForeground
     }
 
+    @ViewBuilder
     var body: some View {
-        HStack(spacing: 4) {
-            ZStack {
-                Circle().stroke(AgentPanelStyle.secondary.opacity(0.3), lineWidth: 1.5)
-                if let usage {
-                    Circle().trim(from: 0, to: min(usage.fraction, 1))
-                        .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
+        if !(isHiddenUntilReported && usage == nil) {
+            HStack(spacing: 4) {
+                ZStack {
+                    Circle().inset(by: ringInset)
+                        .stroke(showsPercentage ? LitheTheme.settingsControlBorder : LitheTheme.HoverTooltip.infoForeground,
+                                lineWidth: ringStroke)
+                    if let usage {
+                        Circle().inset(by: ringInset).trim(from: 0, to: min(usage.fraction, 1))
+                            .stroke(showsPercentage || usage.fraction >= 0.9 ? color : LitheTheme.toolWindowText,
+                                    style: StrokeStyle(lineWidth: ringStroke, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                    }
+                }.frame(width: showsPercentage ? 12 : LitheTheme.Metrics.toolbarIconSize,
+                        height: showsPercentage ? 12 : LitheTheme.Metrics.toolbarIconSize)
+                if showsPercentage {
+                    Text(AgentContextUsagePresentation.percentage(usage, locale: locale))
+                        .monospacedDigit().lineLimit(1)
                 }
-            }.frame(width: 12, height: 12)
-            Text(AgentContextUsagePresentation.percentage(usage, locale: locale))
-                .monospacedDigit().lineLimit(1)
+            }
+            .foregroundStyle(color)
+            .font(LitheTheme.smallFont)
+            .padding(.horizontal, showsPercentage ? 4 : 0)
+            .frame(width: showsPercentage ? nil : LitheTheme.Metrics.toolbarIconButtonSize,
+                   height: showsPercentage ? nil : LitheTheme.Metrics.toolbarIconButtonSize)
+            .fixedSize()
+            .contentShape(Rectangle())
+            .modifier(AgentContextHoverCard(isEnabled: showsHoverCard, usage: usage))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Context usage")
+            .accessibilityValue(AgentContextUsagePresentation.details(usage, locale: locale))
+            .accessibilityIdentifier("agent-context-usage")
         }
-        .foregroundStyle(color)
-        .padding(.vertical, 4)
-        .fixedSize()
-        .workbenchHoverCard(placement: .above, maximumWidth: AgentStatusCardMetrics.width) {
-            AgentContextUsageCard(usage: usage, composition: composition)
+    }
+}
+
+private struct AgentContextHoverCard: ViewModifier {
+    let isEnabled: Bool
+    let usage: AgentContextUsage?
+    @Environment(\.locale) private var locale
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.workbenchHoverCard(placement: .above, maximumWidth: LitheDropdownMetrics.maximumWidth) {
+                WorkbenchHoverTooltipLabel(title: Text(verbatim:
+                    AgentContextUsagePresentation.details(usage, locale: locale)))
+            }
+        } else {
+            content
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Context usage")
-        .accessibilityValue(AgentContextUsagePresentation.details(usage, locale: locale))
-        .accessibilityIdentifier("agent-context-usage")
     }
 }

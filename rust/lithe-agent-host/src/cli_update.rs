@@ -35,6 +35,9 @@ pub struct CliInstallation {
     pub source: CliSource,
     pub can_update: bool,
     pub update_hint: String,
+    /// Whether the owning package manager confirmed a newer CLI release.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_available: Option<bool>,
 }
 
 /// An owned executable and arguments, never an interpolated shell command.
@@ -59,6 +62,7 @@ impl UpdatePlan {
                 source,
                 can_update: false,
                 update_hint: hint.into(),
+                update_available: None,
             },
             command: None,
         }
@@ -76,6 +80,7 @@ impl UpdatePlan {
                 source,
                 can_update: true,
                 update_hint: hint,
+                update_available: None,
             },
             command: Some(UpdateCommand {
                 program: program.into(),
@@ -83,6 +88,101 @@ impl UpdatePlan {
                 observes_npm,
             }),
         }
+    }
+}
+
+/// Ask the verified owner whether it can actually upgrade this CLI. A failed
+/// read-only check is unknown, never evidence of a newer release.
+pub(crate) fn update_available(
+    plan: &UpdatePlan,
+    installed: &str,
+    path: Option<&OsStr>,
+    cancel: &dyn Fn() -> bool,
+) -> Option<bool> {
+    let command = plan.command.as_ref()?;
+    // Query the same package/channel the verified updater will use. New catalog
+    // agents reuse this path without a command-name allowlist.
+    let package = match plan.installation.source {
+        CliSource::Npm => command.arguments.last()?.as_str(),
+        CliSource::Homebrew => command.arguments.get(2)?.as_str(),
+        // Native installers have no shared read-only version protocol. Do not
+        // run an updater as a probe or substitute another channel's version.
+        _ => return None,
+    };
+    let args: Vec<&str> = match plan.installation.source {
+        CliSource::Npm => vec![
+            "view",
+            package,
+            "version",
+            "--json",
+            "--fetch-retries=0",
+            "--fetch-timeout=2500",
+        ],
+        CliSource::Homebrew => vec![
+            "outdated",
+            command.arguments.get(1)?.as_str(),
+            "--json=v2",
+            package,
+        ],
+        _ => return None,
+    };
+    let mut probe = Command::new(&command.program);
+    probe.args(args);
+    if let Some(path) = path {
+        probe.env("PATH", path);
+    }
+    if plan.installation.source == CliSource::Homebrew {
+        probe.env("HOMEBREW_NO_AUTO_UPDATE", "1");
+    }
+    let (success, output, _diagnostics) =
+        environment::run_bounded_status_separated(&mut probe, Duration::from_secs(5), cancel)
+            .ok()?;
+    let available = parse_update_available(&plan.installation.source, package, installed, &output)?;
+    // Homebrew exits nonzero when a named package is outdated. Only a valid
+    // positive result explains that exit; other failures remain unknown.
+    (success || (plan.installation.source == CliSource::Homebrew && available)).then_some(available)
+}
+
+fn parse_update_available(
+    source: &CliSource,
+    package: &str,
+    installed: &str,
+    output: &str,
+) -> Option<bool> {
+    match source {
+        CliSource::Npm => {
+            let value: serde_json::Value = serde_json::from_str(output.trim()).ok()?;
+            let latest = match &value {
+                serde_json::Value::String(version) => version.as_str(),
+                serde_json::Value::Array(versions) if versions.len() == 1 => {
+                    versions[0].as_str()?
+                }
+                _ => return None,
+            };
+            let components: Vec<_> = latest.split('.').collect();
+            if components.len() != 3 || components.iter().any(|part| part.parse::<u64>().is_err()) {
+                return None;
+            }
+            // The existing numeric comparison ignores pre-release suffixes;
+            // an installed prerelease of the same numeric version is older.
+            Some(
+                !environment::version_at_least(installed, latest)
+                    || (installed.contains('-')
+                        && !latest.contains('-')
+                        && environment::version_at_least(latest, installed)),
+            )
+        }
+        CliSource::Homebrew => {
+            let value: serde_json::Value = serde_json::from_str(output).ok()?;
+            let names = value["casks"]
+                .as_array()?
+                .iter()
+                .chain(value["formulae"].as_array()?)
+                .map(|package| package["name"].as_str())
+                .collect::<Option<Vec<_>>>()?;
+            Some(names.contains(&package))
+        }
+        _ => None,
     }
 }
 
@@ -313,3 +413,95 @@ fn owns_npm_bin(package: &Path, cli: &AgentCli, target: &Path) -> bool {
 
 #[cfg(all(test, unix))]
 mod tests;
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    #[test]
+    fn confirmed_updates_only_when_the_owner_reports_one() {
+        for output in [r#""0.160.0""#, r#"["0.160.0"]"#] {
+            assert_eq!(
+                parse_update_available(&CliSource::Npm, "@openai/codex@latest", "0.159.3", output),
+                Some(true)
+            );
+        }
+        for output in ["[]", r#"["0.159.3","0.160.0"]"#, "[42]", r#"["invalid"]"#] {
+            assert_eq!(
+                parse_update_available(&CliSource::Npm, "@openai/codex@latest", "0.159.3", output),
+                None
+            );
+        }
+        assert_eq!(
+            parse_update_available(
+                &CliSource::Npm,
+                "@openai/codex@latest",
+                "0.159.3",
+                "\"0.159.3\""
+            ),
+            Some(false)
+        );
+        assert_eq!(
+            parse_update_available(
+                &CliSource::Npm,
+                "@openai/codex@latest",
+                "0.159.3",
+                "\"0.160.0\""
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            parse_update_available(
+                &CliSource::Npm,
+                "@openai/codex@latest",
+                "0.159.3-beta.1",
+                "\"0.159.3\""
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            parse_update_available(
+                &CliSource::Npm,
+                "@openai/codex@latest",
+                "0.159.3",
+                "network error"
+            ),
+            None
+        );
+        assert_eq!(
+            parse_update_available(&CliSource::Npm, "@openai/codex@latest", "0.159.3", "\"\""),
+            None
+        );
+        assert_eq!(
+            parse_update_available(
+                &CliSource::Homebrew,
+                "codex",
+                "0.159.3",
+                r#"{"casks":[],"formulae":[]}"#
+            ),
+            Some(false)
+        );
+        assert_eq!(
+            parse_update_available(
+                &CliSource::Homebrew,
+                "codex",
+                "0.159.3",
+                r#"{"casks":[{"name":"codex"}],"formulae":[]}"#
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            parse_update_available(
+                &CliSource::Homebrew,
+                "codex",
+                "0.159.3",
+                r#"{"casks":[],"formulae":[{"name":"codex"}]}"#
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            parse_update_available(&CliSource::Homebrew, "codex", "0.159.3", "error"),
+            None
+        );
+    }
+}

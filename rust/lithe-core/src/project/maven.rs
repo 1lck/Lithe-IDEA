@@ -455,28 +455,90 @@ fn settings_parse_error(error: quick_xml::Error) -> CoreError {
         .with_details(error.to_string())
 }
 
-/// Resolves the `conf/settings.xml` of the configured Maven installation.
+/// Resolves the global settings read by the selected Maven or mvnd launcher.
 ///
-/// The stored value may be either a Maven home or a launcher inside its `bin`
-/// directory, because the platform settings accept both. A project wrapper such
-/// as `mvnw` sits outside an installation and therefore resolves to `None`,
-/// which matches the settings Maven itself would read when the wrapper runs.
-/// Returning `None` also covers installations that ship no global settings, so
-/// callers keep JDT LS on its own defaults instead of pointing it at a missing
-/// file.
+/// Accepts an installation home, its `bin` directory, or a recognized launcher.
+/// Explicit directories prefer mvnd when both clients are installed; automatic
+/// discovery precedence belongs to the host. Wrappers, missing clients and
+/// installations without global settings return `None` without running a probe.
 fn installation_settings_path(maven_executable_path: Option<&str>) -> Option<String> {
     let configured = Path::new(maven_executable_path?);
-    let home = if configured.is_dir() {
-        configured.to_path_buf()
-    } else {
-        // Only the `<home>/bin/mvn*` layout identifies an installation root.
-        let bin = configured.parent()?;
-        if !bin.file_name()?.to_str()?.eq_ignore_ascii_case("bin") {
-            return None;
-        }
-        bin.parent()?.to_path_buf()
+    let maven_launchers = ["mvn.cmd", "mvn.bat", "mvn.exe", "mvn"];
+    let mvnd_launchers = ["mvnd.exe", "mvnd.cmd", "mvnd.bat", "mvnd"];
+    let is_launcher = |path: &Path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| {
+                mvnd_launchers
+                    .iter()
+                    .chain(maven_launchers.iter())
+                    .any(|launcher| name.eq_ignore_ascii_case(launcher))
+            })
     };
-    let settings = home.join("conf").join("settings.xml");
+    if !configured.is_dir() && (!configured.is_file() || !is_launcher(configured)) {
+        return None;
+    }
+    // Homebrew exposes client and directory aliases outside the installation.
+    // Only canonicalize an actual alias: canonicalizing every ordinary path
+    // would also rewrite macOS /var paths to /private/var in existing contexts.
+    let resolve_alias = |path: &Path| {
+        if path.symlink_metadata().ok()?.file_type().is_symlink() {
+            path.canonicalize().ok()
+        } else {
+            Some(path.to_path_buf())
+        }
+    };
+    let configured = resolve_alias(configured)?;
+    let launcher = if configured.is_dir() {
+        [configured.join("bin"), configured.clone()]
+            .into_iter()
+            .flat_map(|bin| {
+                mvnd_launchers
+                    .iter()
+                    .chain(maven_launchers.iter())
+                    .map(move |name| bin.join(name))
+            })
+            .find(|candidate| candidate.is_file())?
+    } else {
+        configured
+    };
+    let launcher = resolve_alias(&launcher)?;
+    // Hosts may return alias-to-bin/mvnd after resolving a selected bin directory.
+    // Resolve that parent alias as well, without rewriting ordinary /var paths.
+    let launcher = if launcher
+        .parent()?
+        .symlink_metadata()
+        .ok()?
+        .file_type()
+        .is_symlink()
+    {
+        launcher.canonicalize().ok()?
+    } else {
+        launcher
+    };
+    if !is_launcher(&launcher) {
+        return None;
+    }
+    let bin = launcher.parent()?;
+    if !bin.file_name()?.to_str()?.eq_ignore_ascii_case("bin") {
+        return None;
+    }
+    let home = bin.parent()?;
+    let is_mvnd = mvnd_launchers.iter().any(|name| {
+        launcher
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case(name))
+    });
+    // The daemon's own conf is not Maven's conf. An explicitly selected mvn
+    // beside mvnd still keeps its own settings; missing embedded settings must
+    // never fall back to the daemon directory or another installation.
+    let maven_home = if is_mvnd {
+        home.join("mvn")
+    } else {
+        home.to_path_buf()
+    };
+    let settings = maven_home.join("conf").join("settings.xml");
     settings
         .is_file()
         .then(|| settings.to_string_lossy().into_owned())

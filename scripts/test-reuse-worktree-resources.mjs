@@ -64,6 +64,38 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("distribution runtime state cannot be listed or imported as a build cache", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const state = registry.excludedResources.find(item => item.id === "distribution-runtime-state");
+    assert.equal(state.reusable, false);
+    assert.ok(state.locations.some(location => location.includes(".lithe-dev-profile-import-<transaction>")));
+    assert.ok(state.locations.some(location => location.endsWith(".stable-profile-import-v1.plist")));
+    assert.ok(state.locations.some(location => location.endsWith(".stable-profile-import-v1-staging/")));
+    assert.ok(state.locations.some(location => location.endsWith(".stable-profile-import-v1")));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(state.id));
+    const refused = reuse(["--resource", state.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /distribution-runtime-state is isolated/);
+  });
+  await test("plugin UI icons remain owned by their verified installed package", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("plugin-ui-icons"));
+    const refused = reuse(["--resource", "plugin-ui-icons"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-ui-icons.*cannot be reused/);
+  });
+  await test("test JFR recordings remain isolated to their worker and run", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "test-jfr-recordings");
+    assert.equal(resource.reusable, false);
+    assert.match(resource.identity, /PID.*process start identity.*JDK/);
+    const rejected = reuse(["--resource", "test-jfr-recordings"]);
+    assert.notEqual(rejected.status, 0);
+    assert.match(diagnostics(rejected), /test-jfr-recordings.*cannot be reused/);
+  });
   await test("bundled UI fonts come from Git and cannot be copied from worktree artifacts", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
@@ -75,6 +107,24 @@ try {
     const rejected = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", "bundled-ui-fonts"]);
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stderr, /bundled-ui-fonts is isolated/);
+  });
+  await test("AutoBuild plugin mirror staging is validated and never reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "autobuild-plugin-mirror-staging");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<RUNNER_TEMP>/lithe-autobuild-<invocation>/baselines/"));
+    assert.ok(resource.locations.includes("<RUNNER_TEMP>/lithe-autobuild-<invocation>/autobuild-publication.json"));
+    assert.match(resource.identity, /publication checkpoint.*sorted target asset SHA-256\/size.*exact-plan recovery/);
+    assert.match(resource.identity, /build\/ISO timestamp.*strict publication-time ordering/);
+    assert.match(resource.identity, /baselines\/AutoBuild.*baselines\/preview-0\.3\.0.*legacy release remains/);
+    assert.match(resource.identity, /source SHA.*SHA-256.*official organization/);
+    assert.ok(resource.locations.every(location => location.startsWith("<RUNNER_TEMP>/lithe-autobuild-<invocation>/")));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /autobuild-plugin-mirror-staging is isolated/);
   });
   await test("Sparkle baseline staging is never listed or copied between worktrees", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
@@ -119,10 +169,13 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /agent-cli-runtime.*cannot be reused/);
   });
-  await test("per-launch Codex retry relays cannot be listed or copied", { timeout: 15000 }, () => {
+  await test("per-launch Codex retry/context relays cannot be listed or copied", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes("codex-retry-relay"));
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "codex-retry-relay");
+    assert.match(resource.identity, /context reports.*per-load tickets/);
     const refused = reuse(["--resource", "codex-retry-relay"]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /codex-retry-relay.*lithe-codex-retry.*cannot be reused/);

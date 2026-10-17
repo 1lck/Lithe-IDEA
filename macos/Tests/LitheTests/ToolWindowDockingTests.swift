@@ -114,6 +114,19 @@ struct ToolWindowDockingTests {
         #expect(model.toolWindowStates == before)
     }
 
+    @Test func restoringLayoutKeepsAgentClosedUntilExplicitlyOpened() {
+        let persistence = WorkbenchLayoutStore(store: DockingTestStore())
+        let workspace = URL(fileURLWithPath: "/fixture/docking/agent")
+        let model = WorkbenchFeatureModel(layoutStore: persistence)
+        model.setVisibility(.agent, isVisible: true)
+        model.saveLayout(.init(sidebarWidth: 310, topPaneHeight: nil), for: workspace)
+        let restored = WorkbenchFeatureModel(layoutStore: persistence)
+        _ = restored.loadLayout(for: workspace)
+        #expect(!restored.isVisible(.agent))
+        restored.setVisibility(.agent, isVisible: true)
+        #expect(restored.isVisible(.agent))
+    }
+
     @Test func layoutRoundTripRestoresPositionsOrderVisibilityAndGroupSizes() {
         let store = DockingTestStore()
         let persistence = WorkbenchLayoutStore(store: store)
@@ -303,6 +316,7 @@ struct ToolWindowDockingTests {
     @Test func dropGeometryRejectsCenterAndOffWindowAndFindsFreshStripeFrames() {
         let drag = ToolWindowDragState()
         drag.workspaceFrame = NSRect(x: 40, y: 20, width: 600, height: 600)
+        drag.sideWidths = [.left: 120, .right: 120]
         #expect(drag.target(at: NSPoint(x: 340, y: 450)) == nil)
         #expect(drag.target(at: NSPoint(x: 800, y: 450)) == nil)
         #expect(drag.target(at: NSPoint(x: 100, y: 500))?.position == DockPosition(anchor: .left, group: .primary))
@@ -316,9 +330,111 @@ struct ToolWindowDockingTests {
         #expect(drag.target(at: NSPoint(x: 20, y: 120))?.before == nil)
         drag.begin(.terminal)
         frame.origin.y = 300
-        #expect(drag.target(at: NSPoint(x: 20, y: 220))?.before == .project)
+        // Source compaction changes live button frames; old slots must not remain targets.
+        #expect(drag.target(at: NSPoint(x: 20, y: 220))?.before == nil)
+        #expect(drag.target(at: NSPoint(x: 20, y: 320))?.before == .project)
         drag.finish()
         #expect(drag.target(at: NSPoint(x: 20, y: 320))?.before == .project)
+    }
+
+    @Test func horizontalDragUsesTheBottomPanelHeightAndActualSplitBounds() throws {
+        let drag = ToolWindowDragState()
+        let bottom = DockPosition(anchor: .bottom, group: .primary)
+        let left = DockPosition(anchor: .left, group: .primary)
+        let owner = ObjectIdentifier(drag)
+        drag.workspaceFrame = CGRect(x: 40, y: 20, width: 1200, height: 800)
+        drag.regions[.editor] = (CGRect(x: 280, y: 496, width: 960, height: 324), owner)
+        drag.regions[.pane(left)] = (CGRect(x: 40, y: 496, width: 235, height: 324), owner)
+        let panel = CGRect(x: 40, y: 20, width: 1200, height: 470)
+        drag.regions[.pane(bottom)] = (panel, owner)
+        drag.entries[.gitLog] = ({ CGRect(x: 0, y: 250, width: 37, height: 40) }, bottom, owner)
+        drag.begin(.gitLog)
+        let destination = try #require(drag.target(at: CGPoint(x: 200, y: 270)))
+        #expect(destination.position == bottom)
+        #expect(drag.previewFrame(for: destination) == CGRect(x: 40, y: 20, width: 600, height: 470))
+        let leftTarget = try #require(drag.target(at: CGPoint(x: 100, y: 760)))
+        #expect(leftTarget.position == left)
+        #expect(drag.previewFrame(for: leftTarget).maxY == 820)
+        #expect(drag.target(at: CGPoint(x: 800, y: 700)) == nil)
+        drag.finish()
+        drag.regions[.pane(bottom)] = (CGRect(x: 40, y: 20, width: 1200, height: 300), owner)
+        drag.begin(.gitLog)
+        #expect(drag.previewFrame(for: destination).height == 300)
+        drag.finish()
+        let secondary = DockPosition(anchor: .bottom, group: .secondary)
+        drag.regions[.pane(bottom)] = (CGRect(x: 40, y: 20, width: 780, height: 470), owner)
+        drag.regions[.pane(secondary)] = (CGRect(x: 826, y: 20, width: 414, height: 470), owner)
+        drag.begin(.gitLog)
+        let right = try #require(drag.target(at: CGPoint(x: 900, y: 270)))
+        #expect(right.position == secondary)
+        #expect(drag.previewFrame(for: right) == CGRect(x: 826, y: 20, width: 414, height: 470))
+        drag.finish()
+    }
+
+    @Test func horizontalContentDragProjectsInsertionOrderInsteadOfAppending() throws {
+        let drag = ToolWindowDragState()
+        let bottom = DockPosition(anchor: .bottom, group: .primary)
+        let owner = ObjectIdentifier(drag)
+        drag.workspaceFrame = CGRect(x: 40, y: 0, width: 1200, height: 800)
+        drag.regions[.pane(bottom)] = (CGRect(x: 40, y: 0, width: 1200, height: 420), owner)
+        for (tool, y) in [(WorkbenchFeatureModel.ToolWindow.run, 300), (.terminal, 260), (.gitLog, 220), (.debug, 180)] {
+            drag.entries[tool] = ({ CGRect(x: 0, y: y, width: 37, height: 40) }, bottom, owner)
+        }
+        drag.begin(.terminal)
+        defer { drag.finish() }
+        // Same Y, outside the stripe: preserve the middle slot, not the group tail.
+        let middle = try #require(drag.target(at: CGPoint(x: 240, y: 280)))
+        #expect(middle == .init(position: bottom, before: .gitLog))
+        drag.target = middle
+        drag.entries[.terminal] = ({ .zero }, bottom, owner)
+        drag.regions[.insertion] = (CGRect(x: 0, y: 260, width: 37, height: 40), owner)
+        #expect(drag.target(at: CGPoint(x: 480, y: 280)) == middle)
+        // Moving along the stripe changes order at button midpoints, even over content.
+        #expect(drag.target(at: CGPoint(x: 240, y: 350))?.before == .run)
+        #expect(drag.target(at: CGPoint(x: 240, y: 225))?.before == .debug)
+        #expect(drag.target(at: CGPoint(x: 240, y: 170))?.before == nil)
+        #expect(drag.target(at: CGPoint(x: 20, y: 225))?.before == .debug)
+    }
+
+    @Test func insertionSlotRetainsItsTargetWhileButtonsReflow() {
+        let drag = ToolWindowDragState()
+        let position = DockPosition(anchor: .bottom, group: .primary)
+        drag.begin(.terminal)
+        drag.target = .init(position: position, before: .gitLog)
+        drag.regions[.insertion] = (CGRect(x: 0, y: 80, width: 37, height: 40), ObjectIdentifier(drag))
+        drag.entries[.gitLog] = ({ CGRect(x: 0, y: 40, width: 37, height: 40) }, position, ObjectIdentifier(drag))
+        #expect(drag.target(at: CGPoint(x: 20, y: 100)) == drag.target)
+        drag.finish()
+    }
+
+    @Test func draggedStripeEntryClosesItsSlotWithoutUnmountingTheMouseOwner() async throws {
+        let drag = ToolWindowDragState()
+        let host = NSHostingView(rootView: DockingStripeFixture(drag: drag))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { window.contentView = nil; window.close(); drag.finish() }
+        func layout() { host.layoutSubtreeIfNeeded() }
+        layout()
+        let before = try #require(drag.entries[.gitLog]?.frame())
+        let owner = try #require(drag.entries[.terminal]?.owner)
+        drag.begin(.terminal)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while drag.entries[.gitLog]?.frame() == before && clock.now < deadline {
+            await Task.yield(); layout()
+        }
+        let after = try #require(drag.entries[.gitLog]?.frame())
+        #expect(abs(after.midY - before.midY) == ActivityBarMetrics.slotHeight)
+        #expect(drag.entries[.terminal]?.owner == owner)
+        #expect(drag.source == .terminal)
+        drag.finish()
+        let restoreDeadline = clock.now.advanced(by: .seconds(2))
+        while drag.entries[.gitLog]?.frame() != before && clock.now < restoreDeadline {
+            await Task.yield(); layout()
+        }
+        #expect(drag.entries[.gitLog]?.frame() == before)
     }
 
     @Test func dismantlingOldEntryDoesNotUnregisterItsReplacement() {
@@ -337,6 +453,57 @@ struct ToolWindowDockingTests {
         #expect(drag.target(at: NSPoint(x: 20, y: 70))?.before == .terminal)
         replacement.dismantle()
         #expect(drag.target(at: NSPoint(x: 20, y: 70)) == nil)
+    }
+
+    /// Only tools whose renderer opens an editor tab treat the free center band
+    /// as a destination; dock bands keep winning near the edges.
+    @Test func editorCenterBandAcceptsOnlyEditorCapableTools() {
+        let drag = ToolWindowDragState()
+        drag.workspaceFrame = NSRect(x: 40, y: 20, width: 600, height: 600)
+        drag.sideWidths = [.left: 120, .right: 120]
+        drag.editorTools = [.agent]
+        drag.begin(.terminal)
+        #expect(!drag.isEditorTarget(at: NSPoint(x: 340, y: 450)))
+        drag.finish()
+        drag.begin(.agent)
+        #expect(drag.isEditorTarget(at: NSPoint(x: 340, y: 450)))
+        #expect(!drag.isEditorTarget(at: NSPoint(x: 100, y: 450)))
+        #expect(!drag.isEditorTarget(at: NSPoint(x: 340, y: 100)))
+        #expect(!drag.isEditorTarget(at: NSPoint(x: 800, y: 450)))
+        drag.targetsEditor = true
+        drag.finish()
+        #expect(!drag.targetsEditor)
+        #expect(!drag.isEditorTarget(at: NSPoint(x: 340, y: 450)))
+    }
+
+    @Test func releasingOverTheEditorOpensTheToolInsteadOfMovingIt() throws {
+        let drag = ToolWindowDragState()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = try #require(window.contentView)
+        let source = ToolWindowDragSource.SourceView(frame: NSRect(x: 560, y: 500, width: 37, height: 40))
+        defer { source.dismantle(); window.contentView = nil; window.close() }
+        drag.workspaceFrame = root.bounds
+        drag.sideWidths = [.left: 120, .right: 120]
+        source.tool = .agent; source.position = .init(anchor: .right, group: .primary); source.drag = drag
+        source.image = { NSImage(size: NSSize(width: 20, height: 20)) }
+        var opened = 0, moved = 0
+        source.openInEditor = { opened += 1 }
+        source.commit = { _, _ in moved += 1 }
+        root.addSubview(source); source.record()
+        #expect(drag.editorTools.contains(.agent))
+        func event(_ type: NSEvent.EventType, _ point: NSPoint, _ time: TimeInterval) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: time,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        source.mouseDown(with: try event(.leftMouseDown, NSPoint(x: 578, y: 520), 1))
+        source.mouseDragged(with: try event(.leftMouseDragged, NSPoint(x: 300, y: 400), 2))
+        #expect(drag.targetsEditor)
+        source.mouseUp(with: try event(.leftMouseUp, NSPoint(x: 300, y: 400), 3))
+        #expect(opened == 1)
+        #expect(moved == 0)
+        #expect(drag.source == nil && !drag.targetsEditor)
     }
 
     @Test func cancellingDragLeavesLayoutUnchangedAndClearsPreview() {
@@ -359,4 +526,19 @@ private final class DockingTestStore: KeyValueStore, @unchecked Sendable {
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+private struct DockingStripeFixture: View {
+    @ObservedObject var drag: ToolWindowDragState
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach([WorkbenchFeatureModel.ToolWindow.terminal, .gitLog], id: \.self) { tool in
+                Button {} label: { Color.clear.frame(width: 20, height: 20) }
+                    .buttonStyle(LitheActivityBarButtonStyle(isDragging: drag.source == tool))
+                    .overlay(ToolWindowDragSource(tool: tool, position: .init(anchor: .bottom, group: .primary),
+                        drag: drag, image: { nil }, click: {}, commit: { _, _ in }))
+            }
+            Spacer(minLength: 0)
+        }
+    }
 }

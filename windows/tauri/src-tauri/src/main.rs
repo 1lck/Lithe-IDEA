@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agent;
 mod ai_commit;
 mod core;
 mod date_time;
@@ -16,6 +17,7 @@ mod lsp;
 mod maven;
 mod memory;
 mod platform;
+mod profile_migration;
 mod project_window_registry;
 mod project_windows;
 mod run;
@@ -46,6 +48,13 @@ fn main() {
             &std::env::args().nth(1).unwrap_or_default(),
         ));
     }
+    // Tauri normally constructs configured WebViews before the setup callback.
+    // Defer them until settings/workspace migration and native managers are ready.
+    let mut context = tauri::generate_context!();
+    let initial_windows = context.config().app.windows.clone();
+    for window in &mut context.config_mut().app.windows {
+        window.create = false;
+    }
     let application = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
             host::enqueue_cli_arguments(app, arguments);
@@ -66,7 +75,28 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|app| {
+        .setup(move |app| {
+            match profile_migration::prepare(app.handle()) {
+                Ok(true) => {
+                    app.handle().plugin(
+                        tauri::plugin::Builder::<_, ()>::new("profile-import-bootstrap")
+                            .js_init_script(profile_migration::IMPORT_BOOTSTRAP)
+                            .build(),
+                    )?;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    use tauri_plugin_dialog::DialogExt;
+                    let handle = app.handle().clone();
+                    handle
+                        .clone()
+                        .dialog()
+                        .message(error)
+                        .title("Lithe-Dev")
+                        .show(move |_| handle.exit(1));
+                    return Ok(());
+                }
+            }
             match logging::LogManager::initialize(app.handle()) {
                 Ok(log_manager) => {
                     app.manage(log_manager);
@@ -99,6 +129,9 @@ fn main() {
             app.manage(debug::DebugAdapterManager::default());
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
+            for config in initial_windows.iter().filter(|config| config.create) {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), config)?.build()?;
+            }
             if let Some(window) = app.get_webview_window("main") {
                 host::apply_window_taskbar_icon(&window);
             }
@@ -108,6 +141,7 @@ fn main() {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 run::cancel_window_prelaunches(window.label());
                 core::close_ide_hosts(window.label());
+                agent::close_window_connections(window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
                 window_title::remove_window(window.app_handle(), window.label());
                 if let Some(watcher) = window.try_state::<Arc<DocumentWatcher>>() {
@@ -124,6 +158,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             date_time::format_system_date_time,
+            agent::agent_open,
+            agent::agent_send,
+            agent::agent_close,
             document::read_document_file,
             document::read_document_file_details,
             document::read_document_file_change,
@@ -219,13 +256,14 @@ fn main() {
             run::run_start_process,
             run::run_stop_process,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building Lithe desktop shell");
 
     application.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
             language_tools::shutdown();
             debug::shutdown();
+            agent::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {
                 manager.shutdown();
             }

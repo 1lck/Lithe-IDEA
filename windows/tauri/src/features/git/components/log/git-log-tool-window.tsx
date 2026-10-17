@@ -56,6 +56,7 @@ import { selectedReferenceAfterRename } from "../../utils/git-log-refresh";
 import { showGitPushDialog } from "../../services/git-push-dialog-service";
 import { updateGitLogBranch } from "../../services/git-log-branch-update";
 import { getGitPullResultPresentation } from "../../utils/git-pull-result-presentation";
+import { showCheckoutFailure } from "../../utils/git-checkout-failure-presentation";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 import type {
   WorkingTreeDiffEntry,
@@ -366,7 +367,7 @@ export function GitLogToolWindow() {
             reference: reference.shortName,
           }));
         } else {
-          toast.error(result.message);
+          showCheckoutFailure(t, reference.shortName, result.message);
         }
       } else {
         const outcome =
@@ -457,7 +458,10 @@ export function GitLogToolWindow() {
     setIsReferenceOperating(true);
     try {
       const result = await checkoutGitReference(repoPath, reference);
-      if (!result.success) throw new Error(result.message || t("git.operationFailed"));
+      if (!result.success) {
+        showCheckoutFailure(t, reference.shortName, result.message);
+        return;
+      }
       await pullWorkflow.pull();
     } catch (error) {
       toast.error(referenceActionErrorMessage(action, error));

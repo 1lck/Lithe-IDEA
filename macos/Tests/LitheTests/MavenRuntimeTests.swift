@@ -488,14 +488,14 @@ struct MavenRuntimeTests {
         #expect(service.mavenExecutable(at: root, overridePath: "toolchains/missing") == nil)
     }
 
-    @Test
+    @Test(arguments: ["mvn", "mvnd"])
     @MainActor
-    func macRuntimeDiscoveryDistinguishesMavenHomeFromExecutable() throws {
+    func macRuntimeDiscoveryDistinguishesMavenHomeFromExecutable(launcher: String) throws {
         let testRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-maven-runtime-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: testRoot) }
         let home = testRoot.appendingPathComponent("apache-maven", isDirectory: true)
-        let homeExecutable = home.appendingPathComponent("bin/mvn")
+        let homeExecutable = home.appendingPathComponent("bin/\(launcher)")
         let directExecutable = testRoot.appendingPathComponent("custom-mvn")
         let invalidHome = testRoot.appendingPathComponent("invalid-maven", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -529,12 +529,23 @@ struct MavenRuntimeTests {
         #expect(service.mavenExecutable(at: testRoot, overridePath: directExecutable.path) == directExecutable)
         #expect(service.mavenExecutable(at: testRoot, overridePath: invalidHome.path) == nil)
 
+        if launcher == "mvnd" {
+            let ordinaryMaven = home.appendingPathComponent("bin/mvn")
+            try Data().write(to: ordinaryMaven)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ordinaryMaven.path)
+            #expect(MacRuntimeDiscovery.mavenExecutable(forHomePath: home.path) == homeExecutable)
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: ordinaryMaven.path)
+        }
+        let binLink = testRoot.appendingPathComponent("bin-alias", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: binLink, withDestinationURL: home.appendingPathComponent("bin"))
+        #expect(service.mavenExecutable(at: testRoot, overridePath: binLink.path) == binLink.appendingPathComponent(launcher))
         let homeLink = testRoot.appendingPathComponent("maven-link", isDirectory: true)
         let executableLink = testRoot.appendingPathComponent("mvn-link")
         try FileManager.default.createSymbolicLink(at: homeLink, withDestinationURL: home)
         try FileManager.default.createSymbolicLink(at: executableLink, withDestinationURL: homeExecutable)
         #expect(!locator.isExecutable(at: homeLink))
-        #expect(service.mavenExecutable(at: testRoot, overridePath: homeLink.path) == homeLink.appendingPathComponent("bin/mvn"))
+        #expect(service.mavenExecutable(at: testRoot, overridePath: homeLink.path) == homeLink.appendingPathComponent("bin/\(launcher)"))
+        #expect(service.mavenExecutable(at: testRoot, overridePath: home.appendingPathComponent("bin").path) == homeExecutable)
         #expect(service.mavenExecutable(at: testRoot, overridePath: executableLink.path) == executableLink)
 
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: homeExecutable.path)

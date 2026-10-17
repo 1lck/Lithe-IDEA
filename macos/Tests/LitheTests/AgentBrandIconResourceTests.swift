@@ -13,7 +13,11 @@ struct AgentBrandIconResourceTests {
             selectedAgent: .init(id: "example-agent", name: name),
             isResponding: false, isBlocked: false, onSend: { _, _ in }, onCancel: {},
             onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in }
-        ).environment(\.colorScheme, isDark ? .dark : .light))
+        )
+        // The composer sizes to its draft; pin it to the bottom as the
+        // conversation layout does, so the crop below finds its toolbar.
+        .frame(maxHeight: .infinity, alignment: .bottom)
+        .environment(\.colorScheme, isDark ? .dark : .light))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 200),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -22,11 +26,13 @@ struct AgentBrandIconResourceTests {
         window.contentView = host
         host.layoutSubtreeIfNeeded()
 
-        // Crop the real native Menu label, excluding neighboring controls and
-        // the text-field caret. No visible window or image baseline is required.
-        let region = NSRect(x: 46, y: host.isFlipped ? host.bounds.height - 42 : 10, width: 28, height: 26)
-        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: region))
-        host.cacheDisplay(in: region, to: bitmap)
+        // Find the real native Menu label by scanning the composer's leading
+        // column instead of cropping a fixed strip: the toolbar no longer sits
+        // flush with the window bottom since the adaptive writing area landed.
+        let leading = NSRect(x: 0, y: 0, width: AgentComposerMetrics.horizontalInset + 24,
+                             height: host.bounds.height)
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: leading))
+        host.cacheDisplay(in: leading, to: bitmap)
         var markPixels = 0
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide {

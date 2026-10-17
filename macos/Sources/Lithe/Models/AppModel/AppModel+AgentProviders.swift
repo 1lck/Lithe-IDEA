@@ -12,6 +12,10 @@ extension AppModel {
         try agentProviderConfiguration.draft(source: source, provider: provider)
     }
 
+    func setAgentProviderConfigurationTextEditing(_ enabled: Bool, draft: inout AgentProviderDraft) throws {
+        try agentProviderConfiguration.setConfigurationTextEditing(enabled, draft: &draft)
+    }
+
     func saveAgentProvider(_ draft: AgentProviderDraft) async throws {
         try beginAgentProviderChange()
         defer { finishAgentProviderChange() }
@@ -21,6 +25,23 @@ extension AppModel {
         try await stopAgentsForProviderChange(affected)
         try agentProviderConfiguration.save(provider, key: key, replacing: previous)
         if !affected.isEmpty { connectAgentConversation() }
+    }
+
+    func setLocalAgentProviderHTTP(_ allowed: Bool, provider: AIProviderProfile) async throws {
+        try beginAgentProviderChange()
+        defer { finishAgentProviderChange() }
+        guard provider.credentialSource.configurationSource != nil,
+              settings.commitMessageAI.providers.contains(provider) else {
+            throw AgentProviderConfigurationError.invalidConfiguration
+        }
+        guard provider.allowsInsecureHTTP != allowed else { return }
+        let affected = settings.agentConfigurations.filter { $0.value.providerID == provider.id }.map(\.key)
+        try await stopAgentsForProviderChange(affected)
+        // Another window may refresh or delete the shared profile while connections stop.
+        guard settings.commitMessageAI.providers.contains(provider) else {
+            throw AgentProviderConfigurationError.invalidConfiguration
+        }
+        settings.updateAIProvider(provider.id) { $0.allowsInsecureHTTP = allowed }
     }
 
     func deleteAgentProvider(_ provider: AIProviderProfile) async throws {
@@ -44,7 +65,7 @@ extension AppModel {
         try await stopAgentsForProviderChange([agentID])
         settings.setAgentProvider(provider?.id, for: agentID, name: name)
         agentConversationFeatureIfActive?.setAgents(configuredAgentOptions)
-        if provider != nil { agentConversationFeatureIfActive?.selectAgent(agentID) }
+        if provider != nil { selectAgentConversationAgent(agentID) }
         connectAgentConversation()
     }
 
@@ -55,7 +76,7 @@ extension AppModel {
         settings.agentConfigurations["codex-acp"] = AgentConfiguration(name: "Codex", providerID: nil,
                                                                       authentication: .codexSubscription)
         agentConversationFeatureIfActive?.setAgents(configuredAgentOptions)
-        agentConversationFeatureIfActive?.selectAgent("codex-acp")
+        selectAgentConversationAgent("codex-acp")
     }
 
     func useLocalAgentProvider(source: AIConfigurationSourceKind, agentID: String, name: String) async throws {
@@ -68,7 +89,7 @@ extension AppModel {
         try await stopAgentsForProviderChange([agentID])
         if importLocalConfiguration(for: agentID, source: source, name: name) {
             agentConversationFeatureIfActive?.setAgents(configuredAgentOptions)
-            agentConversationFeatureIfActive?.selectAgent(agentID)
+            selectAgentConversationAgent(agentID)
             connectAgentConversation()
         }
     }

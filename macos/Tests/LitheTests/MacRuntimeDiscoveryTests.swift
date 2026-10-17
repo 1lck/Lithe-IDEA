@@ -65,6 +65,65 @@ struct MacRuntimeDiscoveryTests {
         #expect(homes == [javaHome.standardizedFileURL])
     }
 
+    @Test
+    func discoversMvndWithoutProbingAndPreservesMavenPriority() {
+        func discover(_ environment: [String: String], files: Set<String>) -> [String] {
+            MacRuntimeDiscovery.discoverMavenExecutables(
+                environment: environment, isExecutable: { files.contains($0.path) }
+            ).map(\.path)
+        }
+        let daemon = "/fixture/daemon/bin/mvnd"
+        let pathDaemon = "/fixture/path/mvnd"
+        let maven = "/fixture/maven/bin/mvn"
+        #expect(discover(["MVND_HOME": "/fixture/daemon"], files: [daemon]) == [daemon])
+        #expect(discover(["PATH": "/fixture/path"], files: [pathDaemon]) == [pathDaemon])
+        #expect(discover(["MVND_HOME": "/missing", "PATH": "/fixture/path"], files: [pathDaemon]) == [pathDaemon])
+        #expect(discover(
+            ["MAVEN_HOME": "/fixture/maven", "MVND_HOME": "/fixture/daemon", "PATH": "/fixture/path"],
+            files: [daemon, pathDaemon, maven]
+        ) == [maven, daemon, pathDaemon])
+        #expect(discover(
+            ["PATH": "/fixture/path:/fixture/maven/bin:/fixture/path"], files: [pathDaemon, maven]
+        ) == [maven, pathDaemon])
+        #expect(discover(["M2_HOME": "/fixture/maven"], files: [maven]) == [maven])
+        #expect(discover(["MVND_HOME": "/missing"], files: []) == [])
+        #expect(discover([:], files: ["/opt/homebrew/bin/mvnd"]) == ["/opt/homebrew/bin/mvnd"])
+        #expect(discover([:], files: ["/usr/local/bin/mvn", "/opt/homebrew/bin/mvnd"])
+            == ["/usr/local/bin/mvn", "/opt/homebrew/bin/mvnd"])
+    }
+
+    @Test
+    func explicitDaemonHomeNeverFallsBackToEmbeddedMaven() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let embedded = root.appendingPathComponent("mvn/bin/mvn")
+        try FileManager.default.createDirectory(at: embedded.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: embedded)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: embedded.path)
+        #expect(MacRuntimeDiscovery.mavenExecutable(forHomePath: root.path) == nil)
+        let bin = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        // Traversable directories named like launchers are not executable files.
+        try FileManager.default.createDirectory(at: bin.appendingPathComponent("mvnd"), withIntermediateDirectories: true)
+        #expect(MacRuntimeDiscovery.mavenExecutable(forHomePath: root.path) == nil)
+    }
+
+    @Test
+    func mavenVersionsMatchSharedContract() throws {
+        struct Fixture: Decodable {
+            struct Case: Decodable { let output: String; let version: String? }
+            let cases: [Case]
+        }
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/execution/maven-runtime-versions.json")))
+        for example in fixture.cases {
+            #expect(MacRuntimeDiscovery.mavenVersion(in: example.output) == example.version)
+        }
+    }
+
     private func createExecutableJava(at home: URL) throws {
         let executable = home.appendingPathComponent("bin/java")
         try FileManager.default.createDirectory(

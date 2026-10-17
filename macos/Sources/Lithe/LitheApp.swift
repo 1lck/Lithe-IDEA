@@ -57,6 +57,20 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     }
     var prepareStableRollbackTermination: (() -> Bool)?
     var cancelStableRollbackTermination: (() -> Bool)?
+    weak var settings: AppSettings? {
+        didSet { configureAgentDisconnectConfirmation() }
+    }
+    private let processExitCoordinator = ProcessExitCoordinator(
+        core: RustProcessLifecycleDecider(core: RustCoreBridge()),
+        presenter: MacProcessExitConfirmationPresenter.shared
+    )
+    /// Background services the user kept in the quit confirmation; recorded
+    /// only once quitting can no longer be cancelled.
+    private var keptBackgroundProcesses: [MacProcessIdentity] = []
+    /// Background services the user chose to end. The final sweep ends only
+    /// these exact identities; a successor spawned later waits for startup.
+    private var endedBackgroundProcesses: [MacProcessIdentity] = []
+    private var finalSweepGracePeriod: TimeInterval = 5
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
@@ -71,6 +85,49 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(kCoreEventClass),
             andEventID: AEEventID(kAEOpenDocuments)
         )
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor [weak self] in await self?.sweepEarlierInstances() }
+    }
+
+    /// Offers to end what an earlier Lithe left running when it did not quit
+    /// normally. Only processes carrying that instance's scope are listed.
+    private func sweepEarlierInstances() async {
+        guard let instance = MacProcessInstance.current else { return }
+        let store = instance.store
+        let currentScope = instance.scope.id
+        let excluded = instance.excludedProcessIDs
+        let settings = settings?.processTermination ?? ProcessTerminationSettings()
+        let leftovers = await Task.detached {
+            MacStartupProcessSweep.leftovers(
+                store: store,
+                currentScope: currentScope,
+                excluding: excluded,
+                settings: settings
+            )
+        }.value
+        guard !leftovers.isEmpty else { return }
+        // Item IDs name live processes, so they stay unique across instances.
+        let items = leftovers.flatMap(\.inventory.items)
+        let plan = ProcessLifecyclePlan(
+            gracefulStopMilliseconds: UInt64(settings.gracefulStopSeconds) * 1_000,
+            decisions: leftovers.flatMap { $0.inventory.plan?.decisions ?? [] }
+        )
+        let terminate = await processExitCoordinator.confirmStartupSweep(
+            settings: settings,
+            items: items,
+            plan: plan
+        )
+        let ended = items.filter { terminate.contains($0.id) }
+            .flatMap(\.processes)
+            .map(MacProcessIdentity.init)
+        let gracePeriod = TimeInterval(settings.gracefulStopSeconds)
+        await Task.detached {
+            _ = MacProcessScopeScanner.terminate(ended, gracePeriod: gracePeriod)
+        }.value
+        // Whatever was kept is no longer Lithe's to manage.
+        Set(leftovers.map(\.scope)).forEach(store.remove)
     }
 
     func prepareForUpdateRelaunch() {
@@ -89,6 +146,9 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(nanoseconds: Self.updateTerminationForceExitNanoseconds)
             guard let self, self.isUpdateInstallTermination, !Task.isCancelled else { return }
             // Sparkle's installer is waiting, and the user has confirmed unsaved work.
+            // exit() skips applicationWillTerminate, so end the children here.
+            MacLiveProcessGroups.application.terminateAllAndWait()
+            self.sweepProcessScope()
             Foundation.exit(EXIT_SUCCESS)
         }
     }
@@ -127,22 +187,33 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             let confirmed = await Self.confirmUnsavedDocuments(
                 for: projectSessions, context: .applicationTermination
             )
+            let processesConfirmed = confirmed && preparation.matches(projectSessions.closingDocuments)
+                ? await self.confirmProcessExit(projectSessions)
+                : false
             self.terminationConfirmationTask = nil
-            guard confirmed, !Task.isCancelled, preparation.matches(projectSessions.closingDocuments) else {
+            guard confirmed, processesConfirmed, !Task.isCancelled,
+                  preparation.matches(projectSessions.closingDocuments) else {
                 if self.isUpdateInstallTermination, self.cancelStableRollbackTermination?() == true {
                     self.isUpdateInstallTermination = false
                 }
+                self.cancelProcessExit()
                 sender.reply(toApplicationShouldTerminate: false)
                 return
             }
             if self.isUpdateInstallTermination {
                 guard self.prepareStableRollbackTermination?() ?? true else {
                     self.isUpdateInstallTermination = false
+                    self.cancelProcessExit()
                     sender.reply(toApplicationShouldTerminate: false)
                     return
                 }
-                self.boundUpdateTermination()
             }
+            // No cancellation remains: protect every project's kept tasks and
+            // resources before the first module stops or an update timer fires.
+            MacAgentProcessRegistry.application.commitQuitRetention()
+            MacProcessInstance.current?.retain(self.keptBackgroundProcesses)
+            MacProcessInstance.current?.approveTermination(self.endedBackgroundProcesses)
+            if self.isUpdateInstallTermination { self.boundUpdateTermination() }
             transferred = true
             _ = self.beginTerminationCleanup(
                 for: projectSessions, sender: sender, preparation: preparation,
@@ -194,6 +265,10 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Session shutdown has already stopped what it knows about. Whatever
+        // is still alive must not outlive the IDE.
+        MacLiveProcessGroups.application.terminateAllAndWait()
+        sweepProcessScope()
         isUpdateInstallTermination = false
         updateForceExitTask?.cancel()
         updateForceExitTask = nil
@@ -272,6 +347,71 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Asks about busy terminals, Agent tasks and background services, in
+    /// that order. Nothing is stopped here; a cancel keeps everything running.
+    private func confirmProcessExit(_ projectSessions: ProjectSessionManager) async -> Bool {
+        guard let settings else { return true }
+        let terminals = projectSessions.sessions.flatMap(\.terminalExitCandidates)
+        let agentTasks = MacAgentProcessRegistry.application.tasks()
+        let services = MacProcessInstance.current.map { MacProcessInventoryReader().backgroundServices(instance: $0) } ?? []
+        let (outcome, updatedSettings) = await processExitCoordinator.confirmQuit(
+            settings: settings.processTermination,
+            terminals: terminals,
+            agentTasks: agentTasks.map(\.candidate),
+            resources: services.map(\.candidate)
+        )
+        switch outcome {
+        case .cancelled:
+            return false
+        case .revealTerminal(let terminal):
+            guard let model = projectSessions.sessions.first(where: { $0.id == terminal.ownerID }) else { return false }
+            projectSessions.activateSession(model.id)
+            model.revealTerminalSession(terminal.sessionID)
+            NSApp.activate(ignoringOtherApps: true)
+            return false
+        case .proceed(let approval):
+            if updatedSettings != settings.processTermination {
+                settings.processTermination = updatedSettings
+            }
+            MacAgentProcessRegistry.application.prepareForQuit(
+                keeping: Set(approval.keepAgentTasks), tasks: agentTasks
+            )
+            let kept = Set(approval.keepResources)
+            keptBackgroundProcesses = services.filter { kept.contains($0.candidate.id) }
+                .flatMap(\.item.processes)
+                .map(MacProcessIdentity.init)
+            let ended = Set(approval.terminateResources)
+            endedBackgroundProcesses = services.filter { ended.contains($0.candidate.id) }
+                .flatMap(\.item.processes)
+                .map(MacProcessIdentity.init)
+            finalSweepGracePeriod = TimeInterval(approval.gracefulStopMilliseconds) / 1_000
+            return true
+        }
+    }
+
+    private func cancelProcessExit() {
+        MacAgentProcessRegistry.application.cancelQuit()
+        keptBackgroundProcesses = []
+        endedBackgroundProcesses = []
+    }
+
+    /// Ends whatever of this instance is still alive, except what the user kept.
+    private func sweepProcessScope() {
+        guard let instance = MacProcessInstance.current else { return }
+        instance.retain(keptBackgroundProcesses)
+        instance.finalSweep(gracePeriod: finalSweepGracePeriod)
+    }
+
+    private func configureAgentDisconnectConfirmation() {
+        let coordinator = processExitCoordinator
+        MacAgentProcessRegistry.application.confirmDisconnect = { [weak self] tasks in
+            await coordinator.confirmAgentDisconnect(
+                settings: self?.settings?.processTermination ?? ProcessTerminationSettings(),
+                tasks: tasks
+            )
+        }
+    }
+
     static func confirmUnsavedDocuments(
         for documentOwner: any UnsavedDocumentHandling,
         context: UnsavedDocumentsConfirmationContext
@@ -312,6 +452,16 @@ struct LitheApp: App {
     private let applicationLogWriter: MacApplicationLogWriter
 
     init() {
+        do {
+            _ = try MacDevelopmentProfileMigration.prepare()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Could not copy your Stable settings")
+            alert.informativeText = String(localized: "Your original settings and workspace data have been preserved. Restart Lithe-Dev to try again.") + "\n\n" + error.localizedDescription
+            alert.addButton(withTitle: String(localized: "Quit"))
+            alert.runModal()
+            exit(1)
+        }
         let store = MacUserDefaultsStore()
         if LithePerformanceBaseline.isEnabled {
             LitheSignpost.configureBaselineOutput { line in
@@ -387,6 +537,7 @@ struct LitheApp: App {
         })
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
+        appDelegate.settings = settings
         let appDelegate = appDelegate
         updateChecker.willRelaunchForUpdate = { [weak appDelegate] in
             appDelegate?.prepareForUpdateRelaunch()

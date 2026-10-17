@@ -15,6 +15,27 @@ enum AgentHistoryFilter: String, CaseIterable {
 }
 
 enum AgentHistoryPresentation {
+    enum EmptyState { case loading, incomplete, noMatches, noHistory }
+
+    /// A partial upstream scan cannot establish that history or a search is empty.
+    static func emptyState(isRefreshing: Bool, query: String, isArchivedHistoryComplete: Bool) -> EmptyState {
+        if isRefreshing { return .loading }
+        if !isArchivedHistoryComplete { return .incomplete }
+        return query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .noHistory : .noMatches
+    }
+
+    static func popupTitle(_ session: AgentSessionSummary, metadata: AgentHistoryMetadata?,
+                           conversation: AgentConversation?, locale: Locale = .current) -> String {
+        if let title = metadata?.title ?? session.title { return title }
+        if let prompt = conversation?.messages.first(where: { $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return AgentSessionTitle.provisional(prompt.text)
+        }
+        if let conversation, conversation.isAttached, !conversation.isLoading, conversation.messages.isEmpty {
+            return AgentLocalization.string("New Chat", locale: locale)
+        }
+        return AgentLocalization.string("Untitled conversation", locale: locale)
+    }
+
     static func sessions(_ sessions: [AgentSessionSummary], metadata: [String: AgentHistoryMetadata],
                          query: String, filter: AgentHistoryFilter) -> [AgentSessionSummary] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -29,13 +50,47 @@ enum AgentHistoryPresentation {
         }.map(\.session)
     }
 
+    static func popupSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
+                              metadata: [String: AgentHistoryMetadata], selectedSessionID: String? = nil, locale: Locale = .current) -> [AgentSessionSummary] {
+        let listed = Self.sessions(sessions, metadata: metadata, query: "", filter: .all)
+        let knownIDs = Set(sessions.map(\.id))
+        let pending = openSessionIDs.reversed().filter {
+            !knownIDs.contains($0) && metadata[$0]?.isHidden != true
+        }.map { AgentSessionSummary(id: $0, title: AgentLocalization.string("New Chat", locale: locale)) }
+        let rows = pending + listed
+        return rows.filter { $0.id == selectedSessionID } + rows.filter { $0.id != selectedSessionID }
+    }
+
+    /// The original management page also includes open chats that the Agent has
+    /// not listed yet. Titles are derived for display without changing its history.
+    static func managementSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
+                                   conversations: [String: AgentConversation], archivedSessionIDs: Set<String> = [],
+                                   metadata: [String: AgentHistoryMetadata],
+                                   query: String, filter: AgentHistoryFilter, locale: Locale = .current) -> [AgentSessionSummary] {
+        let activeSessions = sessions.filter { !archivedSessionIDs.contains($0.id) }
+        let activeOpenIDs = openSessionIDs.filter { !archivedSessionIDs.contains($0) }
+        let listedIDs = Set(activeSessions.map(\.id))
+        let rows = popupSessions(activeSessions, openSessionIDs: activeOpenIDs, metadata: [:], locale: locale).map { session in
+            var row = session
+            if !listedIDs.contains(session.id), let prompt = conversations[session.id]?.messages.first(where: {
+                $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) {
+                row.title = AgentSessionTitle.provisional(prompt.text)
+            }
+            row.title = popupTitle(row, metadata: metadata[session.id], conversation: conversations[session.id], locale: locale)
+            return row
+        }
+        return Self.sessions(rows, metadata: metadata, query: query, filter: filter)
+    }
+
+    /// Value-type styles: creating an `ISO8601DateFormatter` per call made
+    /// sorting and every history row render measurably slow.
+    private static let fractionalDateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let dateStyle = Date.ISO8601FormatStyle()
+
     static func date(_ value: String?) -> Date? {
         guard let value else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: value) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
+        return (try? fractionalDateStyle.parse(value)) ?? (try? dateStyle.parse(value))
     }
 
     static func messageCount(_ conversation: AgentConversation?) -> Int? {
@@ -47,6 +102,7 @@ enum AgentHistoryPresentation {
 
 /// In-panel history page: annotations stay in Lithe, transcripts stay with the Agent.
 struct AgentHistoryView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: AgentConnectionModel
     @ObservedObject var history: AgentHistoryFeatureModel
     let agentName: String?
@@ -63,36 +119,49 @@ struct AgentHistoryView: View {
     @State private var editingTitle = ""
     @State private var copiedID: String?
     @State private var pendingRemovalIDs: [String]?
+    /// The user's explicit toggle; a new search falls back to the default.
+    @State private var archivedExpansion: Bool?
+    @State private var pendingUnarchiveID: String?
+    /// Opens a conversation once its unarchive completes. Leaving the page
+    /// cancels only the navigation; the confirmed upstream restore still finishes.
+    @State private var unarchiveOpenTask: Task<Void, Never>?
 
     private var sessions: [AgentSessionSummary] {
-        AgentHistoryPresentation.sessions(feature.sessions, metadata: history.metadata, query: query, filter: filter)
+        AgentHistoryPresentation.managementSessions(feature.sessions, openSessionIDs: feature.openSessionIDs,
+            conversations: feature.conversations, archivedSessionIDs: Set(feature.archivedSessions.map(\.id)),
+            metadata: history.metadata, query: query, filter: filter, locale: locale)
     }
+    /// Searched and filtered like active rows; local restoration never loads a transcript.
+    private var archived: [AgentSessionSummary] {
+        AgentHistoryPresentation.sessions(feature.archivedSessions, metadata: history.metadata, query: query, filter: filter)
+    }
+    private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// Collapsed by default; a search that matches archived rows reveals them.
+    private var isArchivedExpanded: Bool { archivedExpansion ?? (isSearching && !archived.isEmpty) }
     private var visibleIDs: [String] { sessions.map(\.id) }
     private var selected: [String] { visibleIDs.filter(selectedIDs.contains) }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Button(action: onBack) { Label("Back", systemImage: "arrow.left") }
-                    .buttonStyle(.litheNoPress).lithePointer()
-                    .accessibilityIdentifier("agent-history-back")
-                Spacer()
-                Text("Conversation history").fontWeight(.medium)
+            LitheToolWindowHeader(title: "Conversation history", usesWorkbenchSurface: true) {
+                Button(action: onBack) {
+                    HStack(spacing: LitheTheme.Banner.gap) {
+                        LitheSystemIcon(systemImage: "arrow.left", size: LitheTheme.Metrics.toolbarIconSize)
+                        Text("Back")
+                    }
+                }
+                .litheToolbarIconButton(isIconOnly: false)
+                .accessibilityIdentifier("agent-history-back")
             }
-            .foregroundStyle(AgentPanelStyle.secondary)
-            .font(LitheTheme.uiFont(size: 12))
-            .padding(.horizontal, 20)
-            .frame(height: 44)
-            .background(AgentPanelStyle.header)
             divider
             toolbar
             divider
-            if let error = history.errorMessage ?? feature.historyError {
-                AgentInlineNotice(text: error)
+            if let error = history.errorMessage ?? feature.historyError ?? feature.archivedHistoryError {
+                AgentInlineNotice(text: error, status: .error)
                     .padding(.top, 8)
             }
             if case .failed(let message) = feature.connectionState {
-                AgentInlineNotice(text: message, actionTitle: "Reconnect", action: onReconnect)
+                AgentInlineNotice(text: message, status: .error, actionTitle: "Reconnect", action: onReconnect)
                     .padding(.top, 8)
             }
             if history.isExporting {
@@ -103,19 +172,29 @@ struct AgentHistoryView: View {
                     Button("Cancel") { history.cancelExport() }.buttonStyle(.litheNoPress)
                 }.font(LitheTheme.uiFont(size: 12)).padding(12)
             }
-            if sessions.isEmpty {
+            if !feature.isArchivedHistoryComplete {
+                Text("Only the most recent archived conversations are shown.")
+                    .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20).padding(.vertical, 8)
+                    .accessibilityIdentifier("agent-history-archive-incomplete")
+            }
+            if sessions.isEmpty && archived.isEmpty {
                 emptyState
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(sessions) { session in row(session) }
+                        if !archived.isEmpty { archivedSection }
                     }
                 }
                 .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
             }
         }
-        .background(AgentPanelStyle.canvas)
+        .litheWorkbenchSurface(AgentPanelStyle.canvas)
+        .onAppear { feature.refreshSessions() }
         .onChange(of: visibleIDs) { selectedIDs.formIntersection($0) }
+        .onChange(of: query) { _ in archivedExpansion = nil }
         .alert("Confirm deletion", isPresented: Binding(
             get: { pendingRemovalIDs != nil },
             set: { if !$0 { pendingRemovalIDs = nil } }
@@ -125,9 +204,31 @@ struct AgentHistoryView: View {
                 if history.setHidden(ids, true) { selectedIDs.subtract(ids) }
             }
         } message: { ids in
-            Text(String(format: String(localized: "Remove %d conversation(s) from history? You can restore them from Removed conversations. The Agent's original records will be kept."), ids.count))
+            Text(String(format: AgentLocalization.string("Remove %d conversation(s) from history? You can restore them from Removed conversations. The Agent's original records will be kept.", locale: locale), ids.count))
         }
-        .onDisappear { pendingRemovalIDs = nil }
+        .alert("Unarchive this conversation?", isPresented: Binding(
+            get: { pendingUnarchiveID != nil },
+            set: { if !$0 { pendingUnarchiveID = nil } }
+        ), presenting: pendingUnarchiveID) { id in
+            Button("Cancel", role: .cancel) { pendingUnarchiveID = nil }
+            Button("Unarchive and open") {
+                pendingUnarchiveID = nil
+                unarchiveOpenTask?.cancel()
+                unarchiveOpenTask = Task {
+                    // Failures are shown through the model's archived history error.
+                    let canOpen = (try? await feature.unarchiveSession(id)) == true
+                    if canOpen, !Task.isCancelled { onSelect(id) }
+                }
+            }
+        } message: { _ in
+            Text(String(format: AgentLocalization.string("Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them.", locale: locale), agentDisplayName))
+        }
+        .onDisappear {
+            pendingRemovalIDs = nil
+            pendingUnarchiveID = nil
+            unarchiveOpenTask?.cancel()
+            unarchiveOpenTask = nil
+        }
         .accessibilityIdentifier("agent-history-page")
     }
 
@@ -175,6 +276,11 @@ struct AgentHistoryView: View {
                 Text("Removed conversations are hidden only in Lithe. The Agent's original records are kept.")
                     .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            } else if feature.connectionState == .ready && !feature.canListArchivedSessions {
+                Text(String(format: AgentLocalization.string("%@ does not provide archived conversations.", locale: locale), agentDisplayName))
+                    .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("agent-history-archive-unsupported")
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 14)
@@ -183,8 +289,8 @@ struct AgentHistoryView: View {
     private var summaryControls: some View {
         HStack(spacing: 8) {
             Text(isSelecting
-                 ? String(format: String(localized: "%d selected"), selected.count)
-                 : String(format: String(localized: "%d conversations"), sessions.count))
+                 ? String(format: AgentLocalization.string("%d selected", locale: locale), selected.count)
+                 : String(format: AgentLocalization.string("%d conversations", locale: locale), sessions.count))
                 .font(LitheTheme.uiFont(size: 12)).foregroundStyle(AgentPanelStyle.secondary)
             Spacer(minLength: 0)
             Button {
@@ -192,12 +298,12 @@ struct AgentHistoryView: View {
             } label: {
                 Label(isSelecting ? "Done" : "Select", systemImage: "checklist")
                     .font(LitheTheme.uiFont(size: 11))
-            }.buttonStyle(.bordered).controlSize(.small)
+            }.buttonStyle(LitheSecondaryButtonStyle())
                 .accessibilityIdentifier("agent-history-select")
             Button { feature.refreshSessions() } label: {
                 if feature.isRefreshingSessions { ProgressView().controlSize(.mini) }
-                else { Image(systemName: "arrow.clockwise") }
-            }.buttonStyle(.bordered).controlSize(.small)
+                else { LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true) }
+            }.litheToolbarIconButton()
                 .disabled(!feature.canRefreshSessions || feature.isRefreshingSessions)
                 .help("Refresh history")
                 .accessibilityIdentifier("agent-history-refresh")
@@ -206,42 +312,80 @@ struct AgentHistoryView: View {
 
     private var searchControls: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                TextField("Search conversation titles or IDs…", text: $query)
-                    .textFieldStyle(.plain)
-                    .accessibilityIdentifier("agent-history-search")
-                if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.litheNoPress).help("Clear search")
-                } else { Image(systemName: "magnifyingglass") }
-            }
-            .font(LitheTheme.uiFont(size: 12))
-            .padding(.horizontal, 10).frame(height: 28)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(AgentPanelStyle.border))
+            LitheSettingsSearchField("Search conversation titles or IDs…", text: $query)
+                .accessibilityIdentifier("agent-history-search")
             LitheMenu {
                 for mode in AgentHistoryFilter.allCases {
                     LitheContextMenuItem.action(mode.menuTitle, checked: mode == filter) { filter = mode }
                 }
             } label: {
-                Image(systemName: filter == .favorites ? "star.fill" : "line.3.horizontal.decrease")
+                LitheSystemIcon(systemImage: filter == .favorites ? "star.fill" : "line.3.horizontal.decrease", size: LitheTheme.Metrics.toolbarIconSize)
             }
-            .buttonStyle(.litheNoPress)
-                .fixedSize()
-                .frame(width: 24).help(filter.title)
+            .litheToolbarIconButton()
+                .help(filter.title)
                 .accessibilityIdentifier("agent-history-filter")
         }.foregroundStyle(AgentPanelStyle.secondary)
     }
 
     @ViewBuilder private var emptyState: some View {
-        if feature.isRefreshingSessions {
+        switch AgentHistoryPresentation.emptyState(
+            isRefreshing: feature.isRefreshingSessions || feature.isRefreshingArchivedSessions,
+            query: query, isArchivedHistoryComplete: feature.isArchivedHistoryComplete
+        ) {
+        case .incomplete:
+            Spacer(minLength: 0)
+        case .loading:
             AgentEmptyStateView(systemImage: "clock", title: "Loading history…", message: "", isBusy: true)
-        } else if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        case .noMatches:
             AgentEmptyStateView(systemImage: "magnifyingglass", title: "No matching conversations",
-                               message: String(localized: "Try another title or session ID."))
-        } else {
+                               message: AgentLocalization.string("Try another title or session ID.", locale: locale))
+        case .noHistory:
             AgentEmptyStateView(systemImage: "clock.arrow.circlepath", title: "No earlier conversations",
-                               message: String(localized: "Conversations for this project and Agent appear here."))
+                               message: AgentLocalization.string("Conversations for this project and Agent appear here.", locale: locale))
         }
+    }
+
+    private var agentDisplayName: String { agentName ?? AgentLocalization.string("This Agent", locale: locale) }
+
+    private var archivedSection: some View {
+        VStack(spacing: 0) {
+            Button { archivedExpansion = !isArchivedExpanded } label: {
+                HStack(spacing: 6) {
+                    LitheSystemIcon(systemImage: isArchivedExpanded ? "chevron.down" : "chevron.right", size: 10)
+                    Text(String(format: AgentLocalization.string("Archived (%d)", locale: locale), archived.count))
+                        .font(LitheTheme.uiFont(size: 12, weight: .semibold))
+                    if feature.isRefreshingArchivedSessions || feature.unarchivingSessionID != nil {
+                        ProgressView().controlSize(.mini)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.litheNoPress).lithePointer()
+            .foregroundStyle(AgentPanelStyle.secondary)
+            .padding(.horizontal, 20).padding(.vertical, 10)
+            .overlay(alignment: .bottom) { divider }
+            .accessibilityIdentifier("agent-history-archived")
+            if isArchivedExpanded {
+                ForEach(archived) { session in archivedRow(session) }
+            }
+        }
+    }
+
+    /// Upstream unarchive requires consent. Restoring Lithe visibility only clears
+    /// local metadata, so it is available independently in Removed conversations.
+    private func archivedRow(_ session: AgentSessionSummary) -> some View {
+        AgentHistoryRow(
+            session: session, title: displayTitle(session), agentName: agentName, messageCount: nil,
+            isCurrent: false, isFavorite: false, isRemoved: filter == .removed, isArchived: true, isSelecting: false,
+            isSelected: false, isFocused: historyListActive, isEditing: false,
+            editingTitle: $editingTitle, isCopied: copiedID == session.id, canExport: false,
+            canOpen: feature.connectionState == .ready && feature.unarchivingSessionID == nil,
+            onOpen: { pendingUnarchiveID = session.id }, onToggleSelection: {},
+            onCopy: { onCopySessionID(session.id); copiedID = session.id },
+            onRename: {}, onSave: {}, onCancel: {}, onExport: {}, onFavorite: {},
+            onRemove: { history.setHidden([session.id], false) }
+        )
     }
 
     private func row(_ session: AgentSessionSummary) -> some View {
@@ -274,13 +418,14 @@ struct AgentHistoryView: View {
     }
 
     private func displayTitle(_ session: AgentSessionSummary) -> String {
-        AgentSessionTitle.title(of: AgentSessionSummary(id: session.id, title: history.title(for: session)))
+        AgentSessionTitle.title(of: AgentSessionSummary(id: session.id, title: history.title(for: session)), locale: locale)
     }
 
     private var divider: some View { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }
 }
 
 private struct AgentHistoryRow: View {
+    @Environment(\.locale) private var locale
     let session: AgentSessionSummary
     let title: String
     let agentName: String?
@@ -288,6 +433,7 @@ private struct AgentHistoryRow: View {
     let isCurrent: Bool
     let isFavorite: Bool
     let isRemoved: Bool
+    var isArchived = false
     let isSelecting: Bool
     let isSelected: Bool
     let isFocused: Bool
@@ -342,8 +488,14 @@ private struct AgentHistoryRow: View {
             }
             HStack(spacing: 6) {
                 if let messageCount {
-                    Text(String(format: String(localized: "%d messages"), messageCount))
+                    Text(String(format: AgentLocalization.string("%d messages", locale: locale), messageCount))
                         .lineLimit(1)
+                    Text("·")
+                }
+                if isArchived {
+                    Text("Archived")
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .overlay(Capsule().stroke(AgentPanelStyle.border))
                     Text("·")
                 }
                 Text(String(session.id.prefix(8))).font(LitheTheme.uiFont(size: 10, design: .monospaced))
@@ -351,7 +503,11 @@ private struct AgentHistoryRow: View {
                 icon(isCopied ? "checkmark" : "doc.on.doc", "Copy session ID", onCopy)
                     .accessibilityIdentifier("agent-history-copy-\(session.id)")
                 Spacer(minLength: 0)
-                if !isSelecting && !isEditing {
+                if !isSelecting && !isEditing && isArchived && isRemoved {
+                    icon("arrow.uturn.backward", "Restore conversations", onRemove)
+                        .accessibilityIdentifier("agent-history-restore-\(session.id)")
+                }
+                if !isSelecting && !isEditing && !isArchived {
                     HStack(spacing: 2) {
                         if !isRemoved {
                             icon("pencil", "Rename conversation", onRename)
@@ -377,7 +533,7 @@ private struct AgentHistoryRow: View {
     }
 
     private func icon(_ name: String, _ title: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: name).font(LitheTheme.uiFont(size: 11)).frame(width: 22, height: 22) }
-            .buttonStyle(.litheNoPress).lithePointer().help(title).accessibilityLabel(title)
+        Button(action: action) { LitheSystemIcon(systemImage: name, size: LitheTheme.Metrics.toolbarIconSize) }
+            .litheToolbarIconButton().help(title).accessibilityLabel(title)
     }
 }

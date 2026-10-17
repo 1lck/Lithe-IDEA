@@ -201,6 +201,7 @@ public struct ModuleFactory {
 
 public enum ModuleRuntimeError: Error, Equatable, LocalizedError, Sendable {
     case duplicateModule(ModuleID)
+    case duplicateContribution(String)
     case unknownModule(ModuleID)
     case dependencyCycle([ModuleID])
     case missingModuleDependency(module: ModuleID, dependency: ModuleID)
@@ -221,6 +222,7 @@ public enum ModuleRuntimeError: Error, Equatable, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
+        case .duplicateContribution(let id): "UI contribution \(id) is declared more than once."
         case .duplicateModule(let id): "Module \(id) is already registered."
         case .unknownModule(let id): "Module \(id) is not registered."
         case .dependencyCycle(let ids): "Module dependency cycle: \(ids.map(\.rawValue).joined(separator: " -> "))."

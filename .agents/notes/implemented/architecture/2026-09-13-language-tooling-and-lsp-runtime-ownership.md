@@ -94,6 +94,16 @@ Monaco 选项控制，缺少协商能力时保留基础语法高亮。
 
 ### 会话生命周期不变量
 
+诊断按“已打开文档的 URI”归属，但语言服务器不一定用同一种写法回报路径。
+JDT 用解析符号链接（symbolic link，指向另一个目录的快捷路径）之后的位置
+发布诊断：宿主以 `/tmp/...` 打开的文件，诊断发到 `/private/tmp/...`。逐字
+比较 URI 会把这类诊断整条丢弃，表现为工程能编译报错、编辑器和问题面板却
+没有任何 Java 错误。因此 Rust 引擎在把 `textDocument/publishDiagnostics`
+交给客户端状态机之前，先看发布的 URI 是否对应某个已打开文档；对不上时
+再比较两边解析后的真实文件，命中就把诊断改写到该文档自己的 URI 上
+（`diagnostics_addressed_to_open_document`）。平台代码收到的诊断 URI 因此
+始终是它打开文档时用的那个，不需要、也不要各自再做一遍路径折叠。
+
 会话生命周期必须是单一判别状态；capability 协商单独表示为 `unknown`
 或 `known`，不能由 `ready`、`featuresKnown`、`supportsFeature` 等多个
 布尔字段组合推导。跨边界失败必须保留稳定的 `code`、`stage`、退出码和
@@ -289,7 +299,8 @@ ready；initialize 出错不能变为 ready；两次 sync 分别产生 open
 version 1 和 change version 2；崩溃会以 `serverExited` 使所有 pending
 操作失败；请求 deadline 会移除 pending 请求；超时后的迟到响应被
 忽略；旧 session 的响应不能影响重启后的新 session；旧 session/旧
-文档版本的诊断被忽略；关闭文档会清除 Rust 侧文档和诊断状态；
+文档版本的诊断被忽略；以解析后路径发布的诊断仍然送达通过符号链接
+打开的文档；关闭文档会清除 Rust 侧文档和诊断状态；
 shutdown 在收到响应后发送 exit，超时则强制终止；`Content-Length`
 畸形产生 transport failure；不完整的 stdout frame 会被保留并在 Rust
 侧补全；连续 frame 按顺序解析；动态 capability 注册/反注册会更新

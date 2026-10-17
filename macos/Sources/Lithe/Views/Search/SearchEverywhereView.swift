@@ -105,6 +105,7 @@ struct SearchEverywhereView: View {
     let copyPath: (URL, Bool) -> Void
     let relativePath: (URL) -> String
     let moduleLabel: (URL) -> String
+    var actionIcon: (LitheAction) -> AnyView? = { _ in nil }
     @FocusState private var searchFocused: Bool
     @State private var query = ""
     @State private var selectedIndex = 0
@@ -460,11 +461,20 @@ struct SearchEverywhereView: View {
             performAction(action)
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "bolt.fill")
-                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
-                    .foregroundStyle(LitheTheme.warning)
-                    .frame(width: 16)
-                Text(LocalizedStringKey(action.title))
+                if let icon = actionIcon(action) {
+                    icon.foregroundStyle(index == selectedIndex ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText)
+                } else if action.contributionID != nil && !action.localizesTitle {
+                    Color.clear.frame(width: WorkbenchContributionIcon.Role.action.size)
+                } else {
+                    Image(systemName: "bolt.fill")
+                        .font(LitheTheme.uiFont(size: 11, weight: .semibold))
+                        .foregroundStyle(LitheTheme.warning)
+                        .frame(width: 16)
+                }
+                Group {
+                    if action.localizesTitle { Text(LocalizedStringKey(action.title)) }
+                    else { Text(verbatim: action.title) }
+                }
                     .font(LitheTheme.uiFont(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
@@ -492,6 +502,8 @@ struct SearchEverywhereView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.litheNoPress)
+        .disabled(!action.isEnabled)
+        .opacity(action.isEnabled ? 1 : 0.45)
         .lithePointer()
     }
 
@@ -551,7 +563,7 @@ struct SearchEverywhereView: View {
         guard visibleItems.indices.contains(selectedIndex) else { return }
         switch visibleItems[selectedIndex] {
         case .result(let result): openResult(result)
-        case .action(let action): performAction(action)
+        case .action(let action): if action.isEnabled { performAction(action) }
         }
     }
 

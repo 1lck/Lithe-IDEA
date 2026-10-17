@@ -1,0 +1,37 @@
+{
+  "id": "debug-performance",
+  "area": "运行与调试",
+  "group": "调试器",
+  "capability": "目标JVM实时CPU与堆内存图表",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Debug/DebugPerformancePane.swift",
+      "macos/Sources/Lithe/Application/Features/DebugPerformanceFeatureModel.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Debug/MacDebugPerformanceSampler.swift",
+      "macos/Tests/LitheTests/DebugPerformanceChartTests.swift",
+      "macos/Tests/LitheTests/DebugPerformanceSamplingTests.swift",
+      "macos/Tests/LitheTests/JVMPerformanceIntegrationTests.swift",
+      ".agents/notes/implemented/feature/2026-10-14-local-jvm-performance-monitoring.md",
+      "macos/Sources/Lithe/Platform/MacOS/Debug/MacProcessTreePerformanceSampler.swift",
+      "macos/Tests/LitheTests/ProcessTreePerformanceTests.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Debug/MacTestJVMPerformance.swift",
+      "macos/Sources/Lithe/Application/Features/TestJVMPerformanceFeatureModel.swift",
+      "macos/Sources/Lithe/Views/Language/TestJVMPerformanceView.swift",
+      "macos/Tests/LitheTests/TestJFRIntegrationTests.swift",
+      "macos/Tests/LitheTests/TestJVMPerformanceFeatureTests.swift",
+      "docs/screenshots/test-panel-review"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/debugger"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Debug",
+  "verification": "用Lithe启动本地Java调试目标，展开Performance确认CPU与JDK堆数据，切换/结束会话、收起时释放采集。明暗主题检查折线与面积、底部基准线、紧凑高度，60秒窗口最新在右且历史左移，鼠标悬停两图显示同一真实采样的圆点/数值/时间；缺失数据不造零。 验证相同DAP会话重新启动新PID时清除旧历史；重复登记相同目标不重启；销毁Feature取消流；jstat超长/非法/缺失计数报错；显式Java21集成测试读取真实数据并核对取消后jstat PID退出。 Test 右侧 Performance/Details 共用一个可收缩区域，顶部两个标签切换；核对11pt常规标题和Islands文字色。Java选择本次启动器后代中的JUnit/Surefire/Gradle测试JVM，实时CPU/堆曲线，多个worker切换。开始/停止JFR录制、Show Results查看JDK热点方法和分配报告，结束/重跑/关闭正确取消及清理。非Java测试继续用明确标注的CPU/RSS；缺失worker或工具明确提示，不采样Maven/Gradle启动器。 审核回归：停止失败保留录制与可重试入口，不允许Show Results/重录；隐藏期间报告成功/失败或启动失败后停止发现轮询。已有兼容 Gradle daemon 时，内置测试计划使用 --no-daemon 生成本次拥有的 worker，既有 daemon 不采样、不停止；自定义扩展复用既有 daemon 且没有关联 PID 时仍不支持。",
+  "notes": "复用OpenJDK jstat与原生目标进程CPU计数，支持已知本地Java目标；无对应采集能力时明确提示。图表复用系统Swift Charts与Lithe共享配色、字体、分隔线和Git Log收起条。公开Community未找到该面板源码，按用户同意的OpenJDK路线独立接入；Test已接入JDK JFR录制及Show Results热点/分配文本报告，Debug当前仅实时图表。组件渲染/时间域可独立验证，完整JVM流程及交互验收保持pending。 审查补齐采集生命周期与真实JVM集成测试，原生流只缓冲最新一条，避免UI繁忙时累积；测试通过不提升完整用户项目验收状态。 Test复用同一图表与采样生命周期，独立进程树CPU/RSS源明确标注驻留内存，Debug继续使用目标JVM堆源。 内置Gradle测试已通过预启动兼容daemon后的真实worker归属集成；新建Gradle项目在完整应用导入后测试提供方不可用，产品入口端到端仍待验收，不据此提升verificationStatus。"
+}

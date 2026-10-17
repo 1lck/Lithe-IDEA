@@ -35,6 +35,29 @@ with bounded process cleanup. Missing usage and unmeasured replayed history rema
 unknown. See the
 [Agent host contract](rust-core-api.md) and `fixtures/agent/acp-events-v1.json`.
 
+An Agent that advertises steering can accept supplementary user input while its
+logical turn is active. Input delivery has a separate pending/received/failed
+outcome and does not replace turn ownership, permissions, timing, or Stop.
+Only an explicit unconsumed-input acknowledgement permits a normal continuation
+prompt; slash commands are explicitly left unconsumed and deferred to this owned
+prompt path, whose response also completes command-only input. Pending
+continuations remain cancellable while staged configuration is awaiting its
+acknowledgement, without cancelling the configuration itself. Unknown delivery
+is never retried automatically. Platform UI enables
+this behavior from the negotiated capability, not the Agent's display name.
+
+The opened workspace, supplied by the product, defines the default meaning of
+"current project". A containing Git repository and inherited development rules
+do not replace that scope. The shared Host adds the same explicit workspace
+context to ordinary prompts and supplementary messages, including prompts after
+history restoration. File contents and applicable rules remain Agent-owned;
+explicit user requests can select a different scope. Native slash commands retain
+their original text and ordered attachments, including deferred supplementary
+commands; attachments do not cause workspace context to be appended. Host-added context is omitted from user-message replay
+presented by Lithe and from generated live/history-list titles, without rewriting
+upstream history or filtering model replies. Titles left empty by this filtering
+are missing values, so presentation retains its existing title fallbacks.
+
 Agent activity presentation uses the selected session's reported plan, pending
 tools and file diffs. Review acknowledgements are local to the exact reported
 version; later edits remain reviewable and start after the acknowledged prefix.
@@ -73,19 +96,116 @@ These presentation actions do not add Agent Host commands or persist chat histor
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
-| Updates | normalized release metadata, state names, preference semantics, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
+| Updates | normalized release metadata, state names, validated `stable|autobuild` preference, explicit rolling consent, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
+
+### Application update channels
+
+A missing saved channel selects `stable` for Stable and legacy shared-identity builds;
+separately installed `Lithe-Dev` defaults to `autobuild`. Invalid preferences select
+Stable, and an explicit saved choice takes precedence. Choosing `autobuild` from Stable requires explicit
+acknowledgement that rolling builds may contain unfinished features and serious bugs;
+both settings UIs continuously recommend Stable for ordinary users. The AutoBuild
+release is `https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild` and is built
+from one pinned `preview` commit per nightly run.
+
+Installed identity and selected channel are separate. A cross-channel switch requires
+an explicit full installation; stable semantic versions must never be compared to
+rolling workflow build numbers. Channel changes cannot race active checks, downloads,
+installation, or an outstanding switch. Existing offers must be dismissed before the
+new preference takes effect. Legacy macOS builds with the Stable bundle ID keep their
+signed full Stable rollback path. Dedicated development builds open Stable downloads
+for a separate installation; the installer must not accept another bundle identity.
+
+AutoBuild installs as `Lithe-Dev`, with macOS bundle ID `app.lithe.desktop.dev` and
+Windows Tauri identifier `app.lithe.windows.dev`. Stable retains its existing names,
+identifiers, preferences domains, Keychain services and historical storage paths.
+Preferences, credentials, default logs and app-owned runtime data/cache/temp roots
+are isolated by installed identity, never by a mutable channel preference. The
+macOS adapter inserts the development bundle ID below system writable roots;
+Windows uses Tauri's identifier-scoped app directories and credential service.
+Explicit user-selected project/tool/log paths can still be shared. On the first
+Dev launch, if no Dev preferences or durable state exist, copy Stable settings and
+workspace records into independent Dev storage and persist a versioned completion
+marker. Existing Dev data is never merged or overwritten; subsequent launches do
+not fall back to Stable. Changing the channel alone does not switch profiles.
+Updater/channel suppression state, custom log destinations, browser caches,
+indexes, locks and runtime connections are excluded. macOS also copies its local
+AI secret file, Maven preferences and marketplace source configuration, along with
+persisted database configuration/history/schedules and custom background image access
+records. These preference keys also count as existing Dev data. OS-vault
+credentials remain separate and may require signing in again. Windows snapshots
+only native settings/Maven JSON and closed WebView localStorage, before creating
+any WebView; it never copies a live browser profile. A busy source or failed copy
+stops initialization with a retry message and no success marker. Published files
+and preferences resume from a staged snapshot after an interrupted commit. Stable
+source roots are checked only when creating a new snapshot; existing Dev data,
+completed markers and frozen snapshot recovery must work without access to Stable.
+Signed bundles remain read-only.
+DMGs/ZIPs contain `Lithe-Dev.app` and Windows installers use the development product
+name, while public release asset filenames remain compatible. Pre-isolation
+AutoBuild needs a separate full installation; only matching bundle identities and
+app names can be Sparkle differential baselines.
+
+Within AutoBuild, one whole-second UTC build time is captured per build and encoded
+as `YYYYMMDD.HHMMSS` for Sparkle's numeric version comparison. Its corresponding
+ISO timestamp is displayed as `AutoBuild — Built at YYYY-MM-DD HH:mm:ss UTC`
+(localized as `AutoBuild — 构建自 … UTC`). Equal or older build times are rejected;
+workflow run/attempt counters do not determine version identity. The fixed tag stays
+`AutoBuild`; its release title and notes show the refreshed build time. Commit SHA
+identifies source and SHA-256 checks bytes, neither orders releases. Date formatting
+is checked on both clients against
+[`build-time-v1.json`](../fixtures/updates/build-time-v1.json).
+Windows AutoBuild currently uses an acknowledged browser installer route because
+its rolling publisher has no signed Tauri manifest or monotonic updater version.
+That route has no target update metadata, download/install progress, or claim that
+the installed app is current; scheduled checks do not open a browser or dialog.
+Normal Stable-to-Stable checks retain each platform's existing signed updater.
+The shared scenarios live in
+[`channel-selection-v1.json`](../fixtures/updates/channel-selection-v1.json).
 
 ### Document encoding
 
 Local text documents expose the selected encoding in the editor status bar. The
-supported labels are `UTF-8`, `UTF-8 with BOM`, `GBK`, `GB18030`, `Shift JIS`,
-and `Windows-1252`. Native adapters auto-detect UTF-8/BOM and the GBK family
-when opening a file; an explicit reopen request decodes with the selected codec
+supported labels are `UTF-8`, `UTF-8 with BOM`, `UTF-16 LE with BOM`,
+`UTF-16 BE with BOM`, `UTF-16 LE`, `UTF-16 BE`, `GBK`, `GB18030`, `Big5`,
+`Shift JIS`, `EUC-JP`, `EUC-KR`, `Windows-1250`, `Windows-1251`,
+`Windows-1252`, and `KOI8-R`. Native adapters auto-detect UTF-8/BOM, UTF-16 by
+its BOM, and the GBK family when opening a file; every other encoding is
+selected explicitly because its bytes cannot be told apart reliably. An
+explicit reopen request decodes with the selected codec
 and exposes replacement characters for invalid byte sequences. “Save
 with Encoding” converts the current Unicode buffer only after the target codec
 accepts every character. Both products preserve the raw-byte identity of the
 last acknowledged disk snapshot and reject a save when another process changed
 those bytes.
+
+### macOS registered workbench tool windows
+
+The macOS host resolves tool-window actions and content from module contributions.
+Project (`workspace.project`), Changes (`git.changes`) and Search (`search.workspace`)
+use the same registry as right/bottom tools and declarative plugin windows. Left,
+right and bottom each have primary and secondary dock groups, with at most one
+visible window per group. Menu moves and pointer drops update the same dock state. Moving or hiding a tool window
+changes presentation only; module ownership and resource lifetime stay in ModuleRuntime.
+A title-bar minimize action closes its own contribution ID in its current region.
+
+Workspace layout stores entry order, visibility and placement by contribution ID.
+Left content selection and expansion have optional fields for compatibility with
+older geometry-only layouts. Legacy workspace session names (`project`, `changes`,
+`search`, `pullRequests`) map to stable IDs; other registered IDs survive as strings.
+Legacy docking enum names also map to contribution IDs without losing group or
+order. Geometry writes merge existing UI preferences. Module release and shutdown do not
+replace saved user visibility with teardown state. Restoring a declarative window
+activates its owner even if its left slot is already selected, without toggling it closed.
+These are macOS host behaviors; Windows adoption remains independent.
+
+Workbench actions share host-owned visibility, enablement, checked and pending state.
+Declarative commands cannot start a duplicate window activation while pending; the
+window entry can cancel its own display request. Invocation revalidates the complete
+current contribution and state, including old menu/palette callbacks. Built-in command
+enablement reuses the existing shortcut policy. One module's concurrent activation
+requests share construction; closing/disable cancels and joins that construction before
+resources are released. A cancelled UI waiter cannot cancel another window's waiter.
 
 ### External HTML preview
 
@@ -210,7 +330,14 @@ optional `timeoutMilliseconds`. Adapters emit lifecycle states `starting`,
 `running`, `stopping`, `finished`, and `failed`; `operationID` lets the UI
 ignore stale termination events after a restart. `stop()` is the cancellation
 operation and must terminate the platform process without changing feature
-state owned by another operation.
+state owned by another operation. The macOS native and language-extension lifecycle
+adapters may additionally report an optional `processID` on `running`: this is the
+exact launched root, never a process selected by name. Consumers must validate
+`operationID` before retaining it and invalidate it on stop, completion, reset, or
+replacement. Hosts without a local PID leave it absent. Test performance uses
+native CPU/RSS of that root and its descendants (including forked workers), with
+RSS explicitly labeled as resident memory rather than JVM heap. Debug keeps its
+existing exact-JVM JDK heap sampling; these are separate metric sources.
 
 Java workspace activation is a shared Core decision over visible relative
 paths. Any workspace containing a non-ignored `.java` source starts one JDT LS

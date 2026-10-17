@@ -8,6 +8,8 @@
 
 pub mod catalog;
 pub mod cli_update;
+mod codex_context;
+mod codex_history;
 mod codex_retry;
 pub mod environment;
 pub mod install;
@@ -16,8 +18,11 @@ mod model_proxy;
 mod prompt;
 mod prompt_retry;
 mod session_defaults;
+mod session_restore;
 mod session_routing;
+mod steering;
 mod subscription;
+mod workspace_context;
 
 pub use catalog::{ModelDelivery, ProviderProtocol};
 pub use model_calls::{ContextComposition, ModelApi, ModelCall, ModelCallUsage};
@@ -33,10 +38,10 @@ use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
     AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities,
-    InitializeRequest, ListSessionsRequest, LoadSessionRequest, PromptRequest,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionConfigOption, SessionNotification,
-    SetSessionConfigOptionRequest,
+    ClientSessionCapabilities, ContentBlock, InitializeRequest, ListSessionsRequest,
+    LoadSessionRequest, NoticeCapabilities, PromptRequest, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
+    SessionConfigOption, SessionNotification, SetSessionConfigOptionRequest,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
@@ -56,12 +61,21 @@ const CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_CALL_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 /// Upper bound on `session/list` pages so a misbehaving cursor cannot loop forever.
 const MAX_SESSION_LIST_PAGES: usize = 50;
+/// Windows flag that runs the adapter with a console it cannot display. The
+/// desktop shell is a GUI process without a console, so a console-subsystem
+/// adapter would otherwise open a visible console window on every launch.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Bytes of agent stderr kept for failure reports; older output is discarded.
 const STDERR_TAIL_BYTES: usize = 16 * 1024;
 const STDERR_TAIL_LINES: usize = 20;
 /// Auth method id and `_meta` key of the ACP custom model gateway extension.
 /// Responses API-key mode uses this method and never falls back to account login.
 const GATEWAY_AUTH_METHOD: &str = "gateway";
+/// Environment variable naming the platform's process scope of one connection.
+/// Every descendant of the agent inherits it, which is how a host recognizes the
+/// agent's tasks even after they left its process group.
+pub const AGENT_SCOPE_ENVIRONMENT: &str = "LITHE_AGENT_SCOPE";
 
 /// Launch configuration supplied by the owning desktop product.
 ///
@@ -85,10 +99,13 @@ pub struct AgentLaunch {
     #[serde(default)]
     pub authentication: AgentAuthentication,
     pub provider: Option<ProviderCredentials>,
-    /// Route API-key provider traffic through the loopback observation proxy
-    /// and emit `modelCall` events. Ignored for subscription connections.
+    /// Observe API-key or Codex subscription inference through the loopback
+    /// proxy and emit model-call measurements without retaining request bodies.
     #[serde(default)]
     pub observe_model_calls: bool,
+    /// Exported as [`AGENT_SCOPE_ENVIRONMENT`] to the agent process tree.
+    #[serde(default)]
+    pub process_scope: Option<String>,
 }
 
 /// Subscription access is explicit and limited to the installed Codex adapter.
@@ -306,13 +323,15 @@ fn resolve_with(
         .map(str::trim)
         .filter(|model| !model.is_empty())
     {
-        env.push(match agent.model_delivery {
-            ModelDelivery::CodexConfig => (
+        match agent.model_delivery {
+            ModelDelivery::CodexConfig => env.push((
                 "CODEX_CONFIG".to_owned(),
                 serde_json::json!({ "model": model }).to_string(),
-            ),
-            ModelDelivery::AnthropicEnvironment => ("ANTHROPIC_MODEL".to_owned(), model.to_owned()),
-        });
+            )),
+            // A process-wide Claude pin also overrides every restored session.
+            // New-session defaults instead travel through session_routing.
+            ModelDelivery::ClaudeSessionOptions => {}
+        }
     }
     Ok(ResolvedLaunch {
         command: install::installed_command(&data_directory, agent),
@@ -350,7 +369,25 @@ pub enum AgentCommand {
     ListSessions {
         token: String,
     },
+    /// Read-only listing of the workspace's archived Codex conversations.
+    ListArchivedSessions {
+        token: String,
+    },
+    /// Move an archived Codex conversation back into its active history. Sent
+    /// only after the user confirmed; listing never changes upstream state.
+    UnarchiveSession {
+        token: String,
+        session_id: String,
+    },
     Prompt {
+        session_id: String,
+        text: String,
+        #[serde(default)]
+        files: Vec<PromptFile>,
+    },
+    /// Supplement the current logical turn. Results never end that turn.
+    Steer {
+        token: String,
         session_id: String,
         text: String,
         #[serde(default)]
@@ -368,6 +405,15 @@ pub enum AgentCommand {
     Permission {
         request_id: String,
         option_id: Option<String>,
+    },
+    /// Processes of the agent tree the user chose to keep running.
+    ///
+    /// Once any process is preserved, stopping the connection ends only the
+    /// agent process itself: the host has already ended the descendants it
+    /// was not asked to keep, and a tree or group kill would also hit the
+    /// preserved ones. Takes effect immediately on the calling thread.
+    PreserveProcesses {
+        process_ids: Vec<u32>,
     },
 }
 
@@ -410,6 +456,17 @@ pub enum AgentEvent {
         agent_version: Option<String>,
         can_load_sessions: bool,
         can_list_sessions: bool,
+        /// Archived history is listed through the Agent's own CLI, not ACP.
+        can_list_archived_sessions: bool,
+        can_steer: bool,
+    },
+    /// Request-scoped delivery result, separate from prompt completion.
+    SteeringResult {
+        token: String,
+        session_id: String,
+        outcome: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
     },
     SessionCreated {
         token: String,
@@ -441,6 +498,16 @@ pub enum AgentEvent {
     Sessions {
         token: String,
         sessions: Vec<AgentSessionSummary>,
+    },
+    /// `complete` is false when the page bound stopped the listing.
+    ArchivedSessions {
+        token: String,
+        sessions: Vec<AgentSessionSummary>,
+        complete: bool,
+    },
+    SessionUnarchived {
+        token: String,
+        session_id: String,
     },
     /// A raw ACP `SessionUpdate`, including replayed history.
     Update {
@@ -520,6 +587,7 @@ struct RunningTurn {
     generation: u64,
     cancelling: bool,
     retry: tokio::sync::watch::Sender<prompt_retry::State>,
+    steering: Arc<steering::Turn>,
 }
 
 enum Control {
@@ -527,10 +595,18 @@ enum Control {
     Stop,
 }
 
+/// Process IDs of the agent tree that stopping the connection must not end.
+type PreservedProcesses = Arc<Mutex<Vec<u32>>>;
+
+fn has_preserved_processes(preserved: &PreservedProcesses) -> bool {
+    preserved.lock().map(|ids| !ids.is_empty()).unwrap_or(false)
+}
+
 /// One agent process and ACP connection. Dropping it stops the process tree.
 pub struct AgentHandle {
     controls: async_mpsc::UnboundedSender<Control>,
     permissions: PendingPermissions,
+    preserved: PreservedProcesses,
     child_pid: Arc<AtomicU32>,
     stop_requested: Arc<AtomicBool>,
     finished: mpsc::Receiver<()>,
@@ -549,7 +625,9 @@ impl AgentHandle {
         let permissions: PendingPermissions = Arc::new(Mutex::new(HashMap::new()));
         let child_pid = Arc::new(AtomicU32::new(0));
         let stop_requested = Arc::new(AtomicBool::new(false));
+        let preserved: PreservedProcesses = Arc::new(Mutex::new(Vec::new()));
         let pending = permissions.clone();
+        let kept = preserved.clone();
         let pid = child_pid.clone();
         let stop = stop_requested.clone();
         let worker = std::thread::Builder::new()
@@ -563,9 +641,12 @@ impl AgentHandle {
                         .block_on(run_agent(
                             launch,
                             receiver,
-                            pending,
-                            pid,
-                            stop,
+                            AgentProcessState {
+                                permissions: pending,
+                                preserved: kept,
+                                child_pid: pid,
+                                stop_requested: stop,
+                            },
                             emit.clone(),
                         ))
                         .err(),
@@ -578,6 +659,7 @@ impl AgentHandle {
         Ok(Self {
             controls,
             permissions,
+            preserved,
             child_pid,
             stop_requested,
             finished,
@@ -593,6 +675,16 @@ impl AgentHandle {
                 request_id,
                 option_id,
             } => answer_permission(&self.permissions, &request_id, option_id),
+            AgentCommand::PreserveProcesses { process_ids } => {
+                let mut preserved = self
+                    .preserved
+                    .lock()
+                    .map_err(|_| "Agent process state is unavailable".to_string())?;
+                preserved.extend(process_ids);
+                preserved.sort_unstable();
+                preserved.dedup();
+                Ok(())
+            }
             command => {
                 if let AgentCommand::Cancel { session_id } = &command {
                     // ACP requires pending permission requests of a cancelled
@@ -621,7 +713,11 @@ impl AgentHandle {
         if self.finished.recv_timeout(STOP_TIMEOUT).is_err() {
             let pid = self.child_pid.load(Ordering::SeqCst);
             if pid != 0 {
-                force_kill_tree(pid);
+                if has_preserved_processes(&self.preserved) {
+                    force_kill_process(pid);
+                } else {
+                    force_kill_tree(pid);
+                }
             }
             let _ = self.finished.recv_timeout(STOP_TIMEOUT);
         }
@@ -724,24 +820,51 @@ fn child_path(command: &Path, base: Option<OsString>) -> Option<OsString> {
         .flatten()
 }
 
+/// State shared between an [`AgentHandle`] and its connection worker.
+struct AgentProcessState {
+    permissions: PendingPermissions,
+    preserved: PreservedProcesses,
+    child_pid: Arc<AtomicU32>,
+    stop_requested: Arc<AtomicBool>,
+}
+
 async fn run_agent(
     launch: AgentLaunch,
     controls: async_mpsc::UnboundedReceiver<Control>,
-    permissions: PendingPermissions,
-    child_pid: Arc<AtomicU32>,
-    stop_requested: Arc<AtomicBool>,
+    state: AgentProcessState,
     emit: Emit,
 ) -> Result<(), String> {
+    let AgentProcessState {
+        permissions,
+        preserved,
+        child_pid,
+        stop_requested,
+    } = state;
     let cancelled = || stop_requested.load(Ordering::Acquire);
     let observe_model_calls = launch.observe_model_calls;
+    let process_scope = launch.process_scope.clone();
     let mut launch = resolve_with_cancel(launch, &cancelled)?;
     if cancelled() {
         return Err("Agent launch was cancelled".into());
     }
     let turns: RunningTurns = Arc::new(Mutex::new(HashMap::new()));
     let calls_in_flight = Arc::new(model_proxy::CallsInFlight::default());
-    let _model_calls = match launch.gateway.as_mut().filter(|_| observe_model_calls) {
-        Some(route) => {
+    let observation_upstream = observe_model_calls
+        .then(|| {
+            launch
+                .gateway
+                .as_ref()
+                .map(|route| route.base_url.clone())
+                .or_else(|| {
+                    launch
+                        .subscription_cli
+                        .as_ref()
+                        .map(|_| subscription::INFERENCE_ORIGIN.to_owned())
+                })
+        })
+        .flatten();
+    let _model_calls = match observation_upstream {
+        Some(upstream) => {
             let running = turns.clone();
             let session: model_proxy::SessionResolver =
                 Arc::new(move || sole_running_session(&running));
@@ -756,36 +879,112 @@ async fn run_agent(
                 });
             // Statistics are optional. A proxy that cannot start leaves the
             // configured endpoint in place rather than blocking the Agent.
-            match model_proxy::start(&route.base_url, session, sink, calls_in_flight.clone()).await
-            {
+            match model_proxy::start(&upstream, session, sink, calls_in_flight.clone()).await {
                 Ok(proxy) => {
-                    route.base_url = proxy.base_url().to_owned();
-                    Some(proxy)
+                    let configured = if let Some(route) = launch.gateway.as_mut() {
+                        route.base_url = proxy.base_url().to_owned();
+                        true
+                    } else {
+                        subscription::observe_model_calls(&mut launch, proxy.base_url()).is_ok()
+                    };
+                    if configured {
+                        Some(proxy)
+                    } else {
+                        eprintln!("Codex subscription statistics are unavailable");
+                        None
+                    }
                 }
-                Err(_) => None,
+                Err(_) => {
+                    eprintln!("Agent model-call statistics could not start");
+                    None
+                }
             }
         }
         None => None,
     };
-    let _relay = if launch
+    // Before the relay replaces CODEX_PATH: history uses the user's CLI directly.
+    let history = codex_history::CodexHistory::for_launch(&launch);
+    let native_recovery = launch
         .gateway
         .as_ref()
-        .is_some_and(|route| route.native_recovery)
+        .is_some_and(|route| route.native_recovery);
+    let codex_executable = if native_recovery {
+        Some(
+            launch
+                .env
+                .iter()
+                .find(|(name, _)| name == "CODEX_PATH")
+                .map(|(_, value)| PathBuf::from(value))
+                .ok_or("Codex executable is unavailable")?,
+        )
+    } else {
+        launch.subscription_cli.clone()
+    };
+    let mut context_recovery = if codex_executable.is_some() {
+        match codex_context::Recovery::start().await {
+            Ok(recovery) => Some(Arc::new(recovery)),
+            Err(_) => {
+                eprintln!("Codex history context reporting is unavailable");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let _relay = if let Some(executable) = codex_executable
+        .filter(|_| native_recovery || context_recovery.is_some() || _model_calls.is_some())
     {
-        let executable = launch
-            .env
-            .iter()
-            .find(|(name, _)| name == "CODEX_PATH")
-            .map(|(_, value)| PathBuf::from(value))
-            .ok_or("Codex executable is unavailable")?;
-        let (relay, env) = codex_retry::Relay::create(&executable)?;
-        launch.env.retain(|(name, _)| name != "CODEX_PATH");
-        launch.env.extend(env);
-        Some(relay)
+        match codex_retry::Relay::create(&executable, native_recovery) {
+            Ok((relay, mut env)) => {
+                if let Some(recovery) = &context_recovery {
+                    env.push(("LITHE_CODEX_CONTEXT_URL".into(), recovery.url().into()));
+                }
+                if launch.subscription_cli.is_some() {
+                    if let Some(proxy) = &_model_calls {
+                        env.push((
+                            "LITHE_CODEX_OBSERVATION_BASE".into(),
+                            format!("{}/backend-api/codex", proxy.base_url()),
+                        ));
+                    }
+                }
+                launch.env.retain(|(name, _)| name != "CODEX_PATH");
+                launch.env.extend(env);
+                Some(relay)
+            }
+            Err(error) if native_recovery => return Err(error),
+            Err(_) => {
+                eprintln!("Could not prepare Codex history context reporting");
+                context_recovery = None;
+                // Without the native account-routing guard, retain direct
+                // inference rather than bypassing managed residency rules.
+                if launch.subscription_cli.is_some() {
+                    if let Some((_, config)) = launch
+                        .env
+                        .iter_mut()
+                        .find(|(name, _)| name == "CODEX_CONFIG")
+                    {
+                        let mut value: serde_json::Value = serde_json::from_str(config)
+                            .map_err(|_| "Codex subscription configuration is unavailable")?;
+                        value["openai_base_url"] = serde_json::json!("");
+                        *config = value.to_string();
+                    }
+                }
+                None
+            }
+        }
     } else {
         None
     };
     let mut command = std::process::Command::new(&launch.command);
+    if launch
+        .gateway
+        .as_ref()
+        .is_some_and(|route| route.protocol == ProviderProtocol::AnthropicMessages)
+    {
+        // An inherited model pin must not override the model restored by ACP.
+        // Keep the user's alias mappings and other native CLI settings intact.
+        command.env_remove("ANTHROPIC_MODEL");
+    }
     if launch.subscription_cli.is_some() {
         subscription::isolate_environment(&mut command);
     }
@@ -801,12 +1000,19 @@ async fn run_agent(
     if let Some(path) = child_path(&launch.command, search_path) {
         command.env("PATH", path);
     }
+    if let Some(scope) = &process_scope {
+        command.env(AGENT_SCOPE_ENVIRONMENT, scope);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
     let mut command = tokio::process::Command::from(command);
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -845,6 +1051,8 @@ async fn run_agent(
         launch.cwd,
         launch.gateway,
         launch.subscription_cli,
+        history,
+        context_recovery,
         controls,
         TurnActivity {
             permissions,
@@ -855,8 +1063,13 @@ async fn run_agent(
     )
     .await;
     // The connection may finish before the child exits. Never leave its process
-    // tree running, including wrapper commands which launch another process.
-    terminate_tree(&mut child).await;
+    // tree running, including wrapper commands which launch another process,
+    // unless the user chose to keep some of its tasks.
+    if has_preserved_processes(&preserved) {
+        terminate_process(&mut child).await;
+    } else {
+        terminate_tree(&mut child).await;
+    }
     child_pid.store(0, Ordering::SeqCst);
     let _ = tokio::time::timeout(STOP_TIMEOUT, stderr_task).await;
     result.map_err(|message| {
@@ -915,6 +1128,43 @@ async fn terminate_tree(child: &mut tokio::process::Child) {
     let _ = tokio::time::timeout(STOP_TIMEOUT, child.wait()).await;
 }
 
+/// End only the agent process: the host already ended the descendants the user
+/// did not keep, and signalling the tree or group would end the kept ones too.
+async fn terminate_process(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id().and_then(|pid| libc::pid_t::try_from(pid).ok()) {
+        // SAFETY: `kill` only sends a signal to the direct child this
+        // connection spawned and has not yet reaped.
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+        if tokio::time::timeout(STOP_TIMEOUT, child.wait())
+            .await
+            .is_ok()
+        {
+            return;
+        }
+    }
+    let _ = child.start_kill();
+    let _ = tokio::time::timeout(STOP_TIMEOUT, child.wait()).await;
+}
+
+/// SIGKILL one process without touching its descendants or group.
+///
+/// Only hosts that send [`AgentCommand::PreserveProcesses`] reach this; the
+/// Windows host does not, and `kill_on_drop` still ends the direct child there.
+fn force_kill_process(process_id: u32) {
+    #[cfg(unix)]
+    if let Ok(pid) = libc::pid_t::try_from(process_id) {
+        // SAFETY: `kill` only sends a signal to one process ID.
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = process_id;
+}
+
 /// SIGKILL a process and its descendants; a process that already exited is ignored.
 ///
 /// Children are started as process-group leaders, so on Unix the whole group is
@@ -943,6 +1193,8 @@ async fn run_connection<OB, IB>(
     cwd: PathBuf,
     gateway: Option<GatewaySignIn>,
     subscription_cli: Option<PathBuf>,
+    history: Option<codex_history::CodexHistory>,
+    context_recovery: Option<Arc<codex_context::Recovery>>,
     mut controls: async_mpsc::UnboundedReceiver<Control>,
     activity: TurnActivity,
     emit: Emit,
@@ -957,8 +1209,12 @@ where
         calls_in_flight,
     } = activity;
     let session_meta = session_routing::metadata(gateway.as_ref())?;
+    let workspace = Arc::new(workspace_context::WorkspaceContext::new(&cwd)?);
+    let update_workspace = workspace.clone();
+    let restored_meta = session_routing::restored_metadata(gateway.as_ref())?;
     let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     let updates = emit.clone();
+    let context_updates = context_recovery.clone();
     let update_turns = turns.clone();
     let requests = emit.clone();
     let permission_turns = turns.clone();
@@ -978,10 +1234,17 @@ where
         .on_receive_notification(
             async move |notification: SessionNotification, _| {
                 if let Ok(update) = serde_json::to_value(notification.update) {
+                    let Some(update) = update_workspace.present_update(update) else {
+                        return Ok(());
+                    };
                     let session_id = notification.session_id.0.to_string();
+                    if update["sessionUpdate"] == "usage_update" {
+                        if let Some(recovery) = &context_updates { recovery.prefer_upstream_report(&session_id); }
+                    }
                     let mut reconnect = None;
                     if let Ok(turns) = update_turns.lock() {
                         if let Some(turn) = turns.get(&session_id) {
+                            turn.steering.observe(&update);
                             turn.retry.send_modify(|state| {
                                 if prompt_retry::is_progress(&update) { state.progress(); }
                                 state.observe_failure(&update);
@@ -1082,6 +1345,8 @@ where
             let typed_failures = claude_api_key || gateway.as_ref().is_some_and(|route| route.native_recovery);
             let air_capabilities = if typed_failures { vec!["recommendedValue", "sessionFailure"] } else { vec!["recommendedValue"] };
             let capabilities = ClientCapabilities::new()
+                // Keep upstream advisories out of assistant transcript chunks.
+                .session(ClientSessionCapabilities::new().notices(NoticeCapabilities::new()))
                 .auth(AuthCapabilities::new().meta(serde_json::Map::from_iter([(
                     GATEWAY_AUTH_METHOD.to_owned(),
                     serde_json::Value::Bool(true),
@@ -1132,6 +1397,10 @@ where
                 emit(AgentEvent::Account { account: account.clone() });
                 Some(account)
             } else { None };
+            let can_steer = steering::supported(initialized.meta.as_ref());
+            let tracks_detached_steering = initialized.agent_info.as_ref().is_some_and(
+                |info| info.name == "@agentclientprotocol/codex-acp"
+            );
             let agent = initialized.agent_info.as_ref();
             emit(AgentEvent::Ready {
                 agent_name: agent.map(|info| info.name.clone()),
@@ -1142,6 +1411,8 @@ where
                     .session_capabilities
                     .list
                     .is_some(),
+                can_list_archived_sessions: history.is_some(),
+                can_steer,
             });
 
             let quota_running = Arc::new(AtomicBool::new(false));
@@ -1150,8 +1421,10 @@ where
             let mut native_sequences = HashMap::<String, Arc<AtomicU64>>::new();
             let mut tasks = JoinSet::new();
             let (cancel_deadline_tx, mut cancel_deadlines) = async_mpsc::unbounded_channel();
+            let (steering_failure_tx, mut steering_failures) = async_mpsc::unbounded_channel::<String>();
             loop {
                 let control = tokio::select! {
+                    Some(message) = steering_failures.recv() => return Err(internal(&message)),
                     control = controls.recv() => match control {
                         Some(control) => control,
                         None => break,
@@ -1227,17 +1500,24 @@ where
                         let connection = connection.clone();
                         let emit = emit.clone();
                         let cwd = cwd.clone();
-                        let session_meta = session_meta.clone();
+                        let session_meta = restored_meta.clone();
+                        let confirm_model = session_meta.is_some();
+                        let capture = context_recovery.as_ref().and_then(|recovery| recovery.capture(&session_id));
                         tasks.spawn(async move {
                             let mut request = LoadSessionRequest::new(session_id.clone(), cwd);
                             request.meta = session_meta;
                             let result = request_with_timeout(
                                 LOAD_SESSION_TIMEOUT,
-                                connection
-                                    .send_request(request)
-                                    .block_task(),
+                                session_restore::load_session(&connection, request, confirm_model),
                             )
                             .await;
+                            if result.is_ok() {
+                                if let Some(capture) = capture {
+                                    if let Some(update) = capture.finish().await {
+                                        emit(AgentEvent::Update { session_id: session_id.clone(), update });
+                                    }
+                                }
+                            }
                             emit(match result {
                                 Ok(response) => AgentEvent::SessionLoaded { token, session_id, config_options: response.config_options },
                                 Err(message) => failed(Some(token), Some(session_id), message),
@@ -1248,10 +1528,38 @@ where
                         let connection = connection.clone();
                         let emit = emit.clone();
                         let cwd = cwd.clone();
+                        let workspace = workspace.clone();
                         tasks.spawn(async move {
-                            emit(match list_sessions(&connection, cwd).await {
+                            emit(match list_sessions(&connection, cwd, &workspace).await {
                                 Ok(sessions) => AgentEvent::Sessions { token, sessions },
                                 Err(message) => failed(Some(token), None, message),
+                            });
+                        });
+                    }
+                    AgentCommand::ListArchivedSessions { token } => {
+                        let Some(history) = history.clone() else {
+                            emit(failed(Some(token), None, "This Agent has no archived history".into()));
+                            continue;
+                        };
+                        let emit = emit.clone();
+                        let workspace = workspace.clone();
+                        tasks.spawn(async move {
+                            emit(match history.list_archived(&workspace).await {
+                                Ok(archived) => AgentEvent::ArchivedSessions { token, sessions: archived.sessions, complete: archived.complete },
+                                Err(message) => failed(Some(token), None, message),
+                            });
+                        });
+                    }
+                    AgentCommand::UnarchiveSession { token, session_id } => {
+                        let Some(history) = history.clone() else {
+                            emit(failed(Some(token), Some(session_id), "This Agent has no archived history".into()));
+                            continue;
+                        };
+                        let emit = emit.clone();
+                        tasks.spawn(async move {
+                            emit(match history.unarchive(session_id.clone()).await {
+                                Ok(()) => AgentEvent::SessionUnarchived { token, session_id },
+                                Err(message) => failed(Some(token), Some(session_id), message),
                             });
                         });
                     }
@@ -1273,8 +1581,74 @@ where
                             });
                         });
                     }
+                    AgentCommand::Steer { token, session_id, text, files } => {
+                        let reject = |message: &str| emit(AgentEvent::SteeringResult {
+                            token: token.clone(), session_id: session_id.clone(),
+                            outcome: "failed".into(), message: Some(message.into()),
+                        });
+                        if !can_steer { reject("This Agent does not support messages while responding"); continue; }
+                        let content = match workspace.content(text, files) {
+                            Ok(content) => content,
+                            Err(message) => { reject(&message); continue; }
+                        };
+                        let reservation = turns.lock().ok().and_then(|turns| {
+                            turns.get(&session_id).map(|turn| {
+                                if turn.cancelling { return None; }
+                                turn.steering.begin().map(|idle| (turn.steering.clone(), idle, turn.retry.clone()))
+                            })
+                        });
+                        let Some(reservation) = reservation else {
+                            emit(AgentEvent::SteeringResult { token, session_id, outcome: "promptRequired".into(), message: None });
+                            continue;
+                        };
+                        let Some((progress, continuation_idle, retry)) = reservation else {
+                            reject("Wait for the pending message or Stop acknowledgement"); continue;
+                        };
+                        if matches!(content.first(), Some(ContentBlock::Text(text)) if text.text.trim_start().starts_with('/')) {
+                            // Codex ACP 1.13.1 also reports startedNewTurn for a
+                            // completed command that never starts a model turn.
+                            // Leave commands unconsumed so the client submits
+                            // them after this turn, with an owned prompt response.
+                            emit(AgentEvent::SteeringResult { token, session_id, outcome: "promptRequired".into(), message: None });
+                            progress.finish(None);
+                            continue;
+                        }
+                        let (connection, emit, fatal) = (connection.clone(), emit.clone(), steering_failure_tx.clone());
+                        tasks.spawn(async move {
+                            let result = tokio::time::timeout(SESSION_REQUEST_TIMEOUT,
+                                connection.send_request(steering::request(&session_id, content)).block_task()).await;
+                            let mut detached = false;
+                            let (outcome, message) = match result {
+                                Ok(Ok(response)) => {
+                                    match response.outcome.as_str() {
+                                        "injected" => ("injected", None),
+                                        "startedNewTurn" if tracks_detached_steering => { detached = true; ("injected", None) },
+                                        "startedNewTurn" => {
+                                            let _ = fatal.send("This Agent started an untracked continuation. Reconnect and check the conversation before retrying.".into());
+                                            return;
+                                        },
+                                        "promptRequired" => ("promptRequired", None),
+                                        _ => ("failed", Some("The Agent did not accept the supplementary message".into())),
+                                    }
+                                },
+                                Ok(Err(error)) => ("failed", Some(prompt_retry::error_message(&error))),
+                                Err(_) => {
+                                    // A timed-out extension might still consume the input.
+                                    // Stop the connection rather than retrying it blindly.
+                                    let _ = fatal.send("The Agent did not confirm the supplementary message. Reconnect and check the conversation before retrying.".into());
+                                    return;
+                                }
+                            };
+                            if detached && retry.borrow().cancelling {
+                                let _ = connection.send_notification(CancelNotification::new(session_id.clone()));
+                            }
+                            emit(AgentEvent::SteeringResult { token, session_id, outcome: outcome.into(), message });
+                            // Publish delivery before releasing the terminal-event barrier.
+                            progress.finish(detached.then_some(continuation_idle));
+                        });
+                    }
                     AgentCommand::Prompt { session_id, text, files } => {
-                        let content = match prompt::content(text, files) {
+                        let content = match workspace.content(text, files) {
                             Ok(content) => content,
                             Err(message) => {
                                 emit(failed(None, Some(session_id), message));
@@ -1289,9 +1663,10 @@ where
                             prompt_retry::State::native(sequence)
                         } else { prompt_retry::State::new(retry_enabled) };
                         let (retry, retry_changes) = tokio::sync::watch::channel(retry_state);
+                        let steering = Arc::new(steering::Turn::default());
                         let busy = match turns.lock() {
                             Ok(mut turns) if !turns.contains_key(&session_id) => {
-                                turns.insert(session_id.clone(), RunningTurn { generation, cancelling: false, retry: retry.clone() });
+                                turns.insert(session_id.clone(), RunningTurn { generation, cancelling: false, retry: retry.clone(), steering: steering.clone() });
                                 false
                             }
                             _ => true,
@@ -1306,7 +1681,21 @@ where
                         }
                         let request = PromptRequest::new(session_id.clone(), content);
                         let connection = connection.clone();
-                        let mut response = Box::pin(prompt_retry::run(connection.clone(), request, retry.clone(), retry_changes.clone(), uuid::Uuid::new_v4().to_string(), emit.clone()));
+                        let prompt_response = prompt_retry::run(connection.clone(), request, retry.clone(), retry_changes.clone(), uuid::Uuid::new_v4().to_string(), emit.clone());
+                        let mut response = Box::pin(async move {
+                            let response = prompt_response.await;
+                            let continued = steering.settled().await.map_err(|message| internal(&message))?;
+                            if continued {
+                                // A detached continuation has no ACP usage response;
+                                // its native terminal state supersedes the original
+                                // response (which may have failed before steering).
+                                Ok(agent_client_protocol::schema::v1::PromptResponse::new(
+                                    agent_client_protocol::schema::v1::StopReason::EndTurn,
+                                ))
+                            } else {
+                                response
+                            }
+                        });
                         let emit = emit.clone();
                         let turns = turns.clone();
                         let prompt_permissions = cancel_permissions.clone();
@@ -1403,7 +1792,12 @@ where
                             calls_in_flight.settle(&session_id, MODEL_CALL_SETTLE_TIMEOUT).await;
                             calls_in_flight.finish_turn(&session_id, generation);
                             emit(match result {
-                                Ok(Ok(response)) => prompt::finished(session_id, response),
+                                Ok(Ok(mut response)) => {
+                                    if retry.borrow().cancelling {
+                                        response.stop_reason = agent_client_protocol::schema::v1::StopReason::Cancelled;
+                                    }
+                                    prompt::finished(session_id, response)
+                                },
                                 Ok(Err(error)) => failed(None, Some(session_id), prompt_retry::error_message(&error)),
                                 Err(_) => unreachable!("recovery deadline handled above"),
                             });
@@ -1436,7 +1830,7 @@ where
                             });
                         }
                     }
-                    AgentCommand::Permission { .. } => {}
+                    AgentCommand::Permission { .. } | AgentCommand::PreserveProcesses { .. } => {}
                 }
             }
             let running: Vec<String> = turns
@@ -1515,6 +1909,7 @@ fn stop_reason_name(reason: &agent_client_protocol::schema::v1::StopReason) -> S
 async fn list_sessions(
     connection: &ConnectionTo<Agent>,
     cwd: PathBuf,
+    workspace: &workspace_context::WorkspaceContext,
 ) -> Result<Vec<AgentSessionSummary>, String> {
     let mut sessions = Vec::new();
     let mut cursor: Option<String> = None;
@@ -1530,15 +1925,15 @@ async fn list_sessions(
                 .block_task(),
         )
         .await?;
-        sessions.extend(
-            page.sessions
-                .into_iter()
-                .map(|session| AgentSessionSummary {
-                    session_id: session.session_id.0.to_string(),
-                    title: session.title,
-                    updated_at: session.updated_at,
-                }),
-        );
+        sessions.extend(page.sessions.into_iter().map(|session| {
+            AgentSessionSummary {
+                session_id: session.session_id.0.to_string(),
+                title: session
+                    .title
+                    .and_then(|title| workspace.present_title(&title)),
+                updated_at: session.updated_at,
+            }
+        }));
         match page.next_cursor {
             Some(next) if !next.is_empty() => cursor = Some(next),
             _ => return Ok(sessions),

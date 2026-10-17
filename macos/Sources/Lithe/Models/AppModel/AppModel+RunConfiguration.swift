@@ -285,6 +285,15 @@ extension AppModel {
                 return
             }
             guard isCurrentWorkspace(identity) else { return }
+            let document = documentFeature.editorDocuments.first {
+                $0.url.standardizedFileURL == runFeature.lastRunFileURL?.standardizedFileURL
+            }
+            guard await runWorkflowCoordinator.saveDirtyCurrentFileIfNeeded(
+                configuration: configuration,
+                document: document,
+                saving: self
+            ) else { return }
+            guard isCurrentWorkspace(identity) else { return }
             let javaLaunch: JavaDebugLaunchTarget?
             do {
                 javaLaunch = try await prepareJavaRunLaunch(

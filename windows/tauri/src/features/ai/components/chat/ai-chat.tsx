@@ -19,8 +19,6 @@ import {
 } from "@/features/ai/lib/tool-call-state";
 import { requestInlineEdit } from "@/features/editor/services/editor-inline-edit-service";
 import { AcpStreamHandler } from "@/features/ai/services/acp-stream-handler";
-import { CodexIntegrationService } from "@/features/ai/integrations/codex/codex-integration-service";
-import { CODEX_INTEGRATION_ID } from "@/features/ai/integrations/integration-registry";
 import { getChatCompletionStream, isAcpAgent } from "@/features/ai/services/ai-chat-service";
 import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import type { AcpEvent } from "@/features/ai/types/acp.types";
@@ -341,16 +339,7 @@ const AIChat = memo(function AIChat({
     setIsSurfaceTyping(false);
     setSurfaceStreamingMessageId(null);
 
-    if (currentAgentId === CODEX_INTEGRATION_ID) {
-      try {
-        await CodexIntegrationService.cancel();
-        await Promise.all(
-          pendingPermissions.map((item) => CodexIntegrationService.respond(item.requestId, false)),
-        );
-      } catch (error) {
-        console.error("Failed to cancel Codex turn:", error);
-      }
-    } else if (isAcpAgent(currentAgentId)) {
+    if (isAcpAgent(currentAgentId)) {
       try {
         await AcpStreamHandler.cancelPrompt();
         if (pendingPermissions.length > 0) {
@@ -1002,16 +991,12 @@ details: ${errorDetails || mainError}
         detail: option?.name || (approved ? "allow" : "deny"),
         state: approved ? "success" : "info",
       });
-      if (currentAgentId === CODEX_INTEGRATION_ID) {
-        await CodexIntegrationService.respond(currentPermission.requestId, approved);
-      } else {
-        await AcpStreamHandler.respondToPermission(
-          currentPermission.requestId,
-          approved,
-          false,
-          optionId,
-        );
-      }
+      await AcpStreamHandler.respondToPermission(
+        currentPermission.requestId,
+        approved,
+        false,
+        optionId,
+      );
     } finally {
       setPermissionQueue((prev) => prev.slice(1));
     }

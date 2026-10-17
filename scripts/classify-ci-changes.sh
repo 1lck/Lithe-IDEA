@@ -33,7 +33,7 @@ rust_diff_is_comment_only() {
                 return 1
             fi
         fi
-    done < <(git diff --no-color --unified=0 "$BASE_REVISION" "$HEAD_REVISION" -- "$path")
+    done < <(git diff --no-color --unified=0 "$BASE_REVISION" "$HEAD_REVISION" -- ":(literal)$path")
 
     [[ "$saw_change" == true ]]
 }
@@ -50,6 +50,7 @@ java_jdt=false
 rust_comments=false
 metadata=false
 git_validation=false
+swift_hosted=false
 
 enable_all_validation() {
     swift=true
@@ -64,16 +65,10 @@ enable_all_validation() {
     git_validation=true
 }
 
-while IFS=$'\t' read -r status first_path _; do
-    if [[ "$status" == R* || "$status" == C* ]]; then
-        # Renames and copies can cross ownership boundaries, so classify them
-        # conservatively instead of trusting only the destination extension.
-        enable_all_validation
-        break
-    fi
-
-    path="$first_path"
-    lowercase_path="${path,,}"
+classify_path() {
+    local status="$1"
+    local path="$2"
+    local lowercase_path="${path,,}"
 
     case "$lowercase_path" in
         .github/workflows/ci-windows.yml|third_party/jdtls/*|third_party/jdk/*|scripts/prepare-jdtls.*|scripts/prepare-jdk.*|rust/lithe-core/src/lsp/interface/engine.rs|rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs|rust/lithe-core/src/lsp/languages/java*|rust/lithe-core/src/lsp/languages/jdt*|macos/*java*|windows/*java*)
@@ -91,7 +86,7 @@ while IFS=$'\t' read -r status first_path _; do
         casks/*|scripts/update-homebrew-cask.rb)
             metadata=true
             ;;
-        scripts/classify-ci-changes.sh|scripts/test-classify-ci-changes.sh)
+        scripts/classify-ci-changes.sh|scripts/test-classify-ci-changes.sh|scripts/plan-ci-lane-reuse.mjs|scripts/plan-ci-lane-reuse.test.mjs|scripts/verify-reused-ci-jobs.mjs|scripts/verify-reused-ci-jobs.test.mjs)
             # A classifier change must exercise every lane that it can select.
             enable_all_validation
             ;;
@@ -121,7 +116,7 @@ while IFS=$'\t' read -r status first_path _; do
         .github/workflows/release-windows.yml|.github/workflows/release-preview-windows.yml)
             windows=true
             ;;
-        .github/actions/prepare-macos-dependency-cache/*|.github/actions/save-macos-cargo-build-cache/*|.github/actions/setup-macos-toolchain/*|.swift-version)
+        .github/actions/prepare-macos-dependency-cache/*|.github/actions/save-macos-cargo-build-cache/*|.github/actions/setup-macos-toolchain/*|.github/actions/prepare-macos-ci-runner/*|scripts/macos-swift-build-options.sh|scripts/macos-swift-build-options.test.mjs|scripts/reuse-macos-runner-build-state.sh|scripts/reuse-macos-runner-build-state.test.mjs|scripts/select-macos-ci-runners.mjs|scripts/select-macos-ci-runners.test.mjs|.swift-version)
             swift=true
             plugins=true
             swift_database=true
@@ -281,6 +276,13 @@ while IFS=$'\t' read -r status first_path _; do
             swift=true
             git_validation=true
             ;;
+        macos/tests/lithetestdesktopisolation/*|macos/tests/lithetestdesktopisolationtests/*)
+            # The WindowServer alpha check of the test isolation is skipped on
+            # the Mac minis' macOS 27 (#1278); changes to it must run Swift
+            # tests where that check executes, on hosted macOS 26 runners.
+            swift=true
+            swift_hosted=true
+            ;;
         macos/tests/*)
             swift=true
             ;;
@@ -372,7 +374,7 @@ while IFS=$'\t' read -r status first_path _; do
         scripts/verify-official-plugins.sh|scripts/build-official-plugins.sh)
             plugins=true
             ;;
-        scripts/verify-rust-core.sh|scripts/verify-rust-core-comments.sh|scripts/verify-rust-core-layout.sh|scripts/build-rust-core.sh|scripts/rustcorebridgeverification.swift)
+        scripts/verify-rust-core.sh|scripts/verify-rust-core-crates.sh|scripts/verify-rust-core-swift-bridge.sh|scripts/verify-rust-core-comments.sh|scripts/verify-rust-core-layout.sh|scripts/build-rust-core.sh|scripts/rustcorebridgeverification.swift)
             rust_core=true
             macos_release=true
             ;;
@@ -426,7 +428,43 @@ while IFS=$'\t' read -r status first_path _; do
             enable_all_validation
             ;;
     esac
-done < <(git diff --name-status --find-renames "$BASE_REVISION" "$HEAD_REVISION")
+}
+
+# LITHE_CI_ONLY_PATHS names a file with one repository path per line. When set,
+# only diff entries touching one of those paths are classified; the lane-reuse
+# planner uses it to classify a pull request's own new changes between two of
+# its revisions while ignoring changes that arrived from the base branch.
+only_paths_file="${LITHE_CI_ONLY_PATHS:-}"
+if [[ -n "$only_paths_file" && ! -f "$only_paths_file" ]]; then
+    printf 'LITHE_CI_ONLY_PATHS does not name a file: %s\n' "$only_paths_file" >&2
+    exit 2
+fi
+path_selected() {
+    [[ -z "$only_paths_file" ]] && return 0
+    grep -Fxq -- "$1" "$only_paths_file"
+}
+
+# NUL-separated output keeps every path raw: the default text output quotes
+# and escapes non-ASCII paths such as Chinese file names, which would then
+# miss both the path patterns below and the LITHE_CI_ONLY_PATHS filter.
+while IFS= read -r -d '' status; do
+    IFS= read -r -d '' first_path
+    second_path=""
+    if [[ "$status" == R* || "$status" == C* ]]; then
+        IFS= read -r -d '' second_path
+    fi
+    if [[ -n "$only_paths_file" ]] && ! path_selected "$first_path" && ! { [[ -n "$second_path" ]] && path_selected "$second_path"; }; then
+        continue
+    fi
+    if [[ "$status" == R* || "$status" == C* ]]; then
+        # Renames and copies can cross ownership boundaries, so both endpoints
+        # select their own lanes. Neither side is a comment-only modification.
+        classify_path "$status" "$first_path"
+        classify_path "$status" "$second_path"
+    else
+        classify_path "$status" "$first_path"
+    fi
+done < <(git diff -z --name-status --find-renames "$BASE_REVISION" "$HEAD_REVISION")
 
 if [[ "${LITHE_CI_DRAFT_PULL_REQUEST:-false}" == "true" ]]; then
     # Draft pull requests keep the Linux-only lanes but defer every macOS and
@@ -444,6 +482,55 @@ if [[ "${LITHE_CI_DRAFT_PULL_REQUEST:-false}" == "true" ]]; then
     git_validation=false
 fi
 
+# Note: .agents/notes/implemented/process/2026-09-13-ci-build-cache-and-artifact-strategy.md
+# Pull requests into preview carry the full verification. Afterwards only what
+# a pull request cannot observe still runs: the post-merge push builds the
+# universal package (pull requests build arm64 only), which also compiles the
+# merged combination of pull requests. Promoting preview to main reruns
+# nothing, because the same commit already passed on preview.
+ci_scope="${LITHE_CI_SCOPE:-pull_request}"
+case "$ci_scope" in
+    pull_request) ;;
+    post_merge)
+        package_affected=false
+        for lane in "$swift" "$plugins" "$swift_database" "$rust_core" "$macos_release"; do
+            if [[ "$lane" == true ]]; then package_affected=true; fi
+        done
+        swift=false
+        plugins=false
+        swift_database=false
+        rust_core=false
+        rust_database=false
+        macos_release="$package_affected"
+        windows=false
+        windows_rust=false
+        java_jdt=false
+        rust_comments=false
+        metadata=false
+        git_validation=false
+        swift_hosted=false
+        ;;
+    release_promotion)
+        swift=false
+        plugins=false
+        swift_database=false
+        rust_core=false
+        rust_database=false
+        macos_release=false
+        windows=false
+        windows_rust=false
+        java_jdt=false
+        rust_comments=false
+        metadata=false
+        git_validation=false
+        swift_hosted=false
+        ;;
+    *)
+        printf '%s\n' "LITHE_CI_SCOPE must be pull_request, post_merge, or release_promotion" >&2
+        exit 2
+        ;;
+esac
+
 printf 'swift=%s\n' "$swift"
 printf 'plugins=%s\n' "$plugins"
 printf 'swift_database=%s\n' "$swift_database"
@@ -456,3 +543,5 @@ printf 'java_jdt=%s\n' "$java_jdt"
 printf 'rust_comments=%s\n' "$rust_comments"
 printf 'metadata=%s\n' "$metadata"
 printf 'git_validation=%s\n' "$git_validation"
+printf 'swift_hosted=%s\n' "$swift_hosted"
+printf 'ci_scope=%s\n' "$ci_scope"

@@ -3,6 +3,7 @@ import LitheCoreContracts
 
 /// Provider selection is independent of the provider used for commit messages.
 struct AgentProviderConfigurationView: View {
+    @Environment(\.locale) private var locale
     let agentID: String
     let name: String
     let source: AIConfigurationSourceKind?
@@ -26,14 +27,14 @@ struct AgentProviderConfigurationView: View {
     }
 
     var body: some View {
-        AgentSettingsCard(title: "Providers", systemImage: "key") {
+        LitheSettingsSection("Providers") {
             HStack {
                 Text("Use local configuration or add your own provider.")
                     .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 8)
                 if let source {
                     Button { openEditor(source: source) } label: { Label("Add", systemImage: "plus") }
-                        .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                        .buttonStyle(LitheSecondaryButtonStyle())
                 } else {
                     LitheMenu {
                         for kind in sources {
@@ -42,7 +43,7 @@ struct AgentProviderConfigurationView: View {
                     } label: {
                         Label("Add", systemImage: "plus")
                     }
-                    .buttonStyle(.litheNoPress)
+                    .buttonStyle(LitheSecondaryButtonStyle())
                 }
             }
             if agentID == "codex-acp" { subscriptionRow }
@@ -56,18 +57,17 @@ struct AgentProviderConfigurationView: View {
                 Text("No custom providers yet.").font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.tertiaryText)
             }
             if let selected, selected.credentialSource == .local {
-                Text(String(format: String(localized: "Current provider: %@"), selected.name))
+                Text(String(format: AgentLocalization.string("Current provider: %@", locale: locale), selected.name))
                     .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
             }
             if self.selected != nil || usesSubscription {
                 Button("Unlink") {
                     perform { try await model.useAgentProvider(nil, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                .buttonStyle(LitheSecondaryButtonStyle())
             }
             if let errorMessage {
-                Text(errorMessage).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error)
-                    .textSelection(.enabled)
+                AgentSettingsIssue(errorMessage)
             }
             AgentSettingsHint("Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation.")
         }
@@ -101,12 +101,10 @@ struct AgentProviderConfigurationView: View {
             Button(usesSubscription ? "Enabled" : "Enable") {
                 perform { try await model.useCodexSubscription() }
             }
-            .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+            .buttonStyle(LitheSecondaryButtonStyle())
             .disabled(usesSubscription)
         }
-        .padding(10)
-        .background(LitheTheme.inputBackground, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(usesSubscription ? LitheTheme.accent : LitheTheme.panelBorder, lineWidth: 1))
+        .padding(.vertical, 6)
     }
 
     private func localRow(_ kind: AIConfigurationSourceKind) -> some View {
@@ -115,19 +113,31 @@ struct AgentProviderConfigurationView: View {
             HStack(spacing: 8) {
                 Image(systemName: active ? "checkmark.circle.fill" : "doc.text.magnifyingglass")
                     .foregroundStyle(active ? LitheTheme.accent : LitheTheme.secondaryText)
-                Text(String(format: String(localized: "Local %@ configuration"), kind.title))
+                Text(String(format: AgentLocalization.string("Local %@ configuration", locale: locale), kind.title))
                     .font(LitheTheme.uiFont(size: 12, weight: .medium))
                 Spacer(minLength: 8)
                 Button(active ? "Refresh" : "Use") {
                     perform { try await model.useLocalAgentProvider(source: kind, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                .buttonStyle(LitheSecondaryButtonStyle())
             }
-            if active, let selected { metadata(selected) }
+            if active, let selected {
+                metadata(selected)
+                LitheSettingsCheckbox(isOn: Binding(
+                    get: { self.selected?.allowsInsecureHTTP ?? false },
+                    set: { allowed in
+                        perform { try await model.setLocalAgentProviderHTTP(allowed, provider: selected) }
+                    }
+                ), title: "Allow insecure HTTP")
+                .disabled(actionTask != nil)
+                if selected.usesInsecureHTTP {
+                    AgentSettingsHint(selected.allowsInsecureHTTP
+                        ? "HTTP sends the API credential without encryption. Use only a trusted endpoint."
+                        : "HTTP is blocked until you explicitly allow it for this provider.")
+                }
+            }
         }
-        .padding(10)
-        .background(LitheTheme.inputBackground, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? LitheTheme.accent : LitheTheme.panelBorder, lineWidth: 1))
+        .padding(.vertical, 6)
     }
 
     private func providerRow(_ provider: AIProviderProfile) -> some View {
@@ -141,7 +151,7 @@ struct AgentProviderConfigurationView: View {
                 Button(active ? "Enabled" : "Enable") {
                     perform { try await model.useAgentProvider(provider, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                .buttonStyle(LitheSecondaryButtonStyle())
                 .disabled(active)
                 Button { openEditor(source: provider.apiProtocol == .responses ? .codex : .claude, provider: provider) } label: {
                     Image(systemName: "pencil")
@@ -151,9 +161,7 @@ struct AgentProviderConfigurationView: View {
             }
             metadata(provider)
         }
-        .padding(10)
-        .background(LitheTheme.inputBackground, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? LitheTheme.accent : LitheTheme.panelBorder, lineWidth: 1))
+        .padding(.vertical, 6)
     }
 
     private func metadata(_ provider: AIProviderProfile) -> some View {
@@ -180,35 +188,52 @@ struct AgentProviderConfigurationView: View {
 }
 
 private struct AgentProviderEditorView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var model: AppModel
     @State var draft: AgentProviderDraft
     @State private var errorMessage: String?
     @State private var saveTask: Task<Void, Never>?
+    @State private var showsAPIKey = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(draft.providerID == nil ? "Add provider" : "Edit provider")
                 .font(LitheTheme.uiFont(size: 17, weight: .semibold))
-            TextField("Provider name", text: $draft.name).litheSettingsTextField()
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    configurationEditor(draft.source == .codex ? "config.toml" : "settings.json", text: $draft.configuration,
-                        canFormat: draft.source == .claude)
-                    if draft.source == .codex {
-                        configurationEditor("auth.json", text: $draft.authentication, canFormat: true)
+                VStack(alignment: .leading, spacing: 16) {
+                    requiredField("Provider name") {
+                        TextField("Provider name", text: $draft.name).litheSettingsTextField()
+                            .accessibilityLabel("Provider name")
                     }
-                    Toggle("Allow insecure HTTP", isOn: $draft.allowsInsecureHTTP)
-                        .font(LitheTheme.uiFont(size: 12))
-                    AgentSettingsHint("Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.")
+                    if draft.isEditingConfigurationText {
+                        configurationEditor(draft.source == .codex ? "config.toml" : "settings.json", text: $draft.configuration,
+                            canFormat: draft.source == .claude)
+                        if draft.source == .codex {
+                            configurationEditor("auth.json", text: $draft.authentication, canFormat: true)
+                        }
+                    } else {
+                        providerFields
+                    }
+                    LitheSettingsCheckbox(isOn: $draft.allowsInsecureHTTP, title: "Allow insecure HTTP")
+                    Button(draft.isEditingConfigurationText ? "Use form" : "Edit configuration text") {
+                        do {
+                            try model.setAgentProviderConfigurationTextEditing(!draft.isEditingConfigurationText, draft: &draft)
+                            showsAPIKey = false
+                            errorMessage = nil
+                        } catch { errorMessage = error.localizedDescription }
+                    }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                    if draft.isEditingConfigurationText {
+                        AgentSettingsHint("Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.")
+                    } else {
+                        AgentSettingsHint("The API key is stored separately from settings. Your local CLI configuration is not changed.")
+                    }
                 }
             }
             // Errors stay visible even when the configuration editors fill the scroll viewport.
             if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                AgentSettingsIssue(errorMessage)
             }
             HStack {
                 Spacer()
@@ -216,14 +241,61 @@ private struct AgentProviderEditorView: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                     .buttonStyle(LitheSecondaryButtonStyle())
                 Button("Save") { save() }.keyboardShortcut(.defaultAction)
-                    .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.accent, restingOpacity: 1))
+                    .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+                    .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        (!draft.isEditingConfigurationText && [draft.endpoint, draft.model, draft.apiKey].contains {
+                            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        }))
             }
         }
         .padding(20).frame(width: 540, height: 620)
-        .background(LitheTheme.raised)
+        .background(LitheTheme.settingsSurface)
         .disabled(model.isChangingAgentProvider || saveTask != nil)
         .interactiveDismissDisabled(saveTask != nil)
         .onDisappear { saveTask?.cancel() }
+    }
+
+    private var providerFields: some View {
+        Group {
+            requiredField("API Key") {
+                HStack(spacing: 8) {
+                    Group {
+                        if showsAPIKey {
+                            TextField("Enter API key", text: $draft.apiKey)
+                        } else {
+                            SecureField("Enter API key", text: $draft.apiKey)
+                        }
+                    }
+                    .litheSettingsTextField()
+                    .accessibilityLabel("API Key")
+                    Button(showsAPIKey ? "Hide API key" : "Show API key") { showsAPIKey.toggle() }
+                        .buttonStyle(LitheSecondaryButtonStyle())
+                }
+            }
+            requiredField("API request URL") {
+                TextField(draft.source == .codex ? "https://api.example.com/v1" : "https://api.example.com", text: $draft.endpoint)
+                    .litheSettingsTextField()
+                    .accessibilityLabel("API request URL")
+                AgentSettingsHint(draft.source == .codex
+                    ? "Base URL for a service compatible with the OpenAI Responses API."
+                    : "Base URL for an Anthropic Messages API service.")
+            }
+            requiredField("Model") {
+                TextField("Enter model ID", text: $draft.model).litheSettingsTextField()
+                    .accessibilityLabel("Model")
+                AgentSettingsHint("Use a model ID supported by your provider.")
+            }
+        }
+    }
+
+    private func requiredField<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text(title).font(LitheTheme.uiFont(size: 12, weight: .medium))
+                Text("*").foregroundStyle(LitheTheme.error).accessibilityHidden(true)
+            }
+            content()
+        }
     }
 
     private func configurationEditor(_ title: String, text: Binding<String>, canFormat: Bool) -> some View {
@@ -238,14 +310,13 @@ private struct AgentProviderEditorView: View {
                             let data = try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
                             text.wrappedValue = String(decoding: data, as: UTF8.self)
                             errorMessage = nil
-                        } catch { errorMessage = String(localized: "Invalid JSON. Check the configuration format.") }
-                    }.buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                        } catch { errorMessage = "Invalid JSON. Check the configuration format." }
+                    }.buttonStyle(LitheSecondaryButtonStyle())
                 }
             }
             MacConfigurationTextEditor(text: text, label: title)
                 .frame(height: title == "auth.json" ? 110 : 210)
-                .background(LitheTheme.inputBackground, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder, lineWidth: 1))
+                .litheSettingsControlChrome()
                 .accessibilityLabel(title)
         }
     }

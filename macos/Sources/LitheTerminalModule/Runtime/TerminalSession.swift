@@ -137,6 +137,22 @@ public final class TerminalSession: ObservableObject, Identifiable {
     public func focus() { transport.focus() }
     public func stop() {
         transport.stop()
+        finishStop()
+    }
+
+    /// Stops the whole terminal session and waits for its processes to exit.
+    public func stopAndWait() async {
+        await transport.stopAndWait()
+        finishStop()
+    }
+
+    /// Programs still running in this terminal, including ones that outlived
+    /// the shell. Reads the process table, so call it only when deciding to close.
+    public func runningPrograms() -> [TerminalRunningProgram] {
+        transport.runningPrograms()
+    }
+
+    private func finishStop() {
         finishDecodedOutput()
         isRunning = false; isReady = false
         if startedAt != nil { endedAt = Date() }

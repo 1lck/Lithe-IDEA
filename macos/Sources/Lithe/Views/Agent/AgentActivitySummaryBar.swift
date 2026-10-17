@@ -4,17 +4,22 @@ import LitheAgentConversationModule
 /// Conversation-local selection. Shared dropdown panels own positioning, outside-click
 /// dismissal and keyboard handling, matching the existing Agent selectors.
 struct AgentActivitySummaryBar: View {
+    @Environment(\.locale) private var locale
     enum Panel: String, CaseIterable {
         case tasks, running, edits
-        var title: LocalizedStringKey {
+        var title: String {
             switch self { case .tasks: "Tasks"; case .running: "Running"; case .edits: "Edits" }
         }
-        var icon: String {
+        var fallbackIcon: String {
             switch self { case .tasks: "checklist"; case .running: "arrow.triangle.2.circlepath"; case .edits: "pencil" }
+        }
+        var icon: String {
+            switch self { case .tasks: "expui/build/taskGroup.svg"; case .running: "expui/general/refresh.svg"; case .edits: "expui/general/edit.svg" }
         }
     }
 
     let messages: [AgentConversationMessage]
+    var sessionID: String?
     var plan: AgentPlan?
     var reviewed: [String: AgentFileChange] = [:]
     var isResponding = false
@@ -36,21 +41,39 @@ struct AgentActivitySummaryBar: View {
     private var activity: AgentActivity { AgentActivity(messages: messages, reviewed: reviewed) }
 
     var body: some View {
-        GeometryReader { geometry in
-            tabs
-                .litheDropdown(isPresented: Binding(get: { panel != nil }, set: { if !$0 { panel = nil } }), opensUpward: true) {
-                    if let panel {
-                        AgentActivityDetailsView(panel: panel, activity: activity, plan: plan, width: geometry.size.width,
-                            isResponding: isResponding, isReviewing: isReviewing, reviewError: reviewError,
-                            onOpenFile: onOpenFile, onDiff: { change in self.panel = nil; selectedDiff = change },
-                            onKeep: onKeep, onRequestRestore: { changes in
-                                self.panel = nil
-                                confirmation = changes
-                            })
+        HStack(spacing: 0) {
+            ForEach(Panel.allCases, id: \.self) { item in
+                if item != .tasks { Divider().frame(height: 14).overlay(AgentPanelStyle.border) }
+                Button { panel = panel == item ? nil : item } label: {
+                    HStack(spacing: 5) {
+                        LitheIDEAIcon(resourcePath: item.icon, size: LitheTheme.Metrics.toolbarIconSize,
+                                      fallbackSystemImage: item.fallbackIcon, preservesOriginalColors: true)
+                        Text(AgentLocalization.string(String.LocalizationValue(item.title), locale: locale)).lineLimit(1)
+                        if count(item) != "0" { Text(count(item)).monospacedDigit() }
                     }
+                    .font(LitheTheme.uiFont(size: 11))
+                    .foregroundStyle(AgentPanelStyle.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.litheNoPress)
+                .litheRowHover()
+                .accessibilityIdentifier("agent-activity-\(item.rawValue)")
+                .accessibilityValue(count(item))
+            }
         }
-        .frame(height: 32)
+        .frame(height: AgentComposerMetrics.activityHeight)
+        .background(AgentPanelStyle.header, in: RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(AgentPanelStyle.border, lineWidth: 1))
+        .litheDropdown(isPresented: Binding(get: { panel != nil }, set: { if !$0 { panel = nil } }), opensUpward: true) {
+            if let panel {
+                AgentActivityDetailsView(panel: panel, activity: activity, plan: plan,
+                    width: LitheDropdownMetrics.maximumWidth,
+                    isResponding: isResponding, isReviewing: isReviewing, reviewError: reviewError,
+                    onOpenFile: onOpenFile, onDiff: { change in self.panel = nil; selectedDiff = change },
+                    onKeep: onKeep, onRequestRestore: { changes in self.panel = nil; confirmation = changes })
+            }
+        }
         .sheet(item: $selectedDiff) { change in
             AgentFileDiffView(change: change, onOpenFile: onOpenFile)
         }
@@ -69,39 +92,7 @@ struct AgentActivitySummaryBar: View {
             self.restoration = nil
             panel = .edits
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 4)
-    }
 
-    private var tabs: some View {
-        HStack(spacing: 0) {
-            ForEach(Panel.allCases, id: \.self) { item in
-                if item != .tasks { Divider().frame(height: 14).overlay(AgentPanelStyle.border) }
-                Button { panel = panel == item ? nil : item } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: item.icon).font(LitheTheme.uiFont(size: 11))
-                        Text(item.title)
-                        badge(item)
-                    }
-                    .foregroundStyle(panel == item ? AgentPanelStyle.text : AgentPanelStyle.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 24)
-                    .background(panel == item ? AgentPanelStyle.context : Color.clear, in: RoundedRectangle(cornerRadius: 4))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.litheNoPress)
-                .litheRowHover()
-                .accessibilityIdentifier("agent-activity-\(item.rawValue)")
-                .accessibilityValue(count(item))
-                .accessibilityAddTraits(panel == item ? .isSelected : [])
-                .help(item.title)
-            }
-        }
-        .font(LitheTheme.uiFont(size: 11))
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .frame(height: 32)
-        .background(AgentPanelStyle.canvas, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(AgentPanelStyle.border, lineWidth: 1))
     }
 
     private func count(_ panel: Panel) -> String {
@@ -114,13 +105,7 @@ struct AgentActivitySummaryBar: View {
         }
     }
 
-    @ViewBuilder private func badge(_ item: Panel) -> some View {
-        let count = count(item)
-        if count != "0" {
-            Text(count).font(LitheTheme.uiFont(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(item == .running && !activity.running.isEmpty ? LitheTheme.accent : AgentPanelStyle.text)
-        }
-    }
+
 }
 
 struct AgentActivityDetailsView: View {
@@ -147,8 +132,7 @@ struct AgentActivityDetailsView: View {
             case .edits: edits
             }
             if let reviewError {
-                Text(reviewError).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
-                    .padding(8)
+                LitheBanner(status: .error) { Text(reviewError).textSelection(.enabled) }
             }
         }
         .frame(width: width)
@@ -209,13 +193,13 @@ struct AgentActivityDetailsView: View {
             if let deletions = change.deletions, deletions > 0 {
                 Text("-\(deletions)").foregroundStyle(LitheTheme.error)
             }
-            Button { onDiff(change) } label: { Image(systemName: "rectangle.split.2x1") }
-                .buttonStyle(.litheNoPress)
+            Button { onDiff(change) } label: { LitheSystemIcon(systemImage: "rectangle.split.2x1", size: LitheTheme.Metrics.toolbarIconSize) }
+                .litheToolbarIconButton()
                 .disabled(change.diffs.isEmpty)
                 .help("Show Agent diff")
                 .accessibilityIdentifier("agent-edits-diff-\(change.path)")
-            Button { onRequestRestore([change]) } label: { Image(systemName: "arrow.uturn.backward") }
-                .buttonStyle(.litheNoPress)
+            Button { onRequestRestore([change]) } label: { LitheSystemIcon(systemImage: "arrow.uturn.backward", size: LitheTheme.Metrics.toolbarIconSize) }
+                .litheToolbarIconButton()
                 .disabled(isResponding || isReviewing || !change.canRevert)
                 .help(change.canRevert ? "Roll back Agent changes" : "Original content is missing or incomplete.")
                 .accessibilityIdentifier("agent-edits-revert-\(change.path)")

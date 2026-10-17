@@ -11,15 +11,22 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case terminal = "Terminal"
     case lsp = "LSP"
     case ai = "AI & Commit"
+    case agents = "Agents"
     case providers = "AI Providers"
     case git = "Git"
     case updates = "Updates"
+    case processTermination = "Process Termination Policy"
     case diagnostics = "Diagnostics"
     case plugins = "Plugins"
     case mcp = "MCP Configuration"
 
     var id: String { rawValue }
     var title: String { self == .project ? "Project · JDK & Maven" : rawValue }
+
+    /// The sidebar group that owns this page, or `nil` for a top-level page.
+    var group: SettingsGroup? {
+        SettingsGroup.allCases.first { $0.categories.contains(self) }
+    }
 
     var icon: String {
         switch self {
@@ -31,14 +38,61 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .terminal: "terminal"
         case .lsp: "server.rack"
         case .ai: "wand.and.stars"
+        case .agents: "sparkles"
         case .providers: "key"
         case .git: "arrow.triangle.branch"
         case .updates: "arrow.down.circle"
+        case .processTermination: "power"
         case .diagnostics: "stethoscope"
         case .plugins: "puzzlepiece.extension"
         case .mcp: "network"
         }
     }
+}
+
+/// Collapsible groups of the settings sidebar. A new page is declared here, in
+/// the group whose subject it configures, rather than added as a loose entry.
+/// The ownership rules are in
+/// `.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md`.
+enum SettingsGroup: String, CaseIterable, Identifiable {
+    case appearance = "Appearance & Behavior"
+    case versionControl = "Version Control"
+    case build = "Build, Execution, Deployment"
+    case languages = "Languages & Frameworks"
+    case tools = "Tools"
+    case ai = "AI"
+
+    var id: String { rawValue }
+
+    /// Pages in display order.
+    var categories: [SettingsCategory] {
+        switch self {
+        case .appearance: [.general, .updates, .editor, .keymap, .processTermination]
+        case .versionControl: [.git]
+        case .build: [.project, .run]
+        case .languages: [.lsp]
+        case .tools: [.terminal, .diagnostics]
+        case .ai: [.mcp, .ai, .agents, .providers]
+        }
+    }
+}
+
+/// One top-level row of the settings sidebar.
+enum SettingsSidebarItem {
+    case group(SettingsGroup)
+    case page(SettingsCategory)
+
+    /// Top-level order: plugins sit between Appearance & Behavior and the
+    /// feature groups because they extend every group below them.
+    static let layout: [SettingsSidebarItem] = [
+        .group(.appearance),
+        .page(.plugins),
+        .group(.versionControl),
+        .group(.build),
+        .group(.languages),
+        .group(.tools),
+        .group(.ai),
+    ]
 }
 
 enum JavaLaunchDecisionResolution: Equatable {
@@ -67,6 +121,8 @@ enum LitheFeatureAvailability {
 struct WorkbenchNotification: Identifiable, Equatable {
     let id: UUID
     let message: String
+    /// Raw substitutions stay locale-independent until balloon/history rendering.
+    let arguments: [String]
     let createdAt: Date
     /// When the message was shown last. Repeating a message keeps the single
     /// entry but moves this forward, so the list reports fresh activity.
@@ -81,11 +137,13 @@ struct WorkbenchNotification: Identifiable, Equatable {
     init(
         id: UUID = UUID(),
         message: String,
+        arguments: [String] = [],
         createdAt: Date = Date(),
         isRead: Bool = false
     ) {
         self.id = id
         self.message = message
+        self.arguments = arguments
         self.createdAt = createdAt
         self.updatedAt = createdAt
         self.isRead = isRead
@@ -102,37 +160,40 @@ struct DebugBreakpointPresentationState {
     }
 }
 
-enum SidebarDestination: String, CaseIterable, Identifiable {
-    case project
-    case changes
-    case pullRequests
-    case search
+/// Legacy workspace sessions keep their original names; new tool windows use
+/// their stable contribution ID without extending a closed destination enum.
+struct SidebarDestination: RawRepresentable, Hashable, Identifiable {
+    let rawValue: String
+    init?(rawValue: String) {
+        guard !rawValue.isEmpty else { return nil }
+        self.rawValue = rawValue
+    }
+    init(contributionID: String) {
+        switch contributionID {
+        case "workspace.project": self = .project
+        case "git.changes": self = .changes
+        case "github.pull-requests": self = .pullRequests
+        case "search.workspace": self = .search
+        default: rawValue = contributionID
+        }
+    }
+    static let project = Self(rawValue: "project")!
+    static let changes = Self(rawValue: "changes")!
+    static let pullRequests = Self(rawValue: "pullRequests")!
+    static let search = Self(rawValue: "search")!
 
+    var contributionID: String {
+        switch self {
+        case .project: "workspace.project"
+        case .changes: "git.changes"
+        case .pullRequests: "github.pull-requests"
+        case .search: "search.workspace"
+        default: rawValue
+        }
+    }
     var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .project: "Project"
-        case .changes: "Changes"
-        case .pullRequests: "Pull Requests"
-        case .search: "Search"
-        }
-    }
-    var ideaAssetPath: String {
-        switch self {
-        case .project: "expui/toolwindows/project@20x20.svg"
-        case .changes: "expui/toolwindows/commit@20x20.svg"
-        case .pullRequests: "expui/toolwindows/vcs@20x20.svg"
-        case .search: "expui/toolwindows/find@20x20.svg"
-        }
-    }
-
     var isAvailable: Bool {
-        switch self {
-        case .pullRequests:
-            LitheFeatureAvailability.githubPullRequests
-        case .project, .changes, .search:
-            true
-        }
+        self != .pullRequests || LitheFeatureAvailability.githubPullRequests
     }
 }
 

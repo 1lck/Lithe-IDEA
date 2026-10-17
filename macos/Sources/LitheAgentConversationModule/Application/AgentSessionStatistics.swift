@@ -42,10 +42,14 @@ public struct AgentSessionStatistics: Equatable, Sendable {
 
     public init(_ conversation: AgentConversation) {
         let turns = conversation.completedTurns
-        turnCount = turns.count + (conversation.activeTurn == nil ? 0 : 1)
-        toolCallCount = turns.reduce(0) { $0 + $1.toolCallCount } + conversation.activeTurnToolCallCount
-        toolDuration = turns.reduce(0) { $0 + $1.toolDuration }
-        let observed = conversation.modelCalls.callCount > 0 ? conversation.modelCalls : nil
+        let baseline = conversation.statisticsBaseline
+        turnCount = (baseline?.turnCount ?? 0) + turns.count + (conversation.activeTurn == nil ? 0 : 1)
+        toolCallCount = (baseline?.toolCallCount ?? 0) + turns.reduce(0) { $0 + $1.toolCallCount }
+            + conversation.activeTurnToolCallCount
+        toolDuration = (baseline?.toolDuration ?? 0) + turns.reduce(0) { $0 + $1.toolDuration }
+        var calls = baseline?.modelCalls ?? AgentModelCallTotals()
+        calls.add(conversation.modelCalls)
+        let observed = calls.callCount > 0 ? calls : nil
         modelCalls = observed
         if let observed, observed.hasUsage {
             tokens = AgentSessionTokens(source: .modelCalls, uncachedInputTokens: observed.inputTokens,
@@ -54,7 +58,7 @@ public struct AgentSessionStatistics: Equatable, Sendable {
                                         outputTokens: observed.outputTokens, reasoningTokens: observed.reasoningTokens,
                                         callsMissingUsage: observed.callCount - observed.callsWithUsage)
         } else {
-            tokens = turns.last(where: { $0.usage != nil })?.usage.map(Self.agentTokens)
+            tokens = (turns.last(where: { $0.usage != nil })?.usage ?? baseline?.latestUsage).map(Self.agentTokens)
         }
     }
 
@@ -74,8 +78,70 @@ public struct AgentSessionStatistics: Equatable, Sendable {
     }
 }
 
+/// Persisted session totals: the baseline plus completed turns of this
+/// connection. The running turn is saved once it finishes; calls already
+/// observed during it are part of `modelCalls` like in the live statistics.
+public struct AgentSessionStatisticsRecord: Codable, Equatable, Sendable {
+    public var turnCount: Int
+    public var toolCallCount: Int
+    public var toolDuration: TimeInterval
+    public var modelCalls: AgentModelCallTotals
+    /// Agent-reported counters of the latest turn that carried them.
+    public var latestUsage: AgentTurnUsage?
+    /// Last Agent-reported occupancy, not accumulated request/billing tokens.
+    public var contextUsage: AgentContextUsage?
+    /// Confirmed model option IDs and values; a different selection invalidates the snapshot.
+    public var contextModels: [String: String]?
+    /// Orders records for the bounded store; not part of the statistics.
+    public var updatedAt: Date
+
+    public init(turnCount: Int = 0, toolCallCount: Int = 0, toolDuration: TimeInterval = 0,
+                modelCalls: AgentModelCallTotals = AgentModelCallTotals(), latestUsage: AgentTurnUsage? = nil,
+                contextUsage: AgentContextUsage? = nil, contextModels: [String: String]? = nil,
+                updatedAt: Date = Date(timeIntervalSince1970: 0)) {
+        self.turnCount = turnCount
+        self.toolCallCount = toolCallCount
+        self.toolDuration = toolDuration
+        self.modelCalls = modelCalls
+        self.latestUsage = latestUsage
+        self.contextUsage = contextUsage
+        self.contextModels = contextModels
+        self.updatedAt = updatedAt
+    }
+
+    /// Nothing to keep: no finished turn, observed call, or reported occupancy.
+    var isEmpty: Bool { turnCount == 0 && modelCalls.callCount == 0 && contextUsage == nil }
+
+    func hasSameTotals(as other: Self) -> Bool {
+        var other = other
+        other.updatedAt = updatedAt
+        return self == other
+    }
+}
+
 public extension AgentConversation {
     var sessionStatistics: AgentSessionStatistics { AgentSessionStatistics(self) }
+
+    /// Totals to persist for this session, excluding the unfinished turn's timing.
+    func statisticsRecord(at date: Date) -> AgentSessionStatisticsRecord {
+        let baseline = statisticsBaseline ?? AgentSessionStatisticsRecord()
+        var calls = baseline.modelCalls
+        calls.add(modelCalls)
+        return AgentSessionStatisticsRecord(
+            turnCount: baseline.turnCount + completedTurns.count,
+            toolCallCount: baseline.toolCallCount + completedTurns.reduce(0) { $0 + $1.toolCallCount },
+            toolDuration: baseline.toolDuration + completedTurns.reduce(0) { $0 + $1.toolDuration },
+            modelCalls: calls,
+            latestUsage: completedTurns.last(where: { $0.usage != nil })?.usage ?? baseline.latestUsage,
+            contextUsage: contextUsage,
+            contextModels: contextUsage == nil ? nil : contextModelValues,
+            updatedAt: date)
+    }
+
+    /// Only confirmed upstream identifiers can bind a saved occupancy report to a model.
+    var contextModelValues: [String: String] {
+        configOptions.filter { $0.category == "model" }.reduce(into: [:]) { $0[$1.id] = $1.currentValue }
+    }
 }
 
 private extension UInt64 {

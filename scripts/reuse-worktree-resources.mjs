@@ -77,6 +77,10 @@ async function readRegistry() {
     }
     identifiers.add(resource.id);
   }
+  // Distribution-owned preferences/caches and first-launch import transactions
+  // are mutable user state, never download artifacts. Runtime profile import is
+  // owned by the platform startup adapters; this build reuse route always rejects
+  // both original state and migration snapshots and must not gain a validator.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {
@@ -369,9 +373,13 @@ async function main() {
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
       // Generated matrix views, runtime snapshots, per-execution Java launch files, Sparkle baseline
-      // staging, per-launch Codex relays and isolated plugin packages take this rejection route,
-      // never a content-hash validator.
+      // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
+      // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
+      // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
+      // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
+      // Per-launch Codex helpers also own memory-only context replay tickets and
+      // loopback capabilities; they stay on this exclusion route, never a copy stage.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.identity}; ${excluded.reason}; it cannot be reused across worktrees`);

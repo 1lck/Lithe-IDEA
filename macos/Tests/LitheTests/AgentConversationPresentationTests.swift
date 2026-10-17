@@ -8,6 +8,76 @@ import Testing
 @Suite("Agent conversation presentation")
 struct AgentConversationPresentationTests {
     @Test
+    func liveSessionNoticeFitsNarrowAndWidePanelsInBothThemes() throws {
+        let notice = try #require(AgentSessionNotice.parse(["severity": "warning", "title": "Auto mode unavailable",
+            "description": "The selected model does not support Auto mode; using Accept edits instead."]))
+        for scheme in [ColorScheme.dark, .light] {
+            for width in [280.0, 620.0] {
+                let host = NSHostingView(rootView: AgentSessionNoticeView(notice: notice, onDismiss: {})
+                    .frame(width: width).environment(\.colorScheme, scheme))
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 180),
+                                      styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                defer { window.close() }
+                window.contentView = host
+                host.frame.size = NSSize(width: width, height: 180)
+                host.layoutSubtreeIfNeeded()
+                #expect(host.fittingSize.width <= width)
+                #expect(host.fittingSize.height <= 180, "Notice must wrap and retain the shared dismiss control")
+                if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATISTICS_SCREENSHOTS"] {
+                    let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    try #require(bitmap.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: folder).appendingPathComponent("notice-\(scheme)-\(Int(width)).png"))
+                }
+            }
+        }
+    }
+
+    @Test
+    func contextRingStaysBesideSendInBothThemes() throws {
+        let usage = try #require(AgentContextUsage(usedTokens: 5, capacityTokens: 100))
+        for scheme in [ColorScheme.dark, .light] {
+            for width in [320.0, 417.0] {
+                let host = NSHostingView(rootView: AgentComposerView(
+                    agents: [], selectedAgent: nil, isResponding: false, isBlocked: false,
+                    onSend: { _, _ in }, onCancel: {}, onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                    contextUsage: usage).frame(width: width, height: 150).environment(\.colorScheme, scheme))
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 150),
+                                      styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.contentView = host
+                defer { window.contentView = nil; window.close() }
+                host.layoutSubtreeIfNeeded()
+                func anchors(in view: NSView) -> [LitheDropdownAnchorView] {
+                    (view as? LitheDropdownAnchorView).map { [$0] } ?? view.subviews.flatMap { anchors(in: $0) }
+                }
+                let anchor = try #require(anchors(in: host).sorted {
+                    let lhs = $0.convert($0.bounds, to: nil), rhs = $1.convert($1.bounds, to: nil)
+                    return abs(lhs.midY - rhs.midY) > 1 ? lhs.midY < rhs.midY : lhs.midX > rhs.midX
+                }.first)
+                #expect(anchor.convert(anchor.bounds, to: nil).midY < 75, "Context stays in the bottom command bar")
+                let rect = anchor.convert(anchor.bounds, to: host)
+                #expect(abs(rect.width - LitheTheme.Metrics.toolbarIconButtonSize) < 1)
+                #expect(abs(rect.maxX - (width - AgentComposerMetrics.horizontalInset - AgentComposerMetrics.toolbarHorizontalInset
+                    - LitheTheme.Metrics.toolbarIconButtonSize - 4)) < 1, "Only Send follows the context ring")
+                let region = NSRect(x: rect.minX + 3, y: rect.minY, width: 16, height: rect.height)
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: region))
+                host.cacheDisplay(in: region, to: bitmap)
+                let background = try #require(bitmap.colorAt(x: 0, y: 0)?.usingColorSpace(.sRGB))
+                var visible = 0
+                for y in 0..<bitmap.pixelsHigh {
+                    for x in 0..<bitmap.pixelsWide {
+                        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                        if abs(color.redComponent - background.redComponent) > 0.04 { visible += 1 }
+                    }
+                }
+                #expect(visible > 8, "The native context ring must remain visible in both themes")
+            }
+        }
+    }
+
+    @Test
     func quietNoticeFitsBothAppearancesAndPreservesPermissionAndStopPriority() throws {
         for status in [AgentResponseStatus.waitingForPermission, .stopping] {
             #expect(!AgentResponseStatusRow(responseStatus: status, isQuiet: true).showsQuietNotice)
@@ -320,15 +390,15 @@ struct AgentConversationPresentationTests {
                         } composer: {
                             AgentComposerContent(files: files, commands: Array(commands.prefix(count)), highlightedIndex: 0,
                                                  onSelect: { _ in }, onRemoveFile: { _ in }, onFocus: {}) {
-                                Color.clear.frame(height: AgentComposerMetrics.contextHeight)
+                                Color.clear.frame(height: AgentComposerMetrics.contextHeight - 2)
                             } editor: {
                                 TextField("Message the Agent", text: .constant("/"), axis: .vertical)
                                     .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(1...)
                                     .background(AgentDraftFrameProbe { editor = $0 })
-                                    .padding(.horizontal, 8).padding(.vertical, 10)
+                                    .padding(.horizontal, 8).padding(.vertical, 7)
                                     .frame(maxWidth: .infinity, alignment: .topLeading)
                             } toolbar: {
-                                Color.clear.frame(height: AgentComposerMetrics.toolbarHeight)
+                                Color.clear.frame(height: AgentComposerMetrics.toolbarHeight - 2)
                             }
                             .padding(.horizontal, 8).padding(.bottom, AgentComposerMetrics.bottomInset)
                             .background(AgentDraftFrameProbe { composer = $0 })
@@ -347,6 +417,10 @@ struct AgentConversationPresentationTests {
                         #expect(pane.height + AgentComposerMetrics.splitTopInset >= AgentComposerMetrics.minimumHeight(hasFiles: !files.isEmpty) - 0.5)
                         #expect(frame.height > 0, "The actual text field must survive \(count) commands and \(files.count) attachments")
                         #expect(pane.insetBy(dx: -0.5, dy: -0.5).contains(frame), "The writing line must stay inside the sized pane")
+                        if files.isEmpty, count == 0 {
+                            let inputHeight = pane.height - AgentComposerMetrics.bottomInset - (AgentComposerMetrics.contextHeight - 2)
+                            #expect(abs(inputHeight - 60) < 0.5, "A single writing line and toolbar stay compact across panel sizes")
+                        }
                         let writingScroll = try #require(enclosingScroll(of: input))
                         #expect(writingScroll.bounds.height >= AgentComposerMetrics.writingLineHeight - 0.5)
                         if count > 0 {
@@ -417,6 +491,41 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
+    func subscriptionQuotaColorsUseRequestedThresholdsAndKeepUnknownMuted() {
+        #expect(AgentSubscriptionQuotaPresentation.level(0) == .normal)
+        #expect(AgentSubscriptionQuotaPresentation.level(60) == .normal)
+        #expect(AgentSubscriptionQuotaPresentation.level(60.1) == .warning)
+        #expect(AgentSubscriptionQuotaPresentation.level(90) == .warning)
+        #expect(AgentSubscriptionQuotaPresentation.level(90.1) == .error)
+        #expect(AgentSubscriptionQuotaPresentation.level(100) == .error)
+        #expect(AgentSubscriptionQuotaPresentation.level(nil) == .unknown)
+        #expect(AgentSubscriptionQuotaPresentation.level(95, stale: true) == .unknown)
+    }
+
+    @Test
+    func subscriptionQuotaPrefersFiveHoursAndFallsBackToActualWeeklyWindow() throws {
+        let windows: [[String: Any]] = [
+            ["id": "weekly", "name": "codex", "limitSeconds": 604800, "usedPercent": 95],
+            ["id": "short", "name": "codex", "limitSeconds": 18000, "usedPercent": 32],
+            ["id": "other", "name": "codex", "limitSeconds": 7200, "usedPercent": 40]
+        ]
+        func quota(_ windows: [[String: Any]]) throws -> AgentSubscriptionQuota {
+            try #require(AgentSubscriptionQuota.parse(["windows": windows, "fetchedAt": 1800000000]))
+        }
+        let both = AgentSubscriptionQuotaPresentation.windows(try quota(windows))
+        #expect(both.map(\.id) == ["short", "weekly", "other"])
+        let weekly = AgentSubscriptionQuotaPresentation.windows(try quota([windows[0]]))
+        #expect(weekly.count == 1 && weekly.first?.limitSeconds == 604800)
+        var unknown = windows[1]
+        unknown["usedPercent"] = NSNull()
+        let missing = AgentSubscriptionQuotaPresentation.windows(try quota([windows[0], unknown]))
+        #expect(missing.first?.id == "short" && missing.first?.usedPercent == nil,
+                "An unreported five-hour value is unknown, not an absent window or a healthy zero")
+        #expect(AgentSubscriptionQuotaPresentation.windows(nil).isEmpty)
+        #expect(AgentSubscriptionQuotaPresentation.percentage(missing.first, locale: Locale(identifier: "en")) == "—")
+    }
+
+    @Test
     func sessionStatusHidesProxyOnlyFactsAndCardsFitBothAppearances() throws {
         let locale = Locale(identifier: "en_US")
         #expect(AgentSessionStatusPresentation.compactTokens(999, locale: locale) == "999")
@@ -443,13 +552,17 @@ struct AgentConversationPresentationTests {
         for scheme in [ColorScheme.dark, .light] {
             for card in [AnyView(AgentSessionSummaryCard(statistics: statistics)),
                          AnyView(AgentTokenUsageCard(tokens: try #require(statistics.tokens))),
-                         AnyView(AgentContextUsageCard(usage: usage, composition: statistics.modelCalls?.latestContext)),
-                         AnyView(AgentContextUsageCard(usage: nil, composition: nil))] {
+                         AnyView(AgentContextUsageCard(usage: usage, composition: statistics.modelCalls?.latestContext))] {
                 let host = NSHostingView(rootView: card.environment(\.colorScheme, scheme).environment(\.locale, locale))
                 let size = host.fittingSize
                 #expect(size.width == AgentStatusCardMetrics.width, "Cards keep the shared width")
                 #expect(size.height > 40 && size.height < 400, "Cards wrap footnotes without clipping")
             }
+            let emptyContext = NSHostingView(rootView: AgentContextUsageCard(usage: nil, composition: nil)
+                .environment(\.colorScheme, scheme).environment(\.locale, locale))
+            #expect(emptyContext.fittingSize.width == 240)
+            #expect(emptyContext.fittingSize.height > 30 && emptyContext.fittingSize.height < 80,
+                    "Unknown context stays compact without reserving an empty progress bar")
         }
         if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATUS_SCREENSHOTS"] {
             try captureStatusScreenshots(folder: URL(fileURLWithPath: folder))
@@ -457,7 +570,68 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
-    func normalWidthComposerKeepsEveryStatusEntryVisible() throws {
+    func contextBreakdownUsesReportedWindowInsteadOfNormalizingTheRequestToFull() throws {
+        let locale = Locale(identifier: "en_US")
+        let context = try #require(AgentModelCall.parse([
+            "api": "responses", "status": 200, "streaming": true, "durationMs": 100,
+            "context": ["systemPromptTokens": 11700, "toolTokens": 33900, "messageTokens": 30300,
+                        "mcpToolTokens": 300, "toolCount": 18, "mcpToolCount": 2, "scaledToUsage": true]
+        ])?.context)
+        let usage = try #require(AgentContextUsage(usedTokens: 76200, capacityTokens: 300000))
+        let breakdown = AgentContextBreakdown(usage: usage, composition: context)
+        #expect(breakdown.share(context.systemPromptTokens, locale: locale) == "3.9%")
+        #expect(breakdown.share(context.toolTokens, locale: locale) == "11.3%")
+        #expect(breakdown.share(context.messageTokens, locale: locale) == "10.1%")
+        #expect(breakdown.share(context.mcpToolTokens, locale: locale) == "0.1%")
+        #expect(breakdown.capacity(locale: locale) == "76.2K / 300.0K")
+        let unknownWindow = AgentContextBreakdown(usage: nil, composition: context)
+        #expect(unknownWindow.share(context.messageTokens, locale: locale) == "—",
+                "Observed request sizes cannot establish the model window or its occupancy")
+    }
+
+    @Test
+    func referenceContextPanelFitsDetailsAndPopupWithAndWithoutBreakdown() throws {
+        let resourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
+        let bundle = try #require(Bundle(url: resourceURL))
+        let composition = try #require(AgentModelCall.parse([
+            "api": "responses", "status": 200, "streaming": true, "durationMs": 100,
+            "context": ["systemPromptTokens": 11700, "toolTokens": 33900, "messageTokens": 30300,
+                        "mcpToolTokens": 300, "toolCount": 18, "mcpToolCount": 2, "scaledToUsage": true]
+        ])?.context)
+        let usage = try #require(AgentContextUsage(usedTokens: 76200, capacityTokens: 300000))
+        for language in ["en", "zh-Hans"] {
+            for scheme in [ColorScheme.dark, .light] {
+                for width in [AgentEditorConversationMetrics.detailsWidth, AgentContextPanel.popoverWidth] {
+                    for hasBreakdown in [true, false] {
+                        let host = NSHostingView(rootView: AgentContextPanel(usage: usage,
+                            composition: hasBreakdown ? composition : nil, onClose: {}, bundle: bundle)
+                            .padding(14).frame(width: width).background(AgentPanelStyle.canvas)
+                            .environment(\.locale, Locale(identifier: language)).environment(\.colorScheme, scheme))
+                        host.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+                        let size = host.fittingSize
+                        #expect(size.width == width)
+                        #expect(size.height > 180 && size.height < 330, "Summary, categories and any unavailable-data guidance stay compact")
+                        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                                              styleMask: [.borderless], backing: .buffered, defer: false)
+                        window.isReleasedWhenClosed = false
+                        window.contentView = host
+                        defer { window.contentView = nil; window.close() }
+                        host.layoutSubtreeIfNeeded()
+                        if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATUS_SCREENSHOTS"] {
+                            let bitmap = try nativeSRGBCapture(host)
+                            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                                URL(fileURLWithPath: folder).appendingPathComponent(
+                                    "context-reference-\(language)-\(scheme)-\(Int(width))-\(hasBreakdown).png"))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    func defaultWidthDetailsCardsKeepAllReportedStatistics() throws {
         var conversation = AgentConversation()
         conversation.completedTurns = [AgentTurnStatistics(id: "turn", startedAt: .now)]
         conversation.recordModelCall(try #require(AgentModelCall.parse([
@@ -465,8 +639,7 @@ struct AgentConversationPresentationTests {
             "usage": ["inputTokens": 62063, "cacheReadTokens": 61696, "cacheWriteTokens": 0, "outputTokens": 165]
         ])))
         let usage = try #require(AgentContextUsage(usedTokens: 62_000, capacityTokens: 1_000_000))
-        // 417pt is the default Agent panel width reported in review; the
-        // session summary must not be the entry that disappears there.
+        // Compact summary cards remain reusable inside the on-demand details panel.
         for scheme in [ColorScheme.dark, .light] {
             let composer = AgentComposerView(
                 agents: [], selectedAgent: nil, isResponding: false, isBlocked: false,
@@ -490,7 +663,7 @@ struct AgentConversationPresentationTests {
                 let required = width(AnyView(AgentSessionSummaryView(statistics: statistics, showsRate: false)))
                     + width(AnyView(AgentTokenUsageView(tokens: try #require(statistics.tokens))))
                     + width(AnyView(AgentContextUsageView(usage: usage))) + 16
-                #expect(required <= available, "The session summary stays visible at the default panel width")
+                #expect(required <= available, "All reported figures remain available through the details cards")
             }
             if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATUS_SCREENSHOTS"] {
                 let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
@@ -566,17 +739,19 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
-    func contextIndicatorUsesZeroPlaceholderAndReportedCountsWhenInUse() throws {
+    func contextIndicatorDistinguishesUnknownZeroAndReportedCounts() throws {
         let locale = Locale(identifier: "en_US")
         let usage = try #require(AgentContextUsage(usedTokens: 18700, capacityTokens: 258400))
-        #expect(AgentContextUsagePresentation.percentage(nil, locale: locale) == "0%")
-        #expect(AgentContextUsagePresentation.details(nil, locale: locale).contains("0.0%"))
+        #expect(AgentContextUsagePresentation.percentage(nil, locale: locale) == "—")
+        #expect(AgentContextUsagePresentation.details(nil, locale: locale).contains("not reported"))
         #expect(!AgentContextUsagePresentation.details(nil, locale: locale).contains("/"))
         #expect(AgentContextUsagePresentation.percentage(usage, locale: locale) == "7%")
-        #expect(AgentContextUsagePresentation.details(usage, locale: locale).contains("7.2% · 18.7k / 258.4k"))
+        #expect(AgentContextUsagePresentation.details(usage, locale: locale) == "7.2% · 18.7K / 258.4K context used")
+        let reference = try #require(AgentContextUsage(usedTokens: 125300, capacityTokens: 300000))
+        #expect(AgentContextUsagePresentation.details(reference, locale: locale) == "41.8% · 125.3K / 300.0K context used")
         let zero = try #require(AgentContextUsage(usedTokens: 0, capacityTokens: 100))
         #expect(AgentContextUsagePresentation.percentage(zero, locale: locale) == "0%")
-        #expect(AgentContextUsagePresentation.details(zero, locale: locale) == AgentContextUsagePresentation.details(nil, locale: locale))
+        #expect(AgentContextUsagePresentation.details(zero, locale: locale) == "0.0% · 0 / 100 context used")
         let over = try #require(AgentContextUsage(usedTokens: 150, capacityTokens: 100))
         #expect(AgentContextUsagePresentation.percentage(over, locale: locale) == "150%")
         #expect(AgentContextUsagePresentation.details(over, locale: locale).contains("150 / 100"))
@@ -646,35 +821,95 @@ struct AgentConversationPresentationTests {
         #expect(AgentBrandIconLoader.image(name: "Custom") == nil)
     }
 
-    @Test
-    func inputSplitStaysWithinNarrowAndWidePanels() throws {
-        let host = NSHostingView(rootView: AgentConversationLayout {
-            AgentHeroView(agentName: "Codex", agentVersion: "1.13.1", onTap: {})
-        } composer: {
-            Color.clear
-        })
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 500),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+    @Test(arguments: [ColorScheme.dark, .light])
+    func conversationHeaderKeepsOneCompactRow(scheme: ColorScheme) throws {
+        let host = NSHostingView(rootView: AgentChatHeader(agentName: "Codex", onHistory: {}, onNew: {},
+            onOpenSettings: {}, onHide: {}, conversationTitle: "Review a long sample conversation title",
+            onSearch: {}).environment(\.colorScheme, scheme))
+        let height = LitheTheme.Metrics.toolWindowHeaderHeight
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: height),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.close() }
         window.contentView = host
-        for size in [NSSize(width: 320, height: 500), NSSize(width: 760, height: 1000),
-                     NSSize(width: 320, height: 300)] {
-            host.frame.size = size
-            host.layoutSubtreeIfNeeded()
-            let handle = try #require(splitHandle(in: host))
-            let rect = handle.convert(handle.bounds, to: host)
-            #expect(rect.minY >= 0 && rect.maxY <= size.height)
-            #expect(rect.width == size.width)
-            #expect(rect.height == SplitHandleView.hitThickness)
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        #expect(host.fittingSize.height == height, "The title and actions occupy one row at the narrow panel width")
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        if let directory = ProcessInfo.processInfo.environment["LITHE_AGENT_ICON_ALIGNMENT_SCREENSHOTS"] {
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: directory).appendingPathComponent("header-\(scheme).png"))
         }
     }
 
-    private func splitHandle(in view: NSView) -> SplitHandleInteractionView? {
-        if let handle = view as? SplitHandleInteractionView { return handle }
-        return view.subviews.lazy.compactMap { splitHandle(in: $0) }.first
+    @Test(arguments: [false, true])
+    func composerGrowsWithDraftAndShrinksAfterClearing(editorLayout: Bool) async throws {
+        let draft = AgentGrowingComposerDraft()
+        var composer: NSView?
+        let host = NSHostingView(rootView: AgentGrowingComposerFixture(draft: draft, editorLayout: editorLayout,
+            onComposer: { composer = $0 }))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+
+        func verticalScroll(in view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView, scroll.hasVerticalScroller { return scroll }
+            return view.subviews.lazy.compactMap { verticalScroll(in: $0) }.first
+        }
+        func layout(until condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            repeat {
+                await withCheckedContinuation { gate in
+                    DispatchQueue.main.async {
+                        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
+                        host.needsLayout = true
+                        host.layoutSubtreeIfNeeded()
+                        gate.resume()
+                    }
+                }
+                if condition() { return }
+            } while ContinuousClock.now < deadline
+            try #require(condition(), "Native composer failed to reach its expected content size")
+        }
+        try await layout { composer != nil && verticalScroll(in: host)?.bounds.height == 32 }
+        let pane = try #require(composer)
+        let scroll = try #require(verticalScroll(in: host))
+        let emptyHeight = pane.bounds.height
+        #expect(emptyHeight < 140, "Empty production composer must start with one writing line")
+        #expect(abs(pane.bounds.width - (editorLayout ? 880 : 1100)) < 1)
+
+        draft.text = "First line\nSecond line\nThird line\nFourth line"
+        try await layout { scroll.bounds.height > 60 && pane.bounds.height > emptyHeight + 25 }
+        let fourLineHeight = scroll.bounds.height
+        #expect(fourLineHeight < 120, "Four lines should use their natural height")
+
+        draft.text = (0..<80).map { "Line \($0): 输入越多，书写区会增高。" }.joined(separator: "\n")
+        try await layout { scroll.bounds.height > fourLineHeight && (scroll.documentView?.bounds.height ?? 0) > 700 }
+        #expect(scroll.bounds.height <= 240.5)
+        #expect(pane.bounds.height + AgentComposerMetrics.splitTopInset <= 700 * 0.6 + 1)
+        let document = try #require(scroll.documentView)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(scroll.contentView.bounds.maxY >= document.bounds.maxY - 1, "The end of a capped draft stays reachable")
+
+        draft.files = [try AgentFileReference(url: URL(fileURLWithPath: "/example/project/README.md"))]
+        draft.text = ""
+        try await layout { abs(scroll.bounds.height - 32) < 0.5 && pane.bounds.height > emptyHeight + 25 }
+        #expect(abs(pane.bounds.height - emptyHeight - 34) < 1)
+        draft.files = []
+        try await layout { abs(pane.bounds.height - emptyHeight) < 0.5 }
+
+        draft.text = String(repeating: "输入内容应按当前窗口宽度换行。 Draft grows with its content. ", count: 4)
+        try await layout { scroll.bounds.height > 32 }
+        let wideHeight = scroll.bounds.height
+        window.setContentSize(NSSize(width: 320, height: 400))
+        try await layout { scroll.bounds.height > wideHeight + 15 && pane.bounds.width < 321 }
+        #expect(abs(pane.bounds.width - (editorLayout ? 256 : 320)) < 1)
+        #expect(pane.bounds.height + AgentComposerMetrics.splitTopInset <= 400 * 0.6 + 1)
+        draft.text = ""
+        try await layout { abs(scroll.bounds.height - 32) < 0.5 && abs(pane.bounds.height - emptyHeight) < 1 }
     }
 
     private func enclosingScroll(of view: NSView) -> NSScrollView? {
@@ -685,6 +920,30 @@ struct AgentConversationPresentationTests {
     private func commandScroll(in view: NSView, excluding editor: NSView) -> NSScrollView? {
         if let scroll = view as? NSScrollView, scroll.hasVerticalScroller, !editor.isDescendant(of: scroll) { return scroll }
         return view.subviews.lazy.compactMap { commandScroll(in: $0, excluding: editor) }.first
+    }
+}
+
+@MainActor
+private final class AgentGrowingComposerDraft: ObservableObject {
+    @Published var text = ""
+    @Published var files: [AgentFileReference] = []
+}
+
+private struct AgentGrowingComposerFixture: View {
+    @ObservedObject var draft: AgentGrowingComposerDraft
+    let editorLayout: Bool
+    let onComposer: (NSView) -> Void
+
+    var body: some View {
+        AgentConversationLayout {
+            Color.clear
+        } composer: {
+            AgentComposerView(agents: [], selectedAgent: nil, isResponding: false, isBlocked: false,
+                onSend: { _, _ in }, onCancel: {}, onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                draftText: $draft.text, draftFiles: $draft.files)
+                .background(AgentDraftFrameProbe(onCreate: onComposer))
+                .modifier(AgentEditorColumn(isEditor: editorLayout))
+        }
     }
 }
 

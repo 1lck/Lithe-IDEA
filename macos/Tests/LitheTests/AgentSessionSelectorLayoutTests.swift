@@ -7,13 +7,257 @@ import Testing
 @MainActor
 @Suite("Agent selector layout", .serialized)
 struct AgentSessionSelectorLayoutTests {
+    @Test(arguments: [true, false])
+    func chatOptionsMenuInvokesEachExistingAction(showsToolbar: Bool) async throws {
+        for scheme in [ColorScheme.dark, .light] {
+            for target in 0..<4 {
+                var invoked: Int?
+                let host = NSHostingView(rootView: AgentChatHeader(agentName: "Codex", onHistory: nil,
+                    onNew: {}, onOpenSettings: { invoked = 2 }, onHide: {},
+                    onRename: { invoked = 0 }, onDelete: { invoked = 1 }, showsToolbar: showsToolbar,
+                    onToggleToolbar: { invoked = 3 }).environment(\.colorScheme, scheme))
+                let window = makeWindow(host, size: NSSize(width: 440, height: 66))
+                defer { window.contentView = nil; window.close() }
+                let anchor = try #require(dropdownAnchors(in: host).max {
+                    $0.convert($0.bounds, to: host).midX < $1.convert($1.bounds, to: host).midX
+                })
+                try click(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor, window: window)
+                try #require(await waitUntil(updating: host) { popup(in: window) != nil })
+                let menu = try #require(popup(in: window))
+                try capture(try #require(menu.contentView), name: "chat-options-\(scheme)-\(showsToolbar)")
+                for _ in 0...target { try sendKey(125, to: menu) }
+                try sendKey(36, to: menu)
+                #expect(await waitUntil(updating: host) { invoked == target })
+                #expect(!menu.isVisible)
+            }
+        }
+    }
+
+    @Test
+    func showToolbarRemovesAndRestoresComposerControls() async throws {
+        let options = [
+            AgentSessionConfigOption(id: "mode", name: "Mode", category: "mode", currentValue: "manual",
+                choices: [.init(id: "manual", name: "Manual")]),
+            AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "sol",
+                choices: [.init(id: "sol", name: "6.1 Sol")])
+        ]
+        for scheme in [ColorScheme.dark, .light] {
+            func composer(_ visible: Bool) -> some View {
+                AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
+                    isResponding: false, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                    onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                    configOptions: options, showsToolbar: visible).environment(\.colorScheme, scheme)
+            }
+            let host = NSHostingView(rootView: composer(true))
+            let window = makeWindow(host, size: NSSize(width: 440, height: 140))
+            defer { window.contentView = nil; window.close() }
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 4 })
+            let anchor = try #require(dropdownAnchors(in: host).max {
+                $0.convert($0.bounds, to: host).minY < $1.convert($1.bounds, to: host).minY
+            })
+            try click(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor, window: window)
+            try #require(await waitUntil(updating: host) { popup(in: window) != nil })
+            host.rootView = composer(false)
+            #expect(await waitUntil(updating: host) { dropdownAnchors(in: host).isEmpty && popup(in: window) == nil })
+            try capture(host, name: "composer-toolbar-hidden-\(scheme)")
+            host.rootView = composer(true)
+            #expect(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 4 })
+        }
+    }
+
+    @Test
+    func contextRingAppearsOnlyAfterTheFirstUsageReport() async throws {
+        let usage = try #require(AgentContextUsage(usedTokens: 1200, capacityTokens: 10000))
+        for scheme in [ColorScheme.dark, .light] {
+            func composer(_ usage: AgentContextUsage?) -> some View {
+                AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
+                    isResponding: false, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                    onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                    contextUsage: usage).environment(\.colorScheme, scheme)
+            }
+            let host = NSHostingView(rootView: composer(nil))
+            let window = makeWindow(host, size: NSSize(width: 320, height: 180))
+            defer { window.contentView = nil; window.close() }
+            // Before the first report only the Agent menu and the details trigger remain.
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 2 })
+            try capture(host, name: "context-ring-unreported-\(scheme)")
+            host.rootView = composer(usage)
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 3 },
+                          "The context trigger must appear once the Agent reports usage")
+            // The ring sits in the bottom command bar, left of Send.
+            let triggers = dropdownAnchors(in: host).sorted {
+                let lhs = $0.convert($0.bounds, to: nil), rhs = $1.convert($0.bounds, to: nil)
+                return abs(lhs.midY - rhs.midY) > 1 ? lhs.midY > rhs.midY : lhs.midX < rhs.midX
+            }
+            let trigger = try #require(triggers.last)
+            #expect(trigger.convert(trigger.bounds, to: nil).midY < 90, "Context stays in the bottom command bar")
+            try capture(host, name: "context-ring-reported-\(scheme)")
+        }
+    }
+
+    @Test
+    func contextAndDetailsStayReachableAndCloseWhenTheSessionChanges() async throws {
+        let usage = try #require(AgentContextUsage(usedTokens: 1200, capacityTokens: 10000))
+        var conversation = AgentConversation()
+        conversation.completedTurns = [.init(id: "turn", startedAt: .now)]
+        for scheme in [ColorScheme.dark, .light] {
+            func composer(_ sessionID: String) -> some View {
+                AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
+                    isResponding: true, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                    onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in }, sessionID: sessionID,
+                    contextUsage: usage, sessionStatistics: conversation.sessionStatistics).environment(\.colorScheme, scheme)
+            }
+            let host = NSHostingView(rootView: composer("first"))
+            let window = makeWindow(host, size: NSSize(width: 320, height: 180))
+            defer { window.contentView = nil; window.close() }
+            for isDetails in [false, true] {
+                let triggers = dropdownAnchors(in: host).sorted {
+                    let lhs = $0.convert($0.bounds, to: nil), rhs = $1.convert($1.bounds, to: nil)
+                    return abs(lhs.midY - rhs.midY) > 1 ? lhs.midY > rhs.midY : lhs.midX < rhs.midX
+                }
+                let trigger = try #require(isDetails ? triggers.first : triggers.last)
+                try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
+                try #require(await waitUntil(updating: host) { popup(in: window) != nil })
+                let panel = try #require(popup(in: window))
+                #expect(panel.frame.width >= 240, "Detailed data stays accessible at the narrow panel width")
+                try capture(try #require(panel.contentView), name: "classic-\(isDetails ? "details" : "context")-\(scheme)")
+                if isDetails {
+                    host.rootView = composer("second")
+                    #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "A new session closes stale details")
+                } else {
+                    let content = try #require(panel.contentView)
+                    let inset = 14 + LitheTheme.Metrics.toolbarIconButtonSize / 2
+                    let y = content.isFlipped ? content.bounds.minY + inset : content.bounds.maxY - inset
+                    try click(NSPoint(x: content.bounds.maxX - inset, y: y), in: content, window: panel)
+                    #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "The context header's close button dismisses its shared popup")
+                }
+            }
+        }
+    }
+
+    @Test(arguments: [280.0, 540.0])
+    func subscriptionQuotaSummaryStaysAboveComposerWithoutClickPopup(width: CGFloat) async throws {
+        let snapshot = try #require(AgentSubscriptionQuota.parse([
+            "windows": [
+                ["id": "weekly", "name": "codex", "limitSeconds": 604800, "usedPercent": 36, "resetsAt": 4102444800],
+                ["id": "short", "name": "codex", "limitSeconds": 18000, "usedPercent": 32, "resetsAt": 4102444800]
+            ], "fetchedAt": 4102444800
+        ] as [String: Any]))
+        let options = [
+            AgentSessionConfigOption(id: "mode", name: "Mode", category: "mode", currentValue: "manual",
+                choices: [.init(id: "manual", name: "Manual")]),
+            AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "sol",
+                choices: [.init(id: "sol", name: "6.1 Sol")])
+        ]
+        for scheme in [ColorScheme.dark, .light] {
+            func composer(_ session: String) -> some View {
+                AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
+                    isResponding: false, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                    onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in }, configOptions: options,
+                    sessionID: session, showsSubscriptionQuota: true, subscriptionQuota: snapshot,
+                    subscriptionAccount: "person@example.test").environment(\.colorScheme, scheme)
+            }
+            let host = NSHostingView(rootView: VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                composer("first").frame(height: 180)
+            }.background(LitheTheme.editor).workbenchHoverTooltipScope())
+            let window = makeWindow(host, size: NSSize(width: width, height: 400))
+            defer { window.contentView = nil; window.close() }
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 4 })
+            let anchors = dropdownAnchors(in: host)
+            let top = try #require(anchors.max { $0.convert($0.bounds, to: nil).midY < $1.convert($1.bounds, to: nil).midY })
+            let rect = top.convert(top.bounds, to: host)
+            let summaryPoint = NSPoint(x: rect.minX - 20, y: rect.midY)
+            #expect(summaryPoint.x > 0, "The quota text remains inside a narrow top strip")
+            #expect(anchors.filter { $0 !== top }.count == 3, "Quota is a text hover source, not a new bottom-bar dropdown")
+            try capture(host, name: "quota-summary-\(width)-\(scheme)")
+            try click(summaryPoint, in: host, window: window)
+            #expect(popup(in: window) == nil, "The summary must not open a persistent click panel")
+            // SwiftUI hover transitions belong to WindowServer. Shared hover
+            // rendering/state tests cover that owner; real pointer entry/exit
+            // is checked in the preview instead of faking private tracking areas.
+
+        }
+    }
+
+    @Test
+    func subscriptionQuotaBarsRenderBothPeriodsThresholdsAndMissingValues() throws {
+        for scheme in [ColorScheme.dark, .light] {
+            for (name, used, weeklyOnly) in [("green", 32.0, false), ("yellow", 75.0, false),
+                                             ("red", 95.0, false), ("unknown", -1.0, false), ("weekly", 36.0, true)] {
+                var windows: [[String: Any]] = [
+                    ["id": "weekly", "name": "codex", "limitSeconds": 604800, "usedPercent": 36, "resetsAt": 1800000200]
+                ]
+                if !weeklyOnly {
+                    windows.append(["id": "short", "name": "codex", "limitSeconds": 18000,
+                                    "usedPercent": used < 0 ? NSNull() : used as Any, "resetsAt": 1800000200])
+                }
+                let snapshot = try #require(AgentSubscriptionQuota.parse(["windows": windows, "fetchedAt": 1800000000]))
+                let host = NSHostingView(rootView: AgentSubscriptionQuotaPanel(quota: snapshot,
+                    account: "person@example.test", failure: nil, stale: false)
+                    .padding(12).frame(width: 300).litheHoverTooltipSurface()
+                    .environment(\.colorScheme, scheme))
+                let window = makeWindow(host, size: NSSize(width: 300, height: 300))
+                defer { window.contentView = nil; window.close() }
+                window.setContentSize(host.fittingSize)
+                host.layoutSubtreeIfNeeded()
+                #expect(host.fittingSize.width <= 300)
+                try capture(host, name: "quota-bars-\(name)-\(scheme)")
+            }
+        }
+    }
+
+    @Test
+    func compactModelPanelSearchesAndKeepsReasoningInline() async throws {
+        let model = AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "sol",
+            choices: [.init(id: "sol", name: "6.1 Sol"), .init(id: "astra", name: "6 Astra")])
+        let effort = AgentSessionConfigOption(id: "effort", name: "Reasoning", category: "thought_level", currentValue: "medium",
+            choices: [.init(id: "medium", name: "Medium"), .init(id: "high", name: "High")])
+        for scheme in [ColorScheme.dark, .light] {
+            var selected: (String, String)?
+            let host = NSHostingView(rootView: AgentModelPopover(option: model, settings: [effort], agentName: "Codex") {
+                selected = ($0, $1)
+            }.environment(\.colorScheme, scheme))
+            let window = makeWindow(host, size: host.fittingSize)
+            defer { window.contentView = nil; window.close() }
+            #expect(window.frame.width < 240, "Short names use the measured compact width")
+            #expect(dropdownAnchors(in: host).isEmpty, "Reasoning choices are inline rather than a nested menu")
+            let scroll = try #require(scrollView(in: host))
+            let document = try #require(scroll.documentView)
+            try click(NSPoint(x: 70, y: LitheDropdownMetrics.rowHeight * 1.5), in: document, window: window)
+            #expect(await waitUntil(updating: host) { selected?.0 == "model" && selected?.1 == "astra" })
+            func field(in view: NSView) -> NSTextField? {
+                if let field = view as? NSTextField, field.isEditable { return field }
+                return view.subviews.lazy.compactMap { field(in: $0) }.first
+            }
+            let search = try #require(field(in: host))
+            #expect(search.font?.pointSize == 13)
+            #expect(window.makeFirstResponder(search))
+            let editor = try #require(search.currentEditor() as? NSTextView)
+            editor.insertText("Astra", replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(await waitUntil(updating: host) {
+                host.layoutSubtreeIfNeeded()
+                return abs(document.bounds.height - 4 * LitheDropdownMetrics.rowHeight) < 1
+            }, "Filtering models retains the reasoning heading and both choices")
+            editor.selectAll(nil)
+            editor.insertText("missing", replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(await waitUntil(updating: host) {
+                host.layoutSubtreeIfNeeded()
+                return abs(document.bounds.height - 36 - 3 * LitheDropdownMetrics.rowHeight) < 1
+            }, "No matching models does not hide reasoning")
+            try click(NSPoint(x: 70, y: document.bounds.maxY - 12), in: document, window: window)
+            #expect(await waitUntil(updating: host) { selected?.0 == "effort" && selected?.1 == "high" })
+            try capture(host, name: "model-compact-search-\(scheme)")
+        }
+    }
+
     @Test(arguments: [false, true])
     func modelSettingFlyoutsFollowTheirRowWithoutExpandingTheModelPanel(atRightEdge: Bool) async throws {
         let model = AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "model-0",
             choices: (0..<8).map { .init(id: "model-\($0)", name: "Model \($0)") })
         let speed = AgentSessionConfigOption(id: "fast-mode", name: "Speed", category: "model_config", currentValue: "off",
             choices: [.init(id: "off", name: "Disabled"), .init(id: "on", name: "Enabled")])
-        let effort = AgentSessionConfigOption(id: "effort", name: "Reasoning", category: "thought_level", currentValue: "high",
+        let effort = AgentSessionConfigOption(id: "effort", name: "Reasoning", category: "custom", currentValue: "high",
             choices: ["low", "medium", "high", "xhigh", "max"].map { .init(id: $0, name: $0) })
         let screen = try #require(NSScreen.main).visibleFrame
         for scheme in [ColorScheme.dark, .light] {
@@ -68,10 +312,17 @@ struct AgentSessionSelectorLayoutTests {
                     try #require(await waitUntil(updating: parentContent) { !child.isVisible && parent.isVisible },
                         "Escape must close just the child before opening the next setting")
                 } else {
-                    // Use the real child keyboard route; selection must preserve the upstream ID.
+                    // A visible choice may already be hovered when keyboard navigation starts.
+                    try movePointer(NSPoint(x: scroll.contentView.bounds.midX, y: scroll.contentView.bounds.midY),
+                                    in: scroll.contentView, window: child)
+                    // Establish the first row through the native pointer route, then
+                    // wrap in both directions before confirming its upstream ID.
+                    try movePointerToFirstRow(in: document, window: child)
+                    try sendKey(126, to: child)
                     try sendKey(125, to: child)
                     try sendKey(36, to: child)
-                    #expect(await waitUntil(updating: host) { selected?.0 == "effort" && selected?.1 == "low" })
+                    #expect(await waitUntil(updating: host) { selected?.0 == "effort" && selected?.1 == "low" },
+                            "Keyboard selection must preserve the first upstream choice: rightEdge=\(atRightEdge), scheme=\(scheme), selected=\(String(describing: selected))")
                     #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "Selecting a child choice closes both menus")
                     #expect(!child.isVisible, "The child must not survive as an orphaned popup")
                 }
@@ -81,10 +332,13 @@ struct AgentSessionSelectorLayoutTests {
 
     @Test
     func modelSettingsWithWrappedDescriptionsScrollToTheLastChoice() async throws {
+        let screen = try #require(NSScreen.main).visibleFrame
+        // Force overflow on every display size so this test exercises scrolling.
+        let choiceCount = max(30, Int(ceil(screen.height / LitheDropdownMetrics.rowHeight)) + 1)
         let model = AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "model",
             choices: [.init(id: "model", name: "Model")])
         let setting = AgentSessionConfigOption(id: "custom", name: "Custom", category: "custom", currentValue: "choice-0",
-            choices: (0..<30).map { .init(id: "choice-\($0)", name: "Choice \($0)",
+            choices: (0..<choiceCount).map { .init(id: "choice-\($0)", name: "Choice \($0)",
                 description: "An upstream explanation that wraps across the bounded menu width.\nA second line must stay inside this choice's row.") })
         for scheme in [ColorScheme.dark, .light] {
             var selected: String?
@@ -93,7 +347,6 @@ struct AgentSessionSelectorLayoutTests {
                 selected = value
             }.environment(\.colorScheme, scheme).litheContextMenuSurface())
             let window = makeWindow(host, size: NSSize(width: 330, height: 110))
-            let screen = try #require(NSScreen.main).visibleFrame
             window.setFrameOrigin(NSPoint(x: screen.minX + 80, y: screen.midY))
             defer { window.contentView = nil; window.close() }
             try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 1 }, "The custom setting must be laid out")
@@ -107,18 +360,27 @@ struct AgentSessionSelectorLayoutTests {
             let scroll = try #require(scrollView(in: content))
             let document = try #require(scroll.documentView)
             #expect(document.bounds.height > scroll.contentView.bounds.height)
-            // Up from an unnavigated menu selects its final item and scrolls it into view.
+            // Reproduce a pointer already hovering a visible choice when the
+            // keyboard takes over, without moving the user's physical cursor.
+            try movePointer(NSPoint(x: scroll.contentView.bounds.midX, y: scroll.contentView.bounds.midY),
+                            in: scroll.contentView, window: child)
+            // Establish the first row through the real pointer route. An
+            // incidental hover must not decide the keyboard's starting item.
+            try movePointerToFirstRow(in: document, window: child)
+            // Up from the first choice wraps to the final item and reveals it.
             try sendKey(126, to: child)
-            #expect(await waitUntil(updating: content) { scroll.contentView.bounds.minY > 0 }, "Keyboard navigation must reveal the final choice")
+            #expect(await waitUntil(updating: content) { scroll.contentView.bounds.minY > 0 },
+                    "Keyboard navigation must reveal the final choice: scheme=\(scheme), bounds=\(scroll.contentView.bounds)")
             try capture(content, name: "described-settings-scrolled-\(scheme)")
             try sendKey(36, to: child)
-            #expect(await waitUntil(updating: host) { selected == "choice-29" }, "The final upstream ID must remain selectable")
+            #expect(await waitUntil(updating: host) { selected == "choice-\(choiceCount - 1)" },
+                    "The final upstream ID must remain selectable: scheme=\(scheme), selected=\(String(describing: selected))")
             #expect(!child.isVisible)
         }
     }
 
-    @Test
-    func respondingComposerOpensPermissionAndModelChoicesInBothThemes() async throws {
+    @Test(arguments: [280, 540])
+    func respondingComposerOpensPermissionAndModelChoicesInBothThemes(width: CGFloat) async throws {
         let options = [
             AgentSessionConfigOption(id: "mode", name: "Mode", category: "mode", currentValue: "manual",
                 choices: [.init(id: "manual", name: "Manual"), .init(id: "auto", name: "Auto")]),
@@ -133,7 +395,7 @@ struct AgentSessionSelectorLayoutTests {
                 onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
                 configOptions: options, onSetConfig: { selections[$0] = $1 }
             ).environment(\.colorScheme, scheme))
-            let window = makeWindow(host, size: NSSize(width: 540, height: 200))
+            let window = makeWindow(host, size: NSSize(width: width, height: 200))
             defer {
                 // Detaching the anchors dismisses their panels and removes event monitors.
                 window.contentView = nil
@@ -141,12 +403,23 @@ struct AgentSessionSelectorLayoutTests {
             }
             for (category, value) in [("mode", "auto"), ("model", "model-b")] {
                 try #require(await waitUntil(updating: host) {
-                    dropdownAnchors(in: host).count == 3
+                    dropdownAnchors(in: host).count == 4
                 }, "The composer must lay out the Agent, approval and model triggers")
-                // Shared dropdown anchors have the real trigger geometry; avoid guessed pixel offsets.
+                // Agent, approval mode and model share the restored bottom strip.
                 let anchors = dropdownAnchors(in: host).sorted {
-                    $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX
+                    let lhs = $0.convert($0.bounds, to: nil)
+                    let rhs = $1.convert($1.bounds, to: nil)
+                    return abs(lhs.midY - rhs.midY) > 1 ? lhs.midY < rhs.midY : lhs.minX < rhs.minX
                 }
+                let agentFrame = anchors[0].convert(anchors[0].bounds, to: nil)
+                let modeFrame = anchors[1].convert(anchors[1].bounds, to: nil)
+                let modelFrame = anchors[2].convert(anchors[2].bounds, to: nil)
+                #expect(abs(agentFrame.midY - modelFrame.midY) < 1)
+                #expect(modeFrame.minX >= agentFrame.maxX)
+                #expect(modelFrame.minX >= modeFrame.maxX)
+                #expect(abs(modeFrame.midY - modelFrame.midY) < 1)
+                #expect(modelFrame.width > LitheTheme.Metrics.toolbarIconSize)
+                try capture(host, name: "composer-model-footer-\(scheme)-\(Int(width))")
                 let trigger = anchors[category == "mode" ? 1 : 2]
                 try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
                 try #require(await waitUntil(updating: host) { popup(in: window) != nil }, "A native click must open the shared dropdown while responding")
@@ -162,61 +435,60 @@ struct AgentSessionSelectorLayoutTests {
         }
     }
 
-    @Test
-    func twoLinePermissionDescriptionsHaveRoomAndKeepTheirSelectionAction() async throws {
-        let description = "批准后才能修改文件。\n其他操作继续遵守权限规则。"
-        let option = AgentSessionConfigOption(
-            id: "mode", name: "Mode", category: "mode", currentValue: "manual",
-            choices: [.init(id: "manual", name: "Manual", description: description),
-                      .init(id: "auto", name: "Auto", description: description)]
-        )
+    @Test(arguments: [2, 100])
+    func modeUsesCompactSharedMenuAndRetainsSelection(count: Int) async throws {
+        let option = AgentSessionConfigOption(id: "mode", name: "Mode", category: "mode", currentValue: "choice-0",
+            choices: (0..<count).map { .init(id: "choice-\($0)", name: "Choice \($0)", description: "A long explanation must not create a tall mode card.") })
         for scheme in [ColorScheme.dark, .light] {
             var selected: String?
-            let host = NSHostingView(rootView: AgentModePopover(option: option) { selected = $0 }
-                .environment(\.colorScheme, scheme).environment(\.locale, Locale(identifier: "zh_Hans")))
-            let window = makeWindow(host, size: NSSize(width: 350, height: 110))
-            defer { window.close() }
-            let scroll = try #require(scrollView(in: host))
+            let host = NSHostingView(rootView: AgentSessionSelectors(options: [option], agentName: "Codex", isDisabled: false) { _, value in selected = value }
+                .frame(width: 320, height: 40).environment(\.colorScheme, scheme))
+            let window = makeWindow(host, size: NSSize(width: 320, height: 40))
+            defer { window.contentView = nil; window.close() }
+            let anchor = try #require(dropdownAnchors(in: host).first)
+            try click(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor, window: window)
+            let panel = try #require(await waitUntil(updating: host) { popup(in: window) != nil } ? popup(in: window) : nil)
+            let content = try #require(panel.contentView)
+            let scroll = try #require(scrollView(in: content))
             let document = try #require(scroll.documentView)
-            try #require(await waitUntil(updating: host) {
-                host.fittingSize.height >= document.bounds.height + 10
-            }, "A short permission list must fit both description lines without scrolling")
-            window.setContentSize(host.fittingSize)
-            host.layoutSubtreeIfNeeded()
-            let rowHeight = document.bounds.height / CGFloat(option.choices.count)
-            #expect(rowHeight >= 48,
-                    "The row must grow to fit a title and both description lines")
-            #expect(rowHeight < 64,
-                    "Wrapping must not restore the old excessive spacing")
-            try click(NSPoint(x: 100, y: rowHeight / 2), in: document, window: window)
-            #expect(await waitUntil(updating: host) { selected == "manual" }, "The rendered choice must preserve the upstream ID")
-            try capture(host, name: "permission-two-lines-\(scheme)")
+            #expect(panel.frame.width < 240, "Mode uses the measured shared menu width instead of a 350pt card")
+            try capture(content, name: "mode-menu-\(scheme)-\(count)")
+            if count == 2 {
+                #expect(panel.frame.height < 100, "A heading and two single-line options remain compact")
+                try click(NSPoint(x: 90, y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * 1.5), in: document, window: panel)
+                #expect(await waitUntil(updating: host) { selected == "choice-0" })
+            } else {
+                for _ in 1..<count { try sendKey(125, to: panel) }
+                try sendKey(36, to: panel)
+                #expect(await waitUntil(updating: host) { selected == "choice-99" }, "Shared keyboard navigation reaches the final upstream mode")
+            }
+            #expect(!panel.isVisible, "Selection closes the shared menu")
+            try capture(host, name: "mode-trigger-\(scheme)-\(count)")
         }
     }
 
     @Test
-    func longPermissionAndModelListsScrollToTheirLastChoice() async throws {
+    func longModelListsScrollToTheirLastChoice() async throws {
         let choices: [AgentSessionConfigOption.Choice] = (0..<30).map {
             .init(id: "choice-\($0)", name: "Choice \($0)")
         }
         for scheme in [ColorScheme.dark, .light] {
-            for category in ["mode", "model"] {
+            for category in ["model"] {
                 let option = AgentSessionConfigOption(
                     id: category, name: category, category: category,
                     currentValue: "choice-0", choices: choices
                 )
                 var selected: String?
-                let view = category == "mode"
-                    ? AnyView(AgentModePopover(option: option) { selected = $0 })
-                    : AnyView(AgentModelPopover(option: option, settings: [], agentName: "Claude") { id, value in
+                let view = AnyView(AgentModelPopover(option: option, settings: [], agentName: "Claude") { id, value in
                         #expect(id == category)
                         selected = value
                     })
-                let size = NSSize(width: category == "mode" ? 350 : 330,
-                                  height: category == "mode" ? 330 : 290)
+                let size = NSSize(width: 330, height: 290)
                 let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme))
                 let window = makeWindow(host, size: size)
                 defer { window.close() }
+                window.setContentSize(host.fittingSize)
+                host.layoutSubtreeIfNeeded()
                 let scroll = try #require(scrollView(in: host))
                 let document = try #require(scroll.documentView)
                 #expect(document.bounds.height > scroll.contentView.bounds.height,
@@ -276,6 +548,20 @@ struct AgentSessionSelectorLayoutTests {
         window.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
             timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "",
             charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
+    }
+
+    private func movePointer(_ point: NSPoint, in view: NSView, window: NSWindow) throws {
+        window.sendEvent(try #require(NSEvent.mouseEvent(
+            with: .mouseMoved, location: view.convert(point, to: nil), modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 1, clickCount: 0, pressure: 0
+        )))
+    }
+
+    private func movePointerToFirstRow(in document: NSView, window: NSWindow) throws {
+        let inset = LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight / 2
+        let y = document.isFlipped ? document.bounds.minY + inset : document.bounds.maxY - inset
+        try movePointer(NSPoint(x: document.bounds.midX, y: y), in: document, window: window)
     }
 
     private func waitUntil(updating view: NSView, _ condition: () -> Bool) async -> Bool {
