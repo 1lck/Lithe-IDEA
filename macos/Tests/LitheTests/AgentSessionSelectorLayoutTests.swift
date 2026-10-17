@@ -51,7 +51,7 @@ struct AgentSessionSelectorLayoutTests {
             let host = NSHostingView(rootView: composer(true))
             let window = makeWindow(host, size: NSSize(width: 440, height: 140))
             defer { window.contentView = nil; window.close() }
-            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 5 })
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 4 })
             let anchor = try #require(dropdownAnchors(in: host).max {
                 $0.convert($0.bounds, to: host).minY < $1.convert($1.bounds, to: host).minY
             })
@@ -61,7 +61,37 @@ struct AgentSessionSelectorLayoutTests {
             #expect(await waitUntil(updating: host) { dropdownAnchors(in: host).isEmpty && popup(in: window) == nil })
             try capture(host, name: "composer-toolbar-hidden-\(scheme)")
             host.rootView = composer(true)
-            #expect(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 5 })
+            #expect(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 4 })
+        }
+    }
+
+    @Test
+    func contextRingAppearsOnlyAfterTheFirstUsageReport() async throws {
+        let usage = try #require(AgentContextUsage(usedTokens: 1200, capacityTokens: 10000))
+        for scheme in [ColorScheme.dark, .light] {
+            func composer(_ usage: AgentContextUsage?) -> some View {
+                AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
+                    isResponding: false, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                    onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                    contextUsage: usage).environment(\.colorScheme, scheme)
+            }
+            let host = NSHostingView(rootView: composer(nil))
+            let window = makeWindow(host, size: NSSize(width: 320, height: 180))
+            defer { window.contentView = nil; window.close() }
+            // Before the first report only the Agent menu and the details trigger remain.
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 2 })
+            try capture(host, name: "context-ring-unreported-\(scheme)")
+            host.rootView = composer(usage)
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 3 },
+                          "The context trigger must appear once the Agent reports usage")
+            // The ring sits in the bottom command bar, left of Send.
+            let triggers = dropdownAnchors(in: host).sorted {
+                let lhs = $0.convert($0.bounds, to: nil), rhs = $1.convert($0.bounds, to: nil)
+                return abs(lhs.midY - rhs.midY) > 1 ? lhs.midY > rhs.midY : lhs.midX < rhs.midX
+            }
+            let trigger = try #require(triggers.last)
+            #expect(trigger.convert(trigger.bounds, to: nil).midY < 90, "Context stays in the bottom command bar")
+            try capture(host, name: "context-ring-reported-\(scheme)")
         }
     }
 
@@ -133,13 +163,13 @@ struct AgentSessionSelectorLayoutTests {
             }.background(LitheTheme.editor).workbenchHoverTooltipScope())
             let window = makeWindow(host, size: NSSize(width: width, height: 400))
             defer { window.contentView = nil; window.close() }
-            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 5 })
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 4 })
             let anchors = dropdownAnchors(in: host)
             let top = try #require(anchors.max { $0.convert($0.bounds, to: nil).midY < $1.convert($1.bounds, to: nil).midY })
             let rect = top.convert(top.bounds, to: host)
             let summaryPoint = NSPoint(x: rect.minX - 20, y: rect.midY)
             #expect(summaryPoint.x > 0, "The quota text remains inside a narrow top strip")
-            #expect(anchors.filter { $0 !== top }.count == 4, "Quota is a text hover source, not a new bottom-bar dropdown")
+            #expect(anchors.filter { $0 !== top }.count == 3, "Quota is a text hover source, not a new bottom-bar dropdown")
             try capture(host, name: "quota-summary-\(width)-\(scheme)")
             try click(summaryPoint, in: host, window: window)
             #expect(popup(in: window) == nil, "The summary must not open a persistent click panel")
@@ -373,7 +403,7 @@ struct AgentSessionSelectorLayoutTests {
             }
             for (category, value) in [("mode", "auto"), ("model", "model-b")] {
                 try #require(await waitUntil(updating: host) {
-                    dropdownAnchors(in: host).count == 5
+                    dropdownAnchors(in: host).count == 4
                 }, "The composer must lay out the Agent, approval and model triggers")
                 // Agent, approval mode and model share the restored bottom strip.
                 let anchors = dropdownAnchors(in: host).sorted {

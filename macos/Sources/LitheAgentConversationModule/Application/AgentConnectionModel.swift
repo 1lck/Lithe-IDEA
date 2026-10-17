@@ -27,7 +27,11 @@ public final class AgentConnectionModel: ObservableObject {
     @Published public private(set) var agentVersion: String?
     @Published public private(set) var sessions: [AgentSessionSummary] = []
     /// `nil` selects a new, not yet created conversation.
-    @Published public private(set) var selectedSessionID: String?
+    @Published public private(set) var selectedSessionID: String? {
+        didSet { selectionRevision &+= 1 }
+    }
+    /// Counts selection changes so a slow navigation can tell it was superseded.
+    private var selectionRevision = 0
     @Published public private(set) var conversations: [String: AgentConversation] = [:]
     /// Sessions shown as tabs, in the order they were opened in this panel.
     @Published public private(set) var openSessionIDs: [String] = []
@@ -37,6 +41,21 @@ public final class AgentConnectionModel: ObservableObject {
     @Published public private(set) var canSteer = false
     @Published public private(set) var isRefreshingSessions = false
     @Published public private(set) var historyError: String?
+    /// The Agent's own archived conversations for this workspace, kept apart from
+    /// `sessions`: listing them is read-only and opening one needs consent.
+    @Published private var listedArchivedSessions: [AgentSessionSummary] = []
+    /// Only upstream listing evidence wins over an archive result. Locally loaded
+    /// conversations are retained for their tabs, not evidence of active history.
+    private var upstreamActiveSessionIDs: Set<String> = []
+    public var archivedSessions: [AgentSessionSummary] {
+        listedArchivedSessions.filter { !upstreamActiveSessionIDs.contains($0.id) }
+    }
+    /// False when the Host stopped at its page bound, so the list is partial.
+    @Published public private(set) var isArchivedHistoryComplete = true
+    @Published public private(set) var canListArchivedSessions = false
+    @Published public private(set) var isRefreshingArchivedSessions = false
+    @Published public private(set) var archivedHistoryError: String?
+    @Published public private(set) var unarchivingSessionID: String?
     @Published public private(set) var errorMessage: String?
     @Published public private(set) var fileReviewSessionID: String?
     @Published public private(set) var fileReviewError: String?
@@ -84,6 +103,11 @@ public final class AgentConnectionModel: ObservableObject {
     private var unpromptedSessionIDs: Set<String> = []
     private var historyContinuations: [String: CheckedContinuation<[AgentConversationMessage], Error>] = [:]
     private var historyRefreshToken: String?
+    private var archivedRefreshToken: String?
+    /// List requests made obsolete by an unarchive. The host still answers them,
+    /// so their terminal events must be consumed here rather than treated as new.
+    private var supersededListTokens: Set<String> = []
+    private var unarchiveRequest: (token: String, summary: AgentSessionSummary, continuation: CheckedContinuation<Void, Error>)?
     private var isClaudeConnection = false
 
     public init(transport: any AgentConversationTransport, now: @escaping () -> ContinuousClock.Instant = { .now }) {
@@ -180,6 +204,7 @@ public final class AgentConnectionModel: ObservableObject {
     public var canRefreshSessions: Bool { canListSessions && connectionState == .ready }
 
     public func refreshSessions() {
+        refreshArchivedSessions()
         guard canRefreshSessions, !isRefreshingSessions else { return }
         let token = makeToken()
         historyRefreshToken = token
@@ -190,6 +215,70 @@ public final class AgentConnectionModel: ObservableObject {
             isRefreshingSessions = false
             historyRefreshToken = nil
         }
+    }
+
+    private func refreshArchivedSessions() {
+        guard canListArchivedSessions, connectionState == .ready, !isRefreshingArchivedSessions else { return }
+        let token = makeToken()
+        archivedRefreshToken = token
+        isRefreshingArchivedSessions = true
+        archivedHistoryError = nil
+        if !sendCommand(["kind": "listArchivedSessions", "token": token]) {
+            archivedHistoryError = errorMessage
+            isRefreshingArchivedSessions = false
+            archivedRefreshToken = nil
+        }
+    }
+
+    /// Moves an archived conversation back into the Agent's active history so
+    /// it can be loaded. Call only after the user confirmed: this changes the
+    /// Agent's own records, unlike every other history action.
+    ///
+    /// - Returns: `false` when the selection changed while the Agent was
+    ///   restoring; the restore stands, but the caller must not navigate over
+    ///   the user's later choice.
+    @discardableResult
+    public func unarchiveSession(_ sessionID: String) async throws -> Bool {
+        guard connectionState == .ready, unarchiveRequest == nil,
+              let summary = archivedSessions.first(where: { $0.id == sessionID }) else {
+            throw AgentConversationError.cannotResume
+        }
+        let revision = selectionRevision
+        let token = makeToken()
+        archivedHistoryError = nil
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            unarchiveRequest = (token, summary, continuation)
+            unarchivingSessionID = sessionID
+            if !sendCommand(["kind": "unarchiveSession", "token": token, "sessionId": sessionID]) {
+                finishUnarchive(token: token, result: .failure(AgentConversationError.sendFailed(errorMessage ?? "The Agent request failed.")))
+            }
+        }
+        return revision == selectionRevision
+    }
+
+    private func finishUnarchive(token: String, result: Result<Void, Error>) {
+        guard let request = unarchiveRequest, request.token == token else { return }
+        unarchiveRequest = nil
+        unarchivingSessionID = nil
+        switch result {
+        case .success:
+            // The mutation supersedes both list snapshots, including events already
+            // buffered before this continuation resumes. Refresh from the new state.
+            if let token = historyRefreshToken { supersededListTokens.insert(token) }
+            if let token = archivedRefreshToken { supersededListTokens.insert(token) }
+            historyRefreshToken = nil
+            archivedRefreshToken = nil
+            isRefreshingSessions = false
+            isRefreshingArchivedSessions = false
+            let summary = request.summary
+            listedArchivedSessions.removeAll { $0.id == summary.id }
+            upstreamActiveSessionIDs.insert(summary.id)
+            if !sessions.contains(where: { $0.id == summary.id }) { sessions.insert(summary, at: 0) }
+            refreshSessions()
+        case .failure(let error):
+            archivedHistoryError = error.localizedDescription
+        }
+        request.continuation.resume(with: result)
     }
 
     public func canExportTranscript(_ sessionID: String) -> Bool {
@@ -429,6 +518,7 @@ public final class AgentConnectionModel: ObservableObject {
             agentVersion = event["agentVersion"] as? String
             canLoadSessions = event["canLoadSessions"] as? Bool ?? false
             canListSessions = event["canListSessions"] as? Bool ?? false
+            canListArchivedSessions = event["canListArchivedSessions"] as? Bool ?? false
             canSteer = event["canSteer"] as? Bool ?? false
             refreshSessions()
         case "steeringResult":
@@ -450,10 +540,26 @@ public final class AgentConnectionModel: ObservableObject {
                             messageID: supplement.messageID, in: sessionID)
             }
         case "sessions":
+            if let token, supersededListTokens.remove(token) != nil { return }
             guard isRefreshingSessions, token == historyRefreshToken else { return }
             mergeSessions(event["sessions"] as? [[String: Any]] ?? [])
             historyRefreshToken = nil
             isRefreshingSessions = false
+            reconcileArchivedSessions()
+        case "archivedSessions":
+            if let token, supersededListTokens.remove(token) != nil { return }
+            guard isRefreshingArchivedSessions, token == archivedRefreshToken else { return }
+            listedArchivedSessions = (event["sessions"] as? [[String: Any]] ?? []).compactMap { entry in
+                guard let id = entry["sessionId"] as? String else { return nil }
+                return AgentSessionSummary(id: id, title: entry["title"] as? String, updatedAt: entry["updatedAt"] as? String)
+            }
+            isArchivedHistoryComplete = event["complete"] as? Bool ?? false
+            archivedRefreshToken = nil
+            isRefreshingArchivedSessions = false
+            reconcileArchivedSessions()
+        case "sessionUnarchived":
+            guard let token else { return }
+            finishUnarchive(token: token, result: .success(()))
         case "sessionCreated":
             guard let sessionID, let token, token == createToken else { return }
             applyConfiguration(event["configOptions"], to: sessionID)
@@ -592,7 +698,15 @@ public final class AgentConnectionModel: ObservableObject {
     }
 
     private func requestFailed(token: String?, sessionID: String?, message: String) {
-        if let token, token == historyRefreshToken {
+        if let token, supersededListTokens.remove(token) != nil {
+            return
+        } else if let token, token == archivedRefreshToken {
+            archivedRefreshToken = nil
+            isRefreshingArchivedSessions = false
+            archivedHistoryError = message
+        } else if let token, token == unarchiveRequest?.token {
+            finishUnarchive(token: token, result: .failure(AgentConversationError.sendFailed(message)))
+        } else if let token, token == historyRefreshToken {
             historyRefreshToken = nil
             isRefreshingSessions = false
             historyError = message
@@ -630,6 +744,12 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
 
+    /// Keep the raw archive response so an older active listing cannot discard it.
+    private func reconcileArchivedSessions() {
+        let archived = Set(archivedSessions.map(\.id))
+        sessions.removeAll { archived.contains($0.id) }
+    }
+
     private func mergeSessions(_ entries: [[String: Any]]) {
         let listed = entries.compactMap { entry -> AgentSessionSummary? in
             guard let id = entry["sessionId"] as? String else { return nil }
@@ -641,6 +761,7 @@ public final class AgentConnectionModel: ObservableObject {
             )
         }
         let listedIDs = Set(listed.map(\.id))
+        upstreamActiveSessionIDs = listedIDs
         // A listed session is owned by upstream history even if the local transcript is empty.
         unpromptedSessionIDs.subtract(listedIDs)
         // Sessions created in this run may not be persisted by the agent yet.
@@ -1026,6 +1147,17 @@ public final class AgentConnectionModel: ObservableObject {
         continuations.removeAll()
         isRefreshingSessions = false
         historyRefreshToken = nil
+        // Archived rows belong to this connection's Agent and workspace; never
+        // let them outlive it into another Agent's history.
+        canListArchivedSessions = false
+        listedArchivedSessions = []
+        upstreamActiveSessionIDs = []
+        isArchivedHistoryComplete = true
+        isRefreshingArchivedSessions = false
+        archivedRefreshToken = nil
+        supersededListTokens.removeAll()
+        if let request = unarchiveRequest { finishUnarchive(token: request.token, result: .failure(AgentConversationError.notConnected)) }
+        archivedHistoryError = nil
         for continuation in historyContinuations.values {
             continuation.resume(throwing: AgentConversationError.notConnected)
         }

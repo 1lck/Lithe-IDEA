@@ -226,6 +226,7 @@ fn run_local_api_turn_with(status: u16, observe_model_calls: bool) {
             data_directory: Some(data_directory),
             authentication: AgentAuthentication::ApiKey,
             observe_model_calls,
+            process_scope: None,
             provider: Some(ProviderCredentials {
                 protocol: ProviderProtocol::AnthropicMessages,
                 base_url: format!("http://{}", listener.local_addr().unwrap()),
@@ -452,6 +453,7 @@ fn local_model_phase(
             data_directory: Some(data_directory.to_path_buf()),
             authentication: AgentAuthentication::ApiKey,
             observe_model_calls: false,
+            process_scope: None,
             provider: Some(ProviderCredentials {
                 protocol: ProviderProtocol::AnthropicMessages,
                 base_url: format!("http://{}", listener.local_addr().unwrap()),
