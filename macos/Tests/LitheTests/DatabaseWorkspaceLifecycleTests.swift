@@ -328,15 +328,19 @@ struct DatabaseWorkspaceLifecycleTests {
         let settings = AppSettings(store: preferences)
         let model = AppModel(settings: settings,
             services: MacServiceContainer(store: preferences, settings: settings, moduleLaunchMode: .safeMode).services)
-        let feature = DatabaseFeatureModel(operations: DatabaseSidecarService(processRunner: QueryOutputRunner(fails: false),
+        let feature = DatabaseFeatureModel(operations: DatabaseSidecarService(processRunner: QueryOutputRunner(fails: true),
             executableURL: URL(fileURLWithPath: "/fixture/database")), connectionStore: store)
         defer { feature.prepareForModuleRelease() }
         do {
             feature.activateProfile(profile)
             let id = try #require(feature.selectedSQLTabID)
-            feature.updateSQL("SELECT 1 /* comment */;", in: id)
+            // A failed query keeps Output visible; successful query results automatically select the grid.
+            feature.updateSQL("SELECT missing_table /* comment */;", in: id)
             await feature.runSQL(in: id)
-            try #require(feature.selectedSQLTab?.statementExecutions.isEmpty == false)
+            let records = try #require(feature.selectedSQLTab?.statementExecutions)
+            try #require(records.count == 1)
+            try #require(records[0].result == nil)
+            try #require(records[0].errorMessage?.contains("missing_table") == true)
             func content(_ family: String) -> some View {
                 DatabaseServicesView().environmentObject(feature).environmentObject(model).environmentObject(settings)
                     .environment(\.consoleFontFamily, family).environment(\.colorScheme, dark ? .dark : .light)
