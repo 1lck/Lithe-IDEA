@@ -385,10 +385,11 @@ struct BranchSwitcherPopover: View {
 
         if reference.kind == .local {
             LitheContextMenuItem.separator
+            // Other local branches fast-forward from their upstream in place, as in IDEA.
             LitheContextMenuItem.action("Update") {
-                dismissAndRun { Task { await feature.updateCurrentBranch(reference) } }
+                dismissAndRun { Task { await feature.updateBranch(reference) } }
             }
-            .disabled(!reference.isCurrent)
+            .disabled(!reference.isCurrent && reference.upstreamShortName == nil)
 
             LitheContextMenuItem.action("Push…") {
                 dismissAndRun { onPush(reference) }

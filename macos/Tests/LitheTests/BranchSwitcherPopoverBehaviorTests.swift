@@ -545,9 +545,11 @@ struct BranchSwitcherPopoverBehaviorTests {
         let actions = source[localActions.lowerBound...]
         #expect(actions.contains("LitheContextMenuItem.action(\"Update\")"))
         #expect(
-            actions.contains(".disabled(!reference.isCurrent)"),
-            "Only the current local branch can be updated."
+            actions.contains(".disabled(!reference.isCurrent && reference.upstreamShortName == nil)"),
+            "The current branch pulls; another local branch needs an upstream to fast-forward from."
         )
+        #expect(actions.contains("feature.updateBranch(reference)"),
+                "Update routes through the dispatcher that handles non-current branches.")
         #expect(actions.contains("LitheContextMenuItem.action(\"Push…\")"))
     }
 

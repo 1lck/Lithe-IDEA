@@ -3222,6 +3222,41 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
+    /// IDEA's branch Update: the checked-out branch pulls into the working tree,
+    /// any other local branch fast-forwards from its upstream in place. Core runs
+    /// one atomic fetch for the latter, so Git itself refuses a diverged branch or
+    /// one checked out by another worktree instead of rewriting it.
+    package func updateBranch(_ reference: GitReference) async {
+        if reference.isCurrent { return await updateCurrentBranch(reference) }
+        guard let gitRepositoryRoot, reference.kind == .local else { return }
+        guard let upstream = reference.upstreamShortName else {
+            notify?("\(reference.shortName) tracks no remote branch")
+            return
+        }
+        // Git refuses to fetch into a branch checked out elsewhere and prints
+        // that refusal in the user's locale, so check the worktree list first.
+        // The published list only loads with the Worktrees tab; query it fresh.
+        let worktrees = await worktreesProvider(gitRepositoryRoot) ?? gitWorktrees
+        if worktrees.contains(where: { !$0.isCurrent && $0.branch == reference.fullName }) {
+            notify?("\(reference.shortName) is checked out in another worktree. Update it there.")
+            return
+        }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation { await service.updateBranch(reference, at: gitRepositoryRoot) }
+        isPerformingBranchOperation = false
+        guard result.succeeded else {
+            await refreshGit()
+            // Git's localized output cannot be matched reliably. Local commits
+            // the upstream lacks are the usual reason a fast-forward is refused;
+            // otherwise show Git's own explanation.
+            notify?(reference.ahead > 0
+                ? "\(reference.shortName) has diverged from \(upstream). Check it out to merge or rebase."
+                : trimmedMessage(result))
+            return
+        }
+        await reportBranchOperation(result, success: "Updated \(reference.shortName)")
+    }
+
     package func updateCurrentBranch(_ reference: GitReference) async {
         guard let gitRepositoryRoot, reference.isCurrent else {
             notify?("Only the current branch can be updated")
