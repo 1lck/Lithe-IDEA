@@ -268,16 +268,6 @@ open dist/Lithe.app
 <table>
   <tr>
     <td width="112" align="center">
-      <a href="https://pateway.ai/?ch=68i69k">
-        <img src="./docs/assets/sponsors/patewayai-logo.png" width="112" alt="PatewayAI">
-      </a>
-    </td>
-    <td>
-      <a href="https://pateway.ai/?ch=68i69k"><strong>PatewayAI</strong></a> 提供 Claude、GPT 系列及国内主流模型的官方高质量 API 中继，支持透明计费与企业级服务。注册可获试用额度，还可参与不定时免费额度活动。感谢 PatewayAI 对 Lithe 的支持！
-    </td>
-  </tr>
-  <tr>
-    <td width="112" align="center">
       <a href="https://www.packyapi.ai/register?aff=dWNN">
         <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
       </a>
@@ -293,7 +283,7 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> 面向开发者提供大模型中转服务，便于在编程、内容生成和自动化等不同场景中调用模型 API。其支持帮助 Lithe 保持持续开发，并探索更实用的 AI 工具体验。感谢 TorchAI 对本项目的支持！
+      <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> 提供便捷的大模型中转服务，覆盖编程、内容生成和自动化等场景。感谢 TorchAI 对 Lithe 的支持！
     </td>
   </tr>
   <tr>
@@ -303,7 +293,7 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> 提供统一 API 接入，一个密钥即可调用 Claude、GPT、Gemini 和 DeepSeek 等模型，兼容 Claude Code、Codex、Cursor 等 AI 编程工具。新用户注册可获 $5 体验额度。感谢 CCSub 对 Lithe 的支持！
+      <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> 提供统一 API 接入，一个密钥即可调用 Claude、GPT、Gemini 和 DeepSeek 等模型，兼容主流 AI 编程工具。新用户注册可获 $5 体验额度。
     </td>
   </tr>
   <tr>
@@ -313,7 +303,7 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://dash.clidex.dev"><strong>Clidex</strong></a> 提供为创造者而生的 AI 基础设施，面向原生 AI 命令行工具提供 API 接入，价格低至官方 API 的 0.08 折。让 AI 融入日常开发流程，为创作与编程提供更实惠的选择。感谢 Clidex 对 Lithe 的赞助，支持项目持续开发与完善！
+      <a href="https://dash.clidex.dev"><strong>Clidex</strong></a> 提供 AI 基础设施和原生 AI 命令行工具 API 接入，价格低至官方 API 的 0.08 折。感谢 Clidex 对 Lithe 的支持！
     </td>
   </tr>
   <tr>
@@ -323,7 +313,7 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> 是一家提供 <strong>400 多种模型</strong>的 AI 中转服务平台，丰富的模型选择是它的一大特色。开发者可以在同一平台探索和比较不同模型，为自己的应用选择更合适的 AI 能力。感谢 Atlas Cloud 对 Lithe 的赞助，支持项目持续完善 AI 辅助开发体验！
+      <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> 提供 <strong>400 多种模型</strong>的 AI 中转服务，开发者可以在同一平台探索和比较模型。感谢 Atlas Cloud 对 Lithe 的支持！
     </td>
   </tr>
   <tr>
@@ -333,7 +323,7 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> 专注于 GPT 系列模型的稳定中转，为开发者在工具和项目中集成模型 API 提供简单直接的选择。其赞助为 Lithe 的持续开发与维护提供了助力。感谢 CodeZ 对本项目的支持！
+      <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> 专注于 GPT 系列模型的稳定中转，为开发者集成模型 API 提供直接选择。感谢 CodeZ 对 Lithe 的支持！
     </td>
   </tr>
   <tr>
@@ -343,7 +333,7 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>雨云</strong></a> 提供云服务器等云计算服务，为应用部署、网站搭建和开发测试提供灵活的云端环境。感谢雨云对 Lithe 的支持，助力项目持续开发与完善！
+      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>雨云</strong></a> 提供云服务器等云计算服务，支持应用部署、网站搭建和开发测试。感谢雨云对 Lithe 的支持！
     </td>
   </tr>
 </table>
@@ -371,7 +361,7 @@ open dist/Lithe.app
 
 <p align="center">
   <a href="https://linux.do/">
-    <img src="./docs/assets/special-thanks/linux-do.png" width="78%" alt="LINUX DO">
+    <img src="./docs/assets/special-thanks/linux-do.png" width="42%" alt="LINUX DO">
   </a>
 </p>
 
@@ -394,5 +384,5 @@ Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
 ## Star History
 
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
-  <img alt="Star History 图表" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
+  <img alt="Star History 图表" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" width="100%" />
 </a>
