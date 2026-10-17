@@ -559,7 +559,7 @@ declaration are relative, use `/`, and stay inside their base directory
 | `model` | `static` (a `json`, `toml`, or `yaml` file read during detection, no process), `command` (a command whose output Core decodes; it states `executesProjectCode` and `mayUseNetwork`), `provider`, or `hostIntegration`. |
 | `tasks` | The task catalog. `scopes` say what a task runs on (`workspace`, `project`, `target`); `targetTags` restrict targets; `requiresUserArguments` makes the host ask for arguments. A `fromModel` task is the template for tasks the model lists. |
 | `run` | Run entries from model targets (`fromTargets.tags`, with `arguments`) or model tasks (`fromTasks`, reusing the template task's arguments). |
-| `test` | How tests run: `scopes`, `targetTags`, the `filters` (`suite`, `case`) it can select, and `results` (`junitXml` or `litheTestResults` report globs relative to the project, or `hostIntegration`). |
+| `test` | How tests run: `scopes`, `targetTags`, the `filters` (`suite`, `case`) it can select, and `results` (`junitXml` or `litheTestResults` report globs relative to the project, or `hostIntegration`). A workspace run reads the globs under the root and every model project. A requested filter must reach the command line through a template whose conditions hold; a `case` guarded by `suiteSelected` therefore needs its suite. |
 | `diagnostics` | `lineMatcher` patterns with capture-group numbers, or `litheDiagnostics` lines. |
 | `dependencies` | A command (with `scopes`) whose output Core decodes into a tree, `provider` (with `scopes`, `workspace` and `project` only), or `hostIntegration`. |
 | `sync` | Files whose change makes the model stale, relative to the root and to each project. |

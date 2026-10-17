@@ -1186,6 +1186,66 @@
       }
     },
     {
+      "name": "gradle test refuses a case without its suite",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": "app",
+          "name": "app",
+          "properties": {
+            "taskPrefix": ":app:"
+          }
+        },
+        "case": "refunds"
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "Gradle cannot select this test case without its suite."
+        }
+      }
+    },
+    {
+      "name": "gradle workspace test collects every model project's reports",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "projects": [
+          "app",
+          "lib"
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "arguments": [
+            "--console=plain",
+            "test"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "412601eb5af95d4cd3c162065322aaec6b3d65fda1f35257942f5d8b8a0f5a9e",
+          "results": {
+            "decoder": "junitXml",
+            "reports": [
+              "build/test-results/test/*.xml",
+              "app/build/test-results/test/*.xml",
+              "lib/build/test-results/test/*.xml"
+            ]
+          }
+        }
+      }
+    },
+    {
       "name": "gradle dependencies of the root project",
       "plugin": "gradle-build.plugin.json",
       "buildSystemID": "gradle",
@@ -1404,6 +1464,23 @@
           "results": {
             "decoder": "hostIntegration"
           }
+        }
+      }
+    },
+    {
+      "name": "maven test refuses a case without its suite",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "case": "refunds"
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "Maven cannot select this test case without its suite."
         }
       }
     },

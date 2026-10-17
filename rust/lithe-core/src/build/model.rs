@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Version of the canonical `litheBuildModel` format.
 pub(crate) const CANONICAL_MODEL_VERSION: u32 = 1;
-const MAX_PROJECTS: usize = 2_000;
+pub(crate) const MAX_PROJECTS: usize = 2_000;
 const MAX_ITEMS: usize = 10_000;
 const MAX_NAME: usize = 256;
 const MAX_PROPERTY_VALUE: usize = 1_024;
@@ -402,7 +402,7 @@ impl<'a> ModelBuilder<'a> {
     }
 }
 
-fn depth(path: &str) -> usize {
+pub(crate) fn depth(path: &str) -> usize {
     if path == "." {
         0
     } else {
@@ -864,8 +864,9 @@ pub(crate) fn map_canonical(builder: &mut ModelBuilder<'_>, document: Value) -> 
         let Some(project) = owner(builder, &content_root.project, &None) else {
             continue;
         };
-        let base = builder.model.projects[project].path.clone();
-        if let Some(path) = builder.workspace.relativize(&content_root.path, &base) {
+        // Like every canonical path, a content root is relative to the
+        // instance root, not to its project; `project` only names the owner.
+        if let Some(Some(path)) = relativize(builder, &Some(content_root.path.clone())) {
             builder.add_content_root(project, path, content_root.kind);
         }
     }

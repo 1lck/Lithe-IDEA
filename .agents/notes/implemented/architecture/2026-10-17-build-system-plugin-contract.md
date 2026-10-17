@@ -113,13 +113,13 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 映射（`map`）用选择器从解码后的文档取出工程、目标、任务、内容根和选项取值。选择器是 JSON Pointer 加少量扩展：`@key`、从文档根开始的 `$/…`、`*`、`where` 过滤、`fallback`、`whenFile`、字面值 `{ "value": … }` 和两种 `transform`。选择器不提供控制流，表达不了的情况就让插件脚本输出规范格式。
 
-路径必须相对实例根，或者是工作区内的绝对路径，其他路径一律丢弃。读取静态模型、报告和同步监视文件前，还要校验符号链接最终指向工作区内：允许 `workspace/alias → workspace/data`，拒绝 `workspace/model.json → /outside/model.json`；否则模型和指纹会泄露外部文件内容。宿主显式传入的 `outputFile` 保留读取工作区外临时输出的能力。输出不符合解码格式时返回 `plugin.build.invalidOutput`，不静默返回空列表。
+路径必须相对实例根，或者是工作区内的绝对路径，其他路径一律丢弃。规范格式里内容根的 `project` 只指明归属，`path` 同样相对实例根；曾经按工程目录再拼一次，子工程会得到 `app/app/src/main/java`。读取静态模型、报告和同步监视文件前，还要校验符号链接最终指向工作区内：允许 `workspace/alias → workspace/data`，拒绝 `workspace/model.json → /outside/model.json`；否则模型和指纹会泄露外部文件内容。宿主显式传入的 `outputFile` 保留读取工作区外临时输出的能力。输出不符合解码格式时返回 `plugin.build.invalidOutput`，不静默返回空列表。
 
 ### 7. 测试
 
 - `test.scopes` 说明测试能在哪一层运行。`targetTags` 进一步限定目标：例如 Cargo 只在带 `test` 标签的目标上运行 `cargo test --test`，在其他目标上请求测试会得到 `plugin.build.invalidSelection`。`targetTags` 需要声明目标作用范围。
-- `filters` 声明能选中的 `suite`、`case`；`${test.case:regex}` 给需要正则的工具（例如 `go test -run`）提供转义后的名字。
-- `results` 是 `junitXml` 或 `litheTestResults` 的报告 glob，相对工程目录。`notBeforeMillis` 让 Core 忽略本次运行之前留下的旧报告。同一个用例执行多次时，合并为最严重的状态。
+- `filters` 声明能选中的 `suite`、`case`；`${test.case:regex}` 给需要正则的工具（例如 `go test -run`）提供转义后的名字。声明了筛选不代表每种组合都能表达：Maven 的 `-Dtest=Suite#case`、Gradle 的 `--tests Suite.case` 都只能在 suite 内选 case。`build.testPlan` 要求请求的 suite/case 确实经由条件成立的模板进入命令行，否则返回 `plugin.build.invalidSelection`，而不是静默扩大成全量测试；Cargo、Go 的独立 case 不受影响。这条规则按模板求值判断，不需要插件额外声明依赖关系。
+- `results` 是 `junitXml` 或 `litheTestResults` 的报告 glob，相对工程目录。工作区范围的运行没有选中工程，宿主随请求传入当前模型的 `projects`，Core 在实例根和每个工程目录下各匹配一次（与 `build.syncFingerprint` 相同的输入方式）；否则子工程失败的报告会被漏掉，解码成零用例、`success: true`。`notBeforeMillis` 让 Core 忽略本次运行之前留下的旧报告。同一个用例执行多次时，合并为最严重的状态。
 
 ### 8. Maven 过渡：`hostIntegration: maven`
 

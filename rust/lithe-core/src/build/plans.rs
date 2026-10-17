@@ -17,7 +17,7 @@ use super::manifest::{
 };
 use super::model::{entry_id, BuildModel, ModelProject};
 use super::options::{self, OptionContribution};
-use super::template::{self, BuildArgument, Selected, Values};
+use super::template::{self, BuildArgument, Selected, Values, Variable};
 use crate::plugins::declarative::{PluginRejection, Validation};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -27,6 +27,9 @@ use std::path::Path;
 const MAX_USER_ARGUMENTS: usize = 64;
 const MAX_USER_ARGUMENT: usize = 4_096;
 const MAX_SELECTION_TEXT: usize = 1_024;
+/// Bounds the report globs a workspace test plan lists; the model's own
+/// project limit.
+const MAX_REPORT_PROJECTS: usize = super::model::MAX_PROJECTS;
 /// Provider methods; their results are the canonical formats of the same
 /// name that commands may print.
 const PROVIDER_MODEL_METHOD: &str = "lithe/build/model";
@@ -111,6 +114,10 @@ pub(crate) struct TestPlanRequest {
     pub(crate) case: Option<String>,
     #[serde(default)]
     pub(crate) user_arguments: Vec<String>,
+    /// Workspace-relative project directories from the current model; a
+    /// workspace run collects reports from each of them.
+    #[serde(default)]
+    pub(crate) projects: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -543,19 +550,56 @@ pub(crate) fn test_plan(
     values.target = target.as_ref().map(Selection::selected);
     values.suite = request.suite.as_deref();
     values.case = request.case.as_deref();
-    let directory = project
-        .as_ref()
-        .map(|project| project.path.clone())
-        .unwrap_or_else(|| context.root.clone());
+    // Declaring a filter does not make every combination expressible: a
+    // case that only means something inside its suite (`-Dtest=Suite#case`,
+    // `--tests Suite.case`) would otherwise silently widen to every test.
+    for (requested, variables, what) in [
+        (
+            request.suite.is_some(),
+            &[Variable::TestSuite][..],
+            "a test suite",
+        ),
+        (
+            request.case.is_some(),
+            &[Variable::TestCase, Variable::TestCaseRegex][..],
+            "this test case without its suite",
+        ),
+    ] {
+        if requested && !template::applies_any(&test.arguments, &values, variables) {
+            return Err(invalid_selection(format!(
+                "{} cannot select {what}.",
+                build_system.display_name
+            )));
+        }
+    }
+    let directories = match &project {
+        Some(project) => vec![project.path.clone()],
+        None => {
+            let mut directories = BTreeSet::from([context.root.clone()]);
+            for path in request.projects.iter().take(MAX_REPORT_PROJECTS) {
+                let path = decode::request_path(path, "project")?;
+                if decode::contains(&context.root, &path) {
+                    directories.insert(path);
+                }
+            }
+            directories.into_iter().collect()
+        }
+    };
+    let reports = |globs: &[String]| -> Vec<String> {
+        directories
+            .iter()
+            .flat_map(|directory| globs.iter().map(|glob| join_relative(directory, glob)))
+            .collect()
+    };
     let results = match &test.results {
         None => Value::Null,
-        Some(TestResultsSource::JunitXml { reports }) => json!({
+        Some(TestResultsSource::JunitXml { reports: globs }) => json!({
             "decoder": "junitXml",
-            "reports": reports.iter().map(|glob| join_relative(&directory, glob)).collect::<Vec<_>>(),
+            "reports": reports(globs),
         }),
-        Some(TestResultsSource::LitheTestResults { reports }) => json!({
+        Some(TestResultsSource::LitheTestResults { reports: globs }) => json!({
             "decoder": "litheTestResults",
-            "reports": reports.iter().map(|glob| join_relative(&directory, glob)).collect::<Vec<_>>(),
+            "reports": reports(globs),
         }),
         Some(TestResultsSource::HostIntegration) => json!({ "decoder": "hostIntegration" }),
     };

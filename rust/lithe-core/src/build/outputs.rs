@@ -273,10 +273,15 @@ struct CanonicalTestResults {
 pub(crate) struct DecodeTestResultsRequest {
     pub(crate) workspace_root: String,
     pub(crate) root: String,
-    /// Workspace-relative directory of the project that ran; the root when
-    /// absent.
+    /// Workspace-relative directory of the project that ran; the whole
+    /// instance when absent.
     #[serde(default)]
     pub(crate) project: Option<String>,
+    /// Workspace-relative project directories from the current model. A run
+    /// without `project` covers the root and every one of them, because
+    /// report globs are relative to the project that wrote them.
+    #[serde(default)]
+    pub(crate) projects: Vec<String>,
     /// The run's combined output.
     #[serde(default)]
     pub(crate) output: String,
@@ -371,7 +376,7 @@ pub(crate) fn decode_test_results(
         TestResultsSource::JunitXml { reports } => TestResults {
             cases: report_cases(
                 &workspace,
-                &directory,
+                &report_directories(&root, &directory, request)?,
                 reports,
                 request.not_before_millis,
                 |text, base| junit_cases(text, &workspace, base),
@@ -381,7 +386,7 @@ pub(crate) fn decode_test_results(
         TestResultsSource::LitheTestResults { reports } => TestResults {
             cases: report_cases(
                 &workspace,
-                &directory,
+                &report_directories(&root, &directory, request)?,
                 reports,
                 request.not_before_millis,
                 |text, base| canonical_cases(text, &workspace, base),
@@ -401,22 +406,53 @@ pub(crate) fn decode_test_results(
     }))
 }
 
+/// Directories whose reports belong to the run: the selected project, or the
+/// root and every model project inside it, deepest first so a file two globs
+/// reach is read relative to its own project.
+fn report_directories(
+    root: &str,
+    directory: &str,
+    request: &DecodeTestResultsRequest,
+) -> Validation<Vec<String>> {
+    let mut directories = BTreeSet::from([directory.to_string()]);
+    if request.project.is_none() {
+        for project in request.projects.iter().take(model::MAX_PROJECTS) {
+            let project = decode::request_path(project, "project")?;
+            if decode::contains(root, &project) {
+                directories.insert(project);
+            }
+        }
+    }
+    let mut directories: Vec<String> = directories.into_iter().collect();
+    directories.sort_by_key(|directory| std::cmp::Reverse(model::depth(directory)));
+    Ok(directories)
+}
+
 fn report_cases(
     workspace: &Workspace,
-    directory: &str,
+    directories: &[String],
     reports: &[String],
     not_before_millis: Option<u64>,
     parse: impl Fn(&str, &str) -> Option<Vec<TestCaseResult>>,
 ) -> Vec<TestCaseResult> {
-    let Some(base) = workspace.read_path(directory) else {
-        return Vec::new();
-    };
-    let mut files = BTreeSet::new();
-    for pattern in reports {
-        files.extend(decode::glob(&base, pattern, not_before_millis));
+    let mut seen = BTreeSet::new();
+    let mut files = Vec::new();
+    for directory in directories {
+        let Some(base) = workspace.read_path(directory) else {
+            continue;
+        };
+        for pattern in reports {
+            for file in decode::glob(&base, pattern, not_before_millis) {
+                if seen.insert(file.clone()) {
+                    files.push((file, directory.as_str()));
+                }
+            }
+        }
     }
+    // Deterministic regardless of which directory found a file first.
+    files.sort();
     let mut cases = Vec::new();
-    for file in files {
+    for (file, directory) in files {
         // A report still being written or damaged loses only its own cases.
         let Ok(text) = decode::read_bounded(&file) else {
             continue;

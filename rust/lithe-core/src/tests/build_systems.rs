@@ -511,6 +511,19 @@ fn gradle_canonical_outputs_are_read_from_the_output_file() {
         .map(|project| project["path"].as_str().unwrap())
         .collect();
     assert_eq!(projects, [".", "app"]);
+    // Content roots are root-relative like every canonical path; resolving
+    // them against their project would produce `app/app/src/main/java`.
+    let sources: Vec<&Value> = model["contentRoots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|root| root["kind"] != "excluded")
+        .collect();
+    assert_eq!(
+        sources,
+        [&json!({ "projectID": "gradle:app/app", "path": "app/src/main/java", "kind": "source" })],
+        "{model}"
+    );
     let run = model["run"].as_array().unwrap();
     assert_eq!(
         run.len(),
@@ -631,6 +644,109 @@ fn junit_reports_become_case_results() {
         }),
     );
     assert_eq!(later["results"]["tests"], json!([]), "{later}");
+}
+
+/// A workspace run has no selected project, so the reports its subprojects
+/// wrote must still count; otherwise a failing subproject decodes as zero
+/// tests and `success: true`.
+#[test]
+fn workspace_test_results_cover_every_model_project() {
+    let workspace = TemporaryWorkspace::new("build-junit-workspace");
+    workspace
+        .write(
+            "app/build/test-results/test/TEST-com.example.OrderTest.xml",
+            r#"<testsuite name="com.example.OrderTest">
+  <testcase name="charges" classname="com.example.OrderTest"><failure message="boom"/></testcase>
+</testsuite>"#,
+        )
+        .write(
+            "build/test-results/test/TEST-com.example.RootTest.xml",
+            r#"<testsuite name="com.example.RootTest"><testcase name="boots" classname="com.example.RootTest"/></testsuite>"#,
+        );
+    let decode = |request: Value| {
+        call(
+            "decodeTestResults",
+            fixture("gradle-build.plugin.json"),
+            "gradle",
+            request,
+        )
+    };
+
+    let outcome = decode(json!({
+        "workspaceRoot": workspace.root(), "root": ".", "projects": [".", "app"], "output": "",
+    }));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(
+        outcome["results"]["summary"],
+        json!({ "total": 2, "passed": 1, "failed": 1, "errors": 0, "skipped": 0 }),
+        "{outcome}"
+    );
+    assert_eq!(outcome["results"]["success"], false);
+
+    // A selected project still reads only its own reports.
+    let project = decode(json!({
+        "workspaceRoot": workspace.root(), "root": ".", "project": ".", "projects": ["app"], "output": "",
+    }));
+    assert_eq!(project["results"]["summary"]["total"], 1, "{project}");
+
+    let escaping = decode(json!({
+        "workspaceRoot": workspace.root(), "root": ".", "projects": ["../outside"], "output": "",
+    }));
+    assert_eq!(escaping["status"], "rejected", "{escaping}");
+    assert_eq!(escaping["error"]["code"], "plugin.build.invalidSelection");
+}
+
+/// Canonical content roots resolve against a nested instance root too.
+#[test]
+fn canonical_content_roots_are_relative_to_the_instance_root() {
+    let workspace = TemporaryWorkspace::new("build-canonical-nested-root");
+    workspace.write(
+        "state/model.json",
+        &json!({
+            "format": "litheBuildModel",
+            "version": 1,
+            "projects": [
+                { "name": "shop" },
+                { "path": "app", "name": "app" }
+            ],
+            "contentRoots": [
+                { "project": "app", "path": "app/src/main/java", "kind": "source" },
+                { "path": "buildSrc/src/main/kotlin", "kind": "source" }
+            ]
+        })
+        .to_string(),
+    );
+    let outcome = call(
+        "decodeModel",
+        fixture("gradle-build.plugin.json"),
+        "gradle",
+        json!({
+            "workspaceRoot": workspace.root(),
+            "root": "services",
+            "outputFile": workspace.0.join("state/model.json").to_string_lossy(),
+        }),
+    );
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let roots: Vec<(&str, &str)> = outcome["model"]["contentRoots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|root| root["kind"] != "excluded")
+        .map(|root| {
+            (
+                root["projectID"].as_str().unwrap(),
+                root["path"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        roots,
+        [
+            ("gradle:services/app/app", "services/app/src/main/java"),
+            ("gradle:services/shop", "services/buildSrc/src/main/kotlin"),
+        ],
+        "{outcome}"
+    );
 }
 
 /// The sync fingerprint changes with the watched files and nothing else.

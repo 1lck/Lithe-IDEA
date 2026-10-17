@@ -474,6 +474,24 @@ pub(crate) fn uses(arguments: &[BuildArgument], variable: &Variable) -> bool {
     })
 }
 
+/// True when an element whose conditions hold for `values` uses one of the
+/// variables, so expanding the list would substitute it.
+pub(crate) fn applies_any(
+    arguments: &[BuildArgument],
+    values: &Values<'_>,
+    variables: &[Variable],
+) -> bool {
+    arguments.iter().any(|argument| {
+        argument
+            .conditions()
+            .iter()
+            .all(|condition| condition.holds(values))
+            && parse(argument.value()).unwrap_or_default().iter().any(
+                |part| matches!(part, TemplatePart::Variable(found) if variables.contains(found)),
+            )
+    })
+}
+
 /// A selected project, target, or task: its name and the properties the
 /// model recorded for it.
 #[derive(Debug, Clone)]
