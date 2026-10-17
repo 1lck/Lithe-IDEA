@@ -171,6 +171,7 @@ final class WorkbenchToolContentStore: ObservableObject {
     @MainActor
     final class Entry {
         let host: NSHostingView<AnyView>
+        let chrome = ChromeHost(rootView: AnyView(EmptyView()))
         var identity: AnyHashable
         weak var slot: Slot?
         var onActivate: (() -> Void)?
@@ -180,7 +181,15 @@ final class WorkbenchToolContentStore: ObservableObject {
             host = NSHostingView(rootView: content)
             host.sizingOptions = []
             host.isHidden = true
+            chrome.sizingOptions = []
+            chrome.isHidden = true
         }
+    }
+
+    final class ChromeHost: NSHostingView<AnyView> {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func accessibilityChildren() -> [Any]? { [] }
+        override func isAccessibilityElement() -> Bool { false }
     }
 
     final class Surface: NSView {
@@ -223,7 +232,8 @@ final class WorkbenchToolContentStore: ObservableObject {
     init() { surface.store = self }
 
     func show(_ tool: WorkbenchFeatureModel.ToolWindow, in slot: Slot,
-              identity: AnyHashable, onActivate: (() -> Void)? = nil, content: () -> AnyView) {
+              identity: AnyHashable, onActivate: (() -> Void)? = nil,
+              chrome: AnyView = AnyView(EmptyView()), content: () -> AnyView) {
         // SwiftUI reuses a slot when two tools have the same renderer type.
         // Transfer ownership before showing the new tool in that slot.
         for (otherTool, other) in entries where otherTool != tool && other.slot === slot {
@@ -241,7 +251,9 @@ final class WorkbenchToolContentStore: ObservableObject {
             entry = Entry(identity: identity, content: content())
             entries[tool] = entry
             surface.addSubview(entry.host)
+            surface.addSubview(entry.chrome)
         }
+        entry.chrome.rootView = chrome
         slot.store = self
         entry.onActivate = onActivate
         entry.slot = slot
@@ -263,6 +275,7 @@ final class WorkbenchToolContentStore: ObservableObject {
             window.makeFirstResponder(nil)
         }
         entry.host.isHidden = true
+        entry.chrome.isHidden = true
     }
 
     func refresh() {
@@ -274,6 +287,8 @@ final class WorkbenchToolContentStore: ObservableObject {
             }
             let frame = slot.convert(slot.bounds, to: surface)
             if entry.host.frame != frame { entry.host.frame = frame }
+            if entry.chrome.frame != frame { entry.chrome.frame = frame }
+            entry.chrome.isHidden = frame.isEmpty
             let becomesVisible = entry.host.isHidden && !frame.isEmpty
             entry.host.isHidden = frame.isEmpty
             if becomesVisible {
@@ -303,6 +318,8 @@ struct RetainedWorkbenchToolContent<Content: View>: NSViewRepresentable {
     let content: Content
     var contentIdentity: AnyHashable = 0
     var onActivate: (() -> Void)? = nil
+    var chrome: AnyView = AnyView(EmptyView())
+    @Environment(\.workbenchToolbarGlow) private var toolbarGlow
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.locale) private var locale
     @Environment(\.controlActiveState) private var controlActiveState
@@ -315,7 +332,9 @@ struct RetainedWorkbenchToolContent<Content: View>: NSViewRepresentable {
     func updateNSView(_ view: WorkbenchToolContentStore.Slot, context: Context) {
         let identity: [AnyHashable] = [contentIdentity, locale.identifier, colorScheme == .dark,
             controlActiveState == .key, controlActiveState == .active, isEnabled, isResizing, hasBackgroundImage]
-        store.show(tool, in: view, identity: AnyHashable(identity), onActivate: onActivate) {
+        store.show(tool, in: view, identity: AnyHashable(identity), onActivate: onActivate,
+                   chrome: AnyView(chrome.environment(\.colorScheme, colorScheme)
+                    .environment(\.workbenchToolbarGlow, toolbarGlow))) {
             AnyView(content
                 .environment(\.colorScheme, colorScheme)
                 .environment(\.locale, locale)
@@ -329,6 +348,30 @@ struct RetainedWorkbenchToolContent<Content: View>: NSViewRepresentable {
 
     static func dismantleNSView(_ view: WorkbenchToolContentStore.Slot, coordinator: ()) {
         view.store?.detach(view)
+    }
+}
+
+/// Only the small chrome host receives workbench geometry and glow changes;
+/// resizing must not replace the retained tool's content root.
+struct RetainedWorkbenchToolPane<Content: View>: View {
+    let store: WorkbenchToolContentStore
+    let tool: WorkbenchFeatureModel.ToolWindow
+    let content: Content
+    var contentIdentity: AnyHashable = 0
+    var onActivate: (() -> Void)? = nil
+    var showsFrameGradient = false
+    @Environment(\.workbenchHasBackgroundImage) private var hasBackgroundImage
+
+    var body: some View {
+        GeometryReader { proxy in
+            RetainedWorkbenchToolContent(store: store, tool: tool, content: content,
+                contentIdentity: contentIdentity, onActivate: onActivate,
+                chrome: AnyView(Color.clear.workbenchPaneChrome(
+                    background: .clear, surrounding: LitheTheme.titlebar,
+                    roundsCorners: !hasBackgroundImage, showsFrameGradient: showsFrameGradient,
+                    frameInWorkbench: proxy.frame(in: .named(WorkbenchFrameGradient.coordinateSpace)))
+                    .allowsHitTesting(false).accessibilityHidden(true)))
+        }
     }
 }
 

@@ -317,6 +317,15 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 `hiddenToolSessionRemountCannotTakeFocusFromEditorTerminal` 使用两个工具会话 A/B 和编辑器会话 C，
 验证隐藏后选择 C 即使重挂 A 也不请求会话焦点、不改变 first responder，重开后才激活 A。
 
+保留内容的圆角由独立、不能接收鼠标或无障碍焦点的轻量宿主绘制，叠在内容宿主之上。
+停靠槽从原工作台的 `workbenchFrame` 命名坐标空间取得矩形，圆角继续复用共享形状与渐变算法，
+显式接收该矩形、当前项目辉光和主题。位置、尺寸、项目色或背景图改变时只更新圆角层；
+不要把这些几何输入加入 Git Log/终端内容身份，否则连续拖动会再次更新重内容根视图。
+仅传辉光仍不足以修复独立宿主中的坐标原点；重新绘制纯标题栏色会在侧栏顶部留下色块。
+`WorkbenchSurfaceBackgroundTests.retainedPaneCornersMatchWorkbenchGradient` 在真实窗口里对照
+原工作台树和保留宿主的四角像素，覆盖两种工具、明暗主题、移动及尺寸变化、项目色变化、关闭渐变和背景图恢复。
+像素对照证明共享绘制一致，不替代目标设备上的界面人工验收。
+
 固定表面的命中不能覆盖外层分隔条伸入面板的区域。`Surface.hitTest` 在同一次同步查询内跳过自己，
 复用下层原生命中结果；如果下层命中 `SplitHandleInteractionView`，优先将事件交给它，
 否则沿用保留宿主的正常命中。不要临时隐藏宿主、缩小内容或另算一份分隔条矩形。
