@@ -5,9 +5,11 @@ import SwiftUI
 enum AgentPastedImage {
     /// `Pasted image 2026-10-16 14.03.21.png` reads well in the attachment chip;
     /// the suffix keeps two pastes within one second apart.
-    static func fileName(date: Date = Date(), suffix: String = String(UUID().uuidString.prefix(4))) -> String {
+    static func fileName(date: Date = Date(), timeZone: TimeZone = .current,
+                         suffix: String = String(UUID().uuidString.prefix(4))) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
         return "Pasted image \(formatter.string(from: date)) \(suffix).png"
     }

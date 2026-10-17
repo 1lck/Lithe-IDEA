@@ -153,21 +153,32 @@ enum AgentMarkdownBlock: Equatable {
     /// CommonMark closes `**` only when it is right-flanking, so `**状态：**仍开放`
     /// (CJK punctuation before the marker, a CJK letter after it) stays literal.
     /// Agents write this form constantly in Chinese replies. Markers Foundation
-    /// left as text are paired in order within the block; code spans are skipped
-    /// and an unpaired trailing marker stays literal.
+    /// left as text are paired again with only the whitespace part of the
+    /// flanking rule: an opener is not followed by whitespace and a closer is not
+    /// preceded by it, so `2 ** 3` stays literal. Code spans are skipped and an
+    /// unpaired marker stays literal.
     static func pairingLeftoverStrongMarkers(_ text: AttributedString) -> AttributedString {
-        var offsets: [Int] = []
+        let characters = Array(text.characters)
+        func isSpace(_ offset: Int) -> Bool {
+            !characters.indices.contains(offset) || characters[offset].isWhitespace
+        }
+        var pairs: [(open: Int, close: Int)] = []
+        var opener: Int?
         var searchStart = text.startIndex
         while searchStart < text.endIndex, let range = text[searchStart...].range(of: "**") {
-            let isCode = text[range].runs.contains { $0.inlinePresentationIntent?.contains(.code) == true }
-            if !isCode { offsets.append(text.characters.distance(from: text.startIndex, to: range.lowerBound)) }
             searchStart = range.upperBound
+            guard !text[range].runs.contains(where: { $0.inlinePresentationIntent?.contains(.code) == true }) else { continue }
+            let offset = text.characters.distance(from: text.startIndex, to: range.lowerBound)
+            let canOpen = !isSpace(offset + 2), canClose = !isSpace(offset - 1)
+            if let open = opener, canClose, offset > open + 2 {
+                pairs.append((open, offset))
+                opener = nil
+            } else if canOpen {
+                opener = offset
+            }
         }
-        guard offsets.count >= 2 else { return text }
         var result = text
-        for pair in stride(from: offsets.count / 2 * 2 - 2, through: 0, by: -2) {
-            let open = offsets[pair], close = offsets[pair + 1]
-            guard close > open + 2 else { continue }
+        for (open, close) in pairs.reversed() {
             let start = result.index(result.startIndex, offsetByCharacters: open)
             let closeStart = result.index(result.startIndex, offsetByCharacters: close)
             let content = result.index(start, offsetByCharacters: 2)..<closeStart

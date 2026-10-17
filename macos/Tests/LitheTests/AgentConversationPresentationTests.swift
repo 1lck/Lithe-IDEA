@@ -1087,7 +1087,11 @@ extension AgentConversationPresentationTests {
         #expect(AgentPasteboardAttachment.read(from: pasteboard) == nil)
 
         let date = try #require(ISO8601DateFormatter().date(from: "2026-10-16T06:03:21Z"))
-        let name = AgentPastedImage.fileName(date: date, suffix: "ab12")
-        #expect(name.hasPrefix("Pasted image 2026-10-16 ") && name.hasSuffix(" ab12.png"))
+        let utc = try #require(TimeZone(identifier: "UTC"))
+        #expect(AgentPastedImage.fileName(date: date, timeZone: utc, suffix: "ab12")
+                == "Pasted image 2026-10-16 06.03.21 ab12.png")
+        let losAngeles = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        #expect(AgentPastedImage.fileName(date: date, timeZone: losAngeles, suffix: "ab12")
+                == "Pasted image 2026-10-15 23.03.21 ab12.png", "Names use local wall-clock time")
     }
 }
