@@ -1,4 +1,4 @@
-//! Opt-in loopback proxy between an API-key Agent and its model provider.
+//! Opt-in loopback proxy between an Agent and its model provider.
 //!
 //! The Agent receives `http://127.0.0.1:<port>/<launch token>` instead of the
 //! configured endpoint. Every request is forwarded to that endpoint with the
@@ -26,6 +26,8 @@ use hyper::header::{HeaderMap, HeaderName, HeaderValue};
 use hyper::{Request, Response, StatusCode};
 
 use crate::model_calls::{self, ModelApi, ModelCall, RequestShape, ResponseObserver};
+
+mod websocket;
 
 /// Generation request bodies up to this size are buffered to measure their
 /// composition. Larger bodies are still forwarded, just without composition.
@@ -170,6 +172,8 @@ struct State {
     session: SessionResolver,
     sink: CallSink,
     in_flight: Arc<CallsInFlight>,
+    /// Upgraded sockets outlive their HTTP exchange but share its launch owner.
+    connections: std::sync::Weak<Mutex<tokio::task::JoinSet<()>>>,
 }
 
 impl State {
@@ -250,6 +254,7 @@ pub(crate) async fn start(
         .map_err(|error| format!("Could not start model call statistics: {error}"))?
         .port();
     let prefix = format!("/lithe-{}", uuid::Uuid::new_v4().simple());
+    let connections = Arc::new(Mutex::new(tokio::task::JoinSet::new()));
     let state = Arc::new(State {
         prefix: prefix.clone(),
         upstream: upstream.to_owned(),
@@ -259,8 +264,8 @@ pub(crate) async fn start(
         session,
         sink,
         in_flight,
+        connections: Arc::downgrade(&connections),
     });
-    let connections = Arc::new(Mutex::new(tokio::task::JoinSet::new()));
     let accepted = connections.clone();
     let accept = tokio::spawn(async move {
         loop {
@@ -272,6 +277,7 @@ pub(crate) async fn start(
             let connection = async move {
                 let _ = hyper::server::conn::http1::Builder::new()
                     .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
+                    .with_upgrades()
                     .await;
             };
             if let Ok(mut connections) = accepted.lock() {
@@ -313,6 +319,10 @@ async fn handle(
         ),
         _ => (format!("{}{rest}", state.upstream), rest),
     };
+    if websocket::is_upgrade(&request) {
+        let observed = ModelApi::from_path(route) == Some(ModelApi::Responses);
+        return Ok(websocket::forward(request, &url, state, observed).await);
+    }
     let api = (request.method() == hyper::Method::POST)
         .then(|| ModelApi::from_path(route))
         .flatten();
@@ -772,6 +782,7 @@ mod tests {
             session: Arc::new(|| None),
             sink: collecting().0,
             in_flight: Arc::default(),
+            connections: std::sync::Weak::new(),
         };
         // Locations resolve against the actual upstream request, not the proxy URL.
         let request = url::Url::parse(&format!("{origin}/api/v1/messages")).unwrap();

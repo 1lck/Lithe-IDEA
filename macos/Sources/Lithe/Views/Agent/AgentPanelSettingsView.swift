@@ -85,7 +85,7 @@ private struct AgentsManagementPage: View {
     private var statisticsRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             LitheSettingsCheckbox(isOn: $settings.agentModelCallStatistics, title: "Model call statistics")
-            AgentSettingsHint("Routes API-key Agent requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and keys are forwarded unchanged and never stored. Applies after reconnecting; subscription sign-in is not observed.")
+            AgentSettingsHint("Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting.")
                 .padding(.leading, 24)
         }
     }

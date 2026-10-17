@@ -35,43 +35,54 @@ struct AgentSetupDiagnosticsTests {
     }
 
     @Test(arguments: [false, true, nil] as [Bool?], ["0.159.3", "0.142.5"])
-    func currentCodexOnlyOffersConfirmedUpdate(updateAvailable: Bool?, version: String) throws {
+    func everyCliOnlyOffersConfirmedUpdate(updateAvailable: Bool?, version: String) throws {
         let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
-        for source in [AgentCliInstallation.Source.npm, .homebrew] {
-            for language in ["en", "zh-Hans"] {
-                let bundle = try #require(Bundle(url: resources.appendingPathComponent("\(language).lproj")))
-                let chinese = language == "zh-Hans"
-                let installation = AgentCliInstallation(source: source, canUpdate: true,
-                    updateHint: source == .npm ? "npm install -g @openai/codex" : "brew upgrade --cask codex",
-                    updateAvailable: updateAvailable)
-                let agent = AgentCatalogStatus(id: "codex-acp", name: "Codex", description: "", package: "adapter",
-                    version: "1", installedVersion: "1", protocol: "responses", minimumNodeMajor: 20, verified: true,
-                    cli: .init(name: "Codex CLI", command: "codex", minimumVersion: "0.156.0", installHint: "npm install",
-                        detected: .init(version: version, path: "/example/bin/codex"), installation: installation), issues: [])
-                let environment = AgentRuntimeEnvironment(node: nil, npm: nil, usedLoginShell: true)
-                let check = try #require(AgentSetupDiagnostics.preflight(for: agent, environment: environment,
-                    hasProvider: true, bundle: bundle).first { $0.id == "cli" })
-                let compatible = AgentSetupDiagnostics.isVersion(version, atLeast: "0.156.0")
-                #expect(check.status == (compatible ? .pass : .warn))
-                #expect(check.fix == (!compatible || updateAvailable == true ? .updateCli : nil))
-                if compatible && updateAvailable == false {
-                    let expected = source == .homebrew
-                        ? (chinese ? "当前 Homebrew 索引未发现更新。" : "No updates found in the local Homebrew index.")
-                        : (chinese ? "已是最新版本。" : "Up to date.")
-                    #expect(check.title.hasSuffix(expected))
-                    #expect(check.title.contains(chinese ? "或更高版本" : "or later"))
-                    if source == .homebrew {
-                        #expect(!check.title.contains(chinese ? "已是最新版本" : "Up to date"))
-                        #expect(check.message.contains(chinese
-                            ? "请手动运行 `brew update`，然后重新检查更新。"
-                            : "Run `brew update` manually, then check again for updates."))
+        for command in ["codex", "claude", "future-agent"] {
+            for source in [AgentCliInstallation.Source.npm, .homebrew, .native, .unknown] {
+                for language in ["en", "zh-Hans"] {
+                    let bundle = try #require(Bundle(url: resources.appendingPathComponent("\(language).lproj")))
+                    let chinese = language == "zh-Hans"
+                    let hint: String = switch source {
+                    case .npm: "npm install -g @example/\(command)"
+                    case .homebrew: "brew upgrade --cask \(command)"
+                    case .native: "\(command) update"
+                    default: "Update this CLI using its original installer, then check again."
                     }
+                    let localizedHint = NSLocalizedString(hint, bundle: bundle, comment: "")
+                    let installation = AgentCliInstallation(source: source, canUpdate: true,
+                        updateHint: hint,
+                        updateAvailable: updateAvailable)
+                    let agent = AgentCatalogStatus(id: "example-acp", name: "Example", description: "", package: "adapter",
+                        version: "1", installedVersion: "1", protocol: "responses", minimumNodeMajor: 20, verified: true,
+                        cli: .init(name: "Example CLI", command: command, minimumVersion: "0.156.0", installHint: "npm install",
+                            detected: .init(version: version, path: "/example/bin/\(command)"), installation: installation), issues: [])
+                    let environment = AgentRuntimeEnvironment(node: nil, npm: nil, usedLoginShell: true)
+                    let check = try #require(AgentSetupDiagnostics.preflight(for: agent, environment: environment,
+                        hasProvider: true, bundle: bundle).first { $0.id == "cli" })
+                    let compatible = AgentSetupDiagnostics.isVersion(version, atLeast: "0.156.0")
+                    #expect(check.status == (compatible ? .pass : .warn))
+                    #expect(check.fix == (!compatible || updateAvailable == true ? .updateCli : nil))
+                    if compatible && updateAvailable == false {
+                        let expected = source == .homebrew
+                            ? (chinese ? "当前 Homebrew 索引未发现更新。" : "No updates found in the local Homebrew index.")
+                            : (chinese ? "已是最新版本。" : "Up to date.")
+                        #expect(check.title.hasSuffix(expected))
+                        #expect(!check.message.contains(localizedHint))
+                        #expect(check.title.contains(chinese ? "或更高版本" : "or later"))
+                        if source == .homebrew {
+                            #expect(!check.title.contains(chinese ? "已是最新版本" : "Up to date"))
+                            #expect(check.message.contains(chinese
+                                ? "请手动运行 `brew update`，然后重新检查更新。"
+                                : "Run `brew update` manually, then check again for updates."))
+                        }
+                    }
+                    if compatible && updateAvailable == nil {
+                        #expect(check.message.contains(chinese ? "无法检查更新。" : "Could not check for updates."))
+                        #expect(check.message.contains(localizedHint))
+                    }
+                    if !compatible { #expect(check.message.contains(localizedHint)) }
                 }
-                if compatible && updateAvailable == nil {
-                    #expect(check.message.contains(chinese ? "无法检查更新。" : "Could not check for updates."))
-                }
-                if !compatible { #expect(check.message.contains(installation.updateHint)) }
             }
         }
     }

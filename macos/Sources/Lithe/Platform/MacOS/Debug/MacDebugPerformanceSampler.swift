@@ -7,7 +7,10 @@ struct MacDebugPerformanceSampler: DebugPerformanceSampling {
     let processRegistry: ManagedProcessRegistry?
 
     func samples(for target: DebugPerformanceTarget) -> AsyncThrowingStream<DebugPerformanceSample, Error> {
-        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+        if target.javaExecutable == nil {
+            return MacProcessTreePerformanceSampler.samples(processID: target.processID)
+        }
+        return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let session = MacDebugPerformanceSession(target: target, registry: processRegistry, continuation: continuation)
             continuation.onTermination = { _ in session.stop() }
             session.start()
@@ -74,8 +77,9 @@ private final class MacDebugPerformanceSession: @unchecked Sendable {
     func start() {
         lock.lock()
         guard continuation != nil else { lock.unlock(); return }
-        let tool = target.javaExecutable.deletingLastPathComponent().appendingPathComponent("jstat")
-        guard target.processID > 0, target.javaExecutable.lastPathComponent == "java",
+        guard let executable = target.javaExecutable else { lock.unlock(); finish(nil); return }
+        let tool = executable.deletingLastPathComponent().appendingPathComponent("jstat")
+        guard target.processID > 0, executable.lastPathComponent == "java",
               FileManager.default.isExecutableFile(atPath: tool.path),
               let cpu = cpuSampler.cpuSnapshot(for: target.processID) else {
             lock.unlock()
@@ -129,7 +133,7 @@ private final class MacDebugPerformanceSession: @unchecked Sendable {
                     }
                     previousCPU = cpu.nanoseconds; previousTime = now; lastSampleTime = now
                     output.append(DebugPerformanceSample(timestamp: heap.uptime, cpuPercent: percent,
-                        heapUsedBytes: heap.used, heapCommittedBytes: heap.committed))
+                        memoryUsedBytes: heap.used, memoryCapacityBytes: heap.committed))
                 }
                 if output.isEmpty { diagnostic = String((diagnostic + chunk).suffix(1024)) }
                 else { diagnostic = "" }

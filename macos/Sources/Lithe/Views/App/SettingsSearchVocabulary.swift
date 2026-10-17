@@ -39,6 +39,8 @@ enum SettingsSearchVocabulary {
             ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates", "Update channel", "Stable (Recommended)", "AutoBuild Rolling"]
+        case .processTermination:
+            ["Process Termination Policy", "Process", "Quit", "Terminals with running programs", "Agent tasks", "Background services", "Closing a terminal tab", "After Lithe closes unexpectedly", "Time to exit", "Remembered choices", "Daemon"]
         case .diagnostics:
             ["Diagnostics", "Diagnostics bundle", "Export logs", "Bug report"]
         case .plugins:

@@ -42,8 +42,8 @@ public final class TerminalModule: LitheModule {
         }
     }
 
-    public func sleep() async { releaseFeature() }
-    public func shutdown() async { releaseFeature() }
+    public func sleep() async { await releaseFeature() }
+    public func shutdown() async { await releaseFeature() }
 
     public func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] {
         guard let capability else { return [:] }
@@ -54,9 +54,12 @@ public final class TerminalModule: LitheModule {
         Self.moduleContributions
     }
 
-    private func releaseFeature() {
-        capability?.feature.stopAllSessions()
+    private func releaseFeature() async {
+        let feature = capability?.feature
         capability = nil
+        // Application quit waits here, so terminal jobs in their own process
+        // groups are gone before the process exits.
+        await feature?.stopAllSessionsAndWait()
     }
 }
 
@@ -71,5 +74,5 @@ private final class TerminalSessionResource: ModuleResource {
     init(feature: TerminalFeatureModel) { self.feature = feature }
     var moduleResourceKind: String { "terminal-sessions" }
     var isModuleResourceActive: Bool { feature.terminalSessions.contains(where: \.isRunning) }
-    func stopModuleResource() async { feature.stopAllSessions() }
+    func stopModuleResource() async { await feature.stopAllSessionsAndWait() }
 }

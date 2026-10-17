@@ -7,14 +7,29 @@ import LitheAgentConversationModule
 enum AgentTranscriptItem: Identifiable {
     case message(AgentConversationMessage)
     case toolGroup([AgentConversationMessage])
-    case turnSummary(AgentTurnStatistics)
+    /// `reply` is the ending Agent message, copied from the footer.
+    case turnSummary(AgentTurnStatistics, reply: String?)
 
     var id: String {
         switch self {
         case .message(let message): message.id
         case .toolGroup(let tools): "tools:\(tools[0].id)"
-        case .turnSummary(let turn): "turn:\(turn.id)"
+        case .turnSummary(let turn, _): "turn:\(turn.id)"
         }
+    }
+
+    var navigationMessageID: String? {
+        switch self {
+        case .message(let message): message.id
+        case .toolGroup(let tools): tools.first?.id
+        case .turnSummary(let turn, _): turn.endingMessageID
+        }
+    }
+
+    /// Replies whose copy button lives in the turn footer. Search filters the
+    /// footers out, so while searching every reply keeps its own button.
+    static func repliesCopiedFromFooter(_ turns: [AgentTurnStatistics], searchText: String) -> Set<String> {
+        searchText.isEmpty ? Set(turns.compactMap(\.endingMessageID)) : []
     }
 
     func matches(_ searchText: String) -> Bool {
@@ -57,7 +72,7 @@ enum AgentTranscriptItem: Identifiable {
                     items.append(.toolGroup(tools))
                     tools.removeAll(keepingCapacity: true)
                 }
-                items.append(.turnSummary(summary))
+                items.append(.turnSummary(summary, reply: message.role == .agent ? message.text : nil))
             }
         }
         if !tools.isEmpty { items.append(.toolGroup(tools)) }
@@ -100,6 +115,8 @@ struct AgentTranscriptView: View {
     var searchText = ""
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     var onRestoreFile: (AgentFileChange) async throws -> Void = { _ in throw AgentEditRestoreError.unavailable }
+    var isEditorLayout = false
+    @State private var navigation = AgentTranscriptNavigationState()
     @State private var showsAgentPicker = false
     // A filtered-out row can be destroyed. Keep its preference in the owning
     // transcript view, isolated by session and message, until the actual data goes away.
@@ -112,6 +129,7 @@ struct AgentTranscriptView: View {
         // A load replays the whole history one event at a time. Building rows
         // for every intermediate state is quadratic, so rows wait for the replay to end.
         let isReplaying = conversation?.isLoading == true
+        let navigationContent = AgentTranscriptNavigationContent(messages: isReplaying ? [] : messages)
         // Only reasoning that is still streaming opens by default.
         let liveThoughtID = conversation?.responseStatus == .thinking && messages.last?.role == .thought
             ? messages.last?.id : nil
@@ -141,64 +159,86 @@ struct AgentTranscriptView: View {
                     .padding(LitheDropdownMetrics.popupPadding)
                     .frame(width: 180)
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) { advisories }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    advisories.modifier(AgentEditorColumn(isEditor: isEditorLayout))
+                }
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        if conversation?.isLoading == true {
-                            HStack(spacing: 8) {
-                                ProgressView().controlSize(.small)
-                                Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
+                ScrollViewReader { reader in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 14) {
+                            if conversation?.isLoading == true {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
+                                }
+                            }
+                            // A load replays the whole history one event at a time. Building rows
+                            // for every intermediate state is quadratic, so rows wait for the replay to end.
+                            if !isReplaying {
+                                AgentTranscriptRows(
+                                    messages: messages,
+                                    completedTurns: conversation?.completedTurns ?? [],
+                                    navigation: navigation,
+                                    turnByMessageID: navigationContent.turnByMessageID,
+                                    searchText: searchText,
+                                    liveThoughtID: liveThoughtID,
+                                    thoughtExpansions: sessionID.flatMap { thoughtExpansions[$0] } ?? [:],
+                                    setThoughtExpansion: { id, value in
+                                        guard let sessionID else { return }
+                                        thoughtExpansions[sessionID, default: [:]][id] = value
+                                    },
+                                    onOpenFile: onOpenFile
+                                )
+                                .equatable()
+                            }
+                            if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
+                                AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
+                                    .id("pending")
+                            }
+                            if conversation?.isResponding == true || feature.isCreatingSession {
+                                AgentResponseStatusRow(
+                                    responseStatus: conversation?.responseStatus ?? .preparing,
+                                    startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
+                                    hasStreamingThought: liveThoughtID != nil,
+                                    retryAttempt: conversation?.retryAttempt,
+                                    retryMaxAttempts: conversation?.retryMaxAttempts,
+                                    isQuiet: conversation?.isQuiet == true,
+                                    onContinueWaiting: { feature.continueWaiting() },
+                                    onStop: { feature.cancel() }
+                                ).id("responding")
                             }
                         }
-                        // A load replays the whole history one event at a time. Building rows
-                        // for every intermediate state is quadratic, so rows wait for the replay to end.
-                        if !isReplaying {
-                            AgentTranscriptRows(
-                                messages: messages,
-                                completedTurns: conversation?.completedTurns ?? [],
-                                searchText: searchText,
-                                liveThoughtID: liveThoughtID,
-                                thoughtExpansions: sessionID.flatMap { thoughtExpansions[$0] } ?? [:],
-                                setThoughtExpansion: { id, value in
-                                    guard let sessionID else { return }
-                                    thoughtExpansions[sessionID, default: [:]][id] = value
-                                },
-                                onOpenFile: onOpenFile
-                            )
-                            .equatable()
-                        }
-                        if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
-                            AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
-                                .id("pending")
-                        }
-                        if conversation?.isResponding == true || feature.isCreatingSession {
-                            AgentResponseStatusRow(
-                                responseStatus: conversation?.responseStatus ?? .preparing,
-                                startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
-                                hasStreamingThought: liveThoughtID != nil,
-                                retryAttempt: conversation?.retryAttempt,
-                                retryMaxAttempts: conversation?.retryMaxAttempts,
-                                isQuiet: conversation?.isQuiet == true,
-                                onContinueWaiting: { feature.continueWaiting() },
-                                onStop: { feature.cancel() }
-                            ).id("responding")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .modifier(AgentEditorColumn(isEditor: isEditorLayout))
+                        .padding(.horizontal, isEditorLayout ? 0 : 28)
+                        .background(AgentTranscriptNavigationViewport(state: navigation))
+                        .litheScrollViewChrome(alwaysShowVertical: true)
+                        .background(AgentTranscriptScrollAnchor(
+                            sessionID: sessionID,
+                            enabled: searchText.isEmpty,
+                            revision: .init(lastMessageID: messages.last?.id, lastText: messages.last?.text,
+                                lastUserMessageID: messages.last(where: { $0.role == .user })?.id,
+                                messageCount: messages.count, completedTurns: conversation?.completedTurns.count ?? 0,
+                                permissionID: conversation?.permission?.id, isResponding: conversation?.isResponding == true)
+                        ))
+                    }
+                    // Keep both cards owned by the scroll container so its native
+                    // bottom-following probe sees the complete reserved inset.
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        advisories.modifier(AgentEditorColumn(isEditor: isEditorLayout))
+                    }
+                    .overlay(alignment: .trailing) {
+                        if searchText.isEmpty && !navigationContent.entries.isEmpty {
+                            AgentTranscriptNavigationRail(state: navigation, entries: navigationContent.entries) { id in
+                                navigation.beginNavigation()
+                                reader.scrollTo(id, anchor: .top)
+                            }
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-                    .background(AgentTranscriptScrollAnchor(
-                        sessionID: sessionID,
-                        enabled: searchText.isEmpty,
-                        revision: .init(lastMessageID: messages.last?.id, lastText: messages.last?.text,
-                            lastUserMessageID: messages.last(where: { $0.role == .user })?.id,
-                            messageCount: messages.count, completedTurns: conversation?.completedTurns.count ?? 0,
-                            permissionID: conversation?.permission?.id, isResponding: conversation?.isResponding == true)
-                    ))
+                    .workbenchHoverTooltipScope()
                 }
-                // Keep both cards owned by the scroll container so its native
-                // bottom-following probe sees the complete reserved inset.
-                .safeAreaInset(edge: .bottom, spacing: 0) { advisories }
+                .id(sessionID)
             }
         }
         .onChange(of: feature.openSessionIDs) { sessionIDs in
@@ -229,6 +269,8 @@ struct AgentTranscriptView: View {
 private struct AgentTranscriptRows: View, Equatable {
     let messages: [AgentConversationMessage]
     let completedTurns: [AgentTurnStatistics]
+    let navigation: AgentTranscriptNavigationState
+    let turnByMessageID: [String: String]
     let searchText: String
     let liveThoughtID: String?
     let thoughtExpansions: [String: AgentThoughtExpansion]
@@ -243,6 +285,7 @@ private struct AgentTranscriptRows: View, Equatable {
 
     var body: some View {
         let transcript = AgentTranscriptItem.grouped(messages, turns: completedTurns).filter { $0.matches(searchText) }
+        let turnEndingIDs = AgentTranscriptItem.repliesCopiedFromFooter(completedTurns, searchText: searchText)
         if !searchText.isEmpty && transcript.isEmpty {
             Text("No matching messages")
                 .foregroundStyle(AgentPanelStyle.secondary)
@@ -255,6 +298,7 @@ private struct AgentTranscriptRows: View, Equatable {
                         message: message,
                         isStreamingThought: liveThoughtID == message.id,
                         isSearching: !searchText.isEmpty,
+                        endsTurn: turnEndingIDs.contains(message.id),
                         thoughtExpansion: Binding(
                             get: { thoughtExpansions[message.id] ?? AgentThoughtExpansion() },
                             set: { setThoughtExpansion(message.id, $0) }
@@ -263,12 +307,14 @@ private struct AgentTranscriptRows: View, Equatable {
                     )
                 case .toolGroup(let tools):
                     AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile)
-                case .turnSummary(let turn):
-                    AgentTurnStatisticsView(statistics: turn)
+                case .turnSummary(let turn, let reply):
+                    AgentTurnStatisticsView(statistics: turn, reply: reply)
                 }
             }
+            .background(AgentTranscriptNavigationAnchor(state: navigation, turnID: turnByMessageID[item.navigationMessageID ?? ""]))
             .id(item.id)
         }
+        .environment(\.openURL, AgentMarkdownLink.openAction(onOpenFile: onOpenFile))
     }
 }
 
@@ -358,6 +404,8 @@ private struct AgentMessageRow: View {
     let message: AgentConversationMessage
     var isStreamingThought = false
     var isSearching = false
+    /// The turn footer below carries this reply's copy button.
+    var endsTurn = false
     var thoughtExpansion: Binding<AgentThoughtExpansion> = .constant(AgentThoughtExpansion())
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     @State private var isHovered = false
@@ -396,9 +444,11 @@ private struct AgentMessageRow: View {
                 AgentMarkdownMessage(text: message.text)
                     .equatable()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                AgentCopyButton(text: message.text, help: "Copy message")
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
+                if !endsTurn {
+                    AgentCopyButton(text: message.text, help: "Copy message")
+                        .opacity(isHovered ? 1 : 0)
+                        .allowsHitTesting(isHovered)
+                }
             }
             .onHover { isHovered = $0 }
         case .thought:

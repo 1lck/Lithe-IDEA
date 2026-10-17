@@ -15,6 +15,8 @@ import LitheCoreContracts
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
     lazy var debugPerformanceFeature = DebugPerformanceFeatureModel(sampler: services.debugPerformanceSampler)
+    lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
+        sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
     lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
     @Published var isChangingAgentProvider = false
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }

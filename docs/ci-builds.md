@@ -42,6 +42,43 @@ for a branch, manually run **Release AutoBuild** and provide that branch as
 `source_branch`; the Windows workflow is reusable and only builds an artifact
 for that caller.
 
+### Reusing lane results within a pull request
+
+A new push to a pull request does not rerun every lane. In **macOS CI**,
+**macOS Plugin CI** and **Windows CI**, the classify job runs
+`scripts/plan-ci-lane-reuse.mjs`, which decides per lane (Swift tests, Rust Core
+tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
+
+- It finds the latest earlier run of the same pull request that actually ran
+  the lane. If that job passed or is still running, and none of the pull
+  request's **own** changes since then affect the lane (by the same classifier
+  rules), the lane is reused instead of run. Changes that only arrived from the
+  base branch, whether merged in or picked up by GitHub's merge commit, do not
+  count, unless they touch CI infrastructure (workflows, actions, the
+  classifier and runner scripts, test infrastructure, `Package.swift`,
+  `Package.resolved`, every Cargo manifest and lock file including member
+  crates, Rust toolchain files); then every lane runs.
+- A file counts as changed when its content or its mode differs, so an
+  executable bit change alone reruns the lanes the file affects. Paths are read
+  raw (NUL-separated), so Chinese and other escaped file names are compared
+  and classified correctly.
+- A failed or cancelled earlier result is never reused.
+- Pull request runs are no longer cancelled per branch. The planner cancels the
+  earlier runs that no lane reuses; an earlier run with a reused lane still in
+  progress keeps running, because GitHub cannot cancel a single job. Only runs
+  with a smaller run number than the current one are considered, so a planner
+  that starts late never cancels or reuses a run for a newer push.
+- The gate accepts a reused lane only after confirming that the earlier job
+  passed, waiting up to 90 minutes for one still running. It also fails if a
+  selected lane neither ran nor has a reused result.
+- Any planner error runs every selected lane. Pushes and manual runs never
+  reuse results.
+
+The **Lane reuse** section of the classify job summary lists each lane's
+decision and links to a reused job.
+A reused lane appears as skipped in the new run; its result is the linked
+job, which the gate checks.
+
 ### What runs after a pull request merges
 
 A pull request into `preview` carries the full verification, and merging it
@@ -170,8 +207,8 @@ signal. Keep macOS jobs per push low:
 - Open pull requests that are still being iterated on as drafts. Draft pull
   requests run only the Linux lanes; marking one ready for review reruns the
   classifier and the selected macOS and Windows lanes.
-- Each new push cancels the previous run for the same branch, so batch review
-  fixes into fewer pushes when possible.
+- Each new push cancels earlier runs of the same pull request whose results it
+  does not reuse, so batch review fixes into fewer pushes when possible.
 - Merging or closing a pull request cancels its pull request runs that are
   still queued or running (**Cancel CI of closed pull requests**), including
   admin merges that skip the checks. The post-merge `preview` push run is not
@@ -532,14 +569,19 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   没有工作树构建身份 stamp，任何复制阶段都禁止复用。注册表的
   `excludedResources.agent-cli-runtime` 记录此边界，脚本显式拒绝选择它。
 
-- Codex 短重连配置 helper：`<system-temp>/lithe-codex-retry-<UUID>/` 由单次
+- Codex 短重连配置及历史上下文 helper：`<system-temp>/lithe-codex-retry-<UUID>/` 由单次
   Agent 连接独占，内容来自当前 Rust Host 内嵌的一方源码，原生 CLI 路径和预算
   经非敏感环境字段传递，密钥仍只走标准输入。系统临时目录由平台解析；准备、
   启动失败、取消或进程树结束后删除。它没有可复用的版本、平台、架构、工具链
   stamp，任何复制阶段都不得共享；`excludedResources.codex-retry-relay` 走脚本
-  的排除路由。helper 不修改已安装适配器、用户配置、app bundle 或 Windows 安装
+  的排除路由。订阅连接也复用同一 helper 获取原生历史用量，但不改重试策略；单次连接的回环监听器、随机访问令牌及每次加载票据只存在内存中，随连接关闭，不进入复制阶段。helper 不修改已安装适配器、用户配置、app bundle 或 Windows 安装
   目录，因此不改变代码签名和 Sparkle delta 的发布基线。
 
+- 测试 JFR 录制：`<system-temp>/lithe-jfr-<recording-uuid>/recording.jfr` 属于单次运行和
+  精确工作 JVM（PID 加启动身份），由该 JDK 写入，最大64MiB、最长120秒。关闭/替换
+  运行或销毁监控 Feature 时停止命名录制并删除目录；它没有版本/平台/架构/工具链构建
+  stamp，任何复制阶段都不共享。`excludedResources.test-jfr-recordings` 通过复用脚本的
+  通用排除路由拒绝，应用 bundle、插件包、签名及 Sparkle 增量基线保持只读。
 - Agent 历史注释：平台偏好设置键 `lithe.agent-history.v1.<workspace-agent-digest>` 保存收藏、自定义标题和隐藏状态，按标准化工作区与 Agent ID 隔离。它是用户可变状态，不受版本、平台、架构或工具链构建身份约束，不存在可验证的构建 stamp；Markdown 导出写到用户选择的位置。两者都禁止在任何复制阶段跨工作树复用，`excludedResources.agent-history-metadata` 由资源脚本显式拒绝。
 
 - `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；

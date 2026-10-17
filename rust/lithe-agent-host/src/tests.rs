@@ -59,6 +59,7 @@ fn custom_launch(command: &str, provider: ProviderCredentials) -> AgentLaunch {
         provider: Some(provider),
         authentication: AgentAuthentication::ApiKey,
         observe_model_calls: false,
+        process_scope: None,
     }
 }
 
@@ -454,6 +455,8 @@ impl Harness {
             cwd,
             route,
             subscription.then(|| PathBuf::from("/fixture/codex")),
+            None,
+            None,
             receiver,
             TurnActivity {
                 permissions: permissions.clone(),
@@ -556,6 +559,7 @@ fn serialized_events_match_the_shared_fixture() {
                 agent_version: Some("1.0.0".into()),
                 can_load_sessions: true,
                 can_list_sessions: true,
+                can_list_archived_sessions: false,
                 can_steer: false,
             },
         ),
@@ -600,6 +604,25 @@ fn serialized_events_match_the_shared_fixture() {
                         updated_at: None,
                     },
                 ],
+            },
+        ),
+        (
+            "archivedSessions",
+            AgentEvent::ArchivedSessions {
+                token: "archived-1".into(),
+                sessions: vec![AgentSessionSummary {
+                    session_id: "archived-session-1".into(),
+                    title: Some("Earlier refactor".into()),
+                    updated_at: Some("2026-09-20T08:30:00Z".into()),
+                }],
+                complete: true,
+            },
+        ),
+        (
+            "sessionUnarchived",
+            AgentEvent::SessionUnarchived {
+                token: "unarchive-1".into(),
+                session_id: "archived-session-1".into(),
             },
         ),
         (
@@ -703,6 +726,7 @@ fn serialized_events_match_the_shared_fixture() {
         "sessionInfo",
         "codexRetry",
         "usageUpdate",
+        "historicalUsageUpdate",
         "agentThoughtChunk",
         "plan",
         "availableCommands",
@@ -1558,7 +1582,7 @@ async fn codex_post_work_permanent_failure_still_cancels_and_cleans_unacknowledg
 
 #[test]
 fn codex_retry_helper_is_owned_by_one_launch_and_removed_on_drop() {
-    let (relay, env) = codex_retry::Relay::create(Path::new("/fixture/codex")).unwrap();
+    let (relay, env) = codex_retry::Relay::create(Path::new("/fixture/codex"), true).unwrap();
     let script = PathBuf::from(&env.iter().find(|(name, _)| name == "CODEX_PATH").unwrap().1);
     let directory = script.parent().unwrap().to_owned();
     assert!(script.is_file());
@@ -2882,6 +2906,7 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         provider: Some(provider),
         authentication: AgentAuthentication::ApiKey,
         observe_model_calls: false,
+        process_scope: None,
     };
     let anthropic = ProviderCredentials {
         protocol: ProviderProtocol::AnthropicMessages,
@@ -2908,7 +2933,7 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     let mut subscription = launch("codex-acp", provider());
     subscription.authentication = AgentAuthentication::CodexSubscription;
     subscription.provider = None;
-    let subscription = resolve(subscription).unwrap();
+    let mut subscription = resolve(subscription).unwrap();
     assert!(subscription.gateway.is_none());
     assert!(subscription.secret.is_empty());
     assert_eq!(
@@ -2931,6 +2956,26 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         "https://chatgpt.com/backend-api/"
     );
     assert!(config.get("model").is_none());
+
+    // Statistics changes only this process's inference route; native account,
+    // quota and model ownership survive without installing a second provider.
+    let environment = subscription.env.clone();
+    subscription::observe_model_calls(&mut subscription, "http://127.0.0.1:1234/lithe-fixture")
+        .unwrap();
+    for ((name, before), (_, after)) in environment.iter().zip(&subscription.env) {
+        if name == "CODEX_CONFIG" {
+            let mut after: Value = serde_json::from_str(after).unwrap();
+            assert_eq!(
+                after["openai_base_url"],
+                "http://127.0.0.1:1234/lithe-fixture/backend-api/codex"
+            );
+            after["openai_base_url"] = json!("");
+            assert_eq!(after, serde_json::from_str::<Value>(before).unwrap());
+        } else {
+            assert_eq!(before, after);
+        }
+    }
+    assert!(subscription.gateway.is_none() && subscription.secret.is_empty());
 
     let codex = resolve(launch("codex-acp", provider())).unwrap();
     assert!(codex.command.ends_with("node_modules/.bin/codex-acp") || cfg!(windows));
@@ -3081,6 +3126,8 @@ fn invalid_settings_are_reported_without_starting_a_process() {
     }
 }
 
+// The timing harness starts this test cold: a missing custom command must not
+// wait for Node/npm version probes before reporting its spawn error.
 #[test]
 fn spawn_failure_reports_stopped_with_a_message() {
     let (sender, receiver) = mpsc::channel();
@@ -3616,4 +3663,159 @@ fn model_call_events_use_the_fixture_shape() {
         serde_json::to_value(late).unwrap(),
         fixture()["events"]["modelCallAfterTurn"]
     );
+}
+
+/// A fake agent that starts one background task, records its PID, and exits
+/// once the test opens `gate` for writing. The agent never answers ACP, so its
+/// own exit is what ends the connection.
+///
+/// Dropping it ends the task and removes the temporary directory and FIFO, so
+/// an assertion or timeout panic cannot leave a 300-second task behind.
+#[cfg(unix)]
+struct AgentWithTask {
+    handle: Option<AgentHandle>,
+    directory: PathBuf,
+    gate: PathBuf,
+    task: u32,
+    /// Cleared once the test observed the task gone; its PID may then be reused.
+    task_may_run: bool,
+}
+
+#[cfg(unix)]
+impl AgentWithTask {
+    fn start(name: &str) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!("lithe-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let pid_file = directory.join("task.pid");
+        let gate = directory.join("gate");
+        let gate_path = std::ffi::CString::new(gate.to_str().unwrap()).unwrap();
+        // SAFETY: creates a FIFO at a path owned by this test.
+        assert_eq!(unsafe { libc::mkfifo(gate_path.as_ptr(), 0o600) }, 0);
+        let script = directory.join("agent.sh");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nsleep 300 &\necho $! > '{}'\nread _ < '{}'\n",
+                pid_file.display(),
+                gate.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut launch = custom_launch(script.to_str().unwrap(), provider());
+        launch.process_scope = Some("test-scope".into());
+        let handle = AgentHandle::open(launch, Arc::new(|_| {})).expect("worker starts");
+        let task = wait_for("the fake agent's task PID", || {
+            std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|text| text.trim().parse::<u32>().ok())
+        });
+        Self {
+            handle: Some(handle),
+            directory,
+            gate,
+            task,
+            task_may_run: true,
+        }
+    }
+
+    fn handle(&self) -> &AgentHandle {
+        self.handle.as_ref().expect("the connection is still open")
+    }
+
+    /// Lets the agent exit, then closes the connection. The task stays owned
+    /// by this value until it is dropped.
+    fn finish(&mut self) {
+        use std::os::unix::fs::OpenOptionsExt;
+        let gate = self.gate.clone();
+        wait_for("the fake agent to read its gate", || {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&gate)
+                .ok()
+                .and_then(|mut fifo| std::io::Write::write_all(&mut fifo, b"\n").ok())
+        });
+        if let Some(handle) = self.handle.take() {
+            handle.close();
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for AgentWithTask {
+    fn drop(&mut self) {
+        if self.task_may_run && process_is_alive(self.task) {
+            kill_test_process(self.task);
+        }
+        drop(self.handle.take());
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
+
+/// Polls an external process boundary with a local deadline.
+#[cfg(unix)]
+fn wait_for<T>(what: &str, mut probe: impl FnMut() -> Option<T>) -> T {
+    let deadline = std::time::Instant::now() + WAIT;
+    loop {
+        if let Some(value) = probe() {
+            return value;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
+        // test-stability: allow(rust-real-sleep) reason: the observed state belongs to a separate OS process that offers no notification channel to the test.
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(unix)]
+fn process_is_alive(pid: u32) -> bool {
+    // SAFETY: signal 0 only checks whether the process exists.
+    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+}
+
+#[cfg(unix)]
+fn kill_test_process(pid: u32) {
+    // SAFETY: ends a background task this test started.
+    unsafe {
+        libc::kill(pid as libc::pid_t, libc::SIGKILL);
+    }
+}
+
+// Regression: a task the user chose to keep must survive closing the
+// connection, which previously killed the agent's whole process group.
+#[cfg(unix)]
+#[test]
+fn preserved_agent_task_survives_closing_the_connection() {
+    let mut agent = AgentWithTask::start("preserve");
+    agent
+        .handle()
+        .send(AgentCommand::PreserveProcesses {
+            process_ids: vec![agent.task],
+        })
+        .expect("preserve is accepted");
+    agent.finish();
+    assert!(
+        process_is_alive(agent.task),
+        "preserved task was ended with the agent"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn closing_without_preserved_tasks_still_ends_the_agent_tree() {
+    let mut agent = AgentWithTask::start("tree");
+    agent.finish();
+    let ended = std::time::Instant::now() + WAIT;
+    while process_is_alive(agent.task) && std::time::Instant::now() < ended {
+        // test-stability: allow(rust-real-sleep) reason: the killed task is reaped by launchd, which offers no notification channel to the test.
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let gone = !process_is_alive(agent.task);
+    agent.task_may_run = !gone;
+    assert!(gone, "agent task outlived the connection");
 }

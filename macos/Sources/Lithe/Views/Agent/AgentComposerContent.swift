@@ -1,20 +1,21 @@
 import SwiftUI
 import LitheAgentConversationModule
 
-/// Fixed strips and the flexible editor use the same sizes when computing the
-/// split minimum. Commands never increase that minimum; attachments do.
+/// Fixed chrome stays compact; only the measured writing area grows with the draft.
 enum AgentComposerMetrics {
+    static let activityHeight: CGFloat = 34
+    static let activitySpacing: CGFloat = 4
     static let contextHeight: CGFloat = 26
     static let toolbarHeight: CGFloat = 30
     static let fileHeight: CGFloat = 34
-    // Chat composition target from the reference UI, not a Community platform constant.
-    static let inputMinimumHeight: CGFloat = 108
-    static let writingLineHeight: CGFloat = inputMinimumHeight - (toolbarHeight - 2)
+    // Product targets include text padding; long drafts scroll after reaching the cap.
+    static let writingLineHeight: CGFloat = 32
+    static let maximumWritingHeight: CGFloat = 240
+    static let inputMinimumHeight = writingLineHeight + toolbarHeight - 2
     static let bottomInset: CGFloat = 8
     static let horizontalInset: CGFloat = 8
+    static let toolbarHorizontalInset: CGFloat = 5
     static let splitTopInset: CGFloat = 10
-    /// Horizontal inset of the editor status tab, clear of the composer's rounded corners.
-    static let statusTabInset: CGFloat = 12
 
     static func minimumHeight(hasFiles: Bool) -> CGFloat {
         contextHeight - 2 + inputMinimumHeight + bottomInset + splitTopInset + (hasFiles ? fileHeight : 0)
@@ -26,8 +27,26 @@ struct AgentComposerMinimumHeightKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
+private struct AgentComposerWritingHeightKey: PreferenceKey {
+    static let defaultValue = AgentComposerMetrics.writingLineHeight
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+private struct AgentComposerMaximumWritingHeightKey: EnvironmentKey {
+    static let defaultValue = AgentComposerMetrics.maximumWritingHeight
+}
+
+extension EnvironmentValues {
+    var agentComposerMaximumWritingHeight: CGFloat {
+        get { self[AgentComposerMaximumWritingHeightKey.self] }
+        set { self[AgentComposerMaximumWritingHeightKey.self] = newValue }
+    }
+}
+
 /// The production composer layout, also hosted in native regression tests.
 struct AgentComposerContent<Context: View, Editor: View, Toolbar: View>: View {
+    @Environment(\.agentComposerMaximumWritingHeight) private var maximumWritingHeight
+    @State private var writingHeight = AgentComposerMetrics.writingLineHeight
     let files: [AgentFileReference]
     let commands: [AgentCommand]?
     let highlightedIndex: Int
@@ -42,10 +61,17 @@ struct AgentComposerContent<Context: View, Editor: View, Toolbar: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
+                context()
                 if !files.isEmpty { AgentFileReferenceList(files: files, onRemove: onRemoveFile) }
                 AgentComposerDraftArea(commands: commands, highlightedIndex: highlightedIndex, onSelect: onSelect) {
-                    ScrollView { editor() }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    ScrollView {
+                        editor()
+                            .background(GeometryReader { geometry in
+                                Color.clear.preference(key: AgentComposerWritingHeightKey.self, value: geometry.size.height)
+                            })
+                    }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .frame(height: min(maximumWritingHeight, max(AgentComposerMetrics.writingLineHeight, writingHeight)))
                         .contentShape(Rectangle())
                         .onTapGesture(perform: onFocus)
                         .litheTextEditingCursor()
@@ -58,7 +84,9 @@ struct AgentComposerContent<Context: View, Editor: View, Toolbar: View>: View {
                 lineWidth: isFocused ? 2 : 1,
                 borderOutset: isFocused ? 1 : 0
             )
-            context()
+        }
+        .onPreferenceChange(AgentComposerWritingHeightKey.self) { height in
+            if abs(height - writingHeight) > 0.5 { writingHeight = height }
         }
         .preference(key: AgentComposerMinimumHeightKey.self, value: AgentComposerMetrics.minimumHeight(hasFiles: !files.isEmpty))
     }

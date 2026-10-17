@@ -5,10 +5,11 @@ const tauriInvoke = mock(async () => undefined);
 mock.module("@tauri-apps/api/core", () => ({
   Channel: class {},
   convertFileSrc: (path: string) => path,
+  isTauri: () => true,
   invoke: tauriInvoke,
 }));
 
-const { HostCommandError, invoke, isPlatformDispatcherCommand } = await import("./tauri-core");
+const { Channel, HostCommandError, invoke, isPlatformDispatcherCommand } = await import("./tauri-core");
 
 beforeEach(() => {
   tauriInvoke.mockClear();
@@ -84,6 +85,30 @@ test("a dispatcher rejection surfaces as an Error", async () => {
   expect((error as Error).message).toBe("Shared core task failed");
 });
 
+test("Agent connection commands route directly to the Tauri host", async () => {
+  const args = { connectionId: "fixture-connection", command: { authenticate: null } };
+
+  expect(isPlatformDispatcherCommand("agent_open")).toBe(false);
+  expect(isPlatformDispatcherCommand("agent_send")).toBe(false);
+  expect(isPlatformDispatcherCommand("agent_close")).toBe(false);
+
+  await invoke("agent_open", args);
+  await invoke("agent_send", { connectionId: "fixture-connection", command: { cancel: null } });
+  await invoke("agent_close", { connectionId: "fixture-connection" });
+
+  expect(tauriInvoke).toHaveBeenCalledWith("agent_open", args, undefined);
+  expect(tauriInvoke).toHaveBeenCalledWith(
+    "agent_send",
+    { connectionId: "fixture-connection", command: { cancel: null } },
+    undefined,
+  );
+  expect(tauriInvoke).toHaveBeenCalledWith(
+    "agent_close",
+    { connectionId: "fixture-connection" },
+    undefined,
+  );
+});
+
 test("pure console projection bypasses execution events and Git settings", async () => {
   const args = { records: [], search: "" };
   await invoke("git.consolePresentation", args);
@@ -96,6 +121,34 @@ test("explicit automatic provenance is forwarded separately from native invoke o
   expect(calls[0]![1].gitExecution?.source).toBe("background");
   expect(calls[0]![1].gitEvents).toBeDefined();
   expect(calls[0]![2]).toBeUndefined();
+});
+
+test("an adapter install forwards its progress channel to the platform dispatcher", async () => {
+  const agentEvents = new Channel<unknown>();
+  await invoke(
+    "agent.install",
+    { dataDirectory: "C:/fixture/data", agentId: "codex-acp" },
+    { agentEvents },
+  );
+  const calls = tauriInvoke.mock.calls as unknown as [
+    string,
+    { command?: string; agentEvents?: unknown; gitEvents?: unknown },
+    unknown,
+  ][];
+  expect(calls[0]![0]).toBe("platform_invoke");
+  expect(calls[0]![1].command).toBe("agent.install");
+  expect(calls[0]![1].agentEvents).toBe(agentEvents);
+  // An install progress channel is not a Git console channel.
+  expect(calls[0]![1].gitEvents).toBeUndefined();
+});
+
+test("a command without a progress channel keeps the dispatcher payload unchanged", async () => {
+  await invoke("agent.status", { dataDirectory: "C:/fixture/data" });
+  const calls = tauriInvoke.mock.calls as unknown as [string, unknown][];
+  expect(calls[0]![1]).toEqual({
+    command: "agent.status",
+    args: { dataDirectory: "C:/fixture/data" },
+  });
 });
 
 test("native headers survive Git provenance forwarding", async () => {

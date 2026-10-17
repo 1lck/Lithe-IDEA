@@ -83,7 +83,7 @@ const TabBar = ({
       const visibleBuffers = paneBufferIdSet
         ? state.buffers.filter((buffer) => paneBufferIdSet.has(buffer.id))
         : state.buffers;
-      return visibleBuffers.filter((buffer) => buffer.type !== "newTab").map(toTabChromeBuffer);
+      return visibleBuffers.map(toTabChromeBuffer);
     },
     tabChromeBuffersEqual,
   );
@@ -94,6 +94,7 @@ const TabBar = ({
     handleTabClose,
     handleTabPin,
     handleCloseOtherTabs,
+    handleCloseSavedTabs,
     handleCloseAllTabs,
     handleCloseTabsToRight,
     reorderBuffers,
@@ -254,7 +255,9 @@ const TabBar = ({
 
   useEffect(() => {
     if (maxOpenTabs > 0 && buffers.length > maxOpenTabs && handleTabClose) {
-      const closableBuffers = buffers.filter((b) => !b.isPinned && b.id !== activeBufferId);
+      const closableBuffers = buffers.filter(
+        (b) => !b.isPinned && b.id !== activeBufferId && !(b.type === "editor" && b.isDirty),
+      );
 
       let tabsToClose = buffers.length - maxOpenTabs;
       for (let i = 0; i < closableBuffers.length && tabsToClose > 0; i++) {
@@ -638,6 +641,7 @@ const TabBar = ({
                           if (targetBuffer) closeTab(bufferId);
                         }}
                         onCloseOthers={handleCloseOtherTabs}
+                        onCloseSaved={handleCloseSavedTabs}
                         onCloseAll={handleCloseAllTabs}
                         onCloseToRight={handleCloseTabsToRight}
                         isPaneLocked={isPaneLocked}

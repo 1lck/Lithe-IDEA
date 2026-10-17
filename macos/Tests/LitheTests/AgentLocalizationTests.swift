@@ -23,7 +23,11 @@ struct AgentLocalizationTests {
             ("Sending…", "发送中…"),
             ("Agent received", "Agent 已接收"),
             ("Supplementary message cancelled.", "补充消息已取消。"),
-            ("The Agent did not accept the supplementary message.", "Agent 未接受补充消息。")
+            ("The Agent did not accept the supplementary message.", "Agent 未接受补充消息。"),
+            ("%@ · %@ / %@ context used", "%@ · %@ / %@ 上下文已使用"),
+            ("Context usage", "上下文用量"),
+            ("Breakdown unavailable", "分项暂不可用"),
+            ("Turn on Model call statistics, reconnect and send a message to see the breakdown.", "开启“模型调用统计”，重新连接并发送消息后可查看分项。")
         ] {
             #expect(AgentLocalization.string(String.LocalizationValue(key), locale: Locale(identifier: "en"), bundle: bundle) == key)
             #expect(AgentLocalization.string(String.LocalizationValue(key), locale: Locale(identifier: "en-US"), bundle: bundle) == key)

@@ -73,6 +73,12 @@ function createMonacoThemeData(
     colorValue(theme, "foreground"),
     fallbackColor(theme, "foreground"),
   );
+  // Workbench text follows the IntelliJ Islands UI colors; editor text follows the
+  // shared syntax palette (shared/fixtures/editor-themes) so it matches macOS.
+  const editorForeground = toMonacoColor(
+    theme.cssVariables["--color-editor-foreground"] ?? theme.cssVariables["--editor-foreground"] ?? "",
+    foreground,
+  );
   const subtleForeground = toMonacoColor(
     colorValue(theme, "subtle-foreground"),
     fallbackColor(theme, "subtle-foreground"),
@@ -84,7 +90,7 @@ function createMonacoThemeData(
     fallbackColor(theme, "selection"),
   );
   const accent = toMonacoColor(colorValue(theme, "primary"), fallbackColor(theme, "primary"));
-  const cursor = toMonacoColor(colorValue(theme, "cursor"), foreground);
+  const cursor = toMonacoColor(colorValue(theme, "cursor"), editorForeground);
 
   return {
     base: theme.isDark ? "vs-dark" : "vs",
@@ -95,7 +101,7 @@ function createMonacoThemeData(
       "minimap.background": background,
       "scrollbar.background": background,
       ...scrollbarSliderColors(theme),
-      "editor.foreground": foreground,
+      "editor.foreground": editorForeground,
       "editorLink.activeForeground": accent,
       "editorCursor.foreground": cursor,
       "editor.selectionBackground": selection,

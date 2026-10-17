@@ -17,7 +17,7 @@ struct CommitActionButtonStyleTests {
         let renderer = ImageRenderer(content: Button {} label: {
             Color.clear.frame(width: 10, height: 12)
         }
-        .buttonStyle(CommitActionButtonStyle(isPrimary: primary))
+        .buttonStyle(LitheActionButtonStyle(isPrimary: primary))
         .disabled(!enabled)
         .environment(\.colorScheme, scheme))
         renderer.scale = 2

@@ -1247,6 +1247,16 @@
 "Remove from history" = "Remove from history";
 "Toggle favorite" = "Toggle favorite";
 "Removed conversations are hidden only in Lithe. The Agent's original records are kept." = "Removed conversations are hidden only in Lithe. The Agent's original records are kept.";
+"Archived (%d)" = "Archived (%d)";
+"Archived" = "Archived";
+"Only the most recent archived conversations are shown." = "Only the most recent archived conversations are shown.";
+"Unarchive this conversation?" = "Unarchive this conversation?";
+"Unarchive and open" = "Unarchive and open";
+"Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them." = "Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them.";
+"%@ does not provide archived conversations." = "%@ does not provide archived conversations.";
+"This Agent" = "This Agent";
+"Codex archived history could not be read." = "Codex archived history could not be read.";
+"Codex could not restore this archived conversation." = "Codex could not restore this archived conversation.";
 "Exporting conversations…" = "Exporting conversations…";
 "Loading history…" = "Loading history…";
 "No matching conversations" = "No matching conversations";
@@ -1539,6 +1549,7 @@
 "Chat History" = "Chat History";
 "New Chat" = "New Chat";
 "Type your task or / for commands" = "Type your task or / for commands";
+"Type your task, / for commands or @ for files" = "Type your task, / for commands or @ for files";
 
 "Conversation history is unavailable" = "Conversation history is unavailable";
 
@@ -1683,3 +1694,134 @@
 
 "No updates found in the local Homebrew index." = "No updates found in the local Homebrew index.";
 "Run `brew update` manually, then check again for updates." = "Run `brew update` manually, then check again for updates.";
+"%@ · %@ / %@ context used" = "%@ · %@ / %@ context used";
+"Breakdown unavailable" = "Breakdown unavailable";
+"Turn on Model call statistics, reconnect and send a message to see the breakdown." = "Turn on Model call statistics, reconnect and send a message to see the breakdown.";
+"Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting." = "Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting.";
+"Used %@" = "Used %@";
+"5 hours" = "5 hours";
+"7 days" = "7 days";
+
+/* Process Termination Policy */
+"Terminal “%@” is still running" = "Terminal “%@” is still running";
+"Quitting Lithe ends these programs." = "Quitting Lithe ends these programs.";
+"End This Terminal" = "End This Terminal";
+"Show Terminal" = "Show Terminal";
+"Cancel Quit" = "Cancel Quit";
+"Close terminal “%@”?" = "Close terminal “%@”?";
+"Closing the terminal ends these programs." = "Closing the terminal ends these programs.";
+"Close Terminal" = "Close Terminal";
+"A task %@ started before Lithe last closed unexpectedly is still running" = "A task %@ started before Lithe last closed unexpectedly is still running";
+"%@ started a task that is still running" = "%@ started a task that is still running";
+"Workspace: %@" = "Workspace: %@";
+"Directory: %@" = "Directory: %@";
+"Project: %@" = "Project: %@";
+"Running for %@" = "Running for %@";
+"running for %@" = "running for %@";
+"Includes %lld processes" = "Includes %lld processes";
+"%lld processes" = "%lld processes";
+"ports %@" = "ports %@";
+"%lld of %lld" = "%lld of %lld";
+"Agents may run deployments, migrations or long builds. Ending one halfway can leave data or services inconsistent. Keep it if you are not sure what it does." = "Agents may run deployments, migrations or long builds. Ending one halfway can leave data or services inconsistent. Keep it if you are not sure what it does.";
+"Keep Running" = "Keep Running";
+"End This Task" = "End This Task";
+"Lithe closed unexpectedly last time and left programs running" = "Lithe closed unexpectedly last time and left programs running";
+"These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore." = "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore.";
+"Background services started in Lithe are still running" = "Background services started in Lithe are still running";
+"These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running." = "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running.";
+"Remember my choice for these kinds of services" = "Remember my choice for these kinds of services";
+"End Checked" = "End Checked";
+"End All" = "End All";
+"Keep All" = "Keep All";
+"Quit with Selection" = "Quit with Selection";
+"End All and Quit" = "End All and Quit";
+"More information" = "More information";
+"Process Termination Policy" = "Process Termination Policy";
+"Process" = "Process";
+"Quit" = "Quit";
+"Daemon" = "Daemon";
+"Choose what happens to programs started in Lithe when you quit or close a terminal. Programs started outside Lithe are never shown or stopped." = "Choose what happens to programs started in Lithe when you quit or close a terminal. Programs started outside Lithe are never shown or stopped.";
+"When quitting Lithe" = "When quitting Lithe";
+"Terminals with running programs" = "Terminals with running programs";
+"A terminal is busy when a program other than the shell still runs in it, such as a Spring Boot app, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it." = "A terminal is busy when a program other than the shell still runs in it, such as a Spring Boot app, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it.";
+"Ask for each terminal" = "Ask for each terminal";
+"End without asking" = "End without asking";
+"Agent tasks" = "Agent tasks";
+"Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent." = "Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent.";
+"Ask for each task" = "Ask for each task";
+"Keep running" = "Keep running";
+"Agent tasks will be ended without asking. A deployment or migration that is still running will be interrupted." = "Agent tasks will be ended without asking. A deployment or migration that is still running will be interrupted.";
+"Background services" = "Background services";
+"Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched." = "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched.";
+"Ask in one list" = "Ask in one list";
+"End all" = "End all";
+"Closing a terminal tab" = "Closing a terminal tab";
+"Ask before closing a tab with running programs" = "Ask before closing a tab with running programs";
+"Closing a tab ends every program started in it, including jobs sent to the background. Turn this off to close tabs immediately. Background services that left the terminal are not ended here; they are asked about when you quit." = "Closing a tab ends every program started in it, including jobs sent to the background. Turn this off to close tabs immediately. Background services that left the terminal are not ended here; they are asked about when you quit.";
+"After Lithe closes unexpectedly" = "After Lithe closes unexpectedly";
+"Programs left running" = "Programs left running";
+"If Lithe crashes or is force quit, a small helper immediately ends its terminals and tools. Agent tasks and background services are kept until the next launch, so nothing important is ended without you. Agent tasks are always asked about, whatever you choose here." = "If Lithe crashes or is force quit, a small helper immediately ends its terminals and tools. Agent tasks and background services are kept until the next launch, so nothing important is ended without you. Agent tasks are always asked about, whatever you choose here.";
+"Ask on next launch" = "Ask on next launch";
+"End on next launch" = "End on next launch";
+"Stopping programs" = "Stopping programs";
+"Time to exit" = "Time to exit";
+"Lithe first asks each program to stop, giving it this long to save its work and exit. Programs still running afterwards are force-stopped." = "Lithe first asks each program to stop, giving it this long to save its work and exit. Programs still running afterwards are force-stopped.";
+"%lld s" = "%lld s";
+"Remembered choices" = "Remembered choices";
+"No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time." = "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time.";
+"Always end" = "Always end";
+"Always keep" = "Always keep";
+"Forget" = "Forget";
+
+// Test process performance
+"Resident Memory" = "Resident Memory";
+"Test process tree · Resident memory" = "Test process tree · Resident memory";
+"Run tests to view process performance." = "Run tests to view process performance.";
+"Waiting for process performance data…" = "Waiting for process performance data…";
+
+"Start Recording" = "Start Recording";
+
+"Stop Recording" = "Stop Recording";
+
+"Show Results" = "Show Results";
+
+"Select test JVM" = "Select test JVM";
+
+"Waiting for a local test JVM…" = "Waiting for a local test JVM…";
+
+"Performance Results" = "Performance Results";
+
+"No profiling events were recorded." = "No profiling events were recorded.";
+
+"Process Terminated" = "Process Terminated";
+
+"%lld test failed" = "%lld test failed";
+"%lld tests failed" = "%lld tests failed";
+"%lld test passed" = "%lld test passed";
+"%lld tests passed" = "%lld tests passed";
+"%lld test ignored" = "%lld test ignored";
+"%lld tests ignored" = "%lld tests ignored";
+"%lld passed" = "%lld passed";
+"%lld ignored" = "%lld ignored";
+"%lld test total" = "%lld test total";
+"%lld tests total" = "%lld tests total";
+", " = ", ";
+
+// Agent provider form
+"Use form" = "Use form";
+"Edit configuration text" = "Edit configuration text";
+"API request URL" = "API request URL";
+"Enter API key" = "Enter API key";
+"Enter model ID" = "Enter model ID";
+"Show API key" = "Show API key";
+"Hide API key" = "Hide API key";
+"Base URL for a service compatible with the OpenAI Responses API." = "Base URL for a service compatible with the OpenAI Responses API.";
+"Base URL for an Anthropic Messages API service." = "Base URL for an Anthropic Messages API service.";
+"Use a model ID supported by your provider." = "Use a model ID supported by your provider.";
+"Enter a model ID supported by your provider." = "Enter a model ID supported by your provider.";
+"The API key is stored separately from settings. Your local CLI configuration is not changed." = "The API key is stored separately from settings. Your local CLI configuration is not changed.";
+"Elapsed" = "Elapsed";
+"This turn" = "This turn";
+"Turn usage" = "Turn usage";
+"Copy reply" = "Copy reply";
+"Copy table" = "Copy table";

@@ -24,6 +24,9 @@ public struct AgentTurnStatistics: Identifiable, Equatable, Sendable {
     public let startedAt: ContinuousClock.Instant
     public private(set) var endingMessageID: String?
     public private(set) var duration: TimeInterval?
+    /// Wall-clock time the turn ended, shown beside the reply. Durations stay
+    /// on the monotonic clock; this is only a label.
+    public private(set) var completedAt: Date?
     public private(set) var usage: AgentTurnUsage?
     /// Tool calls the Agent reported during this turn.
     public private(set) var toolCallCount = 0
@@ -45,9 +48,10 @@ public struct AgentTurnStatistics: Identifiable, Equatable, Sendable {
     }
 
     mutating func finish(at instant: ContinuousClock.Instant, endingMessageID: String, usage: AgentTurnUsage?,
-                         toolCallCount: Int = 0) {
+                         toolCallCount: Int = 0, completedAt: Date = Date()) {
         setToolsRunning(false, at: instant)
         duration = elapsed(at: instant)
+        self.completedAt = completedAt
         self.endingMessageID = endingMessageID
         self.usage = usage
         self.toolCallCount = toolCallCount

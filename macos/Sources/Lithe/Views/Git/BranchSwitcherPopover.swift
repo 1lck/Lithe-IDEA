@@ -311,6 +311,7 @@ struct BranchSwitcherPopover: View {
     ) -> some View {
         return BranchActionMenuRow(
             accessibilityTitle: branchRowAccessibilityTitle(reference),
+            contentKey: [referenceIcon(reference), branchDisplayName(reference, presentation: presentation)],
             label: { expanded, highlighted in
                 HStack(spacing: 8) {
                     LitheIDEAIcon(resourcePath: referenceIcon(reference), size: LitheDropdownMetrics.iconSize,
@@ -384,10 +385,11 @@ struct BranchSwitcherPopover: View {
 
         if reference.kind == .local {
             LitheContextMenuItem.separator
+            // Other local branches fast-forward from their upstream in place, as in IDEA.
             LitheContextMenuItem.action("Update") {
-                dismissAndRun { Task { await feature.updateCurrentBranch(reference) } }
+                dismissAndRun { Task { await feature.updateBranch(reference) } }
             }
-            .disabled(!reference.isCurrent)
+            .disabled(!reference.isCurrent && reference.upstreamShortName == nil)
 
             LitheContextMenuItem.action("Push…") {
                 dismissAndRun { onPush(reference) }
@@ -557,14 +559,18 @@ struct BranchSwitcherPopover: View {
 private struct BranchActionMenuRow<Label: View>: View {
     @State private var isPresented = false
     let accessibilityTitle: String
+    let contentKey: [String]
     @ViewBuilder let label: (Bool, Bool) -> Label
     @LitheMenuItemsBuilder let menuContent: () -> [LitheContextMenuItem]
 
     var body: some View {
         BranchPopupRowView(isPresented: isPresented, accessibilityTitle: accessibilityTitle,
-                       onPress: { isPresented.toggle() }, label: label)
+                           contentKey: contentKey, onPress: { isPresented.toggle() }, label: label)
             .overlay {
-                LitheDropdownPopover(opensToSide: true, isPresented: $isPresented, items: menuContent()) { EmptyView() }
+                // Building every branch's actions while it merely scrolls past is
+                // wasted work; the items only matter once the menu is open.
+                LitheDropdownPopover(opensToSide: true, isPresented: $isPresented,
+                                     items: isPresented ? menuContent() : []) { EmptyView() }
             }
             .frame(height: LitheDropdownMetrics.rowHeight)
     }

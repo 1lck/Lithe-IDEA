@@ -288,6 +288,10 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "deleteBranch", gitReference: reference)
     }
 
+    func updateBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "updateBranch", gitReference: reference)
+    }
+
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
         write(at: rootURL, operation: "merge", gitReference: reference)
     }

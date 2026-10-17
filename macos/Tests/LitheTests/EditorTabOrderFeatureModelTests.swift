@@ -33,8 +33,12 @@ struct EditorTabOrderFeatureModelTests {
                     $0.convert($0.bounds, to: nil).midY < $1.convert($1.bounds, to: nil).midY
                 })
                 let frame = footer.convert(footer.bounds, to: host)
-                let column = editor ? min(width, AgentPanelStyle.editorContentMaximumWidth) : width
-                #expect(abs(frame.minX - ((width - column) / 2 + AgentComposerMetrics.horizontalInset)) < 1)
+                let column = editor ? width * AgentPanelStyle.editorContentWidthFraction : width
+                // The trigger is inset within the command strip. Check the
+                // composer's outer edge rather than treating that inset as drift.
+                let composerLeadingEdge = frame.minX - AgentComposerMetrics.toolbarHorizontalInset
+                #expect(abs(composerLeadingEdge - ((width - column) / 2 + AgentComposerMetrics.horizontalInset)) < 1,
+                        "Footer frame \(frame), editor \(editor), column \(column)")
                 #expect(frame.minX >= AgentComposerMetrics.horizontalInset)
                 if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_EDITOR_LAYOUT_SCREENSHOTS"] {
                     let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))

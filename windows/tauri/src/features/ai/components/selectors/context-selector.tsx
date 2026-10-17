@@ -134,7 +134,7 @@ function ContextSelectorDropdownContent({
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
 
   const selectableBuffers = useMemo(
-    () => buffers.filter((buffer) => buffer.type !== "agent" && buffer.type !== "newTab"),
+    () => buffers.filter((buffer) => buffer.type !== "agent"),
     [buffers],
   );
   const filteredContextBuffers = useMemo(() => {

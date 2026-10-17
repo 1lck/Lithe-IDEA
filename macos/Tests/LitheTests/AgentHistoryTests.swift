@@ -58,6 +58,24 @@ struct AgentHistoryTests {
     }
 
     @Test
+    func managementPageRetainsUnlistedChatsAndSearchesTheirDisplayTitles() {
+        let sessions = [AgentSessionSummary(id: "saved", title: "Saved upstream", updatedAt: "2026-10-16T08:00:00Z")]
+        var draft = AgentConversation()
+        draft.messages = [.init(id: "prompt", role: .user, text: "Draft topic")]
+        let metadata = ["hidden": AgentHistoryMetadata(isHidden: true), "saved": AgentHistoryMetadata(isFavorite: true)]
+        func rows(_ query: String, _ filter: AgentHistoryFilter) -> [AgentSessionSummary] {
+            AgentHistoryPresentation.managementSessions(sessions, openSessionIDs: ["saved", "draft", "hidden"],
+                conversations: ["draft": draft], metadata: metadata, query: query, filter: filter)
+        }
+        #expect(Set(rows("", .all).map(\.id)) == ["saved", "draft"])
+        #expect(rows("Draft topic", .all).map(\.id) == ["draft"])
+        #expect(rows("", .favorites).map(\.id) == ["saved"])
+        #expect(rows("", .removed).map(\.id) == ["hidden"])
+        #expect(sessions.map(\.id) == ["saved"], "The management page cannot modify Agent-owned history")
+        #expect(draft.messages.first?.text == "Draft topic")
+    }
+
+    @Test
     func annotationsSurviveReloadAndStayIsolatedFromAgentTitlesAndOtherScopes() async throws {
         try await HistoryFixture().run { fixture in
             let history = fixture.history
@@ -144,6 +162,317 @@ struct AgentHistoryTests {
             #expect(fixture.feature.sessions.isEmpty)
             #expect(!fixture.feature.isRefreshingSessions)
         }
+    }
+
+    @Test
+    func archivedHistoryIsListedReadOnlyAndRejectsStaleOrDuplicateRows() async throws {
+        let event = try Self.fixtureEvent("archivedSessions")
+        try await HistoryFixture().run(archived: true) { fixture in
+            let commands = fixture.transport.connection.commands
+            #expect(commands.map { $0["kind"] as? String } == ["listArchivedSessions", "listSessions"])
+            let token = try #require(commands[0]["token"] as? String)
+            #expect(fixture.feature.isRefreshingArchivedSessions)
+            var stale = event
+            stale["token"] = "stale"
+            try fixture.emit(stale)
+            #expect(fixture.feature.archivedSessions.isEmpty)
+            var listed = event
+            listed["token"] = token
+            var rows = try #require(event["sessions"] as? [[String: Any]])
+            // Archived while the active listing ran: shown once, as active.
+            rows.append(["sessionId": "session-a", "title": "Original title", "updatedAt": NSNull()])
+            listed["sessions"] = rows
+            listed["complete"] = false
+            try fixture.emit(listed)
+            #expect(fixture.feature.archivedSessions.map(\.id) == ["archived-session-1"])
+            #expect(fixture.feature.archivedSessions.first?.title == "Earlier refactor")
+            #expect(!fixture.feature.isArchivedHistoryComplete)
+            #expect(!fixture.feature.isRefreshingArchivedSessions)
+            #expect(fixture.feature.sessions.map(\.id) == ["session-a", "session-b"])
+            #expect(!fixture.transport.connection.commands.contains { $0["kind"] as? String == "unarchiveSession" })
+            // Search covers archived rows with the same rules as active ones.
+            let matches = AgentHistoryPresentation.sessions(fixture.feature.archivedSessions, metadata: [:],
+                                                            query: "refactor", filter: .all)
+            #expect(matches.map(\.id) == ["archived-session-1"])
+        }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func archivingCoordinatesBothResponseOrdersAndLoadedConversations(archiveFirst: Bool, loaded: Bool) async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            // Complete the initial archive request, then archive a previously active row.
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [], "complete": true])
+            if loaded {
+                fixture.transport.connection.onCommand = { [weak feature = fixture.feature] command in
+                    guard command["kind"] as? String == "loadSession" else { return }
+                    feature?.receive(HistoryFixture.json(["kind": "sessionLoaded", "sessionId": "session-a",
+                                                         "token": command["token"] as Any]))
+                }
+                fixture.feature.selectSession("session-a")
+                #expect(fixture.feature.conversations["session-a"]?.isAttached == true)
+            }
+            fixture.feature.refreshSessions()
+            let requests = fixture.transport.connection.commands.suffix(2)
+            let archiveToken = try #require(requests.first?["token"] as? String)
+            let activeToken = try #require(requests.last?["token"] as? String)
+            let archive: [String: Any] = ["kind": "archivedSessions", "token": archiveToken, "complete": true,
+                                         "sessions": [["sessionId": "session-a", "title": "Archived upstream"]]]
+            let active: [String: Any] = ["kind": "sessions", "token": activeToken,
+                                        "sessions": [["sessionId": "session-b", "title": "Still active"]]]
+            try fixture.emit(archiveFirst ? archive : active)
+            try fixture.emit(archiveFirst ? active : archive)
+            #expect(fixture.feature.sessions.map(\.id) == ["session-b"])
+            #expect(fixture.feature.archivedSessions.map(\.id) == ["session-a"])
+            #expect(fixture.feature.archivedSessions.first?.title == "Archived upstream")
+            let activeRows = AgentHistoryPresentation.managementSessions(
+                fixture.feature.sessions, openSessionIDs: fixture.feature.openSessionIDs,
+                conversations: fixture.feature.conversations,
+                archivedSessionIDs: Set(fixture.feature.archivedSessions.map(\.id)),
+                metadata: fixture.history.metadata, query: "", filter: .all
+            )
+            #expect(activeRows.map(\.id) == ["session-b"],
+                    "An open archived tab must not reappear as an active local conversation")
+            if loaded {
+                #expect(fixture.feature.conversations["session-a"]?.isAttached == true,
+                        "History reconciliation preserves the locally opened transcript")
+                #expect(fixture.feature.openSessionIDs.contains("session-a"))
+            }
+        }
+    }
+
+    @Test
+    func removedArchivedConversationRestoresLocalVisibilityWithoutUnarchiving() async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            #expect(fixture.history.rename("session-a", title: "Local title"))
+            #expect(fixture.history.setFavorite(["session-a"], true))
+            #expect(fixture.history.setHidden(["session-a"], true))
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [["sessionId": "session-a"]], "complete": true])
+            fixture.feature.refreshSessions()
+            try fixture.emit(["kind": "sessions", "token": fixture.transport.connection.commands.last?["token"] as Any,
+                              "sessions": []])
+            let restored = fixture.makeHistory()
+            #expect(AgentHistoryPresentation.sessions(fixture.feature.archivedSessions, metadata: restored.metadata,
+                                                     query: "", filter: .removed).map(\.id) == ["session-a"])
+            let commandCount = fixture.transport.connection.commands.count
+            #expect(restored.setHidden(["session-a"], false))
+            #expect(fixture.makeHistory().metadata["session-a"]?.isHidden == false)
+            #expect(restored.metadata["session-a"]?.title == "Local title")
+            #expect(restored.metadata["session-a"]?.isFavorite == true)
+            #expect(!restored.canExport(["session-a"]))
+            #expect(fixture.transport.connection.commands.count == commandCount,
+                    "Local restoration must not load or unarchive the Agent's conversation")
+            #expect(fixture.feature.archivedSessions.map(\.id) == ["session-a"])
+            #expect(AgentHistoryPresentation.sessions(fixture.feature.archivedSessions, metadata: restored.metadata,
+                                                     query: "", filter: .removed).isEmpty)
+            #expect(AgentHistoryPresentation.sessions(fixture.feature.archivedSessions, metadata: restored.metadata,
+                                                     query: "", filter: .all).map(\.id) == ["session-a"])
+        }
+    }
+
+    @Test(arguments: ["", "no matching title"])
+    func emptyTruncatedArchiveNeverClaimsHistoryIsAbsent(query: String) async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [], "complete": false])
+            #expect(fixture.feature.archivedSessions.isEmpty)
+            #expect(AgentHistoryPresentation.emptyState(isRefreshing: false, query: query,
+                                                       isArchivedHistoryComplete: fixture.feature.isArchivedHistoryComplete) == .incomplete)
+            #expect(AgentHistoryPresentation.emptyState(isRefreshing: false, query: query,
+                                                       isArchivedHistoryComplete: true) == (query.isEmpty ? .noHistory : .noMatches))
+        }
+    }
+
+    @Test
+    func unarchivingMovesOnlyTheConfirmedConversationIntoActiveHistory() async throws {
+        let event = try Self.fixtureEvent("archivedSessions")
+        try await HistoryFixture().run(archived: true) { fixture in
+            var listed = event
+            listed["token"] = fixture.transport.connection.commands[0]["token"]
+            try fixture.emit(listed)
+            fixture.transport.connection.onCommand = { command in
+                guard command["kind"] as? String == "unarchiveSession" else { return }
+                try? fixture.emit(["kind": "requestFailed", "token": command["token"] as Any,
+                                   "sessionId": command["sessionId"] as Any,
+                                   "message": "Codex could not restore this archived conversation."])
+            }
+            await #expect(throws: AgentConversationError.self) {
+                try await fixture.feature.unarchiveSession("archived-session-1")
+            }
+            #expect(fixture.feature.archivedSessions.map(\.id) == ["archived-session-1"])
+            #expect(fixture.feature.archivedHistoryError != nil)
+            #expect(fixture.feature.unarchivingSessionID == nil)
+
+            fixture.transport.connection.onCommand = { command in
+                guard command["kind"] as? String == "unarchiveSession" else { return }
+                #expect(command["sessionId"] as? String == "archived-session-1")
+                try? fixture.emit(["kind": "sessionUnarchived", "token": command["token"] as Any,
+                                   "sessionId": "archived-session-1"])
+            }
+            try await fixture.feature.unarchiveSession("archived-session-1")
+            #expect(fixture.feature.archivedSessions.isEmpty)
+            #expect(fixture.feature.sessions.first?.id == "archived-session-1")
+            #expect(fixture.feature.archivedHistoryError == nil)
+            await #expect(throws: AgentConversationError.cannotResume) {
+                try await fixture.feature.unarchiveSession("unknown")
+            }
+        }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func unarchivingRejectsPreRestoreListsInEitherResponseOrder(archiveFirst: Bool, beforeReturn: Bool) async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            let archived: [[String: Any]] = [["sessionId": "restore-me", "title": "Restore this conversation"],
+                                             ["sessionId": "still-archived", "title": "Leave archived"]]
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": archived, "complete": true])
+            // Hold both pre-restore list responses while the upstream mutation completes.
+            fixture.feature.refreshSessions()
+            let oldRequests = Array(fixture.transport.connection.commands.suffix(2))
+            let oldArchiveToken = try #require(oldRequests.first?["token"] as? String)
+            let oldActiveToken = try #require(oldRequests.last?["token"] as? String)
+            let oldArchive: [String: Any] = ["kind": "archivedSessions", "token": oldArchiveToken,
+                                              "sessions": archived, "complete": false]
+            let oldActive: [String: Any] = ["kind": "sessions", "token": oldActiveToken,
+                                             "sessions": [["sessionId": "session-a"], ["sessionId": "session-b"]]]
+            let releaseOldResponses = {
+                fixture.feature.receive(HistoryFixture.json(archiveFirst ? oldArchive : oldActive))
+                fixture.feature.receive(HistoryFixture.json(archiveFirst ? oldActive : oldArchive))
+            }
+            defer { fixture.transport.connection.onCommand = nil }
+            fixture.transport.connection.onCommand = { command in
+                switch command["kind"] as? String {
+                case "unarchiveSession":
+                    fixture.feature.receive(HistoryFixture.json(["kind": "sessionUnarchived",
+                        "token": command["token"] as Any, "sessionId": "restore-me"]))
+                    // Also exercise buffered events arriving before the continuation resumes.
+                    if beforeReturn { releaseOldResponses() }
+                case "loadSession":
+                    fixture.feature.receive(HistoryFixture.json(["kind": "update", "sessionId": "restore-me",
+                        "update": ["sessionUpdate": "user_message_chunk",
+                                   "content": ["type": "text", "text": "Restored transcript"]]]))
+                    fixture.feature.receive(HistoryFixture.json(["kind": "sessionLoaded", "sessionId": "restore-me",
+                                                                  "token": command["token"] as Any]))
+                default: break
+                }
+            }
+            try await fixture.feature.unarchiveSession("restore-me")
+            if !beforeReturn { releaseOldResponses() }
+            #expect(fixture.feature.sessions.map(\.id) == ["restore-me", "session-a", "session-b"])
+            #expect(fixture.feature.archivedSessions.map(\.id) == ["still-archived"])
+            #expect(fixture.feature.isArchivedHistoryComplete)
+            #expect(fixture.feature.isRefreshingSessions && fixture.feature.isRefreshingArchivedSessions,
+                    "Old responses must not finish the replacement refresh")
+            let newRequests = Array(fixture.transport.connection.commands.suffix(2))
+            #expect(newRequests.first?["kind"] as? String == "listArchivedSessions")
+            #expect(newRequests.last?["kind"] as? String == "listSessions")
+            let newArchiveToken = try #require(newRequests.first?["token"] as? String)
+            let newActiveToken = try #require(newRequests.last?["token"] as? String)
+            #expect(newArchiveToken != oldArchiveToken && newActiveToken != oldActiveToken)
+
+            fixture.feature.selectSession("restore-me")
+            #expect(fixture.feature.selectedSessionID == "restore-me")
+            #expect(fixture.feature.conversations["restore-me"]?.messages.map(\.text) == ["Restored transcript"])
+            #expect(fixture.feature.conversations["restore-me"]?.hasCompleteHistory == true)
+            #expect(fixture.feature.conversations["restore-me"]?.isLoading == false)
+            try fixture.emit(["kind": "archivedSessions", "token": newArchiveToken,
+                              "sessions": [["sessionId": "still-archived"]], "complete": false])
+            try fixture.emit(["kind": "sessions", "token": newActiveToken,
+                              "sessions": [["sessionId": "restore-me"], ["sessionId": "session-a"], ["sessionId": "session-b"]]])
+            #expect(fixture.feature.sessions.map(\.id) == ["restore-me", "session-a", "session-b"])
+            #expect(fixture.feature.archivedSessions.map(\.id) == ["still-archived"])
+            #expect(!fixture.feature.isArchivedHistoryComplete, "The replacement archive response remains authoritative")
+            #expect(!fixture.feature.isRefreshingSessions && !fixture.feature.isRefreshingArchivedSessions)
+            #expect(fixture.feature.conversations["restore-me"]?.isAttached == true)
+            #expect(fixture.feature.conversations["restore-me"]?.messages.map(\.text) == ["Restored transcript"])
+        }
+    }
+
+    @Test
+    func unarchivingDiscardsLateFailuresOfSupersededListRequests() async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [["sessionId": "restore-me"]], "complete": true])
+            // Event order: refresh starts, unarchive succeeds, replacement refresh
+            // starts, then the host answers both obsolete requests with failures.
+            fixture.feature.refreshSessions()
+            let oldTokens = fixture.transport.connection.commands.suffix(2).compactMap { $0["token"] as? String }
+            #expect(oldTokens.count == 2)
+            defer { fixture.transport.connection.onCommand = nil }
+            fixture.transport.connection.onCommand = { command in
+                guard command["kind"] as? String == "unarchiveSession" else { return }
+                fixture.feature.receive(HistoryFixture.json(["kind": "sessionUnarchived",
+                    "token": command["token"] as Any, "sessionId": "restore-me"]))
+            }
+            try await fixture.feature.unarchiveSession("restore-me")
+            let newTokens = fixture.transport.connection.commands.suffix(2).compactMap { $0["token"] as? String }
+            for token in oldTokens {
+                try fixture.emit(["kind": "requestFailed", "token": token, "message": "Obsolete list request failed."])
+            }
+            #expect(fixture.feature.errorMessage == nil, "An obsolete query must not surface as a conversation error")
+            #expect(fixture.feature.historyError == nil && fixture.feature.archivedHistoryError == nil)
+            #expect(fixture.feature.isRefreshingSessions && fixture.feature.isRefreshingArchivedSessions)
+
+            // The replacement requests still report their own failures.
+            for token in newTokens {
+                try fixture.emit(["kind": "requestFailed", "token": token, "message": "Replacement failed."])
+            }
+            #expect(fixture.feature.historyError == "Replacement failed.")
+            #expect(fixture.feature.archivedHistoryError == "Replacement failed.")
+            #expect(fixture.feature.errorMessage == nil)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func unarchivingDoesNotNavigateOverALaterSelection(selectsDuringRestore: Bool) async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                              "sessions": [["sessionId": "restore-me"]], "complete": true])
+            defer { fixture.transport.connection.onCommand = nil }
+            fixture.transport.connection.onCommand = { command in
+                guard command["kind"] as? String == "unarchiveSession" else { return }
+                // The user opens another conversation before the restore returns.
+                if selectsDuringRestore { fixture.feature.selectSession("session-b") }
+                fixture.feature.receive(HistoryFixture.json(["kind": "sessionUnarchived",
+                    "token": command["token"] as Any, "sessionId": "restore-me"]))
+            }
+            let selectionBeforeRestore = fixture.feature.selectedSessionID
+            let canOpen = try await fixture.feature.unarchiveSession("restore-me")
+            #expect(canOpen == !selectsDuringRestore)
+            #expect(fixture.feature.archivedSessions.isEmpty, "The confirmed restore completes either way")
+            #expect(fixture.feature.selectedSessionID == (selectsDuringRestore ? "session-b" : selectionBeforeRestore))
+        }
+    }
+
+    @Test
+    func archivedHistoryNeverOutlivesItsConnectionOrAppearsForOtherAgents() async throws {
+        let event = try Self.fixtureEvent("archivedSessions")
+        try await HistoryFixture().run(archived: true) { fixture in
+            var listed = event
+            listed["token"] = fixture.transport.connection.commands[0]["token"]
+            try fixture.emit(listed)
+            #expect(!fixture.feature.archivedSessions.isEmpty)
+            await fixture.feature.stop()
+            #expect(fixture.feature.archivedSessions.isEmpty)
+            #expect(!fixture.feature.canListArchivedSessions)
+            try fixture.emit(listed)
+            #expect(fixture.feature.archivedSessions.isEmpty)
+        }
+        try await HistoryFixture().run { fixture in
+            #expect(!fixture.feature.canListArchivedSessions)
+            #expect(!fixture.transport.connection.commands.contains { $0["kind"] as? String == "listArchivedSessions" })
+        }
+    }
+
+    private static func fixtureEvent(_ name: String) throws -> [String: Any] {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/acp-events-v1.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let events = try #require(fixture["events"] as? [String: Any])
+        return try #require(events[name] as? [String: Any])
     }
 
     @Test
@@ -347,12 +676,24 @@ struct AgentHistoryTests {
         #expect(feature.history(for: "claude").metadata.isEmpty)
     }
 
-    @Test
-    func historyLayoutFitsNarrowAndWidePanelsInBothAppearances() async throws {
-        try await HistoryFixture().run { fixture in
+    @Test(arguments: [false, true])
+    func historyLayoutFitsNarrowAndWidePanelsInBothAppearances(truncated: Bool) async throws {
+        try await HistoryFixture().run(archived: truncated) { fixture in
             let history = fixture.history
             #expect(history.setFavorite(["session-a"], true))
-            for (name, scheme, width) in [("dark-narrow", ColorScheme.dark, 320.0), ("light-wide", .light, 620.0)] {
+            if truncated {
+                try fixture.emit(["kind": "archivedSessions", "token": fixture.transport.connection.commands[0]["token"] as Any,
+                                  "sessions": [], "complete": false])
+                fixture.feature.refreshSessions()
+                let requests = fixture.transport.connection.commands.suffix(2)
+                try fixture.emit(["kind": "archivedSessions", "token": requests.first?["token"] as Any,
+                                  "sessions": [], "complete": false])
+                try fixture.emit(["kind": "sessions", "token": requests.last?["token"] as Any, "sessions": []])
+                #expect(fixture.feature.sessions.isEmpty && fixture.feature.archivedSessions.isEmpty)
+                #expect(!fixture.feature.isRefreshingSessions && !fixture.feature.isRefreshingArchivedSessions)
+            }
+            for (name, scheme, width) in [("dark-narrow", ColorScheme.dark, 320.0), ("light-narrow", .light, 320.0),
+                                          ("dark-wide", .dark, 620.0), ("light-wide", .light, 620.0)] {
                 let host = NSHostingView(rootView: AgentHistoryView(
                     feature: fixture.feature, history: history, agentName: "Codex", onBack: {},
                     onCopySessionID: { _ in }, onSelect: { _ in }, onReconnect: {}
@@ -375,7 +716,7 @@ struct AgentHistoryTests {
                    let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
                     host.cacheDisplay(in: host.bounds, to: bitmap)
                     let data = try #require(bitmap.representation(using: .png, properties: [:]))
-                    try data.write(to: URL(fileURLWithPath: folder).appendingPathComponent("history-\(name).png"))
+                    try data.write(to: URL(fileURLWithPath: folder).appendingPathComponent("history-\(truncated ? "truncated-" : "")\(name).png"))
                 }
             }
         }
@@ -403,7 +744,7 @@ private final class HistoryFixture {
                                  persistence: persistence, exporter: exporter)
     }
 
-    func run(_ operation: (HistoryFixture) async throws -> Void) async throws {
+    func run(archived: Bool = false, _ operation: (HistoryFixture) async throws -> Void) async throws {
         do {
             try feature.connect(configuration: AgentLaunchConfiguration(
                 agentID: "example", command: "example", arguments: [], workspaceURL: workspace,
@@ -411,7 +752,7 @@ private final class HistoryFixture {
                 providerEndpoint: "https://example.invalid", apiKey: "test", providerName: "Example",
                 model: "", allowsInsecureHTTP: false
             ))
-            try emit(["kind": "ready", "canListSessions": true, "canLoadSessions": true])
+            try emit(["kind": "ready", "canListSessions": true, "canLoadSessions": true, "canListArchivedSessions": archived])
             try emit(["kind": "sessions", "token": transport.connection.commands.last?["token"] as Any,
                 "sessions": [["sessionId": "session-a", "title": "Original title", "updatedAt": "2026-09-26T10:00:00Z"],
                              ["sessionId": "session-b", "title": "Another conversation", "updatedAt": "2026-09-25T10:00:00Z"]]])

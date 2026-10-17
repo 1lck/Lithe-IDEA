@@ -371,6 +371,7 @@ struct SettingsView: View {
                         }
                         .frame(maxWidth: 760, alignment: .leading)
                     case .updates: updatesSettings
+                    case .processTermination: ProcessTerminationSettingsView(settings: settings)
                     case .diagnostics: diagnosticsSettings
                     case .plugins: EmptyView()
                     }

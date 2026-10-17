@@ -185,6 +185,25 @@ public final class SearchFeatureModel: ObservableObject {
         isSearchingEverywhere = false
     }
 
+    /// File-name matches for a completion list. Unlike Search Everywhere this
+    /// leaves the published results untouched; callers drop stale queries.
+    public func findFiles(
+        at workspaceURL: URL,
+        query: String,
+        visibilityRules: SearchVisibilityRules
+    ) async -> [URL] {
+        let operations = self.operations
+        let results = await Task.detached(priority: .userInitiated) {
+            operations.searchEverywhere(
+                at: workspaceURL,
+                query: query,
+                options: .default,
+                visibilityRules: visibilityRules
+            )
+        }.value
+        return results?.fileMatches.map(\.url) ?? []
+    }
+
     public func clearProjectReplacementPreview() {
         replacementPreviewGeneration += 1
         projectReplacementFiles = []

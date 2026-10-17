@@ -51,15 +51,159 @@ struct AgentSessionSelectorLayoutTests {
             let host = NSHostingView(rootView: composer(true))
             let window = makeWindow(host, size: NSSize(width: 440, height: 140))
             defer { window.contentView = nil; window.close() }
-            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 3 })
-            let anchor = try #require(dropdownAnchors(in: host).first)
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 4 })
+            let anchor = try #require(dropdownAnchors(in: host).max {
+                $0.convert($0.bounds, to: host).minY < $1.convert($1.bounds, to: host).minY
+            })
             try click(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor, window: window)
             try #require(await waitUntil(updating: host) { popup(in: window) != nil })
             host.rootView = composer(false)
             #expect(await waitUntil(updating: host) { dropdownAnchors(in: host).isEmpty && popup(in: window) == nil })
             try capture(host, name: "composer-toolbar-hidden-\(scheme)")
             host.rootView = composer(true)
-            #expect(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 3 })
+            #expect(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 4 })
+        }
+    }
+
+    @Test
+    func contextRingAppearsOnlyAfterTheFirstUsageReport() async throws {
+        let usage = try #require(AgentContextUsage(usedTokens: 1200, capacityTokens: 10000))
+        for scheme in [ColorScheme.dark, .light] {
+            func composer(_ usage: AgentContextUsage?) -> some View {
+                AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
+                    isResponding: false, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                    onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                    contextUsage: usage).environment(\.colorScheme, scheme)
+            }
+            let host = NSHostingView(rootView: composer(nil))
+            let window = makeWindow(host, size: NSSize(width: 320, height: 180))
+            defer { window.contentView = nil; window.close() }
+            // Before the first report only the Agent menu and the details trigger remain.
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 2 })
+            try capture(host, name: "context-ring-unreported-\(scheme)")
+            host.rootView = composer(usage)
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 3 },
+                          "The context trigger must appear once the Agent reports usage")
+            // The ring sits in the bottom command bar, left of Send.
+            let triggers = dropdownAnchors(in: host).sorted {
+                let lhs = $0.convert($0.bounds, to: nil), rhs = $1.convert($0.bounds, to: nil)
+                return abs(lhs.midY - rhs.midY) > 1 ? lhs.midY > rhs.midY : lhs.midX < rhs.midX
+            }
+            let trigger = try #require(triggers.last)
+            #expect(trigger.convert(trigger.bounds, to: nil).midY < 90, "Context stays in the bottom command bar")
+            try capture(host, name: "context-ring-reported-\(scheme)")
+        }
+    }
+
+    @Test
+    func contextAndDetailsStayReachableAndCloseWhenTheSessionChanges() async throws {
+        let usage = try #require(AgentContextUsage(usedTokens: 1200, capacityTokens: 10000))
+        var conversation = AgentConversation()
+        conversation.completedTurns = [.init(id: "turn", startedAt: .now)]
+        for scheme in [ColorScheme.dark, .light] {
+            func composer(_ sessionID: String) -> some View {
+                AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
+                    isResponding: true, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                    onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in }, sessionID: sessionID,
+                    contextUsage: usage, sessionStatistics: conversation.sessionStatistics).environment(\.colorScheme, scheme)
+            }
+            let host = NSHostingView(rootView: composer("first"))
+            let window = makeWindow(host, size: NSSize(width: 320, height: 180))
+            defer { window.contentView = nil; window.close() }
+            for isDetails in [false, true] {
+                let triggers = dropdownAnchors(in: host).sorted {
+                    let lhs = $0.convert($0.bounds, to: nil), rhs = $1.convert($1.bounds, to: nil)
+                    return abs(lhs.midY - rhs.midY) > 1 ? lhs.midY > rhs.midY : lhs.midX < rhs.midX
+                }
+                let trigger = try #require(isDetails ? triggers.first : triggers.last)
+                try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
+                try #require(await waitUntil(updating: host) { popup(in: window) != nil })
+                let panel = try #require(popup(in: window))
+                #expect(panel.frame.width >= 240, "Detailed data stays accessible at the narrow panel width")
+                try capture(try #require(panel.contentView), name: "classic-\(isDetails ? "details" : "context")-\(scheme)")
+                if isDetails {
+                    host.rootView = composer("second")
+                    #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "A new session closes stale details")
+                } else {
+                    let content = try #require(panel.contentView)
+                    let inset = 14 + LitheTheme.Metrics.toolbarIconButtonSize / 2
+                    let y = content.isFlipped ? content.bounds.minY + inset : content.bounds.maxY - inset
+                    try click(NSPoint(x: content.bounds.maxX - inset, y: y), in: content, window: panel)
+                    #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "The context header's close button dismisses its shared popup")
+                }
+            }
+        }
+    }
+
+    @Test(arguments: [280.0, 540.0])
+    func subscriptionQuotaSummaryStaysAboveComposerWithoutClickPopup(width: CGFloat) async throws {
+        let snapshot = try #require(AgentSubscriptionQuota.parse([
+            "windows": [
+                ["id": "weekly", "name": "codex", "limitSeconds": 604800, "usedPercent": 36, "resetsAt": 4102444800],
+                ["id": "short", "name": "codex", "limitSeconds": 18000, "usedPercent": 32, "resetsAt": 4102444800]
+            ], "fetchedAt": 4102444800
+        ] as [String: Any]))
+        let options = [
+            AgentSessionConfigOption(id: "mode", name: "Mode", category: "mode", currentValue: "manual",
+                choices: [.init(id: "manual", name: "Manual")]),
+            AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "sol",
+                choices: [.init(id: "sol", name: "6.1 Sol")])
+        ]
+        for scheme in [ColorScheme.dark, .light] {
+            func composer(_ session: String) -> some View {
+                AgentComposerView(agents: [], selectedAgent: .init(id: "codex", name: "Codex"),
+                    isResponding: false, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                    onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in }, configOptions: options,
+                    sessionID: session, showsSubscriptionQuota: true, subscriptionQuota: snapshot,
+                    subscriptionAccount: "person@example.test").environment(\.colorScheme, scheme)
+            }
+            let host = NSHostingView(rootView: VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                composer("first").frame(height: 180)
+            }.background(LitheTheme.editor).workbenchHoverTooltipScope())
+            let window = makeWindow(host, size: NSSize(width: width, height: 400))
+            defer { window.contentView = nil; window.close() }
+            try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 4 })
+            let anchors = dropdownAnchors(in: host)
+            let top = try #require(anchors.max { $0.convert($0.bounds, to: nil).midY < $1.convert($1.bounds, to: nil).midY })
+            let rect = top.convert(top.bounds, to: host)
+            let summaryPoint = NSPoint(x: rect.minX - 20, y: rect.midY)
+            #expect(summaryPoint.x > 0, "The quota text remains inside a narrow top strip")
+            #expect(anchors.filter { $0 !== top }.count == 3, "Quota is a text hover source, not a new bottom-bar dropdown")
+            try capture(host, name: "quota-summary-\(width)-\(scheme)")
+            try click(summaryPoint, in: host, window: window)
+            #expect(popup(in: window) == nil, "The summary must not open a persistent click panel")
+            // SwiftUI hover transitions belong to WindowServer. Shared hover
+            // rendering/state tests cover that owner; real pointer entry/exit
+            // is checked in the preview instead of faking private tracking areas.
+
+        }
+    }
+
+    @Test
+    func subscriptionQuotaBarsRenderBothPeriodsThresholdsAndMissingValues() throws {
+        for scheme in [ColorScheme.dark, .light] {
+            for (name, used, weeklyOnly) in [("green", 32.0, false), ("yellow", 75.0, false),
+                                             ("red", 95.0, false), ("unknown", -1.0, false), ("weekly", 36.0, true)] {
+                var windows: [[String: Any]] = [
+                    ["id": "weekly", "name": "codex", "limitSeconds": 604800, "usedPercent": 36, "resetsAt": 1800000200]
+                ]
+                if !weeklyOnly {
+                    windows.append(["id": "short", "name": "codex", "limitSeconds": 18000,
+                                    "usedPercent": used < 0 ? NSNull() : used as Any, "resetsAt": 1800000200])
+                }
+                let snapshot = try #require(AgentSubscriptionQuota.parse(["windows": windows, "fetchedAt": 1800000000]))
+                let host = NSHostingView(rootView: AgentSubscriptionQuotaPanel(quota: snapshot,
+                    account: "person@example.test", failure: nil, stale: false)
+                    .padding(12).frame(width: 300).litheHoverTooltipSurface()
+                    .environment(\.colorScheme, scheme))
+                let window = makeWindow(host, size: NSSize(width: 300, height: 300))
+                defer { window.contentView = nil; window.close() }
+                window.setContentSize(host.fittingSize)
+                host.layoutSubtreeIfNeeded()
+                #expect(host.fittingSize.width <= 300)
+                try capture(host, name: "quota-bars-\(name)-\(scheme)")
+            }
         }
     }
 
@@ -259,23 +403,24 @@ struct AgentSessionSelectorLayoutTests {
             }
             for (category, value) in [("mode", "auto"), ("model", "model-b")] {
                 try #require(await waitUntil(updating: host) {
-                    dropdownAnchors(in: host).count == 3
+                    dropdownAnchors(in: host).count == 4
                 }, "The composer must lay out the Agent, approval and model triggers")
-                // Window coordinates increase upwards: Agent/model share the footer below mode.
+                // Agent, approval mode and model share the restored bottom strip.
                 let anchors = dropdownAnchors(in: host).sorted {
                     let lhs = $0.convert($0.bounds, to: nil)
                     let rhs = $1.convert($1.bounds, to: nil)
                     return abs(lhs.midY - rhs.midY) > 1 ? lhs.midY < rhs.midY : lhs.minX < rhs.minX
                 }
                 let agentFrame = anchors[0].convert(anchors[0].bounds, to: nil)
-                let modelFrame = anchors[1].convert(anchors[1].bounds, to: nil)
-                let modeFrame = anchors[2].convert(anchors[2].bounds, to: nil)
+                let modeFrame = anchors[1].convert(anchors[1].bounds, to: nil)
+                let modelFrame = anchors[2].convert(anchors[2].bounds, to: nil)
                 #expect(abs(agentFrame.midY - modelFrame.midY) < 1)
-                #expect(modelFrame.minX >= agentFrame.maxX)
-                #expect(modeFrame.minY > modelFrame.maxY)
+                #expect(modeFrame.minX >= agentFrame.maxX)
+                #expect(modelFrame.minX >= modeFrame.maxX)
+                #expect(abs(modeFrame.midY - modelFrame.midY) < 1)
                 #expect(modelFrame.width > LitheTheme.Metrics.toolbarIconSize)
                 try capture(host, name: "composer-model-footer-\(scheme)-\(Int(width))")
-                let trigger = anchors[category == "mode" ? 2 : 1]
+                let trigger = anchors[category == "mode" ? 1 : 2]
                 try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
                 try #require(await waitUntil(updating: host) { popup(in: window) != nil }, "A native click must open the shared dropdown while responding")
                 let panel = try #require(popup(in: window))

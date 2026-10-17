@@ -26,6 +26,21 @@ struct LanguageTestLocalizationTests {
         #expect(english.count("Skipped", 0) == "Skipped 0")
     }
 
+    @Test func summaryUsesIDEAWordOrderAndLocalizedPluralForms() throws {
+        let chinese = try localization(.simplifiedChinese)
+        let english = try localization(.english)
+        #expect(english.number("%lld test failed", 1) == "1 test failed")
+        #expect(english.number("%lld tests failed", 2) == "2 tests failed")
+        #expect(english.number("%lld passed", 3) == "3 passed")
+        #expect(english.number("%lld ignored", 1) == "1 ignored")
+        #expect(english.number("%lld tests total", 6) == "6 tests total")
+        #expect(chinese.number("%lld tests failed", 2) == "2 个测试失败")
+        #expect(chinese.number("%lld passed", 3) == "3 个通过")
+        #expect(chinese.number("%lld ignored", 1) == "1 个已忽略")
+        #expect(chinese.number("%lld tests total", 6) == "共 6 个测试")
+        #expect(chinese.text(", ") == "，")
+    }
+
     @Test
     func testTimeoutPreservesFrameworkAndDurationAndUnknownDiagnostics() throws {
         let chinese = try localization(.simplifiedChinese)

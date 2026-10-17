@@ -191,7 +191,7 @@ public enum AIConfigurationSourceKind: String, CaseIterable, Identifiable, Senda
     public var newProviderModel: String {
         switch self {
         case .codex: return "gpt-6.1-sol"
-        case .claude: return ""
+        case .claude: return "claude-fable-5-1"
         }
     }
 

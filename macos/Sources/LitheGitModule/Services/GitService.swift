@@ -139,6 +139,8 @@ package protocol GitOperations: Sendable {
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func checkoutAndRebase(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> GitProcessResult?
+    /// Fast-forwards a non-current local branch from its upstream without switching HEAD.
+    func updateBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func pullRemoteReference(
         _ reference: GitReference,
         strategy: GitPullStrategy,
@@ -228,6 +230,7 @@ package extension GitOperations {
     func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult? { nil }
     func setUpstream(branch: GitReference, to upstream: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func unsetUpstream(branch: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
+    func updateBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
         .failure(GitPatchFailure("Patch export is unavailable."))
     }
@@ -1004,6 +1007,10 @@ package struct GitService: Sendable {
         strategy: GitPullStrategy = .ffOnly
     ) async -> CommandResult {
         await command(at: repositoryRoot) { $0.updateCurrentBranch(at: repositoryRoot, strategy: strategy) }
+    }
+
+    func updateBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.updateBranch(reference, at: repositoryRoot) }
     }
 
     func pullRemoteReference(

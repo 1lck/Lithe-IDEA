@@ -236,8 +236,8 @@
       "locations": [
         "<system-temp>/lithe-codex-retry-<UUID>/"
       ],
-      "identity": "First-party embedded source from the current host revision and one Agent launch's native executable/retry budget. Platform chooses the system temporary directory; no reusable version, architecture, toolchain or publication identity stamp.",
-      "reason": "The Agent process owner creates the helper before spawn and removes it on preparation failure, cancellation, launch failure or after stopping the process tree. It contains no credentials. Never copy or share it at any worktree stage; installed adapters, user CLI/configuration and signed bundles stay read-only."
+      "identity": "First-party embedded source from the current host revision and one Agent launch's native executable/retry budget. Platform chooses the system temporary directory; no reusable version, architecture, toolchain or publication identity stamp. The same first-party launcher restores native context reports through a per-launch loopback capability and per-load tickets; those are memory-only process ownership, not reusable resources.",
+      "reason": "The Agent process owner creates the helper before spawn and removes it on preparation failure, cancellation, launch failure or after stopping the process tree. It contains no credentials. Never copy or share it at any worktree stage; installed adapters, user CLI/configuration and signed bundles stay read-only. Subscription connections use the same temporary launcher for history context while retaining native retry settings. The loopback listener, capability and captured reports expire with the owning process and must never be copied."
     },
     {
       "id": "plugin-ui-icons",
@@ -248,6 +248,15 @@
       ],
       "identity": "Icon bytes belong to one verified plugin package version and its signature or community content digest; no worktree resource identity stamp",
       "reason": "Package installation owns copying and atomic version replacement. macOS validates package-relative static SVG/PNG and holds immutable bytes/images only in process memory. Never copy installed icons or runtime image state across worktrees; no runtime disk cache or bundle writes are allowed."
+    },
+    {
+      "id": "test-jfr-recordings",
+      "reusable": false,
+      "locations": [
+        "<system-temp>/lithe-jfr-<recording-uuid>/recording.jfr"
+      ],
+      "identity": "One test run and exact worker PID plus process start identity, target JDK and unique recording UUID; mutable JFR output has no build identity stamp.",
+      "reason": "The macOS native performance adapter creates the directory in platform temporary storage. JDK jcmd/JFR writes at most 64 MiB over 120 seconds. Closing/replacing the run or disposing the feature stops that exact named recording and deletes its directory. Never copy at any worktree reuse stage; no app bundle, plugin package, signatures or Sparkle source bytes are changed."
     }
   ]
 }

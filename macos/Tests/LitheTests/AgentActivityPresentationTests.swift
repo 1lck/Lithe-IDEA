@@ -94,7 +94,7 @@ struct AgentActivityPresentationTests {
         }
     }
 
-    @Test func emptyActivityHasNoDropdownAnchor() {
+    @Test func emptyActivityKeepsTheThreeSegmentAnchor() {
         let host = NSHostingView(rootView: AgentActivitySummaryBar(messages: []).frame(width: 320, height: 34))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 34),
             styleMask: [.borderless], backing: .buffered, defer: false)
@@ -102,7 +102,8 @@ struct AgentActivityPresentationTests {
         window.contentView = host
         defer { window.contentView = nil; window.close() }
         host.layoutSubtreeIfNeeded()
-        #expect(anchor(in: host) == nil)
+        #expect(anchor(in: host) != nil, "Empty activity retains the same three entry points")
+        try? capture(host, name: "activity-empty")
     }
 
     @Test func allThreeLongListsStayBoundedAndLastFileCanOpen() async throws {
@@ -159,23 +160,26 @@ struct AgentActivityPresentationTests {
         }
     }
 
-    @Test(arguments: [false, true])
-    func headerActivityStaysToTheRightOfAgentAndHidesWhenEmpty(hasActivity: Bool) throws {
-        let host = NSHostingView(rootView: AgentChatHeader(agentName: "Codex", onHistory: nil, onNew: nil,
-            onOpenSettings: {}, onHide: {}, showsActions: false,
-            activity: AgentActivitySummaryBar(messages: hasActivity ? [editedFile()] : []))
-            .frame(width: 320, height: 34))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 34),
+    @Test func compactHeaderKeepsHistoryAndSearchIndependent() async throws {
+        var opened: [String] = []
+        let host = NSHostingView(rootView: AgentChatHeader(agentName: "Codex", onHistory: { opened.append("history") },
+            onNew: { opened.append("new") }, onOpenSettings: {}, onHide: {}, conversationTitle: "Review sample",
+            onSearch: { opened.append("search") }).frame(width: 320, height: LitheTheme.Metrics.toolWindowHeaderHeight))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: LitheTheme.Metrics.toolWindowHeaderHeight),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
         defer { window.contentView = nil; window.close() }
+        window.makeKeyAndOrderFront(nil)
         host.layoutSubtreeIfNeeded()
-        if hasActivity {
-            let trigger = try #require(anchor(in: host))
-            #expect(trigger.convert(trigger.bounds, to: host).minX > 160)
-        } else { #expect(anchor(in: host) == nil) }
-        try capture(host, name: "activity-header-\(hasActivity)")
+        #expect(host.fittingSize.height == LitheTheme.Metrics.toolWindowHeaderHeight, "No duplicate Agent heading")
+        // From the trailing edge: Hide, Options, History, Search, New Chat.
+        for (slot, expected) in [(2, "history"), (3, "search"), (4, "new")] {
+            try clickNativeView(host, at: NSPoint(x: 320 - 7 - CGFloat(slot) * 26 - 11, y: host.bounds.midY))
+            #expect(await waitUntil { opened.last == expected })
+        }
+        #expect(opened == ["history", "search", "new"])
+        try capture(host, name: "classic-header")
     }
 
     @Test func activitySVGsLoadAtNativeSizeInBothThemes() throws {
@@ -224,28 +228,12 @@ struct AgentActivityPresentationTests {
         }, "The previous panel must dismiss and the activity trigger must finish layout before clicking")
         let trigger = try #require(anchor(in: host))
         let rect = trigger.convert(trigger.bounds, to: host)
-        let point = NSPoint(x: rect.midX, y: host.isFlipped ? rect.midY : host.bounds.height - rect.midY)
-        try click(point, in: host, window: window)
-        let popup = try #require(await waitForPopup(in: window, updating: host))
-        let content = try #require(popup.contentView)
-        content.layoutSubtreeIfNeeded()
-        try capture(content, name: "activity-menu")
         let index = try #require(AgentActivitySummaryBar.Panel.allCases.firstIndex(of: panel))
-        if panel == .running {
-            for code: UInt16 in [125, 125, 36] {
-                NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
-                    timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "",
-                    charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
-            }
-        } else {
-            try click(NSPoint(x: content.bounds.midX,
-                y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * (CGFloat(index) + 0.5)),
-                in: content, window: popup)
-        }
-        try #require(await waitUntil(updating: host) {
-            window.childWindows?.contains { $0.isVisible
-                && $0.frame.width >= LitheDropdownMetrics.maximumWidth - 1 } == true
-        }, "The \(panel.rawValue) menu action must present its activity panel")
+        let point = NSPoint(x: rect.minX + rect.width * (CGFloat(index) + 0.5) / 3,
+                            y: host.isFlipped ? rect.midY : host.bounds.height - rect.midY)
+        try click(point, in: host, window: window)
+        _ = try #require(await waitForPopup(in: window, updating: host), "Each segment opens its details directly")
+
     }
 
     private func editedFile(path: String = "a.txt") -> AgentConversationMessage {
