@@ -6,7 +6,22 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const WORKSPACE_BUILD_FILES: &[&str] = &["pom.xml", "build.gradle", "build.gradle.kts"];
+/// Root build declarations whose metadata feeds the Java workspace fingerprint.
+///
+/// Gradle keeps part of a project's structure outside `build.gradle`, so
+/// `settings.gradle` (included modules), `gradle.properties`, and the wrapper
+/// scripts are observed too; otherwise adding a subproject would leave a stale
+/// JDT LS workspace directory in place.
+const WORKSPACE_BUILD_FILES: &[&str] = &[
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "settings.gradle",
+    "settings.gradle.kts",
+    "gradle.properties",
+    "gradlew",
+    "gradlew.bat",
+];
 pub(super) const JDT_CACHE_LAST_USED_MARKER: &str = ".lithe-last-used";
 
 #[derive(Debug, Clone, Serialize)]

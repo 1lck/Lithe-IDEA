@@ -54,6 +54,9 @@ pub struct JavaLspLaunch {
     /// Installed JDKs JDT LS may compile projects against; without them it
     /// only knows the bundled JDK it runs on.
     pub java_runtimes: Vec<JavaLspRuntime>,
+    /// Gradle import context for the Rust core, or `None` when the workspace
+    /// root is not a Gradle project.
+    pub java_gradle: Option<JavaLspGradle>,
 }
 
 /// One installed JDK offered to the Java language service.
@@ -62,6 +65,37 @@ pub struct JavaLspLaunch {
 pub struct JavaLspRuntime {
     pub home_path: String,
     pub version: String,
+}
+
+/// Gradle import facts the workspace root exposes to the Rust core.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaLspGradle {
+    /// The root ships `gradlew` or `gradlew.bat`.
+    pub wrapper_present: bool,
+}
+
+/// A workspace is a Gradle project when its root declares one; a wrapper is
+/// present when the executable wrapper script sits next to that declaration.
+///
+/// Only the workspace root is inspected, mirroring the non-recursive build-file
+/// probe the fingerprint adapter already uses.
+fn detect_gradle_context(workspace_root: &Path) -> Option<JavaLspGradle> {
+    let declares_gradle = [
+        "build.gradle",
+        "build.gradle.kts",
+        "settings.gradle",
+        "settings.gradle.kts",
+    ]
+    .iter()
+    .any(|name| workspace_root.join(name).is_file());
+    if !declares_gradle {
+        return None;
+    }
+    let wrapper_present = ["gradlew", "gradlew.bat"]
+        .iter()
+        .any(|name| workspace_root.join(name).is_file());
+    Some(JavaLspGradle { wrapper_present })
 }
 
 /// JDT LS installation resources forwarded to the shared direct-Java launcher.
@@ -204,6 +238,7 @@ pub fn lsp_resolve_java_launch(
                 version: runtime.version,
             })
             .collect(),
+        java_gradle: project_root.and_then(detect_gradle_context),
     })
 }
 
@@ -1058,6 +1093,76 @@ mod tests {
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from(["alpha", "middle", "zeta"])
         );
+        fs::remove_dir_all(workspace).ok();
+    }
+
+    #[test]
+    fn workspace_fingerprint_observes_gradle_settings_files() {
+        let workspace = temp_dir();
+        fs::write(workspace.join("build.gradle"), "plugins {}").expect("build file");
+        let first = collect_workspace_fingerprint_inputs(&workspace).expect("first observations");
+        assert_eq!(
+            first
+                .build_files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["build.gradle"])
+        );
+
+        fs::write(workspace.join("settings.gradle"), "include 'core'").expect("settings file");
+        let changed =
+            collect_workspace_fingerprint_inputs(&workspace).expect("changed observations");
+
+        assert_eq!(
+            changed
+                .build_files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["build.gradle", "settings.gradle"])
+        );
+        fs::remove_dir_all(workspace).ok();
+    }
+
+    #[test]
+    fn gradle_context_requires_a_root_declaration() {
+        let workspace = temp_dir();
+        assert!(detect_gradle_context(&workspace).is_none());
+
+        fs::write(workspace.join("build.gradle.kts"), "plugins {}").expect("build file");
+        let declaration_only = detect_gradle_context(&workspace).expect("Gradle context");
+        assert!(!declaration_only.wrapper_present);
+
+        fs::write(workspace.join("gradlew"), "#!/bin/sh\n").expect("wrapper script");
+        let with_wrapper = detect_gradle_context(&workspace).expect("Gradle context");
+        assert!(with_wrapper.wrapper_present);
+        fs::remove_dir_all(workspace).ok();
+    }
+
+    #[test]
+    fn gradle_context_reads_the_windows_wrapper_script() {
+        let workspace = temp_dir();
+        fs::write(
+            workspace.join("settings.gradle"),
+            "rootProject.name = 'demo'",
+        )
+        .expect("settings file");
+        fs::write(workspace.join("gradlew.bat"), "@echo off\n").expect("wrapper script");
+
+        let context = detect_gradle_context(&workspace).expect("Gradle context");
+
+        assert!(context.wrapper_present);
+        fs::remove_dir_all(workspace).ok();
+    }
+
+    #[test]
+    fn gradle_context_is_absent_for_a_maven_workspace() {
+        let workspace = temp_dir();
+        fs::write(workspace.join("pom.xml"), "<project/>").expect("pom");
+        fs::write(workspace.join("gradlew"), "#!/bin/sh\n").expect("wrapper script");
+
+        assert!(detect_gradle_context(&workspace).is_none());
         fs::remove_dir_all(workspace).ok();
     }
 
