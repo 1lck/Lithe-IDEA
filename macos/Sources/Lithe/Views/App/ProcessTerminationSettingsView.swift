@@ -11,7 +11,7 @@ struct ProcessTerminationSettingsView: View {
     @ObservedObject var settings: AppSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Choose what happens to programs started in Lithe when you quit or close a terminal. Programs started outside Lithe are never shown or stopped.")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -132,12 +132,8 @@ struct ProcessTerminationSettingsView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         HStack(spacing: 8) {
-            HStack(spacing: 4) {
-                Text(LocalizedStringKey(title))
-                    .fixedSize(horizontal: true, vertical: false)
-                LitheInfoTip(info)
-            }
-            .frame(minWidth: 230, alignment: .leading)
+            LitheSettingsLabel(LocalizedStringKey(title), info: info)
+                .frame(minWidth: 230, alignment: .leading)
             content()
             Spacer(minLength: 0)
         }

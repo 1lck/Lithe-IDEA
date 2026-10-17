@@ -18,7 +18,7 @@ struct PluginSettingsSection: View {
             Text(LocalizedStringKey("Settings"))
                 .font(LitheTheme.uiFont(size: 15, weight: .semibold))
                 .padding(.horizontal, 24)
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(settings) { setting in
                     PluginSettingRow(setting: setting) { value in
                         onChange(setting.id, value)
@@ -51,24 +51,21 @@ private struct PluginSettingRow: View {
     let onChange: (ToolingJSONValue?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
+            HStack(spacing: 4) {
                 Text(LocalizedStringKey(setting.declaration.title))
                     .foregroundStyle(LitheTheme.primaryText)
-                Spacer(minLength: 12)
-                control
-                Button(LocalizedStringKey("Reset to Default")) { onChange(nil) }
-                    .buttonStyle(.borderless)
-                    .font(LitheTheme.smallFont)
-                    .opacity(setting.isDefault ? 0 : 1)
-                    .disabled(setting.isDefault)
+                if let summary = setting.declaration.summary {
+                    LitheInfoTip(LocalizedStringKey(summary))
+                }
             }
-            if let summary = setting.declaration.summary {
-                Text(LocalizedStringKey(summary))
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Spacer(minLength: 12)
+            control
+            Button(LocalizedStringKey("Reset to Default")) { onChange(nil) }
+                .buttonStyle(.borderless)
+                .font(LitheTheme.smallFont)
+                .opacity(setting.isDefault ? 0 : 1)
+                .disabled(setting.isDefault)
         }
     }
 

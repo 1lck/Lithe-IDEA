@@ -58,4 +58,34 @@ struct GitSettingsPresentationTests {
         #expect(GitConfigurationFallback.value(for: "lithe.fetch.submodules", fetchOptions: GitFetchOptions(), entries: []) == "false")
         #expect(GitConfigurationFallback.value(for: "lithe.fetch.prune", fetchOptions: nil, entries: []) == nil)
     }
+
+    @Test
+    func inheritedTagBehaviorResolvesWhatGitWillFetch() {
+        let entry = { (key: String, value: String) in
+            GitConfigurationEntry(key: key, value: value, scope: "local", origin: "file:.git/config", effective: true)
+        }
+        let origin = [
+            entry("remote.origin.url", "https://example.com/team/repo.git"),
+            entry("remote.origin.tagopt", "--no-tags")
+        ]
+        // Inherit must not read as "follow Git's rules"; it reports the concrete
+        // transfer that the configured remotes produce.
+        #expect(GitConfigurationFallback.value(for: "lithe.fetch.tags", fetchOptions: GitFetchOptions(), entries: origin) == "none")
+        #expect(GitConfigurationFallback.value(for: "lithe.fetch.tags", fetchOptions: GitFetchOptions(), entries: []) == "reachable")
+        #expect(GitConfigurationFallback.value(for: "lithe.fetch.tags", fetchOptions: GitFetchOptions(tags: .all), entries: origin) == "all")
+
+        let pruning = origin + [entry("fetch.prunetags", "true")]
+        #expect(GitConfigurationFallback.value(for: "lithe.fetch.tags", fetchOptions: GitFetchOptions(), entries: pruning) == "prune")
+        #expect(GitConfigurationFallback.value(for: "lithe.fetch.tags", fetchOptions: GitFetchOptions(prune: false), entries: pruning) == "all")
+
+        let mixed = origin + [
+            entry("remote.upstream.url", "https://example.com/team/upstream.git"),
+            entry("remote.upstream.tagopt", "--tags")
+        ]
+        let behavior = GitConfigurationFallback.inheritedTagBehavior(remote: nil, prune: true, entries: mixed)
+        #expect(behavior.value == "remoteDependent")
+        let explicit = GitConfigurationFallback.inheritedTagBehavior(remote: "upstream", prune: true, entries: mixed)
+        #expect(explicit.value == "all")
+        #expect(explicit.source?.key == "remote.upstream.tagopt")
+    }
 }

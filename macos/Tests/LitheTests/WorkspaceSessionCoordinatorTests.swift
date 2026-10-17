@@ -175,6 +175,20 @@ struct WorkspaceSessionCoordinatorTests {
         coordinator.removeRecentProject(coordinator.recentProjects[0])
         #expect(coordinator.recentProjects.isEmpty)
     }
+
+    @Test
+    func recordingAProjectStoresItsBranchForTheWelcomeList() {
+        let coordinator = WorkspaceSessionCoordinator(
+            recentProjectsStore: RecentProjectsStore(store: CoordinatorTestStore()),
+            platformUI: CoordinatorTestPlatformUI(),
+            recentProjectBranchReader: CoordinatorBranchReader(branch: "feat/1316-settings-info-tips")
+        )
+        let url = URL(fileURLWithPath: "/tmp/lithe-project", isDirectory: true)
+
+        coordinator.recordRecentProject(url)
+
+        #expect(coordinator.recentProjects.first?.branch == "feat/1316-settings-info-tips")
+    }
 }
 
 @MainActor
@@ -197,6 +211,11 @@ private final class CoordinatorTestPlatformUI: PlatformUI {
     func open(_ url: URL) {}
     func copyToClipboard(_ value: String) {}
     func markdownImageFromClipboard() -> MarkdownImageSource? { nil }
+}
+
+private struct CoordinatorBranchReader: RecentProjectBranchReading {
+    let branch: String?
+    func branch(forProjectAt url: URL) -> String? { branch }
 }
 
 private final class CoordinatorTestStore: KeyValueStore, @unchecked Sendable {

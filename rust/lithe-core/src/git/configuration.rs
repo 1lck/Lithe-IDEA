@@ -293,6 +293,26 @@ pub(crate) fn dispatch(payload: Value, save: bool) -> Result<Value, CoreError> {
     inspect(&root, &request.scope)
 }
 
+/// Resolves the host-selected or PATH Git and probes its version.
+///
+/// Executable resolution is independent of a repository, so the settings page
+/// can echo the effective Git before a project is open. The version probe is
+/// best effort: a binary that starts but cannot report a version still stays
+/// selected.
+pub(crate) fn locate_executable() -> Value {
+    let selected = execution_policy::current().executable;
+    let resolved = lithe_git_host::configuration::executable(selected.as_deref());
+    let version = resolved.as_ref().and_then(|path| {
+        lithe_git_host::configuration::version(path.as_os_str(), || false)
+            .ok()
+            .map(|version| version.trim().to_owned())
+    });
+    json!({
+        "executable": resolved.map(|path| path.to_string_lossy().into_owned()),
+        "version": version,
+    })
+}
+
 fn inspect(root: &str, scope: &str) -> Result<Value, CoreError> {
     let (_, version) = read(root, &["--version"])?;
     let (_, output) = read(
@@ -339,6 +359,22 @@ fn inspect(root: &str, scope: &str) -> Result<Value, CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn locating_git_rejects_a_missing_selected_executable_without_a_repository() {
+        // The settings page must distinguish "no runnable Git" from a blank
+        // field; a bogus override is the same deterministic failure everywhere.
+        let missing =
+            std::env::temp_dir().join(format!("lithe-missing-git-{}", std::process::id()));
+        let options = execution_policy::GitExecutionOptions {
+            executable: Some(missing.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let _scope = execution_policy::Scope::begin(Some(options)).expect("valid policy");
+        let result = locate_executable();
+        assert!(result["executable"].is_null());
+        assert!(result["version"].is_null());
+    }
+
     #[test]
     fn remote_url_rejects_invalid_requests_before_accessing_a_repository() {
         for remote in ["", "origin\nother", "origin\0"] {

@@ -61,7 +61,7 @@ struct LitheSettingsSection<Content: View, Accessory: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text(LocalizedStringKey(title))
                     .font(LitheTheme.uiFont(size: 12, weight: .medium))
@@ -74,7 +74,7 @@ struct LitheSettingsSection<Content: View, Accessory: View>: View {
         }
         .font(LitheTheme.settingsFont)
         .foregroundStyle(LitheTheme.primaryText)
-        .padding(.top, 16)
+        .padding(.top, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -82,6 +82,31 @@ struct LitheSettingsSection<Content: View, Accessory: View>: View {
 extension LitheSettingsSection where Accessory == EmptyView {
     init(_ title: String, @ViewBuilder content: () -> Content) {
         self.init(title: title, accessory: { EmptyView() }, content: content)
+    }
+}
+
+/// A setting label followed by an optional ⓘ explanation.
+///
+/// Settings pages put explanatory copy here instead of below the control, so a
+/// page stays scannable and the explanation appears only when the pointer rests
+/// on the icon. The tip opens after `LitheInfoTip`'s hover delay.
+struct LitheSettingsLabel: View {
+    private let title: LocalizedStringKey
+    private let info: LocalizedStringKey?
+
+    init(_ title: LocalizedStringKey, info: LocalizedStringKey? = nil) {
+        self.title = title
+        self.info = info
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .fixedSize(horizontal: true, vertical: false)
+            if let info {
+                LitheInfoTip(info)
+            }
+        }
     }
 }
 
