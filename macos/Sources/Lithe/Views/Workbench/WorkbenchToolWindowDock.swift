@@ -306,6 +306,16 @@ final class WorkbenchToolContentStore: ObservableObject {
     }
 }
 
+extension View {
+    /// Keep docking feedback above retained native panes in the same workspace bounds.
+    func workbenchToolContentLayers<DropPreview: View>(
+        store: WorkbenchToolContentStore, @ViewBuilder dropPreview: () -> DropPreview
+    ) -> some View {
+        self.overlay { WorkbenchToolContentSurface(store: store) }
+            .overlay { dropPreview().allowsHitTesting(false) }
+    }
+}
+
 struct WorkbenchToolContentSurface: NSViewRepresentable {
     let store: WorkbenchToolContentStore
     func makeNSView(context: Context) -> WorkbenchToolContentStore.Surface { store.surface }

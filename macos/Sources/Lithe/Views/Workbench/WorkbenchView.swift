@@ -245,7 +245,7 @@ struct WorkbenchView: View {
             HStack(spacing: 0) {
                 activityBar
                 workspaceArea
-                    .overlay { WorkbenchToolContentSurface(store: toolContentStore) }
+                    .workbenchToolContentLayers(store: toolContentStore) { toolWindowDropOverlay }
                     .padding(.trailing, WorkbenchLayoutMetrics.workspaceTrailingInset)
             }
             .frame(maxHeight: .infinity)
@@ -1568,7 +1568,6 @@ struct WorkbenchView: View {
             rightTool: { dockContent(on: .right) }
         )
         .background(ToolWindowWorkspaceAnchor(drag: toolWindowDrag, sideWidths: [.left: sidebarWidth, .right: mavenPaneWidth]))
-        .overlay { toolWindowDropOverlay.allowsHitTesting(false) }
     }
 
     @ViewBuilder
