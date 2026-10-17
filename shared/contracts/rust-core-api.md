@@ -1834,15 +1834,17 @@ by its original path with a session warning instead of failing startup.
 Copies remain readable until JDT workspace cache eviction or index rebuilding;
 notification delivery is not an acknowledgement that the server read them.
 
-Gradle callers may also provide `javaGradle = { wrapperPresent }`. When present,
-Core states `java.import.gradle.enabled` in `settings.java` and, if the
-workspace root ships a Gradle wrapper (`gradlew` or `gradlew.bat`), pins
-`java.import.gradle.wrapper.enabled` so Buildship imports the project with the
-Gradle version it declares instead of whichever Gradle is installed. Settings
-that require reading the build script or network state (`java.home`, `version`,
-`offline.enabled`) are never sent. A workspace whose root declares no Gradle
-build file sends no `javaGradle` and therefore receives no `java.import`
-settings.
+Gradle callers may also provide `javaGradle = { wrapperPresent }`, where
+`wrapperPresent` reports whether the root ships
+`gradle/wrapper/gradle-wrapper.properties`. When present, Core states
+`java.import.gradle.enabled` in `settings.java` and, if that descriptor exists,
+`java.import.gradle.wrapper.enabled`. Both leaves equal JDT LS's own defaults,
+so the section declares the import behavior Lithe relies on instead of changing
+it; Buildship itself decides which distribution to use, honoring the wrapper only
+when the project ships that descriptor. Settings that require reading the build
+script or network state (`java.home`, `version`, `offline.enabled`) are never
+sent. A workspace whose root declares no Gradle build file sends no `javaGradle`
+and therefore receives no `java.import` settings.
 
 `lsp.updateMavenConfiguration` accepts `{ sessionId, mavenContext,
 reloadProjects? }` for a running Java session started with a `mavenContext`,

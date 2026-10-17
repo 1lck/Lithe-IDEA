@@ -2,7 +2,7 @@
   "id": "java-gradle-project-import",
   "area": "Java",
   "group": "Java/Gradle",
-  "capability": "显式声明 Gradle 导入设置（Buildship），并把 Gradle 工程结构纳入构建文件指纹，使 Gradle 工程的导入、索引、跳转与补全行为确定且可回归",
+  "capability": "在 Gradle 工作区显式声明 Buildship 导入开关，并把 Gradle 工程结构纳入 Windows 工作区指纹。声明的开关与 JDT LS 默认值相同，导入结果不变；实际行为变化是 settings.gradle 或 wrapper 描述文件变化时换用新的 JDT 数据目录",
   "macos": {
     "evidence": [
       "rust/lithe-core/src/lsp/languages/jdt.rs",
@@ -28,5 +28,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Gradle",
-  "verification": "在 Windows 打开一个含 gradlew 的 Gradle 工程，确认 JDT LS 经 Buildship 导入工程、依赖解析完成，源码可跳转、补全与语义高亮到 Gradle 依赖中的类型；改动 settings.gradle 的模块结构后重开工程，确认指纹变化触发重新导入。删除 gradlew 后重开，确认不再下发 wrapper 绑定且导入仍能完成。macOS 本次未实现：不探测 Gradle 上下文、不下发 java.import.gradle，Gradle 工程仍按 Buildship 默认值导入，待后续补齐。"
+  "verification": "单元测试覆盖配置形状与透传：rust/lithe-core 断言存在 Gradle 上下文时初始化选项携带 java.import.gradle、无 wrapper 描述文件时省略 wrapper 字段、无 Gradle 上下文时不下发 java.import、按 section 查询返回对应取值、叶子合并保留调用方已声明的 offline 与 version；windows/tauri 的 lsp 测试断言工作区指纹识别 settings.gradle 与 gradle/wrapper/gradle-wrapper.properties 且忽略 gradle.properties，仅有 gradlew 脚本时不认为存在 wrapper，纯 Maven 工作区不产生 Gradle 上下文；TS 测试断言有上下文时原样转发、无上下文时为 null。待实机验证：在 Windows 打开一个带 wrapper 描述文件的 Gradle 工程，确认 JDT LS 经 Buildship 导入工程、依赖解析完成，源码可跳转、补全与语义高亮到 Gradle 依赖中的类型；改动 settings.gradle 的模块结构后重开工程，确认指纹变化触发重新导入；改写 gradle.properties 后重开，确认不触发冷导入。macOS 本次未实现：不探测 Gradle 上下文、不下发 java.import.gradle，工作区指纹也未纳入 Gradle 结构文件，Gradle 工程仍按 Buildship 默认值导入，待后续补齐。"
 }

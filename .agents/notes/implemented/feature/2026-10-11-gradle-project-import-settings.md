@@ -1,24 +1,25 @@
-# Agent 笔记：Gradle 工程导入与 wrapper 固定
+# Agent 笔记：Gradle 工程导入的显式声明与工作区指纹
 
 状态：已实现
 
 ## 先说结论
 
-Lithe 打包的 JDT LS 已内置 Buildship，因此 Gradle 工程本就能被导入、索引与补全。本次改动不改这条链路，只把原本依赖 Buildship 默认值的 Gradle 导入显式化：由平台侧探测工作区根是否声明 Gradle 并是否带 wrapper，Rust Core 据此在 `settings.java` 下发 `java.import.gradle`。这样 Gradle 与 Maven 走同一套「平台探测 → Core 组装 → JDT LS」结构，行为不再依赖隐式默认值。
+Lithe 打包的 JDT LS 已内置 Buildship，因此 Gradle 工程本就能被导入、索引与补全。本次改动不改这条链路，只把原本依赖 Buildship 默认值的 Gradle 导入显式化：平台侧探测工作区根是否声明 Gradle、是否带 wrapper 描述文件，Rust Core 据此在 `settings.java` 下发 `java.import.gradle`，并把 Gradle 工程的结构文件纳入工作区指纹。下发的两个开关与上游默认值相同，对今天的导入结果是空操作，它固定的是 Lithe 依赖的行为前提，并让 Gradle 与 Maven 走同一套「平台探测 → Core 组装 → JDT LS」结构。
 
 ## 问题
 
-Maven 工程有一套完整的显式设置链路：平台侧探测 `pom.xml` 与 settings.xml，Core 组装 `java.import.maven` 并通过 `StartServerRequest` 下发。Gradle 工程没有对应链路，能否导入完全取决于 Buildship 的默认开关。这带来两个问题：一是行为不可控，默认值变化或配置漂移时无法从 Lithe 侧纠正；二是与 Maven 不对称，后续要在 Gradle 上增加更多导入设置时缺少落点。Rust Core 看不到文件系统与环境变量，因此所有事实都必须由平台侧探测后传入，不能用 Core 自行假设。
+Maven 工程有一套完整的显式设置链路：平台侧探测 `pom.xml` 与 settings.xml，Core 组装 `java.configuration.maven` 与 `java.project.sourcePaths` 并通过 `StartServerRequest` 下发。Gradle 工程没有对应链路，能否导入完全取决于 Buildship 的默认开关，行为漂移时无法从 Lithe 侧纠正，后续要在 Gradle 上增加导入设置时也缺少落点。Rust Core 看不到文件系统与环境变量，因此所有事实都必须由平台侧探测后传入，不能用 Core 自行假设。
 
 ## 决策
 
 沿用 Maven 的既有形状，新增一条平行的 Gradle 链路，且只下发 Lithe 能确定的事实。
 
-- 平台侧（Windows Rust，`windows/tauri/src-tauri/src/lsp.rs`）在解析 Java 启动信息时探测工作区根：存在 `build.gradle`、`build.gradle.kts`、`settings.gradle` 或 `settings.gradle.kts` 之一即判定为 Gradle 工程；再检测是否存在 `gradlew` 或 `gradlew.bat`，得到 `wrapperPresent`。非 Gradle 工程返回 `None`，避免给纯 Maven 工程下发 `java.import` 设置。
-- Rust Core 新增 `JdtGradleConfiguration { wrapper_present }`，并在 `JdtSettings` 中与 `maven` 并列增加 `gradle`。`java_settings()` 在存在 `gradle` 时写入 `java.import.gradle.enabled = true`；有 wrapper 时附加 `wrapper.enabled = true`。`java_configuration_for_section()` 同步补齐 `java.import`、`java.import.gradle`、`java.import.gradle.enabled`、`java.import.gradle.wrapper`、`java.import.gradle.wrapper.enabled` 五个取值分支，使工作区配置查询与初始化选项保持一致。
+- 平台侧（Windows Rust，`windows/tauri/src-tauri/src/lsp.rs`）在解析 Java 启动信息时探测工作区根：存在 `build.gradle`、`build.gradle.kts`、`settings.gradle` 或 `settings.gradle.kts` 之一即判定为 Gradle 工程；再检测 `gradle/wrapper/gradle-wrapper.properties` 是否存在，得到 `wrapperPresent`。判据与 Buildship 一致：它只在该描述文件存在时使用工程自带的 wrapper，`gradlew`/`gradlew.bat` 脚本本身不参与判断。非 Gradle 工程返回 `None`，避免给纯 Maven 工程下发 `java.import` 设置。
+- Rust Core 新增 `JdtGradleConfiguration { wrapper_present }`，并在 `JdtSettings` 中与 `maven` 并列增加 `gradle`。`java_settings()` 在存在 `gradle` 时写入 `java.import.gradle.enabled = true`；有 wrapper 描述文件时附加 `wrapper.enabled = true`。两项都等于 JDT LS 自身默认值，因此这是显式声明 Lithe 依赖的前提，而不是改变导入行为。`java_configuration_for_section()` 同步补齐 `java.import`、`java.import.gradle`、`java.import.gradle.enabled`、`java.import.gradle.wrapper`、`java.import.gradle.wrapper.enabled` 五个取值分支，使工作区配置查询与初始化选项保持一致。
+- `merge_java_settings()` 对 `import` 键按叶子合并：只覆盖 Lithe 拥有的 `gradle.enabled` 与 `gradle.wrapper.enabled`，调用方已声明的 `offline.enabled`、`version` 等键保持不变。
 - `StartServerRequest` 增加 `java_gradle` 字段，`RuntimeSession` 保存它，并在构造初始化选项与工作区配置时统一复用。wrapper 是工作区根在启动时的属性，会话生命周期内不变，所以只在启动时确定一次。
 - 只下发 `enabled` 与 `wrapper.enabled` 这两项可以直接判定的布尔值。`java.home`、`version`、`offline.enabled` 等需要读取 Gradle 脚本或网络状态，Core 无法在启动时确定，一律不下发，交由 Buildship 自行解析。
-- Windows 的构建文件指纹（`windows/tauri/src-tauri/src/lsp/jdt_workspace.rs`）补齐 `settings.gradle`、`settings.gradle.kts`、`gradle.properties`、`gradlew`、`gradlew.bat`，使这些文件的变更能触发 JDT 工作区重建。
+- Windows 的构建文件指纹（`windows/tauri/src-tauri/src/lsp/jdt_workspace.rs`）加入 `settings.gradle`、`settings.gradle.kts`（模块结构变化，对应 Maven 的直接模块扫描）与 `gradle/wrapper/gradle-wrapper.properties`（Gradle 版本所在）。`gradle.properties` 刻意不加入：mod 工程几乎每次版本提升都会改写它，一旦纳入指纹，每次改动都会换用新的 JDT 数据目录并冷导入一次。会话中途的构建文件变更由 Core 的 `classify_change` 负责。
 
 TS 侧只做透传：`JavaLspLaunch` 增加可选的 `javaGradle`，`resolve-editor-lsp-launch.ts`、`lsp-core-adapter.ts`、`lsp-client.ts` 原样转发到核心的 `lsp.startServer`，不新增判断逻辑。
 
@@ -28,18 +29,22 @@ TS 侧只做透传：`JavaLspLaunch` 增加可选的 `javaGradle`，`resolve-edi
 
 在 Core 中无条件下发 `java.import.gradle.enabled = true`。否决：会让纯 Maven 工作区多出无意义且可能误导的 Gradle 导入配置，违背「只下发确定事实」。
 
-一次性下发完整的 `java.import.gradle`（含 `java.home`、`version`、`offline.enabled` 等）。否决：这些值需要读取 Gradle 脚本或网络状态，Core 在启动时无法可靠确定，下发错误值比不下发更糟。
+一次性下发完整的 `java.import.gradle`（含 `java.home`、`version`、`offline.enabled` 等）。否决：这些值需要读取 Gradle 脚本或网络状态，Core 在启动时无法可靠确定，下发错误值比不下发更糟；需要这些值时应当作为用户可配置项引入，而不是由 Lithe 猜测。
 
-让 macOS 侧也补 wrapper 探测。本次不做：改动范围限定为 Rust 内核与 Windows；macOS 依赖 Buildship 默认值即可导入 Gradle 工程，功能不缺，只是在显式固定 wrapper 上与 Windows 暂不对称。
+按 `gradlew`/`gradlew.bat` 脚本判断 wrapper。否决：Buildship 实际依据是 `gradle/wrapper/gradle-wrapper.properties`，按脚本判断会与上游行为不一致。
+
+把 `gradle.properties` 与 `gradlew` 一并纳入指纹。否决：前者在 mod 工程里变动频繁，纳入后每次版本提升都会冷导入一次；后者并不携带 Gradle 版本信息。收益不足以抵消代价。
+
+让 macOS 侧也补 wrapper 探测与指纹扩展。本次不做：改动范围限定为 Rust 内核与 Windows；macOS 依赖 Buildship 默认值即可导入 Gradle 工程，功能不缺，只是在显式声明与指纹覆盖上暂不对称。
 
 ## 后果
 
-Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。Windows 会显式固定到工作区声明的 wrapper，避免用到机器上恰好安装的其它 Gradle 版本。macOS 未接入显式设置，行为仍由 Buildship 默认值决定，与 Windows 存在一处已知不对称。若工作区根未声明 Gradle 构建文件，Core 不会下发任何 `java.import` 设置，纯 Maven 工程不受影响。
+Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。Windows 下发的两个开关与 Buildship 默认值一致，导入结果不变；真正改变行为的是工作区指纹：`settings.gradle` 或 wrapper 描述文件变化会换用新的 JDT 数据目录并重新导入，而改写 `gradle.properties` 不会。macOS 未接入显式设置与指纹扩展（`MacJdtWorkspaceState.buildFileNames` 仍只覆盖 `pom.xml`、`build.gradle`、`build.gradle.kts`），同一工程在两个平台上的指纹含义并不相同，这是本 PR 的已知不对称。若工作区根未声明 Gradle 构建文件，Core 不会下发任何 `java.import` 设置，纯 Maven 工程不受影响。
 
 ## 验证
 
-- `rust/lithe-core` 单测覆盖：初始化选项在导入前即携带 Gradle 设置、无 wrapper 时省略 wrapper 字段、无 Gradle 上下文时不下发 `java.import`、按 section 查询返回对应 Gradle 取值、无 wrapper 时省略 wrapper。
-- `windows/tauri/src-tauri/src/lsp.rs` 单测覆盖：工作区指纹识别 Gradle 设置文件、根目录缺少构建文件时不判为 Gradle、识别 Windows 的 wrapper 脚本、Maven 工作区不产生 Gradle 上下文。
+- `rust/lithe-core` 单测覆盖：初始化选项在导入前即携带 Gradle 设置、无 wrapper 描述文件时省略 wrapper 字段、无 Gradle 上下文时不下发 `java.import`、按 section 查询返回对应 Gradle 取值、叶子合并保留调用方已声明的 `offline` 与 `version`。
+- `windows/tauri/src-tauri/src/lsp.rs` 单测覆盖：工作区指纹识别 Gradle 设置文件与 wrapper 描述文件且忽略 `gradle.properties`、根目录缺少构建文件时不判为 Gradle、仅有 `gradlew` 脚本时不认为存在 wrapper、Maven 工作区不产生 Gradle 上下文。
 - `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts` 与 `windows/tauri/src/platform/lsp-core-adapter.test.ts` 覆盖 TS 透传：有 Gradle 上下文时原样转发，无上下文时为 `null`。
 - `scripts/verify-rust-core.sh`、`scripts/verify-rust-core-comments.sh`、`scripts/verify-rust-core-layout.sh` 校验 Rust 核心的格式、注释与包布局。
 - `scripts/verify-platform-feature-matrix.sh`、`scripts/verify-platform-feature-matrix-change.sh` 与 `scripts/verify-agent-notes.sh` 校验功能矩阵与 Note 记录。

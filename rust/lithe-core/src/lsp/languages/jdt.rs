@@ -132,12 +132,12 @@ pub(crate) struct JdtMavenConfiguration {
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct JdtGradleConfiguration {
-    /// The workspace root ships a Gradle wrapper (`gradlew` / `gradlew.bat`).
+    /// The workspace root ships the wrapper descriptor Buildship reads
+    /// (`gradle/wrapper/gradle-wrapper.properties`).
     ///
-    /// When true, Lithe pins Buildship to the wrapper so the project is imported
-    /// with the Gradle version it declares instead of whatever Gradle happens to
-    /// be installed. The wrapper is a property of the workspace root and does
-    /// not change for the lifetime of a session.
+    /// Telling Buildship a wrapper exists only restates its own default: the
+    /// distribution still comes from that descriptor. The wrapper is a property
+    /// of the workspace root and does not change for the lifetime of a session.
     pub wrapper_present: bool,
 }
 
@@ -465,7 +465,9 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
         // into the declared `import` object instead of replacing it.
         if key == "import" {
             if let Some(gradle) = value.get("gradle").and_then(Value::as_object) {
-                let import = java.entry("import".to_string()).or_insert_with(|| json!({}));
+                let import = java
+                    .entry("import".to_string())
+                    .or_insert_with(|| json!({}));
                 if !import.is_object() {
                     *import = json!({});
                 }
@@ -1123,13 +1125,13 @@ fn maven_settings_section(maven_configuration: Option<&JdtMavenConfiguration>) -
 
 /// Builds the `java.import.gradle` section for the resolved context.
 ///
-/// `enabled` is JDT LS's own default; Lithe states it explicitly so a workspace
-/// never depends on Buildship defaults a future release could change.
-/// `wrapper.enabled` is only sent when the root actually ships a wrapper, so
-/// Lithe never points Buildship at a `gradle-wrapper.properties` that does not
-/// exist. Settings that require reading the build script (`java.home`,
-/// `version`, `offline.enabled`, ...) are deliberately never sent: guessing them
-/// would override the project's own declaration.
+/// Both leaves state JDT LS's own defaults — `enabled` and `wrapper.enabled` are
+/// `true` upstream — so the section declares the import behavior Lithe relies on
+/// instead of changing today's import result. `wrapper.enabled` is sent only when
+/// the root ships the descriptor Buildship reads, so Lithe never claims a wrapper
+/// the workspace does not have. Settings that require reading the build script
+/// (`java.home`, `version`, `offline.enabled`, ...) are deliberately never sent:
+/// guessing them would override the project's own declaration.
 fn gradle_settings_section(gradle_configuration: Option<&JdtGradleConfiguration>) -> Option<Value> {
     let configuration = gradle_configuration?;
     let mut section = Map::new();

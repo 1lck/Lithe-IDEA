@@ -8,19 +8,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Root build declarations whose metadata feeds the Java workspace fingerprint.
 ///
-/// Gradle keeps part of a project's structure outside `build.gradle`, so
-/// `settings.gradle` (included modules), `gradle.properties`, and the wrapper
-/// scripts are observed too; otherwise adding a subproject would leave a stale
-/// JDT LS workspace directory in place.
+/// Gradle keeps part of a project's structure outside `build.gradle`, so the
+/// included modules in `settings.gradle` and the wrapper descriptor Buildship
+/// reads are observed too; otherwise adding a subproject or switching the
+/// Gradle version would leave a stale JDT LS workspace directory in place.
+/// `gradle.properties` is deliberately not observed: mod projects rewrite it on
+/// nearly every version bump, and each edit would discard the imported workspace
+/// and force a cold re-import.
 const WORKSPACE_BUILD_FILES: &[&str] = &[
     "pom.xml",
     "build.gradle",
     "build.gradle.kts",
     "settings.gradle",
     "settings.gradle.kts",
-    "gradle.properties",
-    "gradlew",
-    "gradlew.bat",
+    "gradle/wrapper/gradle-wrapper.properties",
 ];
 pub(super) const JDT_CACHE_LAST_USED_MARKER: &str = ".lithe-last-used";
 

@@ -34,7 +34,7 @@ export interface JavaLspRuntime {
 }
 
 export interface JavaLspGradle {
-  /** The workspace root ships `gradlew` or `gradlew.bat`. */
+  /** The workspace root ships `gradle/wrapper/gradle-wrapper.properties`. */
   wrapperPresent: boolean;
 }
 
