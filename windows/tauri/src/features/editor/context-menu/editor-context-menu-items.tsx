@@ -5,6 +5,7 @@ import {
   CaretDownIcon as ChevronDown,
   CaretUpIcon as ChevronUp,
   ClipboardTextIcon as ClipboardPaste,
+  ClockIcon as Clock,
   CodeIcon as Code,
   CopyIcon as Copy,
   FileTextIcon as FileText,
@@ -28,6 +29,8 @@ export interface EditorContextMenuHandlers {
   onSelectAll?: () => void;
   onFind?: () => void;
   onGoToLine?: () => void;
+  /** Opens the Git line-history popover for the gutter target under the menu. */
+  onLineHistory?: () => void;
   onGoToDefinition?: () => void;
   onGoToTypeDefinition?: () => void;
   onFindReferences?: () => void;
@@ -82,6 +85,7 @@ export function buildEditorContextMenuItems({
   onSelectAll,
   onFind,
   onGoToLine,
+  onLineHistory,
   onGoToDefinition,
   onGoToTypeDefinition,
   onFindReferences,
@@ -319,6 +323,13 @@ export function buildEditorContextMenuItems({
       keybinding: <Keybinding keys={[modifierKey, "G"]} className="opacity-60" />,
       disabled: isDisabled(onGoToLine),
       onClick: onGoToLine ?? noop,
+    },
+    {
+      id: "line-history",
+      label: t("git.lineHistory.menuLabel"),
+      icon: <Clock />,
+      disabled: isDisabled(onLineHistory),
+      onClick: onLineHistory ?? noop,
     },
     {
       id: "bookmark",

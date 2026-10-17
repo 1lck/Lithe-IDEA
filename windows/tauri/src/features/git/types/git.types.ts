@@ -234,6 +234,40 @@ export interface GitBlameLine {
   commit: string;
 }
 
+// git.lineHistory speaks the shared Core contract directly, so its fields use
+// the core's camelCase serialization instead of the legacy blame shapes above.
+
+export interface GitLineHistoryRange {
+  oldStart: number;
+  oldEnd: number;
+  newStart: number;
+  newEnd: number;
+}
+
+export interface GitLineHistoryCommit {
+  hash: string;
+  kind: "commit" | "merge-first-parent";
+  authorName: string;
+  authorTime: number;
+  subject: string;
+  pathAtCommit: string;
+  previousPath?: string | null;
+  compareBase: string;
+  relevantRanges: GitLineHistoryRange[];
+}
+
+export interface GitLineHistoryUnmappedLine {
+  line: number;
+  kind: "new" | "unreliable";
+}
+
+export interface GitLineHistory {
+  baseCommit: string;
+  unmappedLines: GitLineHistoryUnmappedLine[];
+  commits: GitLineHistoryCommit[];
+  truncated: boolean;
+}
+
 export type GitOperationKind = "merge" | "rebase" | "cherryPick" | "revert";
 
 /**

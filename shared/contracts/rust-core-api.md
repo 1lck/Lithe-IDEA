@@ -787,6 +787,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.conflictMarkers` | Return staged text files that still contain conflict markers |
 | `git.operationState` | Report an interrupted merge, rebase, cherry-pick, or revert and its conflicted paths |
 | `git.blame` | Return structured line blame metadata |
+| `git.lineHistory` | Trace which commits touched a one-based snapshot line range of one file |
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
@@ -1564,6 +1565,23 @@ body on demand with `git.commit`. See
 `shared/fixtures/git/commit-lookup-response-v1.json`.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
 are one-based and author timestamps are Unix seconds.
+
+`git.lineHistory` accepts `root`, a workspace-relative `path`, the editor
+snapshot `content`, a one-based inclusive `startLine`/`endLine` range
+addressing that snapshot, and an optional `limit` (default 50, capped at 200;
+snapshots above 8 MiB are rejected). The snapshot is mapped onto the pinned
+`baseCommit` through an isolated platform-temp comparison, so unsaved edits
+stay answerable; the response echoes `baseCommit`, lists `unmappedLines`
+(`kind` `new` for provably inserted lines, `unreliable` for rewritten ones),
+and returns `commits` newest first with `hash`, `kind` (`commit` or
+`merge-first-parent`), `authorName`, `authorTime` (Unix seconds), `subject`,
+`pathAtCommit`, optional `previousPath` on renames, `compareBase` (the parent
+the metadata diff was taken against; empty for the root commit whose base is
+the empty tree), and `relevantRanges` hunks intersecting the traced lines.
+Queries walk the first-parent chain only: branch-internal commits of a merge
+are not listed separately, pure renames are not listed as content changes,
+and `truncated` reports entries beyond the limit. Pure-deletion sides report
+the boundary position as both start and end.
 
 `workspace.search` accepts `maxResults` for a total result cap. Callers that
 need separate buckets may also provide `maxFileResults` and

@@ -850,6 +850,68 @@ pub struct GitBlameResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One queried snapshot line that could not be mapped onto the pinned revision.
+pub struct GitLineHistoryUnmappedLine {
+    /// One-based line number in the submitted snapshot.
+    pub line: usize,
+    /// `new` when the mapping proves the line was inserted; `unreliable` when a
+    /// rewrite prevents a trustworthy correspondence to any committed line.
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One hunk of an entry's comparison that intersects the traced lines.
+pub struct GitLineHistoryRange {
+    /// First parent-side one-based line of the hunk, inclusive.
+    pub old_start: usize,
+    /// Last parent-side line, inclusive; equals `oldStart` for single-line hunks.
+    pub old_end: usize,
+    /// First entry-side one-based line, inclusive.
+    pub new_start: usize,
+    /// Last entry-side line, inclusive.
+    pub new_end: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One history entry that touched the traced lines, with positioning metadata.
+pub struct GitLineHistoryCommit {
+    pub hash: String,
+    /// `commit`, or `merge-first-parent` for merges reported against the first
+    /// parent only; branch-internal commits of a merge are not listed separately.
+    pub kind: String,
+    pub author_name: String,
+    /// Authoring time as Unix seconds, matching `git.blame` attribution.
+    pub author_time: i64,
+    pub subject: String,
+    /// Workspace-relative path of the file at this entry.
+    pub path_at_commit: String,
+    /// Previous path when this entry renamed the file, otherwise absent.
+    pub previous_path: Option<String>,
+    /// Parent revision the metadata diff was taken against; empty for the root
+    /// commit, whose comparison base is the empty tree on the client side.
+    pub compare_base: String,
+    /// Hunks of this entry's comparison that intersect the traced lines.
+    pub relevant_ranges: Vec<GitLineHistoryRange>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// History of a one-based snapshot line range anchored to one pinned revision.
+pub struct GitLineHistoryResponse {
+    /// Revision the snapshot mapping and history query were resolved against.
+    pub base_commit: String,
+    /// Queried lines absent from the pinned revision, in snapshot order.
+    pub unmapped_lines: Vec<GitLineHistoryUnmappedLine>,
+    /// Touching entries, newest first, deduplicated across traced intervals.
+    pub commits: Vec<GitLineHistoryCommit>,
+    /// True when more entries exist beyond the effective limit.
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// One aligned side-by-side diff row.
 pub struct GitDiffRowResponse {
     pub old_line: Option<usize>,
