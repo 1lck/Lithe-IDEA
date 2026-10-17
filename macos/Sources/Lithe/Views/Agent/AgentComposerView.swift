@@ -195,7 +195,8 @@ struct AgentComposerView: View {
 
     private var contextButton: some View {
         Button { showsDetails = false; showsContext.toggle() } label: {
-            AgentContextUsageView(usage: contextUsage, showsPercentage: false, showsHoverCard: false)
+            AgentContextUsageView(usage: contextUsage, showsPercentage: false, showsHoverCard: false,
+                                  isHiddenUntilReported: true)
         }
         .buttonStyle(.litheNoPress)
         .workbenchHoverCard(placement: .above, maximumWidth: LitheDropdownMetrics.maximumWidth) {

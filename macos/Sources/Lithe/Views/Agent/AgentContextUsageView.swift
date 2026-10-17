@@ -22,7 +22,9 @@ enum AgentContextUsagePresentation {
     }
 }
 
-/// Compact context ring; absent reports remain unknown rather than displaying zero.
+/// Compact context ring. It stays hidden until the Agent's first usage report so
+/// an empty indicator cannot be mistaken for zero occupancy; the inline detail
+/// panels keep rendering their own unknown state after a report disappears.
 struct AgentContextUsageView: View {
     let usage: AgentContextUsage?
     /// Estimated prompt composition from the optional model call proxy.
@@ -30,6 +32,9 @@ struct AgentContextUsageView: View {
     var showsPercentage = true
     /// Inline detail consumers can suppress the compact hover tooltip.
     var showsHoverCard = true
+    /// Toolbar consumers hide the whole ring while no report exists; the status
+    /// row and inline cards render the unknown state explicitly.
+    var isHiddenUntilReported = false
     @Environment(\.locale) private var locale
     private var ringStroke: CGFloat { showsPercentage ? 1.5 : 2 }
     private var ringInset: CGFloat { showsPercentage ? 0 : ringStroke / 2 }
@@ -41,37 +46,40 @@ struct AgentContextUsageView: View {
         return LitheTheme.HoverTooltip.infoForeground
     }
 
+    @ViewBuilder
     var body: some View {
-        HStack(spacing: 4) {
-            ZStack {
-                Circle().inset(by: ringInset)
-                    .stroke(showsPercentage ? LitheTheme.settingsControlBorder : LitheTheme.HoverTooltip.infoForeground,
-                            lineWidth: ringStroke)
-                if let usage {
-                    Circle().inset(by: ringInset).trim(from: 0, to: min(usage.fraction, 1))
-                        .stroke(showsPercentage || usage.fraction >= 0.9 ? color : LitheTheme.toolWindowText,
-                                style: StrokeStyle(lineWidth: ringStroke, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
+        if !(isHiddenUntilReported && usage == nil) {
+            HStack(spacing: 4) {
+                ZStack {
+                    Circle().inset(by: ringInset)
+                        .stroke(showsPercentage ? LitheTheme.settingsControlBorder : LitheTheme.HoverTooltip.infoForeground,
+                                lineWidth: ringStroke)
+                    if let usage {
+                        Circle().inset(by: ringInset).trim(from: 0, to: min(usage.fraction, 1))
+                            .stroke(showsPercentage || usage.fraction >= 0.9 ? color : LitheTheme.toolWindowText,
+                                    style: StrokeStyle(lineWidth: ringStroke, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                    }
+                }.frame(width: showsPercentage ? 12 : LitheTheme.Metrics.toolbarIconSize,
+                        height: showsPercentage ? 12 : LitheTheme.Metrics.toolbarIconSize)
+                if showsPercentage {
+                    Text(AgentContextUsagePresentation.percentage(usage, locale: locale))
+                        .monospacedDigit().lineLimit(1)
                 }
-            }.frame(width: showsPercentage ? 12 : LitheTheme.Metrics.toolbarIconSize,
-                    height: showsPercentage ? 12 : LitheTheme.Metrics.toolbarIconSize)
-            if showsPercentage {
-                Text(AgentContextUsagePresentation.percentage(usage, locale: locale))
-                    .monospacedDigit().lineLimit(1)
             }
+            .foregroundStyle(color)
+            .font(LitheTheme.smallFont)
+            .padding(.horizontal, showsPercentage ? 4 : 0)
+            .frame(width: showsPercentage ? nil : LitheTheme.Metrics.toolbarIconButtonSize,
+                   height: showsPercentage ? nil : LitheTheme.Metrics.toolbarIconButtonSize)
+            .fixedSize()
+            .contentShape(Rectangle())
+            .modifier(AgentContextHoverCard(isEnabled: showsHoverCard, usage: usage))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Context usage")
+            .accessibilityValue(AgentContextUsagePresentation.details(usage, locale: locale))
+            .accessibilityIdentifier("agent-context-usage")
         }
-        .foregroundStyle(color)
-        .font(LitheTheme.smallFont)
-        .padding(.horizontal, showsPercentage ? 4 : 0)
-        .frame(width: showsPercentage ? nil : LitheTheme.Metrics.toolbarIconButtonSize,
-               height: LitheTheme.Metrics.toolbarIconButtonSize)
-        .fixedSize()
-        .contentShape(Rectangle())
-        .modifier(AgentContextHoverCard(isEnabled: showsHoverCard, usage: usage))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Context usage")
-        .accessibilityValue(AgentContextUsagePresentation.details(usage, locale: locale))
-        .accessibilityIdentifier("agent-context-usage")
     }
 }
 
