@@ -608,6 +608,25 @@ async function verify() {
       window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
       assert(getComputedStyle(runAll).backgroundImage.includes("208A3C"), "Run All did not select the light original SVG");
       window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+
+      await window.lithe.activate({ id: "gutter-test-passed", text: "void passed() {}",
+        revision: 0, language: "java", readonly: false });
+      await window.lithe.refreshJavaRunMarkers();
+      editor.render(true);
+      const passed = document.querySelector("#editor .cldr.lithe-java-run-passed")!;
+      assert(!!passed && getComputedStyle(passed).backgroundSize === "14px 14px" &&
+        getComputedStyle(passed).backgroundImage.includes("57965C"), "passed test did not use dark runSuccess SVG");
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+      assert(getComputedStyle(passed).backgroundImage.includes("55A76A"), "passed test did not select light runSuccess SVG");
+      window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+
+      await window.lithe.activate({ id: "gutter-test-failed", text: "void failed() {}",
+        revision: 0, language: "java", readonly: false });
+      await window.lithe.refreshJavaRunMarkers();
+      editor.render(true);
+      const failed = document.querySelector("#editor .cldr.lithe-java-run-failed")!;
+      assert(!!failed && getComputedStyle(failed).backgroundSize === "14px 14px" &&
+        getComputedStyle(failed).backgroundImage.includes("E55765"), "failed test did not use runError SVG");
     } finally { folding.dispose(); await window.lithe.retain([]); }
   });
   await check("native line numbers use the plain editor font one point smaller", async () => {

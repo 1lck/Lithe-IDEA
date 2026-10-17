@@ -339,3 +339,9 @@ in IntelliJ IDEA 2026.2.1 build 262.9437.185. Their Apache 2.0 notices are prese
 The editor tab expui/nodes/junitTestMark.svg and junitTestMark_dark.svg are original
 Community idea/262.9437.185 platform/icons/src/expui/nodes resources, also shipped
 in IntelliJ IDEA 2026.2.1 build 262.9437.185. Their Apache 2.0 notices are preserved.
+
+The editor gutter test status icons expui/gutter/runSuccess{,_dark}.svg and
+expui/gutter/runError{,_dark}.svg are original Community platform/icons/src/expui/gutter
+assets (Apache License 2.0, Copyright 2000-2023 JetBrains s.r.o. and contributors).
+PlatformIconMappings maps legacy runConfigurations/testState/green2.svg to runSuccess.svg,
+and red2.svg to runError.svg.

@@ -1236,7 +1236,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor .lithe-java-navigation-down:after,.monaco-editor .lithe-java-navigation-both:after{content:'↓'}
       .monaco-editor .lithe-java-navigation-both:before,.monaco-editor .lithe-java-navigation-both:after{width:50%;max-width:12px}
       ${navigationIconStyles}
-      .monaco-editor .lithe-java-run{cursor:pointer;background-size:12px 12px;background-repeat:no-repeat;background-position:center;opacity:.9}
+      .monaco-editor .lithe-java-run{cursor:pointer;background-size:14px 14px;background-repeat:no-repeat;background-position:center;opacity:.9}
       .monaco-editor .lithe-java-run:hover{opacity:1}
       ${runIconStyles}
       ${darkRunIconStyles}
@@ -1245,6 +1245,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor.lithe-line-numbers-first .line-numbers.lithe-breakpoint:before{font-size:16px}
       .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-run{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap}px;opacity:1}
       .monaco-editor.lithe-line-numbers-first .lithe-java-run-run,.monaco-editor.lithe-line-numbers-first .lithe-java-run-run-all{background-size:16px 16px}
+      .monaco-editor.lithe-line-numbers-first .lithe-java-run-passed,.monaco-editor.lithe-line-numbers-first .lithe-java-run-failed{background-size:14px 14px}
       .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-navigation,.monaco-editor.lithe-line-numbers-first .cldr.lithe-execution-marker{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap + nativeGutter.icon}px}
       .monaco-editor.lithe-line-numbers-first .margin-view-overlays .cldr[class*="codicon-folding-"]{width:${nativeGutter.icon}px!important;margin-left:${nativeFoldingOffset}px}
       .monaco-editor.lithe-line-numbers-first.lithe-gutter-navigation .cldr[class*="codicon-folding-"]{margin-left:${nativeFoldingOffset + nativeGutter.icon}px}

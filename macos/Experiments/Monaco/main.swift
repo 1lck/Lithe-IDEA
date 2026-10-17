@@ -157,8 +157,19 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 replyHandler(["selected": NSNull()], nil)
             case "lastContextMenu": replyHandler(lastContextMenu, nil)
             case "javaRunMarkers":
-                let markers: [[String: Any]] = ["readonly-run-test", "gutter-order", "gutter-test-class"].contains(body["id"] as? String ?? "")
-                    ? [["id": "main", "line": 1, "endLine": 1, "kind": body["id"] as? String == "gutter-test-class" ? "testClass" : "main", "label": "Main.main()", "status": "none"]] : []
+                let id = body["id"] as? String ?? ""
+                let markers: [[String: Any]]
+                if id == "gutter-test-class" {
+                    markers = [["id": "main", "line": 1, "endLine": 1, "kind": "testClass", "label": "Main.main()", "status": "none"]]
+                } else if id == "gutter-test-passed" {
+                    markers = [["id": "main", "line": 1, "endLine": 1, "kind": "testMethod", "label": "Test.passed()", "status": "passed"]]
+                } else if id == "gutter-test-failed" {
+                    markers = [["id": "main", "line": 1, "endLine": 1, "kind": "testMethod", "label": "Test.failed()", "status": "failed"]]
+                } else if ["readonly-run-test", "gutter-order"].contains(id) {
+                    markers = [["id": "main", "line": 1, "endLine": 1, "kind": "main", "label": "Main.main()", "status": "none"]]
+                } else {
+                    markers = []
+                }
                 replyHandler(["markers": markers, "canDebug": true], nil)
             case "javaRunMarkerAction":
                 javaRunActionCount += 1

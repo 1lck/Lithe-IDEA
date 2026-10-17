@@ -6,8 +6,10 @@ import runIcon from "../Resources/IDEAIcons/expui/run/run.svg" with { type: "tex
 import runIconDark from "../Resources/IDEAIcons/expui/run/run_dark.svg" with { type: "text" };
 import runAllIcon from "../Resources/IDEAIcons/expui/actions/runAll.svg" with { type: "text" };
 import runAllIconDark from "../Resources/IDEAIcons/expui/actions/runAll_dark.svg" with { type: "text" };
-import passedIcon from "../Resources/IDEAIcons/testState/green2.svg" with { type: "text" };
-import failedIcon from "../Resources/IDEAIcons/testState/red2.svg" with { type: "text" };
+import passedIcon from "../Resources/IDEAIcons/expui/gutter/runSuccess.svg" with { type: "text" };
+import passedIconDark from "../Resources/IDEAIcons/expui/gutter/runSuccess_dark.svg" with { type: "text" };
+import failedIcon from "../Resources/IDEAIcons/expui/gutter/runError.svg" with { type: "text" };
+import failedIconDark from "../Resources/IDEAIcons/expui/gutter/runError_dark.svg" with { type: "text" };
 import foldIcon from "../Resources/IDEAIcons/expui/gutter/fold.svg" with { type: "text" };
 import foldIconDark from "../Resources/IDEAIcons/expui/gutter/fold_dark.svg" with { type: "text" };
 import unfoldIcon from "../Resources/IDEAIcons/expui/gutter/unfold.svg" with { type: "text" };
@@ -101,7 +103,7 @@ const workbench = mountWorkbench({
   lineNumbersFirst: true,
   foldingIcons: { expanded: { light: foldIcon, dark: foldIconDark },
     collapsed: { light: unfoldIcon, dark: unfoldIconDark } },
-  javaRunIconsDark: { run: runIconDark, "run-all": runAllIconDark },
+  javaRunIconsDark: { run: runIconDark, "run-all": runAllIconDark, passed: passedIconDark, failed: failedIconDark },
   javaRunIcons: { run: runIcon, "run-all": runAllIcon, passed: passedIcon, failed: failedIcon },
   keybindings: [
     { command: "editor.action.duplicateSelection", label: "Duplicate Line or Selection", keybinding: KeyMod.CtrlCmd | KeyCode.KeyD },
