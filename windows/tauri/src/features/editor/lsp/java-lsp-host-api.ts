@@ -24,11 +24,18 @@ export interface JavaLspLaunch {
   workspaceFingerprint?: string | null;
   /** Installed JDKs JDT LS may compile projects against. */
   javaRuntimes?: JavaLspRuntime[];
+  /** Gradle import context, present only for Gradle workspaces. */
+  javaGradle?: JavaLspGradle | null;
 }
 
 export interface JavaLspRuntime {
   homePath: string;
   version: string;
+}
+
+export interface JavaLspGradle {
+  /** The workspace root ships `gradle/wrapper/gradle-wrapper.properties`. */
+  wrapperPresent: boolean;
 }
 
 export function resolveJavaLspLaunch(workspacePath: string) {

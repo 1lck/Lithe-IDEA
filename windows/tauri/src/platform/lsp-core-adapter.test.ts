@@ -638,6 +638,37 @@ describe("Rust Core LSP adapter failures", () => {
     expect(ownsLspSession("java-session")).toBe(false);
   });
 
+  test("forwards the Gradle import context to the core start request", async () => {
+    scenario = "capabilities";
+
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+      javaGradle: { wrapperPresent: true },
+    });
+
+    expect(startPayload?.javaGradle).toEqual({ wrapperPresent: true });
+
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
+  });
+
+  test("omits the Gradle import context when the launch carries none", async () => {
+    scenario = "capabilities";
+
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    expect(startPayload?.javaGradle).toBeNull();
+
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
+  });
+
   test("sends Maven configuration changes to the running Java session of the workspace", async () => {
     scenario = "capabilities";
     const mavenContext = { version: 1, reactorPath: ".", settingsPath: "C:/maven/settings.xml" };
