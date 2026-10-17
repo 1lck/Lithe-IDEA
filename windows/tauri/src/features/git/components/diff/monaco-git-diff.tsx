@@ -86,21 +86,26 @@ export default function MonacoGitDiff({
   const review = useRef<ReturnType<typeof mountDiffReview> | null>(null);
   const hunkActions = useRef<ReturnType<typeof createMonacoDiffHunkActions> | null>(null);
   // Stable across the diff effect: one dialog at a time for block discards on
-  // this surface, honoring the shared Confirm Before Discard setting.
+  // this surface, honoring the shared Confirm Before Discard setting. The
+  // translator is read through a synchronized ref so dialogs opened after a
+  // language switch use the current locale without rebuilding the owner.
+  const translateRef = useRef(t);
+  translateRef.current = t;
+  const discardDialogPendingRef = useRef(false);
   const confirmDiscardRef = useRef(async (path: string) => {
     if (!useSettingsStore.getState().settings.confirmBeforeDiscard) return true;
     if (discardDialogPendingRef.current) return false;
     discardDialogPendingRef.current = true;
     try {
+      const translate = translateRef.current;
       return await showConfirmDialog(
-        t("git.diff.rollbackHunkConfirm", { path }),
-        { title: t("git.rollback"), confirmLabel: t("git.rollback") },
+        translate("git.diff.rollbackHunkConfirm", { path }),
+        { title: translate("git.rollback"), confirmLabel: translate("git.rollback") },
       );
     } finally {
       discardDialogPendingRef.current = false;
     }
   });
-  const discardDialogPendingRef = useRef(false);
   const [error, setError] = useState<string>();
   const [actionFailed, setActionFailed] = useState(false);
   const [height, setHeight] = useState(MIN_REVIEW_HEIGHT);
