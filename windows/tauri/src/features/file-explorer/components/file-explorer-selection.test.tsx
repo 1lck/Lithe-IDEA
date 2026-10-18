@@ -5,6 +5,9 @@ import { act, forwardRef, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import * as debounce from "use-debounce";
 import * as searchApi from "@/features/file-search/lib/file-search-api";
+import { createPaneContent } from "@/features/editor/stores/buffer-content-factory";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { useSidebarStore } from "@/features/layout/stores/sidebar.store";
 import { useFileClipboardStore } from "../stores/file-explorer-clipboard.store";
 import { useFileTreeStore } from "../stores/file-explorer-tree.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -13,7 +16,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { workspaceRuntimeRegistry as registry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
-import { FileExplorerTree } from "./file-explorer-tree";
+import { FileExplorerPane } from "./file-explorer-pane";
 import * as sidebar from "@/ui/sidebar";
 
 const originalSidebar = { ...sidebar };
@@ -70,23 +73,24 @@ const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?:
 const spies: Array<{ mockRestore(): void }> = [];
 let deleted: string[];
 
-async function renderTree(activePath?: string) {
-  await act(async () =>
+function setEditorPath(path?: string) {
+  useBufferStore.setState({
+    activeBufferId: path ?? null,
+    buffers: path
+      ? [createPaneContent(path, { type: "editor", path, name: path.split("/").pop()!, content: "" })]
+      : [],
+  });
+}
+
+async function renderTree(editorPath?: string) {
+  await act(async () => {
+    setEditorPath(editorPath);
     root.render(
       <LocaleProvider language="en-US">
-        <FileExplorerTree
-          files={files}
-          activePath={activePath}
-          rootFolderPath={workspace}
-          onFileSelect={() => {}}
-          onCreateNewFileInDirectory={() => {}}
-          onDeletePath={(path) => {
-            deleted.push(path);
-          }}
-        />
+        <FileExplorerPane />
       </LocaleProvider>,
-    ),
-  );
+    );
+  });
 }
 
 function settledDebounce<T>(value: T): ReturnType<typeof debounce.useDebounce<T>> {
@@ -141,7 +145,18 @@ beforeEach(async () => {
       confirmBeforeFileDelete: false,
     },
   });
-  useFileSystemStore.setState({ rootFolderPath: workspace, files });
+  // Keep the real pane/store wiring; replace only disk/editor-opening side effects.
+  useFileSystemStore.setState({
+    rootFolderPath: workspace,
+    files,
+    handleFileSelect: async (path) => {
+      setEditorPath(path);
+      return path;
+    },
+    handleDeletePath: async (path) => {
+      deleted.push(path);
+    },
+  });
   useFileTreeStore.getState().actions.setExpandedPaths(new Set([workspace, directory]));
   useFileClipboardStore.setState({ clipboard: null });
   deleted = [];
@@ -282,15 +297,34 @@ test("editor tab changes preserve an explicit group and its clipboard targets", 
 });
 
 test("an unchanged editor path does not overwrite a newly selected directory", async () => {
-  await renderTree(child);
+  await renderTree(readme);
   await click(directory);
-  await renderTree(child);
+  // The sync effect restores the sidebar path to README without switching editors.
+  expect(useSidebarStore.getState().activePath).toBe(readme);
+  await renderTree(readme);
   expect(row(directory).getAttribute("aria-selected")).toBe("true");
-  expect(row(child).getAttribute("aria-selected")).toBe("false");
-  await key(container.querySelector<HTMLElement>('[role="tree"]')!, "c", true);
+  expect(row(readme).getAttribute("aria-selected")).toBe("false");
+  const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+  await key(tree, "c", true);
   expect(useFileClipboardStore.getState().clipboard?.entries.map((entry) => entry.path)).toEqual([
     directory,
   ]);
+  await key(tree, "x", true);
+  expect(useFileClipboardStore.getState().clipboard?.entries.map((entry) => entry.path)).toEqual([
+    directory,
+  ]);
+  // The directory remains the keyboard focus and range anchor after the roundtrip.
+  await key(tree, "ArrowDown");
+  expect(row(child).getAttribute("aria-selected")).toBe("true");
+  await click(directory);
+  await click(readme, false, true);
+  expect(row(directory).getAttribute("aria-selected")).toBe("true");
+  expect(row(child).getAttribute("aria-selected")).toBe("true");
+  expect(row(readme).getAttribute("aria-selected")).toBe("true");
+  await click(directory);
+  await renderTree(matches[0].path);
+  expect(row(directory).getAttribute("aria-selected")).toBe("false");
+  expect(row(matches[0].path).getAttribute("aria-selected")).toBe("true");
 });
 
 test("following an editor tab also moves the anchor for the next range selection", async () => {

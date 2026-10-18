@@ -73,5 +73,5 @@ export function useFileExplorerSync({
     setRevealRequest((current) => (current?.id === requestId ? null : current));
   }, []);
 
-  return { consumeRevealRequest, requestRevealPath, revealRequest };
+  return { consumeRevealRequest, explorerTargetPath, requestRevealPath, revealRequest };
 }

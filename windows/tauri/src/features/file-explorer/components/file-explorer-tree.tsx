@@ -442,12 +442,13 @@ function FileExplorerTreeComponent({
     fileTreeSettings.showHiddenFilesInFileTree,
   ]);
 
-  const { consumeRevealRequest, requestRevealPath, revealRequest } = useFileExplorerSync({
-    activePath,
-    autoRevealActiveFile: fileTreeSettings.autoRevealActiveFileInFileTree,
-    updateActivePath,
-    revealPathInTree,
-  });
+  const { consumeRevealRequest, explorerTargetPath, requestRevealPath, revealRequest } =
+    useFileExplorerSync({
+      activePath,
+      autoRevealActiveFile: fileTreeSettings.autoRevealActiveFileInFileTree,
+      updateActivePath,
+      revealPathInTree,
+    });
 
   const isTreeSearchActive = treeSearchQuery.trim().length > 0;
   const isDebouncedTreeSearchActive = debouncedTreeSearchQuery.trim().length > 0;
@@ -559,16 +560,17 @@ function FileExplorerTreeComponent({
   const keyboardPath = focusedPath || activePath;
   const highlightedPath = hasTreeFocus ? keyboardPath : activePath;
 
-  const previousActivePath = useRef(activePath);
+  const previousEditorPath = useRef(explorerTargetPath);
   useEffect(() => {
-    if (previousActivePath.current === activePath) return;
-    previousActivePath.current = activePath;
+    if (previousEditorPath.current === explorerTargetPath) return;
+    previousEditorPath.current = explorerTargetPath;
     // Match Swift: a single selection follows the editor; an explicit group stays.
-    if (!activePath || selectedPaths.size > 1) return;
-    setSelectedPaths(new Set([activePath]));
-    selectionAnchor.current = activePath;
-    setFocusedPath(activePath);
-  }, [activePath, selectedPaths]);
+    // The shared sidebar path also changes on directory clicks and syncs back.
+    if (!explorerTargetPath || selectedPaths.size > 1) return;
+    setSelectedPaths(new Set([explorerTargetPath]));
+    selectionAnchor.current = explorerTargetPath;
+    setFocusedPath(explorerTargetPath);
+  }, [explorerTargetPath, selectedPaths]);
 
   useEffect(() => {
     if (!treeSearchOpen) return;

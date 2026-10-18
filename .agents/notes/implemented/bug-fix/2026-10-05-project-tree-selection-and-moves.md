@@ -49,6 +49,9 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
   实际复制、删除等批量操作才折叠父子重复；不能用折叠后的集合判断后代是否已被选中。
 - Windows 编辑器活动文件实际变化时，至多一个选项的项目树同步选择、键盘焦点与范围锚点，
   与 Swift 保持一致；明确多选保持原集合。活动文件不变时，重新渲染或选择目录不能触发同步。
+  判断变化使用 `useFileExplorerSync` 从编辑器缓冲区取得的 `explorerTargetPath`，不能使用
+  共享侧栏 `activePath`：目录点击会先更新后者，同步逻辑再将其恢复为编辑文件路径；
+  这次往返不代表编辑器切换，也不能改变目录的选择、复制或剪切目标。
 - Windows 路径比较仅对本地盘符和普通 UNC 网络路径忽略大小写；WSL、远程、POSIX
   以及 `wsl$` / `wsl.localhost` 网络别名保持大小写。选择去重与拖动预检使用同一规则，
   例如 Linux 的 `src/a.ts` 与 `src/A.ts` 都保留，Windows 同名目标仍拒绝覆盖。
@@ -65,6 +68,8 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
 
 ## 考虑过的备选方案
 
+- 监听侧栏活动路径来跟随编辑器：该路径同时接受目录点击，无法区分树选择与编辑器切换，
+  会把刚选中的目录改回编辑文件；改为复用同步 Hook 已有的编辑器目标，不另建缓冲区选择器。
 - 在树菜单单独实现搜索或直接替换文件：会绕过已有搜索状态和替换预览/确认流程，不采用。
 
 - 仅修复高亮：无法补齐批量移动，不能满足完整操作链。
@@ -95,6 +100,9 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
   `cd windows/tauri && bun test src/features/file-explorer/components/file-explorer-reveal.test.tsx`；
   点击真实工具栏按钮，检查关闭自动跟随时的折叠祖先展开、离屏行呈现、重复定位、
   延迟目录加载及过期请求；自动跟随仍需滚动。真实 WebView2 验收另行完成。
+- Windows 目录选择回归挂载真实 `FileExplorerPane`，连接侧栏与缓冲区 store，只替换磁盘副作用。
+  编辑器保持 `README.md` 打开时选择 `src`，核对共享路径同步往返后的高亮、复制、剪切、
+  键盘焦点及范围锚点；再核对实际编辑器切换的单选跟随和明确多选保留。
 - Windows 选择与移动回归：通过 `test-stability-windows.ps1 -Scope Frontend` 的
   `-FrontendTestPath` 选择 `file-explorer-selection.test.tsx`、
   `use-file-explorer-drag-drop.test.tsx` 和 `tree-selection.test.ts`；验证搜索后复制/剪切、
