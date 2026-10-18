@@ -872,7 +872,9 @@ private final class BridgeHarness {
 
     init(model: BuildModel? = nil, source: BuildSystemPluginSource? = nil) throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-bridge-\(UUID().uuidString)")
-        workspace = root.appendingPathComponent("workspace")
+        // The directory does not exist yet, so Foundation cannot infer its URL
+        // directory hint. Keep the fixture equal to the opened workspace URL.
+        workspace = root.appendingPathComponent("workspace", isDirectory: true)
         outside = root.appendingPathComponent("outside/secret.txt")
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outside.deletingLastPathComponent(), withIntermediateDirectories: true)
