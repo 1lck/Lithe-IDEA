@@ -455,7 +455,9 @@ struct BuildSystemServiceTests {
     func decodedTestResultsDoNotCrossIntoAnotherWorkspace() async throws {
         let oldResults = try Self.testResults("old")
         let planner = FakeBuildPlanner()
-        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "loaded"))
+        ])
         planner.testPlanDeclaresResults = true
         planner.decodedTestResults = oldResults
         let gate = GatedBuildDecode()
@@ -763,6 +765,52 @@ struct BuildSystemServiceTests {
         #expect(entry.modelState == .notLoaded)
         #expect(entry.model == nil)
         #expect(entry.dependencies.isEmpty)
+    }
+
+    /// A watched file changed between the model command reading it and the
+    /// result returning; the published model must stay marked stale.
+    @Test
+    func fileChangeDuringModelLoadMarksTheModelStale() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.modelOutput = .stdout
+        let runner = ReplacedOutputRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await runner.earlyWritten.waitUntilOpen())
+        harness.service.workspaceFilesChanged([
+            Self.workspace.appendingPathComponent("build.file")
+        ])
+
+        runner.releaseLate.open()
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+        #expect(harness.service.entry(Self.instanceID)?.isReloadRequired == true)
+    }
+
+    /// Report globs are relative to each project, so workspace tests without
+    /// the model would miss every subproject report.
+    @Test
+    func workspaceTestsWithoutAModelAreRefused() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        let runner = FakeBuildRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.runTests(Self.instanceID, request: BuildTestRequest(), title: "Tests")
+        guard case .failed(let message) = harness.service.runState else {
+            Issue.record("Workspace tests without a model must be refused")
+            return
+        }
+        #expect(message.contains("model"))
+        #expect(runner.requests.isEmpty)
+        #expect(harness.service.testResults == nil)
     }
 
     // MARK: Fixtures

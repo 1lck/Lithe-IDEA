@@ -149,7 +149,13 @@ struct BuildSystemsView: View {
             }
         }
         if entry.declaration.testScopes.contains(.workspace) {
-            LitheContextMenuItem.action("Run All Tests") { runTests(entry, project: nil, target: nil) }
+            LitheContextMenuItem.action(
+                "Run All Tests",
+                description: entry.model == nil
+                    ? String(localized: "Load the project model first, so subproject reports are collected.")
+                    : nil,
+                isEnabled: entry.model != nil
+            ) { runTests(entry, project: nil, target: nil) }
         }
         if entry.declaration.dependencyScopes.contains(.workspace) {
             LitheContextMenuItem.action("Show Dependencies") { showDependencies(entry, project: nil) }
@@ -175,7 +181,7 @@ struct BuildSystemsView: View {
         let workspaceTasks = entry.declaration.tasks.filter { !$0.fromModel && $0.scopes.contains(.workspace) }
         if !workspaceTasks.isEmpty || entry.declaration.testScopes.contains(.workspace) {
             groupSection(id: "tasks:" + entry.id, title: String(localized: "Tasks"), depth: 1) {
-                if entry.declaration.testScopes.contains(.workspace) {
+                if entry.declaration.testScopes.contains(.workspace), entry.model != nil {
                     testRow(entry, project: nil, target: nil, depth: 2)
                 }
                 ForEach(workspaceTasks) { task in

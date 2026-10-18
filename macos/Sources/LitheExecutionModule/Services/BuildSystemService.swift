@@ -107,6 +107,9 @@ package final class BuildSystemService: ObservableObject {
     /// the detection just read.
     private var modelRevisions: [String: Int] = [:]
     private var dependencyRevisions: [String: Int] = [:]
+    /// Bumped when a watched workspace file changes, so a load that started
+    /// before the change can tell its result is based on older files.
+    private var fileRevision = 0
     private var detectionTask: Task<Void, Never>?
     private var redetectTask: Task<Void, Never>?
     private var runTask: Task<Void, Never>?
@@ -182,6 +185,7 @@ package final class BuildSystemService: ObservableObject {
         entries = []
         modelRevisions = [:]
         dependencyRevisions = [:]
+        fileRevision = 0
         issues = []
         isDetecting = false
         runState = .idle
@@ -294,6 +298,7 @@ package final class BuildSystemService: ObservableObject {
             entry.sync?.watch.contains(where: changed.contains) == true
         }
         guard affected else { return }
+        fileRevision += 1
         redetectTask?.cancel()
         redetectTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
@@ -329,6 +334,7 @@ package final class BuildSystemService: ObservableObject {
         // The model command depends on the options; a change while it runs
         // makes the result stale even though it still publishes.
         let optionFingerprint = optionFingerprint(entry, workspaceURL: workspaceURL)
+        let startFileRevision = fileRevision
         let task = Task { [weak self] in
             guard let self else { return }
             let result = await self.performModelLoad(
@@ -342,6 +348,7 @@ package final class BuildSystemService: ObservableObject {
             switch result {
             case .success(let loaded):
                 let configChanged: Bool = {
+                    guard self.fileRevision == startFileRevision else { return true }
                     guard let current = self.entry(entryID),
                           let currentFingerprint = self.optionFingerprint(current, workspaceURL: workspaceURL)
                     else { return false }
@@ -442,6 +449,17 @@ package final class BuildSystemService: ObservableObject {
 
     package func runTests(_ entryID: String, request: BuildTestRequest, title: String) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
+        if request.project == nil, request.projects.isEmpty, entry.model == nil {
+            // Report globs are relative to each project; without the model a
+            // subproject's reports are invisible and a failing run would
+            // decode as success.
+            let message = String(
+                localized: "Load the project model before running all tests, so subproject reports are collected."
+            )
+            runState = .failed(message)
+            appendOutput(message + "\n")
+            return
+        }
         startRun(entryID, title: title) { service, run in
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
