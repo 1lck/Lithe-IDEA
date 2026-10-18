@@ -380,9 +380,6 @@ package struct BuildModel: Equatable, Sendable, Decodable {
     package let projects: [Project]
     package let targets: [Target]
     package let tasks: [Task]
-    /// Core's normalized run entries; these describe declarations, not a
-    /// platform-resolved process invocation the web page may execute.
-    package let run: [ToolingJSONValue]
     package let contentRoots: [ContentRoot]
     /// Values the model offers for `choicesFromModel` options.
     package let optionValues: [String: [String]]
@@ -390,10 +387,10 @@ package struct BuildModel: Equatable, Sendable, Decodable {
     package let truncated: Bool
 
     package init(
-        projects: [Project], targets: [Target] = [], tasks: [Task] = [], run: [ToolingJSONValue] = [],
+        projects: [Project], targets: [Target] = [], tasks: [Task] = [],
         contentRoots: [ContentRoot] = [], optionValues: [String: [String]] = [:], truncated: Bool = false
     ) {
-        self.projects = projects; self.targets = targets; self.tasks = tasks; self.run = run
+        self.projects = projects; self.targets = targets; self.tasks = tasks
         self.contentRoots = contentRoots; self.optionValues = optionValues; self.truncated = truncated
     }
 
@@ -402,14 +399,13 @@ package struct BuildModel: Equatable, Sendable, Decodable {
         projects = try values.decodeIfPresent([Project].self, forKey: .projects) ?? []
         targets = try values.decodeIfPresent([Target].self, forKey: .targets) ?? []
         tasks = try values.decodeIfPresent([Task].self, forKey: .tasks) ?? []
-        run = try values.decodeIfPresent([ToolingJSONValue].self, forKey: .run) ?? []
         contentRoots = try values.decodeIfPresent([ContentRoot].self, forKey: .contentRoots) ?? []
         optionValues = try values.decodeIfPresent([String: [String]].self, forKey: .optionValues) ?? [:]
         truncated = try values.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case projects, targets, tasks, run, contentRoots, optionValues, truncated
+        case projects, targets, tasks, contentRoots, optionValues, truncated
     }
 }
 

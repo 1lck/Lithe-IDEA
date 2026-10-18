@@ -378,7 +378,6 @@ async function main() {
       // Identical bytes do not establish transferable execution ownership.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
-      // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
       // Per-launch Codex helpers also own memory-only context replay tickets and
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       if (excludedResources.some((resource) => resource.id === identifier)) {

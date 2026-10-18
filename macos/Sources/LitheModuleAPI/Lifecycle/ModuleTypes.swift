@@ -205,8 +205,6 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
     public let rendererID: String?
     /// Plain text for a host-rendered declarative tool window. Never interpreted as code.
     public let text: String?
-    /// Package-relative HTML entry for a plugin web tool window. The host owns the window shell.
-    public let webEntry: String?
     public let visibility: [String: String]
 
     public init(
@@ -220,8 +218,7 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
         rendererID: String? = nil,
         visibility: [String: String] = [:],
         text: String? = nil,
-        uiIcon: PluginUIIcon? = nil,
-        webEntry: String? = nil
+        uiIcon: PluginUIIcon? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -233,15 +230,11 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
         self.actionID = actionID
         self.rendererID = rendererID
         self.text = text
-        self.webEntry = webEntry
         self.visibility = visibility
     }
 
-    /// True when the host renders the window body from the declaration instead of native code.
-    public var hasDeclarativeContent: Bool { text != nil || webEntry != nil }
-
     private enum CodingKeys: String, CodingKey {
-        case id, kind, title, icon, placement, order, actionID, rendererID, visibility, text, uiIcon, webEntry
+        case id, kind, title, icon, placement, order, actionID, rendererID, visibility, text, uiIcon
     }
 
     public init(from decoder: Decoder) throws {
@@ -260,7 +253,6 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
         actionID = try container.decodeIfPresent(String.self, forKey: .actionID)
         rendererID = try container.decodeIfPresent(String.self, forKey: .rendererID)
         text = try container.decodeIfPresent(String.self, forKey: .text)
-        webEntry = try container.decodeIfPresent(String.self, forKey: .webEntry)
         visibility = try container.decodeIfPresent(
             [String: String].self,
             forKey: .visibility

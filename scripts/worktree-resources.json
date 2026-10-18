@@ -137,15 +137,6 @@
       "reason": "Do not reuse plugin-owned language tools across worktrees; plugin lifecycle owns installation, replacement and cleanup."
     },
     {
-      "id": "plugin-web-state",
-      "reusable": false,
-      "locations": [
-        "<app-support>/Lithe/PluginState/<plugin-id>/web-state/<window-id>/<workspace-digest>.json"
-      ],
-      "identity": "Mutable UI state of one plugin window and workspace in one installed distribution; workspace digests are storage keys, not version/platform/architecture/toolchain build identity stamps",
-      "reason": "ui.setState persists at most 64 KiB outside read-only plugin packages and app bundles through the platform storage adapter. State belongs to the installed plugin and is removed with its PluginState directory on uninstall. No copy stage is permitted: never copy, share, or validate this per-user state as a reusable worktree resource; hiding or recreating a page reads the owning installation's state."
-    },
-    {
       "id": "plugin-marketplace-state",
       "reusable": false,
       "locations": [

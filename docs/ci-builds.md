@@ -554,14 +554,6 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
   由 `jdt` 宿主集成在启动时发现没有未卸载的插件声明它后删除。两者都是单次安装的
   可变状态，任何阶段都不得复制或跨 worktree 共享。
 
-插件网页的宿主持久状态通过平台存储 adapter 写到
-`<app-support>/Lithe/PluginState/<plugin-id>/web-state/<window-id>/<workspace-digest>.json`，
-每个窗口和工作区最多 64 KiB。它属于当前安装中的插件，卸载时随 `PluginState` 清理；
-包内网页、脚本和 app bundle 始终只读，因此不改变签名或 Sparkle delta 的源基线。
-这类用户 JSON 没有版本、平台、架构或工具链 identity stamp，工作区摘要只是存储键，
-任何复制阶段都不得复用或共享。`excludedResources.plugin-web-state` 通过复用脚本的
-排除路由直接拒绝，由 `scripts/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
-
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity
 stamp 后才能加入注册表，不能仅凭目录存在就跨 worktree 复制。

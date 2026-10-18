@@ -17,11 +17,6 @@ final class MacPluginManager: PluginManaging {
     private let registeredPluginIDs: Set<PluginID>
     private let hostVersion: PluginVersion
     private let allowsLocalDevelopmentPackages: Bool
-    /// Release pages before their package is replaced or their owner is disabled.
-    private let invalidateWebPages: (PluginID) -> Void
-    private let enableWebPages: (PluginID) -> Void
-    /// Unlike disablement, package mutation blocks pages until process restart.
-    private let beforePackageReplacement: (PluginID) -> Void
     private var installedPlugins: [PluginID: InstalledPluginPackage]
     private var restartRequiredPluginIDs: Set<PluginID> = []
     private(set) var issues: [PluginManagementIssue]
@@ -36,16 +31,10 @@ final class MacPluginManager: PluginManaging {
         managedBuiltInPlugins: [PluginManifest] = [],
         hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
         allowsLocalDevelopmentPackages: Bool =
-            MacOfficialPluginSignatureVerifier.allowsLocalDevelopmentPackagesByDefault,
-        invalidateWebPages: @escaping (PluginID) -> Void = { _ in },
-        enableWebPages: @escaping (PluginID) -> Void = { _ in },
-        beforePackageReplacement: ((PluginID) -> Void)? = nil
+            MacOfficialPluginSignatureVerifier.allowsLocalDevelopmentPackagesByDefault
     ) {
         self.packageStore = packageStore
         self.allowsLocalDevelopmentPackages = allowsLocalDevelopmentPackages
-        self.invalidateWebPages = invalidateWebPages
-        self.enableWebPages = enableWebPages
-        self.beforePackageReplacement = beforePackageReplacement ?? invalidateWebPages
         self.moduleRuntime = moduleRuntime
         self.configurationStore = configurationStore
         self.settings = settings
@@ -99,7 +88,6 @@ final class MacPluginManager: PluginManaging {
             throw PluginManagerError.requiredPluginCannotBeDisabled(pluginID)
         }
 
-        if !enabled { invalidateWebPages(pluginID) }
         let registeredIDs = Set(moduleRuntime.snapshots().map(\.manifest.id))
         let declarations: [PluginModuleDeclaration] = enabled
             ? manifest.modules
@@ -122,7 +110,6 @@ final class MacPluginManager: PluginManaging {
         if manifest.entrypoint.kind == .declarative, !registeredPluginIDs.contains(pluginID) {
             restartRequiredPluginIDs.insert(pluginID)
         }
-        if enabled && !restartRequiredPluginIDs.contains(pluginID) { enableWebPages(pluginID) }
     }
 
     func installMarketplacePackage(
@@ -140,8 +127,7 @@ final class MacPluginManager: PluginManaging {
             // package; a new version is installed beside the current one.
             replaceExisting: true,
             origin: origin,
-            marketplace: provenance,
-            beforeReplacingPackage: beforePackageReplacement
+            marketplace: provenance
         )
         restartRequiredPluginIDs.insert(installed.manifest.id)
         try refreshInstalledPlugins()
@@ -161,17 +147,14 @@ final class MacPluginManager: PluginManaging {
             from: packageURL,
             deferActivationUntilRestart: true,
             replaceExisting: isDevelopmentPackage,
-            origin: isDevelopmentPackage ? .localDevelopment : .marketplace,
-            beforeReplacingPackage: beforePackageReplacement
+            origin: isDevelopmentPackage ? .localDevelopment : .marketplace
         )
         restartRequiredPluginIDs.insert(installed.manifest.id)
         try refreshInstalledPlugins()
     }
 
     func rollback(_ pluginID: PluginID) throws {
-        _ = try packageStore.rollback(
-            pluginID, deferActivationUntilRestart: true, beforeReplacingPackage: beforePackageReplacement
-        )
+        _ = try packageStore.rollback(pluginID, deferActivationUntilRestart: true)
         restartRequiredPluginIDs.insert(pluginID)
         try refreshInstalledPlugins()
     }
@@ -181,7 +164,6 @@ final class MacPluginManager: PluginManaging {
             guard issues.contains(where: { $0.pluginID == pluginID }) else {
                 throw PluginManagerError.unknownPlugin(pluginID)
             }
-            beforePackageReplacement(pluginID)
             try packageStore.stageInvalidPackageUninstall(pluginID)
             restartRequiredPluginIDs.insert(pluginID)
             issues.removeAll { $0.pluginID == pluginID }
@@ -197,7 +179,6 @@ final class MacPluginManager: PluginManaging {
         guard !installed.manifest.modules.contains(where: { $0.manifest.isRequired }) else {
             throw PluginManagerError.requiredPluginCannotBeUninstalled(pluginID)
         }
-        beforePackageReplacement(pluginID)
         if installed.installation.origin == .bundled {
             // The package itself lives in the read-only app bundle.
             try packageStore.setBundledPluginRemoved(pluginID, removed: true)

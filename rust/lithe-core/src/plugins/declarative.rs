@@ -201,7 +201,7 @@ struct UIToolWindow {
 /// grants no network, navigation or storage, and talks to it through the
 /// plugin web bridge, which reaches only this plugin's own declarations.
 ///
-/// Note: the decision is recorded in .agents/notes/implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md
+/// Note: the decision is recorded in .agents/notes/proposed/architecture/2026-10-18-plugin-web-content-in-host-windows.md
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct UIWebContent {

@@ -20,8 +20,6 @@ final class AppServices {
     let pluginMarketplace: any PluginMarketplaceServicing
     let pluginCatalog: ValidatedPluginCatalog
     let pluginUIIconResources: [String: PluginUIIconResources]
-    /// Plugin pages shown in host tool windows (`ui` 2).
-    let pluginWebPages: PluginWebPages
     /// Unified language-pack composition. The derived catalog and focused
     /// registries remain exposed below for source compatibility with existing
     /// feature models while new composition should use this value.
@@ -79,7 +77,6 @@ final class AppServices {
         pluginMarketplace: any PluginMarketplaceServicing,
         pluginCatalog: ValidatedPluginCatalog,
         pluginUIIconResources: [String: PluginUIIconResources] = [:],
-        pluginWebPages: PluginWebPages? = nil,
         languageProviderCatalogSource: any LanguageProviderCatalogSource,
         workspaceLanguageServerPreferences: any WorkspaceLanguageServerPreferencesStoring,
         languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
@@ -127,7 +124,6 @@ final class AppServices {
         self.pluginMarketplace = pluginMarketplace
         self.pluginCatalog = pluginCatalog
         self.pluginUIIconResources = pluginUIIconResources
-        self.pluginWebPages = pluginWebPages ?? PluginWebPages()
         self.languageProviderCatalogSource = languageProviderCatalogSource
         self.workspaceLanguageServerPreferences = workspaceLanguageServerPreferences
         let resolvedCatalogSnapshot = languageProviderCatalogSnapshot

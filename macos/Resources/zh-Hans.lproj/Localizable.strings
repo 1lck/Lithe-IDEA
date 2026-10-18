@@ -3385,15 +3385,3 @@
 "%@ did not report a version; %@ or newer is required." = "%1$@ 没有报告版本，需要 %2$@ 或更高版本。";
 "%@ is not available." = "%@ 不可用。";
 "No JDK is configured for this project." = "此项目没有配置 JDK。";
-
-/* Plugin web tool windows */
-"Show its own page in a tool window" = "在工具窗口中显示插件自带的页面";
-"Load the %@ model" = "加载 %@ 的模型";
-"Load the dependencies of %@" = "加载 %@ 的依赖";
-"Allow “%@” to run build tools?" = "允许“%@”运行构建工具吗？";
-"The plugin’s page asks to run them in %@." = "插件页面请求在 %@ 中运行它们。";
-"Lithe asks again after the plugin is disabled, updated, or Lithe restarts." = "插件被停用、更新或 Lithe 重启后会再次询问。";
-"Arguments from the page:" = "页面提供的参数：";
-"Allow" = "允许";
-"Don’t Allow" = "不允许";
-"Restart Lithe to load the updated page." = "重启 Lithe 以加载更新后的页面。";

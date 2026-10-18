@@ -54,7 +54,7 @@ struct MonacoWorkbenchThemeConfiguration: Equatable {
         ["id": id, "dark": dark, "colors": colors]
     }
 
-    static func cssColor(_ color: NSColor) -> String {
+    private static func cssColor(_ color: NSColor) -> String {
         let resolved = color.usingColorSpace(.sRGB) ?? color
         func byte(_ component: CGFloat) -> Int {
             Int((min(max(component, 0), 1) * 255).rounded())

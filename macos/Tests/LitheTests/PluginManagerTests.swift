@@ -153,8 +153,6 @@ struct PluginManagerTests {
             PluginManagerTestModule(manifest: moduleManifest, recorder: recorder)
         })
         _ = try await runtime.activate(pluginModuleID)
-        var invalidated: [PluginID] = []
-        var webPagesEnabled: [PluginID] = []
         let manager = MacPluginManager(
             packageStore: makeStore(root: root),
             moduleRuntime: runtime,
@@ -165,14 +163,11 @@ struct PluginManagerTests {
                 installedPlugins: [installed],
                 registeredPlugins: [installed],
                 issues: []
-            ),
-            invalidateWebPages: { invalidated.append($0) },
-            enableWebPages: { webPagesEnabled.append($0) }
+            )
         )
 
         try await manager.setEnabled(false, for: installed.manifest.id)
 
-        #expect(invalidated == [installed.manifest.id])
         #expect(recorder.shutdownCount == 1)
         #expect(try runtime.snapshot(for: pluginModuleID).state == .disabled)
         let disabled = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
@@ -183,57 +178,6 @@ struct PluginManagerTests {
         let enabled = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
         #expect(enabled.isEnabled)
         #expect(!enabled.requiresRestart)
-        #expect(invalidated == [installed.manifest.id])
-        #expect(webPagesEnabled == [installed.manifest.id])
-    }
-
-    @Test
-    func packageMutationUsesItsOwnLifecycleNotification() async throws {
-        let root = temporaryRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = MacPluginPackageStore(
-            rootURL: root.appendingPathComponent("installed"),
-            validator: DeclarativePluginTestSupport.operations,
-            verifier: MacOfficialPluginSignatureVerifier(allowsLocalDevelopmentPackages: true)
-        )
-        let pluginID = PluginID("dev.example.lifecycle")
-        func package(_ patch: Int) throws -> URL {
-            try DeclarativePluginTestSupport.writePackage(
-                at: root.appendingPathComponent("source-\(patch)"),
-                manifest: DeclarativePluginTestSupport.manifestObject(
-                    id: pluginID.rawValue, version: PluginVersion(major: 0, minor: 3, patch: patch),
-                    // Development installs omit a required publisher signature;
-                    // `none` is reserved for confirmed community packages.
-                    signatureRequirement: .publisherPackage
-                )
-            )
-        }
-        let first = try store.installPackage(from: package(0), origin: .localDevelopment)
-        let preferences = PluginManagerKeyValueStore()
-        let configuration = MacModuleConfigurationStore(store: preferences)
-        var disabled: [PluginID] = []
-        var mutations: [PluginID] = []
-        let manager = MacPluginManager(
-            packageStore: store,
-            moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
-            configurationStore: configuration,
-            settings: InMemoryPluginSettings(),
-            launchMode: .normal,
-            startup: MacPluginStartupResult(installedPlugins: [first], registeredPlugins: [], issues: []),
-            allowsLocalDevelopmentPackages: true,
-            invalidateWebPages: { disabled.append($0) },
-            beforePackageReplacement: { mutations.append($0) }
-        )
-        try manager.installPackage(at: package(1))
-        #expect(manager.snapshots.first { $0.id == pluginID }?.origin == .localDevelopment)
-        #expect(mutations == [pluginID])
-        #expect(disabled.isEmpty)
-        try manager.rollback(pluginID)
-        #expect(mutations == [pluginID, pluginID])
-        #expect(disabled.isEmpty)
-        try await manager.uninstall(pluginID)
-        #expect(mutations == [pluginID, pluginID, pluginID])
-        #expect(disabled.isEmpty)
     }
 
     @Test

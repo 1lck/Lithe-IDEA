@@ -25,18 +25,6 @@ package enum BuildRunState: Equatable, Sendable {
     case cancelled
 }
 
-/// How one task or test run ended. `exitCode` is set when the tool exited.
-package struct BuildRunEnd: Equatable, Sendable {
-    package let runID: UUID
-    package let entryID: String
-    package let state: BuildRunState
-    package let exitCode: Int32?
-
-    package init(runID: UUID, entryID: String, state: BuildRunState, exitCode: Int32?) {
-        self.runID = runID; self.entryID = entryID; self.state = state; self.exitCode = exitCode
-    }
-}
-
 /// One detected instance with what the host has loaded for it.
 package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
     package let instance: BuildSystemInstance
@@ -190,12 +178,6 @@ package final class BuildSystemService: ObservableObject {
         self.sources = sources
     }
 
-    /// Every run that ends, stopped or superseded runs included, so a caller
-    /// that started one can tell how its own run ended.
-    package let runEnded = PassthroughSubject<BuildRunEnd, Never>()
-
-    /// The task or test run in progress; nil when none runs.
-    package var currentRunID: UUID? { runID }
     package var isRunning: Bool { runState == .running }
     package var isLoadingModel: Bool { !modelTasks.isEmpty }
     package var isLoadingDependencies: Bool { !dependencyTasks.isEmpty }
@@ -626,10 +608,9 @@ package final class BuildSystemService: ObservableObject {
     // MARK: Tasks and tests
 
     /// Runs a declared task, or a model task through its template.
-    @discardableResult
-    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
-        guard let workspaceURL, let entry = entry(entryID) else { return nil }
-        return startRun(entryID, title: title) { service, run in
+    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) {
+        guard let workspaceURL, let entry = entry(entryID) else { return }
+        startRun(entryID, title: title) { service, run in
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.taskPlan(entry.target, context: context, request: request)
             let collected = try await service.runStreamedCommand(
@@ -644,10 +625,9 @@ package final class BuildSystemService: ObservableObject {
         }
     }
 
-    @discardableResult
-    package func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
-        guard let workspaceURL, let entry = entry(entryID) else { return nil }
-        return startRun(entryID, title: title) { service, run in
+    package func runTests(_ entryID: String, request: BuildTestRequest, title: String) {
+        guard let workspaceURL, let entry = entry(entryID) else { return }
+        startRun(entryID, title: title) { service, run in
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
             if plan.results != nil, request.project == nil,
@@ -702,10 +682,6 @@ package final class BuildSystemService: ObservableObject {
     /// Ends the task or test run. Model and dependency commands keep running.
     package func stopRun() {
         guard runTask != nil else { return }
-        var ended: BuildRunEnd?
-        if let runID, let runEntryID {
-            ended = BuildRunEnd(runID: runID, entryID: runEntryID, state: .cancelled, exitCode: nil)
-        }
         runTask?.cancel()
         runTask = nil
         runID = nil
@@ -713,7 +689,6 @@ package final class BuildSystemService: ObservableObject {
         if runState == .running {
             runState = .cancelled
         }
-        if let ended { runEnded.send(ended) }
     }
 
     /// Ends every process this service started.
@@ -750,7 +725,7 @@ package final class BuildSystemService: ObservableObject {
         _ entryID: String,
         title: String,
         _ work: @escaping @MainActor (BuildSystemService, RunIdentity) async throws -> Int32?
-    ) -> UUID {
+    ) {
         stopRun()
         clearOutput()
         let id = UUID()
@@ -762,10 +737,8 @@ package final class BuildSystemService: ObservableObject {
         runTask = Task { [weak self] in
             guard let self else { return }
             let state: BuildRunState
-            var exitCode: Int32?
             do {
-                exitCode = try await work(self, run)
-                if let exitCode {
+                if let exitCode = try await work(self, run) {
                     state = exitCode == 0
                         ? .succeeded
                         : .failed(String(localized: "The build tool exited with code \(Int(exitCode))."))
@@ -787,9 +760,7 @@ package final class BuildSystemService: ObservableObject {
             self.runTask = nil
             self.runID = nil
             self.runEntryID = nil
-            self.runEnded.send(BuildRunEnd(runID: id, entryID: entryID, state: state, exitCode: exitCode))
         }
-        return id
     }
 
     /// True while `run` is still the run whose results may be shown: same
