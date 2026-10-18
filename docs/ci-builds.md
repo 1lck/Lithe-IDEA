@@ -77,7 +77,17 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
 The **Lane reuse** section of the classify job summary lists each lane's
 decision and links to a reused job.
 A reused lane appears as skipped in the new run; its result is the linked
-job, which the gate checks.
+job, which the gate checks. If the current workflow is cancelled, its gate is
+skipped too, rather than adding a failure for the cancelled upstream jobs.
+Cancellation is not a passing validation: the replacement run still checks all
+selected lanes. An active run fails its gate when classification, a selected
+job, or a reused source fails; a cancelled reused source also fails the gate.
+
+The real-JDT lane runs on Windows and is selected by shared Java/JDT engine
+changes, bundled JDK/JDT resources, preparation scripts, and Windows Java
+consumers. Swift Java adapters and tests are covered by the Swift lane; a
+macOS path containing `Java` alone does not select Windows real-JDT. Shared Core
+and contract changes still select the relevant cross-platform checks.
 
 ### What runs after a pull request merges
 

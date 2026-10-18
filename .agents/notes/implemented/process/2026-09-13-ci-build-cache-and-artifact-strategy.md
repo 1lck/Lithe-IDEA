@@ -48,6 +48,11 @@ Cargo 清单与锁文件（包括成员 crate，只改 feature 时锁文件可�
 提交在 base 前进后自动带上的改动（用 API 取得之前那次运行开始时的 base 头）。
 失败或被取消的结果从不复用。
 
+真实 JDT 集成 lane 在 Windows 上验证共享 Java 引擎，按共享 Rust Java/JDT、JDK/JDT
+资源、准备脚本和 Windows Java 消费方选择。macOS 的 Swift Java 适配器及测试由
+Swift lane 编译验证，不因路径中含有 `Java` 就申请 Windows runner。共享 Core 或
+契约改动仍按各自规则选择跨平台验证；不能用“没有修改 `windows/`”跳过这些检查。
+
 GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR 运行不再按分支自动
 互相取消：规划步骤取消没有任何 lane 复用的旧运行，被复用、仍在运行的旧运行保留
 到结束。只考虑运行序号小于本轮的旧运行：连续 push 时旧修订的规划步骤可能晚于新
@@ -58,6 +63,12 @@ GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR �
 （同步 `preview` 时会把别人的改动算进来，正是要避免的全量重跑）。接受的风险：
 复用的结果没有测过“PR + 新的 base”这个组合，由合并后的 universal 打包
 兜底。
+
+四个汇总 gate 在当前 workflow 被取消时跳过，避免上游 `cancelled` 被成功断言再次
+标成 failure。取消不算验证通过；替代运行仍必须完成所有选中的 lane。当前 workflow
+未取消时，即使分类或测试失败，gate 也必须执行并失败；外部复用来源失败、取消、
+不可读取或超时，同样不能放行。不要把 gate 改成只在 `success()` 时执行，也不要在
+shell 中把取消结果转换为成功，否则真正失败会消失。
 
 合并之后只运行 PR 观察不到的部分。PR 是合入 `preview` 的门槛，完整验证在 PR
 上完成；合并后的 push 只在改动涉及打包内容时构建 universal 包。这是 x86_64
@@ -310,7 +321,8 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 ## 验证
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-database.yml .github/workflows/ci-plugins.yml`
-- `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane 的用例。
+- `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
+- `node --test scripts/ci-workflow-gates.test.mjs scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs`：从实际工作流执行 gate shell，验证取消条件、分类/测试失败、lane 覆盖及复用来源的失败传播。
 - `./scripts/test-classify-ci-changes.sh` 覆盖 `save-macos-cargo-build-cache` 改动触发全部 macOS lane。
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/release-preview-macos.yml`
 - `./scripts/test-macos.sh`
