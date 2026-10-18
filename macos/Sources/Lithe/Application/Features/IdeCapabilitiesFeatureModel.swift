@@ -36,6 +36,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
             configuration = String(decoding: try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
             isEnabled = true
             model.registerIdeCapabilities(self)
+            registerLitheServer(from: config, model: model)
             pollTask = Task { [weak self] in
                 while !Task.isCancelled {
                     guard let self, self.isEnabled else { return }
@@ -49,6 +50,9 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
     func disable() {
         isEnabled = false
         model?.unregisterIdeCapabilities()
+        // Project-level Agent entries point at this host only while the grant
+        // is active; leaving them behind would advertise a closed connection.
+        model?.unregisterLitheMcpServer()
         pollTask?.cancel()
         pollTask = nil
         for task in requests.values { task.cancel() }
@@ -75,6 +79,20 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
     private var permissions: [String: Bool] { ["configure": allowConfigure, "execute": allowExecute] }
     private func failure(_ message: String) -> NSError { NSError(domain: "IdeCapabilities", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
     private func failed(_ code: String, _ message: String) -> [String: Any] { ["ok": false, "error": ["code": code, "message": message]] }
+
+    /// Forwards the helper command the host generated so the library can write
+    /// the same server into the open project's Codex and Claude configuration.
+    private func registerLitheServer(from configuration: Any, model: any IdeCapabilityActions) {
+        guard let servers = (configuration as? [String: Any])?["mcpServers"] as? [String: Any],
+              let lithe = servers["lithe"] as? [String: Any],
+              let command = lithe["command"] as? String else { return }
+        model.registerLitheMcpServer(McpServerDefinition(
+            name: "lithe",
+            transport: .stdio,
+            command: command,
+            args: lithe["args"] as? [String] ?? []
+        ))
+    }
 
     private func poll() {
         guard let model, let workspace, model.isCurrentWorkspace(workspace), let hostID, let transport else { disable(); return }

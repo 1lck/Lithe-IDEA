@@ -144,14 +144,14 @@ struct WelcomeView: View {
                 emptyProjectsState
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 2) {
+                    LazyVStack(spacing: 0) {
                         ForEach(filteredProjects) { project in
                             projectRow(project)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 24)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 8)
                 }
             }
         }
@@ -187,7 +187,10 @@ struct WelcomeView: View {
                         isEnabled: exists
                     )
 
-                    VStack(alignment: .leading, spacing: 3) {
+                    // IDEA's welcome list keeps the name and path close and
+                    // rows contiguous; the previous 68pt row read as an empty
+                    // two-column layout rather than a project list.
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(project.name)
                             .font(LitheTheme.uiFont(size: 13.5, weight: .regular))
                             .foregroundStyle(exists ? textColor : mutedColor)
@@ -196,6 +199,20 @@ struct WelcomeView: View {
                             .foregroundStyle(mutedColor)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                        if let branch = project.branch {
+                            HStack(spacing: 5) {
+                                LitheIDEAIcon(
+                                    resourcePath: "vcs/branch.svg",
+                                    size: 11,
+                                    fallbackSystemImage: "arrow.triangle.branch"
+                                )
+                                Text(branch)
+                                    .font(LitheTheme.uiFont(size: 11.5))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            .foregroundStyle(mutedColor)
+                        }
                     }
                     Spacer(minLength: 8)
                 }
@@ -239,7 +256,7 @@ struct WelcomeView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
-        .frame(height: 68)
+        .frame(height: 56)
         .background(hoveredProjectID == project.id ? selectionColor : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .onHover { isHovering in

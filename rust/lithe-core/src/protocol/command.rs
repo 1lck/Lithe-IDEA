@@ -46,6 +46,10 @@ pub enum CoreCommand {
     AgentInstallCli,
     /// Parses credential-free Agent provider metadata (`agent.parseProviderConfiguration`).
     AgentParseProviderConfiguration,
+    /// Parses one Agent MCP configuration file into normalized servers (`mcp.parseConfiguration`).
+    McpParseConfiguration,
+    /// Plans a format-preserving MCP entry write or removal (`mcp.planWrite`).
+    McpPlanWrite,
     /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
     PluginsDeclarativeValidate,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
@@ -283,6 +287,8 @@ pub enum CoreCommand {
     GitRemoteUrl,
     /// Plans Fetch arguments without launching Git or changing configuration (`git.fetchPlan`).
     GitFetchPlan,
+    /// Resolves the executable Git will run without requiring a repository (`git.executable`).
+    GitExecutable,
     /// Inspects Git configuration and its sources (`git.executionInspect`).
     GitExecutionInspect,
     /// Saves one explicitly selected configuration field (`git.executionConfigure`).
@@ -369,6 +375,8 @@ impl CoreCommand {
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
             "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
+            "mcp.parseConfiguration" => Some(Self::McpParseConfiguration),
+            "mcp.planWrite" => Some(Self::McpPlanWrite),
             "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
             "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),
@@ -490,6 +498,7 @@ impl CoreCommand {
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
             "git.fetchPlan" => Some(Self::GitFetchPlan),
+            "git.executable" => Some(Self::GitExecutable),
             "git.executionInspect" => Some(Self::GitExecutionInspect),
             "git.executionConfigure" => Some(Self::GitExecutionConfigure),
             "git.authRespond" => Some(Self::GitAuthRespond),

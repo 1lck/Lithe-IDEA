@@ -18,6 +18,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
         sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
     lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
+    /// Settings › MCP: servers registered with Codex and Claude Code, created
+    /// when the page is first shown.
+    lazy var mcpServerLibrary = McpServerLibraryFeatureModel(model: self)
     @Published var isChangingAgentProvider = false
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }

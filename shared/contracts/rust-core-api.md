@@ -551,6 +551,66 @@ stable error code and a user-facing message:
 
 ## Commands
 
+### MCP configuration
+
+`mcp.parseConfiguration` accepts `{ source: "codex" | "claude", scope:
+"global" | "project", content: string, projectPath?: string }` and returns
+`{ servers: McpServer[] }`. Claude project scope requires `projectPath` and reads
+`projects.<projectPath>.mcpServers`; Codex reads `mcp_servers` in the supplied
+file. Core handles bounded text only; hosts own paths, file I/O, backups and
+atomic writes. Configuration text is limited to 1 MiB UTF-8. Invalid requests or
+configuration return redacted `invalid_request` errors.
+
+A server has `name`, `transport` (`stdio`, `http`, `sse`), optional `command` and
+`url`, `args: string[]`, `env` and `headers` arrays of `{ key, value }`, plus two
+lowercase SHA-256 hashes with separate purposes:
+
+- `definitionHash` keeps the existing library grouping identity: name, transport,
+  and modeled fields used by that transport, with environment/header entries
+  sorted deterministically. Unknown fields do not change this hash.
+- `sourceHash` covers the name and the **complete semantic source entry**,
+  including unknown authentication, timeout, nested and non-string values, as
+  well as fields unused by the active transport. Object/table keys are sorted,
+  array order and value types are preserved, and source formatting/comments are
+  excluded. This hash is source-specific and is not a grouping key. Parsed
+  servers always supply it; request decoding permits an absent/null value for
+  compatibility with older clients and new drafts.
+
+`mcp.planWrite` accepts `{ source, scope, projectPath?, content?: string | null,
+operation: "set" | "remove", server?: McpServer, name?: string,
+previousName?: string, expectedHash?: string, owned?: OwnedEntry[] }`. `set`
+requires `server`, `remove` requires `name`, and project scope requires
+`projectPath`. `previousName` identifies the original of a rename. Each owned
+entry is `{ name, definitionHash, sourceHash?: string }`; hosts must record the
+hashes returned from the actual write plan rather than hashes from the draft.
+
+Automatic replacement/removal, including unchanged set plans used for repeated
+registration, requires an owned record whose name, `definitionHash` and
+`sourceHash` match the current entry. An existing raw entry omitted from discovery
+because it lacks a usable command/URL also conflicts rather than being treated as
+an empty slot. A legacy owned record
+without `sourceHash` does not prove ownership: mutation is refused with
+`externallyModified` when the name is recorded. An unrecorded name returns
+`ownedByUser`. Hosts must not silently upgrade legacy records from the current
+file or append the displayed hash to `owned` to authorize an explicit action.
+
+When supplied, `expectedHash` means the **full `sourceHash` of the original
+entry displayed to the user**, not `definitionHash`. It is checked against the
+current entry before unchanged-definition or ownership early exits; a missing
+entry or different hash returns `externallyModified`, even if a newer ownership
+ledger matches the current file or the desired modeled definition is unchanged.
+An exact match authorizes an explicit edit/remove of that original even when
+it is not owned. For rename, it refers to `previousName`, and cannot authorize
+an unrelated existing destination; destination ownership checks still apply.
+
+The response is `{ content, changed, action, conflict, definitionHash?,
+sourceHash? }`. Actions are `inserted`, `updated`, `unchanged`, `removed`, `absent`,
+or `conflict`; conflicts leave the input unchanged. Successful set plans return
+both hashes computed by parsing the actual output entry, including preserved
+unknown fields. Unchanged set plans also return the current entry's hashes;
+removal/absence normally has no entry hashes. Hashes sent on the draft server
+are never trusted as write output or persisted into Agent configuration.
+
 ### Agent adapters
 
 `agent.parseProviderConfiguration` takes `{source, configuration}` with `source`
@@ -1069,10 +1129,14 @@ it is not console output. See `shared/fixtures/git/remote-url-v1.json`.
 It returns `{ executable, version, scope, entries, fields, temporaryConfig,
 fetchOptions, fetchError, fetchSources, credentialHelperEnabled,
 interactiveAuthentication }`. Entries are `{ key, value, scope, origin, effective }`
-in Git precedence order, limited to relevant configuration and redacted. Fields
-are `{ key, choices: string[], configuredValues: string[] }` from the selected
-file without expanding includes. Fetch source values are `{ scope, origin }`
-per preference; application sources have null origins. Invalid repository
+in Git precedence order, limited to relevant configuration and redacted. Effective
+`fetch.prunetags` and `remote.<name>.prunetags` entry values use Git's boolean
+parser and return canonical `"true"` or `"false"` for valid spellings (including
+valueless assignments); invalid values remain inspectable as their redacted raw
+text. Fields are `{ key, choices: string[], configuredValues: string[] }` from
+the selected file without expanding includes. `configuredValues` retain the raw
+values for optimistic edit checks, even when an effective entry is normalized.
+Fetch source values are `{ scope, origin }` per preference; application sources have null origins. Invalid repository
 preferences return null `fetchOptions` and a structured `fetchError`.
 
 `git.executionConfigure` adds `{ key, value: string | null, expectedValues:
