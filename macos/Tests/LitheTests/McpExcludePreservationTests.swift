@@ -86,6 +86,39 @@ struct McpExcludePreservationTests {
 
         #expect(try Data(contentsOf: fixture.excludeURL) == Data(".codex/config.toml\n".utf8))
     }
+
+    @Test
+    func ruleAppendedByAnotherEditorSurvivesPublishingTheCodexRule() throws {
+        let fixture = try ExcludeFixture()
+        defer { fixture.cleanUp() }
+        try Data("old-rule\n".utf8).write(to: fixture.excludeURL)
+        let hook = ExcludeInterleavingHook()
+        hook.beforePublish = {
+            try Data("old-rule\nnew-rule\n".utf8).write(to: fixture.excludeURL)
+        }
+        let store = fixture.store(hook: hook)
+
+        try store.excludeFromVersionControl(".codex/config.toml", workspace: fixture.workspace)
+
+        #expect(try String(contentsOf: fixture.excludeURL, encoding: .utf8)
+            == "old-rule\nnew-rule\n.codex/config.toml\n")
+    }
+
+    @Test
+    func ruleAppendedByAnotherEditorSurvivesCreatingTheExcludeFile() throws {
+        let fixture = try ExcludeFixture()
+        defer { fixture.cleanUp() }
+        let hook = ExcludeInterleavingHook()
+        hook.beforePublish = {
+            try Data("external-rule\n".utf8).write(to: fixture.excludeURL)
+        }
+        let store = fixture.store(hook: hook)
+
+        try store.excludeFromVersionControl(".codex/config.toml", workspace: fixture.workspace)
+
+        #expect(try String(contentsOf: fixture.excludeURL, encoding: .utf8)
+            == "external-rule\n.codex/config.toml\n")
+    }
 }
 
 @MainActor
@@ -107,10 +140,15 @@ private struct ExcludeFixture {
         }
     }
 
-    func store(failingReadURL: URL? = nil) -> MacAgentMcpConfigurationStore {
+    func store(
+        failingReadURL: URL? = nil,
+        hook: ExcludeInterleavingHook? = nil
+    ) -> MacAgentMcpConfigurationStore {
         MacAgentMcpConfigurationStore(
             core: RustCoreBridge(),
-            storage: ExcludeFileStorage(root: workspace, failingReadURL: failingReadURL),
+            storage: ExcludeFileStorage(
+                root: workspace, failingReadURL: failingReadURL, interleaving: hook
+            ),
             environment: [:]
         )
     }
@@ -125,9 +163,14 @@ private struct ExcludeFixture {
 }
 
 /// Real file operations with one deterministic read failure, independent of OS permissions.
+private final class ExcludeInterleavingHook: @unchecked Sendable {
+    var beforePublish: (() throws -> Void)?
+}
+
 private struct ExcludeFileStorage: FileStorage {
     let root: URL
     let failingReadURL: URL?
+    let interleaving: ExcludeInterleavingHook?
     private let files = MacFileStorage()
 
     func homeDirectory() -> URL { root }
@@ -159,6 +202,10 @@ private struct ExcludeFileStorage: FileStorage {
         try files.removeData(at: url, expecting: expected)
     }
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
+        if let hook = interleaving?.beforePublish {
+            interleaving?.beforePublish = nil
+            try hook()
+        }
         try files.createDirectory(at: url, withIntermediateDirectories: withIntermediateDirectories)
     }
     func removeItem(at url: URL) throws { try files.removeItem(at: url) }

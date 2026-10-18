@@ -235,38 +235,49 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
     /// project's own version-control policy stays untouched.
     func excludeFromVersionControl(_ relativePath: String, workspace: URL) throws {
         guard let excludeURL = gitExcludeURL(workspace: workspace) else { return }
-        let existing: Data
-        if storage.fileExists(at: excludeURL) {
+        // Another editor can append a rule between our read and the write.
+        // Publish conditionally and merge once with the fresh snapshot instead
+        // of overwriting that rule with our stale bytes.
+        for _ in 0..<2 {
+            let exists = storage.fileExists(at: excludeURL)
+            let existing: Data
+            if exists {
+                do {
+                    existing = try storage.readData(from: excludeURL, options: [])
+                } catch {
+                    throw McpConfigurationError.unreadable(excludeURL.path)
+                }
+            } else {
+                existing = Data()
+            }
+            // Decode individual rules only; unrelated bytes may use another encoding.
+            let alreadyListed = existing
+                .split(separator: 0x0A, omittingEmptySubsequences: false)
+                .contains { line in
+                    let rule = line.last == 0x0D ? line.dropLast() : line
+                    guard let text = String(data: rule, encoding: .utf8) else { return false }
+                    // Leading spaces and tabs are literal Git pattern characters.
+                    return text == relativePath || text == "/" + relativePath
+                }
+            guard !alreadyListed else { return }
+            var updated = existing
+            if !updated.isEmpty && updated.last != 0x0A { updated.append(0x0A) }
+            updated.append(contentsOf: relativePath.utf8)
+            updated.append(0x0A)
             do {
-                existing = try storage.readData(from: excludeURL, options: [])
+                try storage.createDirectory(
+                    at: excludeURL.deletingLastPathComponent(), withIntermediateDirectories: true
+                )
+                if try storage.replaceData(
+                    updated, at: excludeURL, expecting: exists ? existing : nil
+                ) {
+                    return
+                }
             } catch {
-                throw McpConfigurationError.unreadable(excludeURL.path)
+                throw McpConfigurationError.notWritable(excludeURL.path)
             }
-        } else {
-            existing = Data()
         }
-        // Decode individual rules only; unrelated bytes may use another encoding.
-        let alreadyListed = existing
-            .split(separator: 0x0A, omittingEmptySubsequences: false)
-            .contains { line in
-                let rule = line.last == 0x0D ? line.dropLast() : line
-                guard let text = String(data: rule, encoding: .utf8) else { return false }
-                // Leading spaces and tabs are literal Git pattern characters.
-                return text == relativePath || text == "/" + relativePath
-            }
-        guard !alreadyListed else { return }
-        var updated = existing
-        if !updated.isEmpty && updated.last != 0x0A { updated.append(0x0A) }
-        updated.append(contentsOf: relativePath.utf8)
-        updated.append(0x0A)
-        do {
-            try storage.createDirectory(
-                at: excludeURL.deletingLastPathComponent(), withIntermediateDirectories: true
-            )
-            try storage.writeData(updated, to: excludeURL, options: .atomic)
-        } catch {
-            throw McpConfigurationError.notWritable(excludeURL.path)
-        }
+        throw McpConfigurationError.changedOnDisk
     }
 
     /// Resolves the worktree's Git directory, including linked worktrees where

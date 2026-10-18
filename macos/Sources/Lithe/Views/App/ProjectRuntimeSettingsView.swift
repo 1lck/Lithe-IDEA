@@ -359,7 +359,8 @@ struct ProjectRuntimeSettingsView: View {
                   at: workspaceURL,
                   overridePath: feature.settings.mavenExecutableOverride
               ).url else { return nil }
-        let installationSettings = executable
+        // A selected launcher may be a symlink outside the installation.
+        let installationSettings = executable.resolvingSymlinksInPath()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("conf/settings.xml")
@@ -413,7 +414,7 @@ struct ProjectRuntimeSettingsView: View {
                at: workspaceURL,
                overridePath: feature.settings.mavenExecutableOverride
            ).url {
-            let installationSettings = executable
+            let installationSettings = executable.resolvingSymlinksInPath()
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
                 .appendingPathComponent("conf/settings.xml")
