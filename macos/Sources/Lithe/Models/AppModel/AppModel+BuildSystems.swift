@@ -85,13 +85,24 @@ extension AppModel {
     }
 
     private func synchronizeBuildLanguageImport(at rootURL: URL) {
-        guard let sessions = languageToolingSessionsIfActive else { return }
-        if case .failed(let failure) = sessions.updateJavaMavenConfiguration(rootURL: rootURL, reloadProjects: false) {
-            sessions.recordLanguageServerLog(
-                providerID: "java", level: .warning,
-                message: "Build-system Maven import update failed", detail: failure.userMessage
-            )
-        }
+        guard let identity = currentWorkspaceIdentity, identity.url == rootURL.standardizedFileURL,
+              !languageToolingFeature.isDisabled("java"),
+              let sessions = languageToolingSessionsIfActive else { return }
+        javaLanguageServerPreparationCoordinator.synchronizeMavenConfiguration(
+            sessions: sessions,
+            workspaceURL: identity.url,
+            languageImportPreparation: { [weak self] in
+                guard let self, self.isCurrentWorkspace(identity) else { throw CancellationError() }
+                try await self.prepareBuildLanguageImport()
+                guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            },
+            ownsWorkspace: { [weak self, weak sessions] in
+                guard let self else { return false }
+                return self.isCurrentWorkspace(identity)
+                    && !self.languageToolingFeature.isDisabled("java")
+                    && self.languageToolingSessionsIfActive === sessions
+            }
+        )
     }
 
     func handleBuildSystemFileChanges(_ changes: [WorkspaceFileChange]) {

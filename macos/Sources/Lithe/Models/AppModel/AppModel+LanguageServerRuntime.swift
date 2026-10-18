@@ -26,6 +26,7 @@ extension AppModel {
 
     func setLanguageServerEnabled(_ enabled: Bool, providerID: String) {
         if providerID == "java", !enabled {
+            javaLanguageServerPreparationCoordinator.cancelMavenConfigurationSynchronization()
             cancelJavaLanguageServerPreparation()
         }
         languageToolingFeature.setEnabled(enabled, providerID: providerID)
@@ -95,6 +96,11 @@ extension AppModel {
                     throw CancellationError()
                 }
                 return try await self.languageSessionsForWorkspaceMaintenance(for: identity)
+            },
+            languageImportPreparation: { [weak self] in
+                guard let self, self.isCurrentWorkspace(identity) else { throw CancellationError() }
+                try await self.prepareBuildLanguageImport()
+                guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
             },
             ownsPreparation: { [weak self] in
                 guard let self else { return false }
