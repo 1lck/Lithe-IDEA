@@ -87,3 +87,29 @@ export function getWslDisplayPath(path: string): string {
   const info = parseWslPath(path);
   return info ? `${info.distro}:${info.linuxPath}` : path;
 }
+
+/**
+ * Translate a Windows filesystem path into the path a WSL distribution can open.
+ *
+ * WSL mounts each drive under `/mnt/<letter>` by default, so `C:\work\a.txt`
+ * becomes `/mnt/c/work/a.txt`. A shell inside the distribution cannot open the
+ * Windows form at all: it treats the backslashes as ordinary characters in a
+ * relative filename.
+ *
+ * Returns null when the path cannot be translated reliably — a UNC share is not
+ * mounted at a predictable location — so callers can keep the original instead of
+ * inserting a path that silently points nowhere.
+ */
+export function windowsPathToWslPath(path: string): string | null {
+  const driveMatch = /^([A-Za-z]):[\\/](.*)$/.exec(path);
+  if (driveMatch) {
+    const drive = driveMatch[1].toLowerCase();
+    const rest = driveMatch[2].replace(/\\/g, "/");
+    return rest ? `/mnt/${drive}/${rest}` : `/mnt/${drive}`;
+  }
+
+  // A path already written in Linux form needs no translation.
+  if (path.startsWith("/")) return path;
+
+  return null;
+}

@@ -106,7 +106,6 @@ describe("formatPathsForTerminal", () => {
   // product can launch must produce a literal path, and the two shells that
   // cannot express one (cmd percent expansion) are called out separately below.
   test.each([
-    ["wsl:Ubuntu"],
     ["msys2"],
     ["cygwin"],
     ["bash"],
@@ -118,6 +117,43 @@ describe("formatPathsForTerminal", () => {
     expect(text).toBe(`'${INJECTION_PATH}'`);
     expect(text).not.toMatch(/^"/);
   });
+
+  // WSL runs Linux, so a Windows drive path has to reach the distribution in its
+  // `/mnt/<drive>` form. Quoting alone left `C:\work\a.txt` unreadable there.
+  test("translates a Windows path for a WSL distribution", () => {
+    expect(formatPathsForTerminal(["C:\\work\\proj\\a.txt"], { shell: "wsl:Ubuntu" })).toBe(
+      "'/mnt/c/work/proj/a.txt'",
+    );
+  });
+
+  test("keeps the distribution namespace for a WSL path that is already Linux", () => {
+    expect(formatPathsForTerminal(["/home/me/a.txt"], { shell: "wsl:Ubuntu" })).toBe(
+      "'/home/me/a.txt'",
+    );
+  });
+});
+
+// PowerShell's typographic quotes are not string delimiters (verified against
+// PowerShell 5.1: U+2018, U+2019, U+201A, U+201B, U+FF07 and U+2032 all stay
+// literal inside a single-quoted string), so only the ASCII apostrophe needs the
+// doubling above. These cases pin that assumption so a future shell change is
+// visible instead of silent.
+describe("typographic quotes inside a quoted path", () => {
+  for (const [name, codePoint] of [
+    ["left single quote", 0x2018],
+    ["right single quote", 0x2019],
+    ["single low quote", 0x201a],
+    ["reversed single quote", 0x201b],
+    ["fullwidth apostrophe", 0xff07],
+    ["prime", 0x2032],
+  ] as const) {
+    test(`keeps the ${name} literal for PowerShell`, () => {
+      const path = `C:\\work\\report${String.fromCodePoint(codePoint)};whoami;#.txt`;
+      const text = formatPathsForTerminal([path], { shell: "powershell" });
+
+      expect(text).toBe(`'${path}'`);
+    });
+  }
 });
 
 describe("formatDroppedPathsForTerminal", () => {

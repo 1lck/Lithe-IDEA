@@ -1,4 +1,5 @@
 import { parseDroppedPaths } from "@/features/file-system/utils/file-system-dropped-paths";
+import { windowsPathToWslPath } from "@/features/wsl/utils/wsl-path";
 
 /**
  * Shells Lithe can launch on Windows. They disagree on what counts as an escape,
@@ -66,13 +67,21 @@ function quotePathForShell(path: string, family: TerminalShellFamily): string {
 /**
  * Quote paths for the target shell so each stays one argument and is never
  * evaluated as command syntax.
+ *
+ * A WSL session runs inside Linux, so Windows paths are translated to the
+ * distribution's `/mnt/<drive>` form first; without that the shell treats the
+ * backslashes as part of a relative filename and opens nothing.
  */
 export function quoteTerminalPaths(
   paths: readonly string[],
   shell?: string | null,
 ): string {
   const family = terminalShellFamily(shell);
-  return paths.map((path) => quotePathForShell(path, family)).join(" ");
+  const inWsl = (shell ?? "").toLowerCase().startsWith("wsl:");
+  return paths
+    .map((path) => (inWsl ? (windowsPathToWslPath(path) ?? path) : path))
+    .map((path) => quotePathForShell(path, family))
+    .join(" ");
 }
 
 /**
