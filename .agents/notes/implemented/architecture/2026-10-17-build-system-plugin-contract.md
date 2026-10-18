@@ -116,7 +116,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 映射表达不了的部分由插件自己处理：插件脚本（或者工具加初始化脚本）输出 `litheBuildModel`、`litheDependencies`，或者由 Provider 回答。API 3 发布前按真实插件裁剪过一次（2026-10-18），去掉了没有 fixture 使用的部分：工程里的任务规则、`map` 顶层的目标和任务、`parent`、映射出来的标签、`parentDirectory` 变换、依赖的 `children`、静态模型的 `json` 和 `yaml`、命令输出的 `json`、`toml` 和 `yaml`，以及 `layout.generated`。原因是每条映射规则都是 Lithe 自己定义的语义，发布后两端宿主要长期逐字相同地支持；脚本里的逻辑则归插件所有，插件可以自己演进。以后真有插件需要、又不适合放在插件里的规则，作为 `buildSystems` 的新版本加回来，并补 fixture。
 
-模型里的工程、目标、任务和内容根在规范化后必须位于实例根内，绝对路径也遵守同一边界；其他路径一律丢弃。比如实例根是 `services/api` 时，`services/api/src` 合法，`services/web` 和 `services/api-extra` 即使位于同一工作区也要拒绝。选择器的非法内容根不算命中，不能阻止后面的合法 fallback。规范格式里内容根的 `project` 只指明归属，`path` 同样相对实例根；曾经按工程目录再拼一次，子工程会得到 `app/app/src/main/java`。读取静态模型、报告和同步监视文件前，还要校验符号链接最终指向工作区内：允许 `workspace/alias → workspace/data`，拒绝 `workspace/model.json → /outside/model.json`；否则模型和指纹会泄露外部文件内容。宿主显式传入的 `outputFile` 保留读取工作区外临时输出的能力。输出不符合解码格式时返回 `plugin.build.invalidOutput`，不静默返回空列表。
+模型里的工程、目标、任务和内容根在规范化后必须位于实例根内，绝对路径也遵守同一边界；其他路径一律丢弃。比如实例根是 `services/api` 时，`services/api/src` 合法，`services/web` 和 `services/api-extra` 即使位于同一工作区也要拒绝。选择器的非法内容根不算命中，不能阻止后面的合法 fallback。规范格式里内容根的 `project` 只指明归属，`path` 同样相对实例根；曾经按工程目录再拼一次，子工程会得到 `app/app/src/main/java`。读取静态模型、报告和同步监视文件前，还要校验符号链接最终指向工作区内：允许 `workspace/alias → workspace/data`，拒绝 `workspace/model.json → /outside/model.json`；否则模型和指纹会泄露外部文件内容。解码诊断和测试结果时同样校验：这两个路径会出现在 Build Output 里并可点击打开，所以工作区内的符号链接保留它被报告时的相对路径，最终指向工作区外的路径直接丢弃；导航这一层再校验一次，防止路径在解码之后被替换。宿主显式传入的 `outputFile` 保留读取工作区外临时输出的能力。输出不符合解码格式时返回 `plugin.build.invalidOutput`，不静默返回空列表。
 
 ### 7. 测试
 
@@ -172,6 +172,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 - **什么时候重新识别。** 只有 `sync.watch` 里的文件变化才会重新识别，连续保存在 500 毫秒内合并成一次。已加载的 `command` 模型不会被自动重跑：指纹变了只标记“需要重新加载”，等用户决定。
 - **输出怎么交给 Core。** 模型和依赖命令的 stdout 单独捕获后交给 Core 解码（计划写 `outputFile` 时读文件），stderr 照常进入 Build Output，所以工具打印的警告不会破坏要解码的文档。任务和测试的完整输出交给诊断解码。
 - **选项存在哪里。** 按“工作区 + 构建系统 ID”保存，与 `build.detect` 的 `options` 形状一致。Core 在 `dropped` 里报出的选项改存它的生效值，用户的其他选择因此保留。按实例根分开保存，等有真实插件需要时再加。
+- **诊断和测试路径怎么打开。** Core 解码时已经丢弃最终指向工作区外的路径；Build Output 在导航前仍用 `BuildOutputSourcePath` 重新解析真实路径，因为解码和点击之间工作区内容可能变化。工作区内的符号链接保留被报告时的相对路径，越出工作区的链接不打开。
 - **可写文件放在哪里。** 输出文件和状态目录都在插件状态目录下，读完就删；不写 app bundle、不写插件包，符合运行时只读规则。
 - **插件变化。** 启用、停用或卸载插件后，`pluginsChanged()` 先停止该插件已经启动的命令，再重新识别，它的实例随即从工具窗口消失。可用插件列表在启动时确定，新安装的插件和其他声明式插件一样，重启后才出现。
 
@@ -264,7 +265,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 - `./scripts/verify-rust-core-comments.sh`：`build/` 模块的注释规范。
 - `./scripts/test-macos.sh --filter 'RustBuildSystemOperationsTests|BuildSystemServiceTests'`：Swift 一侧对真实 Rust Core 调用 `build.*`（cargo、go、maven fixture 的识别、选项 `dropped`、调用计划、版本探测、任务和测试 argv、命令模型解码、诊断与同步指纹）；`BuildSystemService` 用假的 Core、运行器和存储验证识别问题列表、stdout 捕获与输出文件清理、失败退出码、输出顺序与诊断、停止、选项改存生效值、指纹变化后的重新加载提示，以及停用插件后停止命令并移除实例。
 - `build_runtime_versions` 与 `MacBuildToolResolverTests` 验证 Java 8 探测参数、错误输出捕获和最低版本校验；`BuildSystemServiceTests` 使用可控制取消与退出顺序的运行器，覆盖模型/依赖的重复加载、停止、重置和停用插件，以及旧取消先完成、旧成功最后完成两种顺序。
-- `build_systems` 额外覆盖嵌套实例根的目标、任务与内容根边界，以及非法选择器内容根后的 fallback；同时覆盖默认参数变化后的安装重新确认、动态 feature 删除后的检测与运行指纹一致，以及静态模型、Maven POM、JUnit 报告和同步文件的符号链接边界；工作区内部链接仍可读取。
+- `build_systems` 额外覆盖嵌套实例根的目标、任务与内容根边界，以及非法选择器内容根后的 fallback；同时覆盖默认参数变化后的安装重新确认、动态 feature 删除后的检测与运行指纹一致，以及静态模型、Maven POM、JUnit 报告、诊断和测试结果与同步文件的符号链接边界；`reported_output_paths_reject_escaping_symlinks` 同时验证工作区内部链接仍被保留；`BuildOutputSourcePathTests` 验证 Build Output 导航前的真实路径校验。
 
 ## 适用范围
 
@@ -275,6 +276,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 - `macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Build/`
 - `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
+- `macos/Sources/LitheExecutionModule/Application/BuildOutputSourcePath.swift`
 - `macos/Sources/Lithe/Views/Run/BuildSystemsView.swift`
 - `macos/Sources/Lithe/Views/Run/BuildOutputView.swift`
 - `rust/lithe-core/src/runtime/dispatcher.rs`

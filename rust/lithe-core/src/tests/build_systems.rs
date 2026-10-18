@@ -1225,6 +1225,109 @@ fn junit_reports_do_not_follow_escaping_project_directories() {
     assert_eq!(outcome["results"]["tests"], json!([]), "{outcome}");
 }
 
+/// Diagnostics and test results carry paths the Build Output opens, so a link
+/// that resolves outside the workspace must not survive decoding. A link that
+/// stays inside keeps its workspace-relative form instead of its target.
+#[cfg(unix)]
+#[test]
+fn reported_output_paths_reject_escaping_symlinks() {
+    use std::os::unix::fs::symlink;
+    let workspace = TemporaryWorkspace::new("build-confined-output-paths");
+    let outside = TemporaryWorkspace::new("build-external-output-paths");
+    outside.write("Secret.java", "package private1;");
+    workspace
+        .write("src/Inside.java", "package demo;")
+        .write("app/build.gradle", "");
+    symlink(&outside.0, workspace.0.join("linked")).unwrap();
+    symlink(&outside.0, workspace.0.join("app/linked")).unwrap();
+    symlink(workspace.0.join("src"), workspace.0.join("alias")).unwrap();
+    symlink(workspace.0.join("src"), workspace.0.join("app/alias")).unwrap();
+
+    let manifest = fixture("gradle-build.plugin.json");
+    let diagnostics = |manifest: &Value, output: &str| {
+        call(
+            "decodeDiagnostics",
+            manifest.clone(),
+            "gradle",
+            json!({
+                "workspaceRoot": workspace.root(), "root": ".", "output": output,
+            }),
+        )
+    };
+    let escaping = diagnostics(&manifest, "linked/Secret.java:1: error: external");
+    assert_eq!(escaping["status"], "ok", "{escaping}");
+    assert_eq!(escaping["diagnostics"], json!([]), "{escaping}");
+    let local = diagnostics(&manifest, "alias/Inside.java:1: warning: local");
+    assert_eq!(
+        local["diagnostics"][0]["path"], "alias/Inside.java",
+        "{local}"
+    );
+
+    let mut canonical_manifest = manifest.clone();
+    canonical_manifest["buildSystems"][0]["diagnostics"] = json!({
+        "decoder": "litheDiagnostics",
+    });
+    let canonical = |path: &str| {
+        let line = json!({
+            "lithe": "diagnostic", "path": path, "line": 1, "message": "canonical",
+        });
+        diagnostics(&canonical_manifest, &line.to_string())
+    };
+    let escaping = canonical("linked/Secret.java");
+    assert_eq!(escaping["status"], "ok", "{escaping}");
+    assert_eq!(escaping["diagnostics"], json!([]), "{escaping}");
+    let local = canonical("alias/Inside.java");
+    assert_eq!(
+        local["diagnostics"][0]["path"], "alias/Inside.java",
+        "{local}"
+    );
+
+    workspace.write(
+        "app/build/test-results/test/TEST-Report.xml",
+        r#"<testsuite name="Report">
+  <testcase classname="Report" name="external" file="linked/Secret.java"/>
+  <testcase classname="Report" name="local" file="alias/Inside.java"/>
+</testsuite>"#,
+    );
+    workspace.write(
+        "app/build/test-results/test/report.json",
+        r#"{"format": "litheTestResults", "version": 1, "tests": [
+  {"suite": "Report", "case": "external", "status": "failed", "path": "linked/Secret.java", "line": 1},
+  {"suite": "Report", "case": "local", "status": "failed", "path": "alias/Inside.java", "line": 1}
+]}"#,
+    );
+    let test_results = |manifest: &Value| {
+        call(
+            "decodeTestResults",
+            manifest.clone(),
+            "gradle",
+            json!({
+                "workspaceRoot": workspace.root(), "root": ".", "project": "app", "output": "",
+            }),
+        )
+    };
+    let junit = test_results(&manifest);
+    assert_eq!(junit["status"], "ok", "{junit}");
+    let tests = junit["results"]["tests"].as_array().unwrap();
+    assert_eq!(tests.len(), 2, "{junit}");
+    assert_eq!(tests[0]["case"], "external");
+    assert!(tests[0].get("path").is_none(), "{junit}");
+    assert_eq!(tests[1]["path"], "app/alias/Inside.java", "{junit}");
+
+    let mut canonical_results = manifest.clone();
+    canonical_results["buildSystems"][0]["test"]["results"] = json!({
+        "decoder": "litheTestResults",
+        "reports": ["build/test-results/test/*.json"],
+    });
+    let decoded = test_results(&canonical_results);
+    assert_eq!(decoded["status"], "ok", "{decoded}");
+    let tests = decoded["results"]["tests"].as_array().unwrap();
+    assert_eq!(tests.len(), 2, "{decoded}");
+    assert_eq!(tests[0]["case"], "external");
+    assert!(tests[0].get("path").is_none(), "{decoded}");
+    assert_eq!(tests[1]["path"], "app/alias/Inside.java", "{decoded}");
+}
+
 /// A launch plan names one process, by language or by build system; naming
 /// neither or both is a malformed payload rather than a rejected plugin.
 #[test]

@@ -140,8 +140,11 @@ struct BuildOutputView: View {
         column: Int?
     ) -> some View {
         Button {
-            guard let path, let workspaceURL = feature.workspaceURL else { return }
-            model.openSourceLocation(url: workspaceURL.appendingPathComponent(path), line: line, column: column)
+            guard let path,
+                  let workspaceURL = feature.workspaceURL,
+                  let url = BuildOutputSourcePath.url(for: path, in: workspaceURL)
+            else { return }
+            model.openSourceLocation(url: url, line: line, column: column)
         } label: {
             HStack(alignment: .top, spacing: 7) {
                 Image(systemName: systemImage)

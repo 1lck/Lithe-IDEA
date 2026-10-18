@@ -153,6 +153,19 @@ impl Workspace {
             normalize(&format!("{base}/{raw}"))
         }
     }
+
+    /// Workspace-relative form of a path a tool reported for a file the host
+    /// may open, like a diagnostic or a test case source. Links that stay
+    /// inside the workspace are kept; one that resolves outside is dropped.
+    /// A path that does not exist yet stays, because the host opens it only
+    /// after checking existence and resolves links again before navigating.
+    pub(crate) fn relativize_reported(&self, raw: &str, base: &str) -> Option<String> {
+        let relative = self.relativize(raw, base)?;
+        match self.join(&relative).canonicalize() {
+            Ok(resolved) if !resolved.starts_with(&self.path) => None,
+            _ => Some(relative),
+        }
+    }
 }
 
 fn slashed(value: &str) -> String {

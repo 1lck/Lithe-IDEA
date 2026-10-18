@@ -474,7 +474,7 @@ fn canonical_cases(text: &str, workspace: &Workspace, base: &str) -> Option<Vec<
                 case.path = case
                     .path
                     .as_deref()
-                    .and_then(|path| workspace.relativize(path, base));
+                    .and_then(|path| workspace.relativize_reported(path, base));
                 case.invocations = case.invocations.max(1);
                 case
             })
@@ -586,7 +586,8 @@ fn junit_case(
         status: TestStatus::Passed,
         message: None,
         duration_millis,
-        path: attribute(element, b"file").and_then(|file| workspace.relativize(&file, base)),
+        path: attribute(element, b"file")
+            .and_then(|file| workspace.relativize_reported(&file, base)),
         line: attribute(element, b"line").and_then(|line| line.parse().ok()),
         invocations: 1,
     }
@@ -669,7 +670,7 @@ fn line_diagnostic(
 ) -> Option<Diagnostic> {
     let captures = regex.captures(line)?;
     let group = |index: usize| captures.get(index).map(|value| value.as_str());
-    let path = workspace.relativize(group(pattern.file)?, root)?;
+    let path = workspace.relativize_reported(group(pattern.file)?, root)?;
     let line_number = group(pattern.line)?
         .trim()
         .parse()
@@ -758,7 +759,7 @@ fn canonical_diagnostic(line: &str, workspace: &Workspace, root: &str) -> Option
         return None;
     }
     Some(Diagnostic {
-        path: workspace.relativize(&diagnostic.path, root)?,
+        path: workspace.relativize_reported(&diagnostic.path, root)?,
         line: diagnostic.line,
         column: diagnostic.column.filter(|column| *column > 0),
         severity: diagnostic.severity.unwrap_or(Severity::Error).as_str(),
