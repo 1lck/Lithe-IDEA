@@ -231,11 +231,11 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
         // looking for the run that actually executed it.
         if (!job || job.conclusion === 'skipped') continue;
         executed = true;
-        // Queued jobs have not acquired a runner and cannot migrate when a
-        // pool disappears. Only keep unfinished work already running on the
-        // hosted pool; a retired self-hosted runner must never block a gate.
+        // Jobs assigned to the retired self-hosted pool cannot migrate to
+        // hosted runners. Keep hosted queues reusable: other lanes can still
+        // need that run, so replacing its queued jobs would duplicate builds.
         const usable = job.conclusion === 'success'
-          || (job.status === 'in_progress'
+          || (job.status !== 'completed'
             && !(job.labels ?? []).some((label) => label.toLowerCase() === 'self-hosted'));
         if (usable) {
           const affected = await affectedSince(run);
