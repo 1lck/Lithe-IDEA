@@ -700,6 +700,10 @@ pub struct GitApplyRequest {
     pub patch: String,
     /// Patch target or validation mode, including `stage`, `unstage`, and `worktree`.
     pub mode: String,
+    /// True when the patch carries zero context lines from the byte-faithful
+    /// raw-slicing channel; only then may git apply bypass the context check.
+    #[serde(default)]
+    pub unidiff_zero: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2118,11 +2122,20 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
             "--reverse".to_string(),
             "--whitespace=nowarn".to_string(),
         ],
-        "discard" => vec![
-            "apply".to_string(),
-            "--reverse".to_string(),
-            "--whitespace=nowarn".to_string(),
-        ],
+        "discard" => {
+            let mut args = vec![
+                "apply".to_string(),
+                "--reverse".to_string(),
+                "--whitespace=nowarn".to_string(),
+            ];
+            // Only the byte-faithful channel produces zero-context hunks;
+            // applying the flag universally would weaken the context safety
+            // check for every well-formed discard patch too.
+            if request.unidiff_zero {
+                args.push("--unidiff-zero".to_string());
+            }
+            args
+        }
         // Reconstruct a saved index snapshot and its worktree in one step.
         // `--cached` alone would leave the worktree at HEAD, which makes a
         // subsequent unstaged patch fail for files with both staged and

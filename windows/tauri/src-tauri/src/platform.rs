@@ -712,7 +712,22 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             let hunk = payload
                 .remove("hunk")
                 .ok_or_else(|| "Hunk payload is required".to_string())?;
-            payload.insert("patch".into(), json!(hunk_patch(&hunk)?));
+            // A raw patch from the byte-faithful channel carries original CR
+            // and EOF markers and zero context; reconstructing from display
+            // lines would lose both. Fall back to reconstruction (which
+            // propagates its own error) only when no raw patch exists.
+            let raw_patch = hunk
+                .get("rawPatch")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty());
+            let (patch, unidiff_zero) = match raw_patch {
+                Some(raw) => (raw.to_string(), true),
+                None => (hunk_patch(&hunk)?, false),
+            };
+            payload.insert("patch".into(), json!(patch));
+            if unidiff_zero {
+                payload.insert("unidiffZero".into(), json!(true));
+            }
             payload.insert(
                 "mode".into(),
                 // `discard` reverse-applies the worktree hunk without touching

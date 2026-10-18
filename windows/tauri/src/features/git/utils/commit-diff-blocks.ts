@@ -3,6 +3,7 @@ import type { GitDiff, GitHunk } from "../types/git.types";
 import { parseDiffHunkRange } from "./git-diff-helpers";
 import { gitGutterChangeHunk, type GitGutterChange } from "./git-gutter-changes";
 import { monacoDiffRows } from "./monaco-diff-rows";
+import { buildByteFaithfulHunk, buildFaithfulHunkFromRange } from "./lossy-rollback-patch";
 import { planIndependentCommitDiff, type IndependentChange } from "./independent-commit-diff";
 
 export interface CommitDiffBlock {
@@ -29,9 +30,9 @@ export function commitDiffChangeID(
 
 /** Only complete, validated Git streams may supply index patches. Never use
  * folded display coordinates, an aligned spacer, or sparse context as a base. */
-function projection(diff: GitDiff) {
+function projection(diff: GitDiff, rollbackOnly = false) {
   if (!diff.is_full_context || diff.is_truncated || diff.is_binary || diff.is_image
-    || diff.has_lossy_line_endings) return null;
+    || (diff.has_lossy_line_endings && !rollbackOnly)) return null;
   const headers = diff.lines.filter(line => line.line_type === "header");
   if (headers.length !== 1) return null;
   const range = parseDiffHunkRange(headers[0].content);
@@ -60,7 +61,10 @@ function edit(start: number, before: string[], after: string[]): GitGutterChange
  * can contain only some staged lines, and earlier staged additions shift index
  * coordinates. Rebuild just its index span with the existing gutter patch builder. */
 export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): CommitDiffBlock[] | null {
-  const visible = projection(worktree);
+  const lossyRollbackEligible = Boolean(
+    worktree.has_lossy_line_endings && worktree.writePatch && !worktree.is_renamed,
+  );
+  const visible = projection(worktree, lossyRollbackEligible);
   if (!visible || worktree.is_renamed) return null;
   if (worktree.is_new || worktree.is_deleted) {
     const indexed = staged.lines.length ? projection(staged) : null;
@@ -71,9 +75,13 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
       indeterminate: !checked && staged.lines.length > 0, canToggle: true,
       canRollback: false, wholeFile: true, leftStart: change.leftStart, rightStart: change.rightStart }];
   }
+  // The staged projection feeds both toggle and rollback calculations; when
+  // only rollback runs the byte-faithful channel, the staged side may use
+  // the lossy projection for coordinate math — canToggle stays separately
+  // gated and stage/unstage hunks are never built from lossy data.
   const indexed = staged.lines.length === 0
     ? { before: visible.before, after: visible.before, plan: { changes: [] as IndependentChange[] } }
-    : projection(staged);
+    : projection(staged, lossyRollbackEligible);
   if (!indexed || !equal(indexed.before, visible.before)) return null;
   return visible.plan.changes.map(change => {
     let start = change.leftStart, end = change.leftEnd, overlapsBoundary = false;
@@ -100,16 +108,38 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
     const revertedIndex = [...indexed.after.slice(0, start), ...before, ...indexed.after.slice(end)];
     const rollbackBase = [...visible.after.slice(0, change.rightStart), ...indexLines,
       ...visible.after.slice(change.rightEnd)];
-    return {
+    // Byte-faithful rollback passes the block's full index-side and
+    // worktree-side spans directly to the range builder — no line-by-line
+    // comparison needed. The builder collects all raw-patch changed lines
+    // within these spans. Zero-based slice indices convert to one-based
+    // inclusive: [start, end) → [start+1, end]; for the new side,
+    // rightEnd (not +1) yields an empty range for pure deletions.
+    const block: CommitDiffBlock = {
       id: commitDiffChangeID(visible.plan, change), checked, indeterminate,
-      canToggle: !overlapsBoundary,
-      // Rollback restores this block to the index, preserving included content.
+      canToggle: !overlapsBoundary && !worktree.has_lossy_line_endings,
       canRollback: !overlapsBoundary && !checked,
       leftStart: change.leftStart, rightStart: change.rightStart,
       stage: gitGutterChangeHunk(worktree.file_path, indexed.after, edit(start, indexLines, after)),
       unstage: gitGutterChangeHunk(worktree.file_path, revertedIndex, edit(start, before, indexLines)),
-      rollback: gitGutterChangeHunk(worktree.file_path, rollbackBase,
-        edit(change.rightStart, indexLines, after)),
+      rollback: worktree.writePatch
+        ? (buildFaithfulHunkFromRange(
+            worktree,
+            start + 1,
+            change.rightStart + 1,
+            end,
+            change.rightEnd,
+          ) ?? buildByteFaithfulHunk(
+            worktree,
+            start + 1,
+            change.rightStart + 1,
+            end,
+            change.rightEnd,
+          ) ?? undefined)
+        : (!worktree.has_lossy_line_endings
+          ? gitGutterChangeHunk(worktree.file_path, rollbackBase, edit(change.rightStart, indexLines, after))
+          : undefined),
     };
+    block.canRollback = block.canRollback && block.rollback !== undefined;
+    return block;
   });
 }
