@@ -388,9 +388,20 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                 // was captured, so consult the shared ledger at save time.
                 // The captured source version stays a required precondition:
                 // a newer ledger entry alone must not authorize a stale removal.
-                guard let expected = source.sourceHash,
-                      ledgerOwns(name: originalName, sourceHash: expected, in: source.file) else {
+                guard let expected = source.sourceHash else {
                     error = McpLibraryError.notOwned(originalName).localizedDescription
+                    return false
+                }
+                guard ledgerOwns(name: originalName, sourceHash: expected, in: source.file) else {
+                    // A ledger record with this name but another version means
+                    // the entry changed (or was removed) after this draft was
+                    // captured; refresh is the accurate remedy, not ownership.
+                    let changedSinceDraft = ledgerEntries(for: source.file)
+                        .contains { $0.name == originalName }
+                    error = (changedSinceDraft
+                        ? McpLibraryError.externallyModified(originalName)
+                        : McpLibraryError.notOwned(originalName)
+                    ).localizedDescription
                     return false
                 }
                 operations[source.file, default: []].append(

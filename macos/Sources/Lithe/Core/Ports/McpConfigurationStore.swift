@@ -218,7 +218,8 @@ protocol McpConfigurationStore {
         _ content: String, to file: McpConfigurationFile, replacing expected: String?
     ) throws -> McpWriteReceipt
     /// Restores the original snapshot only while the file still contains this
-    /// batch's output. A `nil` snapshot removes a file created by the batch.
+    /// batch's output. A `nil` snapshot conditionally removes a file created by
+    /// the batch, keeping any newer bytes another process wrote.
     func restore(_ change: McpConfigurationChange) throws
     /// Parses one file into normalized definitions, without echoing secrets.
     func parse(_ file: McpConfigurationFile, content: String) throws -> [McpServerDefinition]

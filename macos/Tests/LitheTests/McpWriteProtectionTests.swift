@@ -85,6 +85,47 @@ struct FileStorageReplacementTests {
         #expect(try fixture.text() == "attempted")
         #expect(try fixture.entries() == ["config.toml"])
     }
+
+    @Test
+    func removesOnlyThePlannedSnapshot() throws {
+        let fixture = try ReplacementFixture()
+        defer { fixture.cleanUp() }
+        try fixture.write("snapshot")
+
+        #expect(try fixture.storage.removeData(
+            at: fixture.url, expecting: Data("stale".utf8)
+        ) == false)
+        #expect(try fixture.text() == "snapshot")
+
+        #expect(try fixture.storage.removeData(
+            at: fixture.url, expecting: Data("snapshot".utf8)
+        ))
+        #expect(FileManager.default.fileExists(atPath: fixture.url.path) == false)
+
+        #expect(try fixture.storage.removeData(
+            at: fixture.url, expecting: Data("snapshot".utf8)
+        ) == false)
+        #expect(try fixture.entries() == [])
+    }
+
+    @Test
+    func refusesToReplaceANonRegularDestination() throws {
+        let fixture = try ReplacementFixture()
+        defer { fixture.cleanUp() }
+        try FileManager.default.createDirectory(
+            at: fixture.url, withIntermediateDirectories: true
+        )
+
+        #expect(try fixture.storage.replaceData(
+            Data("attempted".utf8), at: fixture.url, expecting: Data("snapshot".utf8)
+        ) == false)
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(
+            atPath: fixture.url.path, isDirectory: &isDirectory
+        ))
+        #expect(isDirectory.boolValue)
+        #expect(try fixture.entries() == ["config.toml"])
+    }
 }
 
 @MainActor
@@ -177,6 +218,16 @@ private struct InterleavingFileStorage: FileStorage {
         try files.writeData(data, to: url, options: options)
     }
 
+    // Store-level interleaving must exercise the production compare-and-publish
+    // path, not a protocol fallback that happens to have the same outcome.
+    func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
+        try files.replaceData(data, at: url, expecting: expected)
+    }
+
+    func removeData(at url: URL, expecting expected: Data) throws -> Bool {
+        try files.removeData(at: url, expecting: expected)
+    }
+
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
         // The store prepares the destination directory after backing up and
         // before publishing, so this is the new-file interleaving point.
@@ -229,5 +280,130 @@ private final class ReplacementFixture {
 
     func cleanUp() {
         try? FileManager.default.removeItem(at: root)
+    }
+}
+
+/// A feature-level save that fails in the conditional publish stage (after the
+/// snapshot check and backup) must restore earlier writes and publish no ledger.
+@MainActor
+struct McpFeatureBatchFailureTests {
+    @Test
+    func failedPublishAfterBackupRestoresTheOtherAgentAndKeepsTheLedger() throws {
+        let fixture = try ReplaceFailureFixture(claude: "{\"mcpServers\": {}}")
+        defer { fixture.cleanUp() }
+        let feature = McpServerLibraryFeatureModel(model: fixture)
+        feature.refresh()
+        var draft = feature.makeDraft()
+        draft.name = "sample"
+        draft.command = "/bin/echo"
+        draft.enabledAgents = Set(McpAgent.allCases)
+        // The first file publishes; the second hits changedOnDisk inside the
+        // conditional publish, after its preflight check and backup.
+        fixture.failures.failOnCall = 2
+
+        #expect(feature.save(draft) == false)
+        #expect(feature.error == McpConfigurationError.changedOnDisk.localizedDescription)
+        #expect(try fixture.store.read(fixture.claudeFile) == "{\"mcpServers\": {}}")
+        #expect(!FileManager.default.fileExists(atPath: fixture.codexURL.path))
+        #expect(fixture.ledger.values.isEmpty)
+        #expect(feature.rows.isEmpty)
+    }
+}
+
+@MainActor
+private final class ReplaceFailureFixture: McpServerLibraryActions {
+    let root: URL
+    let store: MacAgentMcpConfigurationStore
+    let ledger = WriteProtectionLedger()
+    let failures = ReplaceFailureBox()
+    var mcpWorkspaceURL: URL? { nil }
+    var mcpConfigurationStore: (any McpConfigurationStore)? { store }
+    var mcpLedgerStore: any KeyValueStore { ledger }
+
+    init(claude: String) throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mcp-feature-failure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let claudeHome = root.appendingPathComponent("claude", isDirectory: true)
+        store = MacAgentMcpConfigurationStore(
+            core: RustCoreBridge(),
+            storage: ReplaceFailureFileStorage(root: root, failures: failures),
+            environment: [
+                "CODEX_HOME": root.appendingPathComponent("codex").path,
+                "CLAUDE_CONFIG_DIR": claudeHome.path
+            ]
+        )
+        try FileManager.default.createDirectory(at: claudeHome, withIntermediateDirectories: true)
+        try Data(claude.utf8).write(to: claudeURL)
+    }
+
+    var claudeURL: URL { root.appendingPathComponent("claude/.claude.json") }
+    var codexURL: URL { root.appendingPathComponent("codex/config.toml") }
+    var claudeFile: McpConfigurationFile {
+        store.configurationFiles(workspace: nil).first {
+            $0.agent == .claudeCode && $0.scope == .global
+        }!
+    }
+
+    func cleanUp() {
+        try? FileManager.default.removeItem(at: root)
+    }
+}
+
+private final class WriteProtectionLedger: KeyValueStore, @unchecked Sendable {
+    var values: [String: Any] = [:]
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+private final class ReplaceFailureBox: @unchecked Sendable {
+    var replaceCalls = 0
+    var failOnCall: Int?
+}
+
+private struct ReplaceFailureFileStorage: FileStorage {
+    let root: URL
+    let failures: ReplaceFailureBox
+    private let files = MacFileStorage()
+
+    func homeDirectory() -> URL { root }
+    func cacheDirectory() -> URL { root.appendingPathComponent("Caches", isDirectory: true) }
+    func applicationSupportDirectory() -> URL {
+        root.appendingPathComponent("Application Support", isDirectory: true)
+    }
+    func temporaryDirectory() -> URL { root.appendingPathComponent("tmp", isDirectory: true) }
+    func metadata(for url: URL) -> FileMetadata? { files.metadata(for: url) }
+    func fileExists(at url: URL) -> Bool { files.fileExists(at: url) }
+    func isExecutable(at url: URL) -> Bool { files.isExecutable(at: url) }
+    func listDirectory(at url: URL) -> [URL] { files.listDirectory(at: url) }
+    func readPrefix(from url: URL, byteCount: Int) throws -> Data {
+        try files.readPrefix(from: url, byteCount: byteCount)
+    }
+    func readData(from url: URL, options: Data.ReadingOptions) throws -> Data {
+        try files.readData(from: url, options: options)
+    }
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+        try files.writeData(data, to: url, options: options)
+    }
+    func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
+        failures.replaceCalls += 1
+        if failures.replaceCalls == failures.failOnCall { return false }
+        return try files.replaceData(data, at: url, expecting: expected)
+    }
+    func removeData(at url: URL, expecting expected: Data) throws -> Bool {
+        try files.removeData(at: url, expecting: expected)
+    }
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
+        try files.createDirectory(at: url, withIntermediateDirectories: withIntermediateDirectories)
+    }
+    func removeItem(at url: URL) throws { try files.removeItem(at: url) }
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try files.moveItem(at: sourceURL, to: destinationURL)
+    }
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try files.copyItem(at: sourceURL, to: destinationURL)
     }
 }

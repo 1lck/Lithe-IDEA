@@ -200,6 +200,14 @@ private struct ArgumentFileStorage: FileStorage {
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
         try files.writeData(data, to: url, options: options)
     }
+
+    func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
+        try files.replaceData(data, at: url, expecting: expected)
+    }
+
+    func removeData(at url: URL, expecting expected: Data) throws -> Bool {
+        try files.removeData(at: url, expecting: expected)
+    }
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
         try files.createDirectory(at: url, withIntermediateDirectories: withIntermediateDirectories)
     }

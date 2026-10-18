@@ -185,6 +185,17 @@ private struct SymlinkFileStorage: FileStorage {
         }
         try files.writeData(data, to: url, options: options)
     }
+
+    func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
+        if url.standardizedFileURL == failingWriteURL?.standardizedFileURL {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        return try files.replaceData(data, at: url, expecting: expected)
+    }
+
+    func removeData(at url: URL, expecting expected: Data) throws -> Bool {
+        try files.removeData(at: url, expecting: expected)
+    }
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
         try files.createDirectory(at: url, withIntermediateDirectories: withIntermediateDirectories)
     }

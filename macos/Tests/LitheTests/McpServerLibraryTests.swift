@@ -275,6 +275,44 @@ struct McpServerLibraryTests {
     }
 
     @Test
+    func newerLedgerEntryDoesNotAuthorizeAStaleDraftRemoval() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedClaude("{\"mcpServers\": {}}")
+        let first = fixture.feature()
+        first.refresh()
+        var created = first.makeDraft()
+        created.name = "alpha"
+        created.command = "/bin/echo"
+        created.enabledAgents = [.claudeCode]
+        #expect(first.save(created))
+
+        // The first editor captures the complete source version it displays.
+        let captured = try #require(first.rows.first { $0.name == "alpha" })
+        var stale = first.draft(for: captured)
+
+        // Another window edits and saves the same entry under a new hash.
+        let second = fixture.feature()
+        second.refresh()
+        var newer = second.draft(for: try #require(second.rows.first { $0.name == "alpha" }))
+        newer.env = [McpKeyValue(key: "TOKEN", value: "new")]
+        #expect(second.save(newer))
+        let afterNewerSave = try fixture.claudeText()
+        let ledgerAfterNewerSave = try #require(
+            fixture.ledger.data(forKey: "settings.mcpServerRegistrations")
+        )
+
+        // The newest ledger entry must not authorize the stale draft to close
+        // the Agent; the captured source version stays a precondition.
+        stale.enabledAgents = [.codex]
+        #expect(first.save(stale) == false)
+        #expect(first.error?.contains("outside Lithe") == true)
+        #expect(try fixture.claudeText() == afterNewerSave)
+        #expect(!FileManager.default.fileExists(atPath: fixture.codexURL.path))
+        #expect(fixture.ledger.data(forKey: "settings.mcpServerRegistrations") == ledgerAfterNewerSave)
+    }
+
+    @Test
     func editsAnExternallyCreatedEntryWhileTheDisplayedDefinitionIsCurrent() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
@@ -823,6 +861,7 @@ private final class LibraryTestKeyValueStore: KeyValueStore, @unchecked Sendable
 
 private struct LibraryTestFileStorage: FileStorage {
     let root: URL
+    private let files = MacFileStorage()
 
     func homeDirectory() -> URL { root }
     func cacheDirectory() -> URL { root.appendingPathComponent("Caches", isDirectory: true) }
@@ -869,6 +908,14 @@ private struct LibraryTestFileStorage: FileStorage {
 
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
         try data.write(to: url, options: options)
+    }
+
+    func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
+        try files.replaceData(data, at: url, expecting: expected)
+    }
+
+    func removeData(at url: URL, expecting expected: Data) throws -> Bool {
+        try files.removeData(at: url, expecting: expected)
     }
 
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {

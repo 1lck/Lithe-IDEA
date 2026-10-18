@@ -132,12 +132,20 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
         } catch let error as McpConfigurationError {
             throw error
         } catch {
+            // A failed exchange can leave the prepared file (created with the
+            // default mode) at the destination; restore the original mode
+            // before reporting so a secret-bearing config is not left 0644.
+            applyPermissions(permissions, to: target)
             throw McpConfigurationError.notWritable(file.url.path)
         }
+        applyPermissions(permissions, to: target)
+        return McpWriteReceipt(backupURL: backupURL)
+    }
+
+    private func applyPermissions(_ permissions: Int, to target: URL) {
         try? fileManager.setAttributes(
             [.posixPermissions: permissions], ofItemAtPath: target.path
         )
-        return McpWriteReceipt(backupURL: backupURL)
     }
 
     func restore(_ change: McpConfigurationChange) throws {
@@ -151,7 +159,16 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
             _ = try write(source, to: change.file, replacing: change.content)
         } else {
             do {
-                try storage.removeItem(at: target)
+                // The rollback must not delete a file another process wrote
+                // after our batch created this one; remove only the bytes this
+                // batch published.
+                guard try storage.removeData(
+                    at: target, expecting: Data(change.content.utf8)
+                ) else {
+                    throw McpConfigurationError.changedOnDisk
+                }
+            } catch let error as McpConfigurationError {
+                throw error
             } catch {
                 throw McpConfigurationError.notWritable(change.file.url.path)
             }

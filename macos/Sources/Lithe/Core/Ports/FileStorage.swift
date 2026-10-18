@@ -34,8 +34,12 @@ protocol FileStorage: Sendable {
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws
     /// Publishes `data` only while the destination still matches `expected`
     /// (or does not exist when `expected` is `nil`). Returns `false` and
-    /// leaves the destination unchanged when another writer got there first.
+    /// restores the previous bytes when another writer got there first; a
+    /// failed rollback keeps them in a hidden temporary file next to `url`.
     func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool
+    /// Removes `url` only while it still matches `expected`. Returns `false`
+    /// and leaves the file in place when another writer changed it.
+    func removeData(at url: URL, expecting expected: Data) throws -> Bool
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws
     func removeItem(at url: URL) throws
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws
@@ -43,25 +47,16 @@ protocol FileStorage: Sendable {
 }
 
 extension FileStorage {
-    /// Fallback for storages without a native compare-and-publish operation.
-    /// Production uses the platform implementation; this version performs the
-    /// final comparison as late as the port allows.
+    /// Every platform storage must provide a real compare-and-publish
+    /// operation. A generic fallback would silently weaken the lost-update
+    /// guarantee on a future adapter, so the port fails closed instead.
     func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
-        guard let expected else {
-            guard !fileExists(at: url) else { return false }
-            try writeData(data, to: url, options: .withoutOverwriting)
-            return true
-        }
-        guard fileExists(at: url) else { return false }
-        let current: Data
-        do {
-            current = try readData(from: url, options: [])
-        } catch {
-            return false
-        }
-        guard current == expected else { return false }
-        try writeData(data, to: url, options: .atomic)
-        return true
+        throw CocoaError(.featureUnsupported)
+    }
+
+    /// Same for conditional removal: never degrade to compare-then-remove.
+    func removeData(at url: URL, expecting expected: Data) throws -> Bool {
+        throw CocoaError(.featureUnsupported)
     }
 }
 
