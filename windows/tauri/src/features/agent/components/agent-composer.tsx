@@ -28,6 +28,13 @@ import {
   removeAgentMention,
   type AgentMentionQuery,
 } from "../services/agent-composer-mentions";
+import {
+  commandInvocation,
+  commandSuggestions,
+  completedCommandDraft,
+  resolveCommandKey,
+  type AgentCommandKeyState,
+} from "../services/agent-command-completion";
 import { chooseAgentFiles } from "../services/agent-file-picker";
 import { agentConnection } from "../stores/agent-connection-service";
 import { agentFileUri } from "../types/agent-file-uri";
@@ -35,6 +42,7 @@ import {
   addFileReferences,
   AgentFileReferenceError,
   AgentFileReferenceLimitError,
+  type AgentCommand,
   type AgentConversation,
   type AgentFileReference,
 } from "../types/agent.types";
@@ -123,6 +131,10 @@ export function AgentComposer({
   const [isDropTargeted, setIsDropTargeted] = useState(false);
   const [mention, setMention] = useState<AgentMentionQuery | null>(null);
   const [fileQuery, setFileQuery] = useState("");
+  const [commandKey, setCommandKey] = useState<AgentCommandKeyState>({
+    highlightedIndex: 0,
+    dismissed: false,
+  });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -208,6 +220,11 @@ export function AgentComposer({
     [attach, draft, mention, onDraftChange],
   );
 
+  // A new draft starts at the first row and reopens a dismissed list.
+  useEffect(() => {
+    setCommandKey({ highlightedIndex: 0, dismissed: false });
+  }, [draft]);
+
   const send = useCallback(() => {
     if (!hasContent || isResponding) return;
     if (!canSend) {
@@ -222,6 +239,7 @@ export function AgentComposer({
       onDraftChange("");
       onFilesChange([]);
       setMention(null);
+      setCommandKey({ highlightedIndex: 0, dismissed: false });
       onError(null);
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
@@ -248,6 +266,19 @@ export function AgentComposer({
         : candidates.filter((file) => file.path.toLowerCase().includes(query));
     return filtered.slice(0, FILE_RESULT_LIMIT);
   }, [fileQuery, mention, projectFiles]);
+
+  const commands = conversation?.availableCommands ?? [];
+  const commandList =
+    mention !== null || commandKey.dismissed ? null : commandSuggestions(draft, commands);
+
+  const completeCommand = useCallback(
+    (command: AgentCommand) => {
+      onDraftChange(completedCommandDraft(command));
+      setCommandKey({ highlightedIndex: 0, dismissed: false });
+      textareaRef.current?.focus();
+    },
+    [onDraftChange],
+  );
 
   const options = conversation?.configOptions ?? [];
   const usesSubscription = snapshot.usesSubscription;
@@ -356,11 +387,52 @@ export function AgentComposer({
           </div>
         )}
 
-        <textarea
-          ref={textareaRef}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {commandList === null ? null : (
+            <div
+              role="listbox"
+              aria-label={t("agent.composer.commands")}
+              className="absolute inset-x-0 bottom-full z-20 mb-1 max-h-[168px] overflow-y-auto rounded-[7px] border border-border bg-surface py-[3px] shadow-lg"
+            >
+              {commandList.length === 0 ? (
+                <div className="px-2.5 py-1 text-subtle-foreground ui-text-caption">
+                  {t("agent.composer.noCommands")}
+                </div>
+              ) : (
+                commandList.map((command, index) => (
+                  <button
+                    key={command.name}
+                    type="button"
+                    role="option"
+                    aria-selected={index === commandKey.highlightedIndex}
+                    title={
+                      command.hint === null
+                        ? command.description
+                        : `${commandInvocation(command)} ${command.hint}`
+                    }
+                    className={cn(
+                      "flex h-[26px] w-full items-center gap-2 px-2.5 text-left",
+                      index === commandKey.highlightedIndex ? "bg-accent" : "hover:bg-accent/60",
+                    )}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => completeCommand(command)}
+                  >
+                    <span className="shrink-0 font-mono font-medium text-[11.5px] text-foreground">
+                      {commandInvocation(command)}
+                    </span>
+                    <span className="truncate text-[11.5px] text-subtle-foreground">
+                      {command.description}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+          <textarea
+            ref={textareaRef}
           value={draft}
           aria-label={t("agent.composer.message")}
-          placeholder={t("agent.composer.message")}
+          placeholder={t("agent.composer.messageHint")}
           className="min-h-0 w-full flex-1 resize-none bg-transparent px-2 py-2.5 text-foreground outline-none ui-text-base placeholder:text-subtle-foreground"
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
@@ -374,6 +446,43 @@ export function AgentComposer({
             setFileQuery(opened?.query ?? "");
           }}
           onKeyDown={(event) => {
+            if (commandList !== null && !event.nativeEvent.isComposing) {
+              const key =
+                event.key === "Enter" && !event.shiftKey
+                  ? "submit"
+                  : event.key === "Escape"
+                    ? "escape"
+                    : event.key === "ArrowUp"
+                      ? "up"
+                      : event.key === "ArrowDown"
+                        ? "down"
+                        : event.key === "Tab"
+                          ? "tab"
+                          : null;
+              if (key !== null) {
+                const outcome = resolveCommandKey(commandKey, key, draft, commands, isResponding);
+                if (outcome.kind === "handled") {
+                  event.preventDefault();
+                  setCommandKey(outcome.state);
+                  return;
+                }
+                if (outcome.kind === "complete") {
+                  event.preventDefault();
+                  completeCommand(outcome.command);
+                  return;
+                }
+                if (outcome.kind === "send") {
+                  event.preventDefault();
+                  send();
+                  return;
+                }
+                if (outcome.kind === "cancel") {
+                  event.preventDefault();
+                  agentConnection().cancel();
+                  return;
+                }
+              }
+            }
             if (event.key === "Escape" && mention !== null) {
               event.stopPropagation();
               setMention(null);
@@ -384,7 +493,8 @@ export function AgentComposer({
               send();
             }
           }}
-        />
+          />
+        </div>
 
         <div className="m-px flex h-9 shrink-0 items-center gap-1 rounded-[7px] bg-muted/40 px-[5px]">
           <button

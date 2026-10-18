@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { openExternalBrowserUrl } from "@/features/window/utils/external-navigation";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import {
@@ -16,17 +15,23 @@ import {
   HandIcon,
   ListChecksIcon,
   PencilSimpleIcon,
+  PulseIcon,
   WarningIcon,
 } from "@/ui/icons";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/ui/hover-card";
 import { Spinner } from "@/ui/spinner";
+import MarkdownRenderer from "@/features/ai/components/messages/markdown-renderer";
 import { cn } from "@/utils/cn";
+import { classifyMarkdownLink } from "@/utils/markdown-links";
 import { tryWriteClipboardText } from "@/utils/clipboard";
+import {
+  transcriptNavigation,
+  type AgentTranscriptNavigationEntry,
+} from "../services/agent-transcript-navigation";
 import {
   activitySummary,
   groupTranscript,
-  inlineSpans,
   itemMatches,
-  messageSegments,
   toolMatches,
 } from "../services/agent-transcript-items";
 import {
@@ -260,10 +265,12 @@ function ReasoningRow({
   text,
   isStreaming = false,
   isSearching = false,
+  onOpenLocation,
 }: {
   text: string;
   isStreaming?: boolean;
   isSearching?: boolean;
+  onOpenLocation: (location: AgentToolLocation) => void;
 }) {
   const { t } = useTranslation();
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
@@ -300,21 +307,31 @@ function ReasoningRow({
           ref={scrollRef}
           className="max-h-60 select-text overflow-y-auto rounded-[8px] border border-border bg-surface/50 px-3 py-2.5 text-subtle-foreground ui-text-caption"
         >
-          <div className="space-y-2">
-            {messageSegments(text.trim()).map((segment, index) =>
-              segment.kind === "code" ? (
-                <CodeBlock key={index} language={segment.language} code={segment.code} />
-              ) : (
-                <div key={index} className="whitespace-pre-wrap break-words">
-                  <InlineMarkdown text={segment.text} />
-                </div>
-              ),
-            )}
+          <div className="space-y-2 select-text">
+            <MarkdownRenderer
+              content={text.trim()}
+              showLinkIcons
+              onOpenLink={(href) => openAgentLink(href, onOpenLocation)}
+            />
           </div>
         </div>
       ) : null}
     </div>
   );
+}
+
+/**
+ * Workspace file links open in the editor; web and GitHub links keep the
+ * shared opener the AI chat uses. Mirrors `AgentMarkdownLink` handling on macOS.
+ */
+function openAgentLink(
+  href: string,
+  onOpenLocation: (location: AgentToolLocation) => void,
+): boolean {
+  const target = classifyMarkdownLink(href);
+  if (target.kind !== "file") return false;
+  onOpenLocation({ path: target.path, line: target.line });
+  return true;
 }
 
 function ToolEvidence({
@@ -506,76 +523,6 @@ function ToolGroup({
   );
 }
 
-function InlineMarkdown({ text }: { text: string }) {
-  return (
-    <>
-      {inlineSpans(text).map((span, index) => {
-        switch (span.kind) {
-          case "strong":
-            return <strong key={index}>{span.text}</strong>;
-          case "emphasis":
-            return <em key={index}>{span.text}</em>;
-          case "code":
-            return (
-              <code key={index} className="rounded bg-muted px-1 font-mono text-[0.92em]">
-                {span.text}
-              </code>
-            );
-          case "link":
-            return (
-              <a
-                key={index}
-                href={span.href}
-                className="text-primary underline"
-                onClick={(event) => {
-                  event.preventDefault();
-                  void openExternalBrowserUrl(span.href);
-                }}
-              >
-                {span.text}
-              </a>
-            );
-          default:
-            return <span key={index}>{span.text}</span>;
-        }
-      })}
-    </>
-  );
-}
-
-function CodeBlock({ language, code }: { language: string; code: string }) {
-  const { t } = useTranslation();
-  const [didCopy, setDidCopy] = useState(false);
-  useEffect(() => {
-    if (!didCopy) return;
-    const handle = setTimeout(() => setDidCopy(false), 1500);
-    return () => clearTimeout(handle);
-  }, [didCopy]);
-  return (
-    <div className="overflow-hidden rounded-md border border-border bg-surface">
-      <div className="flex items-center bg-muted/60 px-2.5 py-1">
-        <span className="flex-1 font-medium text-[10.5px] text-subtle-foreground">
-          {language.length === 0 ? t("agent.transcript.code") : language}
-        </span>
-        <button
-          type="button"
-          aria-label={t("agent.transcript.copyCode")}
-          title={t("agent.transcript.copyCode")}
-          className={didCopy ? "text-success" : "text-subtle-foreground hover:text-foreground"}
-          onClick={() => {
-            void tryWriteClipboardText(code).then((copied) => setDidCopy(copied));
-          }}
-        >
-          {didCopy ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-        </button>
-      </div>
-      <pre className="select-text overflow-x-auto p-2.5 font-mono text-[12px] text-foreground">
-        {code}
-      </pre>
-    </div>
-  );
-}
-
 function MessageRow({
   message,
   onOpenLocation,
@@ -604,27 +551,22 @@ function MessageRow({
     return (
       <ReasoningRow
         text={message.text}
+        onOpenLocation={onOpenLocation}
         isStreaming={isStreaming}
         isSearching={needle.length > 0 && message.text.toLocaleLowerCase().includes(needle)}
       />
     );
   }
   return (
-    <div className="space-y-2">
-      {messageSegments(message.text).map((segment, index) =>
-        segment.kind === "code" ? (
-          <CodeBlock key={index} language={segment.language} code={segment.code} />
-        ) : (
-          <div
-            key={index}
-            className="select-text whitespace-pre-wrap break-words text-foreground ui-text-base"
-          >
-            <InlineMarkdown text={segment.text} />
-          </div>
-        ),
-      )}
+    <div className="select-text text-foreground ui-text-base">
+      <MarkdownRenderer
+        content={message.text}
+        showLinkIcons
+        copyableTables
+        onOpenLink={(href) => openAgentLink(href, onOpenLocation)}
+      />
     </div>
-  );
+  )
 }
 
 /** Only this row ticks while waiting; it never republishes the conversation. */
@@ -656,18 +598,127 @@ function ThinkingRow({
   );
 }
 
-function TurnStatistics({ turn }: { turn: AgentTurnStatistics }) {
+/** `25K`/`1.2M`, matching `AgentSessionStatusPresentation.compactTokens`. */
+function compactTokens(count: number): string {
+  if (count >= 1_000_000) return (count / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (count >= 1_000) return (count / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
+  return count.toLocaleString();
+}
+
+/** `14:03` for a turn that ended today, `2026-10-15 14:03` otherwise. */
+function completionTime(at: number): string {
+  const date = new Date(at);
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const time = pad(date.getHours()) + ":" + pad(date.getMinutes());
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  return sameDay
+    ? time
+    : date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + " " + time;
+}
+
+/**
+ * One frozen footer per locally observed turn, including failed or cancelled
+ * turns. Copy, a compact usage pill and the completion time stay visible; the
+ * full breakdown appears only in the pill's hover card, as on macOS.
+ */
+function TurnStatistics({ turn, reply }: { turn: AgentTurnStatistics; reply: string }) {
   const { t } = useTranslation();
+  const [didCopy, setDidCopy] = useState(false);
+  useEffect(() => {
+    if (!didCopy) return;
+    const handle = setTimeout(() => setDidCopy(false), 1500);
+    return () => clearTimeout(handle);
+  }, [didCopy]);
   const usage = turn.usage;
+  const elapsed = durationLabel(turnElapsed(turn, 0), t);
+  const pill = usage === null ? elapsed : elapsed + " · " + compactTokens(usage.totalTokens) + " tok";
+  const details = usage === null ? t("agent.turn.elapsedHint") : usageDetails(usage, t);
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-subtle-foreground tabular-nums ui-text-caption">
-      <span title={t("agent.turn.elapsedHint")}>
-        {t("agent.turn.elapsed", { duration: durationLabel(turnElapsed(turn, 0), t) })}
-      </span>
-      {usage === null ? null : (
-        <span className="flex flex-wrap gap-x-2.5" title={usageDetails(usage, t)}>
-          <span>{t("agent.turn.input", { count: usage.inputTokens.toLocaleString() })}</span>
-          <span>{t("agent.turn.output", { count: usage.outputTokens.toLocaleString() })}</span>
+    <div className="flex items-center gap-2 text-subtle-foreground tabular-nums ui-text-caption">
+      {reply.length === 0 ? null : (
+        <button
+          type="button"
+          aria-label={t("agent.transcript.copyReply")}
+          title={t("agent.transcript.copyReply")}
+          className={didCopy ? "text-success" : "text-subtle-foreground hover:text-foreground"}
+          onClick={() => void tryWriteClipboardText(reply).then(setDidCopy)}
+        >
+          {didCopy ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+        </button>
+      )}
+      <HoverCard>
+        <HoverCardTrigger
+          render={<button type="button" />}
+          className="flex items-center gap-1 rounded-full bg-muted/60 px-1.5 py-0.5"
+          title={details}
+        >
+          <PulseIcon className="size-3" />
+          <span>{pill}</span>
+        </HoverCardTrigger>
+        <HoverCardContent side="top" align="start" className="w-64">
+          <div className="space-y-1">
+            <div className="font-medium text-foreground">{t("agent.turn.thisTurn")}</div>
+            <div className="flex justify-between gap-3">
+              <span>{t("agent.turn.elapsedLabel")}</span>
+              <span className="tabular-nums text-foreground">{elapsed}</span>
+            </div>
+            {usage === null ? null : (
+              <>
+                <div className="flex justify-between gap-3">
+                  <span>{t("agent.turn.inputLabel")}</span>
+                  <span className="tabular-nums text-foreground">
+                    {usage.inputTokens.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span>{t("agent.turn.outputLabel")}</span>
+                  <span className="tabular-nums text-foreground">
+                    {usage.outputTokens.toLocaleString()}
+                  </span>
+                </div>
+                {usage.thoughtTokens === null ? null : (
+                  <div className="flex justify-between gap-3">
+                    <span>{t("agent.turn.reasoningLabel")}</span>
+                    <span className="tabular-nums text-foreground">
+                      {usage.thoughtTokens.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {usage.cachedReadTokens === null ? null : (
+                  <div className="flex justify-between gap-3">
+                    <span>{t("agent.turn.cacheReadLabel")}</span>
+                    <span className="tabular-nums text-foreground">
+                      {usage.cachedReadTokens.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {usage.cachedWriteTokens === null ? null : (
+                  <div className="flex justify-between gap-3">
+                    <span>{t("agent.turn.cacheWriteLabel")}</span>
+                    <span className="tabular-nums text-foreground">
+                      {usage.cachedWriteTokens.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-3">
+                  <span>{t("agent.turn.totalLabel")}</span>
+                  <span className="tabular-nums text-foreground">
+                    {usage.totalTokens.toLocaleString()}
+                  </span>
+                </div>
+                <div className="pt-1 text-subtle-foreground">{t("agent.turn.usageHint")}</div>
+              </>
+            )}
+          </div>
+        </HoverCardContent>
+      </HoverCard>
+      {turn.completedAt === null ? null : (
+        <span title={new Date(turn.completedAt).toLocaleString()}>
+          {completionTime(turn.completedAt)}
         </span>
       )}
     </div>
@@ -721,6 +772,55 @@ function PermissionCard({
   );
 }
 
+/**
+ * Narrow rail on the right edge of the transcript, as
+ * `AgentTranscriptNavigationRail` on macOS. Ticks stay invisible until the
+ * pointer or keyboard focus enters the rail; the turns currently in view are
+ * wider and brighter. Hovering a tick previews that turn's prompt and reply.
+ */
+function AgentTranscriptNavigationRail({
+  entries,
+  visibleTurnIDs,
+  onSelect,
+}: {
+  entries: AgentTranscriptNavigationEntry[];
+  visibleTurnIDs: Set<string>;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="group/rail absolute inset-y-0 right-0 z-10 flex w-8 flex-col items-end justify-center">
+      <div className="flex max-h-full flex-col overflow-y-auto py-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover/rail:opacity-100 [scrollbar-width:none]">
+        {entries.map((entry) => (
+          <HoverCard key={entry.id}>
+            <HoverCardTrigger
+              render={<button type="button" />}
+              aria-label={entry.prompt}
+              className="flex h-5 w-7 shrink-0 items-center justify-end"
+              onClick={() => onSelect(entry.id)}
+            >
+              <span
+                className={cn(
+                  "h-0.5 rounded-full transition-all",
+                  visibleTurnIDs.has(entry.id)
+                    ? "w-6 bg-foreground/70"
+                    : "w-3 bg-subtle-foreground/40",
+                )}
+              />
+            </HoverCardTrigger>
+            <HoverCardContent side="left" align="center" className="w-72">
+              <div className="space-y-2">
+                <div className="line-clamp-2 font-medium text-foreground">{entry.prompt}</div>
+                {entry.reply.length === 0 ? null : (
+                  <div className="line-clamp-4 text-subtle-foreground">{entry.reply}</div>
+                )}
+              </div>
+            </HoverCardContent>
+          </HoverCard>
+        ))}
+      </div>
+    </div>
+  );
+}
 interface AgentTranscriptProps {
   conversation: AgentConversation | null;
   agentName: string | null;
@@ -754,6 +854,7 @@ export function AgentTranscript({
 }: AgentTranscriptProps) {
   const { t } = useTranslation();
   const messages = conversation?.messages ?? [];
+  const scrollRef = useRef<HTMLDivElement>(null);
   const items = useMemo(
     () =>
       groupTranscript(messages, conversation?.completedTurns ?? []).filter((item) =>
@@ -761,9 +862,36 @@ export function AgentTranscript({
       ),
     [conversation?.completedTurns, messages, searchText],
   );
+  const navigation = useMemo(() => transcriptNavigation(messages), [messages]);
+  const [visibleTurnIDs, setVisibleTurnIDs] = useState<Set<string>>(() => new Set());
+  const navigationKey = navigation.entries.map((entry) => entry.id).join("|");
+
+  // Only the rail observes viewport geometry; streamed text never republishes it.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (root === null) return;
+    const nodes = Array.from(root.querySelectorAll<HTMLElement>("[data-agent-turn-id]"));
+    const observer = new IntersectionObserver(
+      (observed) => {
+        setVisibleTurnIDs((current) => {
+          const next = new Set(current);
+          for (const entry of observed) {
+            const id = (entry.target as HTMLElement).dataset.agentTurnId;
+            if (id === undefined) continue;
+            if (entry.isIntersecting) next.add(id);
+            else next.delete(id);
+          }
+          return next;
+        });
+      },
+      { root, rootMargin: "-1px 0px -1px 0px", threshold: 0 },
+    );
+    for (const node of nodes) observer.observe(node);
+    return () => observer.disconnect();
+  }, [navigationKey, searchText]);
+
   const permission = conversation === null ? null : currentPermission(conversation);
   const isResponding = conversation?.isResponding === true || isCreatingSession;
-  const scrollRef = useRef<HTMLDivElement>(null);
   const lastText = messages[messages.length - 1]?.text;
   const turnCount = conversation?.completedTurns.length ?? 0;
 
@@ -786,8 +914,9 @@ export function AgentTranscript({
           onSwitchAgent={onSwitchAgent}
         />
       ) : (
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-          <div className="flex flex-col gap-3.5 p-3">
+        <div className="relative flex min-h-0 flex-1">
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+            <div className="flex flex-col gap-3.5 p-3">
             {conversation?.isLoading === true ? (
               <div className="flex items-center gap-2 text-subtle-foreground ui-text-sm">
                 <Spinner className="size-3.5" />
@@ -803,16 +932,22 @@ export function AgentTranscript({
               switch (item.kind) {
                 case "message":
                   return (
-                    <MessageRow
+                    <div
                       key={item.id}
-                      message={item.message}
-                      searchText={searchText}
-                      isStreaming={
-                        conversation?.isResponding === true &&
-                        item.message.id === messages[messages.length - 1]?.id
+                      data-agent-turn-id={
+                        item.message.role === "user" ? item.message.id : undefined
                       }
-                      onOpenLocation={onOpenLocation}
-                    />
+                    >
+                      <MessageRow
+                        message={item.message}
+                        searchText={searchText}
+                        isStreaming={
+                          conversation?.isResponding === true &&
+                          item.message.id === messages[messages.length - 1]?.id
+                        }
+                        onOpenLocation={onOpenLocation}
+                      />
+                    </div>
                   );
                 case "toolGroup":
                   return (
@@ -824,7 +959,7 @@ export function AgentTranscript({
                     />
                   );
                 case "turnSummary":
-                  return <TurnStatistics key={item.id} turn={item.turn} />;
+                  return <TurnStatistics key={item.id} turn={item.turn} reply={item.reply} />;
               }
             })}
             {conversation === null && pendingPrompt !== null ? (
@@ -852,8 +987,18 @@ export function AgentTranscript({
                 now={now}
               />
             ) : null}
+            </div>
           </div>
-        </div>
+          <AgentTranscriptNavigationRail
+            entries={navigation.entries}
+            visibleTurnIDs={visibleTurnIDs}
+            onSelect={(id) => {
+              const target = scrollRef.current?.querySelector<HTMLElement>(
+                '[data-agent-turn-id="' + id + '"]',
+              );
+              target?.scrollIntoView({ block: "start", behavior: "smooth" });
+            }}
+          />        </div>
       )}
       {permission === null ? null : (
         <PermissionCard

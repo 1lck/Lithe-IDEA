@@ -19,6 +19,7 @@ import {
   enqueuePermission,
   finishActiveTurn,
   interruptPendingTools,
+  parseAvailableCommands,
   parseContextUsage,
   parsePlan,
   parseSessionConfigOptions,
@@ -952,6 +953,12 @@ export class AgentConnectionModel {
         this.editConversation(sessionID, (current) => ({ ...current, plan }));
         return;
       }
+      case "available_commands_update": {
+        const availableCommands = parseAvailableCommands(update);
+        if (availableCommands === null) return;
+        this.editConversation(sessionID, (current) => ({ ...current, availableCommands }));
+        return;
+      }
       case "agent_thought_chunk": {
         const text = updateText(update);
         if (text === null) return;
@@ -1126,6 +1133,7 @@ export class AgentConnectionModel {
       // looking busy or wait for a confirmation that died with the old one.
       conversations[id] = {
         ...interruptPendingTools(finishActiveTurn(conversations[id], now)),
+        availableCommands: [],
         contextUsage: null,
         isAttached: false,
         isLoading: false,

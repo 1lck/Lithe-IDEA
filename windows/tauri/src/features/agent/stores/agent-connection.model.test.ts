@@ -128,6 +128,25 @@ describe("Agent connection lifecycle", () => {
     expect(model.getSnapshot().isRefreshingSessions).toBe(false);
   });
 
+  test("advertised commands reach the conversation and die with the process", async () => {
+    await connectReady();
+    model.startNewConversation();
+    transport.emit({ ...fixture.events.sessionCreated, token: transport.command("newSession")?.token });
+    transport.emit(fixture.events.availableCommands);
+    expect(model.getSnapshot().conversations["session-1"].availableCommands.map((entry) => entry.name)).toEqual([
+      "review",
+      "compact",
+    ]);
+    await model.stop();
+    // The unprompted session is dropped, and no surviving conversation may keep
+    // commands that belonged to the dead process.
+    expect(
+      Object.values(model.getSnapshot().conversations).every(
+        (conversation) => conversation.availableCommands.length === 0,
+      ),
+    ).toBe(true);
+  });
+
   test("a prompt sent before the session exists waits for it instead of failing", async () => {
     await connectReady();
     model.startNewConversation();
