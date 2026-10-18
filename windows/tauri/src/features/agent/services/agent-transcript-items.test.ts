@@ -52,6 +52,17 @@ describe("Agent transcript grouping", () => {
     expect(itemMatches(summary, "x")).toBe(false);
   });
 
+  test("reasoning is its own row and stays searchable", () => {
+    const messages = [
+      message("r1", "reasoning", "Read the manifest first"),
+      message("a1", "agent", "Done"),
+    ];
+    const items = groupTranscript(messages);
+    expect(items.map((item) => item.id)).toEqual(["r1", "a1"]);
+    expect(itemMatches(items[0], "manifest")).toBe(true);
+    expect(activitySummary(messages).tasks).toBe(0);
+  });
+
   test("activity counts running tools and file changes", () => {
     const counts = activitySummary([
       message("t1", "tool", "a", { toolStatus: "pending" }),

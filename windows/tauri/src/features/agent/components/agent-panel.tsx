@@ -306,6 +306,7 @@ export function AgentPanel({
             untitled: t("agent.tabs.untitled"),
             you: t("agent.history.you"),
             tool: t("agent.history.tool"),
+            thinking: t("agent.history.thinking"),
           }),
           {
             title: t("agent.history.export"),

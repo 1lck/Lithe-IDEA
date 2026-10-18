@@ -15,11 +15,15 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features"
+      "windows/tauri/src/features/agent/types/agent.types.ts",
+      "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
+      "windows/tauri/src/features/agent/components/agent-transcript.tsx",
+      "shared/fixtures/agent/acp-events-v1.json"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：让真实 Agent（例如在计划模式或多步任务中）上报计划，确认计划栏显示“计划 已完成/总数”与当前步骤，展开后每条待办、进行中、已完成状态和图标正确；步骤推进时整体刷新而不重复；切换会话显示各自计划，加载历史会话后计划恢复；不上报计划的 Agent 不显示计划栏。在窄宽面板及深浅主题检查长步骤截断与滚动。Windows Agent 对话 UI 尚未实现。"
+  "verification": "macOS：让真实 Agent（例如在计划模式或多步任务中）上报计划，确认计划栏以“计划 1/3”形式显示完成进度与当前步骤，展开后每条待办、进行中、已完成状态和图标正确；步骤推进时整体刷新而不重复；切换会话显示各自计划，加载历史会话后计划恢复；不上报计划的 Agent 不显示计划栏。在窄宽面板及深浅主题检查长步骤截断与滚动。Windows 已接入共享 `plan` 事件：会话按整批替换计划，活动栏上方以单行“计划 1/3”显示完成进度与当前步骤，展开后逐条显示待办、进行中与已完成状态；不上报计划时不渲染。真机计划上报验收待执行。",
+  "notes": "2026-10-18 Windows：`agent-connection.model.ts` 把 ACP `plan` 整体写入会话，`agent-transcript.tsx` 在活动统计栏上方显示可折叠计划进度；单测覆盖共享 fixture 的计划解析、进度汇总，非法计划更新被忽略、空计划清除。真机验收待执行。"
 }

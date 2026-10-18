@@ -187,6 +187,58 @@ describe("Agent connection lifecycle", () => {
     expect(messages[0].text).toBe("This project **builds** an IDE. And more.");
   });
 
+  test("reasoning, plan and mode updates stay separate from prose", async () => {
+    await connectReady();
+    model.startNewConversation();
+    transport.emit({
+      ...fixture.events.sessionCreated,
+      token: transport.command("newSession")?.token,
+    });
+    transport.emit({
+      kind: "update",
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: fixture.events.sessionConfigured.configOptions,
+      },
+    });
+
+    transport.emit(fixture.events.agentThoughtChunk);
+    transport.emit({
+      ...fixture.events.agentThoughtChunk,
+      update: {
+        ...fixture.events.agentThoughtChunk.update,
+        content: { type: "text", text: " Then act." },
+      },
+    });
+    transport.emit(fixture.events.agentMessageChunk);
+    scheduler.flush();
+    transport.emit(fixture.events.plan);
+    transport.emit({
+      kind: "update",
+      sessionId: "session-1",
+      update: { sessionUpdate: "plan", entries: "not-an-array" },
+    });
+    transport.emit(fixture.events.currentModeUpdate);
+
+    const conversation = model.getSnapshot().conversations["session-1"];
+    expect(conversation.messages.map((message) => message.role)).toEqual([
+      "reasoning",
+      "agent",
+    ]);
+    expect(conversation.messages[0].text).toBe("Read the manifest first. Then act.");
+    expect(conversation.messages[1].text).toBe("This project **builds** an IDE.");
+    expect(conversation.plan.map((entry) => entry.status)).toEqual([
+      "completed",
+      "in_progress",
+      "pending",
+    ]);
+    expect(
+      conversation.configOptions.find((option) => option.category === "mode")
+        ?.currentValue,
+    ).toBe("auto");
+  });
+
   test("tool evidence accumulates across partial updates", async () => {
     await connectReady();
     model.startNewConversation();

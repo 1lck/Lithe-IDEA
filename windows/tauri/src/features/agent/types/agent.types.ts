@@ -51,7 +51,16 @@ export interface AgentSessionConfigOption {
   choices: AgentSessionConfigChoice[];
 }
 
-export type AgentMessageRole = "user" | "agent" | "tool";
+export type AgentPlanStatus = "pending" | "in_progress" | "completed";
+
+/** One step of the plan the Agent itself reports for the running session. */
+export interface AgentPlanEntry {
+  content: string;
+  priority: string | null;
+  status: AgentPlanStatus;
+}
+
+export type AgentMessageRole = "user" | "agent" | "tool" | "reasoning";
 
 export type AgentToolStatus = "pending" | "in_progress" | "completed" | "failed" | "interrupted";
 
@@ -105,6 +114,8 @@ export interface AgentSessionSummary {
 export interface AgentConversation {
   messages: AgentConversationMessage[];
   contextUsage: AgentContextUsage | null;
+  /** Replaced as a whole on every ACP plan update; empty means no plan. */
+  plan: AgentPlanEntry[];
   /** The turn the user submitted and the Agent has not finished yet. */
   activeTurn: AgentTurnStatistics | null;
   /**
@@ -179,6 +190,7 @@ export function createConversation(): AgentConversation {
   return {
     messages: [],
     contextUsage: null,
+    plan: [],
     activeTurn: null,
     completedTurns: [],
     isResponding: false,
@@ -208,6 +220,43 @@ export function parseContextUsage(update: unknown): AgentContextUsage | null {
   const size = asNumber(update.size);
   if (used === null || size === null || size <= 0) return null;
   return { usedTokens: used, capacityTokens: size, fraction: used / size };
+}
+
+/**
+ * ACP replaces the plan as a whole. An empty list clears it; a malformed
+ * update or an entry with an unknown status is ignored, as macOS does.
+ */
+export function parsePlan(update: unknown): AgentPlanEntry[] | null {
+  if (!isRecord(update) || !Array.isArray(update.entries)) return null;
+  return update.entries.slice(0, 100).flatMap((entry): AgentPlanEntry[] => {
+    if (!isRecord(entry)) return [];
+    const content = asString(entry.content);
+    const status = entry.status;
+    if (
+      content === null ||
+      (status !== "pending" && status !== "in_progress" && status !== "completed")
+    ) {
+      return [];
+    }
+    return [{ content, priority: asString(entry.priority), status }];
+  });
+}
+
+/** Completed steps and the step the Agent is working on now. */
+export function planProgress(plan: AgentPlanEntry[]): {
+  completed: number;
+  total: number;
+  current: string | null;
+} {
+  const current =
+    plan.find((entry) => entry.status === "in_progress") ??
+    plan.find((entry) => entry.status === "pending") ??
+    null;
+  return {
+    completed: plan.filter((entry) => entry.status === "completed").length,
+    total: plan.length,
+    current: current?.content ?? null,
+  };
 }
 
 /**
@@ -293,6 +342,26 @@ export function parseSessionConfigOptions(value: unknown): AgentSessionConfigOpt
 
 export function configOptionLabel(option: AgentSessionConfigOption): string {
   return option.choices.find((choice) => choice.id === option.currentValue)?.name ?? option.currentValue;
+}
+
+/**
+ * Apply the mode the Agent reported without inventing an option or choice.
+ * The Agent owns the catalog, so an unknown id is ignored rather than shown.
+ */
+export function applyCurrentMode(
+  conversation: AgentConversation,
+  modeID: string,
+): AgentConversation {
+  const index = conversation.configOptions.findIndex(
+    (option) => option.category === "mode",
+  );
+  if (index < 0) return conversation;
+  const option = conversation.configOptions[index];
+  if (option.currentValue === modeID) return conversation;
+  if (!option.choices.some((choice) => choice.id === modeID)) return conversation;
+  const configOptions = conversation.configOptions.slice();
+  configOptions[index] = { ...option, currentValue: modeID };
+  return { ...conversation, configOptions };
 }
 
 /** Message text of an ACP content update, or null when this update carries none. */
