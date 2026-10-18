@@ -1,0 +1,178 @@
+import type { GitDiff, GitDiffLine, GitHunk } from "../types/git.types";
+
+/** One raw patch line with its original bytes (including CR) intact. */
+interface RawPatchLine {
+  /** Prefix character: ' ', '+', '-', or '\\' for the no-newline marker. */
+  prefix: string;
+  /** Line content after the prefix, with original line endings preserved. */
+  content: string;
+  /** True for `\\ No newline at end of file` markers. */
+  isEofMarker: boolean;
+  /** One-based old-side line number, when the prefix occupies an old line. */
+  oldLine: number | null;
+  /** One-based new-side line number, when the prefix occupies a new line. */
+  newLine: number | null;
+}
+
+/**
+ * Parses a unified diff patch into raw lines with original bytes. Unlike the
+ * display parser, this never strips CR or skips EOF markers — the whole point
+ * is byte fidelity for `git apply`.
+ */
+export function parseRawPatchLines(patch: string): RawPatchLine[] {
+  const result: RawPatchLine[] = [];
+  let oldLine = 0;
+  let newLine = 0;
+  let inHunk = false;
+
+  for (const raw of patch.split("\n")) {
+    if (raw.startsWith("@@")) {
+      inHunk = true;
+      const match = raw.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+      if (match) {
+        oldLine = parseInt(match[1], 10);
+        newLine = parseInt(match[3], 10);
+      }
+      continue;
+    }
+    if (!inHunk) continue;
+    if (raw === "") continue;
+
+    if (raw.startsWith("\\ No newline")) {
+      // The marker belongs to the previous line's old side, new side, or
+      // both, but never occupies a source line number itself.
+      result.push({ prefix: "\\", content: raw, isEofMarker: true, oldLine: null, newLine: null });
+      continue;
+    }
+
+    const prefix = raw[0];
+    const content = raw.slice(1);
+    const entry: RawPatchLine = {
+      prefix,
+      content,
+      isEofMarker: false,
+      oldLine: null,
+      newLine: null,
+    };
+    if (prefix === " " || prefix === "-") {
+      entry.oldLine = oldLine++;
+    }
+    if (prefix === " " || prefix === "+") {
+      entry.newLine = newLine++;
+    }
+    result.push(entry);
+  }
+  return result;
+}
+
+/**
+ * Extracts a single hunk's raw patch text covering the target old/new line
+ * range from a full raw patch. The result preserves CR bytes and EOF markers
+ * so `git apply` can reverse it byte-faithfully.
+ *
+ * @returns null when the range cannot be unambiguously isolated.
+ */
+export function sliceRawHunkPatch(
+  patch: string,
+  filePath: string,
+  targetOldStart: number,
+  targetNewStart: number,
+): string | null {
+  const lines = parseRawPatchLines(patch);
+  if (lines.length === 0) return null;
+
+  // Build a minimal U0 hunk: only the changed lines covering the target,
+  // context stripped, original bytes (CR, EOF markers) preserved. This pairs
+  // with git apply --unidiff-zero for byte-faithful reverse application.
+  // A replacement block is a contiguous run of `-` and `+` lines with no
+  // context line in between; the target new-side line identifies which block.
+  let blockStart = -1;
+  let blockEnd = -1;
+  let currentStart = -1;
+  let found = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.isEofMarker) continue;
+    if (line.prefix === "+" || line.prefix === "-") {
+      if (currentStart === -1) currentStart = i;
+      if (!found && line.newLine === targetNewStart) {
+        found = true;
+        blockStart = currentStart;
+      }
+    } else {
+      // Context line terminates the current run.
+      if (found && currentStart !== -1) {
+        blockEnd = i - 1;
+        break;
+      }
+      currentStart = -1;
+    }
+  }
+  if (found && blockEnd === -1) blockEnd = lines.length - 1;
+  if (!found || blockStart === -1) return null;
+
+  // Include trailing EOF markers attached to the last changed line.
+  while (blockEnd + 1 < lines.length && lines[blockEnd + 1].isEofMarker) {
+    blockEnd++;
+  }
+
+  const hunkLines = lines.slice(blockStart, blockEnd + 1);
+  if (hunkLines.length === 0) return null;
+
+  // U0 hunk: count only changed lines for each side.
+  let oldCount = 0;
+  let newCount = 0;
+  let oldLineNumber = 0;
+  for (const line of hunkLines) {
+    if (line.isEofMarker) continue;
+    if (line.prefix === "-") {
+      oldCount++;
+      if (line.oldLine !== null) oldLineNumber = line.oldLine;
+    }
+    if (line.prefix === "+") newCount++;
+  }
+  // When one side has zero lines, git uses the position-before convention.
+  const oldStart = oldCount === 0 ? Math.max(0, (oldLineNumber || targetOldStart) - 1) : (hunkLines.find((l) => !l.isEofMarker && l.prefix === "-")?.oldLine ?? targetOldStart);
+  const newStart = newCount === 0 ? Math.max(0, targetNewStart - 1) : targetNewStart;
+
+  const header = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`;
+  const body = hunkLines.map((line) => (line.isEofMarker ? line.content : line.prefix + line.content));
+
+  return `diff --git a/${filePath} b/${filePath}\n--- a/${filePath}\n+++ b/${filePath}\n${header}\n${body.join("\n")}\n`;
+}
+
+/**
+ * Builds a GitHunk whose lines carry original bytes (CR, EOF markers) from
+ * the writePatch, so the host-side patch reconstruction is byte-faithful.
+ */
+export function buildByteFaithfulHunk(
+  diff: GitDiff,
+  targetOldStart: number,
+  targetNewStart: number,
+): GitHunk | null {
+  if (!diff.writePatch) return null;
+  const patch = sliceRawHunkPatch(
+    diff.writePatch,
+    diff.new_path || diff.file_path,
+    targetOldStart,
+    targetNewStart,
+  );
+  if (!patch) return null;
+  const rawLines = parseRawPatchLines(patch);
+  const hunkLines: GitDiffLine[] = rawLines
+    .filter((line) => !line.isEofMarker && line.prefix !== "@")
+    .map((line) => ({
+      line_type: line.prefix === "+" ? "added" : line.prefix === "-" ? "removed" : "context",
+      content: line.content,
+      old_line_number: line.oldLine ?? undefined,
+      new_line_number: line.newLine ?? undefined,
+    }));
+  if (hunkLines.length === 0) return null;
+  return {
+    file_path: diff.new_path || diff.file_path,
+    lines: hunkLines,
+    // The host checks rawPatch to bypass display-line reconstruction; without
+    // it, EOF markers embedded in the patch text would be lost.
+    rawPatch: patch,
+  };
+}

@@ -3,6 +3,7 @@ import type { GitDiff, GitHunk } from "../types/git.types";
 import { parseDiffHunkRange } from "./git-diff-helpers";
 import { gitGutterChangeHunk, type GitGutterChange } from "./git-gutter-changes";
 import { monacoDiffRows } from "./monaco-diff-rows";
+import { buildByteFaithfulHunk } from "./lossy-rollback-patch";
 import { planIndependentCommitDiff, type IndependentChange } from "./independent-commit-diff";
 
 export interface CommitDiffBlock {
@@ -29,9 +30,9 @@ export function commitDiffChangeID(
 
 /** Only complete, validated Git streams may supply index patches. Never use
  * folded display coordinates, an aligned spacer, or sparse context as a base. */
-function projection(diff: GitDiff) {
+function projection(diff: GitDiff, rollbackOnly = false) {
   if (!diff.is_full_context || diff.is_truncated || diff.is_binary || diff.is_image
-    || diff.has_lossy_line_endings) return null;
+    || (diff.has_lossy_line_endings && !rollbackOnly)) return null;
   const headers = diff.lines.filter(line => line.line_type === "header");
   if (headers.length !== 1) return null;
   const range = parseDiffHunkRange(headers[0].content);
@@ -60,7 +61,10 @@ function edit(start: number, before: string[], after: string[]): GitGutterChange
  * can contain only some staged lines, and earlier staged additions shift index
  * coordinates. Rebuild just its index span with the existing gutter patch builder. */
 export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): CommitDiffBlock[] | null {
-  const visible = projection(worktree);
+  const lossyRollbackEligible = Boolean(
+    worktree.has_lossy_line_endings && worktree.writePatch && !worktree.is_renamed,
+  );
+  const visible = projection(worktree, lossyRollbackEligible);
   if (!visible || worktree.is_renamed) return null;
   if (worktree.is_new || worktree.is_deleted) {
     const indexed = staged.lines.length ? projection(staged) : null;
@@ -102,14 +106,17 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
       ...visible.after.slice(change.rightEnd)];
     return {
       id: commitDiffChangeID(visible.plan, change), checked, indeterminate,
-      canToggle: !overlapsBoundary,
+      canToggle: !overlapsBoundary && !worktree.has_lossy_line_endings,
       // Rollback restores this block to the index, preserving included content.
+      // With writePatch the hunk carries original bytes (CR, EOF markers).
       canRollback: !overlapsBoundary && !checked,
       leftStart: change.leftStart, rightStart: change.rightStart,
       stage: gitGutterChangeHunk(worktree.file_path, indexed.after, edit(start, indexLines, after)),
       unstage: gitGutterChangeHunk(worktree.file_path, revertedIndex, edit(start, before, indexLines)),
-      rollback: gitGutterChangeHunk(worktree.file_path, rollbackBase,
-        edit(change.rightStart, indexLines, after)),
+      rollback: worktree.writePatch
+        ? (buildByteFaithfulHunk(worktree, change.leftStart, change.rightStart)
+          ?? gitGutterChangeHunk(worktree.file_path, rollbackBase, edit(change.rightStart, indexLines, after)))
+        : gitGutterChangeHunk(worktree.file_path, rollbackBase, edit(change.rightStart, indexLines, after)),
     };
   });
 }

@@ -4,6 +4,7 @@ import { registerGitCacheInvalidator } from "../runtime/git-cache-registry";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import { gitDiffCache } from "../utils/git-diff-cache";
 import { FULL_FILE_CONTEXT_LINES } from "../utils/git-diff-helpers";
+import { checkHunkRollbackAttributes } from "../utils/lossy-rollback-attrs";
 import {
   isNotGitRepositoryError,
   resolveRepositoryForFile,
@@ -307,11 +308,42 @@ export const getFullContextFileDiff = async (
           contextLines: FULL_FILE_CONTEXT_LINES,
         }),
     );
+    if (!diff) return null;
+    // The rollback channel needs the raw patch bytes (CR, EOF markers) that
+    // the display adapter strips. Only the unstaged read (index → worktree)
+    // is the correct rollback basis, so only that direction carries it, and
+    // only when Git's effective attributes prove the bytes can round-trip.
+    if (!staged && diff.has_lossy_line_endings) {
+      const safety = await checkHunkRollbackAttributes(resolved.repoPath, resolved.filePath);
+      if (safety.byteSafe) {
+        const raw = await fetchRawWorktreePatch(resolved.repoPath, resolved.filePath);
+        if (raw) return markFullContext({ ...diff, writePatch: raw });
+      }
+    }
     return markFullContext(diff);
   } catch (error) {
     if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {
       console.error("Failed to get full-context file diff:", error);
     }
+    return null;
+  }
+};
+
+
+/** Fetches the unmodified index-to-worktree patch text for byte-faithful
+ * hunk rollback; returns null when Git cannot produce one. */
+const fetchRawWorktreePatch = async (
+  repoPath: string,
+  filePath: string,
+): Promise<string | null> => {
+  try {
+    const response = await tauriInvoke<{ patch: string; exitCode: number }>("git.diff", {
+      root: repoPath,
+      pathspecs: [filePath],
+      contextLines: 3,
+    });
+    return typeof response?.patch === "string" ? response.patch : null;
+  } catch {
     return null;
   }
 };

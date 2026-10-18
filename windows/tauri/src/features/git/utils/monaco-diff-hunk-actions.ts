@@ -51,19 +51,23 @@ export function createMonacoDiffHunkActions(
   context: DiffStagingContext | undefined,
   operations: MonacoDiffHunkOperations,
 ) {
-  const writable = Boolean(context?.repoPath) && !diff.is_truncated && !diff.has_lossy_line_endings;
-  const action: "stage" | "unstage" | null = writable && context
+  const writable = Boolean(context?.repoPath) && !diff.is_truncated;
+  const lossySafe = !diff.has_lossy_line_endings || Boolean(diff.writePatch);
+  // Stage/unstage keep the lossy protection until their own byte-faithful
+  // channels exist; discard can ride the writePatch channel independently.
+  const toggleAction: "stage" | "unstage" | null = writable && lossySafe && context
     ? context.isStaged ? "unstage" : "stage" : null;
   const discardEnabled = writable && !!context && !context.isStaged && context.canDiscard === true
     && !!operations.discard && canDiscardDiff(diff);
-  const actions: readonly HunkActionID[] = action
-    ? discardEnabled ? [action, "discard"] : [action] : [];
+  const actions: readonly HunkActionID[] = toggleAction
+    ? discardEnabled ? [toggleAction, "discard"] : [toggleAction]
+    : discardEnabled ? ["discard"] : [];
   let disposed = false;
   let pending = false;
   let applied = false;
 
   return {
-    action,
+    action: toggleAction,
     actions,
     async apply(hunkID: string, requestedAction: string): Promise<ActionResult> {
       if (disposed || pending || applied || !context
