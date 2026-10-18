@@ -39,6 +39,13 @@ struct BuildOutputSourcePathTests {
                 == workspace.appendingPathComponent("alias/Inside.swift").path
         )
         #expect(BuildOutputSourcePath.url(for: "linked/Secret.swift", in: workspace) == nil)
+        // Output text links may also be absolute; they get the same boundary.
+        let insideURL = workspace.appendingPathComponent("src/Inside.swift")
+        let linkedURL = workspace.appendingPathComponent("linked/Secret.swift")
+        let outsideURL = outside.appendingPathComponent("Secret.swift")
+        #expect(BuildOutputSourcePath.contains(insideURL, in: workspace))
+        #expect(BuildOutputSourcePath.contains(linkedURL, in: workspace) == false)
+        #expect(BuildOutputSourcePath.contains(outsideURL, in: workspace) == false)
         // A missing file stays resolvable; the caller checks existence.
         #expect(
             BuildOutputSourcePath.url(for: "src/Missing.swift", in: workspace)?.path

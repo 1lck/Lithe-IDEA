@@ -341,6 +341,143 @@ struct BuildSystemServiceTests {
         await cleanUp()
     }
 
+    // MARK: Option and run identity regressions
+
+    /// A value the current model dropped must leave both the stored options
+    /// and the argv of the next task.
+    @Test
+    func taskPlansOnlyReceiveOptionValuesTheModelStillAccepts() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(
+                modelSource: "static",
+                model: #"{"projects": [{"id": "p", "path": ".", "name": "demo"}], "optionValues": {"features": ["cli"]}}"#
+            )
+        ])
+        planner.loadedOptionsResolution = try Self.filteredOptions()
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.optionsStore.values["fixture"] = [
+            "features": .array([.string("cli"), .string("removed")])
+        ]
+
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+        // Detection stores the effective value, so the next plan starts from it.
+        #expect(harness.optionsStore.values["fixture"]?["features"] == .array([.string("cli")]))
+
+        harness.service.runTask(
+            Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build"
+        )
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        let context = try #require(planner.taskPlanContexts.last)
+        #expect(context.options["features"] == .array([.string("cli")]))
+    }
+
+    /// Loading a command model can drop option values too; the stored value
+    /// must be replaced even when the user does not touch the option.
+    @Test
+    func modelLoadStoresTheEffectiveOptionValues() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.loadedOptionsResolution = try Self.filteredOptions()
+        planner.modelOutput = .stdout
+        let runner = FakeBuildRunner()
+        runner.script = .init(
+            chunks: ["loading\n"],
+            result: BuildCommandResult(termination: .exited(0), standardOutput: "MODEL")
+        )
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.optionsStore.values["fixture"] = [
+            "features": .array([.string("cli"), .string("removed")])
+        ]
+
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+        // Without a model the host cannot know which values are stale.
+        #expect(
+            harness.optionsStore.values["fixture"]?["features"]
+                == .array([.string("cli"), .string("removed")])
+        )
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+        #expect(harness.optionsStore.values["fixture"]?["features"] == .array([.string("cli")]))
+
+        harness.service.runTask(
+            Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build"
+        )
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        let context = try #require(planner.taskPlanContexts.last)
+        #expect(context.options["features"] == .array([.string("cli")]))
+    }
+
+    /// A diagnostics decode that finishes after a new run started must not
+    /// overwrite the new run's diagnostics.
+    @Test
+    func decodedDiagnosticsDoNotCrossIntoAReplacementRun() async throws {
+        let old = try Self.diagnostic("old")
+        let new = try Self.diagnostic("new")
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
+        planner.diagnostics = [old]
+        let gate = GatedBuildDecode()
+        planner.diagnosticsGate = gate
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        harness.service.runTask(
+            Self.instanceID, request: BuildTaskRequest(task: "build"), title: "First"
+        )
+        #expect(await gate.entered.waitUntilOpen())
+
+        planner.diagnostics = [new]
+        harness.service.runTask(
+            Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Second"
+        )
+        #expect(await harness.waitForDiagnostics { $0 == [new] })
+
+        gate.releaseDecode()
+        #expect(await gate.finished.waitUntilOpen())
+        // The released decode returns on the main actor promptly; this bounded
+        // wait catches a regression without hanging.
+        #expect(await harness.waitsForStaleDiagnostics([old]) == false)
+        #expect(harness.service.diagnostics == [new])
+    }
+
+    /// A test-results decode that finishes after the workspace changed must
+    /// not publish into the new workspace.
+    @Test
+    func decodedTestResultsDoNotCrossIntoAnotherWorkspace() async throws {
+        let oldResults = try Self.testResults("old")
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
+        planner.testPlanDeclaresResults = true
+        planner.decodedTestResults = oldResults
+        let gate = GatedBuildDecode()
+        planner.testResultsGate = gate
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        harness.service.runTests(
+            Self.instanceID, request: BuildTestRequest(), title: "Tests"
+        )
+        #expect(await gate.entered.waitUntilOpen())
+
+        harness.service.reset(workspaceURL: URL(fileURLWithPath: "/workspace/other"))
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        gate.releaseDecode()
+        #expect(await gate.finished.waitUntilOpen())
+        #expect(await harness.waitsForStaleTestResults(oldResults) == false)
+        #expect(harness.service.testResults == nil)
+    }
+
     // MARK: Fixtures
 
     private static let instanceID = "fixture:app"
@@ -353,8 +490,30 @@ struct BuildSystemServiceTests {
         """
     }
 
-    private static func instance(modelSource: String) throws -> BuildSystemInstance {
-        try decode(BuildSystemInstance.self, instanceJSON(modelSource: modelSource))
+    private static func instance(modelSource: String, model: String? = nil) throws -> BuildSystemInstance {
+        try decode(BuildSystemInstance.self, instanceJSON(modelSource: modelSource, model: model))
+    }
+
+    private static func filteredOptions() throws -> BuildOptionsResolution {
+        try decode(BuildOptionsResolution.self, """
+        {"options": [{"id": "features", "displayName": "Features", "kind": "multiSelect",
+         "value": ["cli"], "source": "user"}],
+         "dropped": ["features"], "fingerprint": "f"}
+        """)
+    }
+
+    private static func diagnostic(_ message: String) throws -> BuildDiagnostic {
+        try decode(BuildDiagnostic.self, """
+        {"path": "src/old.swift", "line": 1, "severity": "error", "message": "\(message)"}
+        """)
+    }
+
+    private static func testResults(_ message: String) throws -> BuildTestResults {
+        try decode(BuildTestResults.self, """
+        {"tests": [{"suite": "Suite", "case": "case", "status": "failed", "message": "\(message)"}],
+         "summary": {"total": 1, "passed": 0, "failed": 1, "errors": 0, "skipped": 0},
+         "success": false}
+        """)
     }
 }
 
@@ -410,6 +569,27 @@ private final class Harness {
 
     func waitForRunState(_ predicate: @escaping (BuildRunState) -> Bool) async -> Bool {
         await wait(for: service.$runState, predicate)
+    }
+
+    func waitForDiagnostics(_ predicate: @escaping ([BuildDiagnostic]) -> Bool) async -> Bool {
+        await wait(for: service.$diagnostics, predicate)
+    }
+
+    /// Bounded wait for a publication a correct service never makes. Returns
+    /// true when the stale value appears, so a regression fails locally
+    /// instead of hanging.
+    func waitsForStaleDiagnostics(_ diagnostics: [BuildDiagnostic]) async -> Bool {
+        let gate = BuildTestGate()
+        let observation = service.$diagnostics.sink { if $0 == diagnostics { gate.open() } }
+        defer { observation.cancel() }
+        return await gate.waitUntilOpen(timeout: .milliseconds(500))
+    }
+
+    func waitsForStaleTestResults(_ results: BuildTestResults?) async -> Bool {
+        let gate = BuildTestGate()
+        let observation = service.$testResults.sink { if $0 == results { gate.open() } }
+        defer { observation.cancel() }
+        return await gate.waitUntilOpen(timeout: .milliseconds(500))
     }
 
     /// `@Published` reports in `willSet`; the waiter resumes in a later main
@@ -489,6 +669,25 @@ private final class BuildTestGate: @unchecked Sendable {
     }
 }
 
+/// A decode the test can pause after its command finished. The service
+/// detaches decodes, so a stop, replacement run, or workspace switch can
+/// happen while the result is still on its way back.
+private final class GatedBuildDecode: Sendable {
+    let entered = BuildTestGate()
+    let finished = BuildTestGate()
+    private let release = DispatchSemaphore(value: 0)
+
+    func releaseDecode() { release.signal() }
+
+    func waitForRelease() -> Bool {
+        release.wait(timeout: .now() + 10) == .success
+    }
+}
+
+private enum GatedDecodeError: Error {
+    case releaseTimedOut
+}
+
 private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     private let lock = NSLock()
     private var state = State()
@@ -497,10 +696,16 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var detection = BuildDetection(instances: [])
         var modelOutput: BuildProcessPlan.Output = .outputFile
         var diagnostics: [BuildDiagnostic] = []
+        var diagnosticsGate: GatedBuildDecode?
+        var testResultsGate: GatedBuildDecode?
+        var decodedTestResults: BuildTestResults?
+        var testPlanDeclaresResults = false
         var optionsResolution: BuildOptionsResolution?
+        var loadedOptionsResolution: BuildOptionsResolution?
         var fingerprint = "initial"
         var decodedModelOutputs: [BuildCommandOutput] = []
         var diagnosticOutputs: [String] = []
+        var taskPlanContexts: [BuildPlanContext] = []
     }
 
     private func access<Value>(_ body: (inout State) -> Value) -> Value { lock.withLock { body(&state) } }
@@ -521,6 +726,28 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         get { access { $0.optionsResolution } }
         set { access { $0.optionsResolution = newValue } }
     }
+    /// The resolution Core reports once a model provides its option values.
+    var loadedOptionsResolution: BuildOptionsResolution? {
+        get { access { $0.loadedOptionsResolution } }
+        set { access { $0.loadedOptionsResolution = newValue } }
+    }
+    var diagnosticsGate: GatedBuildDecode? {
+        get { access { $0.diagnosticsGate } }
+        set { access { $0.diagnosticsGate = newValue } }
+    }
+    var testResultsGate: GatedBuildDecode? {
+        get { access { $0.testResultsGate } }
+        set { access { $0.testResultsGate = newValue } }
+    }
+    var decodedTestResults: BuildTestResults? {
+        get { access { $0.decodedTestResults } }
+        set { access { $0.decodedTestResults = newValue } }
+    }
+    var testPlanDeclaresResults: Bool {
+        get { access { $0.testPlanDeclaresResults } }
+        set { access { $0.testPlanDeclaresResults = newValue } }
+    }
+    var taskPlanContexts: [BuildPlanContext] { access { $0.taskPlanContexts } }
     var fingerprint: String {
         get { access { $0.fingerprint } }
         set { access { $0.fingerprint = newValue } }
@@ -547,6 +774,9 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         options: [String: ToolingJSONValue],
         modelValues: [String: [String]]?
     ) throws -> BuildOptionsResolution {
+        if modelValues != nil, let resolution = access({ $0.loadedOptionsResolution }) {
+            return resolution
+        }
         if let resolution = optionsResolution { return resolution }
         return try decode(BuildOptionsResolution.self, """
         {"options": [{"id": "release", "displayName": "Release", "kind": "boolean", "value": false}],
@@ -560,12 +790,17 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
 
     func taskPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTaskRequest) throws
         -> BuildProcessPlan {
-        plan([request.task, "with space"], output: nil)
+        access { $0.taskPlanContexts.append(context) }
+        return plan([request.task, "with space"], output: nil)
     }
 
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws
         -> BuildTestPlan {
-        BuildTestPlan(process: plan(["test"], output: nil), results: nil)
+        let declaresResults = access { $0.testPlanDeclaresResults }
+        return BuildTestPlan(
+            process: plan(["test"], output: nil),
+            results: declaresResults ? .reports(decoder: "junitXml", patterns: []) : nil
+        )
     }
 
     func dependencyPlan(
@@ -595,15 +830,28 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     }
 
     func decodeTestResults(_ target: BuildSystemTarget, request: BuildTestResultsRequest) throws -> BuildTestResults {
-        throw DeclarativePluginRejection(code: "plugin.build.unavailable", message: "No results.", field: nil)
+        let results = access { $0.decodedTestResults }
+        if let gate = access({ let gate = $0.testResultsGate; $0.testResultsGate = nil; return gate }) {
+            gate.entered.open()
+            guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
+            gate.finished.open()
+        }
+        guard let results else {
+            throw DeclarativePluginRejection(code: "plugin.build.unavailable", message: "No results.", field: nil)
+        }
+        return results
     }
 
     func decodeDiagnostics(_ target: BuildSystemTarget, workspaceURL: URL, root: String, output: String) throws
         -> [BuildDiagnostic] {
-        access {
-            $0.diagnosticOutputs.append(output)
-            return $0.diagnostics
+        let diagnostics = access { $0.diagnostics }
+        if let gate = access({ let gate = $0.diagnosticsGate; $0.diagnosticsGate = nil; return gate }) {
+            gate.entered.open()
+            guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
+            gate.finished.open()
         }
+        access { $0.diagnosticOutputs.append(output) }
+        return diagnostics
     }
 
     func decodeDependencies(

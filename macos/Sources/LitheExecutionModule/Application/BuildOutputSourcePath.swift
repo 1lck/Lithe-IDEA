@@ -12,13 +12,17 @@ package enum BuildOutputSourcePath {
     /// File URL of `relativePath` under `workspaceURL`, or `nil` when
     /// resolving links leaves the workspace.
     package static func url(for relativePath: String, in workspaceURL: URL) -> URL? {
-        let root = workspaceURL.standardizedFileURL.resolvingSymlinksInPath()
         let candidate = workspaceURL.appendingPathComponent(relativePath).standardizedFileURL
-        let resolved = candidate.resolvingSymlinksInPath()
+        return contains(candidate, in: workspaceURL) ? candidate : nil
+    }
+
+    /// Whether `url`, after resolving links, names a file inside
+    /// `workspaceURL`. Text the build tool printed goes through the same
+    /// check as decoded diagnostics before it becomes a clickable link.
+    package static func contains(_ url: URL, in workspaceURL: URL) -> Bool {
+        let root = workspaceURL.standardizedFileURL.resolvingSymlinksInPath()
+        let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
         let rootPrefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard resolved.path == root.path || resolved.path.hasPrefix(rootPrefix) else {
-            return nil
-        }
-        return candidate
+        return resolved.path == root.path || resolved.path.hasPrefix(rootPrefix)
     }
 }

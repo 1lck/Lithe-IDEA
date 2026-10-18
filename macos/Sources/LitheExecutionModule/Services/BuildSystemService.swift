@@ -114,6 +114,13 @@ package final class BuildSystemService: ObservableObject {
         func cancel() { task.cancel() }
     }
 
+    /// Identity of one run, so a decode that finishes after the run was
+    /// stopped or replaced cannot publish its results.
+    private struct RunIdentity: Sendable {
+        let id: UUID
+        let generation: Int
+    }
+
     private var modelTasks: [String: LoadTask] = [:] {
         didSet { refreshActivity() }
     }
@@ -207,6 +214,7 @@ package final class BuildSystemService: ObservableObject {
             case .success(let detected):
                 self.entries = detected.entries
                 self.issues = detected.issues
+                self.persistDroppedOptions()
             case .failure(let error):
                 self.entries = []
                 self.issues = [error.localizedDescription]
@@ -290,6 +298,7 @@ package final class BuildSystemService: ObservableObject {
                     $0.isReloadRequired = false
                     $0.dependencies = [:]
                 }
+                self.refreshOptions(buildSystemID: entry.instance.buildSystemID)
             case .failure(let error) where error is CancellationError:
                 self.update(entryID) {
                     $0.modelState = $0.model == nil ? .notLoaded : .loaded
@@ -351,23 +360,29 @@ package final class BuildSystemService: ObservableObject {
     /// Runs a declared task, or a model task through its template.
     package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
-        startRun(entryID, title: title) { service in
+        startRun(entryID, title: title) { service, run in
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.taskPlan(entry.target, context: context, request: request)
             let collected = try await service.runStreamedCommand(plan, entry: entry, workspaceURL: workspaceURL)
-            service.diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
+            let diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
+            // The decode runs after the command; a stop, replacement, or
+            // workspace switch in between must not publish into the new state.
+            guard service.isCurrent(run) else { throw CancellationError() }
+            service.diagnostics = diagnostics
             return collected.exitCode
         }
     }
 
     package func runTests(_ entryID: String, request: BuildTestRequest, title: String) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
-        startRun(entryID, title: title) { service in
+        startRun(entryID, title: title) { service, run in
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
             let started = Date()
             let collected = try await service.runStreamedCommand(plan.process, entry: entry, workspaceURL: workspaceURL)
-            service.diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
+            let diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
+            guard service.isCurrent(run) else { throw CancellationError() }
+            service.diagnostics = diagnostics
             if plan.results != nil {
                 let resultsRequest = BuildTestResultsRequest(
                     workspaceURL: workspaceURL,
@@ -381,10 +396,15 @@ package final class BuildSystemService: ObservableObject {
                 let planner = service.planner
                 let target = entry.target
                 do {
-                    service.testResults = try await Task.detached(priority: .userInitiated) {
+                    let results = try await Task.detached(priority: .userInitiated) {
                         try planner.decodeTestResults(target, request: resultsRequest)
                     }.value
+                    guard service.isCurrent(run) else { throw CancellationError() }
+                    service.testResults = results
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
+                    guard service.isCurrent(run) else { throw CancellationError() }
                     service.appendOutput("\n" + error.localizedDescription + "\n")
                 }
             }
@@ -429,11 +449,12 @@ package final class BuildSystemService: ObservableObject {
     private func startRun(
         _ entryID: String,
         title: String,
-        _ work: @escaping @MainActor (BuildSystemService) async throws -> Int32?
+        _ work: @escaping @MainActor (BuildSystemService, RunIdentity) async throws -> Int32?
     ) {
         stopRun()
         clearOutput()
         let id = UUID()
+        let run = RunIdentity(id: id, generation: generation)
         runID = id
         runEntryID = entryID
         runState = .running
@@ -442,7 +463,7 @@ package final class BuildSystemService: ObservableObject {
             guard let self else { return }
             let state: BuildRunState
             do {
-                if let exitCode = try await work(self) {
+                if let exitCode = try await work(self, run) {
                     state = exitCode == 0
                         ? .succeeded
                         : .failed(String(localized: "The build tool exited with code \(Int(exitCode))."))
@@ -461,6 +482,12 @@ package final class BuildSystemService: ObservableObject {
             self.runID = nil
             self.runEntryID = nil
         }
+    }
+
+    /// True while `run` is still the run whose results may be shown: same
+    /// run ID, same workspace generation, and not cancelled.
+    private func isCurrent(_ run: RunIdentity) -> Bool {
+        runID == run.id && generation == run.generation && !Task.isCancelled
     }
 
     private func decodeDiagnostics(
@@ -585,12 +612,28 @@ package final class BuildSystemService: ObservableObject {
         }
     }
 
+    /// Stores the effective values Core reported after detection, so a value
+    /// the current model removed cannot stay in the options of the next plan.
+    private func persistDroppedOptions() {
+        for buildSystemID in Set(entries.map(\.instance.buildSystemID)) {
+            refreshOptions(buildSystemID: buildSystemID)
+        }
+    }
+
     // MARK: Commands
 
     private func planContext(_ entry: BuildSystemEntry, workspaceURL: URL) throws -> BuildPlanContext {
-        BuildPlanContext(
+        let stored = optionsStore.options(
+            workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
+        )
+        let resolution = try? planner.resolveOptions(
+            entry.target, options: stored, modelValues: entry.model?.optionValues
+        )
+        return BuildPlanContext(
             root: entry.instance.root,
-            options: optionsStore.options(workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID),
+            // A plan gets only values Core still accepts for the current
+            // model; otherwise a removed Cargo feature would reach the argv.
+            options: Self.effectiveOptionValues(resolution, stored: stored),
             pluginDirectory: entry.source.packageURL,
             workspaceStateDirectory: try stateLocator.workspaceStateDirectory(
                 pluginID: entry.instance.pluginID,
@@ -598,6 +641,21 @@ package final class BuildSystemService: ObservableObject {
                 workspaceURL: workspaceURL
             )
         )
+    }
+
+    /// Stored values reduced to the ones Core accepted in `resolution`. Core
+    /// applies declaration defaults itself, so plans and fingerprints receive
+    /// only effective user choices and never a value the current model removed.
+    nonisolated private static func effectiveOptionValues(
+        _ resolution: BuildOptionsResolution?,
+        stored: [String: ToolingJSONValue]
+    ) -> [String: ToolingJSONValue] {
+        guard let resolution else { return stored }
+        var values: [String: ToolingJSONValue] = [:]
+        for option in resolution.options where option.source == "user" {
+            values[option.id] = option.value
+        }
+        return values
     }
 
     private func commandRequest(
@@ -788,12 +846,16 @@ package final class BuildSystemService: ObservableObject {
             guard let source = sources.first(where: { $0.pluginID == instance.pluginID }),
                   let declaration = source.buildSystems.first(where: { $0.id == instance.buildSystemID })
             else { return nil }
-            let options = storedOptions[instance.buildSystemID] ?? [:]
+            let stored = storedOptions[instance.buildSystemID] ?? [:]
             let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID)
             let earlier = previous[instance.id]
             // A command model only changes when the user loads it again.
             let kept = instance.model == nil && instance.modelSource == .command ? earlier?.model : nil
             let model = instance.model ?? kept
+            let resolution = try? planner.resolveOptions(
+                target, options: stored, modelValues: model?.optionValues
+            )
+            let options = Self.effectiveOptionValues(resolution, stored: stored)
             let sync = try? planner.syncFingerprint(
                 target, workspaceURL: workspaceURL, root: instance.root,
                 projects: model?.projects.map(\.path) ?? [], options: options
@@ -812,8 +874,7 @@ package final class BuildSystemService: ObservableObject {
                 source: source,
                 model: model,
                 modelState: modelState,
-                options: (try? planner.resolveOptions(target, options: options, modelValues: model?.optionValues).options)
-                    ?? [],
+                options: resolution?.options ?? [],
                 sync: sync,
                 isReloadRequired: stale,
                 dependencies: kept != nil ? earlier?.dependencies.filter { $0.value != .loading } ?? [:] : [:]

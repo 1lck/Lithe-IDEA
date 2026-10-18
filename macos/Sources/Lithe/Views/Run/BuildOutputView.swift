@@ -43,6 +43,11 @@ struct BuildOutputView: View {
                 fileExists: { model.fileExists(at: $0) },
                 emptyMessage: "Run a build task to see output."
             ) { url, line, column in
+                // Output text is untrusted like decoded diagnostics: a link
+                // may not reach a file outside the workspace.
+                guard let workspaceURL = feature.workspaceURL,
+                      BuildOutputSourcePath.contains(url, in: workspaceURL)
+                else { return }
                 model.openSourceLocation(url: url, line: line, column: column)
             }
         }
