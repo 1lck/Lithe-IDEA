@@ -39,6 +39,7 @@ final class MacBuildToolResolver: BuildToolResolving {
             runtimeExecutables[dependency.id] = try await resolveRuntime(
                 dependency,
                 invocation: invocation,
+                workspaceURL: workspaceURL,
                 environment: &environment,
                 checkVersion: checkVersion
             )
@@ -120,12 +121,16 @@ final class MacBuildToolResolver: BuildToolResolving {
     private func resolveRuntime(
         _ dependency: BuildInvocation.RuntimeDependency,
         invocation: BuildInvocation,
+        workspaceURL: URL,
         environment: inout [String: String],
         checkVersion: @escaping @Sendable (String?, String) throws -> BuildVersionCheck
     ) async throws -> URL {
         let name = dependency.displayName ?? dependency.id
         var javaHome: URL?
         var candidates: [URL] = []
+        /// Project-local runtimes run repository code, so they are never
+        /// probed; the user starts them by running a command.
+        var projectOwned: Set<URL> = []
         if dependency.hostManaged {
             if dependency.id == "java" {
                 javaHome = runtime.javaHomeURL()
@@ -144,8 +149,15 @@ final class MacBuildToolResolver: BuildToolResolving {
                     ) {
                         candidates.append(url)
                     }
-                case .projectFile, .runtime:
-                    // A runtime never comes from the repository or another runtime.
+                case .projectFile(let path, let requires):
+                    let url = workspaceURL.appendingPathComponent(path).standardizedFileURL
+                    guard requires.allSatisfy({
+                        fileStorage.fileExists(at: workspaceURL.appendingPathComponent($0))
+                    }), fileStorage.isExecutable(at: url) else { continue }
+                    candidates.append(url)
+                    projectOwned.insert(url)
+                case .runtime:
+                    // A runtime is not another runtime.
                     continue
                 }
             }
@@ -158,7 +170,8 @@ final class MacBuildToolResolver: BuildToolResolving {
 
         var problems: [String] = []
         for url in candidates {
-            if let minimum = dependency.minimumVersion, let arguments = dependency.versionArguments {
+            if !projectOwned.contains(url),
+               let minimum = dependency.minimumVersion, let arguments = dependency.versionArguments {
                 let output = await probe(url, arguments: arguments, environment: environment)
                 let check = try checkVersion(dependency.id, output)
                 guard check.satisfied else {

@@ -960,6 +960,27 @@ fn sync_fingerprint_follows_watched_files() {
 
 /// Repeating option arguments is allowed only when the references can never
 /// meet on one command line.
+/// An explicit empty value is a user choice, not "no value": describing it
+/// as unset would make the host drop it and a non-empty default would return.
+#[test]
+fn resolve_options_describe_explicit_empty_text_values() {
+    let outcome = call(
+        "resolveOptions",
+        fixture("go-build.plugin.json"),
+        "go",
+        json!({ "options": { "tags": "" } }),
+    );
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let tags = outcome["options"]["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|option| option["id"] == "tags")
+        .expect("the tags option is described");
+    assert_eq!(tags["value"], "");
+    assert_eq!(tags["source"], "user");
+}
+
 #[test]
 fn option_arguments_may_repeat_under_opposite_conditions() {
     let mut manifest = fixture("cargo-build.plugin.json");

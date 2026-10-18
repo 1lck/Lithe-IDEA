@@ -19,6 +19,10 @@ pub(crate) struct ResolvedOptions {
     pub(crate) values: BTreeMap<String, Value>,
     /// Which values the user chose, as opposed to declaration defaults.
     pub(crate) chosen: Vec<String>,
+    /// The accepted user values, including empty text and empty selections
+    /// that contribute no argument. The host needs them to tell an explicit
+    /// clear from "no stored value".
+    pub(crate) chosen_values: BTreeMap<String, Value>,
     /// Options whose stored value the declaration refuses in whole or in
     /// part, so the host can store the effective value instead.
     pub(crate) dropped: Vec<String>,
@@ -46,6 +50,9 @@ pub(crate) fn resolve(
         let value = match user {
             Some(Some((value, discarded))) => {
                 resolved.chosen.push(option.id.clone());
+                resolved
+                    .chosen_values
+                    .insert(option.id.clone(), value.clone());
                 if discarded {
                     resolved.dropped.push(option.id.clone());
                 }
@@ -229,15 +236,26 @@ pub(crate) fn describe(
             } else {
                 "unset"
             };
-            let value = resolved
-                .values
-                .get(&option.id)
-                .cloned()
-                .unwrap_or(match option.kind {
-                    OptionKind::Boolean => json!(false),
-                    OptionKind::MultiSelect => json!([]),
-                    _ => Value::Null,
-                });
+            let value = if resolved.chosen.contains(&option.id) {
+                // An explicit empty value has no contribution but must not
+                // be described as unset, or the host would drop it and a
+                // non-empty default would come back.
+                resolved
+                    .chosen_values
+                    .get(&option.id)
+                    .cloned()
+                    .unwrap_or(Value::Null)
+            } else {
+                resolved
+                    .values
+                    .get(&option.id)
+                    .cloned()
+                    .unwrap_or(match option.kind {
+                        OptionKind::Boolean => json!(false),
+                        OptionKind::MultiSelect => json!([]),
+                        _ => Value::Null,
+                    })
+            };
             json!({
                 "id": option.id,
                 "displayName": option.display_name,

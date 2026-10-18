@@ -813,6 +813,31 @@ struct BuildSystemServiceTests {
         #expect(harness.service.testResults == nil)
     }
 
+    /// A cleared text option is an explicit empty value; the declaration
+    /// default must not replace it after detection.
+    @Test
+    func explicitlyClearedTextOptionKeepsItsEmptyValue() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "loaded"))
+        ])
+        planner.optionsResolution = try decode(BuildOptionsResolution.self, """
+        {"options": [{"id": "initScript", "displayName": "Init Script", "kind": "text",
+         "value": "", "source": "user"}], "dropped": [], "fingerprint": "f"}
+        """)
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.optionsStore.values["fixture"] = ["initScript": .string("")]
+
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+        #expect(harness.optionsStore.values["fixture"]?["initScript"] == .string(""))
+
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        #expect(planner.taskPlanContexts.last?.options["initScript"] == .string(""))
+    }
+
     // MARK: Fixtures
 
     private static let instanceID = "fixture:app"

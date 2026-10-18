@@ -49,6 +49,49 @@ struct MacBuildToolResolverTests {
         #expect(resolved.executableURL == executable)
         #expect(!resolved.executesProjectCode)
     }
+
+    /// A custom runtime may live in the project, for example a virtual
+    /// environment. Core accepts a `projectFile` candidate; the resolver must
+    /// use it without probing, because probing would run repository code.
+    @Test
+    func projectLocalRuntimeCandidateResolvesWithoutProbing() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent(".venv/bin/python")
+        try FileManager.default.createDirectory(
+            at: executable.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        let marker = root.appendingPathComponent("probed")
+        let script = """
+        #!/bin/sh
+        touch "\(marker.path)"
+        exit 0
+        """
+        try Data(script.utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: BuildProbeRuntimeLocator(home: root), store: BuildProbeEmptyStore()
+        )
+        let resolver = MacBuildToolResolver(
+            runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage()
+        )
+        let invocation = BuildInvocation(
+            executables: [.runtime("python")],
+            runtimeDependencies: [.init(
+                id: "python", hostManaged: false, minimumVersion: "3",
+                executables: [.projectFile(path: ".venv/bin/python", requires: [])],
+                versionArguments: ["--version"]
+            )]
+        )
+        let resolved = try await resolver.resolve(
+            invocation, displayName: "Fixture", workspaceURL: root
+        ) { _, _ in
+            Issue.record("A project-local runtime must not be probed")
+            return BuildVersionCheck(satisfied: false, version: nil)
+        }
+        #expect(resolved.executableURL == executable.standardizedFileURL)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
 }
 
 private struct BuildProbeRuntimeLocator: RuntimeLocator {

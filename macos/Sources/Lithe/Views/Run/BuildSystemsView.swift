@@ -825,7 +825,9 @@ private struct BuildOptionRow: View {
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
                 .frame(maxWidth: 180)
-                .onSubmit { onChange(text.isEmpty ? nil : .string(text)) }
+                // An empty text is an explicit value; the reset button
+                // restores the declaration default.
+                .onSubmit { onChange(.string(text)) }
         case nil:
             EmptyView()
         }
