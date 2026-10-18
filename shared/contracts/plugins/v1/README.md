@@ -576,6 +576,7 @@ declaration are relative, use `/`, and stay inside their base directory
 | `dependencies` | A command (with `scopes`) whose output Core decodes, as a flat list through a `map` or as a tree from `litheDependencies`; `provider` (with `scopes`, `workspace` and `project` only); or `hostIntegration`. |
 | `sync` | Files whose change makes the model stale, relative to the root and to each project. |
 | `layout` | `excluded` directories relative to each project, added to every project as `excluded` content roots. |
+| `languageImport` | The project import Lithe's Java language server performs for this build system: `kind` `maven` or `gradle`, and `options` mapping its settings to the plugin's own option IDs. `maven` has `profiles` (`multiSelect`), `settingsFile` (`file`) and `localRepository` (`directory`); `gradle` has `offline` (`boolean`) and `gradleUserHome` (`directory`). `build.languageImport` turns the user's values into the `mavenContext` or `javaGradle` input of `lsp.startServer`; settings without an option keep the language server's defaults. |
 
 ### Presentation
 

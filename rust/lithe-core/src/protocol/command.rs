@@ -88,6 +88,8 @@ pub enum CoreCommand {
     BuildDecodeDependencies,
     /// Digests the files a build model depends on (`build.syncFingerprint`).
     BuildSyncFingerprint,
+    /// Maps build options to the Java language server's project import (`build.languageImport`).
+    BuildLanguageImport,
     /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
     PluginsMarketplaceValidateIndex,
     /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
@@ -426,6 +428,7 @@ impl CoreCommand {
             "build.decodeDiagnostics" => Some(Self::BuildDecodeDiagnostics),
             "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
+            "build.languageImport" => Some(Self::BuildLanguageImport),
             "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
             "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
             "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),

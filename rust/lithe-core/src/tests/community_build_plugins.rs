@@ -4,10 +4,12 @@
 //! `fixtures/community_build_plugins/` holds each plugin's `plugin.json` and
 //! the documents its own integration test captured from a real build:
 //!
-//! - Maven: `github.com/Lithe-IDEA/lithe-plugin-maven` at ef40103, Maven 3.10.0
-//!   on `test/fixtures/reactor`;
-//! - Gradle: `github.com/Lithe-IDEA/lithe-plugin-gradle` at d669dad, Gradle 9.6.1
-//!   on `test/fixtures/multi`.
+//! - Maven: `github.com/Lithe-IDEA/lithe-plugin-maven`, `plugin.json` at
+//!   944552c, documents captured at ef40103 with Maven 3.10.0 on
+//!   `test/fixtures/reactor`;
+//! - Gradle: `github.com/Lithe-IDEA/lithe-plugin-gradle`, `plugin.json` at
+//!   581b84b, documents captured at d669dad with Gradle 9.6.1 on
+//!   `test/fixtures/multi`.
 //!
 //! The captured documents write the scratch workspace as `${workspace}`. To
 //! refresh them, run `node scripts/package.mjs` and then
@@ -18,7 +20,8 @@ use super::support::temporary_root;
 use crate::build::{
     build_decode_dependencies_command, build_decode_diagnostics_command,
     build_decode_model_command, build_dependency_plan_command, build_detect_command,
-    build_model_plan_command, build_task_plan_command, build_test_plan_command,
+    build_language_import_command, build_model_plan_command, build_task_plan_command,
+    build_test_plan_command,
 };
 use crate::plugins::declarative::validate_command;
 use crate::plugins::marketplace::install_review_command;
@@ -683,4 +686,108 @@ fn community_diagnostics_decode() {
         ]
     );
     assert_eq!(strings(&diagnostics, "severity"), ["error", "warning"]);
+}
+
+/// The user's build options reach the Java language server's import in the
+/// shapes `lsp.startServer` takes, without the host knowing either plugin.
+#[test]
+fn community_build_options_map_to_the_java_import() {
+    let workspace = Workspace::new("community-language-import");
+    workspace.write("pom.xml", "<project/>");
+    let import = |manifest: Value, build_system: &str, options: Value| {
+        ok(
+            build_language_import_command,
+            manifest,
+            build_system,
+            json!({
+                "workspaceRoot": workspace.root(),
+                "root": ".",
+                "options": options,
+                "executablePath": "/opt/maven/bin/mvn",
+            }),
+        )["languageImport"]
+            .clone()
+    };
+
+    let maven_import = import(
+        maven(),
+        "maven",
+        json!({
+            "profiles": ["release", "ci"],
+            "settingsFile": "/home/me/.m2/settings.xml",
+            "offline": true,
+            "skipTests": true,
+        }),
+    );
+    assert_eq!(
+        maven_import,
+        json!({
+            "kind": "maven",
+            "mavenContext": {
+                "version": 1,
+                "reactorPath": ".",
+                "profiles": ["ci", "release"],
+                "settingsPath": "/home/me/.m2/settings.xml",
+                "mavenExecutablePath": "/opt/maven/bin/mvn",
+            },
+        })
+    );
+    // Core accepts the context as the Maven launch context it already reads.
+    let context: crate::project::MavenLaunchContextRequest =
+        serde_json::from_value(maven_import["mavenContext"].clone()).unwrap();
+    crate::project::jdt_configuration(&workspace.root(), context).expect("valid Maven context");
+
+    assert_eq!(
+        import(gradle(), "gradle", json!({}))["javaGradle"],
+        json!({ "wrapperPresent": false, "offline": false })
+    );
+    workspace.write(
+        "gradle/wrapper/gradle-wrapper.properties",
+        "distributionUrl=x\n",
+    );
+    let gradle_import = import(
+        gradle(),
+        "gradle",
+        json!({ "offline": true, "gradleUserHome": "/caches/gradle" }),
+    );
+    assert_eq!(
+        gradle_import,
+        json!({
+            "kind": "gradle",
+            "javaGradle": { "wrapperPresent": true, "offline": true, "userHome": "/caches/gradle" },
+        })
+    );
+    let _: crate::lsp::jdt::JdtGradleConfiguration =
+        serde_json::from_value(gradle_import["javaGradle"].clone()).unwrap();
+
+    // A build system without the declaration has no import to configure.
+    let mut plain = gradle();
+    plain["buildSystems"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("languageImport");
+    assert_eq!(import(plain, "gradle", json!({})), Value::Null);
+}
+
+/// An import setting must name an option of the kind the setting needs.
+#[test]
+fn language_import_settings_must_name_matching_options() {
+    for (options, field) in [
+        (json!({ "profiles": "missing" }), "profiles"),
+        (json!({ "profiles": "offline" }), "profiles"),
+        (
+            json!({ "gradleUserHome": "localRepository" }),
+            "gradleUserHome",
+        ),
+    ] {
+        let mut manifest = maven();
+        manifest["buildSystems"][0]["languageImport"]["options"] = options.clone();
+        let outcome = validate_command(json!({ "manifest": manifest })).unwrap();
+        assert_eq!(outcome["status"], "rejected", "{options}: {outcome}");
+        assert_eq!(
+            outcome["error"]["field"],
+            format!("buildSystems[0].languageImport.options.{field}"),
+            "{outcome}"
+        );
+    }
 }

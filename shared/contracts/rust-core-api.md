@@ -871,6 +871,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeDiagnostics` | Decode build output into workspace file diagnostics |
 | `build.decodeDependencies` | Decode dependency output or a provider result into one project's bounded tree |
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
+| `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -1911,7 +1912,7 @@ by its original path with a session warning instead of failing startup.
 Copies remain readable until JDT workspace cache eviction or index rebuilding;
 notification delivery is not an acknowledgement that the server read them.
 
-Gradle callers may also provide `javaGradle = { wrapperPresent }`, where
+Gradle callers may also provide `javaGradle = { wrapperPresent, offline?, userHome? }`, where
 `wrapperPresent` reports whether the root ships
 `gradle/wrapper/gradle-wrapper.properties`. When present, Core states
 `java.import.gradle.enabled` in `settings.java` and, if that descriptor exists,
@@ -1919,9 +1920,13 @@ Gradle callers may also provide `javaGradle = { wrapperPresent }`, where
 so the section declares the import behavior Lithe relies on instead of changing
 it; Buildship itself decides which distribution to use, honoring the wrapper only
 when the project ships that descriptor. Settings that require reading the build
-script or network state (`java.home`, `version`, `offline.enabled`) are never
-sent. A workspace whose root declares no Gradle build file sends no `javaGradle`
-and therefore receives no `java.import` settings.
+script (`java.home`, `version`) are never guessed. `offline` and `userHome`
+are the user's own build options, as `build.languageImport` maps them from the
+plugin that declares the Gradle build system; Core sends
+`java.import.gradle.offline.enabled` and `java.import.gradle.user.home` only
+when they are set, and the session keeps them until it restarts. A workspace
+whose root declares no Gradle build file sends no `javaGradle` and therefore
+receives no `java.import` settings.
 
 `lsp.updateMavenConfiguration` accepts `{ sessionId, mavenContext,
 reloadProjects? }` for a running Java session started with a `mavenContext`,
@@ -2801,6 +2806,7 @@ and the directories are absolute host paths used only as substitution text.
 | `build.decodeDiagnostics` | `{ workspaceRoot, root, output }` | `diagnostics`: `[{ path, line, column?, severity, message }]`, deduplicated, inside the workspace only |
 | `build.decodeDependencies` | `{ workspaceRoot, root, project?, output?, outputFile?, result? }` | `dependencies`: `{ project, dependencies: [{ name, group?, version?, scope?, properties?, children }], truncated }` |
 | `build.syncFingerprint` | `{ workspaceRoot, root, projects, options? }` | `sync`: `{ fingerprint, watch }` |
+| `build.languageImport` | `{ workspaceRoot, root, options?, executablePath? }` | `languageImport`: `null` without a `languageImport` declaration; `{ kind: "maven", mavenContext: { version, reactorPath, profiles, settingsPath?, localRepositoryPath?, mavenExecutablePath? } }` for `lsp.startServer.mavenContext` and `lsp.updateMavenConfiguration`; or `{ kind: "gradle", javaGradle: { wrapperPresent, offline, userHome? } }` for `lsp.startServer.javaGradle`, where `wrapperPresent` reports `gradle/wrapper/gradle-wrapper.properties` under `root` |
 
 `outputFile` is an absolute host-allocated path the host creates fresh for
 each run and removes afterwards; a command whose declaration writes to a

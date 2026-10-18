@@ -1801,6 +1801,19 @@
               "maxItems": 32
             }
           }
+        },
+        "languageImport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["maven", "gradle"] },
+            "options": {
+              "type": "object",
+              "propertyNames": { "enum": ["profiles", "settingsFile", "localRepository", "offline", "gradleUserHome"] },
+              "additionalProperties": { "type": "string", "minLength": 1 }
+            }
+          }
         }
       }
     }

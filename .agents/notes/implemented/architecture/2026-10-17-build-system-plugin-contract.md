@@ -199,9 +199,21 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 
 不要这样做：在视图里写 `if buildSystemID == "maven" { showProfiles() }`，或者用 `properties.group` 这类约定键私下决定分组。
 
-当前状态：macOS 仍在共享 Build 窗口列出全部构建系统，并忽略这些字段。每个构建系统一个窗口，以及移除 `MavenView`、`MavenBuildOutputView`、`execution.maven*` 贡献和 `toggle-maven`，由宿主界面工作完成。`MavenService` 还承担着 JDT 的 Profile 同步、模块运行/调试和 `lithe_maven_*` Agent 工具，删除前要先把构建选项通用地转交给 Core 的 jdt 集成。
+当前状态：macOS 仍在共享 Build 窗口列出全部构建系统，并忽略这些字段。每个构建系统一个窗口，以及移除 `MavenView`、`MavenBuildOutputView`、`execution.maven*` 贡献和 `toggle-maven`，由宿主界面工作完成。`MavenService` 还承担着 JDT 的 Profile 同步、模块运行/调试和 `lithe_maven_*` Agent 工具；JDT 的部分改走第 12 节的 `build.languageImport`，宿主接入后才能删除。
 
-### 12. 还没有开放给用户的部分
+### 12. 语言服务器导入：`languageImport`
+
+JDT LS 自己导入 Maven 和 Gradle 工程。导入用的 Profile、settings 和缓存必须和用户给构建工具选的一致，否则编辑器解析出来的依赖和构建不同。以前这些值来自内置 Maven 窗口（`MavenService`），而社区插件没有 `hostIntegration`，Core 不能按插件名字认出 Maven。
+
+所以 2026-10-18 给 `buildSystems` v1 加了可选的 `languageImport`：`kind` 写插件对应的导入（`maven` 或 `gradle`），`options` 把导入设置映射到插件自己的选项 ID。`maven` 有 `profiles`（多选）、`settingsFile`（文件）和 `localRepository`（目录）；`gradle` 有 `offline`（布尔）和 `gradleUserHome`（目录）。校验要求映射的选项存在且类型匹配。`build.languageImport` 按用户存储的值解析选项，返回 `lsp.startServer` 已经接受的 `mavenContext` 或 `javaGradle`。宿主只做转发，不认插件。
+
+Gradle 的 `offline` 和 `userHome` 是用户自己选的值，不是猜测，所以和 #1302 “不猜构建脚本里的设置”不冲突：没设置时仍然不发送，Buildship 用自己的默认值。这两个值只在会话启动时生效；Maven 仍可通过 `lsp.updateMavenConfiguration` 热更新。
+
+正确做法：Maven 插件写 `"languageImport": { "kind": "maven", "options": { "profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository" } }`，宿主在选项变化后调用 `build.languageImport` 并把 `mavenContext` 交给 `lsp.updateMavenConfiguration`。
+
+不要这样做：宿主按 `buildSystemID == "maven"` 或插件 ID 拼 Maven 上下文，或者从选项的 `arguments` 反推 `-P`、`-s`。
+
+### 13. 还没有开放给用户的部分
 
 - Windows 宿主还不发送 `hostCapabilities`，不会列出级别 3 的版本，也没有 Build 工具窗口。
 - 两端宿主都还不会启动 Provider、发送 `lithe/build/*` 请求，`provider` 来源目前只由 Core 测试和标准答案验证。任一 `buildSystems[].provider` 都要求 `buildProviders: 1`，包括共享语言服务器；macOS 只声明 `buildSystems: [1]`，不声明 `buildProviders`，因此市场、清单校验和安装审查都会拒绝 Provider 插件，模板构建插件仍可安装。Core 支持校验和计划，不传宿主能力表时仍允许 Provider。不要为了让插件可安装而从 `requires` 省去 `buildProviders`，那会因能力未列全被拒绝。

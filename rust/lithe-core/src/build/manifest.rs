@@ -77,6 +77,9 @@ pub(crate) struct BuildSystemDeclaration {
     pub(crate) sync: Option<SyncDeclaration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) layout: Option<LayoutDeclaration>,
+    /// How the Java language server imports this build system's projects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) language_import: Option<LanguageImportDeclaration>,
 }
 
 /// A server process that answers `lithe/build/*` requests over the LSP base
@@ -877,6 +880,50 @@ pub(crate) struct LayoutDeclaration {
     pub(crate) excluded: Vec<String>,
 }
 
+/// The project import a language server performs for this build system, and
+/// which of the plugin's options carry the import settings.
+///
+/// The Java language server imports Maven and Gradle projects itself. Its
+/// import has to use the profiles, settings, and caches the user chose for
+/// the build tool, or the editor resolves other dependencies than the build.
+/// A plugin names the import it matches and maps each import setting to one
+/// of its own options; Core turns the user's values into the language
+/// server's settings, so the host passes them on without knowing the plugin.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct LanguageImportDeclaration {
+    pub(crate) kind: LanguageImportKind,
+    /// Import setting -> option ID. Settings without an option keep the
+    /// language server's default.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) options: BTreeMap<String, String>,
+}
+
+/// Project imports Lithe's Java language server knows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum LanguageImportKind {
+    Maven,
+    Gradle,
+}
+
+impl LanguageImportKind {
+    /// The import settings of this kind and the option kind each needs.
+    pub(crate) fn settings(self) -> &'static [(&'static str, OptionKind)] {
+        match self {
+            Self::Maven => &[
+                ("profiles", OptionKind::MultiSelect),
+                ("settingsFile", OptionKind::File),
+                ("localRepository", OptionKind::Directory),
+            ],
+            Self::Gradle => &[
+                ("offline", OptionKind::Boolean),
+                ("gradleUserHome", OptionKind::Directory),
+            ],
+        }
+    }
+}
+
 impl BuildSystemDeclaration {
     pub(crate) fn option(&self, id: &str) -> Option<&OptionDeclaration> {
         self.options.iter().find(|option| option.id == id)
@@ -1212,7 +1259,41 @@ impl BuildSystemDeclaration {
                 false,
             )?;
         }
+        self.validate_language_import(field)?;
         self.validate_option_emission(field)
+    }
+
+    fn validate_language_import(&self, field: &str) -> Validation<()> {
+        let Some(import) = &self.language_import else {
+            return Ok(());
+        };
+        let settings = import.kind.settings();
+        for (setting, option_id) in &import.options {
+            let field = format!("{field}.languageImport.options.{setting}");
+            let Some((_, kind)) = settings.iter().find(|(name, _)| name == setting) else {
+                let known: Vec<&str> = settings.iter().map(|(name, _)| *name).collect();
+                return Err(invalid(
+                    field,
+                    format!("This import has the settings {}.", known.join(", ")),
+                ));
+            };
+            match self.option(option_id) {
+                Some(option) if option.kind == *kind => {}
+                Some(_) => {
+                    return Err(invalid(
+                        field,
+                        format!("The option {option_id} has the wrong kind for this setting."),
+                    ))
+                }
+                None => {
+                    return Err(invalid(
+                        field,
+                        format!("The build system declares no option {option_id}."),
+                    ))
+                }
+            }
+        }
+        Ok(())
     }
 
     fn validate_integration(&self, field: &str, official: bool) -> Validation<()> {
