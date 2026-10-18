@@ -221,11 +221,16 @@ fn community_build_plugins_detect_one_instance_per_build() {
 /// installed plugin and writes to the file Lithe chose.
 #[test]
 fn community_model_plans_name_the_plugin_directory_and_output() {
+    let workspace = Workspace::new("community-model-plans");
+    let plugin_directory = workspace.path("plugins/p");
+    let output_file = workspace.path("state/model.json");
+    let gradle_user_home = workspace.path("caches/gradle");
+    // Plugin templates append literal `/` suffixes to the host-native directory.
     let request = |options: Value| {
         json!({
             "root": ".",
-            "pluginDirectory": "/plugins/p",
-            "outputFile": "/state/model.json",
+            "pluginDirectory": plugin_directory,
+            "outputFile": output_file,
             "options": options,
         })
     };
@@ -243,8 +248,8 @@ fn community_model_plans_name_the_plugin_directory_and_output() {
             "-P",
             "ci,release",
             "-o",
-            "-Dmaven.ext.class.path=/plugins/p/lib/lithe-maven-extension.jar",
-            "-Dlithe.modelOutput=/state/model.json",
+            &format!("-Dmaven.ext.class.path={plugin_directory}/lib/lithe-maven-extension.jar"),
+            &format!("-Dlithe.modelOutput={output_file}"),
             "pre-clean",
         ]
     );
@@ -255,7 +260,7 @@ fn community_model_plans_name_the_plugin_directory_and_output() {
         build_model_plan_command,
         gradle(),
         "gradle",
-        request(json!({ "offline": true, "gradleUserHome": "/caches/gradle" })),
+        request(json!({ "offline": true, "gradleUserHome": gradle_user_home })),
     );
     assert_eq!(
         arguments(&outcome),
@@ -263,13 +268,13 @@ fn community_model_plans_name_the_plugin_directory_and_output() {
             "--console=plain",
             "--offline",
             "--gradle-user-home",
-            "/caches/gradle",
+            &gradle_user_home,
             "-q",
             "--no-configuration-cache",
             "--no-configure-on-demand",
             "--init-script",
-            "/plugins/p/lithe.init.gradle",
-            "-PlitheModelOutput=/state/model.json",
+            &format!("{plugin_directory}/lithe.init.gradle"),
+            &format!("-PlitheModelOutput={output_file}"),
             "litheModel",
         ]
     );
@@ -360,6 +365,8 @@ fn gradle_captured_model_decodes() {
 /// run by their full coordinates, and toolbar options apply to both.
 #[test]
 fn maven_task_plans() {
+    let workspace = Workspace::new("community-maven-task-plans");
+    let local_repository = workspace.path("m2");
     let app = json!({ "path": "app", "name": "app" });
     let outcome = ok(
         build_task_plan_command,
@@ -369,7 +376,7 @@ fn maven_task_plans() {
             "root": ".",
             "task": "install",
             "project": app,
-            "options": { "skipTests": true, "localRepository": "/m2" },
+            "options": { "skipTests": true, "localRepository": local_repository },
         }),
     );
     assert_eq!(
@@ -377,7 +384,7 @@ fn maven_task_plans() {
         [
             "-B",
             "-ntp",
-            "-Dmaven.repo.local=/m2",
+            &format!("-Dmaven.repo.local={local_repository}"),
             "-pl",
             "app",
             "-DskipTests",
@@ -541,11 +548,14 @@ fn community_test_plans() {
 /// terms; the workspace tree asks for every project.
 #[test]
 fn community_dependency_plans() {
+    let workspace = Workspace::new("community-dependency-plans");
+    let plugin_directory = workspace.path("plugins/p");
+    let output_file = workspace.path("state/deps.json");
     let request = |project: Option<Value>| {
         let mut request = json!({
             "root": ".",
-            "pluginDirectory": "/plugins/p",
-            "outputFile": "/state/deps.json",
+            "pluginDirectory": plugin_directory,
+            "outputFile": output_file,
         });
         if let Some(project) = project {
             request["project"] = project;
@@ -564,8 +574,8 @@ fn community_dependency_plans() {
         [
             "-B",
             "-ntp",
-            "-Dmaven.ext.class.path=/plugins/p/lib/lithe-maven-extension.jar",
-            "-Dlithe.dependenciesOutput=/state/deps.json",
+            &format!("-Dmaven.ext.class.path={plugin_directory}/lib/lithe-maven-extension.jar"),
+            &format!("-Dlithe.dependenciesOutput={output_file}"),
             "-Dlithe.dependenciesProject=app",
             "pre-clean",
         ]
@@ -597,8 +607,8 @@ fn community_dependency_plans() {
             "--no-configuration-cache",
             "--no-configure-on-demand",
             "--init-script",
-            "/plugins/p/lithe.init.gradle",
-            "-PlitheDependenciesOutput=/state/deps.json",
+            &format!("{plugin_directory}/lithe.init.gradle"),
+            &format!("-PlitheDependenciesOutput={output_file}"),
             "-PlitheDependenciesProject=:app",
             "litheDependencyReport",
         ]
@@ -729,6 +739,9 @@ fn community_diagnostics_decode() {
 fn community_build_options_map_to_the_java_import() {
     let workspace = Workspace::new("community-language-import");
     workspace.write("pom.xml", "<project/>");
+    let maven_executable = workspace.path("opt/maven/bin/mvn");
+    let settings_file = workspace.path("home/me/.m2/settings.xml");
+    let gradle_user_home = workspace.path("caches/gradle");
     let import = |manifest: Value, build_system: &str, options: Value| {
         ok(
             build_language_import_command,
@@ -738,7 +751,7 @@ fn community_build_options_map_to_the_java_import() {
                 "workspaceRoot": workspace.root(),
                 "root": ".",
                 "options": options,
-                "executablePath": "/opt/maven/bin/mvn",
+                "executablePath": maven_executable,
             }),
         )["languageImport"]
             .clone()
@@ -749,7 +762,7 @@ fn community_build_options_map_to_the_java_import() {
         "maven",
         json!({
             "profiles": ["release", "ci"],
-            "settingsFile": "/home/me/.m2/settings.xml",
+            "settingsFile": settings_file,
             "offline": true,
             "skipTests": true,
         }),
@@ -762,8 +775,8 @@ fn community_build_options_map_to_the_java_import() {
                 "version": 1,
                 "reactorPath": ".",
                 "profiles": ["ci", "release"],
-                "settingsPath": "/home/me/.m2/settings.xml",
-                "mavenExecutablePath": "/opt/maven/bin/mvn",
+                "settingsPath": settings_file,
+                "mavenExecutablePath": maven_executable,
             },
         })
     );
@@ -783,13 +796,13 @@ fn community_build_options_map_to_the_java_import() {
     let gradle_import = import(
         gradle(),
         "gradle",
-        json!({ "offline": true, "gradleUserHome": "/caches/gradle" }),
+        json!({ "offline": true, "gradleUserHome": gradle_user_home }),
     );
     assert_eq!(
         gradle_import,
         json!({
             "kind": "gradle",
-            "javaGradle": { "wrapperPresent": true, "offline": true, "userHome": "/caches/gradle" },
+            "javaGradle": { "wrapperPresent": true, "offline": true, "userHome": gradle_user_home },
         })
     );
     let _: crate::lsp::jdt::JdtGradleConfiguration =
