@@ -1724,6 +1724,51 @@ async function verify() {
       window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
     }
   });
+  await check("IDEA paused line overrides breakpoint tint and clears on resume in both themes", async () => {
+    const id = "idea-paused-line", text = "first\nsecond\nthird";
+    await send({ type: "open", text });
+    await window.lithe.activate({ id, text, revision: 0, language: "plaintext", readonly: false });
+    const model = editor.getModel()!, version = model.getVersionId();
+    const breakpoints = [{ line: 2, enabled: true, verified: true, logpoint: false }];
+    try {
+      for (const dark of [true, false]) {
+        window.lithe.configure({ dark });
+        await window.lithe.debugState(id, { muted: false, sessionActive: true, paused: true,
+          executionLine: 2, breakpoints, variables: [{ name: "second", value: "42" }] });
+        editor.render(true);
+        const paused = document.querySelector<HTMLElement>("#editor .view-overlays .lithe-execution-line")!;
+        const point = document.querySelector<HTMLElement>("#editor .view-overlays .lithe-breakpoint-line")!;
+        const value = document.querySelector<HTMLElement>("#editor .view-lines .lithe-debug-value")!;
+        assert(!!paused && getComputedStyle(paused).backgroundColor === (dark ? "rgb(42, 80, 145)" : "rgb(33, 84, 166)"),
+          "paused line did not use the IDEA execution-point scheme color");
+        assert(!!point && !!(point.compareDocumentPosition(paused) & Node.DOCUMENT_POSITION_FOLLOWING),
+          "breakpoint tint painted over the current execution position");
+        assert(!!value && getComputedStyle(value).color === (dark ? "rgb(132, 159, 191)" : "rgb(169, 183, 214)") &&
+          getComputedStyle(value).backgroundColor === "rgba(0, 0, 0, 0)" && getComputedStyle(value).fontStyle === "italic",
+          `paused inline variables lost their IDEA execution-line style: ${value ? JSON.stringify({
+            dark, color: getComputedStyle(value).color, background: getComputedStyle(value).backgroundColor,
+            font: getComputedStyle(value).fontStyle }) : "missing rendered value"}`);
+        assert(!document.querySelector("#editor .lithe-execution-marker") && model.getAllDecorations()
+          .filter(item => item.options.className === "lithe-execution-line")
+          .every(item => !item.options.glyphMarginClassName && !item.options.linesDecorationsClassName),
+          "macOS added a stack-frame arrow absent from the IDEA Java execution position");
+        assert(!!document.querySelector("#editor .line-numbers.lithe-breakpoint-valid"),
+          "paused line replaced the verified breakpoint icon");
+        await window.lithe.debugState(id, { muted: false, sessionActive: true, paused: true, executionLine: 3, breakpoints });
+        const positions = model.getAllDecorations().filter(item => item.options.className === "lithe-execution-line")
+          .map(item => item.range.startLineNumber);
+        assert(positions.length === 1 && positions[0] === 3, "stepping lost or retained the old execution line");
+        await window.lithe.debugState(id, { muted: false, sessionActive: true, breakpoints });
+        editor.render(true);
+        assert(!document.querySelector("#editor .lithe-execution-line, #editor .lithe-debug-value") &&
+          !!document.querySelector("#editor .lithe-breakpoint-line"), "resume did not restore ordinary breakpoint presentation");
+      }
+      assert(model.getVersionId() === version && model.getValue() === text, "pause styling changed source history");
+    } finally {
+      await window.lithe.retain([]);
+      window.lithe.configure({ dark: true });
+    }
+  });
   await check("debug markers distinguish breakpoint state and clear without changing document history", async () => {
     const id = "debug-markers", text = "first\nsecond\nthird";
     await send({ type: "open", text });

@@ -186,6 +186,11 @@ breakpointStyle.textContent = `
   }
   .monaco-editor.lithe-line-numbers-first .lithe-breakpoint-line {background:#FAEAE6}
   .monaco-editor.vs-dark.lithe-line-numbers-first .lithe-breakpoint-line {background:#40252B}
+  /* IDEA EXECUTIONPOINT_ATTRIBUTES and DEBUGGER_INLINED_VALUES_EXECUTION_LINE. */
+  .monaco-editor.lithe-line-numbers-first .lithe-execution-line {background:#2154A6}
+  .monaco-editor.vs-dark.lithe-line-numbers-first .lithe-execution-line {background:#2A5091}
+  .monaco-editor.lithe-line-numbers-first .lithe-debug-value {color:#A9B7D6;background:transparent}
+  .monaco-editor.vs-dark.lithe-line-numbers-first .lithe-debug-value {color:#849FBF}
   ${Object.entries(breakpointIcons).flatMap(([state, icons]) => icons.map((svg, index) =>
     `.monaco-editor${index ? ".vs-dark" : ""}.lithe-line-numbers-first .line-numbers.lithe-breakpoint-${state}:before{background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`)).join("\n")}
 `;

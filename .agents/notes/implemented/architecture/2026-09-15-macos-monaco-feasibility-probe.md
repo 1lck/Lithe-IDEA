@@ -670,8 +670,22 @@ macOS 断点图标使用同一 Community revision 的 `expui/breakpoints` 原始
 断点添加代码区行背景；静音不删除该背景，禁用或日志断点去掉背景。颜色来自
 `IslandSchemeDark.xml` 的 `BREAKPOINT_ATTRIBUTES`（#40252B）及浅色父方案
 `DefaultColorSchemesManager.xml`（#FAEAE6），不染色整个行号边栏。
-样式只在macOS的 `lithe-line-numbers-first` 入口生效，不改Windows图标、断点请求
-与执行行样式。真实WebKit回归验证各状态、深浅主题、移除装饰及文本历史不变。
+样式只在macOS的 `lithe-line-numbers-first` 入口生效，不改Windows图标和断点请求。
+真实WebKit回归验证各状态、深浅主题、移除装饰及文本历史不变。
+
+暂停位置继续使用同版本 `ExecutionPositionUi/ExecutionPointHighlighter` 的
+`EXECUTIONPOINT_ATTRIBUTES`：Islands Dark 的执行行背景为#2A5091，Islands Light
+使用Light/Default父方案的#2154A6，保持原有语法文字颜色。执行行高亮的层级高于
+断点背景，避免同一行出现红蓝叠色；继续或单步时由原有装饰更新流程清除或移动。
+IDEA实际Java暂停状态默认没有额外执行位置箭头（执行位置管理器的gutter renderer
+可为空），所以macOS不显示Monaco黄色空心stack-frame箭头，已验证断点图标仍保留。
+不能把 `executeCurrentStatement.svg` 动作图标误当成当前暂停位置图标。
+行尾变量值采用同配色方案的 `DEBUGGER_INLINED_VALUES_EXECUTION_LINE`：深色#849FBF、
+浅色#A9B7D6、斜体及透明背景；只改变既有行尾值的样式，不添加表达式求值或语言解析。
+行尾注入文本的零宽范围必须设置Monaco的 `showIfCollapsed`，否则模型里虽然存在变量
+装饰，实际文字却不会渲染；共享入口修复这一个选项，不复制变量计算。Windows保留原有
+执行标记与配色。WebKit回归覆盖深浅色、暂停与断点同位置、单步移动、
+继续恢复断点背景和文本历史不变；实际IDEA暂停界面另行确认蓝底、语法色与无额外箭头。
 
 断点hover预览按同版本 `ManyIslandsDark/Light.theme.json` 的
 `Breakpoint.iconHoverAlpha` 使用0.35/0.30，不采用绘制函数的0.5回退值。

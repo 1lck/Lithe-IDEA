@@ -1066,8 +1066,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (state.executionLine && state.executionLine <= entry.model.getLineCount() && state.executionLine >= 1) {
         decorations.push({ range: new monaco.Range(state.executionLine, 1, state.executionLine, 1),
           options: { isWholeLine: true, className: "lithe-execution-line",
-            glyphMarginClassName: "codicon codicon-debug-stackframe lithe-execution-marker",
-            linesDecorationsClassName: host.lineNumbersFirst ? "codicon codicon-debug-stackframe lithe-execution-marker" : undefined,
+            zIndex: host.lineNumbersFirst ? 1 : undefined,
+            glyphMarginClassName: host.lineNumbersFirst ? undefined : "codicon codicon-debug-stackframe lithe-execution-marker",
             glyphMargin: { position: monaco.editor.GlyphMarginLane.Right },
             stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges } });
         const variables = new Map((state.revision === undefined || state.revision === entry.revision ? state.variables ?? [] : [])
@@ -1080,7 +1080,7 @@ export function mountWorkbench(host: WorkbenchHost) {
         if (values.length) {
           const column = entry.model.getLineMaxColumn(state.executionLine);
           decorations.push({ range: new monaco.Range(state.executionLine, column, state.executionLine, column),
-            options: { after: { content: `  ${values.join(", ")}`, inlineClassName: "lithe-debug-value" },
+            options: { showIfCollapsed: true, after: { content: `  ${values.join(", ")}`, inlineClassName: "lithe-debug-value" },
               stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges } });
         }
       }
@@ -1265,7 +1265,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-run{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap}px;opacity:1}
       .monaco-editor.lithe-line-numbers-first .lithe-java-run-run,.monaco-editor.lithe-line-numbers-first .lithe-java-run-run-all{background-size:16px 16px}
       .monaco-editor.lithe-line-numbers-first .lithe-java-run-passed,.monaco-editor.lithe-line-numbers-first .lithe-java-run-failed{background-size:14px 14px}
-      .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-navigation,.monaco-editor.lithe-line-numbers-first .cldr.lithe-execution-marker{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap + nativeGutter.icon}px}
+      .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-navigation{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap + nativeGutter.icon}px}
       .monaco-editor.lithe-line-numbers-first .margin-view-overlays .cldr[class*="codicon-folding-"]{width:${nativeGutter.icon}px!important;margin-left:${nativeFoldingOffset}px}
       .monaco-editor.lithe-line-numbers-first.lithe-gutter-navigation .cldr[class*="codicon-folding-"]{margin-left:${nativeFoldingOffset + nativeGutter.icon}px}
       .monaco-editor.lithe-line-numbers-first .cldr[class*="codicon-folding-"]:before{content:"";width:${nativeGutter.fold}px;height:${nativeGutter.fold}px;background-repeat:no-repeat;background-position:center;background-size:${nativeGutter.fold}px ${nativeGutter.fold}px}
