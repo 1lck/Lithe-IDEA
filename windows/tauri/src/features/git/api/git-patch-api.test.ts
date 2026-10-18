@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as gitEvents from "../events/git-events";
+import patchFixture from "../../../../../../shared/fixtures/git/patch-exchange-v1.json";
 
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 let rejectApply = false;
@@ -57,6 +58,15 @@ test("an unsuccessful or unavailable native check never confirms an already-appl
 afterAll(() => emitGitChanged.mockRestore());
 
 describe("Git patch exchange boundary", () => {
+  test("exports the complete Shelf working layer relative to the real index", async () => {
+    const { source, paths, includeUntracked } = patchFixture.unstagedWithUntrackedRequest;
+    await exportGitPatch("C:/repo", source as "unstaged", paths, { includeUntracked });
+    expect(invoke).toHaveBeenLastCalledWith("git.patchExport", {
+      ...patchFixture.unstagedWithUntrackedRequest,
+      root: "C:/repo",
+    });
+  });
+
   test("keeps the selected base-to-target direction and selected file paths", async () => {
     await exportGitPatch("C:/repo", "commits", ["folder/example.txt"], {
       baseRevision: "before",

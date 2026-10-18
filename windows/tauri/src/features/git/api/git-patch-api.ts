@@ -13,7 +13,7 @@ export async function exportGitPatch(
   repoPath: string,
   source: GitPatchSource,
   paths: string[],
-  revisions: { baseRevision?: string; targetRevision?: string } = {},
+  options: { baseRevision?: string; targetRevision?: string; includeUntracked?: boolean } = {},
   operationId?: string,
   metadataOnly = false,
 ): Promise<GitPatchExport> {
@@ -22,7 +22,7 @@ export async function exportGitPatch(
     root,
     source,
     paths,
-    ...revisions,
+    ...options,
     ...(metadataOnly ? { metadataOnly: true } : {}),
     ...(operationId ? { operationId } : {}),
   });

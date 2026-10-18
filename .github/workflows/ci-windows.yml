@@ -488,10 +488,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-shelf-workflow.json -- src/features/git/services/git-shelf-workflow.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-patch-api.json -- src/features/git/api/git-patch-api.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-saved-changes-operations.json -- src/features/git/stores/git-saved-changes-operations.store.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-stash-diff.json -- src/features/git/api/git-stash-diff-api.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test nested Maven dependency navigation
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-project-dependencies.json -- src/features/maven/components/project-dependencies.test.tsx src/features/maven/utils/maven-module-operations.test.ts
 
       - name: Test workspace Git commit adapters and staging
         shell: pwsh
@@ -740,7 +746,10 @@ jobs:
             --test-budget tests::git_patch_exchange::patch_exchange_rejects_stale_preview_and_forward_conflicts_without_writing=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_roundtrips_renames_deletes_and_platform_file_modes=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_snapshot_roundtrip_preserves_index_and_binary_files=30000 `
+            --test-budget tests::git_patch_exchange::patch_exchange_distinguishes_sources_and_commit_direction=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_reverse_roundtrip_preserves_both_versions_and_untracked_bytes=60000 `
+            --test-budget tests::git_patch_exchange::shelf_roundtrip_preserves_staged_deletions_with_retained_paths=60000 `
+            --test-budget tests::git_patch_exchange::shelf_roundtrip_preserves_staged_rename_with_recreated_source=60000 `
             --test-budget tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset=30000 `
             --build-timeout-ms 600000 `
             --suite-timeout-ms 1200000 `

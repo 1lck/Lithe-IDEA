@@ -41,6 +41,9 @@ pub struct PatchExportRequest {
     /// Enumerate counts and rename paths without decoding or transporting patch contents.
     #[serde(default)]
     pub metadata_only: bool,
+    /// Include untracked files in an unstaged export, using the real index as its baseline.
+    #[serde(default)]
+    pub include_untracked: bool,
 }
 
 /// Application target; importing a patch never creates a commit.
@@ -117,6 +120,11 @@ pub struct PatchPreviewResponse {
 pub fn export(request: PatchExportRequest) -> Result<PatchExportResponse, CoreError> {
     let root = checkout_root(&request.root)?;
     let paths = literal_paths(&request.paths)?;
+    if request.include_untracked && !matches!(request.source, PatchSource::Unstaged) {
+        return Err(invalid(
+            "Including untracked files requires the unstaged patch source",
+        ));
+    }
     if !matches!(request.source, PatchSource::Commits)
         && (request.base_revision.is_some() || request.target_revision.is_some())
     {
@@ -141,6 +149,9 @@ pub fn export(request: PatchExportRequest) -> Result<PatchExportResponse, CoreEr
     }
     let bytes = match request.source {
         PatchSource::WorkingTree => export_worktree(&root, &paths, arguments)?,
+        PatchSource::Unstaged if request.include_untracked => {
+            export_unstaged_with_untracked(&root, &paths, arguments)?
+        }
         PatchSource::Staged | PatchSource::Unstaged | PatchSource::Commits => {
             match request.source {
                 PatchSource::Staged => arguments.push("--cached".into()),
@@ -234,7 +245,7 @@ fn parse_export_statistics(bytes: &[u8]) -> Result<Vec<PatchFile>, CoreError> {
 fn export_worktree(
     root: &str,
     paths: &[String],
-    mut arguments: Vec<String>,
+    arguments: Vec<String>,
 ) -> Result<Vec<u8>, CoreError> {
     let head_result = capture_git_with_options(
         root,
@@ -275,6 +286,61 @@ fn export_worktree(
         &output.stderr,
         "Could not prepare the patch snapshot",
     )?;
+    export_snapshot(root, paths, arguments, &environment)
+}
+
+fn export_unstaged_with_untracked(
+    root: &str,
+    paths: &[String],
+    mut arguments: Vec<String>,
+) -> Result<Vec<u8>, CoreError> {
+    let context = TemporaryGitCommitContext::prepare_snapshot(None)?;
+    let index = git_resolved_path(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-path", "index"],
+        "Git index",
+    )?;
+    let environment = vec![(
+        "GIT_INDEX_FILE".into(),
+        context.index_path.to_string_lossy().into_owned(),
+    )];
+    match std::fs::copy(index, &context.index_path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let output = capture_git_with_environment(
+                root,
+                &["read-tree".into(), "--empty".into()],
+                None,
+                true,
+                &environment,
+            )?;
+            ensure_success(
+                output.exit_code,
+                &output.stderr,
+                "Could not prepare the patch index",
+            )?;
+        }
+        Err(error) => return Err(patch_io_error(error)),
+    }
+    // A path removed from the index can still exist in HEAD. Preserve that
+    // absence so a recreated path is exported as an addition, not a HEAD diff.
+    let baseline =
+        capture_git_with_environment(root, &["write-tree".into()], None, true, &environment)?;
+    ensure_success(
+        baseline.exit_code,
+        &baseline.stderr,
+        "Could not snapshot the patch index",
+    )?;
+    arguments.push(String::from_utf8_lossy(&baseline.stdout).trim().to_string());
+    export_snapshot(root, paths, arguments, &environment)
+}
+
+fn export_snapshot(
+    root: &str,
+    paths: &[String],
+    mut arguments: Vec<String>,
+    environment: &[(String, String)],
+) -> Result<Vec<u8>, CoreError> {
     let input = paths
         .iter()
         .map(|path| format!("{path}\0"))
@@ -286,7 +352,7 @@ fn export_worktree(
         "--pathspec-from-file=-".into(),
         "--pathspec-file-nul".into(),
     ];
-    let output = capture_git_with_environment(root, &stage, Some(input), true, &environment)?;
+    let output = capture_git_with_environment(root, &stage, Some(input), true, environment)?;
     ensure_success(
         output.exit_code,
         &output.stderr,
@@ -295,7 +361,7 @@ fn export_worktree(
     arguments.push("--cached".into());
     arguments.push("--".into());
     arguments.extend(paths.iter().cloned());
-    let output = capture_git_with_environment(root, &arguments, None, true, &environment)?;
+    let output = capture_git_with_environment(root, &arguments, None, true, environment)?;
     ensure_success(
         output.exit_code,
         &output.stderr,

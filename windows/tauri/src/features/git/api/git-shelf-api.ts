@@ -42,19 +42,13 @@ function workflow(root: string, guardCurrent: () => void) {
       )
         throw new Error("git.saved.conflicts");
       const staged = await exportGitPatch(root, "staged", []);
-      const unstaged = await exportGitPatch(root, "unstaged", []);
-      const untrackedPaths = status.files
-        .filter((file) => file.status === "untracked")
-        .map((file) => file.path);
-      const untracked = untrackedPaths.length
-        ? await exportGitPatch(root, "workingTree", untrackedPaths)
-        : { patch: "", files: [] };
+      const working = await exportGitPatch(root, "unstaged", [], { includeUntracked: true });
       return {
         stagedPatch: staged.patch,
-        workingPatch: unstaged.patch + untracked.patch,
+        workingPatch: working.patch,
         paths: [
           ...new Set(
-            [...staged.files, ...unstaged.files, ...untracked.files].flatMap((file) => [
+            [...staged.files, ...working.files].flatMap((file) => [
               file.path,
               ...(file.originalPath ? [file.originalPath] : []),
             ]),

@@ -6,7 +6,7 @@ import { SidebarTreeRow } from "@/features/sidebar/components/sidebar-tree";
 import { PackageIcon, FolderIcon } from "@/ui/icons";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { joinPath } from "@/utils/path-helpers";
+import { mavenModulePomPath } from "../utils/maven-module-operations";
 
 /** Project cached Maven results; resolving dependencies requires an explicit action. */
 export function ProjectDependencies() {
@@ -44,14 +44,11 @@ export function ProjectDependencies() {
           if (dependency.children.length) toggle(id);
         }}
         onDoubleClick={() => {
+          if (!root || !project) return;
           void useFileSystemStore
             .getState()
             .handleFileSelect(
-              joinPath(
-                root ?? "",
-                dependency.modulePath === "." ? "" : dependency.modulePath,
-                "pom.xml",
-              ),
+              mavenModulePomPath(root, project.relativePath, dependency.modulePath),
               false,
             );
         }}

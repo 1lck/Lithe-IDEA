@@ -7,6 +7,12 @@
       "example.txt"
     ]
   },
+  "unstagedWithUntrackedRequest": {
+    "root": ".",
+    "source": "unstaged",
+    "paths": [],
+    "includeUntracked": true
+  },
   "exportResponse": {
     "patch": "diff --git a/example.txt b/example.txt\nnew file mode 100644\n--- /dev/null\n+++ b/example.txt\n@@ -0,0 +1 @@\n+hello\n",
     "files": [

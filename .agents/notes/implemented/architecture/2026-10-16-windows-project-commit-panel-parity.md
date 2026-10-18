@@ -31,6 +31,10 @@ Windows 项目树区分行选择与编辑器活动文件，提交列表区分行
 - Shelf/Stash 列表与选择绑定到本次仓库会话及加载版本。切换仓库或刷新时立即隐藏旧列表，当前列表未成功加载前禁用创建、恢复和删除；加载失败可重新刷新。删除确认后再次核对会话和列表版本。离开 A 后再回到 A 也属于新会话，旧确认与恢复流程不得继续写入。
 - Shelf 原生存储对普通 Windows 盘符与 UNC 保留既有小写路径哈希。WSL UNC（`wsl$`、`wsl.localhost`，包括 canonicalize 产生的 verbatim UNC）使用独立的区分大小写哈希，使 `Repo` 与 `repo` 互不读取或删除。旧 WSL 小写哈希已丢失仓库归属，原字节留在原 app data 目录，不自动迁移、展示或删除；人工恢复前必须先核对原始补丁与目标仓库。
 
+Shelf 的工作区层必须以真实索引为基线，包含未跟踪文件，统一由 Core 在临时索引中导出。例如已提交文件执行暂存删除后仍留在磁盘，工作区层必须记录“新增该文件”，清理时先移除磁盘副本，再逆向恢复暂存删除。不能拼接以 HEAD 为基线的未跟踪补丁，否则同内容副本会丢失，重建重命名源路径也会失败。普通补丁导出的 HEAD 基线保持原语义。
+
+Maven 面板和 Dependencies 依赖导航共用 POM 路径解析，始终包含工作区根、reactor（Maven 多模块项目）相对目录和模块相对目录。工作区内 `backend/service` 的依赖必须打开该目录的 `pom.xml`，不能漏掉 `backend` 后跳到别的项目。
+
 正确示例：同一文件的已暂存版本是 B，磁盘版本是 C。Shelf 保存 A→B 与 B→C，清理后回到 A；恢复后索引仍为 B，磁盘仍为 C。不要只保存 A→C 后执行整仓库 reset，否则暂存边界会丢失。
 
 ## 考虑过的备选方案
@@ -56,6 +60,7 @@ Shelf 存储在平台 `app_data_dir()/git-shelves/<规范化根路径哈希>`，
 - 保存改动组件测试覆盖整个 Git 父面板卸载后重挂载：A 操作完成或失败均不解锁仍在运行的 B，回到 A 后必须等待 A 的原操作结束；旧面板的原生删除结束后，新面板重新加载列表并移除旧记录。同一组件保持挂载并切换 A→B→A 时，操作归属也要按最初会话区分，原生删除结束后刷新当前列表。`git-stash-diff-api.test.ts` 控制不同 OID 占用同一位置、旧读取重试和旧 positional 调用的完成顺序，确认 Diff 结果与缓存不会串用。工作区锁测试覆盖路径别名、WSL 大小写和过期释放回调。恢复工作流测试覆盖仅暂存层已恢复、两层已恢复但删除失败、检查失败及检查期间切换工作区。项目树选择测试核对编辑器单选跟随后的高亮、复制、剪切与范围锚点，以及明确多选和未切换编辑文件时的目录选择保留。
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml git_diff_and_apply_round_trip_a_patch -- --test-threads=1` 核对复用的 Core 索引及工作区逆向检查，不将只读检查误作实际恢复。
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml git_patch_exchange -- --test-threads=1`
+- Shelf 真实 Git 回归覆盖暂存删除后保留同内容或改过内容的原文件，以及暂存重命名后重建源文件；核对清理后的干净状态和恢复后的暂存内容、磁盘字节。Dependencies 组件测试双击嵌套 reactor 的根和子模块依赖，确认编辑器接收正确的 POM 路径。
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml`
 - `./scripts/build-windows.ps1 -Configuration Release`
 - `./scripts/verify-runtime-bundle-immutability.sh`

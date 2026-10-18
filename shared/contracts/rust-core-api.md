@@ -2824,6 +2824,13 @@ mode it returns candidate file counts and rename identities with empty `patch`
 and zero `byteLength`, independently of patch text encoding and exchange size.
 See [Patch exchange](git-patch-exchange.md) and its metadata fixture.
 
+For Shelf capture, `git.patchExport` also accepts `includeUntracked: true` only
+with `source: "unstaged"`. It snapshots the real index and exports the selected
+working files, including untracked additions, relative to that index. The real
+index remains unchanged. The default false retains tracked-only unstaged export;
+`workingTree` remains HEAD-based. See the same contract and its
+`unstagedWithUntrackedRequest` fixture.
+
 `git.rebaseControl` requires `expectedHead` when `amendMessage` is present.
 Missing or stale HEAD rejects the amendment before writing; plain Continue,
 Skip and Abort do not require this field. Both products must send the HEAD
