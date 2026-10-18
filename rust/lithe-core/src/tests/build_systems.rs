@@ -1452,3 +1452,98 @@ fn provider_models_are_not_read_during_detection() {
     assert_eq!(mix["modelSource"], "provider");
     assert!(mix.get("model").is_none(), "{mix}");
 }
+
+/// Categories and option placements only tell the host where to show an
+/// entry: a model task takes its own category when it is well formed and its
+/// template's otherwise, and neither changes what runs.
+#[test]
+fn task_categories_and_option_placements_are_display_only() {
+    let workspace = TemporaryWorkspace::new("build-task-category");
+    let mut gradle = fixture("gradle-build.plugin.json");
+    let build_system = &mut gradle["buildSystems"][0];
+    build_system["icon"] = json!({ "path": "icons/gradle.svg" });
+    build_system["tasks"][0]["category"] = json!(["Tasks", "other"]);
+    let offline = build_system["options"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|option| option["id"] == "offline")
+        .unwrap();
+    offline["presentation"] = json!("toolbar");
+    offline["icon"] = json!({ "path": "icons/offline.svg" });
+    let validated = validate(gradle.clone());
+    assert_eq!(validated["status"], "ok", "{validated}");
+    let normalized = &validated["plugin"]["buildSystems"][0];
+    assert_eq!(normalized["icon"]["path"], "icons/gradle.svg");
+    let offline = normalized["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|option| option["id"] == "offline")
+        .unwrap();
+    assert_eq!(offline["presentation"], "toolbar");
+
+    // A malformed category falls back to the template rather than dropping
+    // the task.
+    workspace.write("settings.gradle", "").write(
+        "state/model.json",
+        &json!({
+            "format": "litheBuildModel",
+            "version": 1,
+            "projects": [{ "name": "root" }],
+            "tasks": [
+                { "name": "run", "template": "gradle-task", "category": ["Tasks", "application"], "properties": { "path": ":run" } },
+                { "name": "jar", "template": "gradle-task", "properties": { "path": ":jar" } },
+                { "name": "deep", "template": "gradle-task", "category": ["a", "b", "c", "d", "e"], "properties": { "path": ":deep" } },
+                { "name": "blank", "template": "gradle-task", "category": ["Tasks", " "], "properties": { "path": ":blank" } }
+            ]
+        })
+        .to_string(),
+    );
+    let model = call(
+        "decodeModel",
+        gradle.clone(),
+        "gradle",
+        json!({
+            "workspaceRoot": workspace.root(),
+            "root": ".",
+            "outputFile": workspace.0.join("state/model.json").to_string_lossy(),
+        }),
+    );
+    assert_eq!(model["status"], "ok", "{model}");
+    let categories: Vec<(String, Value)> = model["model"]["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|task| {
+            (
+                task["name"].as_str().unwrap().to_string(),
+                task["category"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        categories,
+        [
+            ("blank".to_string(), json!(["Tasks", "other"])),
+            ("deep".to_string(), json!(["Tasks", "other"])),
+            ("jar".to_string(), json!(["Tasks", "other"])),
+            ("run".to_string(), json!(["Tasks", "application"])),
+        ],
+        "{model}"
+    );
+    let plan = call(
+        "taskPlan",
+        gradle,
+        "gradle",
+        json!({
+            "workspaceRoot": workspace.root(),
+            "root": ".",
+            "task": "gradle-task",
+            "project": { "path": ".", "name": "root" },
+            "modelTask": { "name": "run", "properties": { "path": ":run" } },
+        }),
+    );
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert!(plan.to_string().contains("\":run\""), "{plan}");
+}

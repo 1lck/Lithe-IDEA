@@ -863,6 +863,102 @@
       "base": "gradle-provider.plugin.json",
       "edits": [{ "op": "remove", "path": "/requires/serverProcess" }],
       "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI window shows neither text nor web content",
+      "base": "hello-lithe.plugin.json",
+      "edits": [{ "op": "remove", "path": "/ui/toolWindows/0/text" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI web content needs ui 2",
+      "base": "web-panel.plugin.json",
+      "edits": [{ "op": "set", "path": "/requires/ui", "value": 1 }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI web content needs plugin API 3",
+      "base": "web-panel.plugin.json",
+      "edits": [{ "op": "set", "path": "/pluginAPIVersion", "value": 2 }, { "op": "remove", "path": "/requires" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI web content needs its permission",
+      "base": "web-panel.plugin.json",
+      "edits": [{ "op": "set", "path": "/permissions", "value": ["ui.contribute"] }],
+      "expectedCode": "plugin.permission.undeclared"
+    },
+    {
+      "name": "UI window shows text and web content",
+      "base": "web-panel.plugin.json",
+      "edits": [{ "op": "set", "path": "/ui/toolWindows/0/text", "value": "Fallback" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI web entry leaves the package",
+      "base": "web-panel.plugin.json",
+      "edits": [{ "op": "set", "path": "/ui/toolWindows/0/web/entry", "value": "../index.html" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI web entry is not an HTML page",
+      "base": "web-panel.plugin.json",
+      "edits": [{ "op": "set", "path": "/ui/toolWindows/0/web/entry", "value": "ui/main.js" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "UI web content takes no other fields",
+      "base": "web-panel.plugin.json",
+      "edits": [{ "op": "set", "path": "/ui/toolWindows/0/web/allowNetwork", "value": true }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "ui 2 without web content",
+      "base": "web-panel.plugin.json",
+      "edits": [{ "op": "remove", "path": "/ui/toolWindows/0/web" }, { "op": "set", "path": "/ui/toolWindows/0/text", "value": "Plain" }, { "op": "set", "path": "/permissions", "value": ["ui.contribute"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "build system icon leaves the package",
+      "base": "gradle-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/icon", "value": {"path": "../gradle.svg"} }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "toolbar option without an icon",
+      "base": "gradle-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/options/0/presentation", "value": "toolbar" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "toolbar option that is not boolean",
+      "base": "maven-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/options/0/presentation", "value": "toolbar" }, { "op": "set", "path": "/buildSystems/0/options/0/icon", "value": {"host": "settings"} }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "tree option that is not multiSelect",
+      "base": "gradle-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/options/0/presentation", "value": "tree" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "option icon outside the toolbar",
+      "base": "gradle-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/options/0/icon", "value": {"host": "settings"} }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "task category deeper than four headings",
+      "base": "gradle-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/0/category", "value": ["a", "b", "c", "d", "e"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "task category with an empty heading",
+      "base": "gradle-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/0/category", "value": ["Tasks", " "] }],
+      "expectedCode": "plugin.manifest.invalid"
     }
   ]
 }

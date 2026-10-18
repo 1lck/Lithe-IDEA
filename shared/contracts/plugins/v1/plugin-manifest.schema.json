@@ -28,7 +28,7 @@
         "languages": { "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers and of build providers that start their own process.", "enum": [1] },
         "settings": { "enum": [1] },
-        "ui": { "enum": [1] }
+        "ui": { "description": "Version 2 adds web content in tool windows.", "enum": [1, 2] }
       }
     },
     "vendor": {
@@ -43,7 +43,7 @@
     },
     "permissions": {
       "type": "array",
-      "items": { "enum": ["languageServer.launch", "process.build", "process.run", "process.test", "ui.contribute"] }
+      "items": { "enum": ["languageServer.launch", "process.build", "process.run", "process.test", "ui.contribute", "ui.web"] }
     },
     "activationEvents": {
       "type": "array",
@@ -85,8 +85,11 @@
             "required": [
               "id",
               "title",
-              "placement",
-              "text"
+              "placement"
+            ],
+            "oneOf": [
+              { "required": ["text"] },
+              { "required": ["web"] }
             ],
             "properties": {
               "id": {
@@ -111,6 +114,20 @@
               "text": {
                 "type": "string",
                 "maxLength": 65536
+              },
+              "web": {
+                "description": "ui 2: the plugin's own page, served from the package into a sandboxed host web view. Needs the ui.web permission.",
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["entry"],
+                "properties": {
+                  "entry": {
+                    "description": "Package-relative path of the HTML entry page.",
+                    "type": "string",
+                    "maxLength": 256,
+                    "pattern": "^(?!/)(?!.*(^|/)\\.{1,2}(/|$))[^:\\\\]+\\.html$"
+                  }
+                }
               },
               "icon": {
                 "$ref": "#/$defs/uiIcon"
@@ -1038,6 +1055,10 @@
           "minLength": 1,
           "maxLength": 120
         },
+        "icon": {
+          "description": "Icon of the build system's tool window and activity bar entry; display only.",
+          "$ref": "#/$defs/uiIcon"
+        },
         "detection": {
           "type": "object",
           "additionalProperties": false,
@@ -1226,6 +1247,14 @@
                 "additionalProperties": {
                   "type": "string"
                 }
+              },
+              "presentation": {
+                "description": "Display only. toolbar: a toggle button in the tool window toolbar (boolean options with an icon). tree: a checklist node at the top of the tool window tree (multiSelect options).",
+                "enum": ["toolbar", "tree"]
+              },
+              "icon": {
+                "description": "Icon of a toolbar option; only toolbar options have one.",
+                "$ref": "#/$defs/uiIcon"
               }
             }
           },
@@ -1384,6 +1413,13 @@
               "description": {
                 "type": "string",
                 "maxLength": 1024
+              },
+              "category": {
+                "description": "Headings the host files the task under, outermost first; the default for model tasks of a fromModel template. Display only.",
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": { "type": "string", "minLength": 1, "maxLength": 120 }
               },
               "arguments": {
                 "$ref": "#/$defs/buildArgumentList"
