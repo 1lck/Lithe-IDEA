@@ -255,6 +255,14 @@ extension McpConfigurationStore {
                 completed.append(change)
             }
         } catch {
+            // If the failed write already kept a recovery copy, its location
+            // must survive the rollback aggregation; otherwise a second
+            // failure would replace the only pointer to that copy.
+            let writeFailureDetail: String? = {
+                guard let error = error as? McpConfigurationError,
+                      case .retainedCopy = error else { return nil }
+                return error.localizedDescription
+            }()
             var unrestored: [String] = []
             for change in completed.reversed() {
                 do {
@@ -274,7 +282,9 @@ extension McpConfigurationStore {
                 }
             }
             if !unrestored.isEmpty {
-                throw McpConfigurationError.rollbackFailed(unrestored.joined(separator: ", "))
+                var details = unrestored
+                if let writeFailureDetail { details.insert(writeFailureDetail, at: 0) }
+                throw McpConfigurationError.rollbackFailed(details.joined(separator: ", "))
             }
             throw error
         }

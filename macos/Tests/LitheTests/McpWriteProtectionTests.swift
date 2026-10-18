@@ -534,14 +534,57 @@ struct McpBatchRollbackDetailTests {
             #expect(details.contains("/tmp/lithe-first.json.lithe-recovery"))
         }
     }
+
+    @Test
+    func failedWriteRecoveryPathSurvivesARollbackFailure() throws {
+        let first = McpConfigurationFile(
+            agent: .claudeCode, scope: .global,
+            url: URL(fileURLWithPath: "/tmp/lithe-first.json"), projectPath: nil
+        )
+        let second = McpConfigurationFile(
+            agent: .codex, scope: .global,
+            url: URL(fileURLWithPath: "/tmp/lithe-second.toml"), projectPath: nil
+        )
+        let store = RetainedRollbackStore(
+            files: [first, second],
+            writeError: .retainedCopy(
+                destination: second.url.path,
+                retained: second.url.path + ".lithe-write"
+            ),
+            restoreError: .changedOnDisk
+        )
+
+        do {
+            _ = try store.writeBatch([
+                McpConfigurationChange(file: first, source: "old-first", content: "new-first"),
+                McpConfigurationChange(file: second, source: "old-second", content: "new-second")
+            ])
+            Issue.record("Expected a rollback failure")
+        } catch let error as McpConfigurationError {
+            guard case .rollbackFailed(let details) = error else {
+                Issue.record("Expected rollbackFailed, got \(error)")
+                return
+            }
+            #expect(details.contains(first.url.path))
+            #expect(details.contains("/tmp/lithe-second.toml.lithe-write"))
+        }
+    }
 }
 
 @MainActor
 private final class RetainedRollbackStore: McpConfigurationStore {
     let files: [McpConfigurationFile]
+    let writeError: McpConfigurationError?
+    let restoreError: McpConfigurationError?
 
-    init(files: [McpConfigurationFile]) {
+    init(
+        files: [McpConfigurationFile],
+        writeError: McpConfigurationError? = nil,
+        restoreError: McpConfigurationError? = nil
+    ) {
         self.files = files
+        self.writeError = writeError
+        self.restoreError = restoreError
     }
 
     func configurationFiles(workspace: URL?) -> [McpConfigurationFile] { files }
@@ -553,12 +596,14 @@ private final class RetainedRollbackStore: McpConfigurationStore {
     func write(
         _ content: String, to file: McpConfigurationFile, replacing expected: String?
     ) throws -> McpWriteReceipt {
-        if file == files[1] { throw McpConfigurationError.notWritable(file.url.path) }
+        if file == files[1] {
+            throw writeError ?? McpConfigurationError.notWritable(file.url.path)
+        }
         return McpWriteReceipt(backupURL: nil)
     }
 
     func restore(_ change: McpConfigurationChange) throws {
-        throw McpConfigurationError.retainedCopy(
+        throw restoreError ?? McpConfigurationError.retainedCopy(
             destination: change.file.url.path,
             retained: change.file.url.path + ".lithe-recovery"
         )
