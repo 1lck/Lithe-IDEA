@@ -231,4 +231,3 @@ test("acceptance: staged prefix must not redirect rollback to an unselected bloc
     rmSync(root, { recursive: true, force: true });
   }
 }, 15000);
-
