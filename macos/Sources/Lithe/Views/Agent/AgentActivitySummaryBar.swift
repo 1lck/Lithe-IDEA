@@ -98,8 +98,8 @@ struct AgentActivitySummaryBar: View {
     private func count(_ panel: Panel) -> String {
         switch panel {
         case .tasks:
-            if let plan { return "\(plan.completedCount)/\(plan.entries.count)" }
-            return String(activity.tools.count)
+            guard let plan, !plan.entries.isEmpty else { return "0" }
+            return "\(plan.completedCount)/\(plan.entries.count)"
         case .running: return String(activity.running.count)
         case .edits: return String(activity.files.count)
         }
@@ -127,7 +127,7 @@ struct AgentActivityDetailsView: View {
             case .tasks:
                 if let plan, !plan.entries.isEmpty {
                     AgentPlanView(plan: plan, isResponding: isResponding, embedded: true)
-                } else { tools(activity.tools, empty: "No tasks yet") }
+                } else { emptyState("No tasks yet") }
             case .running: tools(activity.running, empty: "No tools running")
             case .edits: edits
             }
