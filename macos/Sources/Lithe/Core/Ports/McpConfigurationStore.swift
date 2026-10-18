@@ -205,9 +205,10 @@ protocol McpConfigurationStore {
     /// Returns `nil` when the file does not exist yet.
     func read(_ file: McpConfigurationFile) throws -> String?
     /// Backs up existing bytes and replaces the file atomically. The platform
-    /// storage re-verifies the destination immediately before publishing, so a
-    /// save another process makes after planning (including during the backup)
-    /// is preserved rather than overwritten.
+    /// storage exchanges the destination with the prepared bytes, verifies the
+    /// displaced snapshot and rolls the exchange back when another process
+    /// saved after planning (including during the backup), so that save is
+    /// preserved rather than overwritten.
     ///
     /// `expected` is the exact text the write was planned from; `nil` means the
     /// file must not exist yet. When the file changed after planning (another

@@ -33,8 +33,8 @@ protocol FileStorage: Sendable {
     func readData(from url: URL, options: Data.ReadingOptions) throws -> Data
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws
     /// Publishes `data` only while the destination still matches `expected`
-    /// (or does not exist when `expected` is `nil`). Returns `false` without
-    /// touching the file when another writer changed it in the meantime.
+    /// (or does not exist when `expected` is `nil`). Returns `false` and
+    /// leaves the destination unchanged when another writer got there first.
     func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws
     func removeItem(at url: URL) throws

@@ -101,10 +101,10 @@ Windows 的 Agent 配置路径和 Tauri 侧文件访问模型不同，同步实�
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::`（覆盖删除首项/中间项/末项、同行相邻项、值跨多行且下一个键同行的布局、单行与混合换行布局，JSON 输出重新解析，重复 JSON 键拒绝编辑；Codex 更新保留 `bearer_token_env_var`、`startup_timeout_sec`、未知键、建模键与值的注释、未变化的 args 数组内注释和非字符串 env 值，变量列表清空时也保留非字符串值；内联 `mcp_servers` 表可删除、可编辑；拒绝重复变量键；哈希忽略当前传输不写入的 command/args/env/url/headers 且与重解析一致；重命名保留专属字段）
 - `./scripts/test-macos.sh --filter McpServerLibraryTests`（覆盖计划后磁盘变化拒绝写入、文件在计划后出现拒绝创建、linked worktree 公共排除文件、关闭会话后仍能清理项目注册、项目切换后清理两个项目的注册、Git 排除失败不回滚账本、注销冲突写入错误横幅、重复变量键校验、重命名外部条目、按 Agent 开启时忽略传输不写入的字段、切换传输方式丢弃隐藏字段后仍保持所有权、重命名保留 Codex 字段、自然排序条目的所有权、两个窗口合并账本）
-- `./scripts/test-macos.sh --filter McpWriteProtectionTests`（备份完成后外部保存被保留并返回 `changedOnDisk`，预检后出现的新文件不被覆盖；`MacFileStorage.replaceData` 拒绝过期快照、按匹配快照原子发布、拒绝覆盖已存在文件）
+- `./scripts/test-macos.sh --filter "McpWriteProtectionTests|FileStorageReplacementTests"`（备份完成后外部保存被保留并返回 `changedOnDisk`，预检后出现的新文件不被覆盖；`MacFileStorage.replaceData` 拒绝过期快照、按匹配快照原子发布、拒绝覆盖已存在文件，且失败/成功路径都不遗留临时文件）
 - `./scripts/test-macos.sh --filter "McpBatchTransactionTests|McpServerSummaryTests|McpExcludePreservationTests"`（用第二次写入前的同步故障注入覆盖已有文件恢复、新文件删除、回滚保留外部修改与路径提示、失败保存和注册不发布账本；摘要不含 args 或 URL 凭据；exclude 原始非 UTF-8 字节保留、LF/CRLF 幂等及已有文件读取失败保护）
 - `./scripts/test-macos.sh --filter "McpArgumentRoundTripTests|McpSymlinkConfigurationTests"`（Codex 与 Claude 只改 env 时保留空参数、空白参数和嵌入换行；修改参数文本保留空行；相对及绝对符号链接可读取、生成计划、保存和备份，后续写入失败恢复链接目标，目标外部修改不覆盖，错误展示原路径并保留大小上限）
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter "McpServerLibraryTests|McpSymlinkConfigurationTests"`（双窗口顺序保存，分别覆盖旧编辑器未刷新和刷新后可见字段恰好等于新版本的情况；认证或超时字段外部变化后阻止旧草稿保存、重命名、关闭开关、删除与关闭项目清理；双 Agent 合并条目使用各自的来源版本；旧账本重新接管前拒绝自动删除；同一编辑器内接管后关闭对应 Agent 可以保存；重复注册不接管外部新增的超时配置，保留原账本）
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter "McpServerLibraryTests|McpSymlinkConfigurationTests|McpWriteProtectionTests|FileStorageReplacementTests"`（双窗口顺序保存，分别覆盖旧编辑器未刷新和刷新后可见字段恰好等于新版本的情况；认证或超时字段外部变化后阻止旧草稿保存、重命名、关闭开关、删除与关闭项目清理；双 Agent 合并条目使用各自的来源版本；旧账本重新接管前拒绝自动删除；同一编辑器内接管后关闭对应 Agent 可以保存；重复注册不接管外部新增的超时配置，保留原账本）
 - `./scripts/test-macos.sh --filter IdeCapabilitiesTests`
 - `./scripts/verify-service-boundaries.sh`
 - `./scripts/verify-agent-notes.sh`

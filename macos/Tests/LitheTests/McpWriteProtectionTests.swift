@@ -44,8 +44,14 @@ struct FileStorageReplacementTests {
         defer { fixture.cleanUp() }
         try fixture.write("snapshot")
 
+        // A differently sized external write is rejected by the size guard.
         #expect(try fixture.storage.replaceData(
             Data("attempted".utf8), at: fixture.url, expecting: Data("stale".utf8)
+        ) == false)
+        #expect(try fixture.text() == "snapshot")
+        // The same size still requires equal bytes.
+        #expect(try fixture.storage.replaceData(
+            Data("attempted".utf8), at: fixture.url, expecting: Data("snapshut".utf8)
         ) == false)
         #expect(try fixture.text() == "snapshot")
 
@@ -53,12 +59,20 @@ struct FileStorageReplacementTests {
             Data("attempted".utf8), at: fixture.url, expecting: Data("snapshot".utf8)
         ))
         #expect(try fixture.text() == "attempted")
+        // Failed and successful exchanges must not leave temporary files.
+        #expect(try fixture.entries() == ["config.toml"])
     }
 
     @Test
     func doesNotReplaceAFileThatAppearedAfterPlanning() throws {
         let fixture = try ReplacementFixture()
         defer { fixture.cleanUp() }
+
+        // A missing file cannot satisfy a snapshot precondition.
+        #expect(try fixture.storage.replaceData(
+            Data("attempted".utf8), at: fixture.url, expecting: Data("missing".utf8)
+        ) == false)
+        #expect(FileManager.default.fileExists(atPath: fixture.url.path) == false)
 
         #expect(try fixture.storage.replaceData(
             Data("attempted".utf8), at: fixture.url, expecting: nil
@@ -69,6 +83,7 @@ struct FileStorageReplacementTests {
             Data("second".utf8), at: fixture.url, expecting: nil
         ) == false)
         #expect(try fixture.text() == "attempted")
+        #expect(try fixture.entries() == ["config.toml"])
     }
 }
 
@@ -206,6 +221,10 @@ private final class ReplacementFixture {
 
     func text() throws -> String {
         try String(contentsOf: url, encoding: .utf8)
+    }
+
+    func entries() throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
     }
 
     func cleanUp() {

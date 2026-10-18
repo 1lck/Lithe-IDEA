@@ -101,9 +101,10 @@ struct MacFileStorage: FileStorage {
             ".\(url.lastPathComponent).lithe-\(UUID().uuidString)"
         )
         try data.write(to: temporary)
-        defer { try? FileManager.default.removeItem(at: temporary) }
+        var removeTemporary = true
+        defer { if removeTemporary { try? FileManager.default.removeItem(at: temporary) } }
 
-        if expected == nil {
+        guard let expected else {
             // Publish without replacing a file another process just created.
             guard renamex_np(temporary.path, url.path, UInt32(RENAME_EXCL)) == 0 else {
                 if errno == EEXIST { return false }
@@ -112,22 +113,49 @@ struct MacFileStorage: FileStorage {
             return true
         }
 
-        // The exchange also returns the previous contents: reading them from
-        // `temporary` is how a lost external save becomes observable.
+        // The exchange also returns the previous contents under the temporary
+        // path; comparing them with the planned snapshot is how a lost external
+        // save becomes observable.
         guard renamex_np(temporary.path, url.path, UInt32(RENAME_SWAP)) == 0 else {
             if errno == ENOENT { return false }
             throw CocoaError(.fileWriteUnknown)
         }
+        let matches: Bool
         do {
-            guard try Data(contentsOf: temporary) == expected else {
-                _ = renamex_np(temporary.path, url.path, UInt32(RENAME_SWAP))
-                return false
-            }
+            matches = try displacedMatches(at: temporary, expected: expected)
         } catch {
-            _ = renamex_np(temporary.path, url.path, UInt32(RENAME_SWAP))
-            throw error
+            try undoExchange(&removeTemporary, temporary: temporary, target: url)
+            throw CocoaError(.fileWriteUnknown)
+        }
+        guard matches else {
+            try undoExchange(&removeTemporary, temporary: temporary, target: url)
+            return false
         }
         return true
+    }
+
+    /// Compares the bytes displaced by the exchange without reading more than
+    /// the planned snapshot's size or a special file: an external write can be
+    /// arbitrarily large, and reading a FIFO would block the caller.
+    private func displacedMatches(at url: URL, expected: Data) throws -> Bool {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular,
+              (attributes[.size] as? NSNumber)?.intValue == expected.count else {
+            return false
+        }
+        return try Data(contentsOf: url) == expected
+    }
+
+    /// Restores the displaced bytes after a failed comparison. A failed
+    /// exchange keeps the temporary file, which holds the only remaining copy
+    /// of the external save, instead of deleting it.
+    private func undoExchange(
+        _ removeTemporary: inout Bool, temporary: URL, target: URL
+    ) throws {
+        guard renamex_np(temporary.path, target.path, UInt32(RENAME_SWAP)) == 0 else {
+            removeTemporary = false
+            throw CocoaError(.fileWriteUnknown)
+        }
     }
 
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
