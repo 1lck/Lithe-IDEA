@@ -27,11 +27,19 @@
       "windows/tauri/src/features/file-explorer/components/file-explorer-viewport.tsx",
       "windows/tauri/src/ui/wheel-scroll-animation.ts",
       "windows/tauri/src/ui/scroll-container-wheel.integration.test.ts",
-      ".agents/notes/implemented/bug-fix/2026-10-08-windows-git-log-wheel-animation.md"
+      ".agents/notes/implemented/bug-fix/2026-10-08-windows-git-log-wheel-animation.md",
+      "windows/tauri/src/features/sidebar/utils/tree-selection.ts",
+      "windows/tauri/src/features/file-explorer/stores/directory-marks.ts",
+      "windows/tauri/src/features/file-explorer/hooks/use-file-explorer-sync.ts",
+      "windows/tauri/src/features/file-explorer/components/file-explorer-reveal.test.tsx",
+      "windows/tauri/src/features/file-explorer/components/file-explorer-selection.test.tsx",
+      "windows/tauri/src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx",
+      "windows/tauri/src/features/sidebar/utils/tree-selection.test.ts"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Workspace",
-  "verification": "浏览目录、展开/折叠、打开资源并在文件变更后刷新树。 macOS 文件树、标签页与面包屑共用 TOML 文件图标：亮色使用 IDEA New UI 官方浅底蓝色 T，深色使用深底蓝色 T；检查明暗主题切换后选择对应 SVG，保留原始 16pt 几何与颜色。 点击目录名称后上下键按可见行移动选择，右键展开目录并再次右键进入首个子项，左键折叠或返回显示父项；双击目录名称展开/折叠，单击与修饰键多选保持独立。验证压缩 Java 包、列表首尾、Shift 上下范围选择与自动滚动；方向键不送到编辑器，点击编辑器或转移到搜索输入框后恢复其按键处理。 Windows Project 文件树滚轮与 Git Log 共用 Community Windows 默认 200ms 惯性过渡；核对连续同向、反向、Shift 横向滚动、顶底边界、键盘定位与滑块拖动取消惯性、卸载帧清理和减少动态效果偏好；虚拟树保持可见区呈现，真实 WebView2 实机验收 pending。 macOS 项目文件和目录选中行共用 LitheTheme.Tree 的主题聚焦色与灰色失焦色；点击编辑器、其他工具窗口后失焦，键盘转移到搜索输入框尚未输入时失焦，重新点击树恢复，整个窗口失焦时保持灰色。深浅主题、非默认主题、多选、上下键和右键菜单均需核对；组件像素和焦点回归不能替代完整应用验收。"
+  "verification": "浏览目录、展开/折叠、打开资源并在文件变更后刷新树。 macOS 文件树、标签页与面包屑共用 TOML 文件图标：亮色使用 IDEA New UI 官方浅底蓝色 T，深色使用深底蓝色 T；检查明暗主题切换后选择对应 SVG，保留原始 16pt 几何与颜色。 点击目录名称后上下键按可见行移动选择，右键展开目录并再次右键进入首个子项，左键折叠或返回显示父项；双击目录名称展开/折叠，单击与修饰键多选保持独立。验证压缩 Java 包、列表首尾、Shift 上下范围选择与自动滚动；方向键不送到编辑器，点击编辑器或转移到搜索输入框后恢复其按键处理。 Windows Project 文件树滚轮与 Git Log 共用 Community Windows 默认 200ms 惯性过渡；核对连续同向、反向、Shift 横向滚动、顶底边界、键盘定位与滑块拖动取消惯性、卸载帧清理和减少动态效果偏好；虚拟树保持可见区呈现，真实 WebView2 实机验收 pending。 macOS 项目文件和目录选中行共用 LitheTheme.Tree 的主题聚焦色与灰色失焦色；点击编辑器、其他工具窗口后失焦，键盘转移到搜索输入框尚未输入时失焦，重新点击树恢复，整个窗口失焦时保持灰色。深浅主题、非默认主题、多选、上下键和右键菜单均需核对；组件像素和焦点回归不能替代完整应用验收。 Windows 在默认及舒适密度下比较 Project 与 Dependencies 树正文，再修改界面字号确认同步；深浅主题检查刷新图标为循环箭头，点击仍刷新目录。 Windows 关闭自动跟随后，打开深层文件并折叠祖先，点击定位当前文件，检查展开后滚动到目标行；滚动离开后重复点击同一文件仍定位。延迟目录加载完成后再滚动，旧请求完成不改变新位置；树内搜索和 Dependencies 视图下定位应回到完整 Project 树。 Windows 搜索首次命中和 Enter 切换后复制/剪切应使用当前命中；同时选择父目录、后代与其他文件后右键后代，复制/删除仍处理整个选择且父子只操作一次。原生移动等待期间关闭 Project 或切换工作区，成功项同步原工作区并停止后续项。受控 WSL/远程/POSIX 路径用例保留大小写不同的文件与目录，Windows 本地/普通 UNC 同名目标继续拒绝覆盖；这些用例不代表已开放 WSL/远程功能，真实 WebView2 工作流仍 pending。 Windows 批量拖动分别在目录预检、原生移动和原工作区同步等待期间切换 A→B→A，确认旧批次不再派发剩余项，已完成项仍同步原工作区；普通重渲染继续当前批次，旧移动失败不清除新拖动或显示过期错误。",
+  "notes": "Windows 补齐 Ctrl/Shift 多选、批量复制/剪切/删除、已选集合拖动、Project/Dependencies 切换、定位当前文件、刷新和隐藏。目录名称单击选择，双击或箭头展开；长名称水平滚动。目录标记按工作区持久化，并随移动、重命名和删除迁移；本地 Windows/UNC 按不区分大小写处理，POSIX、WSL 和远程标识保留大小写并隔离工作区。批量移动预检父子重复及重名目标，原生发布拒绝覆盖；真实 WebView2 的拖动与焦点验收 pending。 Windows 树正文统一使用 ui-text-sm（默认 13px），随界面字号设置变化，舒适密度不单独放大 Dependencies 等树行；Project 刷新按钮使用 IDEA refresh.svg。手动定位与自动跟随共用有代次的展开后滚动请求，不受自动跟随开关限制；定位清除树内搜索并切回 Project，保持虚拟列表。 搜索导航同步选择与锚点，右键成员判断保留原始选择集合，批量目标再去除父子重复；已完成移动不因面板卸载或工作区切换而漏掉原工作区同步。路径去重与拖动预检按文件系统大小写语义比较，包含 WSL UNC 别名。编辑器活动文件变化时单选同步高亮、复制/剪切目标及范围锚点，明确多选保留；验证没有切换编辑文件时选择目录不会被重新渲染覆盖。 批量移动按每次工作区访问识别生命周期，相同根路径的再次访问不能复活旧批次；预检、移动、同步和失败回调共用该守卫。"
 }

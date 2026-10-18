@@ -423,7 +423,10 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
                 .remove("stashIndex")
                 .and_then(|value| value.as_u64())
                 .unwrap_or(0);
-            payload.insert("reference".into(), json!(format!("stash@{{{index}}}")));
+            let reference = payload
+                .remove("stashOid")
+                .unwrap_or_else(|| json!(format!("stash@{{{index}}}")));
+            payload.insert("stashReference".into(), reference);
             payload.insert("pathspecs".into(), json!(["."]));
             "git.diff"
         }
@@ -517,7 +520,10 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
                 .remove("stashIndex")
                 .and_then(|value| value.as_u64())
                 .unwrap_or(0);
-            payload.insert("reference".into(), json!(format!("stash@{{{index}}}")));
+            let reference = payload
+                .remove("stashOid")
+                .unwrap_or_else(|| json!(format!("stash@{{{index}}}")));
+            payload.insert("reference".into(), reference);
             let operation = match command {
                 "git_apply_stash" => "stashApply",
                 "git_pop_stash" => "stashPop",

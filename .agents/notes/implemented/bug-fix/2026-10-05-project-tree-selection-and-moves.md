@@ -37,8 +37,27 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
   未保存文档在历史记录前后检查，成功项立即更新打开文档，再迁移历史和目录标记。
 - 文件操作期间持有批量操作标志；工作区代次变化后停止后续项，旧操作不释放新工作区的标志。
   中途失败不自动回滚已成功项，因为回滚可能覆盖期间发生的外部编辑；提示完成数量与剩余项。
+- Windows 每次原生移动成功后，必须先调用操作开始时捕获的原工作区同步回调，
+  再检查面板是否卸载或工作区是否切换。界面生命周期只能阻止后续移动，不能让已完成的
+  磁盘修改跳过文档、树与目录标记同步；不把旧操作交给新工作区的回调。
+- Windows 每次进入工作区都使用独立的访问标识。目录预检、原生移动或原工作区同步
+  等待期间发生 A→B→A，回到相同根路径也不能恢复旧批次；尚未开始的项停止移动。
+  普通重渲染不改变访问标识，仍能完成当前批次。旧操作失败时只记录错误，不能清除
+  新访问中正在进行的拖动或向新界面发送旧错误提示。
+- Windows 搜索首次命中和 Enter 切换命中时，同时替换焦点项、明确选择集合与范围锚点，
+  避免随后复制或剪切仍操作搜索前的旧项。右键是否属于已选范围应读取明确选择集合，
+  实际复制、删除等批量操作才折叠父子重复；不能用折叠后的集合判断后代是否已被选中。
+- Windows 编辑器活动文件实际变化时，至多一个选项的项目树同步选择、键盘焦点与范围锚点，
+  与 Swift 保持一致；明确多选保持原集合。活动文件不变时，重新渲染或选择目录不能触发同步。
+- Windows 路径比较仅对本地盘符和普通 UNC 网络路径忽略大小写；WSL、远程、POSIX
+  以及 `wsl$` / `wsl.localhost` 网络别名保持大小写。选择去重与拖动预检使用同一规则，
+  例如 Linux 的 `src/a.ts` 与 `src/A.ts` 都保留，Windows 同名目标仍拒绝覆盖。
 - 可见树按显示层级展开成平面行列表，直接交给懒加载栈，保留压缩 Java 包的显示深度。
   不在每个目录下嵌套懒加载栈，以免滚动容器无法正确测量整棵递归子树。
+- Windows 手动定位当前文件与自动跟随共用 `useFileExplorerSync` 的定位请求。
+  展开、加载祖先目录后，视图根据可见行索引滚动虚拟列表，再消费请求；同一文件的
+  每次点击都产生新请求，过期完成不能覆盖新请求。手动定位清除树内搜索并切回 Project，
+  不依赖自动跟随开关。仅调用目录展开或选中动作不会让离屏行进入视口。
 
 正确示例：同时选择 `src`、`src/A.java`、`README.md`，拖到 `archive`，实际只移动
 `src` 与 `README.md`，后代随目录移动。不要将 `src/A.java` 再移动一次，也不要为了
@@ -58,7 +77,7 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
 
 独立选择减少误解，目录移动不需要枚举磁盘后代，懒加载避免为屏幕外每行启动图标任务。
 代价是维护一个原生输入适配器；真实拖动、上下滚动及大目录性能仍需 macOS 实机验收。
-Windows 暂无该批量选择入口，矩阵保持缺失，不声明已同步实现。
+Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除及已选集合拖动，目录单击选择、双击/箭头展开。拖动预检重名和父子重复，底层用不覆盖发布防止同名文件丢失；逐项操作并在工作区切换后停止后续项。Windows 原生 WebView2 的拖动、焦点与大树验收仍 pending，不能用选择工具函数测试代替。
 本次不引入下载物或缓存；写入仅发生在用户工作区和既有历史、偏好存储，不修改发行资源或代码签名基线。
 
 ## 验证
@@ -72,11 +91,35 @@ Windows 暂无该批量选择入口，矩阵保持缺失，不声明已同步实
 - macOS 实机分别测量大目录选择、展开与滚动，验证能滚动至末尾及定位到未显示行；同时回归修饰键、右键、目录与多文件拖动。
 - 点击目录名称后验证双击、上下左右与 Shift 上下、焦点项滚动；点击编辑器和搜索字段后
   验证按键归属释放。
+- Windows 定位回归：
+  `cd windows/tauri && bun test src/features/file-explorer/components/file-explorer-reveal.test.tsx`；
+  点击真实工具栏按钮，检查关闭自动跟随时的折叠祖先展开、离屏行呈现、重复定位、
+  延迟目录加载及过期请求；自动跟随仍需滚动。真实 WebView2 验收另行完成。
+- Windows 选择与移动回归：通过 `test-stability-windows.ps1 -Scope Frontend` 的
+  `-FrontendTestPath` 选择 `file-explorer-selection.test.tsx`、
+  `use-file-explorer-drag-drop.test.tsx` 和 `tree-selection.test.ts`；验证搜索后复制/剪切、
+  已选后代右键复制/删除、原生移动等待期间卸载或切换工作区，以及区分大小写与
+  Windows 同名目标的预检。搜索用例隔离弹层动画，只验证真实树的搜索与选择状态；
+  WSL 用例使用受控原生调用，不代表当前产品已开放 WSL 或完成真实发行包验收。
+- Windows 移动生命周期回归使用受控 Promise 分别暂停目录预检、原生移动和原工作区
+  同步，在每个等待点切换 A→B→A；确认不再派发后续项，已完成项仍同步原工作区。
+  同时验证普通重渲染仍完成批次，以及旧移动失败不清除新拖动、也不显示过期错误。
+  Windows CI 的 `Test Project tree selection, reveal, and move lifecycle` 步骤运行
+  这组移动回归与选择、定位、目录标记和路径身份测试，生成逐项 HTML/JUnit 计时报告。
 
 - 项目根、目录、文件和多选右键菜单分别验证 Find in Files / Replace in Files；
   验证编辑器选中文字预填、查找输入框聚焦和替换预览/取消/确认，搜索范围仍为整个项目。
 
 ## 适用范围
+
+- `windows/tauri/src/features/file-explorer/components/file-explorer-tree.tsx`
+- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-sync.ts`
+- `windows/tauri/src/features/file-explorer/components/file-explorer-reveal.test.tsx`
+- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-drag-drop.ts`
+- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx`
+- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx`
+- `windows/tauri/src/features/file-explorer/components/file-explorer-selection.test.tsx`
+- `windows/tauri/src/features/sidebar/utils/tree-selection.ts`
 
 - `macos/Sources/Lithe/Models/AppModel/AppModel+SearchModule.swift`
 - `macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`

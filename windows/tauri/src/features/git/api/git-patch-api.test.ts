@@ -3,22 +3,56 @@ import * as gitEvents from "../events/git-events";
 
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 let rejectApply = false;
+let checkResult: { exitCode: number; operationError?: { message: string } };
+let rejectCheck = false;
 const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> => {
   if (command === "git_discover_repo") return "C:/repo";
   if (command === "git.patchApply") {
     if (rejectApply) throw new Error("Repository changed after preview");
     return { exitCode: 0, output: "", warnings: [] };
   }
+  if (command === "git.apply") {
+    if (rejectCheck) throw new Error("Native check unavailable");
+    return checkResult;
+  }
   return { patch: "", files: [], byteLength: 0 };
 });
 const tauriCoreModule = await import("@/platform/tauri-core");
 mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
-const { applyGitPatch, exportGitPatch } = await import("./git-patch-api");
+const { applyGitPatch, exportGitPatch, isGitPatchApplied } = await import("./git-patch-api");
 
 beforeEach(() => {
   invoke.mockClear();
   emitGitChanged.mockClear();
   rejectApply = false;
+  checkResult = { exitCode: 0 };
+  rejectCheck = false;
+});
+
+for (const [target, mode] of [
+  ["indexAndWorktree", "restoreIndexCheck"],
+  ["worktree", "worktreeCheck"],
+] as const) {
+  test(`checks already-restored ${target} patches through the existing read-only Core mode`, async () => {
+    expect(await isGitPatchApplied("C:/repo", "saved patch", target)).toBe(true);
+    expect(invoke).toHaveBeenLastCalledWith("git.apply", {
+      root: "C:/repo",
+      patch: "saved patch",
+      mode,
+    });
+    expect(emitGitChanged).not.toHaveBeenCalled();
+  });
+}
+
+test("an unsuccessful or unavailable native check never confirms an already-applied patch", async () => {
+  checkResult = { exitCode: 1 };
+  expect(await isGitPatchApplied("C:/repo", "saved patch", "worktree")).toBe(false);
+  checkResult = { exitCode: 0, operationError: { message: "check failed" } };
+  expect(await isGitPatchApplied("C:/repo", "saved patch", "worktree")).toBe(false);
+  rejectCheck = true;
+  await expect(isGitPatchApplied("C:/repo", "saved patch", "worktree")).rejects.toThrow(
+    "Native check unavailable",
+  );
 });
 afterAll(() => emitGitChanged.mockRestore());
 

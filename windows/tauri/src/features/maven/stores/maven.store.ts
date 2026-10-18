@@ -222,6 +222,7 @@ export interface MavenState {
     clearOutput: () => void;
     appendOutput: (sessionId: string, chunk: string) => void;
     finishProcess: (sessionId: string, exitCode: number) => void;
+    invalidateDependencies: (modulePath: string) => void;
     loadDependencies: (modulePath: string) => Promise<void>;
     cancelDependencies: (modulePath: string) => Promise<void>;
     finishDependencyProcess: (sessionId: string, exitCode: number) => Promise<void>;
@@ -1442,6 +1443,15 @@ export const createMavenStore = (
                 });
               });
           }
+        },
+
+        invalidateDependencies: (modulePath) => {
+          if (get().dependencyLoads[modulePath]?.status === "loading") return;
+          set((state) => {
+            const dependencyLoads = { ...state.dependencyLoads };
+            delete dependencyLoads[modulePath];
+            return { dependencyLoads };
+          });
         },
 
         loadDependencies: async (rawModulePath) => {

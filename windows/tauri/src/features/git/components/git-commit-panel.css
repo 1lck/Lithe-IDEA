@@ -1,0 +1,121 @@
+/* Geometry and type hierarchy follow LitheTheme.Commit and CommitAreaView.
+   Keep UI font scaling; density must not independently enlarge this composer. */
+.git-commit-panel {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 3px 11px 6px;
+}
+
+/* The global form reset inherits UI fonts outside Tailwind's layers. */
+.git-commit-panel textarea {
+  font-family: var(--editor-font-family);
+}
+
+.git-status-panel {
+  container-type: inline-size;
+}
+
+@container (max-width: 299px) {
+  .git-status-parent-path {
+    display: none;
+  }
+}
+
+.git-commit-metadata {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 24px;
+  padding-inline: 1px;
+}
+
+.git-commit-amend {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.git-commit-ai {
+  height: 24px;
+  padding-inline: 7px;
+  border-radius: 4px;
+  font-size: calc(var(--ui-text-sm) - 2px);
+}
+
+.git-commit-count {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: calc(var(--ui-text-sm) - 1px);
+}
+
+.git-commit-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-inline: 1px;
+}
+
+.git-commit-actions > button {
+  min-width: 72px;
+  flex-shrink: 1;
+  padding-inline: 14px;
+  font-size: var(--ui-text-sm);
+}
+
+.git-commit-actions button[data-commit-settings] {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 3px;
+}
+
+/* Swift's ideal row also exceeds very narrow sidebars. Use one deliberate
+   extra control row, keeping the message and all submit actions usable. */
+@container (max-width: 300px) {
+  .git-commit-metadata {
+    flex-wrap: wrap;
+    row-gap: 3px;
+  }
+
+  .git-commit-amend {
+    width: 100%;
+  }
+
+  .git-commit-actions > button:not([data-commit-settings]) {
+    min-width: 0;
+    padding-inline: 7px;
+  }
+}
+
+.git-commit-tab {
+  height: 28px;
+  padding-inline: 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: calc(var(--ui-text-sm) - 0.5px);
+  font-weight: 400;
+  white-space: nowrap;
+  color: var(--subtle-foreground);
+}
+
+.git-commit-tab:hover {
+  background: var(--editor-tab-hover-bg);
+}
+
+.git-commit-tab[aria-selected="true"] {
+  color: var(--foreground);
+  background: var(--editor-tab-selected-inactive-bg);
+  border-color: var(--editor-tab-selected-inactive-border);
+}
+
+.git-commit-tool-window:focus-within .git-commit-tab[aria-selected="true"] {
+  background: var(--editor-tab-selected-bg);
+  border-color: var(--editor-tab-selected-border);
+}

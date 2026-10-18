@@ -1,3 +1,4 @@
+import { ProjectLocalHistoryContent } from "./project-local-history";
 import {
   ArrowCounterClockwiseIcon as ArrowCounterClockwise,
   ArrowLeftIcon as ArrowLeft,
@@ -60,13 +61,23 @@ function getEntryTitle(entry: LocalHistoryEntry): string {
   return entry.label?.trim() || formatSnapshotDate(entry.created_at);
 }
 
-export function LocalHistoryCommandContent({
+export function LocalHistoryCommandContent(props: LocalHistoryCommandContentProps) {
+  const project = useLocalHistoryStore((state) => state.project);
+  return project ? (
+    <ProjectLocalHistoryContent {...props} />
+  ) : (
+    <FileLocalHistoryCommandContent {...props} />
+  );
+}
+
+function FileLocalHistoryCommandContent({
   isActive,
   activeFilePath,
   onBack,
   onClose,
 }: LocalHistoryCommandContentProps) {
   const { t } = useTranslation();
+  const requestedEntryId = useLocalHistoryStore((state) => state.selectedEntryId);
   const storedTargetPath = useLocalHistoryStore.use.targetPath();
   const targetPath = storedTargetPath ?? activeFilePath ?? null;
   const fileName = targetPath ? getBaseName(targetPath, "file") : t("localHistory.title");
@@ -124,6 +135,12 @@ export function LocalHistoryCommandContent({
   useEffect(() => {
     setSelectedIndex(0);
   }, [query, targetPath]);
+
+  useEffect(() => {
+    if (!requestedEntryId) return;
+    const index = entries.findIndex((entry) => entry.id === requestedEntryId);
+    if (index >= 0) setSelectedIndex(index);
+  }, [entries, requestedEntryId]);
 
   useEffect(() => {
     if (!listRef.current || filteredEntries.length === 0) return;

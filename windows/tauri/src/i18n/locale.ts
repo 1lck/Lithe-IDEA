@@ -1,3 +1,4 @@
+import { panelParityEnglish, panelParityChinese } from "./panel-parity";
 import { javaEntryChinese, javaEntryEnglish } from "./java-entry-creation";
 import { changelistsChinese, changelistsEnglish } from "./git-changelists";
 import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-commit";
@@ -13,6 +14,7 @@ const catalogs = {
     "agent.continueWaiting": "Continue waiting",
     "agent.stop": "Stop",
     ...javaEntryEnglish,
+    ...panelParityEnglish,
     ...aiCommitEnglish,
     ...workspaceCommitEnglish,
     ...changelistsEnglish,
@@ -3465,6 +3467,7 @@ const catalogs = {
     "localHistory.renameFailed": "Failed to rename snapshot",
     "localHistory.selectLocalFileFirst": "Select a local file first.",
     "localHistory.openLocalFileFirst": "Open a local file first.",
+    "localHistory.localWorkspaceOnly": "Project local history is only available for local workspaces.",
     "localHistory.back": "Back",
     "localHistory.createEntryAria": "Create local history entry",
     "localHistory.searchTimeline": "Search timeline...",
@@ -4584,6 +4587,7 @@ const catalogs = {
     "agent.continueWaiting": "继续等待",
     "agent.stop": "停止",
     ...javaEntryChinese,
+    ...panelParityChinese,
     ...aiCommitChinese,
     ...workspaceCommitChinese,
     ...changelistsChinese,
@@ -7892,6 +7896,7 @@ const catalogs = {
     "localHistory.renameFailed": "无法重命名快照",
     "localHistory.selectLocalFileFirst": "请先选择本地文件。",
     "localHistory.openLocalFileFirst": "请先打开本地文件。",
+    "localHistory.localWorkspaceOnly": "项目本地历史仅适用于本地工作区。",
     "localHistory.back": "返回",
     "localHistory.createEntryAria": "创建本地历史记录",
     "localHistory.searchTimeline": "搜索时间线...",
