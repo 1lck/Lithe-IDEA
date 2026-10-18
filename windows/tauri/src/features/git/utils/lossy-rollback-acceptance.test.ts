@@ -8,6 +8,14 @@ import { planCommitDiffBlocks } from "@/features/git/utils/commit-diff-blocks";
 import { monacoDiffHunk, monacoDiffRows } from "@/features/git/utils/monaco-diff-rows";
 import { createMonacoDiffHunkActions } from "@/features/git/utils/monaco-diff-hunk-actions";
 
+// These fixtures request exactly one file; reject a multi-file parse before
+// passing it to operations that require the single-file GitDiff contract.
+function singleFileDiff(content: string, filePath: string) {
+  const diff = parseRawDiffContent(content, filePath);
+  if (!("file_path" in diff)) throw new Error("Expected a single-file diff fixture");
+  return diff;
+}
+
 function fixture(base: string, indexed: string, worktree: string) {
   const root = mkdtempSync(join(tmpdir(), "lithe-lossy-acc-"));
   const env = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "NUL", GIT_TERMINAL_PROMPT: "0" };
@@ -26,7 +34,7 @@ function fixture(base: string, indexed: string, worktree: string) {
     writeFileSync(file, base); git(["add", "file.txt"]); git(["commit", "-qm", "base"]);
     writeFileSync(file, indexed); git(["add", "file.txt"]);
     writeFileSync(file, worktree);
-    const readDiff = (args: string[]) => ({ ...parseRawDiffContent(git(["diff", ...args, "--unified=9999", "--", "file.txt"]), "file.txt"), is_full_context: true });
+    const readDiff = (args: string[]) => ({ ...singleFileDiff(git(["diff", ...args, "--unified=9999", "--", "file.txt"]), "file.txt"), is_full_context: true });
     const raw = git(["diff", "--unified=3", "--", "file.txt"]);
     const indexDiff = { ...readDiff([]), writePatch: raw };
     const display = { ...readDiff(["HEAD"]), writePatch: raw };
@@ -189,7 +197,7 @@ test("acceptance: staged prefix must not redirect rollback to an unselected bloc
     if (command === "git_discover_repo") return root;
     if (command === "git.command") return { output: git(args.arguments), exitCode: 0 };
     if (command === "git.diff") return { patch: git(["diff", "--unified=3", "--", "file.txt"]) };
-    if (command === "git_diff_file") return parseRawDiffContent(git([
+    if (command === "git_diff_file") return singleFileDiff(git([
       "diff", ...(args.worktreeSnapshot ? ["HEAD"] : args.staged ? ["--cached"] : []),
       "--unified=9999", "--", "file.txt",
     ]), "file.txt");

@@ -9,6 +9,14 @@ import { createMonacoDiffHunkActions } from "@/features/git/utils/monaco-diff-hu
 
 let current: ReturnType<typeof fixture> | undefined;
 let afterDisplayRead: (() => void) | undefined;
+// These fixtures request exactly one file; reject a multi-file parse before
+// passing it to operations that require the single-file GitDiff contract.
+function singleFileDiff(content: string, filePath: string) {
+  const diff = parseRawDiffContent(content, filePath);
+  if (!("file_path" in diff)) throw new Error("Expected a single-file diff fixture");
+  return diff;
+}
+
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "lithe-channel-review-"));
   const file = join(root, "file.txt");
@@ -37,7 +45,7 @@ mock.module("@/platform/tauri-core", () => ({ ...core, invoke: async (command: s
   if (command === "git.command") return { output: current.git(args.arguments), exitCode: 0 };
   if (command === "git.diff") return { patch: current.git(["diff", "--unified=3", "--", "file.txt"]), exitCode: 0 };
   if (command === "git_diff_file") {
-    const diff = parseRawDiffContent(current.git(["diff", ...(args.worktreeSnapshot ? ["HEAD"] : args.staged ? ["--cached"] : []),
+    const diff = singleFileDiff(current.git(["diff", ...(args.worktreeSnapshot ? ["HEAD"] : args.staged ? ["--cached"] : []),
       "--unified=9999", "--", "file.txt"]), "file.txt");
     const mutate = afterDisplayRead;
     afterDisplayRead = undefined;
@@ -120,7 +128,7 @@ test("Commit hook must not reattach a later faithful patch to an old display rej
     const target = { repoPath: f.root, filePath: "file.txt", untracked: false };
     const fileKey = "unstaged:file.txt";
     let data = createSingleFileWorkingTreeDiff({ repoPath: f.root, fileKey, target, commitPreview: true,
-      diff: { ...parseRawDiffContent(f.git(["diff", "HEAD", "--unified=9999", "--", "file.txt"]), "file.txt"), is_full_context: true } });
+      diff: { ...singleFileDiff(f.git(["diff", "HEAD", "--unified=9999", "--", "file.txt"]), "file.txt"), is_full_context: true } });
     const state = useBufferStore.getState();
     spies.push(spyOn(useBufferStore, "getState").mockImplementation(() => ({ ...state,
       activeBufferId: "review-buffer", buffers: [{ id: "review-buffer", type: "diff", path: "diff://review", diffData: data }],
