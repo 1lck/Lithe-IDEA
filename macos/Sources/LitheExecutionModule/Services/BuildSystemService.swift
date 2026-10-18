@@ -100,6 +100,10 @@ package final class BuildSystemService: ObservableObject {
 
     /// Bumped whenever the workspace changes, so late results are dropped.
     private var generation = 0
+    /// Bumped whenever a load changes one entry's model or dependencies.
+    /// Detection captures these numbers with its snapshot and does not
+    /// overwrite state that changed while it ran.
+    private var entryRevisions: [String: Int] = [:]
     private var detectionTask: Task<Void, Never>?
     private var redetectTask: Task<Void, Never>?
     private var runTask: Task<Void, Never>?
@@ -173,6 +177,7 @@ package final class BuildSystemService: ObservableObject {
         redetectTask?.cancel(); redetectTask = nil
         self.workspaceURL = workspaceURL?.standardizedFileURL
         entries = []
+        entryRevisions = [:]
         issues = []
         isDetecting = false
         runState = .idle
@@ -202,6 +207,7 @@ package final class BuildSystemService: ObservableObject {
             uniquingKeysWith: { first, _ in first }
         )
         let previous = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        let revisions = entryRevisions
         let planner = planner
         let generation = generation
         detectionTask = Task { [weak self] in
@@ -220,7 +226,15 @@ package final class BuildSystemService: ObservableObject {
             self.isDetecting = false
             switch result {
             case .success(let detected):
-                self.entries = detected.entries
+                let current = Dictionary(uniqueKeysWithValues: self.entries.map { ($0.id, $0) })
+                self.entries = detected.entries.map { detectedEntry in
+                    guard self.entryRevisions[detectedEntry.id] != (revisions[detectedEntry.id] ?? 0),
+                          let currentEntry = current[detectedEntry.id]
+                    else { return detectedEntry }
+                    // A model or dependency load finished while detection ran;
+                    // its result is newer than detection's start snapshot.
+                    return detectedEntry.merging(current: currentEntry)
+                }
                 self.issues = detected.issues
                 self.persistDroppedOptions()
             case .failure(let error):
@@ -310,13 +324,16 @@ package final class BuildSystemService: ObservableObject {
                     $0.isReloadRequired = false
                     $0.dependencies = [:]
                 }
+                self.noteEntryChanged(entryID)
                 self.refreshOptions(buildSystemID: entry.instance.buildSystemID)
             case .failure(let error) where error is CancellationError:
                 self.update(entryID) {
                     $0.modelState = $0.model == nil ? .notLoaded : .loaded
                 }
+                self.noteEntryChanged(entryID)
             case .failure(let error):
                 self.update(entryID) { $0.modelState = .failed(error.localizedDescription) }
+                self.noteEntryChanged(entryID)
             }
         }
         modelTasks[entryID] = LoadTask(id: id, task: task)
@@ -571,6 +588,7 @@ package final class BuildSystemService: ObservableObject {
                 case .failure(let error): $0.dependencies[key] = .failed(error.localizedDescription)
                 }
             }
+            self.noteEntryChanged(entryID)
         }
         dependencyTasks[taskKey] = LoadTask(id: id, task: task)
     }
@@ -664,12 +682,14 @@ package final class BuildSystemService: ObservableObject {
         guard !resolutions.isEmpty else { return stored }
         var declared: Set<String> = []
         var multiSelect: Set<String> = []
+        var chosen: Set<String> = []
         var accepted: [String: [ToolingJSONValue]] = [:]
         for resolution in resolutions {
             for option in resolution.options {
                 declared.insert(option.id)
                 if option.kind == .multiSelect { multiSelect.insert(option.id) }
                 guard option.source == "user" else { continue }
+                chosen.insert(option.id)
                 if option.kind == .multiSelect, case .array(let items) = option.value {
                     accepted[option.id, default: []].append(contentsOf: items)
                 } else {
@@ -687,7 +707,14 @@ package final class BuildSystemService: ObservableObject {
                 for item in items where values.contains(item) && !kept.contains(item) {
                     kept.append(item)
                 }
-                if !kept.isEmpty { merged[id] = .array(kept) }
+                if !kept.isEmpty {
+                    merged[id] = .array(kept)
+                } else if chosen.contains(id) {
+                    // The user cleared every remaining choice; an empty
+                    // selection is a value, so a non-empty default must not
+                    // come back on the next detection.
+                    merged[id] = .array([])
+                }
             } else if values.contains(value) {
                 merged[id] = value
             }
@@ -889,6 +916,10 @@ package final class BuildSystemService: ObservableObject {
         change(&entries[index])
     }
 
+    private func noteEntryChanged(_ entryID: String) {
+        entryRevisions[entryID, default: 0] += 1
+    }
+
     private static let dependencyTaskSeparator = "\u{1F}"
 
     private static func entryID(ofDependencyTask key: String) -> String {
@@ -973,6 +1004,21 @@ package final class BuildSystemService: ObservableObject {
             )
         }
         return Detected(entries: entries, issues: issues)
+    }
+}
+
+extension BuildSystemEntry {
+    /// Detection only observes the snapshot it started with; keep the newer
+    /// model, option, sync, and dependency state of the current entry.
+    fileprivate func merging(current: BuildSystemEntry) -> BuildSystemEntry {
+        var merged = self
+        merged.model = current.model
+        merged.modelState = current.modelState
+        merged.options = current.options
+        merged.sync = current.sync
+        merged.isReloadRequired = current.isReloadRequired
+        merged.dependencies = current.dependencies
+        return merged
     }
 }
 

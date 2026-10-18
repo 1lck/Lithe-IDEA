@@ -583,6 +583,96 @@ struct BuildSystemServiceTests {
         #expect(await harness.waitsForLateOutput("late") == false)
     }
 
+    /// A detection that started before a model load must not replace the
+    /// loaded model with its own older snapshot.
+    @Test
+    func detectionDoesNotOverwriteAModelLoadedWhileItRan() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.modelOutput = .stdout
+        let runner = FakeBuildRunner()
+        runner.script = .init(
+            chunks: ["loading\n"],
+            result: BuildCommandResult(termination: .exited(0), standardOutput: "MODEL")
+        )
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        let gate = GatedBuildDecode()
+        planner.detectGate = gate
+        harness.service.detect()
+        #expect(await gate.entered.waitUntilOpen())
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+        let loaded = try #require(harness.service.entry(Self.instanceID)?.model)
+
+        gate.releaseDecode()
+        #expect(await gate.finished.waitUntilOpen())
+        #expect(await harness.waitForDetectionToFinish())
+        #expect(harness.service.entry(Self.instanceID)?.modelState == .loaded)
+        #expect(harness.service.entry(Self.instanceID)?.model == loaded)
+    }
+
+    /// Detection must keep a dependency load that finished while it ran.
+    @Test
+    func detectionDoesNotOverwriteDependenciesLoadedWhileItRan() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
+        let runner = FakeBuildRunner()
+        runner.script = .init(
+            chunks: [],
+            result: BuildCommandResult(termination: .exited(0), standardOutput: "DEPS")
+        )
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        let gate = GatedBuildDecode()
+        planner.detectGate = gate
+        harness.service.detect()
+        #expect(await gate.entered.waitUntilOpen())
+
+        harness.service.loadDependencies(Self.instanceID, project: nil)
+        #expect(await harness.waitForEntries { entry in
+            guard case .loaded = entry.first?.dependencies["app"] else { return false }
+            return true
+        })
+
+        gate.releaseDecode()
+        #expect(await gate.finished.waitUntilOpen())
+        #expect(await harness.waitForDetectionToFinish())
+        guard case .loaded = harness.service.entry(Self.instanceID)?.dependencies["app"] else {
+            Issue.record("A dependency load that finished during detection was overwritten")
+            return
+        }
+    }
+
+    /// Clearing every choice of a multi-select is a value; a non-empty
+    /// default must not come back after the next detection.
+    @Test
+    func explicitlyClearedMultiSelectKeepsItsEmptyValue() async throws {
+        let planner = FakeBuildPlanner()
+        planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [
+            try Self.nestedInstance(id: "fixture:a", root: "a", features: ["cli"])
+        ])
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.optionsStore.values["fixture"] = ["features": .array([])]
+
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+        #expect(harness.optionsStore.values["fixture"]?["features"] == .array([]))
+
+        harness.service.runTask("fixture:a", request: BuildTaskRequest(task: "build"), title: "Build")
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        #expect(planner.taskPlanContexts.last?.options["features"] == .array([]))
+    }
+
     // MARK: Fixtures
 
     private static let instanceID = "fixture:app"
@@ -714,6 +804,10 @@ private final class Harness {
         return await gate.waitUntilOpen(timeout: .milliseconds(500))
     }
 
+    func waitForDetectionToFinish() async -> Bool {
+        await wait(for: service.$isDetecting) { !$0 }
+    }
+
     func waitForOutput(_ predicate: @escaping (String) -> Bool) async -> Bool {
         await wait(for: service.$output, predicate)
     }
@@ -832,6 +926,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var diagnostics: [BuildDiagnostic] = []
         var diagnosticsGate: GatedBuildDecode?
         var testResultsGate: GatedBuildDecode?
+        var detectGate: GatedBuildDecode?
         var decodedTestResults: BuildTestResults?
         var testPlanDeclaresResults = false
         var optionsResolution: BuildOptionsResolution?
@@ -877,6 +972,10 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         get { access { $0.modelOptionValues } }
         set { access { $0.modelOptionValues = newValue } }
     }
+    var detectGate: GatedBuildDecode? {
+        get { access { $0.detectGate } }
+        set { access { $0.detectGate = newValue } }
+    }
     var diagnosticsGate: GatedBuildDecode? {
         get { access { $0.diagnosticsGate } }
         set { access { $0.diagnosticsGate = newValue } }
@@ -905,7 +1004,14 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
         options: [String: [String: ToolingJSONValue]]
-    ) throws -> BuildDetection { detection }
+    ) throws -> BuildDetection {
+        if let gate = access({ let gate = $0.detectGate; $0.detectGate = nil; return gate }) {
+            gate.entered.open()
+            guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
+            gate.finished.open()
+        }
+        return detection
+    }
 
     func invocationPlan(_ target: BuildSystemTarget, root: String) throws -> BuildInvocation {
         BuildInvocation(executables: [.command("fake")])
