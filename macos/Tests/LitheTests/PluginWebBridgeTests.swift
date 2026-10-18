@@ -187,7 +187,9 @@ struct PluginWebBridgeTests {
         let harness = try BridgeHarness(model: model)
         defer { harness.cleanUp() }
         let selected = try #require(model.targets.first { $0.tags.contains(kind) })
+        let project = try #require(model.projects.first { $0.id == selected.projectID })
         var params = BridgeHarness.runParameters(method)
+        params["project"] = .object(["name": .string(project.name), "path": .string(project.path)])
         params["target"] = .object([
             "name": .string("demo"), "path": .string("app"),
             "tags": .array(selected.tags.reversed().map(ToolingJSONValue.string)),
@@ -196,6 +198,8 @@ struct PluginWebBridgeTests {
 
         _ = try await harness.ok(method, params)
         let requestTarget = method == "build.runTask" ? harness.build.tasks.first?.target : harness.build.tests.first?.target
+        let requestProject = method == "build.runTask" ? harness.build.tasks.first?.project : harness.build.tests.first?.project
+        #expect(requestProject == BuildSelection(project: project))
         #expect(requestTarget == BuildSelection(target: selected))
         #expect(requestTarget?.properties == ["source": kind])
         #expect(requestTarget?.execution == nil)
@@ -226,14 +230,18 @@ struct PluginWebBridgeTests {
         let instance = try #require(detection.instances.first)
         let model = try #require(instance.model)
         let example = try #require(model.targets.first { $0.name == "demo" && $0.tags == ["example"] })
+        let project = try #require(model.projects.first { $0.id == example.projectID })
         #expect(model.targets.contains { $0.name == "demo" && $0.path == example.path && $0.tags == ["application"] })
         let declaration = try #require(source.buildSystems.first)
         harness.build.entries = [BuildSystemEntry(
             instance: instance, declaration: declaration, source: source, model: model, modelState: .loaded
         )]
 
+        // Core's target scope requires the owning project, just as the native
+        // target controls submit it; tags then distinguish the two demo targets.
         _ = try await harness.ok("build.runTask", [
             "instance": .string(instance.id), "task": .string("example"),
+            "project": .object(["name": .string(project.name), "path": .string(project.path)]),
             "target": .object(["name": .string("demo"), "path": .string(example.path), "tags": .array([.string("example")])])
         ])
         let request = try #require(harness.build.tasks.first)
@@ -241,8 +249,10 @@ struct PluginWebBridgeTests {
             BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID),
             context: BuildPlanContext(root: instance.root, options: [:]), request: request
         )
+        #expect(request.project == BuildSelection(project: project))
         #expect(request.target == BuildSelection(target: example))
         #expect(plan.arguments == ["run", "--example", "demo"])
+        #expect(plan.workingDirectory == instance.root)
         #expect(plan.execution == .application)
     }
 
