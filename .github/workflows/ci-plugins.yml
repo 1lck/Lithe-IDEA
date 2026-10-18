@@ -28,7 +28,6 @@ jobs:
       actions: write
     outputs:
       plugins: ${{ steps.classify.outputs.plugins }}
-      macos_runners: ${{ steps.runners.outputs.runners }}
       run_plugins: ${{ steps.reuse.outputs.run_plugins }}
       reuse: ${{ steps.reuse.outputs.reuse }}
 
@@ -102,14 +101,6 @@ jobs:
         shell: bash
         run: node scripts/plan-ci-lane-reuse.mjs
 
-      - name: Choose macOS runner
-        id: runners
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          LITHE_MACOS_LANES: ${{ steps.reuse.outputs.run_plugins == 'true' && 'plugins' || '' }}
-        shell: bash
-        run: node scripts/select-macos-ci-runners.mjs
-
       - name: Summarize selected lanes
         shell: bash
         env:
@@ -131,20 +122,12 @@ jobs:
     name: Plugin tests and package verification
     needs: changes
     if: needs.changes.outputs.run_plugins == 'true'
-    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runners).plugins }}
+    runs-on: macos-26
     timeout-minutes: 55
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
-        with:
-          # Self-hosted runners keep their build outputs between jobs; the
-          # runner preparation step removes every other untracked file.
-          clean: ${{ runner.environment != 'self-hosted' }}
-
-      - name: Prepare shared Mac mini runner
-        if: runner.environment == 'self-hosted'
-        uses: ./.github/actions/prepare-macos-ci-runner
 
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain

@@ -8,7 +8,7 @@ CI 缓存的是经过版本和依赖约束的中间构建结果，不缓存最�
 PR 先通过编译和测试获得快速反馈；macOS 仅在包敏感改动时生成测试包，
 Windows PR 不再生成安装包。Windows 安装包由 preview 和稳定版发布工作流
 负责，避免发布产物阻塞日常代码验证。组织使用 GitHub Free 计划，全组织同时
-最多运行 5 个 GitHub 托管 macOS job，另有自建 Mac mini 的三个槽位。每次推送占用的 macOS runner 数量本身就是
+最多运行 5 个 GitHub 托管 macOS job。每次推送占用的 macOS runner 数量本身就是
 需要控制的成本：同一份 Swift 测试编译只做一次，PR 只打 arm64 包，Draft PR
 不占 macOS/Windows runner。
 
@@ -27,21 +27,11 @@ macOS CI 与发布工作流统一使用 Xcode 26.6，编译器
 某台开发机升级了 Xcode 27 而改变，否则仍在 macOS 15 上工作的开发者会被迫
 升级开发环境。
 
-日常 CI 的 Swift 测试、Rust Core 测试、应用打包验证和插件测试可以运行在
-带有 `lithe-mac-mini` 标签的自托管执行器上，包括 fork 提交到本仓库的 PR。
-同一台 M4/16 GB Mac mini 注册三个独立 runner，各自占用独立工作目录，
-提供三个任务槽位；三并发已由维护者实测。发布流程（正式版、AutoBuild、
-官方插件发布）需要签名证书和发布密钥，始终保留 GitHub 托管执行器。
-
-GitHub 在创建 job 时固定 `runs-on`，job 排队后不能改投另一个池，
-`runs-on` 数组也只能表示“同时具备所有标签”。因此每个 CI 工作流的 Linux
-分类 job 运行 `scripts/select-macos-ci-runners.mjs`：用只读的
-`actions: read` 权限列出本仓库正在运行和排队的 job，按标签统计两边占用，
-再为本次选中的 lane 依次分配池。PR 优先占用空闲的 Mac mini（同样的任务
-更快），Mac mini 满了再用空闲的托管槽位；两边都满时进入相对容量更短的
-队列。push 到 `preview` 和手动运行只用 Mac mini，即使它忙也排队等待，
-避免合并后的复验占用 PR 正在等待的托管槽位。API 读取失败或没有令牌时
-退回固定分配（Rust Core、打包在 Mac mini，Swift、插件在托管池），不阻塞 CI。
+日常 CI 的 Swift 测试、Rust Core 测试、应用打包验证和插件测试都运行在 GitHub 托管的
+`macos-26` 上，包括 fork 提交到本仓库的 PR；发布流程（正式版、AutoBuild、官方插件
+发布）需要签名证书和发布密钥，同样使用托管 Runner。2026-10-16 至 10-18 曾试用自建
+Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的机器上而撤销，经过见
+[已否决的 Note](../../rejected/process/2026-10-18-self-hosted-mac-mini-ci-runners.md)。
 
 同一个 PR 的后续 push 按 lane 复用之前的结果。观察到的问题是：作者补一个很小的
 提交，或者为了同步 `preview` 更新分支，所有 lane 都会重新完整运行，而结果大概率
@@ -81,76 +71,10 @@ GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR �
 代价是 Windows 的 GitHub 缓存只由 PR 刷新，`Cargo.lock` 变化后的几个 PR 会从
 较旧的前缀命中开始编译。
 
-自托管 runner 同时装有带更新 macOS SDK 的 Command Line Tools。首次在 Mac mini 上
-构建 universal 包时，链接 x86_64 时解析到了 `CommandLineTools/SDKs/MacOSX27.0.sdk`，
-Xcode 26.6 的链接器无法读取其中的 `libSystem.B.tbd`。`setup-macos-toolchain` 因此在
-自托管 runner 上把 `SDKROOT` 固定为所选 Xcode 自带的 SDK，并拒绝解析到 Xcode
-之外的 SDK。
-
-Swift 测试 lane 和其他 lane 一样可以分到 Mac mini。首轮在 Mac mini 上运行时，
-`DesktopIsolationTests` 因 WindowServer 两秒内没有登记原生窗口而失败。逐项排查后
-确认原因是 macOS 27：在 Mac mini（macOS 27.0.1）上 `CGWindowListCopyWindowInfo`
-整体返回 NULL，连 `.optionAll` 也一样；同一段代码在 macOS 26.3.1 上没有录屏权限
-也能返回窗口。排查中给三个 runner 自带的 `externals/node<N>/bin/node`（macOS 把
-测试进程归属到它）授予了录屏权限，并关闭了远程软件断开时的锁屏，两项都确认
-生效（`kTCCServiceScreenCapture` 为允许，`IOConsoleLocked = No`），但都不改变
-结果。这个接口自 macOS 15 起被弃用，产品代码没有使用它。
-
-处理方式是只拆出无法执行的那一项检查，而不是整体跳过或固定托管池：原测试拆成
-两条，可见性和像素绘制始终运行；读取 WindowServer 透明度的那条用
-`.enabled(if:)` 在窗口列表不可用时跳过，测试报告里写明原因（#1278）。为了不让
-隔离逻辑的改动失去这项检查，分类脚本在 `macos/Tests/LitheTestDesktopIsolation*`
-变化时输出 `swift_hosted`，选择器通过 `LITHE_HOSTED_ONLY_LANES` 把这次运行的
-Swift lane 留在托管的 macOS 26 runner 上。被否方案：Swift lane 一律固定托管池
-（托管池满时它是 PR 最慢的一环，10/16 排队 16 分钟）；在 Mac mini 上整体跳过这条
-测试（会连同仍然可验证的排列和绘制一起丢掉）。苹果提供可读取透明度的替代接口
-后，恢复在 macOS 27 上的完整检查。同一轮还暴露出编辑器字体
-目录把声明了等宽但拉丁字符不等宽的字体（兰亭黑 `Lantinghei TC`）列为等宽，
-那是产品缺陷，单独修复。
-
-这个选择是一次性的近似判断：只统计本仓库的 job，看不到组织内其他仓库对
-托管池的占用；多个 PR 同时进入分类时也可能看到同一个空槽位。它解决的是
-“一边排队、另一边空闲”的常见情况，而不是精确调度。被否方案：用管理员
-令牌查询 runner 在线状态（fork PR 拿不到密钥，PR 工作流也不应持有管理
-权限）；排队超时后取消重投（浪费已排队时间，实现复杂）。
-
-三个 runner 共用物理资源，不等于三台机器。自建任务通过
-`prepare-macos-ci-runner` 安装 Node 24，检查系统工具并记录整机资源快照；
-设置 `CARGO_BUILD_JOBS=2` 与 `LITHE_SWIFT_BUILD_JOBS=2`，SwiftPM 入口统一
-加载 `scripts/macos-swift-build-options.sh`，本地和官方任务未设置变量时保持原并发。
-这限制编译器调度，不限制所有测试子进程，也不放宽原有测试期限。
-自建 Xcode 由管理员预先选择，CI 只校验固定版本并设置 job 内的
-`DEVELOPER_DIR`，不让三个任务并发修改机器级 Xcode 选择。
-
-正确做法：三个 runner 都带同一标签、分别使用自己的 checkout、构建输出和
-临时目录。不要这样做：把 `.build`、`rust/target` 或整个 `.artifacts` 链接为
-跨 runner 的共享目录来省磁盘，这会把并发 PR 的可变状态混在一起。
-
-每个 runner 在自己的工作目录内保留增量编译结果。自托管 job 的
-`actions/checkout` 使用 `clean: false`，随后 `prepare-macos-ci-runner` 调用
-`scripts/reuse-macos-runner-build-state.sh`：`git clean -ffdx` 删除所有未跟踪
-文件（否则上一个 PR 留下的 Swift 源文件会被 SwiftPM 的目录扫描编进去），只排除
-`.build`、`rust/target` 和四个依赖下载目录。Xcode、Swift 或 CPU 架构变化时
-丢弃编译输出；编译状态超过 40 GB 或磁盘剩余不足 25 GB 时也整体丢弃重建。
-首轮观察到，三个 runner 随机接任务时，打包（release 编译）和插件测试
-（debug 测试编译）经常轮流落到同一台机器，保留的状态几乎用不上。因此 runner
-再按编译配置分组：两台带 `lithe-mac-mini-debug`（Swift、插件、Rust Core 测试共用
-debug 测试编译和 debug Rust Core），一台带 `lithe-mac-mini-release`（打包）。
-选择器优先把 lane 分到自己的组，该组满了先借另一组的空闲 runner，再溢出到
-托管池；只带共享标签的旧 job 可能占用任意一台，所以整池容量仍然约束总数。
-同一时刻一个 runner 只跑一个 job，状态不跨 runner、不跨 worktree，因此不违反
-“可变构建状态不得共享”的规则；它只是让同一个工作目录不再每次从零编译。
-自托管 job 跳过 GitHub cache 的恢复与保存：本地目录已经保留了这些内容，
-而 Mac mini 的系统版本与托管 runner 不同，它保存的 Cargo 编译缓存键托管
-runner 永远不会命中。保留下来的依赖目录仍经过
-`validate-macos-dependency-caches.sh` 的同一套校验，不合格就清空回退。
-
-保留 `pull_request` 事件、只读仓库权限及原有审批策略，不改为
-`pull_request_target`，不向 fork 提供发布密钥。保留构建状态意味着 fork PR
-的编译输出会留在 runner 上被后续 job 增量使用；`.build` 与 `rust/target`
-只包含编译产物，后续 job 重新编译改动的源码，但这不是对恶意代码的隔离边界。
-如果需要接受不受信任的 fork 代码，应改为每个 job 前清空构建状态，或为 fork
-保留托管池。
+`DesktopIsolationTests` 里读取 WindowServer 透明度的那条检查，在系统窗口列表不可用时
+用 `.enabled(if:)` 按原因跳过，可见性和像素绘制检查始终运行（#1278）。这条拆分来自
+macOS 27 上 `CGWindowListCopyWindowInfo` 整体返回 NULL 的排查，产品代码并不使用这个
+已弃用的接口；苹果提供可读取透明度的替代接口后，应恢复完整检查。
 
 Swift 测试 job 同时承担 Rust Core 的 Swift 链接验证：
 `scripts/verify-rust-core-swift-bridge.sh --skip-build` 复用该 job 已编译的
@@ -384,12 +308,6 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - 构建工作流调整时必须同步检查缓存键、包架构、gate 依赖和 artifact 保留期。
 
 ## 验证
-
-- `node --test scripts/macos-swift-build-options.test.mjs`：覆盖默认并发、有效预算及无效输入。
-- `node --test scripts/select-macos-ci-runners.test.mjs`：覆盖空闲优先、满载溢出、push 只用
-  Mac mini、跳过当前 run 以及 API 失败时的固定分配。
-- `node --test scripts/reuse-macos-runner-build-state.test.mjs`：覆盖保留编译输出、清除其他
-  未跟踪文件、工具链变化丢弃编译输出及参数校验。
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-database.yml .github/workflows/ci-plugins.yml`
 - `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane 的用例。

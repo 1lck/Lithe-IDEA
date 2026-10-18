@@ -87,7 +87,6 @@ classification() {
     local git_validation="${11:-false}"
     local java_jdt="${12:-false}"
     local ci_scope="${13:-pull_request}"
-    local swift_hosted="${14:-false}"
 
     printf 'swift=%s\n' "$swift"
     printf 'plugins=%s\n' "$plugins"
@@ -101,7 +100,6 @@ classification() {
     printf 'rust_comments=%s\n' "$rust_comments"
     printf 'metadata=%s\n' "$metadata"
     printf 'git_validation=%s\n' "$git_validation"
-    printf 'swift_hosted=%s\n' "$swift_hosted"
     printf 'ci_scope=%s\n' "$ci_scope"
 }
 
@@ -196,14 +194,6 @@ modify_swift_and_database() {
     modify_swift_source
     modify_database_swift
 }
-modify_desktop_isolation_test() {
-    mkdir -p macos/Tests/LitheTestDesktopIsolationTests
-    printf '%s\n' 'struct DesktopIsolationTests {}' > macos/Tests/LitheTestDesktopIsolationTests/DesktopIsolationTests.swift
-}
-modify_desktop_isolation_runtime() {
-    mkdir -p macos/Tests/LitheTestDesktopIsolation
-    printf '%s\n' 'struct Isolation {}' > macos/Tests/LitheTestDesktopIsolation/Isolation.swift
-}
 rename_rust_to_markdown() {
     mkdir -p docs
     git mv rust/lithe-core/src/lib.rs docs/lib.md
@@ -215,8 +205,6 @@ rename_swift_source() {
 rename_swift_into_database_module() {
     git mv macos/Sources/Lithe/App.swift macos/Sources/LitheDatabaseModule/App.swift
 }
-modify_runner_selection() { printf '%s\n' 'export {};' > scripts/select-macos-ci-runners.mjs; }
-modify_runner_build_state() { printf '%s\n' '#!/bin/zsh' > scripts/reuse-macos-runner-build-state.sh; }
 modify_rust_bridge_verifier() { printf '%s\n' '#!/bin/zsh' > scripts/verify-rust-core-swift-bridge.sh; }
 
 assert_classification readme \
@@ -344,19 +332,6 @@ modify_macos_toolchain_action() {
     mkdir -p .github/actions/setup-macos-toolchain
     printf '%s\n' 'name: Toolchain fixture' > .github/actions/setup-macos-toolchain/action.yml
 }
-modify_shared_macos_runner_action() {
-    mkdir -p .github/actions/prepare-macos-ci-runner
-    printf '%s\n' 'name: Runner fixture' > .github/actions/prepare-macos-ci-runner/action.yml
-}
-modify_swift_build_budget() {
-    printf '%s\n' '#!/bin/zsh' > scripts/macos-swift-build-options.sh
-}
-assert_classification shared-macos-runner-action \
-    "$(classification true true true true false true false false false false true)" \
-    modify_shared_macos_runner_action
-assert_classification swift-build-budget \
-    "$(classification true true true true false true false false false false true)" \
-    modify_swift_build_budget
 assert_classification swift-version \
     "$(classification true true true true false true false false false false true)" \
     modify_swift_version
@@ -383,15 +358,6 @@ LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-keeps-linux-lanes \
     modify_rust_comment
 # A rename classifies both endpoints instead of selecting every lane: the old
 # Rust source still selects Rust Core, packaging, and Windows Rust.
-assert_classification desktop-isolation-test-runs-on-hosted \
-    "$(classification true false false false false false false false false false false false pull_request true)" \
-    modify_desktop_isolation_test
-assert_classification desktop-isolation-runtime-runs-on-hosted \
-    "$(classification true false false false false false false false false false false false pull_request true)" \
-    modify_desktop_isolation_runtime
-assert_classification ordinary-swift-test-may-use-mac-mini \
-    "$(classification true false false false false false false false false false)" \
-    modify_swift_test
 modify_swift_and_rust() {
     modify_swift_source
     modify_rust_code
@@ -435,12 +401,6 @@ assert_classification rename-swift-source \
 assert_classification rename-swift-across-modules \
     "$(classification true false true false false true false false false false)" \
     rename_swift_into_database_module
-assert_classification runner-selection \
-    "$(classification true true true true false true false false false false true)" \
-    modify_runner_selection
-assert_classification runner-build-state \
-    "$(classification true true true true false true false false false false true)" \
-    modify_runner_build_state
 assert_classification rust-bridge-verifier \
     "$(classification false false false true false true false false false false)" \
     modify_rust_bridge_verifier
