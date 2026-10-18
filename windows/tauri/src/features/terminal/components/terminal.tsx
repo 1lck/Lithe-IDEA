@@ -109,6 +109,14 @@ export const XtermTerminal = ({
   const connectionId = session?.connectionId;
   const hadExistingConnectionOnMountRef = useRef(Boolean(session?.connectionId));
 
+  // Path insertion quotes per shell family, so every entry point must agree on
+  // which shell owns this session. The prop is authoritative once initialization
+  // has stored it; reading the session covers a remount that lost the prop.
+  const resolveShell = useCallback(
+    () => shell || getSession(sessionId)?.shell,
+    [getSession, sessionId, shell],
+  );
+
   const terminalThemeId = useSettingsStore((state) => state.settings.theme);
   const terminalFontFamily = useSettingsStore((state) => state.settings.terminalFontFamily);
   const terminalFontSize = useSettingsStore((state) => state.settings.terminalFontSize);
@@ -183,14 +191,14 @@ export const XtermTerminal = ({
 
   const insertDroppedPaths = useCallback(
     (paths: string[]) => {
-      const text = formatDroppedPathsForTerminal(paths, getSession(sessionId)?.shell);
+      const text = formatDroppedPathsForTerminal(paths, resolveShell());
       if (!text) return false;
 
       writeBuffered(text);
       requestAnimationFrame(() => xtermRef.current?.focus());
       return true;
     },
-    [getSession, sessionId, writeBuffered],
+    [resolveShell, writeBuffered],
   );
 
   const handleTerminalFileDrop = useCallback(
@@ -218,7 +226,7 @@ export const XtermTerminal = ({
       const detail = (event as CustomEvent<TerminalPathInsertDetail>).detail;
       const paths = clipboardEntryPaths((detail?.paths ?? []).map((path) => ({ path })));
       const text = formatPathsForTerminal(paths, {
-        shell: getSession(sessionId)?.shell,
+        shell: resolveShell(),
         trailingSpace: true,
       });
       if (!text) return;
@@ -233,7 +241,7 @@ export const XtermTerminal = ({
       container.removeEventListener(TERMINAL_FILE_DROP_EVENT, handleNativeFileDrop);
       container.removeEventListener(TERMINAL_PATH_INSERT_EVENT, handlePathInsert);
     };
-  }, [getSession, insertDroppedPaths, sessionId, writeBuffered]);
+  }, [insertDroppedPaths, resolveShell, writeBuffered]);
 
   const handleTerminalDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!Array.from(event.dataTransfer.types).includes("Files")) return;
@@ -267,11 +275,11 @@ export const XtermTerminal = ({
     (terminal: Terminal) => {
       if (!currentConnectionIdRef.current) return;
 
-      void readTerminalPasteText(getSession(sessionId)?.shell)
+      void readTerminalPasteText(resolveShell())
         .then((text) => pasteIntoTerminal(terminal, text))
         .catch((error) => console.error("Failed to paste into terminal:", error));
     },
-    [currentConnectionIdRef, getSession, pasteIntoTerminal, sessionId],
+    [currentConnectionIdRef, pasteIntoTerminal, resolveShell],
   );
 
   const initializeTerminal = useCallback(async () => {
@@ -450,6 +458,13 @@ export const XtermTerminal = ({
           connectionId: activeConnectionId,
           currentDirectory: targetDirectory,
           remoteConnectionId: activeRemoteConnectionId,
+          // Persist the shell that actually launched: the path-insert entry points
+          // quote differently per shell, and a remounted or reopened session has
+          // no prop to fall back on.
+          shell:
+            shell ||
+            existingSession?.shell ||
+            (wslInfo ? getWslShellId(wslInfo.distro) : undefined),
         });
       }
 
@@ -942,7 +957,7 @@ export const XtermTerminal = ({
             <ContextMenuItem
               aria-label={t("terminal.pasteCopiedFilePaths")}
               onClick={() => {
-                void readCopiedFilePathsText(getSession(sessionId)?.shell)
+                void readCopiedFilePathsText(resolveShell())
                   .then((text) => {
                     if (text) writeBuffered(text);
                     requestAnimationFrame(() => xtermRef.current?.focus());

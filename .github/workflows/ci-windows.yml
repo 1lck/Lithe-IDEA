@@ -516,7 +516,7 @@ jobs:
 
       - name: Test explorer file paths inserted into the terminal
         shell: pwsh
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/file-explorer/lib/clipboard-entry-paths.test.ts,src/features/terminal/utils/terminal-file-drop.test.ts,src/features/file-system/utils/file-system-drop-controller.test.ts
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/file-explorer/lib/clipboard-entry-paths.test.ts,src/features/terminal/utils/terminal-file-drop.test.ts,src/features/file-system/utils/file-system-drop-controller.test.ts,src/features/terminal/stores/terminal-session-shell.test.ts
 
       - name: Test quick-open file search, number input steppers and editor settings route
         shell: pwsh
