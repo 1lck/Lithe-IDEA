@@ -96,6 +96,12 @@ export function getWslDisplayPath(path: string): string {
  * Windows form at all: it treats the backslashes as ordinary characters in a
  * relative filename. A path already written in Linux form needs no translation.
  *
+ * Known limit: the `/mnt` root is the default, not a fact. A distribution whose
+ * `/etc/wsl.conf` sets a different `[automount] root` expects another prefix, and
+ * resolving that needs the distribution's own `wslpath`. Nothing in the frontend
+ * can query it, so this translation assumes the default and the feature matrix
+ * records the gap.
+ *
  * Returns null when the path cannot be translated reliably — a UNC share is not
  * mounted at a predictable location — so callers can keep the original instead of
  * inserting a path that silently points nowhere.

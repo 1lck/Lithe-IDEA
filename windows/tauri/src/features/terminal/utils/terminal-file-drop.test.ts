@@ -133,9 +133,45 @@ describe("formatPathsForTerminal", () => {
   });
 });
 
-// Regression: PowerShell treats the typographic single quotes U+2018, U+2019,
-// U+201A and U+201B as string delimiters too. Verified by executing an injection
-// inside the quoted path and observing its side effect — a file named
+// Nushell's single-quoted strings have no escape for `'`, so the raw string form
+// (backtick) is used instead: it keeps quotes, `$` and Windows backslashes
+// literal. A backtick in the name cannot appear in a raw string, so the fallback
+// only keeps a form that still round-trips.
+describe("Nushell quoting", () => {
+  test("uses the raw string form so backslashes and $() stay literal", () => {
+    expect(formatPathsForTerminal(["C:\\work\\a.txt"], { shell: "nu" })).toBe(
+      "`C:\\work\\a.txt`",
+    );
+    expect(formatPathsForTerminal(["C:\\work\\report$(whoami).txt"], { shell: "nu" })).toBe(
+      "`C:\\work\\report$(whoami).txt`",
+    );
+  });
+
+  // Regression: doubling `'` does not round-trip in Nushell, so the raw string must
+  // carry the apostrophe unchanged.
+  test("keeps an apostrophe literal instead of doubling it", () => {
+    expect(formatPathsForTerminal(["C:\\work\\it's.txt"], { shell: "nu" })).toBe(
+      "`C:\\work\\it's.txt`",
+    );
+  });
+
+  test("falls back to single quotes when the name contains a backtick", () => {
+    expect(formatPathsForTerminal(["C:\\work\\a`b.txt"], { shell: "nu" })).toBe(
+      "'C:\\work\\a`b.txt'",
+    );
+  });
+
+  // With both characters present no Nushell form keeps the path literal; the raw
+  // path is emitted rather than an escape Nushell would read differently.
+  test("leaves a name with both a backtick and a quote as written", () => {
+    const path = "C:\\work\\a`it's.txt";
+    expect(formatPathsForTerminal([path], { shell: "nu" })).toBe(path);
+  });
+});
+
+// PowerShell treats the typographic single quotes U+2018, U+2019, U+201A and
+// U+201B as string delimiters too. Verified by executing an injection inside the
+// quoted path and observing its side effect — a file named
 // `report’;whoami;#.txt` ended the literal and ran the injected statement.
 // Escaping only ASCII `'` therefore left a command-injection hole open.
 describe("typographic single quotes that PowerShell treats as delimiters", () => {

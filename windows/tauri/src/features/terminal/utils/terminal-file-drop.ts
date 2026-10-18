@@ -40,6 +40,15 @@ export function terminalShellFamily(shell?: string | null): TerminalShellFamily 
 }
 
 /**
+ * Characters PowerShell accepts as a single-quote delimiter. Verified against
+ * PowerShell 5.1 by executing an injection inside the quoted path and checking
+ * for the side effect: ASCII `'` and the four typographic quotes below all end
+ * the string, so every one of them must be doubled. `'` alone is not enough —
+ * a file named `report’;whoami;#.txt` escaped the literal and ran `whoami`.
+ */
+const POWERSHELL_SINGLE_QUOTES = /['\u2018\u2019\u201A\u201B]/g;
+
+/**
  * Quote one path for the target shell.
  *
  * Single quotes are used wherever the shell has them, because both PowerShell
@@ -53,23 +62,22 @@ export function terminalShellFamily(shell?: string | null): TerminalShellFamily 
  * environment variable. Windows forbids `"` in file names, so no escaping is
  * needed inside the quotes.
  */
-/**
- * Characters PowerShell accepts as a single-quote delimiter. Verified against
- * PowerShell 5.1 by executing an injection inside the quoted path and checking
- * for the side effect: ASCII `'` and the four typographic quotes below all end
- * the string, so every one of them must be doubled. `'` alone is not enough —
- * a file named `report’;whoami;#.txt` escaped the literal and ran `whoami`.
- */
-const POWERSHELL_SINGLE_QUOTES = /['\u2018\u2019\u201A\u201B]/g;
-
 function quotePathForShell(path: string, family: TerminalShellFamily): string {
   if (family === "powershell") {
     // Doubling is PowerShell's escape inside a single-quoted string and keeps the
-    // literal value intact for every character above.
+    // literal value intact for every delimiter character above.
     return `'${path.replace(POWERSHELL_SINGLE_QUOTES, (quote) => quote + quote)}'`;
   }
   if (family === "nushell") {
-    return `'${path.replace(/'/g, "''")}'`;
+    // A single-quoted Nushell string has no escape for `'`, so doubling would not
+    // round-trip. Its raw string keeps quotes, `$` and backslashes literal, which
+    // covers every shape a Windows path can contain.
+    if (!path.includes("`")) return `\`${path}\``;
+    // A backtick cannot appear in a raw string. Single quotes still work when the
+    // name has no quote of its own; with both present no Nushell form keeps the
+    // path literal, so the raw path is left as written instead of emitting an
+    // escape Nushell would read differently.
+    return path.includes("'") ? path : `'${path}'`;
   }
   if (family === "posix") {
     // Close the quote, escape the apostrophe outside it, then reopen.
