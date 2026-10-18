@@ -368,24 +368,50 @@ const fetchRawWorktreePatch = async (
 /**
  * Verifies that a raw writePatch and a display diff describe the same
  * worktree snapshot. The display read strips CR; the raw read preserves it.
- * Comparing the stripped changed lines catches any edit that landed between
- * the two reads — mixing snapshots would let a rollback discard content the
- * user never saw.
+ * Comparing the structured entries — change type, line number, and stripped
+ * text — catches edits that land between the two reads, including changes
+ * that relocate to different lines with identical text. Mixing snapshots
+ * would let a rollback discard content the user never saw.
  */
 const writePatchMatchesDisplay = (rawPatch: string, display: GitDiff): boolean => {
-  const rawChanged: string[] = [];
+  // Parse the raw patch into structured entries with line numbers.
+  const rawEntries: Array<{ type: string; line: number | null; text: string }> = [];
+  let oldLine = 0;
+  let newLine = 0;
+  let inHunk = false;
   for (const line of rawPatch.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) {
-      rawChanged.push(line.slice(1).replace(/\r$/, ""));
-    } else if (line.startsWith("-") && !line.startsWith("---")) {
-      rawChanged.push(line.slice(1).replace(/\r$/, ""));
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      const match = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+      if (match) {
+        oldLine = parseInt(match[1], 10);
+        newLine = parseInt(match[3], 10);
+      }
+      continue;
     }
+    if (!inHunk || line === "" || line.startsWith("\\")) continue;
+    const prefix = line[0];
+    const text = line.slice(1).replace(/\r$/, "");
+    if (prefix === "-") {
+      rawEntries.push({ type: "removed", line: oldLine, text });
+    } else if (prefix === "+") {
+      rawEntries.push({ type: "added", line: newLine, text });
+    }
+    if (prefix === " " || prefix === "-") oldLine++;
+    if (prefix === " " || prefix === "+") newLine++;
   }
-  const displayChanged = display.lines
-    .filter(line => line.line_type === "added" || line.line_type === "removed")
-    .map(line => line.content.replace(/\r$/, ""));
-  return rawChanged.length === displayChanged.length
-    && rawChanged.every((line, index) => line === displayChanged[index]);
+  const displayEntries = display.lines
+    .filter(l => l.line_type === "added" || l.line_type === "removed")
+    .map(l => ({
+      type: l.line_type,
+      line: l.line_type === "removed" ? l.old_line_number : l.new_line_number,
+      text: l.content.replace(/\r$/, ""),
+    }));
+  return rawEntries.length === displayEntries.length
+    && rawEntries.every((entry, index) => {
+      const other = displayEntries[index];
+      return entry.type === other.type && entry.line === other.line && entry.text === other.text;
+    });
 };
 
 export const getUntrackedFileDiff = async (
