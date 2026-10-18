@@ -121,7 +121,7 @@ jobs:
     needs:
       - changes
       - rust-database-tests
-    if: always()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
 
     steps:

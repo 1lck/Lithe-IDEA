@@ -735,7 +735,7 @@ jobs:
       - frontend
       - rust-tests
       - real-jdt
-    if: always()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
 
     steps:

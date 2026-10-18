@@ -1,0 +1,70 @@
+{
+  "format": "litheDependencies",
+  "version": 1,
+  "dependencies": [
+    {
+      "name": "compileClasspath",
+      "properties": {
+        "kind": "configuration"
+      },
+      "children": [
+        {
+          "name": "core",
+          "properties": {
+            "kind": "project",
+            "path": ":core"
+          },
+          "children": []
+        }
+      ]
+    },
+    {
+      "name": "runtimeClasspath",
+      "properties": {
+        "kind": "configuration"
+      },
+      "children": [
+        {
+          "name": "core",
+          "properties": {
+            "kind": "project",
+            "path": ":core"
+          },
+          "children": []
+        }
+      ]
+    },
+    {
+      "name": "testCompileClasspath",
+      "properties": {
+        "kind": "configuration"
+      },
+      "children": [
+        {
+          "name": "core",
+          "properties": {
+            "kind": "project",
+            "path": ":core"
+          },
+          "children": []
+        }
+      ]
+    },
+    {
+      "name": "testRuntimeClasspath",
+      "properties": {
+        "kind": "configuration"
+      },
+      "children": [
+        {
+          "name": "core",
+          "properties": {
+            "kind": "project",
+            "path": ":core"
+          },
+          "children": []
+        }
+      ]
+    }
+  ]
+}

@@ -48,7 +48,7 @@ pub struct MavenTestResultsRequest {
     pub reports: Option<MavenTestReportsRequest>,
 }
 
-const MAVEN_CONTEXT_VERSION: u32 = 1;
+pub(crate) const MAVEN_CONTEXT_VERSION: u32 = 1;
 const MAX_MAVEN_TEST_OUTPUT_CHARACTERS: usize = 500_000;
 const MAX_MAVEN_TEST_FAILURES: usize = 10_000;
 const MAX_MAVEN_TEST_SOURCE_SEARCH_DIRECTORIES: usize = 10_000;

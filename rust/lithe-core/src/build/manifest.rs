@@ -15,7 +15,7 @@ use super::template::{self, Allowed, Availability, BuildArgument, Variable};
 use crate::plugins::declarative::{
     invalid, is_bare_command, is_identifier, is_safe_relative_path, is_setting_identifier,
     sorted_unique, template as template_error, validate_minimum_version, PluginRejection,
-    ServerProcess, ServerRole, Validation, KNOWN_RUNTIME_TOOLS_V2,
+    ServerProcess, ServerRole, UIIcon, Validation, KNOWN_RUNTIME_TOOLS_V2,
 };
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -40,6 +40,8 @@ const MAX_IDENTIFIER: usize = 64;
 const MAX_PRIORITY: u8 = 100;
 const DEFAULT_PRIORITY: u8 = 50;
 const DEFAULT_SEPARATOR: &str = ",";
+/// Deepest heading path a task can be filed under, e.g. `Plugins › compiler`.
+pub(crate) const MAX_CATEGORY_DEPTH: usize = 4;
 
 /// One project-level build tool a plugin describes.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,6 +49,9 @@ const DEFAULT_SEPARATOR: &str = ",";
 pub(crate) struct BuildSystemDeclaration {
     pub(crate) id: String,
     pub(crate) display_name: String,
+    /// Icon of the build system's tool window; display only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) icon: Option<UIIcon>,
     pub(crate) detection: Detection,
     pub(crate) invocation: Invocation,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,6 +77,9 @@ pub(crate) struct BuildSystemDeclaration {
     pub(crate) sync: Option<SyncDeclaration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) layout: Option<LayoutDeclaration>,
+    /// How the Java language server imports this build system's projects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) language_import: Option<LanguageImportDeclaration>,
 }
 
 /// A server process that answers `lithe/build/*` requests over the LSP base
@@ -326,6 +334,25 @@ pub(crate) struct OptionDeclaration {
     pub(crate) arguments: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) environment: BTreeMap<String, String>,
+    /// Where the host offers the option; display only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) presentation: Option<OptionPresentation>,
+    /// Icon of a `toolbar` toggle; display only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) icon: Option<UIIcon>,
+}
+
+/// Where a host offers an option besides its option list. Neither placement
+/// changes how the option is resolved or emitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum OptionPresentation {
+    /// A toggle button in the tool window's toolbar; boolean options with an
+    /// icon only (offline mode, skipping tests).
+    Toolbar,
+    /// A checklist node at the top of the tool window's tree; multiSelect
+    /// options only (Maven profiles).
+    Tree,
 }
 
 impl OptionDeclaration {
@@ -633,6 +660,11 @@ pub(crate) struct TaskDeclaration {
     pub(crate) requires_user_arguments: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) description: Option<String>,
+    /// Headings the host files the task under in its project, outermost
+    /// first (`["Lifecycle"]`); also the default of the model tasks this
+    /// template runs. Display only; empty files the task by `group`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) category: Vec<String>,
     pub(crate) arguments: Vec<BuildArgument>,
 }
 
@@ -848,6 +880,50 @@ pub(crate) struct LayoutDeclaration {
     pub(crate) excluded: Vec<String>,
 }
 
+/// The project import a language server performs for this build system, and
+/// which of the plugin's options carry the import settings.
+///
+/// The Java language server imports Maven and Gradle projects itself. Its
+/// import has to use the profiles, settings, and caches the user chose for
+/// the build tool, or the editor resolves other dependencies than the build.
+/// A plugin names the import it matches and maps each import setting to one
+/// of its own options; Core turns the user's values into the language
+/// server's settings, so the host passes them on without knowing the plugin.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct LanguageImportDeclaration {
+    pub(crate) kind: LanguageImportKind,
+    /// Import setting -> option ID. Settings without an option keep the
+    /// language server's default.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) options: BTreeMap<String, String>,
+}
+
+/// Project imports Lithe's Java language server knows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum LanguageImportKind {
+    Maven,
+    Gradle,
+}
+
+impl LanguageImportKind {
+    /// The import settings of this kind and the option kind each needs.
+    pub(crate) fn settings(self) -> &'static [(&'static str, OptionKind)] {
+        match self {
+            Self::Maven => &[
+                ("profiles", OptionKind::MultiSelect),
+                ("settingsFile", OptionKind::File),
+                ("localRepository", OptionKind::Directory),
+            ],
+            Self::Gradle => &[
+                ("offline", OptionKind::Boolean),
+                ("gradleUserHome", OptionKind::Directory),
+            ],
+        }
+    }
+}
+
 impl BuildSystemDeclaration {
     pub(crate) fn option(&self, id: &str) -> Option<&OptionDeclaration> {
         self.options.iter().find(|option| option.id == id)
@@ -1052,6 +1128,22 @@ fn check_text(value: &str, field: &str, what: &str) -> Validation<()> {
     Ok(())
 }
 
+/// Trimmed headings of a task category, or `None` when the path is too deep
+/// or a heading is empty, too long, or not printable.
+pub(crate) fn category_labels(labels: &[String]) -> Option<Vec<String>> {
+    if labels.len() > MAX_CATEGORY_DEPTH {
+        return None;
+    }
+    labels
+        .iter()
+        .map(|label| {
+            let label = label.trim();
+            (!label.is_empty() && label.len() <= MAX_TEXT && !label.chars().any(char::is_control))
+                .then(|| label.to_string())
+        })
+        .collect()
+}
+
 fn check_paths(values: &mut Vec<String>, field: &str, glob: bool) -> Validation<()> {
     if values.len() > MAX_LIST {
         return Err(invalid(field, "The list is too long."));
@@ -1143,6 +1235,9 @@ impl BuildSystemDeclaration {
             &format!("{field}.displayName"),
             "display name",
         )?;
+        if let Some(icon) = &self.icon {
+            icon.validate_at(&format!("{field}.icon"))?;
+        }
         self.validate_integration(field, context.official)?;
         self.validate_provider(field, context)?;
         self.validate_detection(field)?;
@@ -1164,7 +1259,41 @@ impl BuildSystemDeclaration {
                 false,
             )?;
         }
+        self.validate_language_import(field)?;
         self.validate_option_emission(field)
+    }
+
+    fn validate_language_import(&self, field: &str) -> Validation<()> {
+        let Some(import) = &self.language_import else {
+            return Ok(());
+        };
+        let settings = import.kind.settings();
+        for (setting, option_id) in &import.options {
+            let field = format!("{field}.languageImport.options.{setting}");
+            let Some((_, kind)) = settings.iter().find(|(name, _)| name == setting) else {
+                let known: Vec<&str> = settings.iter().map(|(name, _)| *name).collect();
+                return Err(invalid(
+                    field,
+                    format!("This import has the settings {}.", known.join(", ")),
+                ));
+            };
+            match self.option(option_id) {
+                Some(option) if option.kind == *kind => {}
+                Some(_) => {
+                    return Err(invalid(
+                        field,
+                        format!("The option {option_id} has the wrong kind for this setting."),
+                    ))
+                }
+                None => {
+                    return Err(invalid(
+                        field,
+                        format!("The build system declares no option {option_id}."),
+                    ))
+                }
+            }
+        }
+        Ok(())
     }
 
     fn validate_integration(&self, field: &str, official: bool) -> Validation<()> {
@@ -1439,6 +1568,14 @@ impl BuildSystemDeclaration {
                         "The description is too long.",
                     ));
                 }
+            }
+            if !task.category.is_empty() && category_labels(&task.category).is_none() {
+                return Err(invalid(
+                    format!("{field}.category"),
+                    format!(
+                        "A category is 1-{MAX_CATEGORY_DEPTH} headings of 1-{MAX_TEXT} printable characters."
+                    ),
+                ));
             }
             let allowed = if task.from_model {
                 if !task.scopes.is_empty() || !task.target_tags.is_empty() {
@@ -2011,6 +2148,7 @@ impl OptionDeclaration {
                 check_text(title, &format!("{field}.choices[{index}].title"), "title")?;
             }
         }
+        self.validate_presentation(field)?;
         self.validate_default(field)?;
         if self.arguments.is_empty() && self.environment.is_empty() {
             return Err(invalid(
@@ -2051,6 +2189,31 @@ impl OptionDeclaration {
             ));
         }
         Ok(())
+    }
+
+    fn validate_presentation(&self, field: &str) -> Validation<()> {
+        if let Some(icon) = &self.icon {
+            icon.validate_at(&format!("{field}.icon"))?;
+        }
+        match self.presentation {
+            Some(OptionPresentation::Toolbar)
+                if self.kind != OptionKind::Boolean || self.icon.is_none() =>
+            {
+                Err(invalid(
+                    format!("{field}.presentation"),
+                    "A toolbar option is a boolean option with an icon.",
+                ))
+            }
+            Some(OptionPresentation::Tree) if self.kind != OptionKind::MultiSelect => Err(invalid(
+                format!("{field}.presentation"),
+                "A tree option is a multiSelect option.",
+            )),
+            None if self.icon.is_some() => Err(invalid(
+                format!("{field}.icon"),
+                "Only toolbar options have an icon.",
+            )),
+            _ => Ok(()),
+        }
     }
 
     fn validate_default(&self, field: &str) -> Validation<()> {
