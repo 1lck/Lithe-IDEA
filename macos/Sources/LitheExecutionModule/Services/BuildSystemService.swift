@@ -102,8 +102,11 @@ package final class BuildSystemService: ObservableObject {
     private var generation = 0
     /// Bumped whenever a load changes one entry's model or dependencies.
     /// Detection captures these numbers with its snapshot and does not
-    /// overwrite state that changed while it ran.
-    private var entryRevisions: [String: Int] = [:]
+    /// overwrite state that changed while it ran. Model and dependency
+    /// revisions are separate: a dependency result must not replace a model
+    /// the detection just read.
+    private var modelRevisions: [String: Int] = [:]
+    private var dependencyRevisions: [String: Int] = [:]
     private var detectionTask: Task<Void, Never>?
     private var redetectTask: Task<Void, Never>?
     private var runTask: Task<Void, Never>?
@@ -177,7 +180,8 @@ package final class BuildSystemService: ObservableObject {
         redetectTask?.cancel(); redetectTask = nil
         self.workspaceURL = workspaceURL?.standardizedFileURL
         entries = []
-        entryRevisions = [:]
+        modelRevisions = [:]
+        dependencyRevisions = [:]
         issues = []
         isDetecting = false
         runState = .idle
@@ -207,7 +211,8 @@ package final class BuildSystemService: ObservableObject {
             uniquingKeysWith: { first, _ in first }
         )
         let previous = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
-        let revisions = entryRevisions
+        let modelRevisions = modelRevisions
+        let dependencyRevisions = dependencyRevisions
         let planner = planner
         let generation = generation
         detectionTask = Task { [weak self] in
@@ -228,12 +233,27 @@ package final class BuildSystemService: ObservableObject {
             case .success(let detected):
                 let current = Dictionary(uniqueKeysWithValues: self.entries.map { ($0.id, $0) })
                 self.entries = detected.entries.map { detectedEntry in
-                    guard self.entryRevisions[detectedEntry.id] != (revisions[detectedEntry.id] ?? 0),
-                          let currentEntry = current[detectedEntry.id]
-                    else { return detectedEntry }
-                    // A model or dependency load finished while detection ran;
-                    // its result is newer than detection's start snapshot.
-                    return detectedEntry.merging(current: currentEntry)
+                    guard let currentEntry = current[detectedEntry.id] else { return detectedEntry }
+                    let modelChanged = (self.modelRevisions[detectedEntry.id] ?? 0)
+                        != (modelRevisions[detectedEntry.id] ?? 0)
+                    let dependenciesChanged = (self.dependencyRevisions[detectedEntry.id] ?? 0)
+                        != (dependencyRevisions[detectedEntry.id] ?? 0)
+                    var merged = detectedEntry
+                    if modelChanged {
+                        // A model load finished while detection ran; its model
+                        // and everything derived from it are newer.
+                        merged.model = currentEntry.model
+                        merged.modelState = currentEntry.modelState
+                        merged.options = currentEntry.options
+                        merged.sync = currentEntry.sync
+                        merged.isReloadRequired = currentEntry.isReloadRequired
+                        merged.dependencies = currentEntry.dependencies
+                    } else if dependenciesChanged {
+                        // Only the dependency tree changed; keep the model
+                        // detection just read.
+                        merged.dependencies = currentEntry.dependencies
+                    }
+                    return merged
                 }
                 self.issues = detected.issues
                 self.persistDroppedOptions()
@@ -324,16 +344,16 @@ package final class BuildSystemService: ObservableObject {
                     $0.isReloadRequired = false
                     $0.dependencies = [:]
                 }
-                self.noteEntryChanged(entryID)
+                self.noteModelChanged(entryID)
                 self.refreshOptions(buildSystemID: entry.instance.buildSystemID)
             case .failure(let error) where error is CancellationError:
                 self.update(entryID) {
                     $0.modelState = $0.model == nil ? .notLoaded : .loaded
                 }
-                self.noteEntryChanged(entryID)
+                self.noteModelChanged(entryID)
             case .failure(let error):
                 self.update(entryID) { $0.modelState = .failed(error.localizedDescription) }
-                self.noteEntryChanged(entryID)
+                self.noteModelChanged(entryID)
             }
         }
         modelTasks[entryID] = LoadTask(id: id, task: task)
@@ -588,7 +608,7 @@ package final class BuildSystemService: ObservableObject {
                 case .failure(let error): $0.dependencies[key] = .failed(error.localizedDescription)
                 }
             }
-            self.noteEntryChanged(entryID)
+            self.noteDependenciesChanged(entryID)
         }
         dependencyTasks[taskKey] = LoadTask(id: id, task: task)
     }
@@ -916,8 +936,12 @@ package final class BuildSystemService: ObservableObject {
         change(&entries[index])
     }
 
-    private func noteEntryChanged(_ entryID: String) {
-        entryRevisions[entryID, default: 0] += 1
+    private func noteModelChanged(_ entryID: String) {
+        modelRevisions[entryID, default: 0] += 1
+    }
+
+    private func noteDependenciesChanged(_ entryID: String) {
+        dependencyRevisions[entryID, default: 0] += 1
     }
 
     private static let dependencyTaskSeparator = "\u{1F}"
@@ -1004,21 +1028,6 @@ package final class BuildSystemService: ObservableObject {
             )
         }
         return Detected(entries: entries, issues: issues)
-    }
-}
-
-extension BuildSystemEntry {
-    /// Detection only observes the snapshot it started with; keep the newer
-    /// model, option, sync, and dependency state of the current entry.
-    fileprivate func merging(current: BuildSystemEntry) -> BuildSystemEntry {
-        var merged = self
-        merged.model = current.model
-        merged.modelState = current.modelState
-        merged.options = current.options
-        merged.sync = current.sync
-        merged.isReloadRequired = current.isReloadRequired
-        merged.dependencies = current.dependencies
-        return merged
     }
 }
 

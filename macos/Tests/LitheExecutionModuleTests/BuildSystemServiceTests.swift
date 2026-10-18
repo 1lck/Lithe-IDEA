@@ -616,11 +616,14 @@ struct BuildSystemServiceTests {
         #expect(harness.service.entry(Self.instanceID)?.model == loaded)
     }
 
-    /// Detection must keep a dependency load that finished while it ran.
+    /// A dependency load that finished during detection must not replace the
+    /// model detection just read.
     @Test
-    func detectionDoesNotOverwriteDependenciesLoadedWhileItRan() async throws {
+    func detectionKeepsANewModelAndADependencyLoadedWhileItRan() async throws {
         let planner = FakeBuildPlanner()
-        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "before"))
+        ])
         let runner = FakeBuildRunner()
         runner.script = .init(
             chunks: [],
@@ -629,8 +632,11 @@ struct BuildSystemServiceTests {
         let harness = Harness(planner: planner, runner: runner)
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
-        #expect(await harness.waitForEntries { !$0.isEmpty })
+        #expect(await harness.waitForEntries { $0.first?.model?.projects.first?.name == "before" })
 
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "after"))
+        ])
         let gate = GatedBuildDecode()
         planner.detectGate = gate
         harness.service.detect()
@@ -645,10 +651,33 @@ struct BuildSystemServiceTests {
         gate.releaseDecode()
         #expect(await gate.finished.waitUntilOpen())
         #expect(await harness.waitForDetectionToFinish())
-        guard case .loaded = harness.service.entry(Self.instanceID)?.dependencies["app"] else {
+        let entry = try #require(harness.service.entry(Self.instanceID))
+        #expect(entry.model?.projects.first?.name == "after")
+        guard case .loaded = entry.dependencies["app"] else {
             Issue.record("A dependency load that finished during detection was overwritten")
             return
         }
+    }
+
+    /// A normal re-detection with no concurrent load must publish the model it
+    /// just read.
+    @Test
+    func redetectionPublishesANewStaticModel() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "before"))
+        ])
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.model?.projects.first?.name == "before" })
+
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "after"))
+        ])
+        harness.service.detect()
+        #expect(await harness.waitForDetectionToFinish())
+        #expect(harness.service.entry(Self.instanceID)?.model?.projects.first?.name == "after")
     }
 
     /// Clearing every choice of a multi-select is a value; a non-empty
@@ -687,6 +716,10 @@ struct BuildSystemServiceTests {
 
     private static func instance(modelSource: String, model: String? = nil) throws -> BuildSystemInstance {
         try decode(BuildSystemInstance.self, instanceJSON(modelSource: modelSource, model: model))
+    }
+
+    private static func model(name: String) -> String {
+        #"{"projects": [{"id": "p", "path": ".", "name": "\#(name)"}]}"#
     }
 
     private static func nestedInstance(

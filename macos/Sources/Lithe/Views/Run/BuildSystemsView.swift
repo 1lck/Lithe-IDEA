@@ -699,6 +699,8 @@ private struct BuildOptionRow: View {
     let indent: CGFloat
     let onChange: (ToolingJSONValue?) -> Void
     @State private var text = ""
+    @State private var customValue = ""
+    @State private var isEnteringCustomValue = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -736,38 +738,82 @@ private struct BuildOptionRow: View {
             .controlSize(.mini)
         case .singleSelect?:
             let current = Self.text(option.value)
-            LitheMenu {
-                for choice in option.choices {
-                    LitheContextMenuItem.action(
-                        choice.title ?? choice.value,
-                        localizesTitle: false,
-                        checked: choice.value == current,
-                        leadingCheckmark: true,
-                        initiallySelected: choice.value == current
-                    ) { onChange(.string(choice.value)) }
+            if isEnteringCustomValue {
+                customValueField { value in
+                    onChange(.string(value))
+                    isEnteringCustomValue = false
                 }
-            } label: {
-                menuLabel(current.isEmpty ? String(localized: "None") : current)
+            } else {
+                LitheMenu {
+                    for choice in option.choices {
+                        LitheContextMenuItem.action(
+                            choice.title ?? choice.value,
+                            localizesTitle: false,
+                            checked: choice.value == current,
+                            leadingCheckmark: true,
+                            initiallySelected: choice.value == current
+                        ) { onChange(.string(choice.value)) }
+                    }
+                    if option.allowCustom {
+                        if !option.choices.isEmpty { LitheContextMenuItem.separator }
+                        LitheContextMenuItem.action("Custom Value…") {
+                            customValue = current
+                            isEnteringCustomValue = true
+                        }
+                    }
+                } label: {
+                    menuLabel(current.isEmpty ? String(localized: "None") : current)
+                }
+                .litheToolbarIconButton(isIconOnly: false)
+                .fixedSize()
+                .accessibilityLabel(Text(verbatim: option.displayName))
             }
-            .litheToolbarIconButton(isIconOnly: false)
-            .fixedSize()
-            .accessibilityLabel(Text(verbatim: option.displayName))
         case .multiSelect?:
-            LitheMenu {
-                for choice in option.choices {
-                    LitheContextMenuItem.action(
-                        choice.title ?? choice.value,
-                        localizesTitle: false,
-                        checked: selected.contains(choice.value),
-                        leadingCheckmark: true
-                    ) { onChange(.array(toggled(choice.value).map(ToolingJSONValue.string))) }
+            if isEnteringCustomValue {
+                customValueField { value in
+                    let values = selected.contains(value) ? selected : selected + [value]
+                    onChange(.array(values.map(ToolingJSONValue.string)))
+                    isEnteringCustomValue = false
                 }
-            } label: {
-                menuLabel(selected.isEmpty ? String(localized: "None") : selected.joined(separator: ", "))
+            } else {
+                LitheMenu {
+                    for choice in option.choices {
+                        LitheContextMenuItem.action(
+                            choice.title ?? choice.value,
+                            localizesTitle: false,
+                            checked: selected.contains(choice.value),
+                            leadingCheckmark: true
+                        ) { onChange(.array(toggled(choice.value).map(ToolingJSONValue.string))) }
+                    }
+                    let custom = selected.filter { value in
+                        !option.choices.contains { $0.value == value }
+                    }
+                    if !custom.isEmpty {
+                        if !option.choices.isEmpty { LitheContextMenuItem.separator }
+                        for value in custom {
+                            LitheContextMenuItem.action(
+                                value, localizesTitle: false, checked: true, leadingCheckmark: true
+                            ) {
+                                onChange(.array(
+                                    selected.filter { $0 != value }.map(ToolingJSONValue.string)
+                                ))
+                            }
+                        }
+                    }
+                    if option.allowCustom {
+                        LitheContextMenuItem.separator
+                        LitheContextMenuItem.action("Add Custom Value…") {
+                            customValue = ""
+                            isEnteringCustomValue = true
+                        }
+                    }
+                } label: {
+                    menuLabel(selected.isEmpty ? String(localized: "None") : selected.joined(separator: ", "))
+                }
+                .litheToolbarIconButton(isIconOnly: false)
+                .fixedSize()
+                .accessibilityLabel(Text(verbatim: option.displayName))
             }
-            .litheToolbarIconButton(isIconOnly: false)
-            .fixedSize()
-            .accessibilityLabel(Text(verbatim: option.displayName))
         case .text?, .file?, .directory?:
             TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
@@ -776,6 +822,29 @@ private struct BuildOptionRow: View {
                 .onSubmit { onChange(text.isEmpty ? nil : .string(text)) }
         case nil:
             EmptyView()
+        }
+    }
+
+    /// Custom values a plugin allows but Core cannot list as choices.
+    private func customValueField(onSubmit: @escaping (String) -> Void) -> some View {
+        HStack(spacing: 4) {
+            TextField("", text: $customValue)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(maxWidth: 150)
+                .onSubmit {
+                    let value = customValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if value.isEmpty {
+                        isEnteringCustomValue = false
+                    } else {
+                        onSubmit(value)
+                    }
+                }
+            Button { isEnteringCustomValue = false } label: {
+                Image(systemName: "xmark")
+            }
+            .litheIconButton()
+            .help("Cancel")
         }
     }
 
