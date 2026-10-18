@@ -242,11 +242,12 @@ struct LanguageTestsView: View {
 
     private func presentedItems(for providerID: String) -> [LanguageTestItem] {
         Self.presentedItems(discovered: service.itemsByProviderID[providerID] ?? [],
-            outcomes: service.results?.testCases ?? service.testOutcomes, providerID: providerID)
+            results: service.results, resultProviderID: service.activePlan?.providerID, providerID: providerID)
     }
 
     /// Selection and rendering consume the same nodes, including report-only results.
-    static func presentedItems(discovered: [LanguageTestItem], outcomes: [MavenTestCaseOutcome], providerID: String) -> [LanguageTestItem] {
+    static func presentedItems(discovered: [LanguageTestItem], results: MavenTestResults?, resultProviderID: String?, providerID: String) -> [LanguageTestItem] {
+        guard resultProviderID == providerID, let outcomes = results?.testCases else { return discovered }
         let statuses = resultStatuses(outcomes)
         let reported = discovered.filter { $0.kind == .testCase && statuses[resultKey($0)] != nil }
         if !reported.isEmpty { return reported }
@@ -290,8 +291,9 @@ struct LanguageTestsView: View {
     private func testItemRow(_ item: LanguageTestItem, hasChildren: Bool, usesResultTree: Bool) -> some View {
         let isCollapsed = collapsedTestIDs.contains(item.id)
         let selected = selectedItemID == item.id
-        let status = resultStatuses[Self.resultKey(item)]
-        let duration = testDurations[Self.resultKey(item)]
+        let ownsResults = service.activePlan?.providerID == item.providerID
+        let status = ownsResults ? resultStatuses[Self.resultKey(item)] : nil
+        let duration = ownsResults ? testDurations[Self.resultKey(item)] : nil
         return HStack(spacing: LitheTheme.Tree.iconTextGap) {
             if hasChildren {
                 Button {
@@ -516,7 +518,7 @@ struct LanguageTestsView: View {
     }
 
     private func updateResultsAndDurations() {
-        let outcomes = service.results?.testCases ?? service.testOutcomes
+        let outcomes = service.results?.testCases ?? []
         resultStatuses = Self.resultStatuses(outcomes)
         testDurations = Self.parseDurations(from: service.output, outcomes: outcomes)
     }

@@ -170,19 +170,45 @@ struct LanguageTestPresentationTests {
         let discovered = [LanguageTestItem(id: "file", providerID: "java", label: "Tests.java",
             kind: .file, fileURL: source, testIdentifier: nil, depth: 0)]
         let outcomes = [MavenTestCaseOutcome(className: "demo.Tests", method: "passes()", status: "passed")]
-        let rows = LanguageTestsView.presentedItems(discovered: discovered, outcomes: outcomes, providerID: "java")
+        let results = MavenTestResults(testsRun: 1, failures: 0, errors: 0, skipped: 0, passed: 1,
+            success: true, failureDetails: [], testCases: outcomes)
+        let rows = LanguageTestsView.presentedItems(discovered: discovered, results: results, resultProviderID: "java", providerID: "java")
         #expect(rows.count == 2)
         for row in rows {
             let selected = try #require(LanguageTestsView.presentedItems(discovered: discovered,
-                outcomes: outcomes, providerID: "java").first { $0.id == row.id })
+                results: results, resultProviderID: "java", providerID: "java").first { $0.id == row.id })
             #expect(selected.kind == .testCase)
             #expect(selected.testIdentifier == (row.depth == 1 ? "demo.Tests" : "demo.Tests#passes"))
             #expect(selected.fileURL == nil, "A report does not establish semantic source ownership for Debug")
         }
-        #expect(LanguageTestsView.presentedItems(discovered: discovered, outcomes: [], providerID: "java") == discovered)
+        #expect(LanguageTestsView.presentedItems(discovered: discovered, results: nil, resultProviderID: "java", providerID: "java") == discovered)
         let semantic = LanguageTestItem(id: "jdt-method", providerID: "java", label: "passes()",
             kind: .testCase, fileURL: source, testIdentifier: "demo.Tests#passes()", depth: 2)
-        #expect(LanguageTestsView.presentedItems(discovered: [semantic], outcomes: outcomes, providerID: "java") == [semantic])
+        #expect(LanguageTestsView.presentedItems(discovered: [semantic], results: results, resultProviderID: "java", providerID: "java") == [semantic])
+    }
+
+    @Test
+    func currentResultsBelongOnlyToTheirProviderAndDisappearWhenCleared() {
+        let outcomes = [MavenTestCaseOutcome(className: "demo.Tests", method: "passes", status: "passed")]
+        let results = MavenTestResults(testsRun: 1, failures: 0, errors: 0, skipped: 0, passed: 1,
+            success: true, failureDetails: [], testCases: outcomes)
+        for provider in ["java", "node", "python"] {
+            let discovered = [LanguageTestItem(id: "workspace-" + provider, providerID: provider,
+                label: provider, kind: .workspace, fileURL: nil, testIdentifier: nil, depth: 0),
+                LanguageTestItem(id: "file-" + provider, providerID: provider, label: "Unrun file",
+                    kind: .file, fileURL: URL(fileURLWithPath: "/fixture/Unrun"), testIdentifier: nil, depth: 1),
+                LanguageTestItem(id: "unrun-" + provider, providerID: provider, label: "Unrun test",
+                    kind: .testCase, fileURL: nil, testIdentifier: "demo.Unrun#check", depth: 2)]
+            let rows = LanguageTestsView.presentedItems(discovered: discovered, results: results,
+                resultProviderID: "java", providerID: provider)
+            #expect(provider == "java" ? rows.count == 2 : rows == discovered)
+            #expect(rows.allSatisfy { $0.providerID == provider })
+            // Clear retains the plan; Close clears both. Neither may reuse editor history.
+            for owner in ["java", nil] as [String?] {
+                #expect(LanguageTestsView.presentedItems(discovered: discovered, results: nil,
+                    resultProviderID: owner, providerID: provider) == discovered)
+            }
+        }
     }
 
     @Test

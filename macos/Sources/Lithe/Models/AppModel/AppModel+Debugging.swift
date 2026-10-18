@@ -79,6 +79,10 @@ extension AppModel {
     }
 
     func startOrRestartDebugging() {
+        if let target = activeTestTarget, target.name != genericDebugFeatureIfActive?.targetTitle {
+            startDebugging()
+            return
+        }
         guard let feature = genericDebugFeatureIfActive,
               feature.isSessionActive else {
             startDebugging()

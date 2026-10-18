@@ -1532,4 +1532,4 @@ JDT Run marker 的测试元数据，不根据文件名包含 Test 推断。深�
 
 ### 2026-10-17 软换行覆盖按钮光标
 
-软换行按钮覆盖在 WebKit 编辑器上，共享图标按钮样式只处理绘制，不覆盖下层编辑器的 I 形光标。仅在 `EditorSoftWrapToggle` 的完整按钮命中区使用已有 `onContinuousHover` 模式持续设置默认箭头；离开后由目标控件恢复光标，不 push/pop，不改全局按钮规则、编辑区输入光标、换行点击行为或禁用状态。完整应用悬停检查待验收。
+软换行按钮已改为 WebKit 文档内的标准 HTML 按钮，与 Monaco 正文使用同一套光标系统；旧的 `EditorSoftWrapToggle` 原生覆盖层及手动光标回调已删除，不再使用 `onContinuousHover` 强制设置箭头。按钮尺寸和绘制参数仍来自共享图标按钮样式，悬停使用小手，正文与空白编辑区保留 I 形光标。可见性、禁用和点击继续通过现有 configure 与同源消息处理。原因和真实 WebKit 验证见[Monaco 可行性与原生桥接 Note](../architecture/2026-09-15-macos-monaco-feasibility-probe.md)的软换行按钮决策；独立组件测试不代替完整应用悬停验收。
