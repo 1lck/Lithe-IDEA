@@ -602,8 +602,10 @@ changes a plan.
   than four headings or has an empty heading falls back to the template's, so
   a tool that reports a bad heading still has its task filed.
 
-The macOS host still lists every build system in the shared Build window and
-ignores these fields; per-system windows are being added.
+The macOS host gives each detected build system its own tool window and uses
+these presentation fields. The host-drawn windows share Build Output, docking,
+layout restoration, activation, and lifecycle with other workbench contributions.
+Windows has not integrated build-system windows yet.
 
 ### Templates
 
@@ -920,8 +922,9 @@ their output appears in the host's Build output window.
 
 Bridge errors are `plugin.web.unknownMethod`, `plugin.web.invalidRequest`,
 and `plugin.web.forbidden`. Build requests also report the `build.*` codes.
-No host implements web content yet. macOS sends `ui: [1]`, so Core refuses a
-`ui` 2 plugin there with `plugin.api.unsupported` until its web-view host ships.
+macOS implements web content with WKWebView and advertises `ui: [1, 2]`.
+Windows has no WebView2 host yet and still advertises `ui: [1]`, so Core refuses
+`ui` 2 plugins there with `plugin.api.unsupported`.
 
 ### Future public extension direction (not implemented in API level 2)
 

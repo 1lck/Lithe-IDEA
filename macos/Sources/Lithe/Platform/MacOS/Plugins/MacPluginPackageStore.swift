@@ -349,7 +349,8 @@ final class MacPluginPackageStore {
         deferActivationUntilRestart: Bool = false,
         replaceExisting: Bool = false,
         origin: PluginInstallationOrigin = .marketplace,
-        marketplace: PluginMarketplaceProvenance? = nil
+        marketplace: PluginMarketplaceProvenance? = nil,
+        beforeReplacingPackage: (PluginID) -> Void = { _ in }
     ) throws -> InstalledPluginPackage {
         let sourceDescriptor = try loadPackage(at: sourceURL)
         guard !Self.retiredPluginIDs.contains(sourceDescriptor.id) else {
@@ -400,6 +401,9 @@ final class MacPluginPackageStore {
         let backupURL = destinationExists
             ? stagingRoot.appendingPathComponent("backup-\(UUID().uuidString)", isDirectory: true)
             : nil
+        // Validation failures leave live pages alone. Once mutation begins,
+        // close every page before any installed bytes can be moved or replaced.
+        beforeReplacingPackage(manifest.id)
         if let backupURL {
             try fileManager.moveItem(at: destination, to: backupURL)
         }
@@ -454,7 +458,8 @@ final class MacPluginPackageStore {
     @discardableResult
     func rollback(
         _ pluginID: PluginID,
-        deferActivationUntilRestart: Bool = false
+        deferActivationUntilRestart: Bool = false,
+        beforeReplacingPackage: (PluginID) -> Void = { _ in }
     ) throws -> InstalledPluginPackage {
         try validatePathComponent(pluginID.rawValue)
         let pluginDirectory = rootURL.appendingPathComponent(pluginID.rawValue, isDirectory: true)
@@ -487,6 +492,7 @@ final class MacPluginPackageStore {
             marketplace: record.previousMarketplace,
             previousMarketplace: record.marketplace
         )
+        beforeReplacingPackage(pluginID)
         try write(restored, to: pluginDirectory.appendingPathComponent("installation.json"))
         return InstalledPluginPackage(
             descriptor: descriptor,
@@ -617,6 +623,7 @@ final class MacPluginPackageStore {
         }
         try validateLaunchResources(descriptor, at: packageURL)
         _ = try MacPluginUIIconLoader.load(descriptor, at: packageURL)
+        try MacPluginWebContent.validateEntries(descriptor, at: packageURL)
     }
 
     /// A community package has no publisher signature, so its integrity is

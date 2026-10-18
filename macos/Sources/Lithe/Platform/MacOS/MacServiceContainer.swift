@@ -76,8 +76,10 @@ final class MacServiceContainer {
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         platformUI providedPlatformUI: (any PlatformUI)? = nil,
         aiConfigurationSources providedAIConfigurationSources: [any AIConfigurationSource]? = nil,
-        gitPerformanceLogger: (any GitPerformanceLogger)? = nil
+        gitPerformanceLogger: (any GitPerformanceLogger)? = nil,
+        pluginWebPageLifecycle providedPluginWebPageLifecycle: PluginWebPageLifecycle? = nil
     ) {
+        let pluginWebPageLifecycle = providedPluginWebPageLifecycle ?? .shared
         let gitExecutionJournal = GitExecutionJournal()
         let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences,
                                       gitExecutionJournal: gitExecutionJournal)
@@ -613,6 +615,15 @@ final class MacServiceContainer {
         // Keep binary formats default-denied. Future format support must be
         // registered explicitly at this composition boundary.
         let binaryFileViewerRegistry = BinaryFileViewerRegistry()
+        let pluginWebPages = PluginWebPages(
+            windows: MacPluginWebContent.windows(pluginStartup.registeredPlugins),
+            stateStore: MacPluginWebStateStore(
+                directories: MacPluginStateDirectories(fileStorage: fileStorage),
+                fileStorage: fileStorage
+            ),
+            prompt: MacPluginWebConsentPrompt.confirm
+        )
+        pluginWebPageLifecycle.register(pluginWebPages)
         let pluginManager = MacPluginManager(
             packageStore: pluginPackageStore,
             moduleRuntime: moduleRuntime,
@@ -620,7 +631,10 @@ final class MacServiceContainer {
             settings: pluginSettings,
             launchMode: moduleLaunchMode,
             startup: pluginStartup,
-            managedBuiltInPlugins: bundledLanguageManifests
+            managedBuiltInPlugins: bundledLanguageManifests,
+            invalidateWebPages: { id in pluginWebPageLifecycle.disable(id.rawValue) },
+            enableWebPages: { id in pluginWebPageLifecycle.enable(id.rawValue) },
+            beforePackageReplacement: { id in pluginWebPageLifecycle.packageWillChange(id.rawValue) }
         )
         let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
         #if DEBUG
@@ -659,6 +673,7 @@ final class MacServiceContainer {
             pluginMarketplace: pluginMarketplace,
             pluginCatalog: pluginCatalog,
             pluginUIIconResources: pluginStartup.iconResources,
+            pluginWebPages: pluginWebPages,
             languageProviderCatalogSource: languageProviderCatalogSource,
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
@@ -791,21 +806,16 @@ final class MacServiceContainer {
                     )
                 }
             }
-            let workbench = descriptor.pluginManifest.modules.filter { !$0.contributions.isEmpty }.map { declaration in
+            // The build-systems module also carries the enabled state; the
+            // execution module reads it before handing the plugin to Rust Core.
+            let workbench = descriptor.pluginManifest.modules.filter {
+                !$0.contributions.isEmpty || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
+            }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
                     DeclarativeWorkbenchModule(declaration: declaration)
                 }
             }
-            // The module only carries the enabled state; the execution
-            // module reads it before handing the plugin to Rust Core.
-            let buildSystems = descriptor.pluginManifest.modules
-                .filter { $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue) }
-                .map { declaration in
-                    ModuleFactory(manifest: declaration.manifest) {
-                        DeclarativeWorkbenchModule(declaration: declaration)
-                    }
-                }
-            return servers + executions + workbench + buildSystems
+            return servers + executions + workbench
         }
     }
 }

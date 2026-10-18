@@ -7,6 +7,26 @@ import Testing
 @MainActor
 struct MacBuildToolResolverTests {
     @Test
+    func languageImportDiscoversWrapperWithoutExecutingItOrRuntimeProbes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let marker = root.appendingPathComponent("unexpected-execution")
+        let executable = root.appendingPathComponent("wrapper")
+        try Data("#!/bin/sh\ntouch '\(marker.path)'\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let runtime = ProjectRuntimeService(runtimeLocator: BuildProbeRuntimeLocator(home: root), store: BuildProbeEmptyStore())
+        let resolver = MacBuildToolResolver(runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage())
+        let invocation = BuildInvocation(
+            executables: [.projectFile(path: "wrapper", requires: [])],
+            runtimeDependencies: [.init(id: "java", hostManaged: true, minimumVersion: "8", executables: [], versionArguments: ["-version"])],
+            versionArguments: ["--version"], minimumVersion: "1"
+        )
+        #expect(resolver.languageImportExecutable(invocation, workspaceURL: root) == executable.standardizedFileURL)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test
     func javaVersionProbeForwardsStderrToVersionCheck() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

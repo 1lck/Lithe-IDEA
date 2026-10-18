@@ -19,7 +19,11 @@ extension AppModel {
         // deferred action waiting on it would never be resumed.
         guard let access = await executionModuleCoordinator.activateAccess() else { return nil }
         access.mavenFeature.configureJavaConfigurationSync { [weak self] rootURL in
-            guard let sessions = self?.languageToolingSessionsIfActive else { return false }
+            guard let self, self.workspaceURL?.standardizedFileURL == rootURL.standardizedFileURL,
+                  let sessions = self.languageToolingSessionsIfActive else { return false }
+            // Plugin options own Java import when present; a legacy Maven
+            // settings write must not replace them, including during detection.
+            guard !self.isBuildLanguageImportPending else { return false }
             switch sessions.updateJavaMavenConfiguration(rootURL: rootURL, reloadProjects: false) {
             case .updated: return true
             case .noSession: return false

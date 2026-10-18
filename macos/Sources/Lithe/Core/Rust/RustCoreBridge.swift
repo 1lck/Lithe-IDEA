@@ -1799,6 +1799,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let cacheDirectory: String?
         let workspaceFingerprint: String?
         let mavenContext: MavenLaunchContext?
+        let javaGradle: JavaGradleImportConfiguration?
         let javaRuntimes: [LspJavaRuntimeRequest]
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
@@ -3462,6 +3463,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         cacheDirectoryURL: URL? = nil,
         workspaceFingerprint: String? = nil,
         mavenContext: MavenLaunchContext? = nil,
+        javaGradle: JavaGradleImportConfiguration? = nil,
         initializeTimeout: TimeInterval = 30,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
@@ -3489,6 +3491,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
                 workspaceFingerprint: workspaceFingerprint,
                 mavenContext: mavenContext,
+                javaGradle: javaGradle,
                 javaRuntimes: (jdtlsLaunchResources?.javaRuntimes ?? []).map {
                     LspJavaRuntimeRequest(homePath: $0.homePath, version: $0.version)
                 },
