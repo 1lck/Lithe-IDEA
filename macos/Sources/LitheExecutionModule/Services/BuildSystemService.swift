@@ -289,6 +289,9 @@ package final class BuildSystemService: ObservableObject {
     /// Several saves in a row cost one detection.
     package func workspaceFilesChanged(_ urls: [URL]) {
         guard let workspaceURL, !entries.isEmpty else { return }
+        // A load can read a subproject file before the model lists it, so any
+        // reported change invalidates a model load that is in flight.
+        fileRevision += 1
         let root = workspaceURL.path.hasSuffix("/") ? workspaceURL.path : workspaceURL.path + "/"
         let changed = Set(urls.compactMap { url -> String? in
             let path = url.standardizedFileURL.path
@@ -298,7 +301,6 @@ package final class BuildSystemService: ObservableObject {
             entry.sync?.watch.contains(where: changed.contains) == true
         }
         guard affected else { return }
-        fileRevision += 1
         redetectTask?.cancel()
         redetectTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
@@ -449,20 +451,19 @@ package final class BuildSystemService: ObservableObject {
 
     package func runTests(_ entryID: String, request: BuildTestRequest, title: String) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
-        if request.project == nil, request.projects.isEmpty, entry.model == nil {
-            // Report globs are relative to each project; without the model a
-            // subproject's reports are invisible and a failing run would
-            // decode as success.
-            let message = String(
-                localized: "Load the project model before running all tests, so subproject reports are collected."
-            )
-            runState = .failed(message)
-            appendOutput(message + "\n")
-            return
-        }
         startRun(entryID, title: title) { service, run in
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
+            if plan.results != nil, request.project == nil, request.projects.isEmpty,
+               entry.model == nil, entry.instance.modelSource != nil {
+                // Report globs are relative to each project; without the model
+                // a subproject's reports are invisible and a failing run would
+                // decode as success. A plugin without a model has no projects
+                // to discover, so its own reports stay readable.
+                throw BuildSystemServiceError(String(
+                    localized: "Load the project model before running all tests, so subproject reports are collected."
+                ))
+            }
             let started = Date()
             let collected = try await service.runStreamedCommand(
                 plan.process, entry: entry, workspaceURL: workspaceURL, owner: .run(run)
@@ -619,6 +620,7 @@ package final class BuildSystemService: ObservableObject {
         update(entryID) { $0.dependencies[key] = .loading }
         let generation = generation
         let id = UUID()
+        let optionFingerprint = optionFingerprint(entry, workspaceURL: workspaceURL)
         let task = Task { [weak self] in
             guard let self else { return }
             let result = await self.performDependencyLoad(
@@ -630,11 +632,22 @@ package final class BuildSystemService: ObservableObject {
             guard self.generation == generation, self.dependencyTasks[taskKey]?.id == id,
                   !Task.isCancelled else { return }
             self.dependencyTasks[taskKey] = nil
+            let current = self.entry(entryID) ?? entry
+            let configChanged = self.optionFingerprint(current, workspaceURL: workspaceURL)
+                != optionFingerprint
             self.update(entryID) {
-                switch result {
-                case .success(let tree): $0.dependencies[key] = .loaded(tree)
-                case .failure(let error) where error is CancellationError: $0.dependencies[key] = nil
-                case .failure(let error): $0.dependencies[key] = .failed(error.localizedDescription)
+                if configChanged {
+                    // The tree answers the old option values; showing it under
+                    // the new ones would silently mislead.
+                    $0.dependencies[key] = .failed(String(
+                        localized: "Options changed while loading dependencies. Load them again."
+                    ))
+                } else {
+                    switch result {
+                    case .success(let tree): $0.dependencies[key] = .loaded(tree)
+                    case .failure(let error) where error is CancellationError: $0.dependencies[key] = nil
+                    case .failure(let error): $0.dependencies[key] = .failed(error.localizedDescription)
+                    }
                 }
             }
             self.noteDependenciesChanged(entryID)

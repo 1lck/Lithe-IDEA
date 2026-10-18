@@ -797,6 +797,7 @@ struct BuildSystemServiceTests {
     func workspaceTestsWithoutAModelAreRefused() async throws {
         let planner = FakeBuildPlanner()
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.testPlanDeclaresResults = true
         let runner = FakeBuildRunner()
         let harness = Harness(planner: planner, runner: runner)
         defer { harness.service.stop() }
@@ -804,6 +805,10 @@ struct BuildSystemServiceTests {
         #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
 
         harness.service.runTests(Self.instanceID, request: BuildTestRequest(), title: "Tests")
+        #expect(await harness.waitForRunState { state in
+            if case .failed = state { return true }
+            return false
+        })
         guard case .failed(let message) = harness.service.runState else {
             Issue.record("Workspace tests without a model must be refused")
             return
@@ -838,24 +843,93 @@ struct BuildSystemServiceTests {
         #expect(planner.taskPlanContexts.last?.options["initScript"] == .string(""))
     }
 
+    /// A plugin without a model and without report decoding can run workspace
+    /// tests; the model is only required to discover subproject reports.
+    @Test
+    func modelLessPluginCanRunWorkspaceTests() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: nil)])
+        let runner = FakeBuildRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        harness.service.runTests(Self.instanceID, request: BuildTestRequest(), title: "Tests")
+        #expect(await harness.waitForRunState { $0 == .succeeded })
+        #expect(!runner.requests.isEmpty)
+    }
+
+    /// A model can read a subproject file before it lists that project in its
+    /// watch paths; the change must still invalidate the load.
+    @Test
+    func subprojectFileChangeDuringFirstModelLoadMarksTheModelStale() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.modelOutput = .stdout
+        let runner = ReplacedOutputRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await runner.earlyWritten.waitUntilOpen())
+        harness.service.workspaceFilesChanged([
+            Self.workspace.appendingPathComponent("app/build.gradle")
+        ])
+
+        runner.releaseLate.open()
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+        #expect(harness.service.entry(Self.instanceID)?.isReloadRequired == true)
+    }
+
+    /// A dependency tree computed from an old profile must not be shown under
+    /// the new option values.
+    @Test
+    func optionChangeDuringDependencyLoadMarksTheResultStale() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "loaded"))
+        ])
+        let runner = ReplacedOutputRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        harness.service.loadDependencies(Self.instanceID, project: nil)
+        #expect(await runner.earlyWritten.waitUntilOpen())
+        harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        #expect(await harness.waitForDetectionToFinish())
+        planner.fingerprint = "changed"
+
+        runner.releaseLate.open()
+        #expect(await harness.waitForEntries { entry in
+            guard case .failed = entry.first?.dependencies["app"] else { return false }
+            return true
+        })
+    }
+
     // MARK: Fixtures
 
     private static let instanceID = "fixture:app"
 
     private static func instanceJSON(
-        modelSource: String,
+        modelSource: String?,
         model: String? = nil,
         pluginID: String = "dev.example"
     ) -> String {
-        """
+        let source = modelSource.map { ", \"modelSource\": \"\($0)\"" } ?? ""
+        return """
         {"id": "\(instanceID)", "pluginID": "\(pluginID)", "buildSystemID": "fixture",
-         "displayName": "Fixture", "root": "app", "modelSource": "\(modelSource)",
+         "displayName": "Fixture", "root": "app"\(source),
          "optionFingerprint": "o"\(model.map { ", \"model\": \($0)" } ?? "")}
         """
     }
 
     private static func instance(
-        modelSource: String,
+        modelSource: String?,
         model: String? = nil,
         pluginID: String = "dev.example"
     ) throws -> BuildSystemInstance {
