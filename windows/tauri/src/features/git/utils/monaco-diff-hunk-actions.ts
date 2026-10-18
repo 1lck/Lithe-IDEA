@@ -56,13 +56,12 @@ export function createMonacoDiffHunkActions(
   // hunks come from display lines which lack original bytes.
   const toggleAction: "stage" | "unstage" | null = writable && !diff.has_lossy_line_endings && context
     ? context.isStaged ? "unstage" : "stage" : null;
-  // Discard also stays protected here: this surface constructs hunks from
-  // display rows, so even with writePatch on the diff the resulting hunk
-  // carries no rawPatch and the host falls back to lossy reconstruction.
-  // The commit preview surface handles the byte-faithful channel instead.
+  // Discard rides the byte-faithful channel: monacoDiffHunk slices from
+  // writePatch when available, so lossy files can discard with original
+  // bytes. Without writePatch, lossy files keep the protective fallback.
   const discardEnabled = writable && !!context && !context.isStaged && context.canDiscard === true
     && !!operations.discard && canDiscardDiff(diff)
-    && !diff.has_lossy_line_endings;
+    && (!diff.has_lossy_line_endings || Boolean(diff.writePatch));
   const actions: readonly HunkActionID[] = toggleAction
     ? discardEnabled ? [toggleAction, "discard"] : [toggleAction]
     : discardEnabled ? ["discard"] : [];

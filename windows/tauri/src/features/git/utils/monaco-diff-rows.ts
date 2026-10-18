@@ -1,6 +1,7 @@
 import type { ReviewRow } from "@lithe/editor/diff-review";
 import type { GitDiff, GitDiffLine, GitHunk } from "../types/git.types";
 import { parseDiffHunkRange } from "./git-diff-helpers";
+import { buildByteFaithfulHunk } from "./lossy-rollback-patch";
 
 /** Context kept around each change when a full-file patch is split back into
  * stageable hunks. Matches Git's default `--unified=3`. */
@@ -112,6 +113,22 @@ export function monacoDiffHunk(diff: GitDiff, hunkID: string): GitHunk | null {
   if (derived) {
     const hunk = derived.find(candidate => candidate.id === hunkID);
     if (!hunk) return null;
+    // When the diff carries a byte-faithful writePatch, slice the target
+    // hunk from the raw patch so the host receives original bytes; fall
+    // back to display lines for non-lossy diffs.
+    if (diff.writePatch) {
+      const firstChanged = diff.lines
+        .slice(hunk.start, hunk.end)
+        .find(line => line.line_type === "added" || line.line_type === "removed");
+      if (firstChanged?.new_line_number) {
+        const faithful = buildByteFaithfulHunk(
+          diff,
+          firstChanged.old_line_number ?? firstChanged.new_line_number,
+          firstChanged.new_line_number,
+        );
+        if (faithful) return faithful;
+      }
+    }
     return {
       file_path: diff.file_path,
       lines: [

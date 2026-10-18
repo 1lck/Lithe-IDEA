@@ -108,6 +108,21 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
     const revertedIndex = [...indexed.after.slice(0, start), ...before, ...indexed.after.slice(end)];
     const rollbackBase = [...visible.after.slice(0, change.rightStart), ...indexLines,
       ...visible.after.slice(change.rightEnd)];
+    // Find the precise line within this block where the unstaged change
+    // begins: the first index line that differs from its worktree counterpart.
+    // This maps HEAD display coordinates to index coordinates (P1) and
+    // handles partially staged blocks where the change starts mid-block (P2).
+    let unstagedIndexStart = -1;
+    let unstagedWorktreeStart = -1;
+    for (let i = 0; i < end - start; i++) {
+      const indexLine = indexed.after[start + i];
+      const worktreeLine = visible.after[change.rightStart + i];
+      if (indexLine !== worktreeLine) {
+        unstagedIndexStart = start + i;
+        unstagedWorktreeStart = change.rightStart + i;
+        break;
+      }
+    }
     const block: CommitDiffBlock = {
       id: commitDiffChangeID(visible.plan, change), checked, indeterminate,
       canToggle: !overlapsBoundary && !worktree.has_lossy_line_endings,
@@ -117,12 +132,12 @@ export function planCommitDiffBlocks(worktree: GitDiff, staged: GitDiff): Commit
       leftStart: change.leftStart, rightStart: change.rightStart,
       stage: gitGutterChangeHunk(worktree.file_path, indexed.after, edit(start, indexLines, after)),
       unstage: gitGutterChangeHunk(worktree.file_path, revertedIndex, edit(start, before, indexLines)),
-      // Byte-faithful rollback: the plan indices are zero-based, the raw
-      // patch slicer speaks one-based line numbers. When the faithful slice
-      // fails, rollback is disabled for this block — never fall back to a
-      // lossy patch that silently drops CR or EOF bytes.
-      rollback: worktree.writePatch
-        ? (buildByteFaithfulHunk(worktree, change.leftStart + 1, change.rightStart + 1) ?? undefined)
+      // Byte-faithful rollback targets the first line where index differs
+      // from worktree, in one-based index and worktree coordinates. When no
+      // unstaged change is found within the block or the faithful slice
+      // fails, rollback is disabled — never falls back to a lossy patch.
+      rollback: worktree.writePatch && unstagedIndexStart >= 0
+        ? (buildByteFaithfulHunk(worktree, unstagedIndexStart + 1, unstagedWorktreeStart + 1) ?? undefined)
         : (!worktree.has_lossy_line_endings
           ? gitGutterChangeHunk(worktree.file_path, rollbackBase, edit(change.rightStart, indexLines, after))
           : undefined),
