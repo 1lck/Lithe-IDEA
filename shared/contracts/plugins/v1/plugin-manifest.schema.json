@@ -21,7 +21,8 @@
       "minProperties": 1,
       "additionalProperties": false,
       "properties": {
-        "buildSystems": { "enum": [1] },
+        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support.", "enum": [1] },
+        "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1] },
         "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
         "languages": { "enum": [1] },

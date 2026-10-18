@@ -125,7 +125,7 @@
         {
           "version": "2.0.0",
           "pluginAPIVersion": 3,
-          "requires": { "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 },
+          "requires": { "buildProviders": 1, "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 },
           "releaseDate": "2026-10-12",
           "downloads": [
             {

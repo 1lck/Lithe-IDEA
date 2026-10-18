@@ -105,10 +105,19 @@ package final class BuildSystemService: ObservableObject {
     private var runTask: Task<Void, Never>?
     private var runID: UUID?
     private var runEntryID: String?
-    private var modelTasks: [String: Task<Void, Never>] = [:] {
+    /// Identity and cancellation travel together so a replaced load cannot
+    /// release its successor's slot or publish a late result.
+    private struct LoadTask {
+        let id: UUID
+        let task: Task<Void, Never>
+
+        func cancel() { task.cancel() }
+    }
+
+    private var modelTasks: [String: LoadTask] = [:] {
         didSet { refreshActivity() }
     }
-    private var dependencyTasks: [String: Task<Void, Never>] = [:] {
+    private var dependencyTasks: [String: LoadTask] = [:] {
         didSet { refreshActivity() }
     }
     private var outputByteCount = 0
@@ -264,10 +273,12 @@ package final class BuildSystemService: ObservableObject {
         modelTasks[entryID]?.cancel()
         update(entryID) { $0.modelState = .loading }
         let generation = generation
-        modelTasks[entryID] = Task { [weak self] in
+        let id = UUID()
+        let task = Task { [weak self] in
             guard let self else { return }
             let result = await self.performModelLoad(entry, workspaceURL: workspaceURL)
-            guard self.generation == generation else { return }
+            guard self.generation == generation, self.modelTasks[entryID]?.id == id,
+                  !Task.isCancelled else { return }
             self.modelTasks[entryID] = nil
             switch result {
             case .success(let loaded):
@@ -287,6 +298,7 @@ package final class BuildSystemService: ObservableObject {
                 self.update(entryID) { $0.modelState = .failed(error.localizedDescription) }
             }
         }
+        modelTasks[entryID] = LoadTask(id: id, task: task)
     }
 
     private struct LoadedModel: Sendable {
@@ -476,10 +488,12 @@ package final class BuildSystemService: ObservableObject {
         dependencyTasks[taskKey]?.cancel()
         update(entryID) { $0.dependencies[key] = .loading }
         let generation = generation
-        dependencyTasks[taskKey] = Task { [weak self] in
+        let id = UUID()
+        let task = Task { [weak self] in
             guard let self else { return }
             let result = await self.performDependencyLoad(entry, project: project, workspaceURL: workspaceURL)
-            guard self.generation == generation else { return }
+            guard self.generation == generation, self.dependencyTasks[taskKey]?.id == id,
+                  !Task.isCancelled else { return }
             self.dependencyTasks[taskKey] = nil
             self.update(entryID) {
                 switch result {
@@ -489,6 +503,7 @@ package final class BuildSystemService: ObservableObject {
                 }
             }
         }
+        dependencyTasks[taskKey] = LoadTask(id: id, task: task)
     }
 
     private func performDependencyLoad(

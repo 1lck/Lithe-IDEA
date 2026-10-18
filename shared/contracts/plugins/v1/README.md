@@ -304,7 +304,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 
 ```json
 "pluginAPIVersion": 3,
-"requires": { "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 }
+"requires": { "buildProviders": 1, "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 }
 ```
 
 | Capability | Covers | Versions |
@@ -315,7 +315,8 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` | `1` |
 | `ui` | `ui` | `1` |
-| `buildSystems` | `buildSystems[]` apart from an own provider's launch fields | `1` |
+| `buildSystems` | Declarative build detection, models, and command plans | `1` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so
@@ -332,7 +333,11 @@ moving a level 2 manifest to level 3 only adds `requires`.
 - `requires` lists exactly the capabilities the manifest uses. Leaving out a
   used one, or listing an unused one, is `plugin.manifest.invalid`. Every
   language server, and every build provider with its own process, uses
-  `serverProcess`; a shared build provider does not.
+  `serverProcess`; a shared build provider does not add another process. Any
+  `buildSystems[].provider` requires `buildProviders: 1`, whether it starts its
+  own process or shares a language server. A template-only build plugin must
+  omit `buildProviders`. Launch support alone does not implement Provider
+  negotiation, requests, and lifecycle.
 - The base fields (`schemaVersion`, `id`, `displayName`, `version`, `vendor`,
   `permissions`, `activationEvents`, and `requires` itself) change only with a
   new `pluginAPIVersion`.
@@ -354,10 +359,13 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 - `hostCapabilities` has no effect on levels 1 and 2.
 
 The macOS host runs levels 1 to 3 and sends its capability table, including
-`buildSystems: [1]`, with all three commands. It does not start build
-providers yet: a `provider` model or dependency source reports that it is
-unsupported there. Windows has no declarative plugin host and sends no
-`hostCapabilities`, so it offers no level 3 version.
+`buildSystems: [1]`, with all three commands. It does not implement build
+providers and does not declare `buildProviders`. Provider plugins are therefore
+filtered from the market and refused by declarative validation and install
+review; template-only build plugins remain available. Core supports
+`buildProviders: 1` for validation and plans without a host table. Windows has
+no declarative plugin host and sends no `hostCapabilities`, so it offers no
+level 3 version.
 
 Rules for publishing across levels and capability versions:
 

@@ -34,12 +34,15 @@ pub(crate) const EXECUTION_PROVIDERS: &str = "executionProviders";
 pub(crate) const SETTINGS: &str = "settings";
 /// `ui`: tool windows and commands.
 pub(crate) const UI: &str = "ui";
-/// `buildSystems[]` apart from an own provider's launch fields.
+/// Declarative build detection, models, and command plans.
 pub(crate) const BUILD_SYSTEMS: &str = "buildSystems";
+/// `buildSystems[].provider`, whether it owns or shares a language server process.
+pub(crate) const BUILD_PROVIDERS: &str = "buildProviders";
 
 /// Capability versions this Core build validates and plans. Version 1 of a
 /// capability keeps the meaning its section had at API level 2.
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
+    (BUILD_PROVIDERS, &[1]),
     (BUILD_SYSTEMS, &[1]),
     (EXECUTION_PROVIDERS, &[1]),
     (LANGUAGE_SERVERS, &[1]),

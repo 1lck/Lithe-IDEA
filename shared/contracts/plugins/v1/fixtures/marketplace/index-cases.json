@@ -68,10 +68,27 @@
       }
     },
     {
+      "name": "host with build systems but no build providers keeps the language-only version",
+      "sourceKind": "thirdParty",
+      "platform": "darwin-arm64",
+      "hostCapabilities": { "buildSystems": [1], "languages": [1], "languageServers": [1], "serverProcess": [1] },
+      "expected": {
+        "plugins": [
+          { "id": "io.example.elixir-tools", "availability": { "status": "available", "version": "1.0.0" } },
+          { "id": "io.example.future-tools", "availability": { "status": "unsupported", "code": "plugin.index.apiUnsupported" } },
+          { "id": "io.example.zig-support", "availability": { "status": "available", "version": "2.0.0" } }
+        ],
+        "rejected": [
+          { "id": "dev.lithe.fixture.php-support", "code": "plugin.index.officialNamespace" },
+          { "id": "io.example.zig-support", "code": "plugin.index.duplicate" }
+        ]
+      }
+    },
+    {
       "name": "a capability Core cannot validate is never offered",
       "sourceKind": "thirdParty",
       "platform": "windows-x64",
-      "hostCapabilities": { "buildSystems": [1], "debuggers": [1], "languages": [1], "languageServers": [1], "serverProcess": [1] },
+      "hostCapabilities": { "buildProviders": [1], "buildSystems": [1], "debuggers": [1], "languages": [1], "languageServers": [1], "serverProcess": [1] },
       "expected": {
         "plugins": [
           { "id": "io.example.elixir-tools", "availability": { "status": "available", "version": "2.0.0", "sha256": "9999999999999999999999999999999999999999999999999999999999999999" } },

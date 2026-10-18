@@ -696,6 +696,185 @@ fn workspace_test_results_cover_every_model_project() {
     assert_eq!(escaping["error"]["code"], "plugin.build.invalidSelection");
 }
 
+#[test]
+fn canonical_model_paths_stay_inside_the_instance_root() {
+    let workspace = TemporaryWorkspace::new("canonical-model-boundary");
+    for root in [".", "services", "services/api"] {
+        let prefix = if root == "." {
+            String::new()
+        } else {
+            format!("{root}/")
+        };
+        let absolute_inside = workspace.0.join(format!("{prefix}app/src"));
+        let absolute_outside = if root == "." {
+            workspace.0.with_extension("outside")
+        } else {
+            workspace.0.join(format!("{root}-sibling/src"))
+        };
+        let paths = [
+            ".".to_string(),
+            "app/../shared".to_string(),
+            absolute_inside.to_string_lossy().into_owned(),
+            "../outside".to_string(),
+            "..".to_string(),
+            absolute_outside.to_string_lossy().into_owned(),
+        ];
+        // An explicit valid owner must not admit a child outside this instance.
+        let entries: Vec<Value> = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                json!({
+                    "project": "app", "path": path, "name": format!("entry-{index}"),
+                    "tags": ["application"], "template": "gradle-task", "kind": "source"
+                })
+            })
+            .collect();
+        let mut document = json!({
+            "format": "litheBuildModel", "version": 1,
+            "projects": [{ "path": "app", "name": "app" }],
+            "targets": entries, "tasks": entries, "contentRoots": entries
+        });
+        // Omitted target/task paths still inherit the selected project's path.
+        for field in ["targets", "tasks"] {
+            document[field].as_array_mut().unwrap().push(json!({
+                "project": "app", "name": "inherited", "template": "gradle-task"
+            }));
+        }
+        workspace.write("model.json", &document.to_string());
+        let result = call(
+            "decodeModel",
+            fixture("gradle-build.plugin.json"),
+            "gradle",
+            json!({
+                "workspaceRoot": workspace.root(), "root": root, "outputFile": workspace.0.join("model.json")
+            }),
+        );
+        assert_eq!(result["status"], "ok", "{root}: {result}");
+        for field in ["targets", "tasks", "contentRoots"] {
+            let mut actual: Vec<&str> = result["model"][field]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|entry| entry["kind"] != "excluded")
+                .map(|entry| entry["path"].as_str().unwrap())
+                .collect();
+            let mut expected = vec![
+                root.to_string(),
+                format!("{prefix}shared"),
+                format!("{prefix}app/src"),
+            ];
+            if field != "contentRoots" {
+                expected.push(format!("{prefix}app"));
+            }
+            actual.sort_unstable();
+            expected.sort_unstable();
+            assert_eq!(actual, expected, "{root}: {field}");
+        }
+    }
+}
+
+#[test]
+fn selector_model_paths_stay_inside_the_instance_root() {
+    let workspace = TemporaryWorkspace::new("selector-model-boundary");
+    let mut manifest = fixture("gradle-build.plugin.json");
+    manifest["buildSystems"][0]["model"] = json!({
+        "source": "command", "arguments": ["model"], "output": "stdout", "decoder": "jsonStream",
+        "executesProjectCode": false, "mayUseNetwork": false,
+        "map": { "projects": [{
+            "each": "/*", "name": { "value": "app" }, "path": { "value": "app" },
+            "targets": [{ "each": "/paths/*", "name": "", "path": "", "tags": ["application"] }],
+            "contentRoots": [{ "each": "/paths/*", "path": "", "kind": "source" }]
+        }] }
+    });
+    let validation = validate(manifest.clone());
+    assert_eq!(validation["status"], "ok", "{validation}");
+    for root in [".", "services", "services/api"] {
+        let prefix = if root == "." {
+            String::new()
+        } else {
+            format!("{root}/")
+        };
+        let absolute_inside = workspace.0.join(format!("{prefix}absolute"));
+        let absolute_outside = if root == "." {
+            workspace.0.with_extension("outside")
+        } else {
+            workspace.0.join(format!("{root}-sibling/src"))
+        };
+        let document = json!({ "paths": [
+            ".", "../shared", "src/../generated", absolute_inside,
+            "../../outside", "../..", absolute_outside
+        ] });
+        let result = call(
+            "decodeModel",
+            manifest.clone(),
+            "gradle",
+            json!({
+                "workspaceRoot": workspace.root(), "root": root, "output": document.to_string()
+            }),
+        );
+        assert_eq!(result["status"], "ok", "{root}: {result}");
+        let mut expected = vec![
+            format!("{prefix}app"),
+            format!("{prefix}shared"),
+            format!("{prefix}app/generated"),
+            format!("{prefix}absolute"),
+        ];
+        expected.sort_unstable();
+        for field in ["targets", "contentRoots"] {
+            let mut actual: Vec<&str> = result["model"][field]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|entry| entry["kind"] != "excluded")
+                .map(|entry| entry["path"].as_str().unwrap())
+                .collect();
+            actual.sort_unstable();
+            assert_eq!(actual, expected, "{root}: {field}");
+        }
+    }
+}
+
+#[test]
+fn rejected_selector_paths_do_not_suppress_valid_fallbacks() {
+    let workspace = TemporaryWorkspace::new("selector-model-boundary-fallback");
+    let mut manifest = fixture("gradle-build.plugin.json");
+    manifest["buildSystems"][0]["model"] = json!({
+        "source": "command", "arguments": ["model"], "output": "stdout", "decoder": "jsonStream",
+        "executesProjectCode": false, "mayUseNetwork": false,
+        "map": { "projects": [{ "each": "/*", "name": { "value": "app" },
+            "targets": [
+                { "name": { "value": "escape" }, "path": { "value": "../outside" }, "tags": ["application"] },
+                { "name": { "value": "valid" }, "fallback": true, "tags": ["application"] }
+            ],
+            "contentRoots": [
+                { "path": { "value": "../outside" }, "kind": "source" },
+                { "path": { "value": "src" }, "kind": "source", "fallback": true }
+            ]
+        }] }
+    });
+    let result = call(
+        "decodeModel",
+        manifest,
+        "gradle",
+        json!({
+            "workspaceRoot": workspace.root(), "root": "services/api", "output": "{}"
+        }),
+    );
+    assert_eq!(result["status"], "ok", "{result}");
+    assert_eq!(result["model"]["targets"].as_array().unwrap().len(), 1);
+    assert_eq!(result["model"]["targets"][0]["path"], "services/api");
+    assert_eq!(result["model"]["targets"][0]["name"], "valid");
+    let roots: Vec<&Value> = result["model"]["contentRoots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["kind"] == "source")
+        .collect();
+    assert_eq!(roots.len(), 1);
+    assert_eq!(roots[0]["path"], "services/api/src");
+}
+
 /// Canonical content roots resolve against a nested instance root too.
 #[test]
 fn canonical_content_roots_are_relative_to_the_instance_root() {

@@ -379,7 +379,7 @@ fn level_3_manifests_list_exactly_the_capabilities_they_use() {
     assert_eq!(outcome["status"], "ok", "{outcome}");
     assert_eq!(
         outcome["plugin"]["requires"],
-        json!({ "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 })
+        json!({ "buildProviders": 1, "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 })
     );
     let legacy = validate(fixture("php-support.plugin.json"));
     assert!(legacy["plugin"].get("requires").is_none(), "{legacy}");
@@ -428,17 +428,76 @@ fn level_3_manifests_list_exactly_the_capabilities_they_use() {
         rejected(validate_on(&mix, &host_without_builds)),
         (
             "plugin.api.unsupported".into(),
-            "requires.buildSystems".into()
+            "requires.buildProviders".into()
         )
     );
     let mut host_with_builds = host_without_builds.clone();
     host_with_builds["buildSystems"] = json!([1]);
+    host_with_builds["buildProviders"] = json!([1]);
     assert_eq!(validate_on(&mix, &host_with_builds)["status"], "ok");
     // Capability versions do not apply below level 3.
     assert_eq!(
         validate_on(&fixture("php-support.plugin.json"), &json!({}))["status"],
         "ok"
     );
+}
+
+/// Provider orchestration is independent of declarative build commands and
+/// process launching, including when the provider shares a language server.
+#[test]
+fn build_providers_require_their_own_host_capability() {
+    let mut host = json!({
+        "buildSystems": [1], "languageServers": [1], "languages": [1],
+        "serverProcess": [1], "settings": [1]
+    });
+    let template = validate_command(json!({
+        "manifest": fixture("cargo-build.plugin.json"), "hostCapabilities": host
+    }))
+    .unwrap();
+    assert_eq!(template["status"], "ok", "{template}");
+
+    for (name, build_system_id) in [
+        ("gradle-provider.plugin.json", "gradle"),
+        ("mix-provider.plugin.json", "mix"),
+    ] {
+        let manifest = fixture(name);
+        for versions in [None, Some(json!([2])), Some(json!([1]))] {
+            host.as_object_mut().unwrap().remove("buildProviders");
+            if let Some(versions) = versions {
+                host["buildProviders"] = versions;
+            }
+            let outcome = validate_command(json!({
+                "manifest": manifest, "hostCapabilities": host
+            }))
+            .unwrap();
+            if host["buildProviders"] == json!([1]) {
+                assert_eq!(outcome["status"], "ok", "{name}: {outcome}");
+            } else {
+                assert_eq!(outcome["status"], "rejected", "{name}: {outcome}");
+                assert_eq!(outcome["error"]["code"], "plugin.api.unsupported");
+                assert_eq!(outcome["error"]["field"], "requires.buildProviders");
+            }
+        }
+        // Tooling without a host table may validate and plan what Core supports.
+        let outcome = validate(manifest.clone());
+        assert_eq!(outcome["status"], "ok", "{name}: {outcome}");
+        let launch = language_server_launch_plan_command(json!({
+            "manifest": manifest,
+            "buildSystemID": build_system_id,
+            "request": {
+                "pluginDirectory": "/plugins/provider",
+                "stateDirectory": "/state/provider",
+                "workspaceStateDirectory": "/state/provider/workspace",
+                "architecture": "arm64"
+            }
+        }))
+        .unwrap();
+        assert_eq!(launch["status"], "ok", "{name}: {launch}");
+        assert_eq!(
+            launch["plan"]["buildProvider"]["buildSystemID"],
+            build_system_id
+        );
+    }
 }
 
 #[test]

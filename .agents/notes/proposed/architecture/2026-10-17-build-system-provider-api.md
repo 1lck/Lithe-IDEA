@@ -18,7 +18,7 @@ Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运�
 | --- | --- | --- |
 | `rust/lithe-core/src/execution/detectors/` | npm、Cargo、Go、Gradle、Python、Make、just、Compose、Procfile 等探测器，在一次共享目录遍历中产出运行配置 | 生态知识写死在 Core 里。Gradle 只能匹配一张固定的插件 ID 表（Spring Boot、Quarkus、Micronaut、`application`），表外插件注入的任务完全看不到，这就是 Issue #10 |
 | `rust/lithe-core/src/project/maven*.rs` + `MavenService` / `MavenView`（macOS）+ `windows/tauri/src/features/maven/`（Windows） | Reactor（Maven 的多模块聚合工程）扫描、Profile、生命周期、依赖树、诊断解析、Surefire 测试报告、工具窗口 | 质量很高，但类型全是 `Maven*`，其他构建工具无法复用；工具窗口的“生命周期 / 依赖 / Profile / 执行目标”结构也没有通用版本 |
-| `shared/contracts/plugins/v1/` | API 1/2 只有 `languages`、`languageServers`、`executionProviders`（按语言运行/测试单个文件）；API 3 已加入 `buildSystems` | 契约和 Core 已就绪。macOS 宿主已经通过通用 Build 工具窗口使用 `build.*` 命令，并声明 `buildSystems: [1]`；Windows 宿主还没有接入，也不声明能力，所以只有 macOS 列出 API 3 的版本 |
+| `shared/contracts/plugins/v1/` | API 1/2 只有 `languages`、`languageServers`、`executionProviders`（按语言运行/测试单个文件）；API 3 已加入 `buildSystems` | 契约和 Core 已就绪。macOS 宿主已经通过通用 Build 工具窗口使用 `build.*` 命令，并声明 `buildSystems: [1]`；macOS 不声明 `buildProviders`，所以只列出不需要 Provider 的 API 3 版本；Windows 宿主还没有接入，也不声明能力 |
 
 [公共扩展契约提案](2026-10-13-public-extension-contract-and-provider-api.md) 已把 BuildSystem/Task 列为领域扩展点，但没有展开字段和边界。
 
@@ -114,7 +114,7 @@ Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运�
 另外两项不属于工具窗口，但要一起完成：
 
 - **运行配置接入构建模型**：`runConfig.generate` 增加“构建模型”这个输入来源，生成、覆盖和 ID 仍走原流程，不另起一套运行配置。Cargo fixture 已经证明运行入口与现有探测器逐字一致，可以作为第一个迁移对象。
-- **插件市场放开 API 3**：宿主具备 Build 工具窗口后，让宿主接受级别 3，并在宿主自己的能力表里加上 `buildSystems: [1]`，通过 `hostCapabilities` 发给 Core。macOS 已完成这一步，Windows 待做。不需要再改 `plugins/marketplace.rs`：只用语言服务器的级别 3 插件，在宿主声明对应能力后就能先上架，不必等 Build 工具窗口。规则见[声明式插件按能力分版本](../../implemented/architecture/2026-10-17-plugin-capability-versions.md)。
+- **插件市场放开 API 3**：宿主具备 Build 工具窗口后，让宿主接受级别 3，并在宿主自己的能力表里加上 `buildSystems: [1]`，通过 `hostCapabilities` 发给 Core。macOS 已完成声明式构建这一步，Windows 待做；Provider 插件还要求独立的 `buildProviders: 1`，宿主必须完成协议协商、请求和生命周期管理后才可声明，macOS 当前不声明。不需要再改 `plugins/marketplace.rs`：只用语言服务器的级别 3 插件，在宿主声明对应能力后就能先上架，不必等 Build 工具窗口。规则见[声明式插件按能力分版本](../../implemented/architecture/2026-10-17-plugin-capability-versions.md)。
 
 ### 3. 执行仓库代码的信任边界
 
@@ -126,7 +126,7 @@ Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运�
 
 ### 4. 进程型 Provider 的宿主部分
 
-Provider 的 Core 部分已经落地：`provider` 声明与语言服务器共用 `ServerProcess` 启动字段和校验，`languageServerLaunchPlan` 可以按 `buildSystemID` 选中进程，`model`、`dependencies` 支持 `source: "provider"`，`build.modelPlan`、`build.dependencyPlan` 返回 `lithe/build/*` 请求，`build.decodeModel`、`build.decodeDependencies` 解码回复。细节见[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)第 9 节。这里只保留还没做的部分。
+Provider 的 Core 部分已经落地：两种 `provider` 写法均要求 `buildProviders: 1`，Core 支持校验和计划，但这不表示宿主已经实现；未传 `hostCapabilities` 的工具调用仍可使用。`provider` 声明与语言服务器共用 `ServerProcess` 启动字段和校验，`languageServerLaunchPlan` 可以按 `buildSystemID` 选中进程，`model`、`dependencies` 支持 `source: "provider"`，`build.modelPlan`、`build.dependencyPlan` 返回 `lithe/build/*` 请求，`build.decodeModel`、`build.decodeDependencies` 解码回复。细节见[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)第 9 节。这里只保留还没做的部分。
 
 Provider 就是语言服务器那一种进程，所以宿主侧也全部复用：
 
@@ -316,6 +316,7 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 - Cargo 改由构建模型生成运行配置后，生成结果（含 ID）与现有探测器的标准答案一致；用户已写的覆盖配置不会脱钩。
 - 安装一个第三方 Gradle 构建插件后，它注入的每个运行任务各自生成一条运行配置，名字包含 project 路径和任务名，满足 Issue #10 的验收条件，Core 和宿主都不改代码。
 - 在未信任的工作区打开项目时，没有任何 `command` 档进程被启动；Wrapper 只在用户操作后运行。
+- 只有 `buildSystems: [1]` 的宿主可安装模板构建插件，但市场、清单校验和安装审查必须拒绝自有与共享 Provider；宿主真正实现 Provider 后才加入 `buildProviders: [1]`。已有 `declarative_plugins` 和 `marketplace_plugins` 回归覆盖这一边界，后续宿主实现要保留这些断言。
 - `gradle-provider` 这类自有 Provider 只在用户操作或工作区信任后启动，并登记进进程账本；`mix-provider` 这类共享写法不启动第二个进程，在工作区信任前不发送 `lithe/build/*`。
 - 任务通过现有执行链路运行，具备取消、期限和输出上限；禁用插件会停止它登记的守护进程，用户在终端启动的同一工具不受影响。
 - `junitXml` 和 `lineMatcher` 解码出的诊断与测试结果能跳转到编辑器位置。

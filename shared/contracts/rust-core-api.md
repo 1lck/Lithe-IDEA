@@ -2695,6 +2695,12 @@ has one build workflow and never branches on a build-system ID: Core plans
 each process, the host runs it with the discovered executable, and Core
 decodes what it printed or wrote.
 
+A build system with a `provider` also requires `buildProviders: 1`. Core supports
+validation and planning for that capability; a host advertises it only after
+implementing Provider lifecycle and requests. macOS does not yet advertise it,
+so its marketplace and install review reject Provider plugins while accepting
+compatible declarative build systems.
+
 Except `build.detect`, every command accepts
 `{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
 `plugin.build.unavailable` for an undeclared build system or operation.
@@ -2702,6 +2708,13 @@ Results use the `plugins.declarative.*` envelope under the key named below;
 selections the declaration does not allow are `plugin.build.invalidSelection`,
 output that does not fit its decoder is `plugin.build.invalidOutput`, and a
 malformed payload is an `invalid_request` failure.
+
+Host-managed runtime probes use `java -version` (including Java 8),
+`node --version`, and `go version`. Hosts execute the returned arguments and
+pass combined stdout and stderr as `build.checkToolVersion.request.output`:
+Java normally prints its version to stderr. Core normalizes legacy Java
+`1.8.0_…` output to major version 8 before comparing the declared minimum,
+and ignores `Picked up …` environment-option notices preceding the version.
 
 Paths in requests are workspace-relative with `/` unless named absolute.
 `root` is the instance root from detection. Selected entities are

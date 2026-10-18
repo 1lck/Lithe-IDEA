@@ -196,6 +196,151 @@ struct BuildSystemServiceTests {
         #expect(harness.service.entries.first?.model?.projects.map(\.name) == ["loaded"])
     }
 
+    enum LoadKind: String, CaseIterable, Sendable {
+        case model, dependencies
+
+        @MainActor
+        func start(_ service: BuildSystemService) {
+            switch self {
+            case .model: service.loadModel(BuildSystemServiceTests.instanceID)
+            case .dependencies: service.loadDependencies(BuildSystemServiceTests.instanceID, project: nil)
+            }
+        }
+
+        @MainActor
+        func isLoading(_ service: BuildSystemService) -> Bool {
+            switch self {
+            case .model: service.isLoadingModel
+            case .dependencies: service.isLoadingDependencies
+            }
+        }
+
+        func isLoaded(_ entry: BuildSystemEntry?, name: String) -> Bool {
+            switch self {
+            case .model: return entry?.modelState == .loaded && entry?.model?.projects.first?.name == name
+            case .dependencies:
+                if case .loaded(let tree) = entry?.dependencies["app"] {
+                    return tree.dependencies.first?.name == name
+                }
+                return false
+            }
+        }
+
+        @MainActor
+        func expectLoading(_ service: BuildSystemService) {
+            #expect(isLoading(service))
+            #expect(service.hasActiveWork)
+            switch self {
+            case .model: #expect(service.entry(BuildSystemServiceTests.instanceID)?.modelState == .loading)
+            case .dependencies: #expect(service.entry(BuildSystemServiceTests.instanceID)?.dependencies["app"] == .loading)
+            }
+        }
+    }
+
+    enum LoadReplacement: String, CaseIterable, Sendable {
+        case reload, stop, reset, disable
+    }
+
+    @Test(arguments: LoadKind.allCases, LoadReplacement.allCases)
+    func oldCancellationCannotReleaseReplacementLoad(kind: LoadKind, replacement: LoadReplacement) async throws {
+        try await verifyLoadOwnership(kind: kind, replacement: replacement, oldFinishesFirst: true)
+    }
+
+    @Test(arguments: LoadKind.allCases, LoadReplacement.allCases)
+    func oldSuccessCannotOverwriteReplacementResult(kind: LoadKind, replacement: LoadReplacement) async throws {
+        try await verifyLoadOwnership(kind: kind, replacement: replacement, oldFinishesFirst: false)
+    }
+
+    private func verifyLoadOwnership(
+        kind: LoadKind, replacement: LoadReplacement, oldFinishesFirst: Bool
+    ) async throws {
+        let old = ControlledBuildLoad(output: "OLD", throwsCancellation: oldFinishesFirst)
+        let new = ControlledBuildLoad(output: "NEW")
+        let runner = ControlledBuildLoadRunner(loads: [old, new])
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.modelOutput = .stdout
+        let harness = Harness(planner: planner, runner: runner)
+        defer {
+            harness.service.reset(workspaceURL: nil)
+            old.release.open()
+            new.release.open()
+        }
+
+        @MainActor
+        func cleanUp() async {
+            harness.service.reset(workspaceURL: nil)
+            old.release.open()
+            new.release.open()
+            for url in harness.stateLocator.allocated {
+                #expect(await harness.stateLocator.waitForRemoval(of: url))
+            }
+        }
+
+        do {
+            harness.service.reset(workspaceURL: Self.workspace)
+            try #require(await harness.waitForEntries { !$0.isEmpty })
+            kind.start(harness.service)
+            try #require(await old.started.waitUntilOpen())
+            let oldOutput = try #require(harness.stateLocator.allocated.last)
+
+            switch replacement {
+            case .reload: break
+            case .stop: harness.service.stop()
+            case .reset:
+                harness.service.reset(workspaceURL: Self.workspace)
+                try #require(await harness.waitForEntries { !$0.isEmpty })
+            case .disable:
+                harness.sources = []
+                harness.service.pluginsChanged()
+                try #require(await harness.waitForEntries { $0.isEmpty })
+                #expect(!kind.isLoading(harness.service))
+                harness.sources = [fixtureSource()]
+                harness.service.pluginsChanged()
+                try #require(await harness.waitForEntries { !$0.isEmpty })
+            }
+            kind.start(harness.service)
+            try #require(await old.cancelled.waitUntilOpen())
+            try #require(await new.started.waitUntilOpen())
+            let newOutput = try #require(harness.stateLocator.allocated.last)
+            #expect(oldOutput != newOutput)
+            kind.expectLoading(harness.service)
+
+            if oldFinishesFirst {
+                old.release.open()
+                try #require(await harness.stateLocator.waitForRemoval(of: oldOutput))
+                // Removal occurs in the load's defer; its synchronous MainActor
+                // completion runs before this MainActor waiter can resume.
+                #expect(!harness.stateLocator.removed.contains(newOutput))
+                kind.expectLoading(harness.service)
+                // The replacement's retained handle must still cancel its command.
+                harness.service.stop()
+                try #require(await new.cancelled.waitUntilOpen())
+                new.release.open()
+                try #require(await harness.stateLocator.waitForRemoval(of: newOutput))
+                #expect(harness.service.entry(Self.instanceID)?.modelState == .notLoaded)
+                #expect(harness.service.entry(Self.instanceID)?.dependencies.isEmpty == true)
+            } else {
+                new.release.open()
+                try #require(await harness.waitForEntries { kind.isLoaded($0.first, name: "NEW") })
+                try #require(await harness.stateLocator.waitForRemoval(of: newOutput))
+                let current = harness.service.entry(Self.instanceID)
+                old.release.open()
+                try #require(await harness.stateLocator.waitForRemoval(of: oldOutput))
+                #expect(harness.service.entry(Self.instanceID) == current)
+                #expect(kind.isLoaded(harness.service.entry(Self.instanceID), name: "NEW"))
+            }
+            #expect(!kind.isLoading(harness.service))
+            #expect(!harness.service.hasActiveWork)
+            #expect(Set(harness.stateLocator.removed) == Set(harness.stateLocator.allocated))
+            #expect(harness.stateLocator.removed.count == 2)
+        } catch {
+            await cleanUp()
+            throw error
+        }
+        await cleanUp()
+    }
+
     // MARK: Fixtures
 
     private static let instanceID = "fixture:app"
@@ -244,7 +389,7 @@ private final class Harness {
 
     init(
         planner: FakeBuildPlanner,
-        runner: FakeBuildRunner = FakeBuildRunner(),
+        runner: any BuildCommandRunning = FakeBuildRunner(),
         sources: [BuildSystemPluginSource] = [fixtureSource()]
     ) {
         let enabledSources = SourceList(sources)
@@ -304,7 +449,7 @@ private final class BuildTestGate: @unchecked Sendable {
         resumed.forEach { $0.resume(returning: true) }
     }
 
-    func waitUntilOpen(timeout: Duration = .seconds(5)) async -> Bool {
+    func waitUntilOpen(timeout: Duration = .seconds(5), ignoringCancellation: Bool = false) async -> Bool {
         let id = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -328,10 +473,10 @@ private final class BuildTestGate: @unchecked Sendable {
                     return true
                 }
                 if !registered { deadline.cancel() }
-                if Task.isCancelled { finish(id, result: false) }
+                if !ignoringCancellation && Task.isCancelled { finish(id, result: false) }
             }
         } onCancel: {
-            finish(id, result: false)
+            if !ignoringCancellation { finish(id, result: false) }
         }
     }
 
@@ -440,7 +585,13 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         options: [String: ToolingJSONValue]
     ) throws -> BuildModel {
         access { $0.decodedModelOutputs.append(output) }
-        return BuildModel(projects: [BuildModel.Project(id: "loaded", path: "app", name: "loaded")])
+        let name: String
+        if case .stdout(let text) = output, text == "OLD" || text == "NEW" {
+            name = text
+        } else {
+            name = "loaded"
+        }
+        return BuildModel(projects: [BuildModel.Project(id: "loaded", path: "app", name: name)])
     }
 
     func decodeTestResults(_ target: BuildSystemTarget, request: BuildTestResultsRequest) throws -> BuildTestResults {
@@ -462,7 +613,12 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         project: String?,
         output: BuildCommandOutput
     ) throws -> BuildDependencyTree {
-        try decode(BuildDependencyTree.self, #"{"dependencies": [], "truncated": false}"#)
+        if case .stdout(let name) = output, name == "OLD" || name == "NEW" {
+            return try decode(BuildDependencyTree.self, """
+            {"dependencies": [{"name": "\(name)"}], "truncated": false}
+            """)
+        }
+        return try decode(BuildDependencyTree.self, #"{"dependencies": [], "truncated": false}"#)
     }
 
     func syncFingerprint(
@@ -520,6 +676,7 @@ private final class FakeStateLocator: BuildSystemStateLocating, @unchecked Senda
     private let lock = NSLock()
     private var allocatedURLs: [URL] = []
     private var removedURLs: [URL] = []
+    private var removalGates: [URL: BuildTestGate] = [:]
 
     var allocated: [URL] { lock.withLock { allocatedURLs } }
     var removed: [URL] { lock.withLock { removedURLs } }
@@ -530,13 +687,76 @@ private final class FakeStateLocator: BuildSystemStateLocating, @unchecked Senda
 
     func allocateOutputFile(in workspaceStateDirectory: URL) throws -> URL {
         let url = workspaceStateDirectory.appendingPathComponent("outputs/\(UUID().uuidString).json")
-        lock.withLock { allocatedURLs.append(url) }
+        lock.withLock {
+            allocatedURLs.append(url)
+            removalGates[url] = BuildTestGate()
+        }
         return url
     }
 
     func removeOutputFile(_ url: URL) {
-        lock.withLock { removedURLs.append(url) }
+        let gate = lock.withLock {
+            removedURLs.append(url)
+            return removalGates[url]
+        }
+        gate?.open()
     }
+
+    func waitForRemoval(of url: URL) async -> Bool {
+        guard let gate = lock.withLock({ removalGates[url] }) else { return false }
+        return await gate.waitUntilOpen()
+    }
+}
+
+/// A runner may observe cancellation before its native process exits. Keep
+/// those two events independently controllable, with a deadline on every wait.
+private final class ControlledBuildLoad: Sendable {
+    let output: String
+    let throwsCancellation: Bool
+    let started = BuildTestGate()
+    let cancelled = BuildTestGate()
+    let release = BuildTestGate()
+
+    init(output: String, throwsCancellation: Bool = false) {
+        self.output = output
+        self.throwsCancellation = throwsCancellation
+    }
+}
+
+private final class ControlledBuildLoadRunner: BuildCommandRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private let loads: [ControlledBuildLoad]
+    private var nextLoad = 0
+
+    init(loads: [ControlledBuildLoad]) { self.loads = loads }
+
+    func run(
+        _ request: BuildCommandRequest,
+        onOutput: @escaping @Sendable (String) -> Void
+    ) async throws -> BuildCommandResult {
+        let load: ControlledBuildLoad? = lock.withLock {
+            guard nextLoad < loads.count else { return nil }
+            defer { nextLoad += 1 }
+            return loads[nextLoad]
+        }
+        guard let load else { throw ControlledLoadError.unexpectedCommand }
+        load.started.open()
+        return try await withTaskCancellationHandler {
+            // Deliberately acknowledge cancellation without completing the old
+            // command until the test has started or finished its replacement.
+            guard await load.release.waitUntilOpen(ignoringCancellation: true) else {
+                throw ControlledLoadError.releaseTimedOut
+            }
+            if load.throwsCancellation { throw CancellationError() }
+            return BuildCommandResult(termination: .exited(0), standardOutput: load.output)
+        } onCancel: {
+            load.cancelled.open()
+        }
+    }
+}
+
+private enum ControlledLoadError: Error {
+    case unexpectedCommand, releaseTimedOut
 }
 
 private final class FakeBuildRunner: BuildCommandRunning, @unchecked Sendable {

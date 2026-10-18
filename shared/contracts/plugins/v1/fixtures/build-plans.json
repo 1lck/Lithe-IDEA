@@ -858,7 +858,7 @@
               "executables": [],
               "version": {
                 "arguments": [
-                  "--version"
+                  "-version"
                 ]
               }
             }
@@ -917,7 +917,7 @@
               "executables": [],
               "version": {
                 "arguments": [
-                  "--version"
+                  "-version"
                 ]
               }
             }
@@ -2085,6 +2085,57 @@
           "executesProjectCode": true,
           "mayUseNetwork": false,
           "optionFingerprint": "76fb003af18a13133b3836c6d0870963ebe7baab6b4cd6bbd4ec61e30334492f"
+        }
+      }
+    },
+    {
+      "name": "maven accepts Java 8 stderr with environment options",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "checkToolVersion",
+      "request": {
+        "runtime": "java",
+        "output": "Picked up JAVA_TOOL_OPTIONS: -Xmx512m\njava version \"1.8.0_452\"\nJava(TM) SE Runtime Environment (build 1.8.0_452-b09)\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": true,
+          "version": "8.0"
+        }
+      }
+    },
+    {
+      "name": "maven rejects Java 7 against minimum 8",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "checkToolVersion",
+      "request": {
+        "runtime": "java",
+        "output": "java version \"1.7.0_80\"\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": false,
+          "version": "7.0"
+        }
+      }
+    },
+    {
+      "name": "gradle reports Java 8 as below minimum 17",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "checkToolVersion",
+      "request": {
+        "runtime": "java",
+        "output": "openjdk version \"1.8.0_452\"\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": false,
+          "version": "8.0"
         }
       }
     }

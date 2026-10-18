@@ -841,6 +841,24 @@
       "expectedCode": "plugin.manifest.invalid"
     },
     {
+      "name": "own provider without buildProviders capability",
+      "base": "gradle-provider.plugin.json",
+      "edits": [{ "op": "remove", "path": "/requires/buildProviders" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "shared provider without buildProviders capability",
+      "base": "mix-provider.plugin.json",
+      "edits": [{ "op": "remove", "path": "/requires/buildProviders" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "template build lists unused buildProviders capability",
+      "base": "cargo-build.plugin.json",
+      "edits": [{ "op": "set", "path": "/requires/buildProviders", "value": 1 }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
       "name": "own provider process without serverProcess",
       "base": "gradle-provider.plugin.json",
       "edits": [{ "op": "remove", "path": "/requires/serverProcess" }],

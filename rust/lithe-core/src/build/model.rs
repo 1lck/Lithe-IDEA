@@ -211,12 +211,15 @@ impl<'a> ModelBuilder<'a> {
         let Some(name) = model_text(name, MAX_NAME) else {
             return;
         };
+        let project = &self.model.projects[project];
+        let path = path.unwrap_or_else(|| project.path.clone());
+        if !decode::contains(self.root, &path) {
+            return;
+        }
         if self.model.targets.len() >= MAX_ITEMS {
             self.model.truncated = true;
             return;
         }
-        let project = &self.model.projects[project];
-        let path = path.unwrap_or_else(|| project.path.clone());
         let tags: Vec<String> = tags
             .into_iter()
             .filter(|tag| is_identifier(tag))
@@ -261,12 +264,15 @@ impl<'a> ModelBuilder<'a> {
         let Some(name) = model_text(name, MAX_NAME) else {
             return;
         };
+        let project = &self.model.projects[project];
+        let path = path.unwrap_or_else(|| project.path.clone());
+        if !decode::contains(self.root, &path) {
+            return;
+        }
         if self.model.tasks.len() >= MAX_ITEMS {
             self.model.truncated = true;
             return;
         }
-        let project = &self.model.projects[project];
-        let path = path.unwrap_or_else(|| project.path.clone());
         let provider = format!("{}.{}", self.build_system.id, template);
         let id = entry_id(&provider, &path, &name);
         if self.model.tasks.iter().any(|task| task.id == id) {
@@ -286,16 +292,20 @@ impl<'a> ModelBuilder<'a> {
         });
     }
 
-    fn add_content_root(&mut self, project: usize, path: String, kind: ContentRootKind) {
+    fn add_content_root(&mut self, project: usize, path: String, kind: ContentRootKind) -> bool {
+        if !decode::contains(self.root, &path) {
+            return false;
+        }
         if self.model.content_roots.len() >= MAX_ITEMS {
             self.model.truncated = true;
-            return;
+            return false;
         }
         self.model.content_roots.push(ModelContentRoot {
             project_id: self.model.projects[project].id.clone(),
             path,
             kind,
         });
+        true
     }
 
     fn add_option_value(&mut self, option: &str, value: &str) {
@@ -585,14 +595,13 @@ fn map_content_root(
     let Some(Some(path)) = mapped_path(builder, Some(&rule.path), base, document, node) else {
         return false;
     };
-    builder.add_content_root(project, path, rule.kind);
-    true
+    builder.add_content_root(project, path, rule.kind)
 }
 
 // MARK: Canonical format
 
 /// The `litheBuildModel` document a plugin's script prints. Paths are
-/// relative to the instance root or absolute inside the workspace. Unknown
+/// relative to the instance root or absolute inside it. Unknown
 /// fields are ignored so newer scripts keep working with older hosts.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

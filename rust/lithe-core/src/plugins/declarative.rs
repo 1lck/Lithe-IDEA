@@ -1070,6 +1070,12 @@ impl DeclarativePluginManifest {
             (capabilities::SETTINGS, !self.settings.is_empty()),
             (capabilities::UI, self.ui.is_some()),
             (capabilities::BUILD_SYSTEMS, !self.build_systems.is_empty()),
+            (
+                capabilities::BUILD_PROVIDERS,
+                self.build_systems
+                    .iter()
+                    .any(|system| system.provider.is_some()),
+            ),
         ];
         sections
             .into_iter()

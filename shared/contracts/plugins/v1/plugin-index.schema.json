@@ -45,7 +45,7 @@
         "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
         "pluginAPIVersion": { "type": "integer", "minimum": 1 },
         "requires": {
-          "description": "API level 3: the package manifest's requires, so hosts can tell before downloading whether they run every capability it needs. Capability IDs this contract does not define are allowed; such a version is never available.",
+          "description": "API level 3: the package manifest's requires, including buildProviders: 1 when any buildSystems[].provider is present (own or shared language server), so hosts can tell before downloading whether they run every capability it needs. Capability IDs this contract does not define are allowed; such a version is never available.",
           "type": "object",
           "minProperties": 1,
           "propertyNames": { "pattern": "^[a-z][A-Za-z0-9]{0,63}$" },

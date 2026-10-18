@@ -30,7 +30,8 @@
 | `executionProviders` | `executionProviders[]` |
 | `settings` | `settings[]` |
 | `ui` | `ui` |
-| `buildSystems` | `buildSystems[]` 中自有 Provider 启动字段以外的部分 |
+| `buildSystems` | 声明式构建识别、模型和命令计划 |
+| `buildProviders` | 任一 `buildSystems[].provider`，包括自有进程和共享语言服务器两种写法 |
 
 规则：
 
@@ -42,7 +43,7 @@
 
 为什么要作者自己写，而不是让 Core 从清单推导：推导要先理解每一段。旧 Core 不认识新的一段，就推导不出它需要什么；作者写出来，旧 Core 不用理解那一段，也能准确拒绝。
 
-为什么 `serverProcess` 单独作为一个能力：启动字段由语言服务器和构建系统的自有 Provider 共用。以后新增一种启动方式时，只升级 `serverProcess`，`languageServers` 和 `buildSystems` 的其它字段不受牵连。共享写法的 Provider 复用插件里的语言服务器，所以不单独计入 `serverProcess`。
+为什么 `serverProcess` 单独作为一个能力：启动字段由语言服务器和构建系统的自有 Provider 共用。以后新增一种启动方式时，只升级 `serverProcess`，`languageServers` 和 `buildSystems` 的其它字段不受牵连。共享写法的 Provider 复用插件里的语言服务器，所以不单独计入 `serverProcess`。两种 Provider 都必须声明 `buildProviders: 1`：能启动语言服务器或执行构建命令，并不代表能完成构建协议协商、请求和生命周期管理。纯模板构建插件不声明 `buildProviders`，否则会因多列能力被拒绝。
 
 ### 2. 宿主自己声明能运行什么
 
@@ -54,7 +55,7 @@ Core 能校验一个能力，不代表宿主能运行它。宿主在 `plugins.de
 
 能力表放在宿主代码里，写在能力实现的旁边，Core 不再按平台去猜。原来按 `darwin-` 前缀和级别写死的判断，就是 Core 替宿主猜、又容易和宿主实现漂移的例子。
 
-macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`），能力表是 `PluginManifest.hostCapabilities`，在校验、索引和安装审查时都发给 Core；其中的 `buildSystems: [1]` 随 macOS 的 Build 工具窗口一起加入。Windows 还没有声明式插件宿主，不发送能力表，所以 Windows 不列出级别 3 的插件。宿主接入某个能力时，要做两件事：让宿主接受级别 3，并在宿主自己的能力表里加上这个能力的版本，而且只在宿主真正能运行它时才加。
+macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`），能力表是 `PluginManifest.hostCapabilities`，在校验、索引和安装审查时都发给 Core；其中的 `buildSystems: [1]` 随 macOS 的 Build 工具窗口一起加入，但 macOS 尚未实现 Provider，所以不声明 `buildProviders`；市场过滤、清单校验和安装审查都会拒绝需要它的插件，纯模板构建插件仍可用。Core 自己支持 `buildProviders: 1`，不传宿主表时仍可校验并生成 Provider 计划。Windows 还没有声明式插件宿主，不发送能力表，所以 Windows 不列出级别 3 的插件。宿主接入某个能力时，要做两件事：让宿主接受级别 3，并在宿主自己的能力表里加上这个能力的版本，而且只在宿主真正能运行它时才加。
 
 ### 3. 市场索引带上能力版本
 
@@ -95,6 +96,10 @@ macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`
 
 最有吸引力的地方：可以区分“只加字段”和“改含义”，支持 `1.2` 的宿主自动接受 `1.0`。不采用，因为宿主本来就要一直支持旧版本，列出整数版本的集合也能表达同样的事情，而且更简单。
 
+### 让 `buildSystems` 同时代表 Provider 能力
+
+最有吸引力的地方：少维护一个能力 ID，Provider 的启动字段也已经由 `serverProcess` 校验。不采用，因为只实现构建命令的宿主会允许安装 Provider 插件，直到加载模型才暴露不能发送构建请求；共享语言服务器的写法同样存在这个缺口。按插件名或平台过滤又会在 Core 里复制宿主实现进度，所以两种 Provider 都要求独立的 `buildProviders`。
+
 ### 加一个旧宿主可以忽略的展示用字段容器（`hints`）
 
 最有吸引力的地方：只影响展示的字段（图标、分组提示）可以不升级任何版本，新宿主用，旧宿主忽略。暂不加入：目前没有真实插件需要这类字段，而按能力分版本之后，不用新字段的插件已经不受影响。等出现真实需求再加，加的时候限定它不能影响启动计划、权限和安装审查。
@@ -118,8 +123,8 @@ macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`
 
 ## 验证
 
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib declarative_plugins`：`invalid-manifests.json` 中关于 `requires` 的 11 个用例（级别 3 缺少 `requires`、低级别出现 `requires`、空表、非正整数版本、格式错误的 ID、未知能力、未知能力先于未知段被报出、未知版本、少列、多列、自有 Provider 缺少 `serverProcess`）；`level_3_manifests_list_exactly_the_capabilities_they_use` 检查报错字段、规范化输出里的 `requires`，以及 `hostCapabilities` 对级别 3 和低级别的不同效果。
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib marketplace_plugins`：`index-cases.json` 中两个带 `hostCapabilities` 的用例（只支持语言服务器的宿主装上 1.0.0；Core 不认识的能力不会被当作支持）；`install-reviews.json` 中两个 `mix-provider` 用例；`invalid-index-entries.json` 中三个 `requires` 用例；`level_3_versions_list_their_capabilities` 和 `host_capabilities_do_not_change_legacy_levels`。
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib declarative_plugins`：`invalid-manifests.json` 中关于 `requires` 的用例（级别 3 缺少 `requires`、低级别出现 `requires`、空表、非正整数版本、格式错误的 ID、未知能力、未知能力先于未知段被报出、未知版本、少列、多列、自有 Provider 缺少 `serverProcess`）；`level_3_manifests_list_exactly_the_capabilities_they_use` 检查报错字段、规范化输出里的 `requires`，以及 `hostCapabilities` 对级别 3 和低级别的不同效果；`build_providers_require_their_own_host_capability` 覆盖自有与共享 Provider 在缺少或不支持 `buildProviders` 版本时被拒绝、完整支持时通过，以及不传宿主表时 Core 仍能校验并生成启动计划。
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib marketplace_plugins`：`index-cases.json` 验证只有 `buildSystems` 的宿主保留语言服务器版本；`build_provider_versions_require_host_support_before_download` 覆盖自有与共享 Provider 的版本筛选；`install-reviews.json` 覆盖两种 Provider 的能力缺失、版本不支持、完整支持和不传宿主表的审查，纯模板插件只需 `buildSystems`；`invalid-index-entries.json` 中三个 `requires` 用例；`level_3_versions_list_their_capabilities` 和 `host_capabilities_do_not_change_legacy_levels`。
 - `./scripts/verify-shared-contracts.sh`：schema 与 fixture 一致，新增的拒绝码都有文档。
 - `./scripts/verify-rust-core-comments.sh`：`plugins/capabilities.rs` 的注释规范。
 

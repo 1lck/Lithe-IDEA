@@ -10,7 +10,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 映射（`map`）只从解码后的文档里挑值。挑值以外的逻辑由插件自己处理：读 JSON、YAML 清单，从工具读任务，计算父子关系，这些都交给插件自带的脚本输出规范格式（第 6 节）。声明和规范格式都表达不了的工具（Gradle Tooling API 等），由插件自带的 Provider 进程回答。Provider 就是语言服务器那种进程：共用启动字段、校验和启动计划，只多回答 `lithe/build/model`、`lithe/build/dependencies`，回复仍由 Core 解码（第 9 节）。
 
-目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 有了通用 Build 工具窗口，并向 Core 声明 `buildSystems: [1]`；Windows 宿主还没有接入，两端都还不会向 Provider 发请求。API 3 的清单按能力分版本，构建系统是其中的 `buildSystems` 能力；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
+目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 有了通用 Build 工具窗口，并向 Core 声明 `buildSystems: [1]`；Windows 宿主还没有接入，两端都还不会向 Provider 发请求。API 3 的清单按能力分版本，声明式构建系统使用 `buildSystems`，两种写法的 Provider 都额外使用 `buildProviders: 1`，macOS 尚不声明它；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
 
 ## 问题
 
@@ -74,7 +74,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
   - `environment`：某个环境变量下的相对路径，例如 `MAVEN_HOME` 下的 `bin/mvn`。变量必须列在 `environmentInputs` 里，宿主只传这些变量。
   - `command`：在 `PATH` 上查找的裸命令名。
   - `runtime`：直接使用一个声明的运行时，例如 Go fixture 直接用 `go`。
-- **运行时**：`java`、`node`、`go` 由宿主管理，只写 ID 和最低版本，按用户的运行时设置发现。其他任何 ID 都由插件自己写可执行文件候选和版本探测，所以运行时列表是开放的。
+- **运行时**：`java`、`node`、`go` 由宿主管理，只写 ID 和最低版本，按用户的运行时设置发现。Core 提供 Java 的 `-version`、Node 的 `--version`、Go 的 `version` 探测参数，宿主合并标准输出与错误输出再交回 Core 校验；Java 8 不支持 `--version`，且版本信息通常写到错误输出，不能据此误判为不可用。其他任何 ID 都由插件自己写可执行文件候选和版本探测，所以运行时列表是开放的。
 - **自带逻辑**：插件附带的脚本（例如 Gradle 的 init script，即初始化脚本）可以直接输出规范格式，不必写选择器映射。规范格式有 `litheBuildModel`、`litheTestResults`、`litheDependencies`、`litheDiagnostics`。规范文档里的未知字段会被忽略，所以新脚本配旧宿主也能用。插件自带的常驻 Provider 进程也用这几种格式回复（第 9 节）。
 
 固定词汇（要扩展就给对应能力加一个新版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)）：
@@ -116,7 +116,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 映射表达不了的部分由插件自己处理：插件脚本（或者工具加初始化脚本）输出 `litheBuildModel`、`litheDependencies`，或者由 Provider 回答。API 3 发布前按真实插件裁剪过一次（2026-10-18），去掉了没有 fixture 使用的部分：工程里的任务规则、`map` 顶层的目标和任务、`parent`、映射出来的标签、`parentDirectory` 变换、依赖的 `children`、静态模型的 `json` 和 `yaml`、命令输出的 `json`、`toml` 和 `yaml`，以及 `layout.generated`。原因是每条映射规则都是 Lithe 自己定义的语义，发布后两端宿主要长期逐字相同地支持；脚本里的逻辑则归插件所有，插件可以自己演进。以后真有插件需要、又不适合放在插件里的规则，作为 `buildSystems` 的新版本加回来，并补 fixture。
 
-路径必须相对实例根，或者是工作区内的绝对路径，其他路径一律丢弃。规范格式里内容根的 `project` 只指明归属，`path` 同样相对实例根；曾经按工程目录再拼一次，子工程会得到 `app/app/src/main/java`。读取静态模型、报告和同步监视文件前，还要校验符号链接最终指向工作区内：允许 `workspace/alias → workspace/data`，拒绝 `workspace/model.json → /outside/model.json`；否则模型和指纹会泄露外部文件内容。宿主显式传入的 `outputFile` 保留读取工作区外临时输出的能力。输出不符合解码格式时返回 `plugin.build.invalidOutput`，不静默返回空列表。
+模型里的工程、目标、任务和内容根在规范化后必须位于实例根内，绝对路径也遵守同一边界；其他路径一律丢弃。比如实例根是 `services/api` 时，`services/api/src` 合法，`services/web` 和 `services/api-extra` 即使位于同一工作区也要拒绝。选择器的非法内容根不算命中，不能阻止后面的合法 fallback。规范格式里内容根的 `project` 只指明归属，`path` 同样相对实例根；曾经按工程目录再拼一次，子工程会得到 `app/app/src/main/java`。读取静态模型、报告和同步监视文件前，还要校验符号链接最终指向工作区内：允许 `workspace/alias → workspace/data`，拒绝 `workspace/model.json → /outside/model.json`；否则模型和指纹会泄露外部文件内容。宿主显式传入的 `outputFile` 保留读取工作区外临时输出的能力。输出不符合解码格式时返回 `plugin.build.invalidOutput`，不静默返回空列表。
 
 ### 7. 测试
 
@@ -168,6 +168,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 几条宿主规则和它们的原因：
 
 - **什么时候启动进程。** 打开工作区时只跑 `build.detect`，`static` 和 `hostIntegration` 来源的模型随识别一起读出，不启动进程。macOS 目前没有工作区信任机制，所以 `command` 来源的模型和工程里的 Wrapper 只在用户点击“加载模型”或运行任务后启动。项目内的可执行文件（`projectFile` 候选）不做版本探测，因为探测本身就是在执行仓库代码。
+- **取消后谁能写回。** 模型和依赖加载的任务槽保存独立操作 ID。完成时同时检查工作区代次、当前槽的 ID 和取消状态，只有仍持有槽的任务才能清槽、更新模型或依赖及活动状态；不能只看工作区代次，否则重复加载时旧任务的取消回调会清掉新任务。停止、重置和停用插件后重新加载也遵守同一规则；每个旧任务仍负责清理自己的临时输出文件。
 - **什么时候重新识别。** 只有 `sync.watch` 里的文件变化才会重新识别，连续保存在 500 毫秒内合并成一次。已加载的 `command` 模型不会被自动重跑：指纹变了只标记“需要重新加载”，等用户决定。
 - **输出怎么交给 Core。** 模型和依赖命令的 stdout 单独捕获后交给 Core 解码（计划写 `outputFile` 时读文件），stderr 照常进入 Build Output，所以工具打印的警告不会破坏要解码的文档。任务和测试的完整输出交给诊断解码。
 - **选项存在哪里。** 按“工作区 + 构建系统 ID”保存，与 `build.detect` 的 `options` 形状一致。Core 在 `dropped` 里报出的选项改存它的生效值，用户的其他选择因此保留。按实例根分开保存，等有真实插件需要时再加。
@@ -181,7 +182,7 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 ### 11. 还没有开放给用户的部分
 
 - Windows 宿主还不发送 `hostCapabilities`，不会列出级别 3 的版本，也没有 Build 工具窗口。
-- 两端宿主都还不会启动 Provider、发送 `lithe/build/*` 请求，`provider` 来源目前只由 Core 测试和标准答案验证。macOS 已经声明 `buildSystems: [1]`，而 `requires` 不区分构建系统是否使用 Provider，所以 Provider 形态的插件在 macOS 能装上，但它的模型和依赖只显示“macOS 还不支持”。API 3 发布前，要么在 macOS 接入 Provider，要么让 `requires` 能表达这一差别。
+- 两端宿主都还不会启动 Provider、发送 `lithe/build/*` 请求，`provider` 来源目前只由 Core 测试和标准答案验证。任一 `buildSystems[].provider` 都要求 `buildProviders: 1`，包括共享语言服务器；macOS 只声明 `buildSystems: [1]`，不声明 `buildProviders`，因此市场、清单校验和安装审查都会拒绝 Provider 插件，模板构建插件仍可安装。Core 支持校验和计划，不传宿主能力表时仍允许 Provider。不要为了让插件可安装而从 `requires` 省去 `buildProviders`，那会因能力未列全被拒绝。
 - 构建模型里的运行入口（`run`）还没有接入 macOS 的运行配置。
 - `runConfig.generate` 还没有接入构建模型。Cargo fixture 只证明了它产出的运行入口与内置探测器逐字一致，包括 `cargo.binary:<路径>` 这类 ID，迁移时用户的覆盖配置不会脱钩。
 
@@ -258,10 +259,12 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems`：四个 fixture 通过校验；`build-plans.json` 的全部标准答案；在临时工作区里验证 Cargo 运行入口与内置探测器逐字一致、嵌套、优先级与拒绝、Maven reactor 识别、Gradle 规范格式输出文件、JUnit 报告、同步指纹、Maven 任务参数与内置实现一致，以及互斥条件下允许重复引用选项。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems` 还覆盖 Provider：`build-plans.json` 里 `gradle-provider`、`mix-provider` 的请求计划和 `result` 解码；`provider_processes_are_install_review_programs`（自有进程和共享写法在安装审查中的条目）；`launch_plans_name_exactly_one_process`；`provider_models_are_not_read_during_detection`。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib declarative_plugins`：`invalid-manifests.json` 里的非法清单，包括社区插件声明 `hostIntegration`、未声明权限、路径越界、未保护的模板变量和选项重复放置，以及 Provider 的十种错误写法（没有来源使用、混写、缺少标志、缺少权限、入口越界、不支持的运行时、未声明的设置等），和裁剪后不再接受的九种写法（静态 `yaml`、命令 `json`、任务规则、顶层目标、`parent`、映射标签、`parentDirectory`、依赖 `children`、`layout.generated`）；`command-plans.json` 里按 `buildSystemID` 选中的启动计划。
+- `declarative_plugins::build_providers_require_their_own_host_capability` 与 `marketplace_plugins::build_provider_versions_require_host_support_before_download` 验证 Provider 能力与声明式构建分开，安装审查的共享 fixture 同时覆盖自有进程和共享写法。
 - `./scripts/verify-shared-contracts.sh`：schema 与 fixture 一致；`build-plans.json` 的用例名唯一、操作合法、拒绝码都有文档、不含机器路径；`command-plans.json` 的每个用例只给出 `languageID`、`buildSystemID` 之一。
 - `./scripts/verify-rust-core-comments.sh`：`build/` 模块的注释规范。
 - `./scripts/test-macos.sh --filter 'RustBuildSystemOperationsTests|BuildSystemServiceTests'`：Swift 一侧对真实 Rust Core 调用 `build.*`（cargo、go、maven fixture 的识别、选项 `dropped`、调用计划、版本探测、任务和测试 argv、命令模型解码、诊断与同步指纹）；`BuildSystemService` 用假的 Core、运行器和存储验证识别问题列表、stdout 捕获与输出文件清理、失败退出码、输出顺序与诊断、停止、选项改存生效值、指纹变化后的重新加载提示，以及停用插件后停止命令并移除实例。
-- `build_systems` 回归覆盖默认参数变化后的安装重新确认、动态 feature 删除后的检测与运行指纹一致，以及静态模型、Maven POM、JUnit 报告和同步文件的符号链接边界；工作区内部链接仍可读取。
+- `build_runtime_versions` 与 `MacBuildToolResolverTests` 验证 Java 8 探测参数、错误输出捕获和最低版本校验；`BuildSystemServiceTests` 使用可控制取消与退出顺序的运行器，覆盖模型/依赖的重复加载、停止、重置和停用插件，以及旧取消先完成、旧成功最后完成两种顺序。
+- `build_systems` 额外覆盖嵌套实例根的目标、任务与内容根边界，以及非法选择器内容根后的 fallback；同时覆盖默认参数变化后的安装重新确认、动态 feature 删除后的检测与运行指纹一致，以及静态模型、Maven POM、JUnit 报告和同步文件的符号链接边界；工作区内部链接仍可读取。
 
 ## 适用范围
 

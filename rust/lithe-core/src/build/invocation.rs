@@ -65,13 +65,14 @@ fn candidates(candidates: &[ExecutableCandidate], root: &str, platform: Platform
 }
 
 /// Arguments that make a host-managed runtime print its version and exit.
-/// Core owns them so a host probes every runtime the same way; `go` has no
-/// `--version` flag, and `java` accepts `--version` from Java 9 on, so an
-/// older JVM fails the probe and counts as too old.
+/// Core owns them so hosts use the same probe. Java needs `-version` for
+/// Java 8 compatibility; its version is printed to stderr, which hosts must
+/// capture together with stdout before checking the declared minimum.
 fn host_runtime_version_arguments(id: &str) -> Option<&'static [&'static str]> {
     match id {
         "go" => Some(&["version"]),
-        "java" | "node" => Some(&["--version"]),
+        "java" => Some(&["-version"]),
+        "node" => Some(&["--version"]),
         _ => None,
     }
 }

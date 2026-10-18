@@ -21,6 +21,8 @@ const INSTALL_REVIEWS: &str = contract_file!("fixtures/marketplace/install-revie
 const PHP_FIXTURE: &str = contract_file!("fixtures/php-support.plugin.json");
 const GO_FIXTURE: &str = contract_file!("fixtures/go-support.plugin.json");
 const MIX_FIXTURE: &str = contract_file!("fixtures/mix-provider.plugin.json");
+const GRADLE_FIXTURE: &str = contract_file!("fixtures/gradle-provider.plugin.json");
+const CARGO_FIXTURE: &str = contract_file!("fixtures/cargo-build.plugin.json");
 const OFFICIAL_INDEX: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../Plugins/marketplace/index.json"
@@ -35,6 +37,8 @@ fn manifest_fixture(name: &str) -> Value {
         "php-support.plugin.json" => json_file(PHP_FIXTURE),
         "go-support.plugin.json" => json_file(GO_FIXTURE),
         "mix-provider.plugin.json" => json_file(MIX_FIXTURE),
+        "gradle-provider.plugin.json" => json_file(GRADLE_FIXTURE),
+        "cargo-build.plugin.json" => json_file(CARGO_FIXTURE),
         other => panic!("unknown fixture {other}"),
     }
 }
@@ -243,6 +247,9 @@ fn install_review_fixtures_match_golden_outcomes() {
         if let Some(code) = case.get("expectedCode") {
             assert_eq!(outcome["status"], "rejected", "{name}: {outcome}");
             assert_eq!(&outcome["error"]["code"], code, "{name}: {outcome}");
+            if let Some(field) = case.get("expectedField") {
+                assert_eq!(&outcome["error"]["field"], field, "{name}: {outcome}");
+            }
             continue;
         }
         assert_eq!(outcome["status"], "ok", "{name}: {outcome}");
@@ -306,6 +313,10 @@ fn level_3_versions_list_their_capabilities() {
         elixir["versions"][2]["requires"],
         json!({ "languageServers": 1, "languages": 1, "serverProcess": 1 })
     );
+    assert_eq!(
+        elixir["versions"][1]["requires"],
+        json!({ "buildProviders": 1, "buildSystems": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 })
+    );
     let zig = outcome["index"]["plugins"]
         .as_array()
         .unwrap()
@@ -313,6 +324,48 @@ fn level_3_versions_list_their_capabilities() {
         .find(|entry| entry["id"] == "io.example.zig-support")
         .unwrap();
     assert!(zig["versions"][0].get("requires").is_none(), "{zig}");
+}
+
+/// Market filtering uses the same requirements for own and shared providers;
+/// hosts with only declarative builds keep the older language-only version.
+#[test]
+fn build_provider_versions_require_host_support_before_download() {
+    for manifest in [json_file(GRADLE_FIXTURE), json_file(MIX_FIXTURE)] {
+        let mut index = json_file(INDEX);
+        let entry = index["plugins"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|entry| entry["id"] == "io.example.elixir-tools")
+            .unwrap();
+        entry["versions"][1]["requires"] = manifest["requires"].clone();
+        let mut host = json!({
+            "buildSystems": [1], "languages": [1], "languageServers": [1],
+            "serverProcess": [1], "settings": [1]
+        });
+        for (versions, expected_version) in [
+            (None, "1.0.0"),
+            (Some(json!([2])), "1.0.0"),
+            (Some(json!([1])), "2.0.0"),
+        ] {
+            host.as_object_mut().unwrap().remove("buildProviders");
+            if let Some(versions) = versions {
+                host["buildProviders"] = versions;
+            }
+            let outcome =
+                validate_for_host(index.clone(), "thirdParty", "darwin-arm64", Some(&host));
+            let plugin = outcome["index"]["plugins"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["id"] == "io.example.elixir-tools")
+                .unwrap();
+            assert_eq!(
+                plugin["availability"]["version"], expected_version,
+                "{outcome}"
+            );
+        }
+    }
 }
 
 /// Capability versions are a level 3 rule: a host that sends them still

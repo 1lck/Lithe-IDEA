@@ -4,7 +4,7 @@
   "displayName": "Gradle Provider Fixture",
   "version": "0.1.0",
   "pluginAPIVersion": 3,
-  "requires": { "buildSystems": 1, "serverProcess": 1, "settings": 1 },
+  "requires": { "buildProviders": 1, "buildSystems": 1, "serverProcess": 1, "settings": 1 },
   "vendor": {
     "id": "org.example",
     "displayName": "Example",
