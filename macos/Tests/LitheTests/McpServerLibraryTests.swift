@@ -245,6 +245,36 @@ struct McpServerLibraryTests {
     }
 
     @Test
+    func takingOwnershipInTheOpenEditorAllowsClosingThatAgent() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedClaude("""
+        {"mcpServers": {"alpha": {"command": "/bin/echo", "args": ["keep"]}}}
+        """)
+        let feature = fixture.feature()
+        feature.refresh()
+        var draft = feature.draft(for: try #require(feature.rows.first { $0.name == "alpha" }))
+        #expect(draft.enabledAgents == [.claudeCode])
+        draft.enabledAgents = [.codex]
+
+        // Closing the Agent that owns the entry is still refused before the
+        // user adopts it, even though the draft already targets Codex.
+        #expect(feature.save(draft) == false)
+        #expect(feature.error?.contains("outside Lithe") == true)
+        #expect(try fixture.claudeText().contains("keep"))
+
+        // Taking ownership refreshes the list but must also authorize the
+        // still-open draft, whose captured sources predate the adoption.
+        feature.takeOwnership(
+            of: try #require(feature.rows.first { $0.name == "alpha" }), agent: .claudeCode
+        )
+        #expect(feature.save(draft))
+        #expect(feature.error == nil)
+        #expect(try fixture.claudeText().contains("\"alpha\"") == false)
+        #expect(try fixture.codexText().contains("[mcp_servers.alpha]"))
+    }
+
+    @Test
     func editsAnExternallyCreatedEntryWhileTheDisplayedDefinitionIsCurrent() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }

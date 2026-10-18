@@ -17,7 +17,7 @@
 ### 分工
 
 - Rust Core 的 `rust/lithe-core/src/mcp/` 只负责纯文本工作：解析 Claude JSON 与 Codex TOML、计算规范化定义哈希、生成保格式的修改计划。它不读文件、不读环境变量，也不决定路径。
-- `Core/Ports/McpConfigurationStore.swift` 是端口，`Platform/MacOS/MCP/MacAgentMcpConfigurationStore.swift` 是 macOS 适配器。适配器负责 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、项目路径解析，1 MiB 上限、UTF-8 校验、原子替换、权限保留和备份。
+- `Core/Ports/McpConfigurationStore.swift` 是端口，`Platform/MacOS/MCP/MacAgentMcpConfigurationStore.swift` 是 macOS 适配器。适配器负责 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、项目路径解析，1 MiB 上限、UTF-8 校验、同目录临时文件与原子交换式条件替换、权限保留和备份。
 - `Application/Features/McpServerLibraryFeatureModel.swift` 拥有合并、草稿、按 Agent 开关、保存/删除和账本。UI 只调用这个模型，不直接碰文件。
 
 ### 身份与合并
@@ -30,7 +30,7 @@
 
 - 账本按“Agent + 作用域 + 项目路径”记录 Lithe 写过的名称、定义哈希及完整来源哈希 `sourceHash`，存放在 `settings.mcpServerRegistrations`。定义哈希只用于跨 Agent 合并；完整来源哈希覆盖该 Agent 条目里的所有字段，包括界面未建模的认证、超时、非字符串变量及其他未知配置，忽略注释与排版。多个窗口共享同一个 store，因此每次读取都从共享账本取最新快照，写入时只替换当前文件对应的键，而不是把窗口初始化时的整份字典写回，避免一个窗口覆盖另一个窗口刚记录的条目。
 - 只有磁盘上的完整来源哈希与账本一致时，Lithe 才会自动替换或删除该条目。重复注册即使可见字段未变，也必须先校验所有权，否则返回当前来源哈希并写入账本会静默接管外部修改。原始条目若因 command/URL 被移除而未出现在发现结果中，仍需按已有配置拒绝覆盖或清理，不能当成空位置。用户自己创建的条目返回 `ownedByUser`，在 Lithe 之外被改过的条目返回 `externallyModified`；两者都保留原文件，并在页面上说明原因。旧账本若只有定义哈希，不能证明未知配置仍未变化，必须重新接管所有权或打开最新条目进行显式编辑；禁止根据当前磁盘内容静默补全旧账本。
-- 用户在 Lithe 里主动编辑并保存时，草稿会保留打开编辑器时每个 Agent 各自的完整来源哈希，作为独立的 `expectedHash` 前置条件发给 Core。刷新列表不会替旧草稿换成新版本，也不把旧版本追加为账本的另一条授权。Core 在判断“内容未变”或“账本有所有权”之前先检查这个前置条件，因此另一窗口保存了新版本、同时更新共享账本，也不能让旧草稿覆盖它。重命名时检查旧名称的来源版本，新名称若已存在则单独校验其所有权，不能借旧条目的授权覆盖无关条目。普通删除和关闭 Agent 开关仍需先接管所有权；草稿中关闭原先已拥有的 Agent 时，还要检查打开编辑器时的来源版本。
+- 用户在 Lithe 里主动编辑并保存时，草稿会保留打开编辑器时每个 Agent 各自的完整来源哈希，作为独立的 `expectedHash` 前置条件发给 Core。刷新列表不会替旧草稿换成新版本，也不把旧版本追加为账本的另一条授权。Core 在判断“内容未变”或“账本有所有权”之前先检查这个前置条件，因此另一窗口保存了新版本、同时更新共享账本，也不能让旧草稿覆盖它。重命名时检查旧名称的来源版本，新名称若已存在则单独校验其所有权，不能借旧条目的授权覆盖无关条目。普通删除和关闭 Agent 开关仍需先接管所有权；保存时按共享账本的最新状态确认该条目仍归 Lithe，因此同一编辑器里刚接管的条目可以立即关闭对应 Agent，同时仍要求草稿捕获的完整来源哈希未变，不能用更新的账本条目给旧草稿授权。
 - 例如，Codex 原条目的 `startup_timeout_sec` 被外部改动后，列表仍按可见定义合并，但自动删除和旧草稿保存都会拒绝；用户刷新并重新打开条目后可以修改 URL，保留该超时配置，再把写入结果的完整来源哈希记入账本。不要用只覆盖 URL 的定义哈希证明整个原始条目可被删除。
 - 用户可以对一个外部条目执行“接管所有权”（Take ownership）：只写账本，不改文件。之后按 Agent 开关才能真正移除它。这个动作是显式的，因为“删除别人的配置”和“让 Lithe 以后管理这份配置”是两件事。
 
@@ -44,6 +44,7 @@
 - 资源库保存和 Lithe 项目注册共用批量提交：先计算全部文件的计划并校验磁盘快照，再逐文件写入，全部成功后才更新所有权账本。即使外部 Agent 在预检之后、两次写入之间改了后续文件，后续写入的 `changedOnDisk` 也会触发对已写文件的逆序恢复；原先不存在的文件会删除，原先存在的文件会恢复原快照。不能在每次单文件成功后立即写账本，否则会留下半套注册。
 - 恢复前也校验文件仍等于本次批量写入的内容；如果外部程序又改了已写文件，就保留该外部修改，继续尝试恢复其他文件，并明确报告未恢复路径，由用户刷新检查。备份保留原始内容和尝试写入的内容；这是一种失败后恢复机制，不承诺跨文件的操作系统原子可见性或进程崩溃后的自动恢复。
 - 每个被改写的文件都会先备份到 `Application Support/MCP Backups/<时间戳>/`，备份失败则中止写入。
+- 快照预检和备份之后还有一次平台条件替换，最终发布不在 Swift 应用层直接覆盖文件：`MacFileStorage.replaceData` 把新内容写到目标同目录的临时文件，已有文件用原子交换（`renamex_np` 的 `RENAME_SWAP`）发布，并检查被换出的旧字节是否仍等于计划快照；不等就换回并返回 `changedOnDisk`。新文件用 `RENAME_EXCL` 发布，目标在预检后出现时拒绝创建。不要把最终写入退回为「比较后无条件 rename」：比较和 rename 之间仍可能落进其他程序的保存，把它静默覆盖。
 
 ### Lithe 自己的项目级注册
 
@@ -100,9 +101,10 @@ Windows 的 Agent 配置路径和 Tauri 侧文件访问模型不同，同步实�
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::`（覆盖删除首项/中间项/末项、同行相邻项、值跨多行且下一个键同行的布局、单行与混合换行布局，JSON 输出重新解析，重复 JSON 键拒绝编辑；Codex 更新保留 `bearer_token_env_var`、`startup_timeout_sec`、未知键、建模键与值的注释、未变化的 args 数组内注释和非字符串 env 值，变量列表清空时也保留非字符串值；内联 `mcp_servers` 表可删除、可编辑；拒绝重复变量键；哈希忽略当前传输不写入的 command/args/env/url/headers 且与重解析一致；重命名保留专属字段）
 - `./scripts/test-macos.sh --filter McpServerLibraryTests`（覆盖计划后磁盘变化拒绝写入、文件在计划后出现拒绝创建、linked worktree 公共排除文件、关闭会话后仍能清理项目注册、项目切换后清理两个项目的注册、Git 排除失败不回滚账本、注销冲突写入错误横幅、重复变量键校验、重命名外部条目、按 Agent 开启时忽略传输不写入的字段、切换传输方式丢弃隐藏字段后仍保持所有权、重命名保留 Codex 字段、自然排序条目的所有权、两个窗口合并账本）
+- `./scripts/test-macos.sh --filter McpWriteProtectionTests`（备份完成后外部保存被保留并返回 `changedOnDisk`，预检后出现的新文件不被覆盖；`MacFileStorage.replaceData` 拒绝过期快照、按匹配快照原子发布、拒绝覆盖已存在文件）
 - `./scripts/test-macos.sh --filter "McpBatchTransactionTests|McpServerSummaryTests|McpExcludePreservationTests"`（用第二次写入前的同步故障注入覆盖已有文件恢复、新文件删除、回滚保留外部修改与路径提示、失败保存和注册不发布账本；摘要不含 args 或 URL 凭据；exclude 原始非 UTF-8 字节保留、LF/CRLF 幂等及已有文件读取失败保护）
 - `./scripts/test-macos.sh --filter "McpArgumentRoundTripTests|McpSymlinkConfigurationTests"`（Codex 与 Claude 只改 env 时保留空参数、空白参数和嵌入换行；修改参数文本保留空行；相对及绝对符号链接可读取、生成计划、保存和备份，后续写入失败恢复链接目标，目标外部修改不覆盖，错误展示原路径并保留大小上限）
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter "McpServerLibraryTests|McpSymlinkConfigurationTests"`（双窗口顺序保存，分别覆盖旧编辑器未刷新和刷新后可见字段恰好等于新版本的情况；认证或超时字段外部变化后阻止旧草稿保存、重命名、关闭开关、删除与关闭项目清理；双 Agent 合并条目使用各自的来源版本；旧账本重新接管前拒绝自动删除；重复注册不接管外部新增的超时配置，保留原账本）
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter "McpServerLibraryTests|McpSymlinkConfigurationTests"`（双窗口顺序保存，分别覆盖旧编辑器未刷新和刷新后可见字段恰好等于新版本的情况；认证或超时字段外部变化后阻止旧草稿保存、重命名、关闭开关、删除与关闭项目清理；双 Agent 合并条目使用各自的来源版本；旧账本重新接管前拒绝自动删除；同一编辑器内接管后关闭对应 Agent 可以保存；重复注册不接管外部新增的超时配置，保留原账本）
 - `./scripts/test-macos.sh --filter IdeCapabilitiesTests`
 - `./scripts/verify-service-boundaries.sh`
 - `./scripts/verify-agent-notes.sh`

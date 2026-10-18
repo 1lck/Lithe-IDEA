@@ -384,7 +384,12 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             // version also prevents a stale editor removing a newer owned entry.
             for source in originalSources
             where !draft.enabledAgents.contains(source.file.agent) {
-                guard source.isOwnedByLithe, let expected = source.sourceHash else {
+                // Ownership can be taken in this same editor after the draft
+                // was captured, so consult the shared ledger at save time.
+                // The captured source version stays a required precondition:
+                // a newer ledger entry alone must not authorize a stale removal.
+                guard let expected = source.sourceHash,
+                      ledgerOwns(name: originalName, sourceHash: expected, in: source.file) else {
                     error = McpLibraryError.notOwned(originalName).localizedDescription
                     return false
                 }
@@ -822,8 +827,15 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     private func isOwned(_ server: McpServerDefinition, in file: McpConfigurationFile) -> Bool {
         guard let sourceHash = server.sourceHash else { return false }
-        return ledgerEntries(for: file).contains {
-            $0.name == server.name && $0.sourceHash == sourceHash
+        return ledgerOwns(name: server.name, sourceHash: sourceHash, in: file)
+    }
+
+    /// Whether the latest shared ledger recorded this exact complete entry.
+    private func ledgerOwns(
+        name: String, sourceHash: String, in file: McpConfigurationFile
+    ) -> Bool {
+        ledgerEntries(for: file).contains {
+            $0.name == name && $0.sourceHash == sourceHash
         }
     }
 

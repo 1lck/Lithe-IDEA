@@ -120,7 +120,17 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
             try storage.createDirectory(
                 at: target.deletingLastPathComponent(), withIntermediateDirectories: true
             )
-            try storage.writeData(data, to: target, options: .atomic)
+            // The snapshot check above runs before the backup. Publish through
+            // the platform's conditional replacement so a save another Agent,
+            // editor or Lithe instance makes between that check and the final
+            // write is preserved and reported instead of overwritten.
+            guard try storage.replaceData(
+                data, at: target, expecting: expected.map { Data($0.utf8) }
+            ) else {
+                throw McpConfigurationError.changedOnDisk
+            }
+        } catch let error as McpConfigurationError {
+            throw error
         } catch {
             throw McpConfigurationError.notWritable(file.url.path)
         }

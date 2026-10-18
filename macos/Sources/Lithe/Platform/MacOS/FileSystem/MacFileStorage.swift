@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct MacFileStorage: FileStorage {
@@ -89,6 +90,44 @@ struct MacFileStorage: FileStorage {
 
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions = []) throws {
         try data.write(to: url, options: options)
+    }
+
+    /// Prepares the bytes beside the destination, then publishes them through
+    /// an atomic filesystem exchange so the version that was actually replaced
+    /// can be compared with the planned snapshot. A plain "compare, then
+    /// rename" still overwrites a save another program made in between.
+    func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
+        let temporary = url.deletingLastPathComponent().appendingPathComponent(
+            ".\(url.lastPathComponent).lithe-\(UUID().uuidString)"
+        )
+        try data.write(to: temporary)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        if expected == nil {
+            // Publish without replacing a file another process just created.
+            guard renamex_np(temporary.path, url.path, UInt32(RENAME_EXCL)) == 0 else {
+                if errno == EEXIST { return false }
+                throw CocoaError(.fileWriteUnknown)
+            }
+            return true
+        }
+
+        // The exchange also returns the previous contents: reading them from
+        // `temporary` is how a lost external save becomes observable.
+        guard renamex_np(temporary.path, url.path, UInt32(RENAME_SWAP)) == 0 else {
+            if errno == ENOENT { return false }
+            throw CocoaError(.fileWriteUnknown)
+        }
+        do {
+            guard try Data(contentsOf: temporary) == expected else {
+                _ = renamex_np(temporary.path, url.path, UInt32(RENAME_SWAP))
+                return false
+            }
+        } catch {
+            _ = renamex_np(temporary.path, url.path, UInt32(RENAME_SWAP))
+            throw error
+        }
+        return true
     }
 
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
