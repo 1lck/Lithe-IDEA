@@ -233,7 +233,9 @@ package final class BuildSystemService: ObservableObject {
             case .success(let detected):
                 let current = Dictionary(uniqueKeysWithValues: self.entries.map { ($0.id, $0) })
                 self.entries = detected.entries.map { detectedEntry in
-                    guard let currentEntry = current[detectedEntry.id] else { return detectedEntry }
+                    guard let currentEntry = current[detectedEntry.id],
+                          currentEntry.instance.pluginID == detectedEntry.instance.pluginID
+                    else { return detectedEntry }
                     let modelChanged = (self.modelRevisions[detectedEntry.id] ?? 0)
                         != (modelRevisions[detectedEntry.id] ?? 0)
                     let dependenciesChanged = (self.dependencyRevisions[detectedEntry.id] ?? 0)
@@ -324,6 +326,9 @@ package final class BuildSystemService: ObservableObject {
         update(entryID) { $0.modelState = .loading }
         let generation = generation
         let id = UUID()
+        // The model command depends on the options; a change while it runs
+        // makes the result stale even though it still publishes.
+        let optionFingerprint = optionFingerprint(entry, workspaceURL: workspaceURL)
         let task = Task { [weak self] in
             guard let self else { return }
             let result = await self.performModelLoad(
@@ -336,12 +341,18 @@ package final class BuildSystemService: ObservableObject {
             self.modelTasks[entryID] = nil
             switch result {
             case .success(let loaded):
+                let configChanged: Bool = {
+                    guard let current = self.entry(entryID),
+                          let currentFingerprint = self.optionFingerprint(current, workspaceURL: workspaceURL)
+                    else { return false }
+                    return currentFingerprint != optionFingerprint
+                }()
                 self.update(entryID) {
                     $0.model = loaded.model
                     $0.modelState = .loaded
                     $0.options = loaded.options ?? $0.options
                     $0.sync = loaded.sync ?? $0.sync
-                    $0.isReloadRequired = false
+                    $0.isReloadRequired = configChanged
                     $0.dependencies = [:]
                 }
                 self.noteModelChanged(entryID)
@@ -752,6 +763,15 @@ package final class BuildSystemService: ObservableObject {
 
     // MARK: Commands
 
+    private func optionFingerprint(_ entry: BuildSystemEntry, workspaceURL: URL) -> String? {
+        let stored = optionsStore.options(
+            workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
+        )
+        return (try? planner.resolveOptions(
+            entry.target, options: stored, modelValues: entry.model?.optionValues
+        ))?.fingerprint
+    }
+
     private func planContext(_ entry: BuildSystemEntry, workspaceURL: URL) throws -> BuildPlanContext {
         let stored = optionsStore.options(
             workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
@@ -996,8 +1016,14 @@ package final class BuildSystemService: ObservableObject {
             let stored = storedOptions[instance.buildSystemID] ?? [:]
             let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID)
             let earlier = previous[instance.id]
+            // The instance ID is the build-system ID plus its root, so another
+            // plugin can take the same ID over. Its model and dependencies are
+            // not this plugin's data.
+            let samePlugin = earlier?.instance.pluginID == instance.pluginID
             // A command model only changes when the user loads it again.
-            let kept = instance.model == nil && instance.modelSource == .command ? earlier?.model : nil
+            let kept = samePlugin && instance.model == nil && instance.modelSource == .command
+                ? earlier?.model
+                : nil
             let model = instance.model ?? kept
             let resolution = try? planner.resolveOptions(
                 target, options: stored, modelValues: model?.optionValues

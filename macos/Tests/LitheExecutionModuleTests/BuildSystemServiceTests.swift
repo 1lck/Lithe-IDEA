@@ -702,20 +702,94 @@ struct BuildSystemServiceTests {
         #expect(planner.taskPlanContexts.last?.options["features"] == .array([]))
     }
 
+    /// An option changed while the model command runs makes its result stale.
+    @Test
+    func optionChangeDuringModelLoadMarksTheModelStale() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.modelOutput = .stdout
+        let runner = ReplacedOutputRunner()
+        let harness = Harness(planner: planner, runner: runner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await runner.earlyWritten.waitUntilOpen())
+
+        // The command started with the old options; detection finishes before
+        // its result returns.
+        harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        #expect(await harness.waitForDetectionToFinish())
+        planner.fingerprint = "changed"
+
+        runner.releaseLate.open()
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+        #expect(harness.service.entry(Self.instanceID)?.isReloadRequired == true)
+    }
+
+    /// Another plugin can take over the same build-system ID and root; the
+    /// old plugin's model and dependencies are not its data.
+    @Test
+    func pluginTakeoverDropsThePreviousPluginsModel() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "command", pluginID: "dev.a")
+        ])
+        planner.modelOutput = .stdout
+        let runner = FakeBuildRunner()
+        runner.script = .init(
+            chunks: [],
+            result: BuildCommandResult(termination: .exited(0), standardOutput: "MODEL")
+        )
+        let harness = Harness(
+            planner: planner,
+            runner: runner,
+            sources: [fixtureSource(pluginID: "dev.a")]
+        )
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+
+        harness.sources = [fixtureSource(pluginID: "dev.b")]
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "command", pluginID: "dev.b")
+        ])
+        harness.service.pluginsChanged()
+        #expect(await harness.waitForEntries { $0.first?.instance.pluginID == "dev.b" })
+        let entry = try #require(harness.service.entry(Self.instanceID))
+        #expect(entry.modelState == .notLoaded)
+        #expect(entry.model == nil)
+        #expect(entry.dependencies.isEmpty)
+    }
+
     // MARK: Fixtures
 
     private static let instanceID = "fixture:app"
 
-    private static func instanceJSON(modelSource: String, model: String? = nil) -> String {
+    private static func instanceJSON(
+        modelSource: String,
+        model: String? = nil,
+        pluginID: String = "dev.example"
+    ) -> String {
         """
-        {"id": "\(instanceID)", "pluginID": "dev.example", "buildSystemID": "fixture",
+        {"id": "\(instanceID)", "pluginID": "\(pluginID)", "buildSystemID": "fixture",
          "displayName": "Fixture", "root": "app", "modelSource": "\(modelSource)",
          "optionFingerprint": "o"\(model.map { ", \"model\": \($0)" } ?? "")}
         """
     }
 
-    private static func instance(modelSource: String, model: String? = nil) throws -> BuildSystemInstance {
-        try decode(BuildSystemInstance.self, instanceJSON(modelSource: modelSource, model: model))
+    private static func instance(
+        modelSource: String,
+        model: String? = nil,
+        pluginID: String = "dev.example"
+    ) throws -> BuildSystemInstance {
+        try decode(
+            BuildSystemInstance.self,
+            instanceJSON(modelSource: modelSource, model: model, pluginID: pluginID)
+        )
     }
 
     private static func model(name: String) -> String {
@@ -1071,19 +1145,21 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
                 stored.filter((values["features"] ?? []).contains)
             } ?? stored
             let dropped = kept.count != stored.count
+            let fingerprint = access { $0.fingerprint }
             return try decode(BuildOptionsResolution.self, """
             {"options": [{"id": "features", "displayName": "Features", "kind": "multiSelect",
              "value": [\(kept.map { "\"\($0)\"" }.joined(separator: ", "))], "source": "user"}],
-             "dropped": \(dropped ? "[\"features\"]" : "[]"), "fingerprint": "f"}
+             "dropped": \(dropped ? "[\"features\"]" : "[]"), "fingerprint": "\(fingerprint)"}
             """)
         }
         if modelValues != nil, let resolution = access({ $0.loadedOptionsResolution }) {
             return resolution
         }
         if let resolution = optionsResolution { return resolution }
+        let fingerprint = access { $0.fingerprint }
         return try decode(BuildOptionsResolution.self, """
         {"options": [{"id": "release", "displayName": "Release", "kind": "boolean", "value": false}],
-         "dropped": [], "fingerprint": "f"}
+         "dropped": [], "fingerprint": "\(fingerprint)"}
         """)
     }
 
@@ -1335,10 +1411,10 @@ private final class ReplacedOutputRunner: BuildCommandRunning, @unchecked Sendab
             earlyWritten.open()
             _ = await releaseLate.waitUntilOpen(ignoringCancellation: true)
             onOutput("late\n")
-            return BuildCommandResult(termination: .exited(0))
+            return BuildCommandResult(termination: .exited(0), standardOutput: "MODEL")
         }
         onOutput("second\n")
-        return BuildCommandResult(termination: .exited(0))
+        return BuildCommandResult(termination: .exited(0), standardOutput: "second")
     }
 }
 
