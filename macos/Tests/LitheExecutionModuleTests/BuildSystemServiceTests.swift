@@ -685,14 +685,16 @@ struct BuildSystemServiceTests {
         let b = try #require(harness.service.entry("fixture:b"))
         #expect(a.options.first { $0.id == "features" }?.value == .array([.string("cli")]))
         #expect(b.options.first { $0.id == "features" }?.value == .array([]))
+        #expect(b.options.first { $0.id == "features" }?.source == "unset")
 
-        // Each plan filters the shared value against its own model.
+        // Each plan filters the shared value against its own model. An
+        // entirely rejected value is unset, not an explicit empty override.
         harness.service.runTask("fixture:a", request: BuildTaskRequest(task: "build"), title: "A")
         #expect(await harness.waitForRunState { $0 == .succeeded })
         #expect(planner.taskPlanContexts.last?.options["features"] == .array([.string("cli")]))
         harness.service.runTask("fixture:b", request: BuildTaskRequest(task: "build"), title: "B")
         #expect(await harness.waitForRunState { $0 == .succeeded })
-        #expect(planner.taskPlanContexts.last?.options["features"] == .array([]))
+        #expect(planner.taskPlanContexts.last?.options["features"] == nil)
     }
 
     @Test
@@ -707,21 +709,69 @@ struct BuildSystemServiceTests {
         defer { harness.service.stop() }
         harness.optionsStore.values["fixture"] = ["features": .array([.string("cli"), .string("gui")])]
         harness.service.reset(workspaceURL: Self.workspace)
-        #expect(await harness.waitForEntries { $0.count == 2 })
+        try #require(await harness.waitForEntries { $0.count == 2 })
 
         harness.service.setInstanceOption("fixture:a", optionID: "features", value: .array([.string("fast")]))
         #expect(harness.optionsStore.values["fixture"]?["features"] == .array([.string("gui"), .string("fast")]))
         #expect(harness.service.entry("fixture:a")?.options.first?.value == .array([.string("fast")]))
         #expect(harness.service.entry("fixture:b")?.options.first?.value == .array([.string("gui")]))
 
+        // Clearing B retains A's shared choice but records B's explicit empty
+        // override. Redetection and task planning must keep that distinction.
         harness.service.setInstanceOption("fixture:b", optionID: "features", value: .array([]))
+        try #require(await harness.waitForDetectionToFinish())
         #expect(harness.optionsStore.values["fixture"]?["features"] == .array([.string("fast")]))
+        #expect(harness.optionsStore.emptyMultiSelectOptions(
+            workspaceURL: Self.workspace, buildSystemID: "fixture"
+        ) == ["b": Set(["features"])])
+        #expect(harness.service.entry("fixture:a")?.options.first?.value == .array([.string("fast")]))
+        #expect(harness.service.entry("fixture:b")?.options.first?.value == .array([]))
+        #expect(harness.service.entry("fixture:b")?.options.first?.source == "user")
+        harness.service.runTask("fixture:b", request: BuildTaskRequest(task: "build"), title: "B")
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(planner.taskPlanContexts.last?.options["features"] == .array([]))
+
+        harness.service.setInstanceOption("fixture:b", optionID: "features", value: .array([.string("gui")]))
+        #expect(harness.optionsStore.emptyMultiSelectOptions(
+            workspaceURL: Self.workspace, buildSystemID: "fixture"
+        ).isEmpty)
+        #expect(harness.service.entry("fixture:b")?.options.first?.value == .array([.string("gui")]))
+        #expect(harness.service.entry("fixture:a")?.options.first?.value == .array([.string("fast")]))
+
+        harness.service.setInstanceOption("fixture:b", optionID: "features", value: .array([]))
         harness.service.setInstanceOption("fixture:a", optionID: "features", value: .array([]))
         #expect(harness.optionsStore.values["fixture"]?["features"] == .array([]))
-        // Clearing the final selection keeps an explicit empty override;
-        // resetting removes that override so declaration defaults can apply.
+        #expect(harness.optionsStore.emptyMultiSelectOptions(
+            workspaceURL: Self.workspace, buildSystemID: "fixture"
+        ) == ["a": Set(["features"]), "b": Set(["features"])])
+
+        // A non-empty instance edit clears only its own marker; resetting the
+        // shared option removes the override and every root's marker.
+        harness.service.setInstanceOption("fixture:a", optionID: "features", value: .array([.string("cli")]))
+        #expect(harness.optionsStore.values["fixture"]?["features"] == .array([.string("cli")]))
+        #expect(harness.optionsStore.emptyMultiSelectOptions(
+            workspaceURL: Self.workspace, buildSystemID: "fixture"
+        ) == ["b": Set(["features"])])
+        #expect(harness.service.entry("fixture:b")?.options.first?.value == .array([]))
         harness.service.setInstanceOption("fixture:a", optionID: "features", value: nil)
         #expect(harness.optionsStore.values["fixture"]?["features"] == nil)
+        #expect(harness.optionsStore.emptyMultiSelectOptions(
+            workspaceURL: Self.workspace, buildSystemID: "fixture"
+        ).isEmpty)
+        #expect(harness.service.entry("fixture:a")?.options.first?.source == "unset")
+        #expect(harness.service.entry("fixture:b")?.options.first?.source == "unset")
+
+        harness.service.setInstanceOption("fixture:a", optionID: "features", value: .array([]))
+        harness.service.setInstanceOption("fixture:b", optionID: "features", value: .array([]))
+        #expect(harness.optionsStore.emptyMultiSelectOptions(
+            workspaceURL: Self.workspace, buildSystemID: "fixture"
+        ) == ["a": Set(["features"]), "b": Set(["features"])])
+        harness.service.setOption("fixture:a", optionID: "features", value: .array([.string("cli"), .string("gui")]))
+        #expect(harness.optionsStore.emptyMultiSelectOptions(
+            workspaceURL: Self.workspace, buildSystemID: "fixture"
+        ).isEmpty)
+        #expect(harness.service.entry("fixture:a")?.options.first?.value == .array([.string("cli")]))
+        #expect(harness.service.entry("fixture:b")?.options.first?.value == .array([.string("gui")]))
     }
 
     @Test
@@ -1713,10 +1763,14 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
                 stored.filter((values["features"] ?? []).contains)
             } ?? stored
             let dropped = kept.count != stored.count
+            // Core rejects a non-empty stored selection when no item is valid.
+            // This fixture has no default, so rejection is unset; only a stored
+            // [] represents an explicit empty user override.
+            let source = options["features"] != nil && !(dropped && kept.isEmpty) ? "user" : "unset"
             let fingerprint = access { $0.fingerprint }
             return try decode(BuildOptionsResolution.self, """
             {"options": [{"id": "features", "displayName": "Features", "kind": "multiSelect",
-             "value": [\(kept.map { "\"\($0)\"" }.joined(separator: ", "))], "source": "user"}],
+             "value": [\(kept.map { "\"\($0)\"" }.joined(separator: ", "))], "source": "\(source)"}],
              "dropped": \(dropped ? "[\"features\"]" : "[]"), "fingerprint": "\(fingerprint)"}
             """)
         }
@@ -1861,6 +1915,7 @@ private final class FakeToolResolver: BuildToolResolving {
 @MainActor
 private final class FakeOptionsStore: BuildOptionsStoring {
     var values: [String: [String: ToolingJSONValue]] = [:]
+    var emptyValues: [String: [String: Set<String>]] = [:]
 
     func options(workspaceURL: URL, buildSystemID: String) -> [String: ToolingJSONValue] {
         values[buildSystemID] ?? [:]
@@ -1868,6 +1923,14 @@ private final class FakeOptionsStore: BuildOptionsStoring {
 
     func setOptions(_ options: [String: ToolingJSONValue], workspaceURL: URL, buildSystemID: String) {
         values[buildSystemID] = options.isEmpty ? nil : options
+    }
+
+    func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) -> [String: Set<String>] {
+        emptyValues[buildSystemID] ?? [:]
+    }
+
+    func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String) {
+        emptyValues[buildSystemID] = options.isEmpty ? nil : options
     }
 }
 

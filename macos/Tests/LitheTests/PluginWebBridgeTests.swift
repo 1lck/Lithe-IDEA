@@ -2,8 +2,10 @@ import Combine
 import Foundation
 import Testing
 import WebKit
+import LitheApplicationKernel
 import LitheCoreContracts
 import LitheExecutionModule
+import LitheModuleAPI
 @testable import Lithe
 
 @MainActor
@@ -363,6 +365,138 @@ struct PluginWebBridgeTests {
         #expect(reopened !== old)
     }
 
+    @Test func closingDedicatedProjectRevokesHiddenPageWhileSettingsRetainsItsModel() async throws {
+        let harness = try BridgeHarness()
+        defer { harness.cleanUp() }
+        let suite = "lithe-web-window-close-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        var containers: [MacServiceContainer] = []
+        let pages = PluginWebPages(windows: [harness.window])
+        let manager = ProjectSessionManager(settings: settings, modelFactory: {
+            let container = MacServiceContainer(
+                store: store, settings: settings, javaMavenOperations: NoProjectJavaOperations(),
+                pluginWebPageLifecycle: PluginWebPageLifecycle()
+            )
+            containers.append(container)
+            return AppModel(settings: settings, services: Self.services(container.services, pages: pages))
+        })
+        defer { containers.forEach { $0.moduleLifecycleCoordinator.stop() } }
+        let shutdownStarted = TestGate(), releaseShutdown = TestGate()
+        var pendingRequest: Task<String, Never>?
+        var closingWindow: Task<Void, Never>?
+        defer { releaseShutdown.open() }
+        try await WorkbenchTestScope.withCleanup({
+            releaseShutdown.open()
+            pages.closeAll()
+            pendingRequest?.cancel()
+            _ = await pendingRequest?.value
+            await closingWindow?.value
+            await manager.stopAllSessions()
+            if let model = manager.settingsModel { manager.releaseSettings(for: model.id) }
+        }) { scope in
+            // Give the primary session a workspace without starting project discovery.
+            manager.activeModel.workspaceSessionCoordinator.beginWorkspace(at: harness.root.appendingPathComponent("primary"))
+            manager.requestOpenProject(harness.workspace, from: manager.activeSessionID, placement: .newWindow)
+            let model = manager.activeModel
+            // Retain the real workspace URL, but isolate this lifecycle test from
+            // discovery and finish the module teardown started by opening it.
+            model.workspaceSessionCoordinator.stopSessionResources()
+            model.workspaceSessionCoordinator.resetWorkspaceFeature()
+            try await scope.run("initial workspace teardown") { await model.awaitModuleRuntimeShutdown() }
+            manager.bindSettings(to: model.id)
+            let host = RetainedProjectWebHost(model: model, detectingBuild: harness.build)
+            harness.build.isDetecting = true
+            let detecting = TestGate()
+            harness.build.onDetectionRead = { detecting.open() }
+            let page = try #require(pages.page(for: harness.window.windowID) { window in
+                MacPluginWebPage(
+                    window: window, host: host, stateStore: pages.stateStore,
+                    theme: MacPluginWebTheme(colorTheme: .lithe, isDark: false, codeFontFamily: "Menlo", codeFontSize: 13)
+                )
+            })
+            // Keep the page registered after hiding its tool window; no WebView
+            // is needed to exercise the real page and bridge cleanup.
+            let toolWindow = WorkbenchFeatureModel.ToolWindow(rawValue: harness.window.windowID)
+            model.workbenchFeature.setVisibility(toolWindow, isVisible: true)
+            model.workbenchFeature.setVisibility(toolWindow, isVisible: false)
+            #expect(!model.workbenchFeature.isVisible(toolWindow))
+            #expect(pages.openWindowIDs.contains(harness.window.windowID))
+            let pending = Task { await page.bridge.handle(#"{"method":"build.instances"}"#) }
+            pendingRequest = pending
+            defer { pending.cancel() }
+            try #require(await detecting.waitUntilOpen(), "The page never reached the detection wait")
+            #expect(host.activationAttempts == 1)
+
+            let shutdownModule = WebPageShutdownTestModule(started: shutdownStarted, release: releaseShutdown)
+            try model.services.moduleRuntime.register(ModuleFactory(manifest: shutdownModule.manifest) { shutdownModule })
+            try await scope.run("shutdown module activation") {
+                _ = try await model.services.moduleRuntime.activate(shutdownModule.manifest.id)
+            }
+            let closing = Task { await manager.resetDedicatedWindowSession(windowID: model.id) }
+            closingWindow = closing
+            defer { closing.cancel(); releaseShutdown.open() }
+            try #require(await shutdownStarted.waitUntilOpen(), "Project teardown never reached the shutdown gate")
+            // Assert before module teardown finishes, with both the model and Settings alive.
+            #expect(manager.settingsModel === model)
+            #expect(model.workspaceURL == harness.workspace)
+            #expect(page.isClosed)
+            #expect(pages.openWindowIDs.isEmpty)
+            try await scope.run("closed page detection reply") {
+                let reply = await pending.value
+                #expect(reply.contains("plugin.web.forbidden"))
+            }
+            host.detectingBuild = nil
+            try await scope.run("closed page cannot reactivate execution") {
+                let reply = await page.bridge.handle(#"{"method":"build.instances"}"#)
+                #expect(reply.contains("plugin.web.forbidden"))
+            }
+            #expect(host.activationAttempts == 1)
+            releaseShutdown.open()
+            try await scope.run("dedicated project shutdown") { await closing.value }
+            #expect(manager.sessions(in: .dedicated(model.id)).isEmpty)
+            #expect(manager.settingsModel === model)
+            #expect(page.isClosed)
+            #expect(model.executionCapability == nil)
+            try await scope.run("retained closed model cannot reactivate execution") {
+                let reply = await page.bridge.handle(#"{"method":"build.instances"}"#)
+                #expect(reply.contains("plugin.web.forbidden"))
+            }
+            #expect(host.activationAttempts == 1)
+            #expect(model.executionCapability == nil)
+        }
+    }
+
+    /// Reuses platform dependencies but gives this session its isolated page registry.
+    private static func services(_ base: AppServices, pages: PluginWebPages) -> AppServices {
+        AppServices(
+            moduleRuntime: base.moduleRuntime, pluginManager: base.pluginManager,
+            pluginMarketplace: base.pluginMarketplace, pluginCatalog: base.pluginCatalog,
+            pluginUIIconResources: base.pluginUIIconResources, pluginWebPages: pages,
+            languageProviderCatalogSource: base.languageProviderCatalogSource,
+            workspaceLanguageServerPreferences: base.workspaceLanguageServerPreferences,
+            languageProviderCatalogSnapshot: base.languageProviderCatalogSnapshot,
+            debugLaunchConfigurationResolver: base.debugLaunchConfigurationResolver,
+            debugPortAvailabilityChecker: base.debugPortAvailabilityChecker,
+            javaTestResultServerFactory: { MacJavaTestResultServer() },
+            workspaceOperations: base.workspaceOperations, documentLifecycleDecider: base.documentLifecycleDecider,
+            lineEditing: base.lineEditing, javaMavenOperations: base.javaMavenOperations,
+            markdownRenderer: base.markdownRenderer, markdownImageImporter: base.markdownImageImporter,
+            store: base.store, fileStorage: base.fileStorage, fileOperations: base.fileOperations,
+            agentEditRestorer: base.agentEditRestorer, binaryFileViewerRegistry: base.binaryFileViewerRegistry,
+            projectRuntimeService: base.projectRuntimeService, gitWatchContextProvider: base.gitWatchContextProvider,
+            githubService: base.githubService, secureStore: base.secureStore, databaseSecureStore: base.databaseSecureStore,
+            diagnosticsExportService: base.diagnosticsExportService, credentialResolver: base.credentialResolver,
+            aiConfigurationSources: base.aiConfigurationSources, recentProjectsStore: base.recentProjectsStore,
+            recentProjectBranchReader: base.recentProjectBranchReader, workspaceSessionStore: base.workspaceSessionStore,
+            directoryMarkStore: base.directoryMarkStore, workbenchLayoutStore: base.workbenchLayoutStore,
+            workbenchBackgroundPlatform: base.workbenchBackgroundPlatform, directoryWatcherFactory: base.directoryWatcherFactory,
+            platformUI: base.platformUI, shortcutDetectorFactory: base.shortcutDetectorFactory
+        )
+    }
+
     @Test func disablingPluginClosesPagesAndForgetsConsentInEveryProject() async throws {
         let harness = try BridgeHarness()
         defer { harness.cleanUp() }
@@ -585,6 +719,55 @@ struct PluginWebPackageTests {
 }
 
 // MARK: Test doubles
+
+/// Keeps the real workspace identity; after detection, a missed close would
+/// reach the real execution activation instead of being hidden by the fake.
+@MainActor
+private final class RetainedProjectWebHost: PluginWebBridgeHost {
+    private let model: AppModel
+    var detectingBuild: FakeBuildAccess?
+    private(set) var activationAttempts = 0
+
+    init(model: AppModel, detectingBuild: FakeBuildAccess) {
+        self.model = model
+        self.detectingBuild = detectingBuild
+    }
+
+    var pluginWebWorkspaceURL: URL? { model.pluginWebWorkspaceURL }
+    func pluginWebBuildSystems(activate: Bool) async -> (any PluginWebBuildAccess)? {
+        if activate { activationAttempts += 1 }
+        if let detectingBuild { return detectingBuild }
+        return await model.pluginWebBuildSystems(activate: activate)
+    }
+    func pluginWebShowBuildOutput() { model.pluginWebShowBuildOutput() }
+    func pluginWebOpenFile(_ url: URL, line: Int?, column: Int?) -> Bool {
+        model.pluginWebOpenFile(url, line: line, column: column)
+    }
+    func pluginWebConfirmProcessStart(_ consent: PluginWebProcessConsent) async -> Bool {
+        await model.pluginWebConfirmProcessStart(consent)
+    }
+}
+
+/// Suspends the real manager's teardown so revocation is checked before shutdown ends.
+@MainActor
+private final class WebPageShutdownTestModule: LitheModule {
+    let manifest = ModuleManifest(
+        id: ModuleID("dev.lithe.tests.web-window-shutdown"), displayName: "Web Window Shutdown Test",
+        scope: .application, defaultState: .enabled, activationPolicy: .onDemand
+    )
+    private let started: TestGate
+    private let release: TestGate
+
+    init(started: TestGate, release: TestGate) { self.started = started; self.release = release }
+    func activate(context: ModuleContext) async throws {}
+    func prepareForSleep() async throws {}
+    func sleep() async {}
+    func shutdown() async {
+        started.open()
+        #expect(await release.waitUntilOpen(), "The test did not release project shutdown")
+    }
+    func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
+}
 
 @MainActor
 private final class FakePage: PluginWebPageHandle {

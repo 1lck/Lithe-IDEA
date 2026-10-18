@@ -569,12 +569,16 @@ package struct BuildOptionsResolution: Equatable, Sendable, Decodable {
     package let fingerprint: String
 }
 
-/// Stored option values, keyed by workspace and build-system ID, which is
-/// how `build.detect` takes them.
+/// Shared option values follow `build.detect`'s workspace/build-system keys.
+/// An instance's explicit empty multi-selection overrides that shared value;
+/// it is stored separately so sibling-only choices survive.
 @MainActor
 package protocol BuildOptionsStoring: AnyObject {
     func options(workspaceURL: URL, buildSystemID: String) -> [String: ToolingJSONValue]
     func setOptions(_ options: [String: ToolingJSONValue], workspaceURL: URL, buildSystemID: String)
+    /// Option IDs explicitly cleared at each workspace-relative instance root.
+    func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) -> [String: Set<String>]
+    func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String)
 }
 
 // MARK: Plans

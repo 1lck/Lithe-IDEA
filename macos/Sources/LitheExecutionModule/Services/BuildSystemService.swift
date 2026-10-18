@@ -253,6 +253,12 @@ package final class BuildSystemService: ObservableObject {
             },
             uniquingKeysWith: { first, _ in first }
         )
+        let emptyMultiSelectOptions = Dictionary(
+            sources.flatMap(\.buildSystems).map {
+                ($0.id, optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: $0.id))
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         let previous = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
         let modelRevisions = modelRevisions
         let dependencyRevisions = dependencyRevisions
@@ -266,6 +272,7 @@ package final class BuildSystemService: ObservableObject {
                         workspaceURL: workspaceURL,
                         sources: sources,
                         storedOptions: storedOptions,
+                        emptyMultiSelectOptions: emptyMultiSelectOptions,
                         previous: previous
                     )
                 }
@@ -306,9 +313,7 @@ package final class BuildSystemService: ObservableObject {
                 let inputs = self.entries.map { entry in
                     LanguageImportInput(
                         entry: entry,
-                        options: self.optionsStore.options(
-                            workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
-                        )
+                        options: self.storedOptions(for: entry, workspaceURL: workspaceURL)
                     )
                 }
                 // Discovery is passive: importing a project cannot execute a
@@ -923,6 +928,12 @@ package final class BuildSystemService: ObservableObject {
         let buildSystemID = entry.instance.buildSystemID
         var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         stored[optionID] = value
+        var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        for root in Array(empty.keys) {
+            empty[root]?.remove(optionID)
+            if empty[root]?.isEmpty == true { empty[root] = nil }
+        }
+        optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         refreshOptions(buildSystemID: buildSystemID)
         // The options take part in the sync fingerprint, so a changed value
@@ -930,37 +941,57 @@ package final class BuildSystemService: ObservableObject {
         detect()
     }
 
-    /// An instance editor sees only values accepted by that instance. Replacing
-    /// its multi-selection must preserve choices that are visible only in a
-    /// sibling instance; reset still removes the complete stored override.
+    /// An instance editor preserves sibling-only choices in the shared value.
+    /// Explicit empty selections also need an instance marker: sibling-only
+    /// values would otherwise be rejected by Core and revive a non-empty default.
+    /// Reset still removes the option's complete shared and instance overrides.
     package func setInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
-        if case .array(let next)? = value,
-           let option = entry.options.first(where: { $0.id == optionID }), option.kind == .multiSelect,
-           case .array(let visible) = option.value,
-           case .array(let stored)? = optionsStore.options(
-               workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
-           )[optionID] {
-            let siblingValues = stored.filter { !visible.contains($0) }
-            let merged = siblingValues + next.filter { !siblingValues.contains($0) }
-            setOption(entryID, optionID: optionID, value: .array(merged))
-        } else {
+        guard case .array(let next)? = value,
+              let option = entry.options.first(where: { $0.id == optionID }), option.kind == .multiSelect,
+              case .array(let visible) = option.value else {
             setOption(entryID, optionID: optionID, value: value)
+            return
         }
+        let buildSystemID = entry.instance.buildSystemID
+        var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let values: [ToolingJSONValue]
+        if case .array(let items)? = stored[optionID] { values = items } else { values = [] }
+        let siblingValues = values.filter { !visible.contains($0) }
+        stored[optionID] = .array(siblingValues + next.filter { !siblingValues.contains($0) })
+        var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let root = entry.instance.root
+        if next.isEmpty {
+            empty[root, default: []].insert(optionID)
+        } else {
+            empty[root]?.remove(optionID)
+            if empty[root]?.isEmpty == true { empty[root] = nil }
+        }
+        optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        refreshOptions(buildSystemID: buildSystemID)
+        detect()
     }
 
     private func refreshOptions(buildSystemID: String) {
         guard let workspaceURL else { return }
         let stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         var resolutions: [BuildOptionsResolution] = []
         for index in entries.indices where entries[index].instance.buildSystemID == buildSystemID {
+            let entry = entries[index]
             guard let resolution = try? planner.resolveOptions(
-                entries[index].target,
-                options: stored,
-                modelValues: entries[index].model?.optionValues
+                entry.target, options: stored, modelValues: entry.model?.optionValues
             ) else { continue }
-            entries[index].options = resolution.options
+            // Shared storage is pruned against the shared value, never an
+            // empty instance override that could hide a sibling's valid choice.
             resolutions.append(resolution)
+            let input = Self.applyingEmptySelections(
+                to: stored, optionIDs: empty[entry.instance.root] ?? [], options: resolution.options
+            )
+            entries[index].options = input == stored ? resolution.options : (
+                try? planner.resolveOptions(entry.target, options: input, modelValues: entry.model?.optionValues)
+            )?.options ?? resolution.options
         }
         // Options are stored per workspace and build system, but a model
         // value is valid for one instance. Keep a value as long as any
@@ -1030,21 +1061,38 @@ package final class BuildSystemService: ObservableObject {
         }
     }
 
+    private func storedOptions(for entry: BuildSystemEntry, workspaceURL: URL) -> [String: ToolingJSONValue] {
+        let buildSystemID = entry.instance.buildSystemID
+        return Self.applyingEmptySelections(
+            to: optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID),
+            optionIDs: optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)[entry.instance.root] ?? [],
+            options: entry.options
+        )
+    }
+
+    nonisolated private static func applyingEmptySelections(
+        to stored: [String: ToolingJSONValue], optionIDs: Set<String>, options: [BuildResolvedOption]
+    ) -> [String: ToolingJSONValue] {
+        var values = stored
+        // A plugin update may change the kind; an old empty marker must not
+        // turn a text or boolean option into an array.
+        for option in options where option.kind == .multiSelect && optionIDs.contains(option.id) {
+            values[option.id] = .array([])
+        }
+        return values
+    }
+
     // MARK: Commands
 
     private func optionFingerprint(_ entry: BuildSystemEntry, workspaceURL: URL) -> String? {
-        let stored = optionsStore.options(
-            workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
-        )
+        let stored = storedOptions(for: entry, workspaceURL: workspaceURL)
         return (try? planner.resolveOptions(
             entry.target, options: stored, modelValues: entry.model?.optionValues
         ))?.fingerprint
     }
 
     private func planContext(_ entry: BuildSystemEntry, workspaceURL: URL) throws -> BuildPlanContext {
-        let stored = optionsStore.options(
-            workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
-        )
+        let stored = storedOptions(for: entry, workspaceURL: workspaceURL)
         let resolution = try? planner.resolveOptions(
             entry.target, options: stored, modelValues: entry.model?.optionValues
         )
@@ -1281,6 +1329,7 @@ package final class BuildSystemService: ObservableObject {
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
         storedOptions: [String: [String: ToolingJSONValue]],
+        emptyMultiSelectOptions: [String: [String: Set<String>]],
         previous: [String: BuildSystemEntry]
     ) throws -> Detected {
         let detection = try planner.detect(workspaceURL: workspaceURL, sources: sources, options: storedOptions)
@@ -1307,10 +1356,18 @@ package final class BuildSystemService: ObservableObject {
                 ? earlier?.model
                 : nil
             let model = instance.model ?? kept
-            let resolution = try? planner.resolveOptions(
+            let sharedResolution = try? planner.resolveOptions(
                 target, options: stored, modelValues: model?.optionValues
             )
-            let options = Self.effectiveOptionValues(resolution, stored: stored)
+            let input = Self.applyingEmptySelections(
+                to: stored,
+                optionIDs: emptyMultiSelectOptions[instance.buildSystemID]?[instance.root] ?? [],
+                options: sharedResolution?.options ?? []
+            )
+            let resolution = input == stored ? sharedResolution : try? planner.resolveOptions(
+                target, options: input, modelValues: model?.optionValues
+            )
+            let options = Self.effectiveOptionValues(resolution, stored: input)
             let sync = try? planner.syncFingerprint(
                 target, workspaceURL: workspaceURL, root: instance.root,
                 projects: model?.projects.map(\.path) ?? [], options: options

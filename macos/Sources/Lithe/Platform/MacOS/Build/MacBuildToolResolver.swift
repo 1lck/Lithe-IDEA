@@ -293,6 +293,25 @@ final class MacBuildOptionsStore: BuildOptionsStoring {
         store.set(try? encoder.encode(options), forKey: key)
     }
 
+    func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) -> [String: Set<String>] {
+        let key = Self.key(workspaceURL: workspaceURL, buildSystemID: buildSystemID) + ".EmptyMultiSelect"
+        guard let data = store.data(forKey: key),
+              let options = try? JSONDecoder().decode([String: [String]].self, from: data) else { return [:] }
+        return options.mapValues { Set($0) }
+    }
+
+    func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String) {
+        let key = Self.key(workspaceURL: workspaceURL, buildSystemID: buildSystemID) + ".EmptyMultiSelect"
+        let nonempty = options.filter { !$0.value.isEmpty }
+        guard !nonempty.isEmpty else {
+            store.set(nil, forKey: key)
+            return
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        store.set(try? encoder.encode(nonempty.mapValues { $0.sorted() }), forKey: key)
+    }
+
     private static func key(workspaceURL: URL, buildSystemID: String) -> String {
         keyPrefix + buildSystemID + "." + MacPluginStateDirectories.workspaceDigest(workspaceURL)
     }

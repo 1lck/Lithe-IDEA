@@ -658,6 +658,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func shutdownProjectSession() async {
+        // Native window close can retain this model through Settings without
+        // closing its workspace. Revoke page requests before teardown can yield.
+        services.pluginWebPages.closeAll()
         workbenchFeature.endLayoutSession()
         await ideCapabilities.shutdown()
         shortcutSessionCoordinator?.shutdown()
