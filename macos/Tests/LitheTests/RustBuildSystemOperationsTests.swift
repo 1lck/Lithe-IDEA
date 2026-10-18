@@ -185,30 +185,41 @@ struct RustBuildSystemOperationsTests {
     @Test
     func languageImportMapsPluginOptionIDsWithoutBuildSystemNameAssumptions() throws {
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: workspace) }
-        var manifest = try #require(JSONSerialization.jsonObject(with: Self.fixtureData("maven-build")) as? [String: Any])
-        var systems = try #require(manifest["buildSystems"] as? [[String: Any]])
-        systems[0]["languageImport"] = ["kind": "maven", "options": [
-            "profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository"
-        ]]
-        manifest["buildSystems"] = systems
-        let target = BuildSystemTarget(manifest: try JSONSerialization.data(withJSONObject: manifest), buildSystemID: "maven")
-        let value = try operations.languageImport(
-            target, workspaceURL: workspace, root: ".",
-            options: ["profiles": .array([.string("dev")]), "settingsFile": .string("/fixture/settings.xml"),
-                      "localRepository": .string("/fixture/repository")],
-            executableURL: URL(fileURLWithPath: "/fixture/tool/bin/mvn")
+        try FileManager.default.createDirectory(
+            at: workspace.appendingPathComponent("gradle/wrapper"), withIntermediateDirectories: true
         )
-        guard case .maven(let context) = value else {
-            Issue.record("Expected the declared language import")
-            return
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        try Data("distributionUrl=fixture".utf8).write(
+            to: workspace.appendingPathComponent("gradle/wrapper/gradle-wrapper.properties")
+        )
+        for kind in ["maven", "gradle"] {
+            var manifest = try #require(JSONSerialization.jsonObject(with: Self.fixtureData("maven-build")) as? [String: Any])
+            var systems = try #require(manifest["buildSystems"] as? [[String: Any]])
+            systems[0]["languageImport"] = kind == "maven"
+                ? ["kind": kind, "options": ["profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository"]]
+                : ["kind": kind, "options": ["offline": "offline", "gradleUserHome": "localRepository"]]
+            manifest["buildSystems"] = systems
+            let target = BuildSystemTarget(manifest: try JSONSerialization.data(withJSONObject: manifest), buildSystemID: "maven")
+            let value = try operations.languageImport(
+                target, workspaceURL: workspace, root: ".",
+                options: ["profiles": .array([.string("dev")]), "settingsFile": .string("/settings.xml"),
+                          "localRepository": .string("/cache"), "offline": .bool(true)],
+                executableURL: URL(fileURLWithPath: "/tool/bin/mvn")
+            )
+            switch value {
+            case .maven(let context):
+                #expect(kind == "maven")
+                #expect(context.profiles == ["dev"])
+                #expect(context.settingsPath == "/settings.xml")
+                #expect(context.localRepositoryPath == "/cache")
+                #expect(context.mavenExecutablePath == "/tool/bin/mvn")
+                #expect(!context.skipTests)
+            case .gradle(let context):
+                #expect(kind == "gradle")
+                #expect(context == JavaGradleImportConfiguration(wrapperPresent: true, offline: true, userHome: "/cache"))
+            case nil: Issue.record("Expected the declared language import")
+            }
         }
-        #expect(context.profiles == ["dev"])
-        #expect(context.settingsPath == "/fixture/settings.xml")
-        #expect(context.localRepositoryPath == "/fixture/repository")
-        #expect(context.mavenExecutablePath == "/fixture/tool/bin/mvn")
-        #expect(!context.skipTests)
         #expect(try operations.languageImport(
             Self.target("cargo-build", "cargo"), workspaceURL: workspace, root: ".", options: [:], executableURL: nil
         ) == nil)

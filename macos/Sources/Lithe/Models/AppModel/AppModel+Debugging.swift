@@ -21,7 +21,7 @@ extension AppModel {
             await feature.applyJavaServiceUpdate { target, source, root in
                 guard self.isCurrentWorkspace(identity), await self.saveAllDocuments(),
                       self.isCurrentWorkspace(identity) else { throw CancellationError() }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                 guard self.isCurrentWorkspace(identity), feature.activeSessionID == updateSessionID,
                       feature.isSessionActive else { throw CancellationError() }
                 try await sessions.buildJavaServiceUpdate(target: target, fileURL: source, rootURL: root)
@@ -39,7 +39,7 @@ extension AppModel {
                       self.isCurrentWorkspace(identity), feature.activeSessionID == sessionID else {
                     throw CancellationError()
                 }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                 let preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root)
                 switch preparation {
                 case .ready(let target): return target
@@ -451,7 +451,7 @@ extension AppModel {
                 portChecker: debugPortAvailabilityChecker,
                 resolveJavaTarget: { [weak self] in
                     guard let self else { return nil }
-                    let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                    let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                     let preparation = try await sessions.prepareJavaRunLaunchTarget(
                         fileURL: fileURL,
                         rootURL: workspaceURL
