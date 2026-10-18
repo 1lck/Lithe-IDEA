@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import LitheCoreContracts
 
@@ -367,13 +368,70 @@ struct ProjectRuntimeSettingsView: View {
             : nil
     }
 
+    /// The same precedence Maven applies: the explicit Lithe override, then
+    /// `<localRepository>` in the user settings, then the installation's
+    /// `conf/settings.xml`, and finally the default repository.
     private var effectiveMavenLocalRepositoryPath: String? {
         if let path = model.mavenFeatureIfActive?.localRepositoryPath, !path.isEmpty { return path }
         let configured = feature.settings.mavenLocalRepositoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !configured.isEmpty { return configured }
-        let repository = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".m2/repository")
-        return FileManager.default.fileExists(atPath: repository.path) ? repository.path : nil
+        for settings in mavenSettingsCandidates {
+            if let repository = Self.localRepository(inSettingsAt: settings) {
+                return repository
+            }
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".m2/repository").path
+    }
+
+    /// User settings first; the installation's global settings are merged
+    /// below them and can define `<localRepository>` when the user file does
+    /// not.
+    private var mavenSettingsCandidates: [String] {
+        var paths: [String] = []
+        if let path = model.mavenFeatureIfActive?.settingsPath, !path.isEmpty {
+            paths.append(path)
+        } else {
+            let configured = feature.settings.mavenSettingsPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            let userSettings = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".m2/settings.xml")
+            if !configured.isEmpty {
+                paths.append(configured)
+            } else if FileManager.default.fileExists(atPath: userSettings.path) {
+                paths.append(userSettings.path)
+            }
+        }
+        if let workspaceURL = model.workspaceURL,
+           let executable = feature.mavenChoice(
+               at: workspaceURL,
+               overridePath: feature.settings.mavenExecutableOverride
+           ).url {
+            let installationSettings = executable
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("conf/settings.xml")
+            if FileManager.default.fileExists(atPath: installationSettings.path),
+               !paths.contains(installationSettings.path) {
+                paths.append(installationSettings.path)
+            }
+        }
+        return paths
+    }
+
+    private static func localRepository(inSettingsAt path: String) -> String? {
+        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+        let parser = XMLParser(data: data)
+        let reader = MavenLocalRepositoryReader()
+        parser.delegate = reader
+        parser.shouldResolveExternalEntities = false
+        guard parser.parse(), var value = reader.value, !value.isEmpty else { return nil }
+        value = value.replacingOccurrences(of: "${user.home}", with: NSHomeDirectory())
+        if value.hasPrefix("~") {
+            value = NSHomeDirectory() + String(value.dropFirst())
+        }
+        // Unresolved property expressions and relative paths cannot be
+        // reported as the actual repository; leave the field unknown instead.
+        return value.hasPrefix("/") ? value : nil
     }
 
     private func labeledValue(_ title: String, _ value: String) -> some View {
@@ -614,5 +672,41 @@ struct ProjectRuntimeSettingsView: View {
                 model.persistProjectRuntimeSettings()
             }
         )
+    }
+}
+
+/// Reads only `<localRepository>` from a Maven settings file.
+private final class MavenLocalRepositoryReader: NSObject, XMLParserDelegate {
+    var value: String?
+    private var isReading = false
+    private var text = ""
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        if elementName == "localRepository" {
+            isReading = true
+            text = ""
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if isReading { text += string }
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        if elementName == "localRepository", isReading {
+            value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            isReading = false
+        }
     }
 }
