@@ -8,6 +8,7 @@ mod json_edit;
 mod model;
 mod parse;
 mod plan;
+mod source_hash;
 mod toml_edit;
 
 pub use model::{McpKeyValue, McpServer, McpTransport};

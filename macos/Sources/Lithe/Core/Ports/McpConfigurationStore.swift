@@ -66,6 +66,8 @@ struct McpServerDefinition: Codable, Hashable, Identifiable, Sendable {
     var headers: [McpKeyValue]
     /// Identity hash produced by Core; empty for drafts that have not been saved.
     var definitionHash: String
+    /// Full source entry version, including Agent-specific fields absent from the editor.
+    var sourceHash: String? = nil
 
     /// Library identity: the same name with a different definition is a
     /// separate row so two agents never silently share an unrelated server.
@@ -92,7 +94,7 @@ struct McpServerDefinition: Codable, Hashable, Identifiable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, transport, command, args, env, url, headers, definitionHash
+        case name, transport, command, args, env, url, headers, definitionHash, sourceHash
     }
 
     init(from decoder: Decoder) throws {
@@ -105,13 +107,22 @@ struct McpServerDefinition: Codable, Hashable, Identifiable, Sendable {
         url = try container.decodeIfPresent(String.self, forKey: .url)
         headers = try container.decodeIfPresent([McpKeyValue].self, forKey: .headers) ?? []
         definitionHash = try container.decodeIfPresent(String.self, forKey: .definitionHash) ?? ""
+        sourceHash = try container.decodeIfPresent(String.self, forKey: .sourceHash)
     }
 }
 
-/// Ledger entry recording that Lithe wrote a name at a known definition.
+/// Ledger entry recording that Lithe wrote a complete source entry.
 struct McpOwnedEntry: Codable, Hashable, Sendable {
     let name: String
     let definitionHash: String
+    /// Missing in legacy records, which must be adopted again before automatic writes.
+    let sourceHash: String?
+
+    init(name: String, definitionHash: String, sourceHash: String? = nil) {
+        self.name = name
+        self.definitionHash = definitionHash
+        self.sourceHash = sourceHash
+    }
 }
 
 /// One `set` or `remove` plan request sent to Core.
@@ -127,6 +138,8 @@ struct McpWriteRequest: Encodable, Sendable {
     /// applying the new definition so unmodeled fields survive.
     let previousName: String?
     let owned: [McpOwnedEntry]
+    /// Full source version shown when editing; independent of the latest ledger.
+    var expectedHash: String? = nil
 }
 
 /// Core's plan: the next file text plus whether anything changed.
@@ -139,6 +152,8 @@ struct McpWritePlan: Decodable, Sendable {
     /// Identity hash Core derived from the definition it planned, so the
     /// ledger records the hash of the bytes that actually reached the file.
     let definitionHash: String?
+    /// Complete source version derived from the planned output, not the draft.
+    let sourceHash: String?
 }
 
 /// One compare-and-replace operation in an all-or-rollback batch.

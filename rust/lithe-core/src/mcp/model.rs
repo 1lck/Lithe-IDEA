@@ -59,9 +59,13 @@ pub struct McpServer {
     /// Request headers for `http` and `sse` servers.
     #[serde(default)]
     pub headers: Vec<McpKeyValue>,
-    /// SHA-256 of the normalized definition, used for ownership checks.
+    /// SHA-256 of the normalized definition, used for library grouping.
     #[serde(default)]
     pub definition_hash: String,
+    /// SHA-256 of the complete parsed entry, including unknown fields and name.
+    /// Absent on older host requests or definitions not yet written to a source.
+    #[serde(default)]
+    pub source_hash: Option<String>,
 }
 
 impl McpServer {
@@ -87,6 +91,7 @@ impl McpServer {
             url,
             headers,
             definition_hash: String::new(),
+            source_hash: None,
         };
         server.definition_hash = server.compute_hash();
         server
@@ -97,7 +102,7 @@ impl McpServer {
         self.definition_hash = self.compute_hash();
     }
 
-    /// Canonical identity: name plus every value that affects how the server runs.
+    /// Grouping identity: name plus modeled values used by the active transport.
     ///
     /// Env and header entries are sorted here rather than only at construction:
     /// the write path deserializes definitions from the host, and its hash must

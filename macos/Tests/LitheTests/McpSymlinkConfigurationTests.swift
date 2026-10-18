@@ -15,7 +15,9 @@ struct McpSymlinkConfigurationTests {
         let plan = try store.planWrite(McpWriteRequest(
             source: agent.sourceName, scope: "global", projectPath: nil, content: source,
             operation: "set", server: server, name: nil, previousName: nil,
-            owned: [McpOwnedEntry(name: server.name, definitionHash: server.definitionHash)]
+            owned: [McpOwnedEntry(
+                name: server.name, definitionHash: server.definitionHash, sourceHash: server.sourceHash
+            )]
         ), for: fixture.file)
         #expect(plan.conflict == nil)
 

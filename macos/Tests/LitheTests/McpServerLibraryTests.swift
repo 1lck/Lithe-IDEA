@@ -8,6 +8,179 @@ import Testing
 /// ownership ledger, backups and project registration around it.
 @MainActor
 struct McpServerLibraryTests {
+    @Test(arguments: McpAgent.allCases, [false, true])
+    func staleEditorCannotOverwriteAnotherWindowsSave(agent: McpAgent, refreshBeforeSave: Bool) throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let first = fixture.feature()
+        var initial = first.makeDraft()
+        initial.name = "alpha"
+        initial.command = "/bin/echo"
+        initial.argumentsText = "before"
+        initial.enabledAgents = [agent]
+        #expect(first.save(initial))
+        let original = try #require(first.rows.first)
+        var stale = first.draft(for: original)
+
+        // Two feature models share files and the ledger, with a controlled save
+        // order. No threads or timing assumptions are needed to expose the race.
+        let second = fixture.feature()
+        second.refresh()
+        var newer = second.draft(for: try #require(second.rows.first))
+        newer.argumentsText = "other-window"
+        #expect(second.save(newer))
+        let url = agent == .codex ? fixture.codexURL : fixture.claudeURL
+        let expected = try fixture.text(at: url)
+        let ledger = try #require(fixture.ledger.data(forKey: "settings.mcpServerRegistrations"))
+        if refreshBeforeSave { first.refresh() }
+
+        // A stale save must also fail when its desired fields happen to equal
+        // disk: an unchanged fast path must not silently accept the old editor.
+        stale.argumentsText = refreshBeforeSave ? "other-window" : "stale-write"
+        #expect(first.save(stale) == false)
+        #expect(first.error?.contains("outside Lithe") == true)
+        #expect(try fixture.text(at: url) == expected)
+        #expect(fixture.ledger.data(forKey: "settings.mcpServerRegistrations") == ledger)
+        #expect(first.lastBackupURL == nil)
+    }
+
+    @Test(arguments: ["bearer_token_env_var = \"CHANGED_TOKEN\"", "startup_timeout_sec = 90"])
+    func codexUnmodeledChangesBlockOwnedRemovalAndStaleEdits(field: String) throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedCodex("""
+        [mcp_servers.alpha]
+        url = "https://example.invalid/mcp"
+        bearer_token_env_var = "ORIGINAL_TOKEN"
+        startup_timeout_sec = 30
+        """)
+        let feature = fixture.feature()
+        feature.refresh()
+        let unowned = try #require(feature.rows.first)
+        feature.takeOwnership(of: unowned, agent: .codex)
+        let owned = try #require(feature.rows.first)
+        var stale = feature.draft(for: owned)
+        let ledger = try #require(fixture.ledger.data(forKey: "settings.mcpServerRegistrations"))
+        let external = try fixture.codexText()
+            .replacingOccurrences(
+                of: field.hasPrefix("bearer") ? "bearer_token_env_var = \"ORIGINAL_TOKEN\"" : "startup_timeout_sec = 30",
+                with: field
+            )
+        try fixture.seedCodex(external)
+        feature.refresh()
+        let changed = try #require(feature.rows.first)
+        #expect(changed.id == owned.id)
+        #expect(changed.ownedGlobalAgents.isEmpty)
+        #expect(feature.setAgent(.codex, enabled: false, for: owned) == false)
+        #expect(feature.delete(owned) == false)
+        stale.url = "https://example.invalid/edited"
+        #expect(feature.save(stale) == false)
+        stale.name = "renamed"
+        #expect(feature.save(stale) == false)
+        #expect(try fixture.codexText() == external)
+        #expect(fixture.ledger.data(forKey: "settings.mcpServerRegistrations") == ledger)
+        #expect(feature.lastBackupURL == nil)
+    }
+
+    @Test
+    func mergedAgentsUseTheirOwnFullSourceVersionsWhenEditing() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedClaude("""
+        {"mcpServers":{"alpha":{"url":"https://example.invalid/mcp","type":"http","vendorFlag":true}}}
+        """)
+        try fixture.seedCodex("""
+        [mcp_servers.alpha]
+        url = "https://example.invalid/mcp"
+        bearer_token_env_var = "TOKEN_NAME"
+        """)
+        let feature = fixture.feature()
+        feature.refresh()
+        #expect(feature.rows.count == 1)
+        let row = try #require(feature.rows.first)
+        #expect(Set(row.globalSources.compactMap(\.sourceHash)).count == 2)
+        var draft = feature.draft(for: row)
+        draft.url = "https://example.invalid/updated"
+        #expect(feature.save(draft))
+        #expect(try fixture.claudeText().contains("vendorFlag"))
+        #expect(try fixture.codexText().contains("TOKEN_NAME"))
+        #expect(try #require(feature.rows.first).ownedGlobalAgents == Set(McpAgent.allCases))
+    }
+
+    @Test
+    func projectCleanupKeepsAgentSpecificExternalChanges() throws {
+        let fixture = try Fixture(workspace: true)
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        feature.registerLitheServer(McpServerDefinition(name: "lithe", command: "/bin/echo"))
+        #expect(feature.litheRegistration == .registered)
+        let url = fixture.workspace.appendingPathComponent(".codex/config.toml")
+        let external = try fixture.text(at: url) + "\nstartup_timeout_sec = 90\n"
+        try fixture.write(external, to: url)
+        let ledger = try #require(fixture.ledger.data(forKey: "settings.mcpServerRegistrations"))
+        let before = try JSONDecoder().decode([String: [McpOwnedEntry]].self, from: ledger)
+
+        fixture.clearWorkspace()
+        feature.unregisterLitheServer()
+
+        #expect(try fixture.text(at: url) == external)
+        #expect(feature.error?.contains("outside Lithe") == true)
+        let after = try JSONDecoder().decode(
+            [String: [McpOwnedEntry]].self,
+            from: try #require(fixture.ledger.data(forKey: "settings.mcpServerRegistrations"))
+        )
+        let key = "codex|project|\(fixture.workspace.path)"
+        #expect(after[key] == before[key])
+        #expect(try fixture.claudeText().contains("\"lithe\"") == false)
+    }
+
+    @Test
+    func repeatedProjectRegistrationDoesNotAdoptExternalTimeoutChanges() throws {
+        let fixture = try Fixture(workspace: true)
+        defer { fixture.cleanUp() }
+        let feature = fixture.feature()
+        let server = McpServerDefinition(name: "lithe", command: "/bin/echo")
+        feature.registerLitheServer(server)
+        #expect(feature.litheRegistration == .registered)
+        let url = fixture.workspace.appendingPathComponent(".codex/config.toml")
+        let external = try fixture.text(at: url) + "\nstartup_timeout_sec = 90\n"
+        try fixture.write(external, to: url)
+        let ledger = try #require(fixture.ledger.data(forKey: "settings.mcpServerRegistrations"))
+
+        feature.registerLitheServer(server)
+
+        if case .needsAttention(let message) = feature.litheRegistration {
+            #expect(message.contains("outside Lithe"))
+        } else {
+            Issue.record("Expected unchanged automatic registration to keep the ownership conflict")
+        }
+        #expect(try fixture.text(at: url) == external)
+        #expect(fixture.ledger.data(forKey: "settings.mcpServerRegistrations") == ledger)
+    }
+
+    @Test
+    func legacyLedgerRequiresExplicitAdoptionBeforeAutomaticDeletion() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.seedCodex("[mcp_servers.alpha]\ncommand = \"/bin/echo\"\nstartup_timeout_sec = 90\n")
+        let feature = fixture.feature()
+        feature.refresh()
+        let row = try #require(feature.rows.first)
+        let key = "codex|global|"
+        // Older versions stored no complete source identity. Matching the visible
+        // fields alone cannot prove these Agent-specific settings are still owned.
+        let legacy = [key: [McpOwnedEntry(name: row.name, definitionHash: row.definition.definitionHash)]]
+        fixture.ledger.set(try JSONEncoder().encode(legacy), forKey: "settings.mcpServerRegistrations")
+        let expected = try fixture.codexText()
+        feature.refresh()
+        #expect(try #require(feature.rows.first).ownedGlobalAgents.isEmpty)
+        #expect(feature.delete(row) == false)
+        #expect(try fixture.codexText() == expected)
+        feature.takeOwnership(of: try #require(feature.rows.first), agent: .codex)
+        #expect(feature.delete(try #require(feature.rows.first)))
+        #expect(try fixture.codexText().contains("[mcp_servers.alpha]") == false)
+    }
+
     @Test
     func discoversSameDefinitionFromBothAgentsAsOneRow() throws {
         let fixture = try Fixture()
@@ -749,6 +922,7 @@ private final class Fixture {
     }
 
     var store: MacAgentMcpConfigurationStore { actions.store }
+    var ledger: any KeyValueStore { actions.ledger }
 
     /// Simulates the session URL being cleared before the close callback.
     func clearWorkspace() {

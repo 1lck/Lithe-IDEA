@@ -5,6 +5,8 @@ import Foundation
 struct McpServerSource: Hashable, Identifiable {
     let file: McpConfigurationFile
     let definitionHash: String
+    /// Full entry version for this file; merged Agents can have distinct versions.
+    var sourceHash: String? = nil
     /// True when the ledger records Lithe as the writer of this exact entry.
     let isOwnedByLithe: Bool
 
@@ -88,6 +90,8 @@ struct McpServerDraft: Equatable {
     /// Row being edited; `nil` while adding a server.
     var originalRowID: String?
     var originalName: String?
+    /// Immutable source snapshots captured when the editor opens, even after refresh.
+    private(set) var originalSources: [McpServerSource] = []
     var name: String = ""
     var transport: McpTransport = .stdio
     var command: String = ""
@@ -119,6 +123,7 @@ struct McpServerDraft: Equatable {
     init(row: McpServerRow) {
         originalRowID = row.id
         originalName = row.name
+        originalSources = row.globalSources
         name = row.definition.name
         transport = row.definition.transport
         command = row.definition.command ?? ""
@@ -239,6 +244,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                     let source = McpServerSource(
                         file: file,
                         definitionHash: server.definitionHash,
+                        sourceHash: server.sourceHash,
                         isOwnedByLithe: isOwned(server, in: file)
                     )
                     if var entry = grouped[key] {
@@ -345,7 +351,8 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         let files = store.configurationFiles(workspace: model?.mcpWorkspaceURL)
             .filter { $0.scope == .global }
         let targetFiles = files.filter { draft.enabledAgents.contains($0.agent) }
-        let original = draft.originalRowID.flatMap { id in rows.first { $0.id == id } }
+        let originalName = draft.originalName
+        let originalSources = draft.originalSources
 
         var definition = McpServerDefinition(
             name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -371,31 +378,31 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         }
 
         var operations: [McpConfigurationFile: [Operation]] = [:]
-        let renaming = original.map { $0.name != definition.name } ?? false
-        if let original {
-            // Turning an Agent off removes the entry Lithe wrote there. A
-            // rename keeps the old entry until the set has copied it to the
-            // new name, so only disabled Agents are removed up front.
-            for source in original.globalSources
+        let renaming = originalName.map { $0 != definition.name } ?? false
+        if let originalName {
+            // Disabling an Agent still requires explicit ownership; the captured
+            // version also prevents a stale editor removing a newer owned entry.
+            for source in originalSources
             where !draft.enabledAgents.contains(source.file.agent) {
+                guard source.isOwnedByLithe, let expected = source.sourceHash else {
+                    error = McpLibraryError.notOwned(originalName).localizedDescription
+                    return false
+                }
                 operations[source.file, default: []].append(
-                    .remove(original.name, expectedHash: nil)
+                    .remove(originalName, expectedHash: expected)
                 )
             }
         }
         for file in targetFiles {
-            // An explicit edit of the entry the user opened may replace a
-            // definition Lithe did not write, but only while the on-disk hash
-            // still matches the row that was shown. A stale row refuses.
-            let expected = original?.globalSources.first { $0.file == file }?.definitionHash
-            let previousName: String? = {
-                guard renaming,
-                      let original,
-                      original.globalSources.contains(where: { $0.file == file }) else {
-                    return nil
-                }
-                return original.name
-            }()
+            let source = originalSources.first { $0.file == file }
+            // A source version must remain the one captured when the editor
+            // opened, independent of refreshes and another window's ledger.
+            if source != nil && source?.sourceHash == nil {
+                error = McpLibraryError.externallyModified(originalName ?? definition.name).localizedDescription
+                return false
+            }
+            let expected = source?.sourceHash
+            let previousName = renaming && source != nil ? originalName : nil
             operations[file, default: []].append(.set(
                 definition, expectedHash: expected, previousName: previousName
             ))
@@ -486,7 +493,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         error = nil
         var entries = ledgerEntries(for: source.file)
         entries.removeAll { $0.name == row.name }
-        entries.append(McpOwnedEntry(name: row.name, definitionHash: source.definitionHash))
+        entries.append(McpOwnedEntry(
+            name: row.name, definitionHash: source.definitionHash, sourceHash: source.sourceHash
+        ))
         setLedger(entries, for: source.file)
         refresh()
     }
@@ -528,7 +537,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                 var updated = entries
                 if let hash = plan.definitionHash {
                     updated.removeAll { $0.name == server.name }
-                    updated.append(McpOwnedEntry(name: server.name, definitionHash: hash))
+                    updated.append(McpOwnedEntry(
+                        name: server.name, definitionHash: hash, sourceHash: plan.sourceHash
+                    ))
                 }
                 planned.append((
                     McpConfigurationChange(file: file, source: existing, content: plan.content),
@@ -663,8 +674,8 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     // MARK: - Planning and writing
 
     private enum Operation {
-        /// `expectedHash` is the definition the user was shown for an explicit
-        /// edit; it authorizes replacing an entry Lithe did not write.
+        /// `expectedHash` is the complete source version shown when editing.
+        /// Core requires it to match even when the shared ledger is newer.
         /// `previousName` is set when the edit renames the entry, so Core can
         /// carry unmodeled configuration over to the new name.
         case set(McpServerDefinition, expectedHash: String?, previousName: String?)
@@ -680,7 +691,8 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         server: McpServerDefinition?,
         name: String?,
         previousName: String? = nil,
-        owned: [McpOwnedEntry]
+        owned: [McpOwnedEntry],
+        expectedHash: String? = nil
     ) -> McpWriteRequest {
         McpWriteRequest(
             source: file.agent.sourceName,
@@ -691,7 +703,8 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             server: server,
             name: name,
             previousName: previousName,
-            owned: owned
+            owned: owned,
+            expectedHash: expectedHash
         )
     }
 
@@ -712,20 +725,12 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             let source = try store.read(file)
             var content = source ?? ""
             var entries = ledgerEntries(for: file)
+            var completedRenames: [String: String] = [:]
             var changed = false
             for operation in fileOperations {
                 let plan: McpWritePlan
                 switch operation {
                 case .set(let server, let expectedHash, let previousName):
-                    var planningEntries = entries
-                    if let expectedHash {
-                        // The displayed hash belongs to the entry the user
-                        // edited, which still lives under the old name while a
-                        // rename is being planned.
-                        planningEntries.append(McpOwnedEntry(
-                            name: previousName ?? server.name, definitionHash: expectedHash
-                        ))
-                    }
                     plan = try store.planWrite(
                         request(
                             for: file,
@@ -734,7 +739,8 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                             server: server,
                             name: nil,
                             previousName: previousName,
-                            owned: planningEntries
+                            owned: entries,
+                            expectedHash: expectedHash
                         ),
                         for: file
                     )
@@ -743,16 +749,23 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                     }
                     content = plan.content
                     changed = changed || plan.changed
+                    if let previousName, let expectedHash,
+                       try !store.parse(file, content: content).contains(where: { $0.name == previousName }) {
+                        completedRenames[previousName] = expectedHash
+                    }
                     if let hash = plan.definitionHash {
                         entries.removeAll { $0.name == server.name }
-                        entries.append(McpOwnedEntry(name: server.name, definitionHash: hash))
+                        entries.append(McpOwnedEntry(
+                            name: server.name, definitionHash: hash, sourceHash: plan.sourceHash
+                        ))
                     }
                 case .remove(let name, let expectedHash):
-                    var planningEntries = entries
-                    if let expectedHash {
-                        planningEntries.append(McpOwnedEntry(
-                            name: name, definitionHash: expectedHash
-                        ))
+                    // Codex can move the original while planning the set. Only
+                    // that already-authenticated move satisfies this removal;
+                    // an original missing before planning still conflicts.
+                    if let expectedHash, completedRenames[name] == expectedHash {
+                        entries.removeAll { $0.name == name }
+                        continue
                     }
                     plan = try store.planWrite(
                         request(
@@ -761,7 +774,8 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                             operation: "remove",
                             server: nil,
                             name: name,
-                            owned: planningEntries
+                            owned: entries,
+                            expectedHash: expectedHash
                         ),
                         for: file
                     )
@@ -807,8 +821,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     // MARK: - Ownership ledger
 
     private func isOwned(_ server: McpServerDefinition, in file: McpConfigurationFile) -> Bool {
-        ledgerEntries(for: file).contains {
-            $0.name == server.name && $0.definitionHash == server.definitionHash
+        guard let sourceHash = server.sourceHash else { return false }
+        return ledgerEntries(for: file).contains {
+            $0.name == server.name && $0.sourceHash == sourceHash
         }
     }
 

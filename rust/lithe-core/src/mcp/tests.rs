@@ -27,6 +27,25 @@ fn server_hash(parsed: &Value, name: &str) -> String {
         .to_string()
 }
 
+fn source_hash(parsed: &Value, name: &str) -> String {
+    parsed["servers"]
+        .as_array()
+        .expect("servers array")
+        .iter()
+        .find(|server| server["name"] == name)
+        .and_then(|server| server["sourceHash"].as_str())
+        .expect("source hash")
+        .to_string()
+}
+
+fn owned_entry(parsed: &Value, name: &str) -> Value {
+    json!({
+        "name": name,
+        "definitionHash": server_hash(parsed, name),
+        "sourceHash": source_hash(parsed, name),
+    })
+}
+
 fn plan(request: Value) -> Value {
     plan_write(request).expect("write plan should succeed")
 }
@@ -182,14 +201,13 @@ fn creates_claude_project_container_when_missing() {
 fn removes_only_the_requested_json_entry() {
     let content = "{\n  \"mcpServers\": {\n    \"a\": {\"command\": \"a\"},\n    \"b\": {\"command\": \"b\"}\n  }\n}";
     let parsed = parse("claude", "global", content, None);
-    let hash = server_hash(&parsed, "a");
     let result = plan(json!({
         "source": "claude",
         "scope": "global",
         "content": content,
         "operation": "remove",
         "name": "a",
-        "owned": [{"name": "a", "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, "a")]
     }));
     let next = result["content"].as_str().unwrap();
     let parsed: Value = serde_json::from_str(next).unwrap();
@@ -199,14 +217,13 @@ fn removes_only_the_requested_json_entry() {
 
 fn remove_entry(content: &str, name: &str) -> String {
     let parsed = parse("claude", "global", content, None);
-    let hash = server_hash(&parsed, name);
     let result = plan(json!({
         "source": "claude",
         "scope": "global",
         "content": content,
         "operation": "remove",
         "name": name,
-        "owned": [{"name": name, "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, &name)]
     }));
     let next = result["content"].as_str().unwrap().to_string();
     // Every plan must stay valid for Claude Code to read.
@@ -311,18 +328,17 @@ fn toml_edits_preserve_comments_and_unrelated_tables() {
 }
 
 /// Plans an update of an existing Codex entry, using the ledger hash of the
-/// parsed definition as the host would.
+/// complete parsed entry as the host would.
 fn update_codex(content: &str, server: Value) -> String {
     let name = server["name"].as_str().expect("server name").to_string();
     let parsed = parse("codex", "global", content, None);
-    let hash = server_hash(&parsed, &name);
     let result = plan(json!({
         "source": "codex",
         "scope": "global",
         "content": content,
         "operation": "set",
         "server": server,
-        "owned": [{"name": name, "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, &name)]
     }));
     result["content"].as_str().unwrap().to_string()
 }
@@ -572,14 +588,13 @@ fn refuses_to_edit_a_json_object_with_duplicate_keys() {
     // first; accepting the edit would update a definition the Agent ignores.
     let content = r#"{"mcpServers": {"a": {"command": "first"}, "a": {"command": "second"}}}"#;
     let parsed = parse("claude", "global", content, None);
-    let hash = server_hash(&parsed, "a");
     let error = plan_write(json!({
         "source": "claude",
         "scope": "global",
         "content": content,
         "operation": "remove",
         "name": "a",
-        "owned": [{"name": "a", "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, "a")]
     }))
     .unwrap_err();
     assert!(matches!(error.code, ErrorCode::InvalidRequest));
@@ -590,7 +605,6 @@ fn refuses_to_edit_a_json_object_with_duplicate_keys() {
 fn codex_updates_entries_in_an_inline_mcp_servers_table() {
     let content = r#"mcp_servers = { local = { command = "old" } }"#;
     let parsed = parse("codex", "global", content, None);
-    let hash = server_hash(&parsed, "local");
     let result = plan(json!({
         "source": "codex",
         "scope": "global",
@@ -604,7 +618,7 @@ fn codex_updates_entries_in_an_inline_mcp_servers_table() {
             "env": [],
             "headers": []
         },
-        "owned": [{"name": "local", "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, "local")]
     }));
     assert_eq!(result["action"], "updated");
     let next = result["content"].as_str().unwrap();
@@ -647,14 +661,13 @@ args = [
 fn codex_removes_entries_from_an_inline_mcp_servers_table() {
     let content = r#"mcp_servers = { lithe = { command = "old" }, other = { command = "keep" } }"#;
     let parsed = parse("codex", "global", content, None);
-    let hash = server_hash(&parsed, "lithe");
     let result = plan(json!({
         "source": "codex",
         "scope": "global",
         "content": content,
         "operation": "remove",
         "name": "lithe",
-        "owned": [{"name": "lithe", "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, "lithe")]
     }));
     assert_eq!(result["action"], "removed");
     assert_eq!(result["changed"], true);
@@ -730,7 +743,6 @@ bearer_token_env_var = "REMOTE_TOKEN"
 startup_timeout_sec = 20
 "#;
     let parsed = parse("codex", "global", content, None);
-    let hash = server_hash(&parsed, "remote");
     let result = plan(json!({
         "source": "codex",
         "scope": "global",
@@ -745,7 +757,7 @@ startup_timeout_sec = 20
             "url": "https://example.test/mcp",
             "headers": []
         },
-        "owned": [{"name": "remote", "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, "remote")]
     }));
     let next = result["content"].as_str().unwrap();
     let parsed: toml::Value = toml::from_str(next).unwrap();
@@ -767,7 +779,6 @@ startup_timeout_sec = 20
 fn claude_rename_preserves_unmodelled_fields() {
     let content = r#"{"mcpServers": {"remote": {"type": "http", "url": "https://example.test/mcp", "headers": {"X-Client": "lithe"}, "alwaysAllow": ["search"]}}}"#;
     let parsed = parse("claude", "global", content, None);
-    let hash = server_hash(&parsed, "remote");
     let result = plan(json!({
         "source": "claude",
         "scope": "global",
@@ -782,7 +793,7 @@ fn claude_rename_preserves_unmodelled_fields() {
             "url": "https://example.test/mcp",
             "headers": [{"key": "X-Client", "value": "lithe"}]
         },
-        "owned": [{"name": "remote", "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, "remote")]
     }));
     let next = result["content"].as_str().unwrap();
     let parsed: Value = serde_json::from_str(next).unwrap();
@@ -800,7 +811,6 @@ fn claude_clearing_modeled_entries_keeps_non_string_env_values() {
     let content =
         r#"{"mcpServers": {"local": {"command": "old", "env": {"TOKEN": "x", "COUNT": 3}}}}"#;
     let parsed = parse("claude", "global", content, None);
-    let hash = server_hash(&parsed, "local");
     let result = plan(json!({
         "source": "claude",
         "scope": "global",
@@ -814,7 +824,7 @@ fn claude_clearing_modeled_entries_keeps_non_string_env_values() {
             "env": [],
             "headers": []
         },
-        "owned": [{"name": "local", "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, "local")]
     }));
     let next = result["content"].as_str().unwrap();
     let parsed: Value = serde_json::from_str(next).unwrap();
@@ -853,6 +863,7 @@ fn write_hash_matches_the_reparsed_definition_for_unsorted_entries() {
     // The host stores this hash in the ledger; discovery parses the written
     // file and sorts entries, so both paths must agree.
     assert_eq!(server_hash(&reparsed, "ordered"), hash);
+    assert_eq!(source_hash(&reparsed, "ordered"), result["sourceHash"]);
 }
 
 #[test]
@@ -882,7 +893,6 @@ fn refuses_to_overwrite_a_user_owned_entry() {
 fn explicit_expected_hash_allows_replacing_an_unowned_entry() {
     let content = "{\"mcpServers\": {\"server\": {\"command\": \"user-command\"}}}";
     let parsed = parse("claude", "global", content, None);
-    let hash = server_hash(&parsed, "server");
     let result = plan(json!({
         "source": "claude",
         "scope": "global",
@@ -896,7 +906,8 @@ fn explicit_expected_hash_allows_replacing_an_unowned_entry() {
             "env": [],
             "headers": []
         },
-        "owned": [{"name": "server", "definitionHash": hash}]
+        "expectedHash": source_hash(&parsed, "server"),
+        "owned": []
     }));
     assert_eq!(result["action"], "updated");
     assert_eq!(result["conflict"], Value::Null);
@@ -932,7 +943,6 @@ fn set_detects_external_edits_when_the_ledger_hash_is_stale() {
 fn updates_an_entry_lithe_wrote() {
     let content = "{\"mcpServers\": {\"lithe\": {\"command\": \"old-command\"}}}";
     let parsed = parse("claude", "global", content, None);
-    let hash = server_hash(&parsed, "lithe");
     let result = plan(json!({
         "source": "claude",
         "scope": "global",
@@ -946,7 +956,7 @@ fn updates_an_entry_lithe_wrote() {
             "env": [],
             "headers": []
         },
-        "owned": [{"name": "lithe", "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, "lithe")]
     }));
     assert_eq!(result["action"], "updated");
     assert!(result["content"].as_str().unwrap().contains("new-command"));
@@ -971,15 +981,499 @@ fn removal_detects_external_edits() {
 fn identical_definition_is_a_no_op() {
     let content = "{\"mcpServers\": {\"lithe\": {\"command\": \"lithe-mcp\"}}}";
     let parsed = parse("claude", "global", content, None);
-    let hash = server_hash(&parsed, "lithe");
     let result = plan(json!({
         "source": "claude",
         "scope": "global",
         "content": content,
         "operation": "set",
         "server": parsed["servers"][0],
-        "owned": [{"name": "lithe", "definitionHash": hash}]
+        "owned": [owned_entry(&parsed, "lithe")]
     }));
     assert_eq!(result["action"], "unchanged");
     assert_eq!(result["changed"], false);
+}
+
+/// Unknown authentication, timeout and non-string values must all remain part
+/// of the deletion/edit guard, even though the library cannot edit them.
+fn full_entry_content(source: &str, scope: &str) -> String {
+    match source {
+        "claude" => {
+            let entry = json!({
+                "command": "old",
+                "bearer_token_env_var": "TOKEN_A",
+                "tool_timeout_sec": 20,
+                "auth": {"enabled": true, "providers": ["one", "two"]},
+                "env": {"COUNT": 3},
+            });
+            if scope == "project" {
+                json!({"projects": {"/work/project": {"mcpServers": {"lithe": entry}}}}).to_string()
+            } else {
+                json!({"mcpServers": {"lithe": entry}}).to_string()
+            }
+        }
+        "codex" => concat!(
+            "[mcp_servers.lithe]\ncommand = \"old\"\n",
+            "bearer_token_env_var = \"TOKEN_A\"\ntool_timeout_sec = 20\n",
+            "auth = { enabled = true, providers = [\"one\", \"two\"] }\n",
+            "env = { COUNT = 3 }\n",
+        )
+        .to_string(),
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn unknown_entry_mutations_block_automatic_edit_delete_and_project_cleanup() {
+    for source in ["claude", "codex"] {
+        for scope in ["global", "project"] {
+            let content = full_entry_content(source, scope);
+            let original = parse(source, scope, &content, Some("/work/project"));
+            let owned = owned_entry(&original, "lithe");
+            for (before, after) in [
+                ("TOKEN_A", "TOKEN_B"),
+                ("20", "21"),
+                ("true", "false"),
+                ("two", "three"),
+                ("3", "4"),
+            ] {
+                let changed = content.replace(before, after);
+                let current = parse(source, scope, &changed, Some("/work/project"));
+                assert_eq!(
+                    server_hash(&original, "lithe"),
+                    server_hash(&current, "lithe")
+                );
+                assert_ne!(
+                    source_hash(&original, "lithe"),
+                    source_hash(&current, "lithe")
+                );
+                for operation in ["set", "remove"] {
+                    let mut desired = original["servers"][0].clone();
+                    desired["command"] = json!("updated");
+                    let result = plan(json!({
+                        "source": source,
+                        "scope": scope,
+                        "projectPath": if scope == "project" { json!("/work/project") } else { Value::Null },
+                        "content": changed,
+                        "operation": operation,
+                        "name": "lithe",
+                        "server": desired,
+                        "owned": [owned],
+                    }));
+                    assert_eq!(
+                        result["conflict"], "externallyModified",
+                        "{source} {scope} {operation} {before}"
+                    );
+                    assert_eq!(result["content"], changed);
+                    assert_eq!(result["changed"], false);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn source_hash_ignores_formatting_comments_and_object_key_order() {
+    for (source, first, second) in [
+        (
+            "claude",
+            r#"{"mcpServers":{"lithe":{"command":"old","auth":{"a":1,"b":[true,"x"]}}}}"#,
+            r#"{ "mcpServers": { "lithe": { "auth": { "b": [true, "x"], "a": 1 }, "command": "old" } } }"#,
+        ),
+        (
+            "codex",
+            "[mcp_servers.lithe]\ncommand = 'old'\nauth = { a = 1, b = [true, 'x'] }\n",
+            "# comment\n[mcp_servers.lithe]\nauth = { b = [true, \"x\"], a = 1 } # inline\ncommand = \"old\"\n",
+        ),
+    ] {
+        let first = parse(source, "global", first, None);
+        let second = parse(source, "global", second, None);
+        assert_eq!(source_hash(&first, "lithe"), source_hash(&second, "lithe"));
+        assert_eq!(server_hash(&first, "lithe"), server_hash(&second, "lithe"));
+    }
+}
+
+#[test]
+fn source_hash_distinguishes_unknown_toml_value_types() {
+    let hash = |value: &str| {
+        let content = format!("[mcp_servers.lithe]\ncommand = 'old'\nunknown = {value}\n");
+        source_hash(&parse("codex", "global", &content, None), "lithe")
+    };
+    assert_ne!(hash("1"), hash("1.0"));
+    assert_ne!(hash("1979-05-27"), hash("'1979-05-27'"));
+    assert_ne!(hash("true"), hash("'true'"));
+}
+
+#[test]
+fn legacy_ownership_without_source_hash_refuses_automatic_replace_and_remove() {
+    for source in ["claude", "codex"] {
+        let content = full_entry_content(source, "global");
+        let parsed = parse(source, "global", &content, None);
+        let mut desired = parsed["servers"][0].clone();
+        desired["command"] = json!("updated");
+        for operation in ["set", "remove"] {
+            let result = plan(json!({
+                "source": source,
+                "scope": "global",
+                "content": content,
+                "operation": operation,
+                "name": "lithe",
+                "server": desired,
+                "owned": [{"name": "lithe", "definitionHash": server_hash(&parsed, "lithe")}],
+            }));
+            assert_eq!(result["conflict"], "externallyModified");
+            assert_eq!(result["content"], content);
+        }
+    }
+}
+
+#[test]
+fn stale_expected_hash_refuses_latest_ledger_and_unchanged_desired_definition() {
+    for source in ["claude", "codex"] {
+        let displayed = full_entry_content(source, "global");
+        let original = parse(source, "global", &displayed, None);
+        let changed = displayed.replace("TOKEN_A", "TOKEN_B");
+        let latest = parse(source, "global", &changed, None);
+        for operation in ["set", "remove"] {
+            for desired_command in ["old", "updated"] {
+                let mut desired = latest["servers"][0].clone();
+                desired["command"] = json!(desired_command);
+                let result = plan(json!({
+                    "source": source,
+                    "scope": "global",
+                    "content": changed,
+                    "operation": operation,
+                    "name": "lithe",
+                    "server": desired,
+                    "expectedHash": source_hash(&original, "lithe"),
+                    "owned": [owned_entry(&latest, "lithe")],
+                }));
+                assert_eq!(result["conflict"], "externallyModified");
+                assert_eq!(result["action"], "conflict");
+                assert_eq!(result["content"], changed);
+            }
+        }
+    }
+}
+
+#[test]
+fn expected_hash_requires_the_original_entry_to_still_exist() {
+    for source in ["claude", "codex"] {
+        let content = full_entry_content(source, "global");
+        let parsed = parse(source, "global", &content, None);
+        for operation in ["set", "remove"] {
+            for previous in [Value::Null, json!("lithe")] {
+                let mut desired = parsed["servers"][0].clone();
+                if !previous.is_null() {
+                    desired["name"] = json!("renamed");
+                }
+                let result = plan(json!({
+                    "source": source,
+                    "scope": "global",
+                    "content": "",
+                    "operation": operation,
+                    "previousName": previous,
+                    "name": "lithe",
+                    "server": desired,
+                    "expectedHash": source_hash(&parsed, "lithe"),
+                    "owned": [owned_entry(&parsed, "lithe")],
+                }));
+                assert_eq!(result["conflict"], "externallyModified");
+                assert_eq!(result["content"], "");
+            }
+        }
+    }
+}
+
+#[test]
+fn exact_expected_source_hash_authorizes_unowned_edit_and_remove() {
+    for source in ["claude", "codex"] {
+        let content = full_entry_content(source, "global");
+        let parsed = parse(source, "global", &content, None);
+        for operation in ["set", "remove"] {
+            let mut desired = parsed["servers"][0].clone();
+            desired["command"] = json!("updated");
+            let result = plan(json!({
+                "source": source,
+                "scope": "global",
+                "content": content,
+                "operation": operation,
+                "name": "lithe",
+                "server": desired,
+                "expectedHash": source_hash(&parsed, "lithe"),
+                "owned": [],
+            }));
+            assert_eq!(result["conflict"], Value::Null);
+            assert_eq!(result["changed"], true);
+            let written = parse(source, "global", result["content"].as_str().unwrap(), None);
+            if operation == "set" {
+                assert_eq!(result["sourceHash"], source_hash(&written, "lithe"));
+                assert_eq!(result["definitionHash"], server_hash(&written, "lithe"));
+                assert!(result["content"].as_str().unwrap().contains("TOKEN_A"));
+                // The next automatic cleanup must accept the actual output hash,
+                // including the unknown fields preserved from the original.
+                let removed = plan(json!({
+                    "source": source,
+                    "scope": "global",
+                    "content": result["content"],
+                    "operation": "remove",
+                    "name": "lithe",
+                    "owned": [{"name": "lithe", "definitionHash": result["definitionHash"], "sourceHash": result["sourceHash"]}],
+                }));
+                assert_eq!(removed["action"], "removed");
+            } else {
+                assert!(written["servers"].as_array().unwrap().is_empty());
+            }
+        }
+    }
+}
+
+#[test]
+fn expected_hash_authorizes_only_the_original_of_a_rename() {
+    for source in ["claude", "codex"] {
+        let content = full_entry_content(source, "global");
+        let original = parse(source, "global", &content, None);
+        let mut desired = original["servers"][0].clone();
+        desired["name"] = json!("renamed");
+        let renamed = plan(json!({
+            "source": source,
+            "scope": "global",
+            "content": content,
+            "operation": "set",
+            "previousName": "lithe",
+            "server": desired,
+            "expectedHash": source_hash(&original, "lithe"),
+            "owned": [],
+        }));
+        assert_eq!(renamed["action"], "updated");
+        assert_eq!(renamed["conflict"], Value::Null);
+        let written = parse(source, "global", renamed["content"].as_str().unwrap(), None);
+        assert_eq!(renamed["sourceHash"], source_hash(&written, "renamed"));
+        // Add an unrelated destination whose modeled definition already equals
+        // the rename draft. It must still require its own ownership proof.
+        let with_target = if source == "claude" {
+            let mut root: Value = serde_json::from_str(&content).unwrap();
+            root["mcpServers"]["renamed"] = json!({"command": "old"});
+            root.to_string()
+        } else {
+            format!("{content}\n[mcp_servers.renamed]\ncommand = 'old'\n")
+        };
+        let target_parsed = parse(source, "global", &with_target, None);
+        for owned in [
+            json!([]),
+            json!([{
+                "name": "renamed",
+                "definitionHash": server_hash(&target_parsed, "renamed"),
+            }]),
+        ] {
+            let result = plan(json!({
+                "source": source,
+                "scope": "global",
+                "content": with_target,
+                "operation": "set",
+                "previousName": "lithe",
+                "server": desired,
+                "expectedHash": source_hash(&original, "lithe"),
+                "owned": owned,
+            }));
+            assert_eq!(result["action"], "conflict");
+            assert_eq!(
+                result["conflict"],
+                if owned.as_array().unwrap().is_empty() {
+                    "ownedByUser"
+                } else {
+                    "externallyModified"
+                }
+            );
+            assert_eq!(result["content"], with_target);
+        }
+    }
+}
+
+#[test]
+fn unchanged_set_returns_hashes_of_the_actual_complete_entry() {
+    for source in ["claude", "codex"] {
+        let content = full_entry_content(source, "global");
+        let parsed = parse(source, "global", &content, None);
+        let mut desired = parsed["servers"][0].clone();
+        desired["sourceHash"] = json!("untrusted-draft-hash");
+        let result = plan(json!({
+            "source": source,
+            "scope": "global",
+            "content": content,
+            "operation": "set",
+            "server": desired,
+            "expectedHash": source_hash(&parsed, "lithe"),
+            "owned": [],
+        }));
+        assert_eq!(result["action"], "unchanged");
+        assert_eq!(result["content"], content);
+        assert_eq!(result["sourceHash"], source_hash(&parsed, "lithe"));
+        assert_eq!(result["definitionHash"], server_hash(&parsed, "lithe"));
+    }
+}
+
+#[test]
+fn empty_configurations_still_allow_first_insert_and_absent_removal() {
+    for source in ["claude", "codex"] {
+        for scope in ["global", "project"] {
+            let project = (scope == "project").then_some("/work/project");
+            for content in [None, Some(""), Some("\n \t")] {
+                let request = json!({
+                    "source": source, "scope": scope, "projectPath": project,
+                    "content": content, "operation": "set",
+                    "server": { "name": "alpha", "transport": "stdio", "command": "mcp" },
+                    "owned": [],
+                });
+                let inserted = plan(request.clone());
+                assert_eq!(
+                    inserted["action"], "inserted",
+                    "{source} {scope} {content:?}"
+                );
+                let parsed = parse(
+                    source,
+                    scope,
+                    inserted["content"].as_str().unwrap(),
+                    project,
+                );
+                assert_eq!(inserted["sourceHash"], source_hash(&parsed, "alpha"));
+
+                let mut removal = request.clone();
+                removal["operation"] = json!("remove");
+                removal["name"] = json!("alpha");
+                let absent = plan(removal);
+                assert_eq!(absent["action"], "absent");
+                assert_eq!(absent["content"], content.unwrap_or(""));
+
+                let mut stale = request;
+                stale["expectedHash"] = json!("previous-entry-version");
+                let conflict = plan(stale);
+                assert_eq!(conflict["conflict"], "externallyModified");
+                assert_eq!(conflict["content"], content.unwrap_or(""));
+            }
+        }
+    }
+}
+
+#[test]
+fn automatic_unchanged_set_cannot_adopt_external_or_legacy_entries() {
+    for source in ["claude", "codex"] {
+        for scope in ["global", "project"] {
+            let original_content = full_entry_content(source, scope);
+            let original = parse(source, scope, &original_content, Some("/work/project"));
+            let content = original_content.replace("20", "21");
+            for owned in [
+                json!([]),
+                json!([owned_entry(&original, "lithe")]),
+                json!([{"name": "lithe", "definitionHash": server_hash(&original, "lithe")}]),
+            ] {
+                let result = plan(json!({
+                    "source": source, "scope": scope,
+                    "projectPath": if scope == "project" { Some("/work/project") } else { None },
+                    "content": content, "operation": "set",
+                    "server": original["servers"][0], "owned": owned,
+                }));
+                assert_eq!(result["action"], "conflict");
+                assert_eq!(result["content"], content);
+                assert_eq!(result["changed"], false);
+                assert_eq!(
+                    result["conflict"],
+                    if owned.as_array().unwrap().is_empty() {
+                        "ownedByUser"
+                    } else {
+                        "externallyModified"
+                    }
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn externally_removed_transport_fields_cannot_bypass_ownership() {
+    for source in ["claude", "codex"] {
+        let original_content = full_entry_content(source, "global");
+        let original = parse(source, "global", &original_content, None);
+        let content = if source == "claude" {
+            let mut root: Value = serde_json::from_str(&original_content).unwrap();
+            root["mcpServers"]["lithe"]
+                .as_object_mut()
+                .unwrap()
+                .remove("command");
+            root.to_string()
+        } else {
+            original_content.replace("command = \"old\"\n", "")
+        };
+        assert_eq!(
+            parse(source, "global", &content, None)["servers"],
+            json!([])
+        );
+        for operation in ["set", "remove", "rename"] {
+            let mut desired = original["servers"][0].clone();
+            if operation == "rename" {
+                desired["name"] = json!("renamed");
+            }
+            for owned in [json!([]), json!([owned_entry(&original, "lithe")])] {
+                let result = plan(json!({
+                    "source": source, "scope": "global", "content": content,
+                    "operation": if operation == "remove" { "remove" } else { "set" },
+                    "name": "lithe", "server": desired, "owned": owned,
+                    "previousName": if operation == "rename" { Some("lithe") } else { None },
+                }));
+                assert_eq!(result["action"], "conflict");
+                assert_eq!(result["content"], content);
+                assert_eq!(result["changed"], false);
+            }
+        }
+    }
+}
+
+#[test]
+fn expected_hash_does_not_authorize_an_incomplete_rename_destination() {
+    for source in ["claude", "codex"] {
+        let content = full_entry_content(source, "global");
+        let original = parse(source, "global", &content, None);
+        let mut desired = original["servers"][0].clone();
+        desired["name"] = json!("renamed");
+        let content = if source == "claude" {
+            let mut root: Value = serde_json::from_str(&content).unwrap();
+            root["mcpServers"]["renamed"] = json!({"auth": {"enabled": true}});
+            root.to_string()
+        } else {
+            format!("{content}\n[mcp_servers.renamed]\nauth = {{ enabled = true }}\n")
+        };
+        assert_eq!(
+            parse(source, "global", &content, None)["servers"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        for owned in [
+            json!([]),
+            json!([{
+                "name": "renamed", "definitionHash": "older-definition", "sourceHash": "older-source",
+            }]),
+        ] {
+            let result = plan(json!({
+                "source": source,
+                "scope": "global",
+                "content": content,
+                "operation": "set",
+                "previousName": "lithe",
+                "server": desired,
+                "expectedHash": source_hash(&original, "lithe"),
+                "owned": owned,
+            }));
+            assert_eq!(result["action"], "conflict");
+            assert_eq!(
+                result["conflict"],
+                if owned.as_array().unwrap().is_empty() {
+                    "ownedByUser"
+                } else {
+                    "externallyModified"
+                }
+            );
+            assert_eq!(result["content"], content);
+        }
+    }
 }

@@ -4,6 +4,7 @@
 //! carry API keys and headers, and those values must not reach logs or errors.
 
 use super::model::{McpKeyValue, McpServer, McpTransport};
+use super::source_hash::{claude_source_hash, codex_source_hash};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::Deserialize;
 use serde_json::Value;
@@ -30,8 +31,8 @@ struct ParseRequest {
 /// Parses one Agent configuration file and returns its normalized servers.
 ///
 /// The response shape is `{ "servers": [...] }`; server order follows the
-/// configuration text, and each entry carries a definition hash the host can
-/// store in its ownership ledger.
+/// configuration text. Each entry carries a grouping definition hash and a
+/// complete source hash the host can store in its ownership ledger.
 pub fn parse_configuration(payload: Value) -> Result<Value, CoreError> {
     let request: ParseRequest = serde_json::from_value(payload).map_err(|_| invalid_request())?;
     if request.content.len() > MAX_CONFIGURATION_BYTES {
@@ -103,7 +104,7 @@ pub(crate) fn parse_claude_servers(
             } else {
                 McpTransport::Stdio
             });
-        let Some(server) = build_server(
+        let Some(mut server) = build_server(
             name,
             transport,
             command,
@@ -114,6 +115,7 @@ pub(crate) fn parse_claude_servers(
         ) else {
             continue;
         };
+        server.source_hash = Some(claude_source_hash(name, entry));
         servers.push(server);
     }
     Ok(servers)
@@ -140,7 +142,7 @@ pub(crate) fn parse_codex_servers(content: &str) -> Result<Vec<McpServer>, CoreE
         } else {
             McpTransport::Stdio
         };
-        let Some(server) = build_server(
+        let Some(mut server) = build_server(
             name,
             transport,
             command,
@@ -151,6 +153,7 @@ pub(crate) fn parse_codex_servers(content: &str) -> Result<Vec<McpServer>, CoreE
         ) else {
             continue;
         };
+        server.source_hash = Some(codex_source_hash(name, entry));
         servers.push(server);
     }
     Ok(servers)
