@@ -1287,6 +1287,8 @@ struct EditorAreaView: View {
             ])
         ]
 
+        let attachmentItems = AgentFileAttachmentMenu.items(model: model, urls: [document.url])
+        if !attachmentItems.isEmpty { items += [.separator] + attachmentItems + [.separator] }
         if model.canRevealInProjectTree(document.url) {
             items.append(
                 .action("Reveal in Project Tree", action: {

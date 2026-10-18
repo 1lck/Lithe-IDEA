@@ -27,10 +27,10 @@ enum AgentHistoryPresentation {
     static func popupTitle(_ session: AgentSessionSummary, metadata: AgentHistoryMetadata?,
                            conversation: AgentConversation?, locale: Locale = .current) -> String {
         if let title = metadata?.title ?? session.title { return title }
-        if let prompt = conversation?.messages.first(where: { $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+        if let prompt = conversation?.transcriptMessages.first(where: { $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
             return AgentSessionTitle.provisional(prompt.text)
         }
-        if let conversation, conversation.isAttached, !conversation.isLoading, conversation.messages.isEmpty {
+        if let conversation, conversation.isAttached, !conversation.isLoading, conversation.transcriptMessages.isEmpty {
             return AgentLocalization.string("New Chat", locale: locale)
         }
         return AgentLocalization.string("Untitled conversation", locale: locale)
@@ -72,7 +72,7 @@ enum AgentHistoryPresentation {
         let listedIDs = Set(activeSessions.map(\.id))
         let rows = popupSessions(activeSessions, openSessionIDs: activeOpenIDs, metadata: [:], locale: locale).map { session in
             var row = session
-            if !listedIDs.contains(session.id), let prompt = conversations[session.id]?.messages.first(where: {
+            if !listedIDs.contains(session.id), let prompt = conversations[session.id]?.transcriptMessages.first(where: {
                 $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }) {
                 row.title = AgentSessionTitle.provisional(prompt.text)
@@ -95,8 +95,8 @@ enum AgentHistoryPresentation {
 
     static func messageCount(_ conversation: AgentConversation?) -> Int? {
         guard let conversation, !conversation.isLoading,
-              conversation.isAttached || !conversation.messages.isEmpty else { return nil }
-        return conversation.messages.filter { $0.role == .user || $0.role == .agent }.count
+              conversation.isAttached || !conversation.transcriptMessages.isEmpty else { return nil }
+        return conversation.transcriptMessages.filter { $0.role == .user || $0.role == .agent }.count
     }
 }
 

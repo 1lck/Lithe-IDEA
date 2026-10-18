@@ -1909,3 +1909,26 @@
 "Turn usage" = "Turn usage";
 "Copy reply" = "Copy reply";
 "Copy table" = "Copy table";
+
+"Subagent" = "Subagent";
+
+"Subagents" = "Subagents";
+
+"No subagents yet" = "No subagents yet";
+
+"Subagent task" = "Subagent task";
+
+"Subagent output" = "Subagent output";
+
+"No subagent output yet" = "No subagent output yet";
+
+"Disconnected" = "Disconnected";
+/* File context actions */
+"Add to Current Conversation · %@" = "Add to Current Conversation · %@";
+"Add to Another Conversation" = "Add to Another Conversation";
+"New Conversation" = "New Conversation";
+"Set Up Agent File Attachments…" = "Set Up Agent File Attachments…";
+"Choose existing files to add to a conversation." = "Choose existing files to add to a conversation.";
+"Files added. Save your editor changes before sending so the Agent can read them." = "Files added. Save your editor changes before sending so the Agent can read them.";
+"This conversation is no longer available. Choose another conversation." = "This conversation is no longer available. Choose another conversation.";
+"This Agent is no longer configured. Open Agent settings to configure it." = "This Agent is no longer configured. Open Agent settings to configure it.";

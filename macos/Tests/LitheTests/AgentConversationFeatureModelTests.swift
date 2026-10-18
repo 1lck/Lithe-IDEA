@@ -9,6 +9,131 @@ import Testing
 @MainActor
 struct AgentConversationFeatureModelTests {
     @Test
+    func nativeSubagentsKeepTheirOutputAndToolIdentitySeparateFromTheRoot() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Inspect the sample")
+            try feature.receive(event("toolCall"))
+            #expect(feature.selectedConversation?.subagents.isEmpty == true)
+            try feature.receive(event("subagentSpawned"))
+            try feature.receive(event("nestedSubagentSpawned"))
+            try feature.receive(event("subagentThoughtChunk"))
+            try feature.receive(event("subagentMessageChunk"))
+            try feature.receive(event("subagentToolCall"))
+            // Child guidance is not the parent's plan or model selection.
+            try feature.receive(event("plan", ["sessionId": "child-1"]))
+            try feature.receive(event("sessionConfigured", ["sessionId": "child-1"]))
+            try feature.receive(event("agentMessageChunk"))
+            try feature.receive(event("subagentStateUpdate"))
+            let root = try #require(feature.selectedConversation)
+            #expect(root.subagents.map(\.depth) == [0, 1])
+            #expect(root.subagents.map(\.state) == [.completed, .disconnected])
+            #expect(root.isResponding)
+            #expect(root.plan == nil)
+            #expect(root.messages.filter { $0.role == .tool }.count == 2)
+            #expect(Set(root.messages.filter { $0.role == .tool }.map(\.id)).count == 2)
+            #expect(root.messages.contains { $0.subagentSessionID == "child-1" && $0.role == .thought })
+            #expect(root.messages.contains { $0.subagentSessionID == "child-1" && $0.role == .agent })
+            #expect(root.transcriptMessages.filter { $0.role == .agent }.map(\.text) == ["This project **builds** an IDE."])
+            let messages = root.messages
+            try feature.receive(event("subagentMessageChunk"))
+            try feature.receive(event("turnFinished"))
+            #expect(feature.selectedConversation?.messages.map(\.text) == messages.map(\.text), "Terminal child traffic cannot append output")
+            #expect(feature.selectedConversation?.subagents.map(\.state) == [.completed, .disconnected])
+            #expect(feature.conversations["child-1"] == nil)
+        }
+    }
+
+    @Test
+    func nativeSubagentsStayWithTheirRootAndCannotReattachOrStealARootSession() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Inspect the sample")
+            try feature.receive(event("subagentSpawned"))
+            feature.startNewConversation()
+            try feature.receive(event("sessionCreated", ["sessionId": "session-2", "token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("subagentSpawned", ["sessionId": "session-2"]))
+            try feature.receive(event("subagentSpawned", ["update": ["sessionUpdate": "subagent_spawned",
+                "subagentSessionId": "session-2", "name": "Invalid", "task": "Cannot steal a root"]]))
+            try feature.receive(event("nestedSubagentSpawned"))
+            try feature.receive(event("subagentMessageChunk"))
+            try feature.receive(event("subagentStateUpdate"))
+            #expect(feature.selectedSessionID == "session-2")
+            #expect(feature.selectedConversation?.subagents.isEmpty == true)
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            #expect(feature.conversations["session-1"]?.subagents.map(\.id) == ["child-1", "child-2"])
+            #expect(feature.conversations["session-1"]?.messages.last?.subagentSessionID == "child-1")
+            feature.selectSession("session-1")
+            #expect(feature.selectedConversation?.subagents.first?.state == .completed)
+        }
+    }
+
+    @Test
+    func failedSubagentHistoryReloadRestoresTheOriginalChildRouting() async throws {
+        let transport = TestAgentTransport()
+        let feature = AgentConnectionModel(transport: transport)
+        do {
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections.last?.commands.last?["token"] as Any]))
+            try feature.send("Inspect the sample")
+            try feature.receive(event("subagentSpawned"))
+            try feature.receive(event("subagentMessageChunk"))
+            try feature.receive(event("subagentStateUpdate"))
+            try feature.receive(event("turnFinished"))
+            let original = try #require(feature.selectedConversation)
+            await feature.stop()
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.selectSession("session-1")
+            let load = try #require(transport.connections.last?.commands.last)
+            try feature.receive(event("subagentSpawned", ["update": ["sessionUpdate": "subagent_spawned",
+                "subagentSessionId": "partial-child", "name": "Partial", "task": "Partial replay"]]))
+            try feature.receive(event("requestFailed", ["token": load["token"] as Any, "message": "Replay failed"]))
+            #expect(feature.selectedConversation?.subagents == original.subagents)
+            #expect(feature.selectedConversation?.messages == original.messages)
+            try feature.receive(event("subagentMessageChunk"))
+            #expect(feature.conversations["child-1"] == nil, "Restored ownership ignores late output from the terminal child")
+            #expect(feature.selectedConversation?.messages == original.messages)
+        } catch { await feature.stop(); throw error }
+        await feature.stop()
+    }
+
+    @Test
+    func nativeChildPermissionsUseRootControlsAndHistoryReplaysChildOwnership() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.send("Inspect the sample")
+            try feature.receive(event("subagentSpawned"))
+            try feature.receive(event("subagentToolCall"))
+            let permission: [String: Any] = ["sessionId": "child-1",
+                "toolCall": ["toolCallId": "tool-1", "title": "Read README.md"],
+                "options": [["optionId": "allow_once", "name": "Allow once", "kind": "allow_once"]]]
+            try feature.receive(event("permission", ["request": permission]))
+            let prompt = try #require(feature.selectedConversation?.pendingPermissions.first)
+            #expect(prompt.title == "Explore: Read README.md")
+            #expect(prompt.details.input?.contains("README.md") == true, "Permission evidence comes from the child tool")
+            feature.cancel()
+            #expect(connection.commands.last?["sessionId"] as? String == "session-1")
+            #expect(feature.selectedConversation?.pendingPermissions.isEmpty == true)
+            try feature.receive(event("turnFinished"))
+            // History announces child ownership before replaying child traffic.
+            feature.closeConversation("session-1")
+            feature.selectSession("session-1")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.receive(event("subagentSpawned"))
+            try feature.receive(event("subagentStateUpdate"))
+            try feature.receive(event("sessionLoaded", ["token": token]))
+            #expect(feature.selectedConversation?.subagents.first?.state == .completed)
+            #expect(feature.selectedConversation?.isLoading == false)
+        }
+    }
+
+    @Test
     func delayedAutoFallbackNoticeAfterSelectingPlanDoesNotPolluteTheReply() async throws {
         try await withNoticeFeature { feature, connection, options in
             feature.setConfigOption("mode", value: "plan")

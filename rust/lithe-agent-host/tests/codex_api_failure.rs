@@ -158,6 +158,7 @@ fn run_with(
         )),
         authentication: AgentAuthentication::ApiKey,
         observe_model_calls,
+        observe_subagents: false,
         process_scope: None,
         provider: Some(ProviderCredentials {
             protocol: ProviderProtocol::Responses,
