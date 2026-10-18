@@ -259,7 +259,7 @@ struct BuildSystemToolWindowTests {
         let multi = try Self.option(kind: "multiSelect", value: ["known", "custom"], choices: ["known"])
         let multiItems = BuildOptionRow.choiceItems(option: multi) { submitted = $0 }
         #expect(multiItems.map(\.title) == ["known", "custom"])
-        #expect(multiItems.allSatisfy(\.isChecked))
+        #expect(multiItems.allSatisfy { $0.isChecked })
         multiItems[1].action()
         #expect(submitted == .array([.string("known")]))
         #expect(BuildOptionEditing.customValue("added", in: multi) == .array([.string("known"), .string("custom"), .string("added")]))
@@ -321,6 +321,7 @@ struct BuildSystemToolWindowTests {
         }
     }
 
+    @MainActor
     private static func descendants<T: NSView>(_ view: NSView, of type: T.Type) -> [T] {
         (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants($0, of: type) }
     }
