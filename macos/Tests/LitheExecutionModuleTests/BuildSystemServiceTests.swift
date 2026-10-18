@@ -716,8 +716,12 @@ struct BuildSystemServiceTests {
 
         harness.service.setInstanceOption("fixture:b", optionID: "features", value: .array([]))
         #expect(harness.optionsStore.values["fixture"]?["features"] == .array([.string("fast")]))
-        harness.service.setInstanceOption("fixture:a", optionID: "features", value: nil)
+        harness.service.setInstanceOption("fixture:a", optionID: "features", value: .array([]))
         #expect(harness.optionsStore.values["fixture"]?["features"] == .array([]))
+        // Clearing the final selection keeps an explicit empty override;
+        // resetting removes that override so declaration defaults can apply.
+        harness.service.setInstanceOption("fixture:a", optionID: "features", value: nil)
+        #expect(harness.optionsStore.values["fixture"]?["features"] == nil)
     }
 
     @Test
