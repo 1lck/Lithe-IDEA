@@ -4,13 +4,29 @@ import Foundation
 @MainActor
 package final class GitExecutionSettingsFeatureModel: ObservableObject {
     @Published package private(set) var snapshot: GitExecutionSettingsSnapshot?
+    /// Effective Git binary even when no repository is open; the settings page
+    /// uses it to echo what an empty executable override resolves to.
+    @Published package private(set) var executableResolution: GitExecutableResolution?
     @Published package private(set) var isBusy = false
     @Published package private(set) var errorMessage: String?
     @Published package private(set) var savedKey: String?
     private var generation = 0
+    private var executableGeneration = 0
     private let service: GitService
     package init(service: GitService) { self.service = service }
     package func reset() { generation &+= 1; snapshot = nil; isBusy = false; errorMessage = nil; savedKey = nil }
+    package func loadExecutable() async {
+        executableGeneration &+= 1
+        let generation = executableGeneration
+        let result = await service.executableResolution()
+        guard generation == executableGeneration else { return }
+        switch result {
+        case .success(let resolution): executableResolution = resolution
+        // A failed bridge call still means no runnable Git is known, so the
+        // settings page must not keep showing a stale executable.
+        case .failure: executableResolution = GitExecutableResolution(executable: nil, version: nil)
+        }
+    }
     package func load(at root: URL?, scope: String = "local") async {
         reset()
         guard let root else { return }

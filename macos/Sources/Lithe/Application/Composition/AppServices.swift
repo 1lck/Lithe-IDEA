@@ -10,6 +10,9 @@ import LitheDebugModule
 final class AppServices {
     var ideCapabilityRegistry: IdeCapabilityRegistry?
     var ideHostTransport: (any IdeHostTransport)?
+    /// Codex and Claude Code MCP configuration files. `nil` before platform
+    /// composition, which leaves the settings page read-only.
+    var mcpConfigurationStore: (any McpConfigurationStore)?
     /// Confirms closing terminals with running programs; `nil` closes directly.
     var processExitCoordinator: ProcessExitCoordinator?
     let moduleRuntime: ModuleRuntime
@@ -59,6 +62,7 @@ final class AppServices {
     let agentProviderConfigurationParser: any AgentProviderConfigurationParsing
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
+    let recentProjectBranchReader: any RecentProjectBranchReading
     let workspaceSessionStore: WorkspaceSessionStore
     let directoryMarkStore: any WorkspaceDirectoryMarkStoring
     let workbenchLayoutStore: WorkbenchLayoutStore
@@ -102,6 +106,7 @@ final class AppServices {
         agentProviderConfigurationParser: any AgentProviderConfigurationParsing = UnavailableAgentProviderConfigurationParser(),
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
+        recentProjectBranchReader: any RecentProjectBranchReading = UnavailableRecentProjectBranchReader(),
         workspaceSessionStore: WorkspaceSessionStore,
         directoryMarkStore: any WorkspaceDirectoryMarkStoring,
         workbenchLayoutStore: WorkbenchLayoutStore,
@@ -157,6 +162,7 @@ final class AppServices {
         self.agentProviderConfigurationParser = agentProviderConfigurationParser
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore
+        self.recentProjectBranchReader = recentProjectBranchReader
         self.workspaceSessionStore = workspaceSessionStore
         self.directoryMarkStore = directoryMarkStore
         self.workbenchLayoutStore = workbenchLayoutStore

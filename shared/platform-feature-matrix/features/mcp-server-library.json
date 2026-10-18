@@ -1,0 +1,33 @@
+{
+  "id": "mcp-server-library",
+  "area": "AI",
+  "group": "IDE MCP",
+  "capability": "在设置页统一发现、合并、编辑并删除 Codex 与 Claude Code 已注册的 MCP 服务器，按 Agent 独立启用；项目授权开启时自动写入 Lithe MCP，关闭时按账本清理",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/McpServerLibraryFeatureModel.swift",
+      "macos/Sources/Lithe/Core/Ports/McpConfigurationStore.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MCP/MacAgentMcpConfigurationStore.swift",
+      "macos/Sources/Lithe/Views/App/McpServerLibraryView.swift",
+      "macos/Tests/LitheTests/McpServerLibraryTests.swift",
+      "macos/Tests/LitheTests/McpBatchTransactionTests.swift",
+      "macos/Tests/LitheTests/McpServerSummaryTests.swift",
+      "macos/Tests/LitheTests/McpExcludePreservationTests.swift",
+      "rust/lithe-core/src/mcp/mod.rs",
+      "rust/lithe-core/src/mcp/plan.rs",
+      "rust/lithe-core/src/mcp/tests.rs"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/host-api/mcp-settings.tsx"
+    ]
+  },
+  "owner": "Agent",
+  "notes": "macOS 新增 MCP 服务器资源库：Core 解析 Claude JSON 与 Codex TOML 并生成保格式修改计划，macOS 适配器负责路径、备份和原子写，应用模型维护“名称 + 定义哈希”的身份与所有权账本。只替换或删除 Lithe 写过的条目，外部创建的条目需要显式接管所有权。项目授权开启时把随包分发的 lithe-mcp 写入当前项目的 Claude projects.<path>.mcpServers 和 .codex/config.toml；新建的 Codex 项目配置追加到 .git/info/exclude。保存与项目注册采用批量失败恢复，整批成功后再更新所有权账本；恢复时保留外部新修改并提示未恢复路径。列表摘要隐藏所有命令参数，并移除 URL userinfo、查询和 fragment；Git exclude 保留非 UTF-8 原始字节，已有文件读取失败则停止追加。首版不自动启动服务器做健康检查，env/header 值只在 UI 中遮蔽。Windows 尚未实现该资源库，暂标记为平台专属。",
+  "verification": "运行 cargo test -p lithe-core mcp:: 与 ./scripts/test-macos.sh --filter \"McpServerLibraryTests|McpBatchTransactionTests|McpServerSummaryTests|McpExcludePreservationTests\"，注入两次写入之间的外部修改，确认先前文件恢复、账本不变、回滚时保留外部修改并提示路径；验证 args 与 URL 凭据不在摘要中，以及非 UTF-8 exclude 规则保留、读取失败保护和幂等；覆盖双 Agent 合并、门禁冲突、接管所有权、保格式编辑、项目注册与外部修改保留。实机打开设置 → MCP：无项目时资源库仍列出 Codex/Claude 已有服务器；编辑 env 并保存后检查原文件注释与未知键未丢、备份生成；按 Agent 关闭外部条目被拒绝，接管后可移除。打开项目并启用 MCP，确认 ~/.claude.json 项目条目与 <项目>/.codex/config.toml 写入、.git/info/exclude 包含 .codex/config.toml；禁用后清理，外部改过的条目保留并提示。运行前后对比安装目录文件清单与哈希，确认运行时未写入发行目录。"
+}

@@ -8,6 +8,7 @@
     "verificationStatus": "pending",
     "evidence": [
       "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+      "macos/Sources/Lithe/Application/Features/McpServerLibraryFeatureModel.swift",
       "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
       "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
       "rust/lithe-ide-host/src/lib.rs",
@@ -26,5 +27,6 @@
     ]
   },
   "owner": "Agent",
-  "verification": "检查设置侧栏 MCP 配置入口与搜索跳转；未打开项目时显示提示，切换项目后展示对应授权。双端打包启动后开启连接，配置真实 Agent，验证工具发现、默认拒绝写入、启用权限、禁用、项目关闭和多窗口隔离。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+  "notes": "macOS 设置页把 MCP 授权整理为“服务器资源库 + Lithe IDE 访问”两段：资源库负责第三方服务器发现与编辑，见独立能力 mcp-server-library；Lithe IDE 访问段保留状态徽标、状态卡、项目权限和 Agent 配置，安全说明收进 ⓘ。开启授权时还会把随包的 lithe-mcp 写入当前项目的 Claude Code（projects.<path>.mcpServers）与 Codex（<项目>/.codex/config.toml）配置，并在关闭授权或项目时按账本清理；全局配置不受影响。",
+  "verification": "检查设置侧栏 MCP 配置入口与搜索跳转；未打开项目时资源库照常列出全局服务器，Lithe IDE 访问段显示打开项目提示；切换项目后展示对应授权。双端打包启动后开启连接，配置真实 Agent，验证工具发现、默认拒绝写入、启用权限、禁用、项目关闭和多窗口隔离。macOS 打开 MCP 配置页确认状态徽标与状态卡文案跟随启用状态变化，header ⓘ 可打开完整安全说明，配置代码块只在存在配置时出现且可选中复制；启用后确认项目级 lithe 条目写入两个 Agent 的配置，禁用后条目清理，外部修改过的条目保留并提示。运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
 }
