@@ -183,6 +183,61 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::check_runtime_version_command,
         ),
+        CoreCommand::BuildDetect => {
+            plugin_response(id, parsed.payload, crate::build::build_detect_command)
+        }
+        CoreCommand::BuildInvocationPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_invocation_plan_command,
+        ),
+        CoreCommand::BuildCheckToolVersion => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_check_tool_version_command,
+        ),
+        CoreCommand::BuildResolveOptions => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_resolve_options_command,
+        ),
+        CoreCommand::BuildModelPlan => {
+            plugin_response(id, parsed.payload, crate::build::build_model_plan_command)
+        }
+        CoreCommand::BuildTaskPlan => {
+            plugin_response(id, parsed.payload, crate::build::build_task_plan_command)
+        }
+        CoreCommand::BuildTestPlan => {
+            plugin_response(id, parsed.payload, crate::build::build_test_plan_command)
+        }
+        CoreCommand::BuildDependencyPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_dependency_plan_command,
+        ),
+        CoreCommand::BuildDecodeModel => {
+            plugin_response(id, parsed.payload, crate::build::build_decode_model_command)
+        }
+        CoreCommand::BuildDecodeTestResults => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_test_results_command,
+        ),
+        CoreCommand::BuildDecodeDiagnostics => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_diagnostics_command,
+        ),
+        CoreCommand::BuildDecodeDependencies => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_dependencies_command,
+        ),
+        CoreCommand::BuildSyncFingerprint => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_sync_fingerprint_command,
+        ),
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
             parsed.payload,

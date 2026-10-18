@@ -1,0 +1,2143 @@
+{
+  "schemaVersion": 1,
+  "description": "Golden outcomes of the build.* commands for the build-system fixtures. Each case sends `request` with the named fixture manifest and build system, and expects the whole outcome envelope. `${workspace}` stands for an absolute, existing workspace root the test creates; it is substituted in requests and expectations alike.",
+  "cases": [
+    {
+      "name": "cargo invocation is the cargo command",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "invocationPlan",
+      "request": {
+        "root": "crates/app",
+        "platform": "macos"
+      },
+      "expected": {
+        "status": "ok",
+        "invocation": {
+          "buildSystemID": "cargo",
+          "root": "crates/app",
+          "executables": [
+            {
+              "kind": "command",
+              "command": "cargo"
+            }
+          ],
+          "environmentInputs": [],
+          "runtimeDependencies": [],
+          "version": {
+            "arguments": [
+              "--version"
+            ]
+          },
+          "minimumVersion": "1.70"
+        }
+      }
+    },
+    {
+      "name": "cargo version meets the minimum",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "checkToolVersion",
+      "request": {
+        "output": "cargo 1.82.0 (8f40fc59f 2024-08-21)\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": true,
+          "version": "1.82.0"
+        }
+      }
+    },
+    {
+      "name": "cargo version below the minimum",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "checkToolVersion",
+      "request": {
+        "output": "cargo 1.65.0 (4bc8f24d3 2022-10-20)\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": false,
+          "version": "1.65.0"
+        }
+      }
+    },
+    {
+      "name": "cargo build puts options after the subcommand",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "taskPlan",
+      "request": {
+        "root": "crates/app",
+        "task": "build",
+        "project": {
+          "path": "crates/app",
+          "name": "app"
+        },
+        "options": {
+          "release": true,
+          "features": [
+            "serde",
+            "cli",
+            "serde"
+          ]
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "cargo",
+          "root": "crates/app",
+          "arguments": [
+            "build",
+            "--message-format=short",
+            "--release",
+            "--features",
+            "cli,serde"
+          ],
+          "environment": {},
+          "workingDirectory": "crates/app",
+          "execution": "task",
+          "optionFingerprint": "2c2b95fc66b1b63663b3ed598ca82767b0241fafe752edecfa94724c5fbcb55f"
+        }
+      }
+    },
+    {
+      "name": "cargo example needs its target",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "example",
+        "project": {
+          "path": ".",
+          "name": "app"
+        },
+        "target": {
+          "name": "demo",
+          "tags": [
+            "example"
+          ]
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "cargo",
+          "root": ".",
+          "arguments": [
+            "run",
+            "--example",
+            "demo"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "application",
+          "optionFingerprint": "88f2074b94ba42d86684c879132be55f137f292c4d312d11da9a64c46f400e28"
+        }
+      }
+    },
+    {
+      "name": "cargo example refuses a binary target",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "example",
+        "project": {
+          "path": ".",
+          "name": "app"
+        },
+        "target": {
+          "name": "app",
+          "tags": [
+            "application"
+          ]
+        }
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "The task example does not apply to this target."
+        }
+      }
+    },
+    {
+      "name": "cargo example refuses the project scope",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "example",
+        "project": {
+          "path": ".",
+          "name": "app"
+        }
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "The task example does not run on a project."
+        }
+      }
+    },
+    {
+      "name": "cargo test selects one exact case",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": ".",
+          "name": "app"
+        },
+        "case": "parser::parses_empty"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "cargo",
+          "root": ".",
+          "arguments": [
+            "test",
+            "--",
+            "parser::parses_empty",
+            "--exact"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "88f2074b94ba42d86684c879132be55f137f292c4d312d11da9a64c46f400e28",
+          "results": null
+        }
+      }
+    },
+    {
+      "name": "cargo test selects an integration target",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": ".",
+          "name": "app"
+        },
+        "target": {
+          "name": "cli",
+          "tags": [
+            "test"
+          ]
+        },
+        "case": "runs"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "cargo",
+          "root": ".",
+          "arguments": [
+            "test",
+            "--test",
+            "cli",
+            "--",
+            "runs",
+            "--exact"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "88f2074b94ba42d86684c879132be55f137f292c4d312d11da9a64c46f400e28",
+          "results": null
+        }
+      }
+    },
+    {
+      "name": "cargo test refuses a binary target",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": ".",
+          "name": "app"
+        },
+        "target": {
+          "name": "app",
+          "tags": [
+            "application"
+          ]
+        }
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "Cargo does not run tests on this target."
+        }
+      }
+    },
+    {
+      "name": "cargo test cannot select a suite",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": ".",
+          "name": "app"
+        },
+        "suite": "parser"
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "Cargo cannot select a single test Suite."
+        }
+      }
+    },
+    {
+      "name": "cargo options keep known values and drop the rest",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "resolveOptions",
+      "request": {
+        "options": {
+          "release": true,
+          "features": [
+            "serde",
+            "bogus"
+          ],
+          "removed": "x"
+        },
+        "modelValues": {
+          "features": [
+            "cli",
+            "serde"
+          ]
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "options": {
+          "options": [
+            {
+              "id": "release",
+              "displayName": "Release Profile",
+              "kind": "boolean",
+              "value": true,
+              "source": "user",
+              "choices": [],
+              "allowCustom": false
+            },
+            {
+              "id": "features",
+              "displayName": "Features",
+              "kind": "multiSelect",
+              "value": [
+                "serde"
+              ],
+              "source": "user",
+              "choices": [
+                {
+                  "value": "cli",
+                  "fromModel": true
+                },
+                {
+                  "value": "serde",
+                  "fromModel": true
+                }
+              ],
+              "allowCustom": false
+            },
+            {
+              "id": "offline",
+              "displayName": "Offline",
+              "kind": "boolean",
+              "value": false,
+              "source": "unset",
+              "choices": [],
+              "allowCustom": false
+            }
+          ],
+          "dropped": [
+            "features",
+            "removed"
+          ],
+          "fingerprint": "0ad75178ebc24b24a4af56a3e9338d74255ab3d0d3c3627f9744967b8b0b9685"
+        }
+      }
+    },
+    {
+      "name": "cargo options accept model values before a model exists",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "resolveOptions",
+      "request": {
+        "options": {
+          "features": [
+            "serde"
+          ]
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "options": {
+          "options": [
+            {
+              "id": "release",
+              "displayName": "Release Profile",
+              "kind": "boolean",
+              "value": false,
+              "source": "unset",
+              "choices": [],
+              "allowCustom": false
+            },
+            {
+              "id": "features",
+              "displayName": "Features",
+              "kind": "multiSelect",
+              "value": [
+                "serde"
+              ],
+              "source": "user",
+              "choices": [],
+              "allowCustom": false
+            },
+            {
+              "id": "offline",
+              "displayName": "Offline",
+              "kind": "boolean",
+              "value": false,
+              "source": "unset",
+              "choices": [],
+              "allowCustom": false
+            }
+          ],
+          "dropped": [],
+          "fingerprint": "11a1daf676a5920abec57f23aeb43fb82c65ac00efbe64eec02965c9ca3a1c4b"
+        }
+      }
+    },
+    {
+      "name": "cargo short diagnostics",
+      "plugin": "cargo-build.plugin.json",
+      "buildSystemID": "cargo",
+      "operation": "decodeDiagnostics",
+      "request": {
+        "workspaceRoot": "${workspace}",
+        "root": "crates/app",
+        "output": "   Compiling app v0.1.0\nsrc/main.rs:4:9: error[E0425]: cannot find value `x` in this scope\nsrc/lib.rs:10:1: warning: unused import: `std::fs`\nsrc/main.rs:4:9: error[E0425]: cannot find value `x` in this scope\nerror: could not compile `app`\n"
+      },
+      "expected": {
+        "status": "ok",
+        "diagnostics": [
+          {
+            "path": "crates/app/src/main.rs",
+            "line": 4,
+            "column": 9,
+            "severity": "error",
+            "message": "cannot find value `x` in this scope"
+          },
+          {
+            "path": "crates/app/src/lib.rs",
+            "line": 10,
+            "column": 1,
+            "severity": "warning",
+            "message": "unused import: `std::fs`"
+          }
+        ]
+      }
+    },
+    {
+      "name": "go runs through the host-managed runtime",
+      "plugin": "go-build.plugin.json",
+      "buildSystemID": "go",
+      "operation": "invocationPlan",
+      "request": {
+        "root": ".",
+        "platform": "windows"
+      },
+      "expected": {
+        "status": "ok",
+        "invocation": {
+          "buildSystemID": "go",
+          "root": ".",
+          "executables": [
+            {
+              "kind": "runtime",
+              "runtime": "go"
+            }
+          ],
+          "environmentInputs": [],
+          "runtimeDependencies": [
+            {
+              "id": "go",
+              "displayName": null,
+              "hostManaged": true,
+              "minimumVersion": "1.21",
+              "executables": [],
+              "version": {
+                "arguments": [
+                  "version"
+                ]
+              }
+            }
+          ],
+          "version": null,
+          "minimumVersion": null
+        }
+      }
+    },
+    {
+      "name": "go runtime version",
+      "plugin": "go-build.plugin.json",
+      "buildSystemID": "go",
+      "operation": "checkToolVersion",
+      "request": {
+        "runtime": "go",
+        "output": "go version go1.22.3 darwin/arm64\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": true,
+          "version": "1.22.3"
+        }
+      }
+    },
+    {
+      "name": "go runtime below the minimum",
+      "plugin": "go-build.plugin.json",
+      "buildSystemID": "go",
+      "operation": "checkToolVersion",
+      "request": {
+        "runtime": "go",
+        "output": "go version go1.20.14 linux/amd64\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": false,
+          "version": "1.20.14"
+        }
+      }
+    },
+    {
+      "name": "go model is a json stream on stdout",
+      "plugin": "go-build.plugin.json",
+      "buildSystemID": "go",
+      "operation": "modelPlan",
+      "request": {
+        "root": "."
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "go",
+          "root": ".",
+          "arguments": [
+            "list",
+            "-json",
+            "./..."
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "07c24ec6a45d7776fbcd5c22e3bbc7737d76d907d936bc9b851b36f2c57c4eea",
+          "output": "stdout",
+          "decoder": "jsonStream",
+          "executesProjectCode": false,
+          "mayUseNetwork": true
+        }
+      }
+    },
+    {
+      "name": "go list output becomes projects, targets, and run entries",
+      "plugin": "go-build.plugin.json",
+      "buildSystemID": "go",
+      "operation": "decodeModel",
+      "request": {
+        "workspaceRoot": "${workspace}",
+        "root": "shop",
+        "output": "{\n \"Dir\": \"${workspace}/shop\",\n \"ImportPath\": \"example.com/shop\",\n \"Name\": \"shop\",\n \"GoFiles\": [\n  \"shop.go\"\n ],\n \"TestGoFiles\": [\n  \"shop_test.go\"\n ],\n \"Module\": {\n  \"Path\": \"example.com/shop\",\n  \"Dir\": \"${workspace}/shop\",\n  \"GoVersion\": \"1.22\"\n }\n}\n{\n \"Dir\": \"${workspace}/shop/cmd/api\",\n \"ImportPath\": \"example.com/shop/cmd/api\",\n \"Name\": \"main\",\n \"GoFiles\": [\n  \"main.go\"\n ],\n \"Module\": {\n  \"Path\": \"example.com/shop\",\n  \"Dir\": \"${workspace}/shop\",\n  \"GoVersion\": \"1.22\"\n }\n}\n{\n \"Dir\": \"${workspace}/shop/cmd/worker\",\n \"ImportPath\": \"example.com/shop/cmd/worker\",\n \"Name\": \"main\",\n \"GoFiles\": [\n  \"main.go\"\n ],\n \"Module\": {\n  \"Path\": \"example.com/shop\",\n  \"Dir\": \"${workspace}/shop\",\n  \"GoVersion\": \"1.22\"\n }\n}",
+        "options": {
+          "race": true
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "model": {
+          "projects": [
+            {
+              "id": "go:shop/example.com/shop",
+              "path": "shop",
+              "name": "example.com/shop",
+              "properties": {
+                "goVersion": "1.22"
+              }
+            }
+          ],
+          "targets": [
+            {
+              "id": "go.test:shop/example.com/shop",
+              "projectID": "go:shop/example.com/shop",
+              "name": "example.com/shop",
+              "path": "shop",
+              "tags": [
+                "test"
+              ],
+              "properties": {}
+            },
+            {
+              "id": "go.application:shop/cmd/api/example.com/shop/cmd/api",
+              "projectID": "go:shop/example.com/shop",
+              "name": "example.com/shop/cmd/api",
+              "path": "shop/cmd/api",
+              "tags": [
+                "application"
+              ],
+              "properties": {
+                "short": "api"
+              }
+            },
+            {
+              "id": "go.application:shop/cmd/worker/example.com/shop/cmd/worker",
+              "projectID": "go:shop/example.com/shop",
+              "name": "example.com/shop/cmd/worker",
+              "path": "shop/cmd/worker",
+              "tags": [
+                "application"
+              ],
+              "properties": {
+                "short": "worker"
+              }
+            }
+          ],
+          "tasks": [],
+          "contentRoots": [],
+          "optionValues": {},
+          "run": [
+            {
+              "id": "go.main:shop/api",
+              "name": "api",
+              "provider": "go.main",
+              "execution": "application",
+              "command": null,
+              "args": [
+                "run",
+                "-race",
+                "example.com/shop/cmd/api"
+              ],
+              "cwd": "shop",
+              "env": {},
+              "source": null,
+              "buildSystem": {
+                "id": "go",
+                "root": "shop",
+                "projectID": "go:shop/example.com/shop",
+                "targetID": "go.application:shop/cmd/api/example.com/shop/cmd/api",
+                "optionFingerprint": "2812b34f5d8bc2a5bf8988fc84f16180a18353d6b31f886d9b2729eb41d27994"
+              }
+            },
+            {
+              "id": "go.main:shop/worker",
+              "name": "worker",
+              "provider": "go.main",
+              "execution": "application",
+              "command": null,
+              "args": [
+                "run",
+                "-race",
+                "example.com/shop/cmd/worker"
+              ],
+              "cwd": "shop",
+              "env": {},
+              "source": null,
+              "buildSystem": {
+                "id": "go",
+                "root": "shop",
+                "projectID": "go:shop/example.com/shop",
+                "targetID": "go.application:shop/cmd/worker/example.com/shop/cmd/worker",
+                "optionFingerprint": "2812b34f5d8bc2a5bf8988fc84f16180a18353d6b31f886d9b2729eb41d27994"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "go dependencies of a module",
+      "plugin": "go-build.plugin.json",
+      "buildSystemID": "go",
+      "operation": "dependencyPlan",
+      "request": {
+        "root": "shop",
+        "project": {
+          "path": "shop",
+          "name": "example.com/shop"
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "go",
+          "root": "shop",
+          "arguments": [
+            "list",
+            "-m",
+            "-json",
+            "all"
+          ],
+          "environment": {},
+          "workingDirectory": "shop",
+          "execution": "task",
+          "optionFingerprint": "07c24ec6a45d7776fbcd5c22e3bbc7737d76d907d936bc9b851b36f2c57c4eea",
+          "output": "stdout",
+          "decoder": "jsonStream",
+          "executesProjectCode": false,
+          "mayUseNetwork": true
+        }
+      }
+    },
+    {
+      "name": "go module list skips the main module",
+      "plugin": "go-build.plugin.json",
+      "buildSystemID": "go",
+      "operation": "decodeDependencies",
+      "request": {
+        "workspaceRoot": "${workspace}",
+        "root": "shop",
+        "project": "shop",
+        "output": "{\"Path\": \"example.com/shop\", \"Main\": true, \"Dir\": \"${workspace}/shop\", \"GoVersion\": \"1.22\"}\n{\"Path\": \"github.com/google/uuid\", \"Version\": \"v1.6.0\"}\n{\"Path\": \"golang.org/x/text\", \"Version\": \"v0.14.0\", \"Indirect\": true}"
+      },
+      "expected": {
+        "status": "ok",
+        "dependencies": {
+          "project": "shop",
+          "dependencies": [
+            {
+              "name": "github.com/google/uuid",
+              "version": "v1.6.0",
+              "children": []
+            },
+            {
+              "name": "golang.org/x/text",
+              "version": "v0.14.0",
+              "properties": {
+                "indirect": "true"
+              },
+              "children": []
+            }
+          ],
+          "truncated": false
+        }
+      }
+    },
+    {
+      "name": "go test escapes the case name",
+      "plugin": "go-build.plugin.json",
+      "buildSystemID": "go",
+      "operation": "testPlan",
+      "request": {
+        "root": "shop",
+        "project": {
+          "path": "shop",
+          "name": "example.com/shop"
+        },
+        "target": {
+          "name": "example.com/shop",
+          "tags": [
+            "test"
+          ]
+        },
+        "case": "TestOrder/refund.full"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "go",
+          "root": "shop",
+          "arguments": [
+            "test",
+            "example.com/shop",
+            "-run",
+            "^TestOrder/refund\\.full$"
+          ],
+          "environment": {},
+          "workingDirectory": "shop",
+          "execution": "task",
+          "optionFingerprint": "07c24ec6a45d7776fbcd5c22e3bbc7737d76d907d936bc9b851b36f2c57c4eea",
+          "results": null
+        }
+      }
+    },
+    {
+      "name": "go diagnostics relative to the module",
+      "plugin": "go-build.plugin.json",
+      "buildSystemID": "go",
+      "operation": "decodeDiagnostics",
+      "request": {
+        "workspaceRoot": "${workspace}",
+        "root": "shop",
+        "output": "# example.com/shop/cmd/api\ncmd/api/main.go:5:2: undefined: handler\n./shop.go:12: missing return\n"
+      },
+      "expected": {
+        "status": "ok",
+        "diagnostics": [
+          {
+            "path": "shop/cmd/api/main.go",
+            "line": 5,
+            "column": 2,
+            "severity": "error",
+            "message": "undefined: handler"
+          },
+          {
+            "path": "shop/shop.go",
+            "line": 12,
+            "severity": "error",
+            "message": "missing return"
+          }
+        ]
+      }
+    },
+    {
+      "name": "gradle prefers the unix wrapper",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "invocationPlan",
+      "request": {
+        "root": "build-logic",
+        "platform": "linux"
+      },
+      "expected": {
+        "status": "ok",
+        "invocation": {
+          "buildSystemID": "gradle",
+          "root": "build-logic",
+          "executables": [
+            {
+              "kind": "projectFile",
+              "path": "build-logic/gradlew",
+              "requires": [
+                "build-logic/gradle/wrapper/gradle-wrapper.properties"
+              ],
+              "executesProjectCode": true
+            },
+            {
+              "kind": "environment",
+              "variable": "GRADLE_HOME",
+              "path": "bin/gradle"
+            },
+            {
+              "kind": "command",
+              "command": "gradle"
+            }
+          ],
+          "environmentInputs": [
+            "GRADLE_HOME"
+          ],
+          "runtimeDependencies": [
+            {
+              "id": "java",
+              "displayName": null,
+              "hostManaged": true,
+              "minimumVersion": "17",
+              "executables": [],
+              "version": {
+                "arguments": [
+                  "-version"
+                ]
+              }
+            }
+          ],
+          "version": {
+            "arguments": [
+              "--version"
+            ]
+          },
+          "minimumVersion": "7.6"
+        }
+      }
+    },
+    {
+      "name": "gradle prefers the batch wrapper on windows",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "invocationPlan",
+      "request": {
+        "root": ".",
+        "platform": "windows"
+      },
+      "expected": {
+        "status": "ok",
+        "invocation": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "executables": [
+            {
+              "kind": "projectFile",
+              "path": "gradlew.bat",
+              "requires": [
+                "gradle/wrapper/gradle-wrapper.properties"
+              ],
+              "executesProjectCode": true
+            },
+            {
+              "kind": "environment",
+              "variable": "GRADLE_HOME",
+              "path": "bin/gradle.bat"
+            },
+            {
+              "kind": "command",
+              "command": "gradle"
+            }
+          ],
+          "environmentInputs": [
+            "GRADLE_HOME"
+          ],
+          "runtimeDependencies": [
+            {
+              "id": "java",
+              "displayName": null,
+              "hostManaged": true,
+              "minimumVersion": "17",
+              "executables": [],
+              "version": {
+                "arguments": [
+                  "-version"
+                ]
+              }
+            }
+          ],
+          "version": {
+            "arguments": [
+              "--version"
+            ]
+          },
+          "minimumVersion": "7.6"
+        }
+      }
+    },
+    {
+      "name": "gradle two-part version",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "checkToolVersion",
+      "request": {
+        "output": "\n------------------------------------------------------------\nGradle 8.10\n------------------------------------------------------------\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": true,
+          "version": "8.10"
+        }
+      }
+    },
+    {
+      "name": "gradle model runs the init script into the output file",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "modelPlan",
+      "request": {
+        "root": ".",
+        "pluginDirectory": "${workspace}/plugins/gradle",
+        "outputFile": "${workspace}/state/model.json",
+        "options": {
+          "offline": true
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "arguments": [
+            "--console=plain",
+            "--offline",
+            "-q",
+            "--init-script",
+            "${workspace}/plugins/gradle/lithe-model.init.gradle",
+            "litheModel",
+            "-PlitheModelOutput=${workspace}/state/model.json"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "352a3ccd7eb04a8babcfabaa3b76304c71e0f28d6de841e417266aadd183ab39",
+          "output": "outputFile",
+          "decoder": "litheBuildModel",
+          "executesProjectCode": true,
+          "mayUseNetwork": true
+        }
+      }
+    },
+    {
+      "name": "gradle model needs an output file",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "modelPlan",
+      "request": {
+        "root": ".",
+        "pluginDirectory": "${workspace}/plugins/gradle"
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "This command writes to a file; pass outputFile."
+        }
+      }
+    },
+    {
+      "name": "gradle build of one project",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "build",
+        "project": {
+          "path": "app",
+          "name": "app",
+          "properties": {
+            "taskPrefix": ":app:"
+          }
+        },
+        "options": {
+          "offline": true,
+          "buildCache": false
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "arguments": [
+            "--console=plain",
+            "--offline",
+            ":app:build"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "352a3ccd7eb04a8babcfabaa3b76304c71e0f28d6de841e417266aadd183ab39"
+        }
+      }
+    },
+    {
+      "name": "gradle build of the whole build",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "build"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "arguments": [
+            "--console=plain",
+            "build"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "412601eb5af95d4cd3c162065322aaec6b3d65fda1f35257942f5d8b8a0f5a9e"
+        }
+      }
+    },
+    {
+      "name": "gradle model task runs by its path",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "gradle-task",
+        "project": {
+          "path": "app",
+          "name": "app"
+        },
+        "modelTask": {
+          "name": "bootRun",
+          "execution": "service",
+          "properties": {
+            "path": ":app:bootRun"
+          }
+        },
+        "userArguments": [
+          "--args=--debug"
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "arguments": [
+            "--console=plain",
+            ":app:bootRun",
+            "--args=--debug"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "service",
+          "optionFingerprint": "412601eb5af95d4cd3c162065322aaec6b3d65fda1f35257942f5d8b8a0f5a9e"
+        }
+      }
+    },
+    {
+      "name": "gradle arbitrary tasks need arguments",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "tasks",
+        "userArguments": [
+          "dependencies",
+          "--configuration",
+          "runtimeClasspath"
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "arguments": [
+            "--console=plain",
+            "dependencies",
+            "--configuration",
+            "runtimeClasspath"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "412601eb5af95d4cd3c162065322aaec6b3d65fda1f35257942f5d8b8a0f5a9e"
+        }
+      }
+    },
+    {
+      "name": "gradle build takes no user arguments",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "build",
+        "userArguments": [
+          "--scan"
+        ]
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "This command takes no extra arguments."
+        }
+      }
+    },
+    {
+      "name": "gradle test of one method",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": "app",
+          "name": "app",
+          "properties": {
+            "taskPrefix": ":app:"
+          }
+        },
+        "suite": "com.example.OrderTest",
+        "case": "refunds"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "arguments": [
+            "--console=plain",
+            ":app:test",
+            "--tests",
+            "com.example.OrderTest.refunds"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "412601eb5af95d4cd3c162065322aaec6b3d65fda1f35257942f5d8b8a0f5a9e",
+          "results": {
+            "decoder": "junitXml",
+            "reports": [
+              "app/build/test-results/test/*.xml"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "gradle test refuses a case without its suite",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": "app",
+          "name": "app",
+          "properties": {
+            "taskPrefix": ":app:"
+          }
+        },
+        "case": "refunds"
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "Gradle cannot select this test case without its suite."
+        }
+      }
+    },
+    {
+      "name": "gradle workspace test collects every model project's reports",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "projects": [
+          "app",
+          "lib"
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "arguments": [
+            "--console=plain",
+            "test"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "412601eb5af95d4cd3c162065322aaec6b3d65fda1f35257942f5d8b8a0f5a9e",
+          "results": {
+            "decoder": "junitXml",
+            "reports": [
+              "build/test-results/test/*.xml",
+              "app/build/test-results/test/*.xml",
+              "lib/build/test-results/test/*.xml"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "gradle dependencies of the root project",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "dependencyPlan",
+      "request": {
+        "root": ".",
+        "pluginDirectory": "${workspace}/plugins/gradle",
+        "outputFile": "${workspace}/state/deps.json"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "arguments": [
+            "--console=plain",
+            "-q",
+            "--init-script",
+            "${workspace}/plugins/gradle/lithe-model.init.gradle",
+            "litheDependencies",
+            "-PlitheDependenciesOutput=${workspace}/state/deps.json"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "412601eb5af95d4cd3c162065322aaec6b3d65fda1f35257942f5d8b8a0f5a9e",
+          "output": "outputFile",
+          "decoder": "litheDependencies",
+          "executesProjectCode": true,
+          "mayUseNetwork": true
+        }
+      }
+    },
+    {
+      "name": "gradle javac and kotlin diagnostics",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "decodeDiagnostics",
+      "request": {
+        "workspaceRoot": "${workspace}",
+        "root": ".",
+        "output": "> Task :app:compileJava\n${workspace}/app/src/main/java/demo/App.java:7: error: ';' expected\n${workspace}/app/src/main/java/demo/App.java:9: warning: [deprecation] old() in Util has been deprecated\nw: file://${workspace}/lib/src/main/kotlin/Lib.kt:3:5 Parameter 'x' is never used\n/elsewhere/Other.java:1: error: outside the workspace\n"
+      },
+      "expected": {
+        "status": "ok",
+        "diagnostics": [
+          {
+            "path": "app/src/main/java/demo/App.java",
+            "line": 7,
+            "severity": "error",
+            "message": "';' expected"
+          },
+          {
+            "path": "app/src/main/java/demo/App.java",
+            "line": 9,
+            "severity": "warning",
+            "message": "[deprecation] old() in Util has been deprecated"
+          },
+          {
+            "path": "lib/src/main/kotlin/Lib.kt",
+            "line": 3,
+            "column": 5,
+            "severity": "warning",
+            "message": "Parameter 'x' is never used"
+          }
+        ]
+      }
+    },
+    {
+      "name": "maven package of a nested module",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "package",
+        "project": {
+          "path": "services/api",
+          "name": "api"
+        },
+        "options": {
+          "profiles": [
+            "prod",
+            "dev"
+          ],
+          "settingsFile": ".mvn/settings.xml",
+          "skipTests": true
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "maven",
+          "root": ".",
+          "arguments": [
+            "-B",
+            "-ntp",
+            "-P",
+            "dev,prod",
+            "-s",
+            ".mvn/settings.xml",
+            "-pl",
+            "services/api",
+            "-DskipTests",
+            "package"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "95ff1a19ebcca4fea317da5ea8bf9141011ac13edc938b8d945003e6f6c27e4f"
+        }
+      }
+    },
+    {
+      "name": "maven clean of the reactor root",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "clean",
+        "project": {
+          "path": ".",
+          "name": "shop"
+        },
+        "options": {
+          "skipTests": true,
+          "offline": true
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "maven",
+          "root": ".",
+          "arguments": [
+            "-B",
+            "-ntp",
+            "-o",
+            "clean"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "968b5d1a02c73b2e9a9a9e990dfcac990e10bbf3e4d81dd0953a90b280705bf2"
+        }
+      }
+    },
+    {
+      "name": "maven goal of a reactor below the workspace root",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "taskPlan",
+      "request": {
+        "root": "backend",
+        "task": "goal",
+        "project": {
+          "path": "backend/api",
+          "name": "api"
+        },
+        "userArguments": [
+          "dependency:analyze"
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "maven",
+          "root": "backend",
+          "arguments": [
+            "-B",
+            "-ntp",
+            "-pl",
+            "api",
+            "dependency:analyze"
+          ],
+          "environment": {},
+          "workingDirectory": "backend",
+          "execution": "task",
+          "optionFingerprint": "9fa844c10ea70360fb5f1384b879d4f818aa8bdd9b9834a3f05fbdf791b3679d"
+        }
+      }
+    },
+    {
+      "name": "maven test of one method",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": "api",
+          "name": "api"
+        },
+        "suite": "com.example.OrderTest",
+        "case": "refunds"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "maven",
+          "root": ".",
+          "arguments": [
+            "-B",
+            "-ntp",
+            "-pl",
+            "api",
+            "-Dtest=com.example.OrderTest#refunds",
+            "-Dsurefire.failIfNoSpecifiedTests=false",
+            "test"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "9fa844c10ea70360fb5f1384b879d4f818aa8bdd9b9834a3f05fbdf791b3679d",
+          "results": {
+            "decoder": "hostIntegration"
+          }
+        }
+      }
+    },
+    {
+      "name": "maven test refuses a case without its suite",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "testPlan",
+      "request": {
+        "root": ".",
+        "case": "refunds"
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "Maven cannot select this test case without its suite."
+        }
+      }
+    },
+    {
+      "name": "maven dependency tree of a nested module",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "dependencyPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": "api",
+          "name": "api"
+        },
+        "outputFile": "${workspace}/state/tree.txt",
+        "options": {
+          "profiles": [
+            "dev"
+          ],
+          "skipTests": true
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "maven",
+          "root": ".",
+          "arguments": [
+            "-B",
+            "-ntp",
+            "-P",
+            "dev",
+            "-DskipTests",
+            "-pl",
+            "api",
+            "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree",
+            "-Dverbose=true",
+            "-DoutputType=text",
+            "-Dtokens=standard",
+            "-DoutputFile=${workspace}/state/tree.txt",
+            "-DoutputEncoding=UTF-8",
+            "-DappendOutput=false",
+            "-Dstyle.color=never",
+            "-Duser.language=en",
+            "-Duser.country=US"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "aab89ff0786aa5735c4ea95ad241d4645a9e7250848239a2c945a097da907e6e",
+          "output": "outputFile",
+          "decoder": "hostIntegration",
+          "executesProjectCode": true,
+          "mayUseNetwork": true
+        }
+      }
+    },
+    {
+      "name": "maven dependency tree of the reactor root",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "dependencyPlan",
+      "request": {
+        "root": ".",
+        "outputFile": "${workspace}/state/tree.txt"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "maven",
+          "root": ".",
+          "arguments": [
+            "-B",
+            "-ntp",
+            "-N",
+            "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree",
+            "-Dverbose=true",
+            "-DoutputType=text",
+            "-Dtokens=standard",
+            "-DoutputFile=${workspace}/state/tree.txt",
+            "-DoutputEncoding=UTF-8",
+            "-DappendOutput=false",
+            "-Dstyle.color=never",
+            "-Duser.language=en",
+            "-Duser.country=US"
+          ],
+          "environment": {},
+          "workingDirectory": ".",
+          "execution": "task",
+          "optionFingerprint": "9fa844c10ea70360fb5f1384b879d4f818aa8bdd9b9834a3f05fbdf791b3679d",
+          "output": "outputFile",
+          "decoder": "hostIntegration",
+          "executesProjectCode": true,
+          "mayUseNetwork": true
+        }
+      }
+    },
+    {
+      "name": "maven compiler diagnostics",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "decodeDiagnostics",
+      "request": {
+        "workspaceRoot": "${workspace}",
+        "root": ".",
+        "output": "[INFO] Compiling 3 source files\n[ERROR] ${workspace}/api/src/main/java/demo/Order.java:[12,5] cannot find symbol\n[WARNING] ${workspace}/api/src/main/java/demo/Old.java:[3,1] deprecated API\n"
+      },
+      "expected": {
+        "status": "ok",
+        "diagnostics": [
+          {
+            "path": "api/src/main/java/demo/Order.java",
+            "line": 12,
+            "column": 5,
+            "severity": "error",
+            "message": "cannot find symbol"
+          },
+          {
+            "path": "api/src/main/java/demo/Old.java",
+            "line": 3,
+            "column": 1,
+            "severity": "warning",
+            "message": "deprecated API"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown build system",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "taskPlan",
+      "request": {
+        "root": ".",
+        "task": "clean"
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.unavailable",
+          "message": "The plugin declares no build system gradle."
+        }
+      }
+    },
+    {
+      "name": "gradle provider model is a request for the provider with the option values",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "modelPlan",
+      "request": {
+        "root": ".",
+        "options": {
+          "offline": true
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "provider": {
+            "method": "lithe/build/model",
+            "params": {
+              "buildSystemID": "gradle",
+              "root": ".",
+              "options": {
+                "offline": true
+              },
+              "optionArguments": [
+                "--offline"
+              ],
+              "environment": {}
+            }
+          },
+          "decoder": "litheBuildModel",
+          "executesProjectCode": true,
+          "mayUseNetwork": true,
+          "optionFingerprint": "352a3ccd7eb04a8babcfabaa3b76304c71e0f28d6de841e417266aadd183ab39"
+        }
+      }
+    },
+    {
+      "name": "gradle provider model covers the whole instance",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "modelPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": "app",
+          "name": "app"
+        }
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "The model request covers the whole instance."
+        }
+      }
+    },
+    {
+      "name": "gradle provider dependencies of a project name the project",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "dependencyPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": "app",
+          "name": "app",
+          "properties": {
+            "taskPrefix": ":app:"
+          }
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "gradle",
+          "root": ".",
+          "provider": {
+            "method": "lithe/build/dependencies",
+            "params": {
+              "project": {
+                "name": "app",
+                "path": "app"
+              },
+              "buildSystemID": "gradle",
+              "root": ".",
+              "options": {},
+              "optionArguments": [],
+              "environment": {}
+            }
+          },
+          "decoder": "litheDependencies",
+          "executesProjectCode": true,
+          "mayUseNetwork": true,
+          "optionFingerprint": "412601eb5af95d4cd3c162065322aaec6b3d65fda1f35257942f5d8b8a0f5a9e"
+        }
+      }
+    },
+    {
+      "name": "gradle provider model result becomes projects, tasks, and run entries",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "decodeModel",
+      "request": {
+        "workspaceRoot": "${workspace}",
+        "root": ".",
+        "result": {
+          "format": "litheBuildModel",
+          "version": 1,
+          "projects": [
+            {
+              "path": ".",
+              "name": "shop",
+              "properties": {
+                "taskPrefix": ":"
+              }
+            },
+            {
+              "path": "app",
+              "name": "app",
+              "properties": {
+                "taskPrefix": ":app:"
+              }
+            }
+          ],
+          "tasks": [
+            {
+              "project": "app",
+              "name": "bootRun",
+              "template": "gradle-task",
+              "execution": "service",
+              "properties": {
+                "path": ":app:bootRun"
+              }
+            },
+            {
+              "project": "app",
+              "name": "jar",
+              "template": "gradle-task",
+              "properties": {
+                "path": ":app:jar"
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "model": {
+          "projects": [
+            {
+              "id": "gradle:shop",
+              "path": ".",
+              "name": "shop",
+              "properties": {
+                "taskPrefix": ":"
+              }
+            },
+            {
+              "id": "gradle:app/app",
+              "path": "app",
+              "name": "app",
+              "parentID": "gradle:shop",
+              "properties": {
+                "taskPrefix": ":app:"
+              }
+            }
+          ],
+          "targets": [],
+          "tasks": [
+            {
+              "id": "gradle.gradle-task:app/bootRun",
+              "projectID": "gradle:app/app",
+              "name": "bootRun",
+              "path": "app",
+              "template": "gradle-task",
+              "group": "other",
+              "execution": "service",
+              "properties": {
+                "path": ":app:bootRun"
+              }
+            },
+            {
+              "id": "gradle.gradle-task:app/jar",
+              "projectID": "gradle:app/app",
+              "name": "jar",
+              "path": "app",
+              "template": "gradle-task",
+              "group": "other",
+              "execution": "task",
+              "properties": {
+                "path": ":app:jar"
+              }
+            }
+          ],
+          "contentRoots": [
+            {
+              "projectID": "gradle:app/app",
+              "path": "app/.gradle",
+              "kind": "excluded"
+            },
+            {
+              "projectID": "gradle:app/app",
+              "path": "app/build",
+              "kind": "excluded"
+            },
+            {
+              "projectID": "gradle:shop",
+              "path": ".gradle",
+              "kind": "excluded"
+            },
+            {
+              "projectID": "gradle:shop",
+              "path": "build",
+              "kind": "excluded"
+            }
+          ],
+          "optionValues": {},
+          "run": [
+            {
+              "id": "gradle.task:bootRun",
+              "name": "bootRun",
+              "provider": "gradle.task",
+              "execution": "service",
+              "command": null,
+              "args": [
+                "--console=plain",
+                ":app:bootRun"
+              ],
+              "cwd": ".",
+              "env": {},
+              "source": null,
+              "buildSystem": {
+                "id": "gradle",
+                "root": ".",
+                "projectID": "gradle:app/app",
+                "taskID": "gradle.gradle-task:app/bootRun",
+                "optionFingerprint": "412601eb5af95d4cd3c162065322aaec6b3d65fda1f35257942f5d8b8a0f5a9e"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "gradle provider model needs the provider's result",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "decodeModel",
+      "request": {
+        "workspaceRoot": "${workspace}",
+        "root": "."
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "Pass the provider's result."
+        }
+      }
+    },
+    {
+      "name": "gradle provider dependency result is a litheDependencies tree",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "decodeDependencies",
+      "request": {
+        "workspaceRoot": "${workspace}",
+        "root": ".",
+        "project": "app",
+        "result": {
+          "format": "litheDependencies",
+          "version": 1,
+          "dependencies": [
+            {
+              "name": "spring-web",
+              "group": "org.springframework",
+              "version": "6.1.0",
+              "scope": "runtimeClasspath",
+              "children": [
+                {
+                  "name": "spring-core",
+                  "group": "org.springframework",
+                  "version": "6.1.0"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "dependencies": {
+          "project": "app",
+          "dependencies": [
+            {
+              "name": "spring-web",
+              "group": "org.springframework",
+              "version": "6.1.0",
+              "scope": "runtimeClasspath",
+              "children": [
+                {
+                  "name": "spring-core",
+                  "group": "org.springframework",
+                  "version": "6.1.0",
+                  "children": []
+                }
+              ]
+            }
+          ],
+          "truncated": false
+        }
+      }
+    },
+    {
+      "name": "gradle provider dependency result of another format is refused",
+      "plugin": "gradle-provider.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "decodeDependencies",
+      "request": {
+        "workspaceRoot": "${workspace}",
+        "root": ".",
+        "result": {
+          "format": "litheBuildModel",
+          "version": 1,
+          "projects": [
+            {
+              "path": ".",
+              "name": "shop",
+              "properties": {
+                "taskPrefix": ":"
+              }
+            },
+            {
+              "path": "app",
+              "name": "app",
+              "properties": {
+                "taskPrefix": ":app:"
+              }
+            }
+          ],
+          "tasks": [
+            {
+              "project": "app",
+              "name": "bootRun",
+              "template": "gradle-task",
+              "execution": "service",
+              "properties": {
+                "path": ":app:bootRun"
+              }
+            },
+            {
+              "project": "app",
+              "name": "jar",
+              "template": "gradle-task",
+              "properties": {
+                "path": ":app:jar"
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidOutput",
+          "message": "Expected litheDependencies version 1."
+        }
+      }
+    },
+    {
+      "name": "mix model goes to the shared language server",
+      "plugin": "mix-provider.plugin.json",
+      "buildSystemID": "mix",
+      "operation": "modelPlan",
+      "request": {
+        "root": "."
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "mix",
+          "root": ".",
+          "provider": {
+            "method": "lithe/build/model",
+            "params": {
+              "buildSystemID": "mix",
+              "root": ".",
+              "options": {},
+              "optionArguments": [],
+              "environment": {}
+            }
+          },
+          "decoder": "litheBuildModel",
+          "executesProjectCode": true,
+          "mayUseNetwork": false,
+          "optionFingerprint": "76fb003af18a13133b3836c6d0870963ebe7baab6b4cd6bbd4ec61e30334492f"
+        }
+      }
+    },
+    {
+      "name": "mix provider lists dependencies of the workspace only",
+      "plugin": "mix-provider.plugin.json",
+      "buildSystemID": "mix",
+      "operation": "dependencyPlan",
+      "request": {
+        "root": ".",
+        "project": {
+          "path": "apps/web",
+          "name": "web"
+        }
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.build.invalidSelection",
+          "message": "Mix does not list dependencies of a project."
+        }
+      }
+    },
+    {
+      "name": "mix dependencies of the workspace",
+      "plugin": "mix-provider.plugin.json",
+      "buildSystemID": "mix",
+      "operation": "dependencyPlan",
+      "request": {
+        "root": "."
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "buildSystemID": "mix",
+          "root": ".",
+          "provider": {
+            "method": "lithe/build/dependencies",
+            "params": {
+              "project": null,
+              "buildSystemID": "mix",
+              "root": ".",
+              "options": {},
+              "optionArguments": [],
+              "environment": {}
+            }
+          },
+          "decoder": "litheDependencies",
+          "executesProjectCode": true,
+          "mayUseNetwork": false,
+          "optionFingerprint": "76fb003af18a13133b3836c6d0870963ebe7baab6b4cd6bbd4ec61e30334492f"
+        }
+      }
+    },
+    {
+      "name": "maven accepts Java 8 stderr with environment options",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "checkToolVersion",
+      "request": {
+        "runtime": "java",
+        "output": "Picked up JAVA_TOOL_OPTIONS: -Xmx512m\njava version \"1.8.0_452\"\nJava(TM) SE Runtime Environment (build 1.8.0_452-b09)\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": true,
+          "version": "8.0"
+        }
+      }
+    },
+    {
+      "name": "maven rejects Java 7 against minimum 8",
+      "plugin": "maven-build.plugin.json",
+      "buildSystemID": "maven",
+      "operation": "checkToolVersion",
+      "request": {
+        "runtime": "java",
+        "output": "java version \"1.7.0_80\"\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": false,
+          "version": "7.0"
+        }
+      }
+    },
+    {
+      "name": "gradle reports Java 8 as below minimum 17",
+      "plugin": "gradle-build.plugin.json",
+      "buildSystemID": "gradle",
+      "operation": "checkToolVersion",
+      "request": {
+        "runtime": "java",
+        "output": "openjdk version \"1.8.0_452\"\n"
+      },
+      "expected": {
+        "status": "ok",
+        "version": {
+          "satisfied": false,
+          "version": "8.0"
+        }
+      }
+    }
+  ]
+}

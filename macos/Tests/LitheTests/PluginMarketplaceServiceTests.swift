@@ -373,6 +373,22 @@ struct PluginMarketplaceServiceTests {
         #expect(future.presentedVersion.version == "3.0.0")
     }
 
+    @Test(arguments: ["gradle-provider", "mix-provider"])
+    func buildProvidersAreRejectedByTheMacOSHost(_ fixture: String) throws {
+        let fixtures = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures")
+        let manifest = try Data(contentsOf: fixtures.appendingPathComponent("\(fixture).plugin.json"))
+        do {
+            _ = try PluginMarketplaceTestSupport.evaluator.installReview(
+                manifest: manifest, expectedID: nil, expectedVersion: nil, approvedPrograms: nil
+            )
+            Issue.record("A host without Provider support must reject \(fixture).")
+        } catch let rejection as DeclarativePluginRejection {
+            #expect(rejection.code == "plugin.api.unsupported")
+            #expect(rejection.field == "requires.buildProviders")
+        }
+    }
+
     /// The approval covers what actually runs, not just which executable:
     /// an update that keeps `php` but changes its arguments, after the
     /// approval went through the installation record, must ask again.

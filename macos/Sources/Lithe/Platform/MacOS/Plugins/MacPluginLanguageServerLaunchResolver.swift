@@ -33,12 +33,25 @@ struct MacPluginStateDirectories: Sendable {
     /// `${workspaceStateDir}`: keyed by the workspace root so two projects
     /// never share an index, without putting the user's path in a file name.
     func workspaceStateDirectory(pluginID: String, languageID: String, workspaceRootURL: URL) -> URL {
-        let digest = SHA256.hash(data: Data(workspaceRootURL.standardizedFileURL.path.utf8))
+        stateDirectory(pluginID: pluginID, languageID: languageID)
+            .appendingPathComponent("workspaces", isDirectory: true)
+            .appendingPathComponent(Self.workspaceDigest(workspaceRootURL), isDirectory: true)
+    }
+
+    /// `${workspaceStateDir}` of one build system: the plugin's build tools
+    /// and its language servers never share a directory.
+    func buildSystemWorkspaceStateDirectory(pluginID: String, buildSystemID: String, workspaceRootURL: URL) -> URL {
+        pluginDirectory(pluginID: pluginID)
+            .appendingPathComponent("build-systems", isDirectory: true)
+            .appendingPathComponent(buildSystemID, isDirectory: true)
+            .appendingPathComponent("workspaces", isDirectory: true)
+            .appendingPathComponent(Self.workspaceDigest(workspaceRootURL), isDirectory: true)
+    }
+
+    static func workspaceDigest(_ workspaceRootURL: URL) -> String {
+        SHA256.hash(data: Data(workspaceRootURL.standardizedFileURL.path.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
-        return stateDirectory(pluginID: pluginID, languageID: languageID)
-            .appendingPathComponent("workspaces", isDirectory: true)
-            .appendingPathComponent(digest, isDirectory: true)
     }
 }
 

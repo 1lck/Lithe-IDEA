@@ -353,6 +353,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let pluginManifest: PluginManifest
     public let languageServers: [DeclarativeLanguageServer]
     public let executionProviders: [DeclarativeExecutionProvider]
+    public let buildSystems: [DeclarativeBuildSystem]
     public let settings: [DeclarativePluginSetting]
     public let permissions: [String]
     public let activationEvents: [String]
@@ -393,6 +394,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 providesTest: provider.test != nil
             )
         }
+        buildSystems = decoded.buildSystems.map { $0.declaration() }
         ui = decoded.ui
         settings = try decoded.settings.map { try $0.declaration() }
         permissions = decoded.permissions
@@ -427,6 +429,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 languageID: provider.languageID,
                 displayName: displayNames[provider.languageID] ?? provider.languageID
             ))
+        }
+        if !buildSystems.isEmpty {
+            modules.append(PluginModuleDeclaration(manifest: LanguageExtensionModuleManifests.buildSystems(
+                pluginID: decoded.id,
+                displayName: decoded.displayName,
+                enabledByDefault: enabledByDefault
+            )))
         }
         if let ui = decoded.ui {
             modules.append(PluginModuleDeclaration(
@@ -639,6 +648,86 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         struct JSONPresence: Decodable {
             init(from decoder: Decoder) throws {}
         }
+        /// The parts of a build system the tool window lists. Detection,
+        /// commands, and decoders stay with Rust Core.
+        struct BuildSystem: Decodable {
+            struct Source: Decodable {
+                let source: String
+                let scopes: [BuildScope]?
+            }
+            struct Task: Decodable {
+                let id: String
+                let displayName: String
+                let group: BuildTaskGroup
+                let scopes: [BuildScope]
+                let fromModel: Bool
+                let targetTags: [String]
+                let requiresUserArguments: Bool
+                let description: String?
+
+                init(from decoder: Decoder) throws {
+                    let values = try decoder.container(keyedBy: CodingKeys.self)
+                    id = try values.decode(String.self, forKey: .id)
+                    displayName = try values.decode(String.self, forKey: .displayName)
+                    group = try values.decode(BuildTaskGroup.self, forKey: .group)
+                    scopes = try values.decodeIfPresent([BuildScope].self, forKey: .scopes) ?? []
+                    fromModel = try values.decodeIfPresent(Bool.self, forKey: .fromModel) ?? false
+                    targetTags = try values.decodeIfPresent([String].self, forKey: .targetTags) ?? []
+                    requiresUserArguments = try values.decodeIfPresent(Bool.self, forKey: .requiresUserArguments)
+                        ?? false
+                    description = try values.decodeIfPresent(String.self, forKey: .description)
+                }
+
+                private enum CodingKeys: String, CodingKey {
+                    case id, displayName, group, scopes, fromModel, targetTags, requiresUserArguments, description
+                }
+            }
+            struct Test: Decodable {
+                let scopes: [BuildScope]
+                let targetTags: [String]?
+            }
+
+            let id: String
+            let displayName: String
+            let model: Source?
+            let tasks: [Task]
+            let test: Test?
+            let dependencies: Source?
+
+            init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                id = try values.decode(String.self, forKey: .id)
+                displayName = try values.decode(String.self, forKey: .displayName)
+                model = try values.decodeIfPresent(Source.self, forKey: .model)
+                tasks = try values.decodeIfPresent([Task].self, forKey: .tasks) ?? []
+                test = try values.decodeIfPresent(Test.self, forKey: .test)
+                dependencies = try values.decodeIfPresent(Source.self, forKey: .dependencies)
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case id, displayName, model, tasks, test, dependencies
+            }
+
+            func declaration() -> DeclarativeBuildSystem {
+                DeclarativeBuildSystem(
+                    id: id,
+                    displayName: displayName,
+                    modelSource: model.flatMap { DeclarativeBuildSystem.ModelSource(rawValue: $0.source) },
+                    tasks: tasks.map {
+                        .init(
+                            id: $0.id, displayName: $0.displayName, group: $0.group, scopes: $0.scopes,
+                            fromModel: $0.fromModel, targetTags: $0.targetTags,
+                            requiresUserArguments: $0.requiresUserArguments, description: $0.description
+                        )
+                    },
+                    testScopes: test?.scopes ?? [],
+                    testTargetTags: test?.targetTags ?? [],
+                    // A host integration lists the whole instance and each
+                    // project; the other sources declare their scopes.
+                    dependencyScopes: dependencies.map { $0.scopes ?? [.workspace, .project] } ?? []
+                )
+            }
+        }
 
         let id: String
         let displayName: String
@@ -650,6 +739,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let languages: [Language]
         let languageServers: [LanguageServer]
         let executionProviders: [ExecutionProvider]
+        let buildSystems: [BuildSystem]
         let ui: DeclarativeUIContributions?
         let settings: [Setting]
 
@@ -666,12 +756,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             ui = try values.decodeIfPresent(DeclarativeUIContributions.self, forKey: .ui)
             languageServers = try values.decodeIfPresent([LanguageServer].self, forKey: .languageServers) ?? []
             executionProviders = try values.decodeIfPresent([ExecutionProvider].self, forKey: .executionProviders) ?? []
+            buildSystems = try values.decodeIfPresent([BuildSystem].self, forKey: .buildSystems) ?? []
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
-            case languages, languageServers, executionProviders, ui, settings
+            case languages, languageServers, executionProviders, buildSystems, ui, settings
         }
     }
 }
