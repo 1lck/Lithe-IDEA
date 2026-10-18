@@ -901,6 +901,25 @@ package final class BuildSystemService: ObservableObject {
         detect()
     }
 
+    /// An instance editor sees only values accepted by that instance. Replacing
+    /// its multi-selection must preserve choices that are visible only in a
+    /// sibling instance; reset still removes the complete stored override.
+    package func setInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
+        guard let workspaceURL, let entry = entry(entryID) else { return }
+        if case .array(let next)? = value,
+           let option = entry.options.first(where: { $0.id == optionID }), option.kind == .multiSelect,
+           case .array(let visible) = option.value,
+           case .array(let stored)? = optionsStore.options(
+               workspaceURL: workspaceURL, buildSystemID: entry.instance.buildSystemID
+           )[optionID] {
+            let siblingValues = stored.filter { !visible.contains($0) }
+            let merged = siblingValues + next.filter { !siblingValues.contains($0) }
+            setOption(entryID, optionID: optionID, value: .array(merged))
+        } else {
+            setOption(entryID, optionID: optionID, value: value)
+        }
+    }
+
     private func refreshOptions(buildSystemID: String) {
         guard let workspaceURL else { return }
         let stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)

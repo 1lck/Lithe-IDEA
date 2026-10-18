@@ -57,6 +57,9 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         service.setOption(entryID, optionID: optionID, value: value)
     }
+    package func setInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
+        service.setInstanceOption(entryID, optionID: optionID, value: value)
+    }
     package func pluginsChanged() { service.pluginsChanged() }
     package func stopRun() { service.stopRun() }
     package func stop() { service.stop() }
